@@ -1,0 +1,14 @@
+body {
+    margin: 0;
+    padding: 0;
+    background: #e4e4e4;
+}
+
+.topbar {
+    background: #fff; /*rgba(51, 116, 238, 0.867);*/
+    height: 64px;
+    width: 100%;
+    box-shadow: 0lh;
+    display: flex;
+    color: darkgray;
+}

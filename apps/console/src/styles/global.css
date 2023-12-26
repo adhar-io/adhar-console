@@ -1,14 +1,247 @@
-body {
-    margin: 0;
-    padding: 0;
-    background: #e4e4e4;
+@import-normalize;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+ 
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+ 
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+ 
+    --primary: 210, 16%, 98%;
+    --primary-foreground: 0, 0%, 100%;
+ 
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+ 
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+ 
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+ 
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+ 
+    --radius: 0.5rem;
+  }
+ 
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+ 
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+ 
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+ 
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+ 
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+ 
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+ 
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+ 
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+ 
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+  }
+}
+ 
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
 }
 
-.topbar {
-    background: #fff; /*rgba(51, 116, 238, 0.867);*/
-    height: 64px;
-    width: 100%;
-    box-shadow: 0lh;
-    display: flex;
-    color: darkgray;
+@layer components {
+  .sidebar-item {
+    @apply flex flex-col items-center justify-center 
+    w-20 h-20 
+    my-2 p-0 hover:font-bold first:my-0
+    transition duration-300 ease-in-out
+    cursor-pointer;
+  }
+
+  .sidebar-icon {
+    @apply relative flex items-center justify-center 
+    h-12 w-12 mt-2 mb-2 mx-auto  
+  bg-gray-400 dark:bg-gray-800 hover:bg-blue-600
+  text-blue-500 hover:text-white
+    hover:rounded-xl rounded-3xl
+    transition-all duration-300 ease-linear
+    cursor-pointer shadow-lg ;
+  }
+  
+  .sidebar-label {
+    @apply text-xs text-gray-800 dark:text-white 
+    mr-auto whitespace-normal text-center justify-center w-full
+    transition-all duration-100 origin-left;
+  }
+
+  .sidebar-hr {
+    @apply bg-gray-200 dark:bg-gray-800 
+    border border-gray-200 dark:border-gray-800 rounded-full
+    mx-2;
+  }
+
+  .top-navigation {
+    @apply flex flex-row items-center justify-evenly 
+    bg-white dark:bg-gray-900
+    w-full h-20 
+    m-0 z-10
+    shadow-lg;
+  }
+
+  .top-navigation-icon {
+    @apply text-gray-500
+    mr-3 ml-4
+    transition duration-300 ease-in-out 
+    hover:text-blue-500 
+    cursor-pointer;
+  }
+
+  .top-navigation-icon:first {
+    @apply ml-auto mr-4;
+  }
+
+  .title-text {
+    @apply text-xl text-gray-800 tracking-wider font-semibold text-opacity-80 
+    mr-auto ml-6 my-auto
+    transition duration-300 ease-in-out;
+  }
+
+  .search {
+    @apply w-1/3 flex items-center justify-center
+    px-2 h-10 ml-auto mr-auto 
+    rounded-md shadow-md
+    transition duration-300 ease-in-out;
+  }
+
+  .search-input {
+    @apply w-full font-sans font-normal
+    bg-transparent outline-none 
+    text-gray-500  placeholder-gray-500
+    pl-1 rounded;
+  }
+
+  .content-container {
+    @apply flex flex-col 
+    m-0 ml-20
+    h-full w-full 
+    overflow-hidden;
+  }
+
+  .content-area {
+    @apply flex flex-col
+    bg-primary dark:bg-gray-800 
+    h-full w-full 
+    mt-0 ml-0 mx-auto px-2 py-2;
+  }
+
+  .assist {
+    @apply fixed z-50 bottom-10 right-10 w-12 h-12 rounded-full drop-shadow-lg flex justify-center items-center
+    bg-gray-400 hover:bg-blue-600 dark:bg-gray-800 
+    text-blue-500 hover:text-white hover:drop-shadow-2xl hover:animate-bounce duration-300 ease-in-out;
+  }
+
+  .timestamp {
+    @apply text-xs text-left font-semibold text-gray-500 dark:text-gray-600 ml-2;
+  }
+
+  .channel-bar {
+    @apply w-80 h-auto m-0 ml-20 bg-gray-200 dark:bg-gray-800
+     overflow-hidden;
+  }
+
+  .channel-container {
+    @apply flex flex-col items-center justify-start 
+    p-1 m-0;
+  }
+
+  .channel-block {
+    @apply flex items-center justify-center 
+    h-16 
+    m-0 p-0;
+  }
+
+  .channel-block-text {
+    @apply text-lg tracking-wider font-bold 
+    text-gray-600 dark:text-gray-400 
+    mr-auto ml-4 my-auto align-middle;
+  }
+
+  .dropdown {
+    @apply m-0 w-full px-2 pb-2
+    transition duration-300 ease-in-out;
+  }
+
+  .dropdown-header {
+    @apply flex flex-row items-center justify-evenly
+    mx-0 text-gray-500
+    cursor-pointer;
+  }
+
+  .dropdown-header-text {
+    @apply text-gray-500  text-opacity-90 
+    text-lg font-semibold
+    cursor-default;
+  }
+
+  .dropdown-header-text-selected {
+    @apply text-blue-500 text-opacity-90 text-lg font-bold;
+  }
+
+  .dropdown-selection {
+    @apply flex flex-row items-center justify-evenly
+    mt-1 mr-auto ml-2
+    transition duration-300 ease-in-out
+    cursor-pointer;
+  }
+
+  .dropdown-selection-text {
+    @apply text-gray-500 font-semibold tracking-wide
+    mr-auto 
+    transition duration-300 ease-in-out 
+    hover:text-pink-500 dark:hover:text-gray-500
+    cursor-pointer;
+  }
+}
+
+::-webkit-scrollbar {
+  background-color: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-500 dark:bg-green-400;
 }

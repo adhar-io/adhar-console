@@ -1,7 +1,6 @@
-import App from './App';
-import AppLayout from './layout/AppLayout';
-import ErrorLayout from './layout/ErrorLayout';
-import OnboardingLayout from './layout/OnboardingLayout';
+import AppLayout from './layouts/AppLayout';
+import ErrorLayout from './layouts/ErrorLayout';
+import OnboardingLayout from './layouts/OnboardingLayout';
 import Administrator from './pages/Administrator';
 import Define from './pages/Define';
 import Deliver from './pages/Deliver';
@@ -11,8 +10,8 @@ import Discover from './pages/Discover';
 import Error from './pages/Error';
 import Home from './pages/Home';
 import Onboarding from './pages/Onboarding';
-import Profile from './pages/Profile';
-import Settings from './pages/Settings';
+import Profile from './pages/Home/Profile';
+import Settings from './pages/Home/Settings';
 
 const routes = [
     {
@@ -30,7 +29,11 @@ const routes = [
           {
             path: 'settings',
             element: <Settings />,
-          }
+          },
+          {
+            element: <Profile />,
+            path: 'profile',
+          },
         ],
       },
       {
@@ -123,12 +126,8 @@ const routes = [
       },
       {
         element: <Administrator />,
-        path: '/administrator',
-      },
-      {
-        element: <Profile />,
-        path: '/profile',
-      },
+        path: '/admin',
+      }
     ],
   },
   {
@@ -145,14 +144,11 @@ const routes = [
     children: [
       {
         element: <Error />,
-        path: '/not-found',
-      },
-      {
-        element: <Error />,
         path: '/error',
       },
     ],
   },
+  { path: "*", element: <Error /> },
 ];
 
 export default routes;

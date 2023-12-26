@@ -1,11 +1,14 @@
 import React from 'react';
-import './styles/global.css';
-
+import { FaWandMagicSparkles } from 'react-icons/fa6';
 const App = () => {
+
+  const buttonHandler = () => {
+    alert('Assist clicked!');
+  }
+
   return (
-    <div className="App">
-      <p>App Component</p>
-      
+    <div className="assist" onClick={buttonHandler} title="Assist">
+      <FaWandMagicSparkles size="24" />
     </div>
   );
 }

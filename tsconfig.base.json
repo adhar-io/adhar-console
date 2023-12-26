@@ -15,7 +15,8 @@
     "skipDefaultLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "@adhar/utils": ["libs/utils/src/index.ts"]
+      "@adhar/utils": ["libs/utils/src/index.ts"],
+      "@/*": ["./src/*"]
     }
   },
   "exclude": ["node_modules", "tmp"]

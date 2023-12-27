@@ -3,6 +3,7 @@ import { RxSun, RxDashboard, RxMoon, RxBell, RxMagnifyingGlass } from "react-ico
 import useDarkMode from '@/hooks/useDarkMode';
 import WorkSpaceSwitcher from "../pages/Home/ws-switcher";
 import Profile from '../pages/Home/Profile';
+import AdharConsoleLogo from "@/components/adhar-console-logo";
   
   const AppHeader = () => {
     return (
@@ -19,7 +20,11 @@ import Profile from '../pages/Home/Profile';
   };
   
   
-  const Title = () => <h2 className='title-text'>Adhar Console</h2>;
+  const Title = () => (
+    <div className='console-logo'>
+      <AdharConsoleLogo />
+    </div>
+  );
 
   const Search = () => (
     <div className='search'>

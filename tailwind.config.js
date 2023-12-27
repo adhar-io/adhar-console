@@ -7,7 +7,8 @@ module.exports = {
     './apps/console/src/patterns/**/*.{ts,tsx}',
     './apps/console/src/layouts/**/*.{ts,tsx}',
     './apps/console/src/**/*.{ts,tsx}',
-	],
+  ],
+  prefix: "",
   theme: {
     container: {
       center: true,
@@ -62,9 +63,6 @@ module.exports = {
           100: '#f2f3f5',
         },
       },
-      spacing: {
-        88: '22rem',
-      },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
@@ -72,12 +70,12 @@ module.exports = {
       },
       keyframes: {
         "accordion-down": {
-          from: { height: 0 },
+          from: { height: "0" },
           to: { height: "var(--radix-accordion-content-height)" },
         },
         "accordion-up": {
           from: { height: "var(--radix-accordion-content-height)" },
-          to: { height: 0 },
+          to: { height: "0" },
         },
       },
       animation: {

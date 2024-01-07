@@ -1,6 +1,6 @@
 import React from 'react';
 import SideBar from '@/patterns/sidebar';
-import AppHeader from '@/patterns/app-header';
+import Topbar from '@/patterns/topbar';
 import { Outlet } from 'react-router-dom';
 
 
@@ -9,7 +9,7 @@ const AppLayout = () => {
     <div className="flex">
       <SideBar />
       <div className='content-container h-screen'>
-        <AppHeader />
+        <Topbar />
         <div className='content-area'>
           <Outlet />
         </div>

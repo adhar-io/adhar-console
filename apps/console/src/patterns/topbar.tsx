@@ -5,7 +5,7 @@ import WorkSpaceSwitcher from "../pages/Home/ws-switcher";
 import Profile from '../pages/Home/Profile';
 import AdharConsoleLogo from "@/components/adhar-console-logo";
   
-  const AppHeader = () => {
+  const Topbar = () => {
     return (
       <div className='top-navigation'>
         <Title />
@@ -71,4 +71,4 @@ import AdharConsoleLogo from "@/components/adhar-console-logo";
     </div>
   );
   
-  export default AppHeader;
+  export default Topbar;

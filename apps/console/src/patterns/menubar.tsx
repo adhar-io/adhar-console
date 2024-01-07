@@ -6,10 +6,10 @@ const topics = ['tailwind-css', 'react'];
 const questions = ['jit-compilation', 'purge-files', 'dark-mode'];
 const random = ['variants', 'plugins'];
 
-const MenuBar = () => {
+const MenuBar = ({title, menuItems}) => {
   return (
-    <div className='channel-bar shadow-lg h-screen'>
-      <ChannelBlock />
+    <div className='channel-bar h-screen'>
+      <ChannelBlock title={title}/>
       <div className='channel-container'>
         <Dropdown header='Topics' selections={topics} />
         <Dropdown header='Questions' selections={questions} />
@@ -56,9 +56,9 @@ const TopicSelection = ({ selection }) => (
   </div>
 );
 
-const ChannelBlock = () => (
+const ChannelBlock = ({title}) => (
   <div className='channel-block'>
-    <h5 className='channel-block-text'>Developer Hub</h5>
+    <h5 className='channel-block-text'>{title}</h5>
   </div>
 );
 

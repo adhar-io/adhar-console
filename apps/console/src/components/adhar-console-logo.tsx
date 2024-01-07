@@ -2,7 +2,7 @@ import React from 'react';
 
 const AdharConsoleLogo = () => {
   return (
-    <svg id="Layer_1" viewBox="450 340 480 90" className='w-full'>
+    <svg id="Layer_1" viewBox="450 345 480 90" className='w-full'>
         <path className='dark:fill-white'
             d="M457.18,406.29h-6.54l11.92-30.19c1.26-3.17,3.57-4.37,7.14-4.37s5.84,1.2,7.05,4.37l11.46,30.19h-6.59L471.31,379a1.62,1.62,0,0,0-1.66-1.16,1.73,1.73,0,0,0-1.71,1.16Z" />
         <path className='dark:fill-white'

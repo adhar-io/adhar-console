@@ -29,12 +29,12 @@ import AdharConsoleLogo from "@/components/adhar-console-logo";
   const Search = () => (
     <div className='search'>
       <input className='search-input' type='text' placeholder='Search...' />
-      <RxMagnifyingGlass size='18' className='text-gray-500 my-auto' />
+      <RxMagnifyingGlass size='22' className='text-gray-500 my-auto' />
     </div>
   );
 
   const WSSwitcher = () => (
-    <div className='top-navigation-icon mr-2'>
+    <div className='top-navigation-icon shadow-sm mr-2'>
         <WorkSpaceSwitcher />
     </div>
   );

@@ -10,6 +10,15 @@
   margin: 0;
   padding: 0;
 }
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
  
 @layer base {
   :root {
@@ -57,28 +66,18 @@
     --ring: 224.3 76.3% 48%;
   }
 }
- 
-@layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
-}
 
 @layer components {
   .sidebar-item {
     @apply flex flex-col items-center justify-center 
-    w-20 my-2 p-0 hover:font-bold first:my-0
-    transition duration-300 ease-in-out
-    cursor-pointer;
+    w-16 my-2 p-0 hover:font-bold first:my-0
+    transition duration-300 ease-in-out cursor-pointer;
   }
 
   .sidebar-icon {
     @apply relative flex items-center justify-center 
-    h-12 w-12 mt-2 mb-2 mx-auto  
-  bg-gray-400 dark:bg-gray-800 hover:bg-blue-600
+    h-10 w-10 mt-2 mb-2 mx-auto  
+    bg-accent hover:bg-blue-600
   text-blue-500 hover:text-white
     hover:rounded-xl rounded-3xl
     transition-all duration-300 ease-linear
@@ -93,24 +92,19 @@
 
   .sidebar-hr {
     @apply bg-gray-200 dark:bg-gray-800 
-    border border-gray-200 dark:border-gray-800 rounded-full
-    mx-2;
+    border border-gray-200 dark:border-gray-800 rounded-full mx-2;
   }
 
   .top-navigation {
     @apply flex flex-row items-center justify-evenly 
     bg-white dark:bg-gray-900
-    w-full h-20 
-    m-0 z-10
-    shadow-lg;
+    w-full m-0 z-10 shadow-lg;
   }
 
   .top-navigation-icon {
     @apply text-gray-500
-    mr-3 ml-4
-    transition duration-300 ease-in-out 
-    hover:text-blue-500 
-    cursor-pointer;
+    mr-3 ml-4 transition duration-300 ease-in-out 
+    hover:text-blue-500 cursor-pointer;
   }
 
   .top-navigation-icon:first {
@@ -118,54 +112,52 @@
   }
 
   .console-logo {
-    @apply mr-auto ml-6 my-auto
+    @apply mr-auto ml-4 my-auto w-72 h-14
   }
 
   .search {
     @apply w-1/3 flex items-center justify-center
-    px-2 h-10 ml-auto mr-auto 
-    rounded-md shadow-md
-    transition duration-300 ease-in-out;
+    px-2 h-10 ml-auto mr-auto rounded-md shadow-sm
+    ring-offset-background focus-visible:outline-none focus-visible:ring-2 
+    focus-visible:ring-ring focus-visible:ring-offset-2 
+    bg-background hover:bg-accent hover:text-accent-foreground border border-input
+    transition-colors duration-300 ease-in-out;
   }
 
   .search-input {
     @apply w-full font-sans font-normal
-    bg-transparent outline-none 
-    text-gray-500  placeholder-gray-500
-    pl-1 rounded;
+    bg-transparent outline-none pl-1 rounded;
   }
 
   .content-container {
     @apply flex flex-col 
-    m-0 ml-20
+    m-0 ml-16
     h-full w-full 
     overflow-hidden;
   }
 
   .content-area {
     @apply flex flex-col
-    h-full w-full 
-    mt-0 ml-0 mx-auto px-2 py-2;
+    h-full w-full overflow-y-auto overflow-x-hidden
+    mt-0 ml-0 mx-auto;
   }
 
   .assist {
     @apply fixed z-50 bottom-10 right-10 w-12 h-12 rounded-full drop-shadow-lg flex justify-center items-center
-    bg-gray-400 hover:bg-blue-600 dark:bg-gray-800 
-    text-blue-500 hover:text-white hover:drop-shadow-2xl hover:animate-bounce duration-300 ease-in-out;
+    bg-accent hover:bg-blue-600 text-blue-500 hover:text-white hover:drop-shadow-2xl 
+    hover:animate-bounce duration-300 ease-in-out;
   }
 
-  .timestamp {
-    @apply text-xs text-left font-semibold text-gray-500 dark:text-gray-600 ml-2;
+  .version {
+    @apply text-xs font-semibold text-gray-500 dark:text-gray-600 text-center;
   }
 
   .channel-bar {
-    @apply w-80 h-auto m-0 ml-20 bg-gray-200 dark:bg-gray-800
-     overflow-hidden;
+    @apply w-80 bg-gray-200 dark:bg-gray-800 overflow-hidden;
   }
 
   .channel-container {
-    @apply flex flex-col items-center justify-start 
-    p-1 m-0;
+    @apply flex flex-col items-center justify-start;
   }
 
   .channel-block {
@@ -215,12 +207,4 @@
     hover:text-pink-500 dark:hover:text-gray-500
     cursor-pointer;
   }
-}
-
-::-webkit-scrollbar {
-  background-color: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  @apply bg-gray-500 dark:bg-green-400;
 }

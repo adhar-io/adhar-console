@@ -5,7 +5,8 @@ import {
     Settings,
     Smile,
     User,
-  } from "lucide-react"
+  } from "lucide-react";
+  import { RxMagnifyingGlass } from "react-icons/rx";
   
   import {
     Command,
@@ -16,9 +17,18 @@ import {
     CommandList,
     CommandSeparator,
     CommandShortcut,
-  } from "@/components/command"
+  } from "@/components/command";
   
-  export function SearchPanel() {
+  export default function Search() {
+    return (
+        <div className='search'>
+            <input className='search-input' type='text' placeholder='Search...' />
+            <RxMagnifyingGlass size='22' className='text-gray-500 my-auto' />
+        </div>
+    )
+  }
+
+  function SearchPanel() {
     return (
       <Command className="rounded-lg border shadow-md">
         <CommandInput placeholder="Type a command or search..." />

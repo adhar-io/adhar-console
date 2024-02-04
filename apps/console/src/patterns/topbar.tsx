@@ -1,4 +1,4 @@
-import { RxSun, RxMoon, RxBell } from "react-icons/rx";
+import { RxSun, RxMoon } from "react-icons/rx";
 
 import useDarkMode from '@/hooks/useDarkMode';
 import WorkSpaceSwitcher from "../pages/Home/ws-switcher";
@@ -6,6 +6,7 @@ import Profile from '../pages/Home/Profile';
 import AdharConsoleLogo from "@/components/adhar-console-logo";
 import Search from "../pages/Home/Search";
 import { QuickAccess } from "../pages/Home/QuickAccess";
+import Notifications from "../pages/Home/Notifications";
   
 const Topbar = () => {
 
@@ -48,12 +49,6 @@ const ThemeIcon = () => {
     </span>
   );
 };
-
-const Notifications = () => (
-  <div className=''>
-      <RxBell size='24' className='top-navigation-icon' />
-  </div>
-);
 
 const UserProfile = () => (
   <div className='top-navigation-icon mr-6'>

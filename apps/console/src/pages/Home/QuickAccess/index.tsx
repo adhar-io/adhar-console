@@ -51,14 +51,19 @@ import RedisLogo from '@/assets/imgs/redis.png';
 import KafkaLogo from '@/assets/imgs/kafka.png';
 import CasandraLogo from '@/assets/imgs/casandra.png';
 import SupabaseLogo from '@/assets/imgs/supabase.png';
+import RabbitMQLogo from '@/assets/imgs/rabbitmq.png';
+import OpenFnLogo from '@/assets/imgs/openfunction.png';
+import DaprLogo from '@/assets/imgs/dapr.png';
+import ApisixLogo from '@/assets/imgs/apisix.svg';
+import SealedSecreatsLogo from '@/assets/imgs/sealed-secrets.png';
 
 export function QuickAccess() {
   const apps = [
     {label: 'Gitea', logo: `${GiteaLogo}`, alt: 'Gitea Logo'},
+    {label: 'Tekton', logo: `${TektonLogo}`, alt: 'Tekton Logo'},
     {label: 'Harbor', logo: `${HarborLogo}`, alt: 'Harbor Logo'},
     {label: 'Argo CD', logo: `${ArgocdLogo}`, alt: 'Argocd Logo'},
     {label: 'Headlamp', logo: `${HeadlampLogo}`, alt: 'Headlamp Logo'},
-    {label: 'Tekton', logo: `${TektonLogo}`, alt: 'Tekton Logo'},
     {label: 'Keycloak', logo: `${keycloakLogo}`, alt: 'Keycloak Logo'},
     {label: 'Kyverno', logo: `${KyvernoLogo}`, alt: 'Kyverno Logo'},
     {label: 'Kubearmour', logo: `${KubearmourLogo}`, alt: 'Kubearmour Logo'},
@@ -66,9 +71,9 @@ export function QuickAccess() {
     {label: 'Falco', logo: `${FalcoLogo}`, alt: 'Falco Logo'},
     {label: 'Plane', logo: `${PlaneLogo}`, alt: 'Plane Logo'},
     {label: 'Backstage', logo:`${BackstageLogo}`, alt: 'Backstage Logo'},
-    {label: 'Coder IDE', logo: `${CoderLogo}`, alt: 'Coder Logo'},
-    {label: 'DevSpace', logo: `${DevspaceLogo}`, alt: 'DevSpace Logo'},
-    {label: 'CertManager', logo: `${CertManagerLogo}`, alt: 'CertManager Logo'},
+    {label: 'Apisix', logo: `${ApisixLogo}`, alt: 'Apisix Logo'},
+    {label: 'Dapr', logo: `${DaprLogo}`, alt: 'Dapr Logo'},
+    {label: 'Posthog', logo: `${PosthogLogo}`, alt: 'Posthog Logo'},
     {label: 'Grafana', logo: `${GrafanaLogo}`, alt: 'Grafana Logo'},
     {label: 'Loki', logo: `${LokiLogo}`, alt: 'Loki Logo'},
     {label: 'Alerts', logo: `${AlertManagerLogo}`, alt: 'AlertManager Logo'},
@@ -79,11 +84,11 @@ export function QuickAccess() {
     {label: 'Knative', logo: `${KnativeLogo}`, alt: 'Knative Logo'},
     {label: 'Velero', logo: `${VeleroLogo}`, alt: 'Velero Logo'},
     {label: 'Strapi', logo: `${StrapiLogo}`, alt: 'Strapi Logo'},
-    {label: 'Posthog', logo: `${PosthogLogo}`, alt: 'Posthog Logo'},
     {label: 'Postgres', logo: `${CnpgLogo}`, alt: 'CNPG Logo'},
     {label: 'Redis', logo: `${RedisLogo}`, alt: 'Redis Logo'},
     {label: 'Kafka', logo: `${KafkaLogo}`, alt: 'Kafka Logo'},
     {label: 'Casandra', logo: `${CasandraLogo}`, alt: 'Casandra Logo'},
+    {label: 'RabbitMQ', logo: `${RabbitMQLogo}`, alt: 'RabbitMQ Logo'},
     {label: 'Dagster', logo: `${DagsterLogo}`, alt: 'Dagster Logo'},
     {label: 'Airbyte', logo: `${AirbyteLogo}`, alt: 'Airbyte Logo'},
     {label: 'DBT', logo: `${DbtLogo}`, alt: 'DBT Logo'},
@@ -93,7 +98,12 @@ export function QuickAccess() {
     {label: 'Canvas', logo: `${CanvasLogo}`, alt: 'Canvas Logo'},
     {label: 'Assist', logo: `${AssistLogo}`, alt: 'Assist Logo'},
     {label: 'CloudShell', logo: `${CloudshellLogo}`, alt: 'Cloudshell Logo'},
-    {label: 'Supabase', logo: `${SupabaseLogo}`, alt: 'Supabase Logo'}
+    {label: 'Coder IDE', logo: `${CoderLogo}`, alt: 'Coder Logo'},
+    {label: 'Supabase', logo: `${SupabaseLogo}`, alt: 'Supabase Logo'},
+    {label: 'FaaS', logo: `${OpenFnLogo}`, alt: 'OpenFunction Logo'},
+    {label: 'DevSpace', logo: `${DevspaceLogo}`, alt: 'DevSpace Logo'},
+    {label: 'CertManager', logo: `${CertManagerLogo}`, alt: 'CertManager Logo'},
+    {label: 'Secrets', logo: `${SealedSecreatsLogo}`, alt: 'Secrets Logo'}
   ];
 
   return (

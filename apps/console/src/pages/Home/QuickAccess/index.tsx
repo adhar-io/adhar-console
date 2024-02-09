@@ -97,13 +97,13 @@ export function QuickAccess() {
     {label: 'Thanos', logo: `${ThanosLogo}`, alt: 'Thanos Logo'},
     {label: 'Istio', logo: `${IstioLogo}`, alt: 'Istio Logo'},
     {label: 'Knative', logo: `${KnativeLogo}`, alt: 'Knative Logo'},
+    {label: 'FaaS', logo: `${OpenFnLogo}`, alt: 'OpenFunction Logo'},
     {label: 'Velero', logo: `${VeleroLogo}`, alt: 'Velero Logo'},
     {label: 'Strapi', logo: `${StrapiLogo}`, alt: 'Strapi Logo'},
     {label: 'Supabase', logo: `${SupabaseLogo}`, alt: 'Supabase Logo'},
-    {label: 'FaaS', logo: `${OpenFnLogo}`, alt: 'OpenFunction Logo'},
     {label: 'DevSpace', logo: `${DevspaceLogo}`, alt: 'DevSpace Logo'},
-    {label: 'CertManager', logo: `${CertManagerLogo}`, alt: 'CertManager Logo'},
-    {label: 'Secrets', logo: `${SealedSecreatsLogo}`, alt: 'Secrets Logo'}
+    {label: 'Secrets', logo: `${SealedSecreatsLogo}`, alt: 'Secrets Logo'},
+    {label: 'CertManager', logo: `${CertManagerLogo}`, alt: 'CertManager Logo'}
   ];
 
   return (

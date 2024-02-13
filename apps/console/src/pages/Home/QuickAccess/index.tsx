@@ -20,7 +20,7 @@ import CertManagerLogo from '@/assets/imgs/cert-manager.png';
 import TektonLogo from '@/assets/imgs/tecton.png';
 import BackstageLogo from '@/assets/imgs/backstage.webp';
 import MetabseLogo from '@/assets/imgs/metabase.jpeg';
-import HeadlampLogo from '@/assets/imgs/headlamp.jpeg';
+import HeadlampLogo from '@/assets/imgs/headlamp.svg';
 import PrometheusLogo from '@/assets/imgs/prometheus.png';
 import KubearmourLogo from '@/assets/imgs/kubearmour.png';
 import MinioLogo from '@/assets/imgs/minio.png';
@@ -34,14 +34,14 @@ import LokiLogo from '@/assets/imgs/loki.png';
 import TempoLogo from '@/assets/imgs/tempo.png';
 import IstioLogo from '@/assets/imgs/istio.png';
 import KnativeLogo from '@/assets/imgs/knative.png';
-import PlaneLogo from '@/assets/imgs/plane.png';
+import PlaneLogo from '@/assets/imgs/plane.webp';
 import VeleroLogo from '@/assets/imgs/velero.png';
 import StrapiLogo from '@/assets/imgs/strapi.png';
 import CloudshellLogo from '@/assets/imgs/cloudshell.png';
 import AssistLogo from '@/assets/imgs/assist.png';
 import CanvasLogo from '@/assets/imgs/canvas.webp';
 import CoderLogo from '@/assets/imgs/coder.png';
-import WebstudioLogo from '@/assets/imgs/webstudio.png';
+import WebstudioLogo from '@/assets/imgs/webstudio.svg';
 import DevspaceLogo from '@/assets/imgs/devspace.png';
 import DagsterLogo from '@/assets/imgs/dagster.png';
 import DbtLogo from '@/assets/imgs/dbt.png';
@@ -56,6 +56,11 @@ import OpenFnLogo from '@/assets/imgs/openfunction.png';
 import DaprLogo from '@/assets/imgs/dapr.png';
 import ApisixLogo from '@/assets/imgs/apisix.svg';
 import SealedSecreatsLogo from '@/assets/imgs/sealed-secrets.png';
+import N8nLogo from '@/assets/imgs/n8n.png';
+import StorybookLogo from '@/assets/imgs/storybook.png';
+import NginxIngressLogo from '@/assets/imgs/ngnix-ingress.png';
+import KialiLogo from '@/assets/imgs/kiali.png';
+import JaegerLogo from '@/assets/imgs/jaeger.png';
 
 export function QuickAccess() {
   const apps = [
@@ -66,7 +71,7 @@ export function QuickAccess() {
     {label: 'Headlamp', logo: `${HeadlampLogo}`, alt: 'Headlamp Logo'},
     {label: 'Keycloak', logo: `${keycloakLogo}`, alt: 'Keycloak Logo'},
     {label: 'Kyverno', logo: `${KyvernoLogo}`, alt: 'Kyverno Logo'},
-    {label: 'Kubearmour', logo: `${KubearmourLogo}`, alt: 'Kubearmour Logo'},
+    {label: 'KubeArmor', logo: `${KubearmourLogo}`, alt: 'Kubearmour Logo'},
     {label: 'Trivy', logo: `${TrivyLogo}`, alt: 'Trivy Logo'},
     {label: 'Falco', logo: `${FalcoLogo}`, alt: 'Falco Logo'},
     {label: 'Plane', logo: `${PlaneLogo}`, alt: 'Plane Logo'},
@@ -84,11 +89,6 @@ export function QuickAccess() {
     {label: 'DBT', logo: `${DbtLogo}`, alt: 'DBT Logo'},
     {label: 'Minio', logo: `${MinioLogo}`, alt: 'Minio Logo'},
     {label: 'Metabase', logo: `${MetabseLogo}`, alt: 'Metabase Logo'},
-    {label: 'WebBuilder', logo: `${WebstudioLogo}`, alt: 'Builder Logo'},
-    {label: 'Canvas', logo: `${CanvasLogo}`, alt: 'Canvas Logo'},
-    {label: 'Assist', logo: `${AssistLogo}`, alt: 'Assist Logo'},
-    {label: 'CloudShell', logo: `${CloudshellLogo}`, alt: 'Cloudshell Logo'},
-    {label: 'Coder IDE', logo: `${CoderLogo}`, alt: 'Coder Logo'},
     {label: 'Grafana', logo: `${GrafanaLogo}`, alt: 'Grafana Logo'},
     {label: 'Loki', logo: `${LokiLogo}`, alt: 'Loki Logo'},
     {label: 'Alerts', logo: `${AlertManagerLogo}`, alt: 'AlertManager Logo'},
@@ -102,8 +102,18 @@ export function QuickAccess() {
     {label: 'Strapi', logo: `${StrapiLogo}`, alt: 'Strapi Logo'},
     {label: 'Supabase', logo: `${SupabaseLogo}`, alt: 'Supabase Logo'},
     {label: 'DevSpace', logo: `${DevspaceLogo}`, alt: 'DevSpace Logo'},
+    {label: 'Coder IDE', logo: `${CoderLogo}`, alt: 'Coder Logo'},
     {label: 'Secrets', logo: `${SealedSecreatsLogo}`, alt: 'Secrets Logo'},
-    {label: 'CertManager', logo: `${CertManagerLogo}`, alt: 'CertManager Logo'}
+    {label: 'CertManager', logo: `${CertManagerLogo}`, alt: 'CertManager Logo'},
+    {label: 'Storybook', logo: `${StorybookLogo}`, alt: 'Storybook Logo'},
+    {label: 'Ingress', logo: `${NginxIngressLogo}`, alt: 'Nginx Logo'},
+    {label: 'Jaeger', logo: `${JaegerLogo}`, alt: 'Jaeger Logo'},
+    {label: 'Kiali', logo: `${KialiLogo}`, alt: 'Kiali Logo'},
+    {label: 'WebStudio', logo: `${WebstudioLogo}`, alt: 'Builder Logo'},
+    {label: 'Canvas', logo: `${CanvasLogo}`, alt: 'Canvas Logo'},
+    {label: 'Workflow', logo: `${N8nLogo}`, alt: 'N8n Logo'},
+    {label: 'Assist', logo: `${AssistLogo}`, alt: 'Assist Logo'},
+    {label: 'CloudShell', logo: `${CloudshellLogo}`, alt: 'Cloudshell Logo'}
   ];
 
   return (

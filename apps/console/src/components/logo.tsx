@@ -1,6 +1,10 @@
 import React from 'react';
 
-const Logo = ({selected}) => {
+interface LogoProps {
+  selected: boolean;
+}
+
+const Logo: React.FC<LogoProps> = ({selected}) => {
   return (
     <svg id="logo" viewBox="0 0 1280 769" className={`fill-blue-500 hover:fill-white ${selected ? 'fill-white' : ''}`} style={{ transform: 'scale(2)' }}>
       <path d="M650.22,274.36a32.57,32.57,0,0,0,30.23-20.48l-11.08-4.43,11.08,4.43a32.56,32.56,0,1,0-52.58,11.59L525,520H550.7L650,274.36ZM643,246.63a8.62,8.62,0,0,1-.84-8,8.63,8.63,0,0,1,3.24-4,8.79,8.79,0,0,1,4.84-1.46,8.68,8.68,0,0,1,3.22.62,8.56,8.56,0,0,1,4,3.25,8.74,8.74,0,0,1,1.47,4.83,8.74,8.74,0,0,1-3.87,7.22,8.76,8.76,0,0,1-4.83,1.47,8.42,8.42,0,0,1-3.22-.63A8.57,8.57,0,0,1,643,246.63Z" stroke="2" />

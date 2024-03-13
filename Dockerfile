@@ -1,13 +1,14 @@
 # Stage 0, based on Node.js, to build and compile React
-#docker build -t adhario:console .
-#docker run -d -p 80:80 adhario:console
+#docker build -t adhario/console:latest .
+#docker run -d -p 80:80 adhario/console:latest
 #docker push adhario/console:latest
-FROM node:lts as node
+FROM node:lts-buster as node
 ARG env=prod
 WORKDIR /app
 COPY package.json /app/
 COPY ./ /app/
 RUN npm install
+RUN npx nx reset
 RUN npx nx build console
 
 # Stage 1, based on Nginx, to have only the compiled app, ready for production with Nginx

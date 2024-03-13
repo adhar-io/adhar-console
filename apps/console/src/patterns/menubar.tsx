@@ -1,6 +1,11 @@
-import { useState } from 'react';
+import React from 'react';
 
-const MenuBar = ({title, menuItems}) => {
+interface MenuBarProps {
+  title: string;
+  menuItems: any[]; // replace any with the actual type of menuItems
+}
+
+const MenuBar: React.FC<MenuBarProps> = ({title, menuItems}) => {
   return (
     <div className='menu-bar h-screen'>
       <MenuTitleBlock title={title}/>
@@ -11,7 +16,11 @@ const MenuBar = ({title, menuItems}) => {
   );
 };
 
-const MenuTitleBlock = ({title}) => (
+interface MenuTitleBlockProps {
+  title: string;
+}
+
+const MenuTitleBlock: React.FC<MenuTitleBlockProps> = ({title}) => (
   <div className='menu-block'>
     <h5 className='menu-block-text'>{title}</h5>
   </div>

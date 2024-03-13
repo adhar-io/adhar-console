@@ -15,7 +15,7 @@ const Design = () => {
     >
       <ResizablePanel defaultSize={15} maxSize={19}>
         <div className="flex h-full w-80 items-center justify-center">
-          <MenuBar title="Design Hub" menuItems={null} />
+          <MenuBar title="Design Hub" menuItems={[]} />
         </div>
       </ResizablePanel>
       <ResizableHandle withHandle />

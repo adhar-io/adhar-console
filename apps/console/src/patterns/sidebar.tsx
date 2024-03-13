@@ -1,4 +1,5 @@
-import { FaChartPie, FaSailboat, FaLayerGroup, FaFlask, FaPalette, FaBoltLightning, FaGear } from "react-icons/fa6";
+import { ReactNode } from 'react';
+import { FaChartPie, FaSailboat, FaLayerGroup, FaFlask, FaPalette, FaGear } from "react-icons/fa6";
 import Logo from "@/components/logo";
 import { Link } from "react-router-dom";
 import { useState } from "react";
@@ -28,7 +29,15 @@ const SideBar = () => {
   );
 };
 
-const SideBarItem = ({ icon, label = '', route, selected, ...props }) => (
+interface SideBarItemProps {
+  icon: ReactNode;
+  label?: string;
+  route: string;
+  selected: boolean;
+  [x: string]: any; // for the rest props
+}
+
+const SideBarItem: React.FC<SideBarItemProps> = ({ icon, label = '', route, selected, ...props }) => (
     <div className="sidebar-item" {...props}>
       <Link to={route}>
         <div className={`sidebar-icon ${selected ? 'bg-blue-600 text-white fill-white' : ''}`}>

@@ -15,7 +15,7 @@ const Develop = () => {
     >
       <ResizablePanel defaultSize={15} maxSize={19} >
         <div className="flex h-full w-80 items-center justify-center">
-          <MenuBar title="Developer Hub" menuItems={null} />
+          <MenuBar title="Developer Hub" menuItems={[]} />
         </div>
       </ResizablePanel>
       <ResizableHandle withHandle />

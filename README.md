@@ -56,6 +56,25 @@ Nx comes with local caching already built-in (check your `nx.json`). On CI you m
 - [Subscribe to the Nx Youtube Channel](https://www.youtube.com/@nxdevtools)
 - [Follow us on Twitter](https://twitter.com/nxdevtools)
 
+## Getting Started
+
+```bash
+# Git clone
+git clone https://github.com/adhar-io/adhar-console.git
+
+# Install dependencies
+pnpm install
+
+# Run app
+pnpm exec nx serve console
+
+# Build app
+pnpm exec nx build console
+
+# Build container
+pnpm exec nx container console
+
+```
 
 ## Docker Build
 ```bash

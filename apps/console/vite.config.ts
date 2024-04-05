@@ -1,4 +1,5 @@
-/// <reference types='vitest' />
+// vite.config.js
+
 import { defineConfig } from 'vite';
 import path from 'path';
 import react from '@vitejs/plugin-react';
@@ -11,6 +12,9 @@ export default defineConfig({
     reportCompressedSize: true,
     commonjsOptions: {
       transformMixedEsModules: true,
+    },
+    rollupOptions: {
+      external: ['src/Main.tsx'],
     },
   },
   cacheDir: '../../node_modules/.vite/console',

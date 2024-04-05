@@ -2,16 +2,41 @@
 #docker build -t adhario/console:latest .
 #docker run -d -p 80:80 adhario/console:latest
 #docker push adhario/console:latest
-FROM node:lts-buster as node
-ARG env=prod
+# Stage 1: Build the application
+FROM node:lts-buster as builder
+
+# Set the working directory
 WORKDIR /app
-COPY package.json /app/
-COPY ./ /app/
-RUN npm install
-RUN npx nx reset
+
+# Copy package.json and package-lock.json
+COPY package*.json ./
+
+# Install dependencies
+RUN npm install -g pnpm && pnpm install
+
+# Copy the rest of the application code
+COPY . .
+
+# Build the application
 RUN npx nx build console
 
-# Stage 1, based on Nginx, to have only the compiled app, ready for production with Nginx
+# Stage 2: Serve the application with Nginx
 FROM nginx:alpine
-COPY --from=node /app/dist/apps/console/ /usr/share/nginx/html
-COPY ./nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copy the built application from the previous stage
+COPY --from=builder /app/dist/apps/console /usr/share/nginx/html
+
+# Copy nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Expose port 80
+EXPOSE 80
+
+# Start Nginx
+CMD ["nginx", "-g", "daemon off;"]
+
+
+
+
+
+

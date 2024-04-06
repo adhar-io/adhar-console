@@ -1,4 +1,4 @@
-// vite.config.js
+/// <reference types='vitest' />
 
 import { defineConfig } from 'vite';
 import path from 'path';
@@ -12,10 +12,7 @@ export default defineConfig({
     reportCompressedSize: true,
     commonjsOptions: {
       transformMixedEsModules: true,
-    },
-    rollupOptions: {
-      external: ['src/Main.tsx'],
-    },
+    }
   },
   cacheDir: '../../node_modules/.vite/console',
 

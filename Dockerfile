@@ -12,7 +12,7 @@ WORKDIR /app
 COPY package*.json pnpm*.json ./
 
 # Print Node version
-RUN npm -v
+RUN node -v
 
 # Install dependencies
 RUN npm install -g pnpm && pnpm install

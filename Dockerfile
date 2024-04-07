@@ -11,6 +11,9 @@ WORKDIR /app
 # Copy package.json and package-lock.json
 COPY package*.json pnpm*.json ./
 
+# Print Node version
+RUN npm -v
+
 # Install dependencies
 RUN npm install -g pnpm && pnpm install
 
@@ -32,8 +35,8 @@ COPY --from=builder /app/dist/apps/console /usr/share/nginx/html
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Expose port 80
-EXPOSE 80
+# Expose port 80 & 443
+EXPOSE 80 443
 
 # Start Nginx
 CMD ["nginx", "-g", "daemon off;"]

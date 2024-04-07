@@ -7,8 +7,8 @@ on:
       - '*'
 env:
   CACHE_REGISTRY: ghcr.io
-  CACHE_REPO: adhar-io/console
-  REPO: adhario/adhar-console
+  CACHE_REPO: adhar-io/adhar-console
+  REPO: adhario/console
   GIT_USER: ${{ github.repository_owner }}
 
 permissions: write-all

@@ -12,7 +12,10 @@ export default defineConfig({
     reportCompressedSize: true,
     commonjsOptions: {
       transformMixedEsModules: true,
-    }
+    },
+    rollupOptions: {
+      external: ['src/Main.tsx'],
+    },
   },
   cacheDir: '../../node_modules/.vite/console',
 

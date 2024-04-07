@@ -1,7 +1,5 @@
 # Stage 0, based on Node.js, to build and compile React
-#docker build -t adhario/console:latest .
-#docker run -d -p 80:80 adhario/console:latest
-#docker push adhario/console:latest
+
 # Stage 1: Build the application
 FROM node:lts-alpine as builder
 

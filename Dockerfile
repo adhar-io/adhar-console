@@ -33,6 +33,9 @@ COPY --from=builder /app/dist/apps/console /usr/share/nginx/html
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+# Change the ownership of the /var/cache/nginx
+RUN chown -R nginx:nginx /var/cache/nginx
+
 # Expose port 80 & 443
 EXPOSE 80 443
 

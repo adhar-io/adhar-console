@@ -9,7 +9,7 @@ FROM node:lts-buster as builder
 WORKDIR /app
 
 # Copy package.json and package-lock.json
-COPY package*.json ./
+COPY package*.json pnpm*.json ./
 
 # Install dependencies
 RUN npm install -g pnpm && pnpm install
@@ -21,7 +21,7 @@ COPY . .
 RUN npx nx build console
 
 # Stage 2: Serve the application with Nginx
-FROM nginx:alpine
+FROM nginx:stable-alpine-slim
 
 # Copy the built application from the previous stage
 COPY --from=builder /app/dist/apps/console /usr/share/nginx/html

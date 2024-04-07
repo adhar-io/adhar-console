@@ -3,7 +3,7 @@
 #docker run -d -p 80:80 adhario/console:latest
 #docker push adhario/console:latest
 # Stage 1: Build the application
-FROM node:lts-buster as builder
+FROM node:lts-alpine as builder
 
 # Set the working directory
 WORKDIR /app
@@ -16,6 +16,9 @@ RUN npm install -g pnpm && pnpm install
 
 # Copy the rest of the application code
 COPY . .
+
+# Reset Nx cache
+RUN npx nx reset
 
 # Build the application
 RUN npx nx build console

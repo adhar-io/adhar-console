@@ -36,6 +36,7 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 # Create temp cache folder
 RUN mkdir /var/cache/nginx/client_temp
 RUN mkdir /var/cache/nginx/proxy_temp
+RUN mkdir /var/cache/nginx/fastcgi_temp
 
 # Change the ownership of the /var/cache/nginx
 RUN chown -R nginx:nginx /var/cache/nginx \

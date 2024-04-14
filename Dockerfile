@@ -23,7 +23,7 @@ RUN npx nx reset
 RUN npx nx build console
 
 # Stage 2: Serve the application with Nginx
-FROM nginx:stable-alpine
+FROM nginx:stable-alpine-slim
 
 # Copy the built application from the previous stage
 COPY --from=builder /app/dist/apps/console /usr/share/nginx/html
@@ -38,8 +38,8 @@ RUN mkdir /var/cache/nginx/client_temp \
     /var/cache/nginx/uwsgi_temp \
     /var/cache/nginx/scgi_temp
 
-# Expose port 80
-EXPOSE 80
+# Expose port 8080
+EXPOSE 8080
 
 # Start Nginx
 CMD ["nginx", "-g", "daemon off;"]

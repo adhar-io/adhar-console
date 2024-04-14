@@ -1,5 +1,3 @@
-# Stage 0, based on Node.js, to build and compile React
-
 # Stage 1: Build the application
 FROM node:lts-alpine as builder
 
@@ -33,14 +31,14 @@ COPY --from=builder /app/dist/apps/console /usr/share/nginx/html
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Create temp cache folder
+# Create temp cache folder because of non root user
 RUN mkdir /var/cache/nginx/client_temp \
     /var/cache/nginx/proxy_temp \ 
     /var/cache/nginx/fastcgi_temp \ 
-    uwsgi_temp
+    /var/cache/nginx/uwsgi_temp
 
-# Expose port 80 & 443
-EXPOSE 80 443
+# Expose port 80
+EXPOSE 80
 
 # Start Nginx
 CMD ["nginx", "-g", "daemon off;"]

@@ -35,7 +35,8 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 RUN mkdir /var/cache/nginx/client_temp \
     /var/cache/nginx/proxy_temp \ 
     /var/cache/nginx/fastcgi_temp \ 
-    /var/cache/nginx/uwsgi_temp
+    /var/cache/nginx/uwsgi_temp \
+    /var/cache/nginx/scgi_temp
 
 # Expose port 80
 EXPOSE 80

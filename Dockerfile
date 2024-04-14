@@ -38,6 +38,11 @@ RUN mkdir /var/cache/nginx/client_temp \
     /var/cache/nginx/uwsgi_temp \
     /var/cache/nginx/scgi_temp
 
+RUN chown -R nginx:nginx /var/cache/nginx
+
+RUN touch /var/run/nginx.pid && \
+    chown -R nginx:nginx /var/run/nginx.pid
+
 # Expose port 8080
 EXPOSE 8080
 

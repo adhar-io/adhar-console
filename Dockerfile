@@ -31,11 +31,10 @@ COPY --from=builder /app/dist/apps/console /usr/share/nginx/html
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Create a user and group 'nginxuser'
-RUN addgroup -S nginxuser && adduser -S nginxuser -G nginxuser
-
-# Change the ownership of the Nginx directories to 'nginxuser'
-RUN chown -R nginxuser:nginxuser /var/cache/nginx /var/run /var/log/nginx
+# Create 'nginxuser' and necessary directories
+RUN addgroup -S nginxuser && adduser -S nginxuser -G nginxuser && \
+    mkdir -p /var/cache/nginx/client_temp /var/cache/nginx/proxy_temp /var/cache/nginx/fastcgi_temp /var/cache/nginx/uwsgi_temp /var/cache/nginx/scgi_temp && \
+    chown -R nginxuser:nginxuser /var/cache/nginx
 
 # Switch to 'nginxuser'
 USER nginxuser

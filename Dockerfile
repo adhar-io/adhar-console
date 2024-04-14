@@ -25,7 +25,7 @@ RUN npx nx reset
 RUN npx nx build console
 
 # Stage 2: Serve the application with Nginx
-FROM nginx:stable-alpine-slim
+FROM nginx:stable-alpine
 
 # Copy the built application from the previous stage
 COPY --from=builder /app/dist/apps/console /usr/share/nginx/html
@@ -33,18 +33,18 @@ COPY --from=builder /app/dist/apps/console /usr/share/nginx/html
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Create a non root user nginxuser
-RUN adduser --system --uid 1000 --no-create-home --disabled-login --group nginxuser
+# Create temp cache folder
+RUN mkdir /var/cache/nginx/client_temp
 
 # Change the ownership of the /var/cache/nginx
-RUN chown -R nginxuser:nginxuser /var/cache/nginx \
-    && chown -R nginxuser:nginxuser /var/log/nginx \
-    && chown -R nginxuser:nginxuser /etc/nginx/conf.d \
+RUN chown -R nginx:nginx /var/cache/nginx \
+    && chown -R nginx:nginx /var/log/nginx \
+    && chown -R nginx:nginx /etc/nginx/conf.d \
     && touch /var/run/nginx.pid \
-    && chown -R nginxuser:nginxuser /var/run/nginx.pid
+    && chown -R nginx:nginx /var/run/nginx.pid
 
 # set non-root user
-USER nginxuser
+USER nginx
 
 # Expose port 80 & 443
 EXPOSE 80 443

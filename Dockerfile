@@ -31,17 +31,14 @@ COPY --from=builder /app/dist/apps/console /usr/share/nginx/html
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Create temp cache folder because of non root user
-RUN mkdir /var/cache/nginx/client_temp \
-    /var/cache/nginx/proxy_temp \ 
-    /var/cache/nginx/fastcgi_temp \ 
-    /var/cache/nginx/uwsgi_temp \
-    /var/cache/nginx/scgi_temp
+# Create a user and group 'nginxuser'
+RUN addgroup -S nginxuser && adduser -S nginxuser -G nginxuser
 
-RUN chown -R nginx:nginx /var/cache/nginx
+# Change the ownership of the Nginx directories to 'nginxuser'
+RUN chown -R nginxuser:nginxuser /var/cache/nginx /var/run /var/log/nginx
 
-RUN touch /var/run/nginx.pid && \
-    chown -R nginx:nginx /var/run/nginx.pid
+# Switch to 'nginxuser'
+USER nginxuser
 
 # Expose port 8080
 EXPOSE 8080

@@ -34,8 +34,11 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 # Create 'nginxuser' and necessary directories
 RUN addgroup -S nginxuser && adduser -S nginxuser -G nginxuser && \
     mkdir -p /var/cache/nginx/client_temp /var/cache/nginx/proxy_temp /var/cache/nginx/fastcgi_temp /var/cache/nginx/uwsgi_temp /var/cache/nginx/scgi_temp && \
-    chown -R nginxuser:nginxuser /var/cache/nginx && \
-    chown -R nginxuser:nginxuser /var/run
+    chown -R nginxuser:nginxuser /var/cache/nginx
+
+# Change the ownership of the /var/run directory to nginxuser
+RUN touch /var/run/nginx.pid && \
+    chown -R nginxuser:nginxuser /var/run/nginx.pid
 
 # Switch to 'nginxuser'
 USER nginxuser

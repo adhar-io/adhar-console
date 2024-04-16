@@ -37,9 +37,10 @@ RUN addgroup -S nginxuser && adduser -S nginxuser -G nginxuser && \
     chown -R nginxuser:nginxuser /var/cache/nginx
 
 # Change the ownership of the /var/run/nginx.pid file to nginxuser
-RUN mkdir -p /var/run/nginx && \
-    touch /var/run/nginx/nginx.pid && \
-    chown -R nginxuser:nginxuser /var/run/nginx
+RUN touch /var/run/nginx.pid && \
+    chown nginxuser:nginxuser /var/run/nginx.pid
+
+RUN ls -l /var/run/nginx.pid
 
 # Switch to 'nginxuser'
 USER nginxuser

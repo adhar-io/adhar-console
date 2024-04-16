@@ -36,13 +36,6 @@ RUN addgroup -S nginxuser && adduser -S nginxuser -G nginxuser && \
     mkdir -p /var/cache/nginx/client_temp /var/cache/nginx/proxy_temp /var/cache/nginx/fastcgi_temp /var/cache/nginx/uwsgi_temp /var/cache/nginx/scgi_temp && \
     chown -R nginxuser:nginxuser /var/cache/nginx
 
-# Change the ownership of the /var/run/nginx.pid file to nginxuser
-RUN touch /var/run/nginx.pid && \
-    chown nginxuser:nginxuser /var/run/nginx.pid && \
-    chmod 644 /var/run/nginx.pid
-
-RUN ls -l /var/run/nginx.pid
-
 # Switch to 'nginxuser'
 USER nginxuser
 

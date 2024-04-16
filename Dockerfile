@@ -38,7 +38,8 @@ RUN addgroup -S nginxuser && adduser -S nginxuser -G nginxuser && \
 
 # Change the ownership of the /var/run/nginx.pid file to nginxuser
 RUN touch /var/run/nginx.pid && \
-    chown nginxuser:nginxuser /var/run/nginx.pid
+    chown nginxuser:nginxuser /var/run/nginx.pid && \
+    chmod 644 /var/run/nginx.pid
 
 RUN ls -l /var/run/nginx.pid
 

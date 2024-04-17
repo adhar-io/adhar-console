@@ -1,5 +1,3 @@
-# Stage 0, based on Node.js, to build and compile React
-
 # Stage 1: Build the application
 FROM node:lts-alpine as builder
 
@@ -25,25 +23,26 @@ RUN npx nx reset
 RUN npx nx build console
 
 # Stage 2: Serve the application with Nginx
-FROM nginx:stable-alpine-slim
+FROM nginx:stable-alpine
 
 # Copy the built application from the previous stage
 COPY --from=builder /app/dist/apps/console /usr/share/nginx/html
 
 # Copy nginx configuration
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY /nginx/nginx.conf /etc/nginx/nginx.conf
+COPY /nginx/default.conf /tmp/default.conf
 
-# Change the ownership of the /var/cache/nginx
-RUN chown -R nginx:nginx /var/cache/nginx
+# Ensure proper permissions for the NGINX configuration file
+USER root
+RUN cp /tmp/default.conf /etc/nginx/conf.d/default.conf && \
+    rm /tmp/default.conf && \
+    mkdir -p /var/cache/nginx/client_temp /var/cache/nginx/proxy_temp /var/cache/nginx/fastcgi_temp /var/cache/nginx/uwsgi_temp /var/cache/nginx/scgi_temp && \
+    chown -R nginx:nginx /var/cache/nginx && \
+    touch /var/cache/nginx/nginx.pid && \
+    chown nginx:nginx /var/cache/nginx/nginx.pid
 
-# Expose port 80 & 443
-EXPOSE 80 443
+# Expose port 8080
+EXPOSE 8080
 
 # Start Nginx
 CMD ["nginx", "-g", "daemon off;"]
-
-
-
-
-
-

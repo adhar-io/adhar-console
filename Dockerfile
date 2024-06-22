@@ -22,15 +22,17 @@ RUN npx nx build console
 # Stage 2: Serve the application with Nginx
 FROM nginx:stable-alpine
 
-# Copy the built application from the previous stage
-COPY --from=builder /app/dist/apps/console /usr/share/nginx/html
+RUN  touch /var/run/nginx.pid && \
+     chown -R nginx:nginx /var/cache/nginx /var/run/nginx.pid
+
+USER nginx
 
 # Copy nginx configuration
-COPY /nginx/nginx.conf /etc/nginx/nginx.conf
-COPY /nginx/default.conf /etc/nginx/conf.d/default.conf
+COPY --chown=nginx:nginx /nginx/nginx.conf /etc/nginx/nginx.conf
+COPY --chown=nginx:nginx /nginx/default.conf /etc/nginx/conf.d/default.conf
 
-# Resolve permission issue
-RUN chown -R $UID:$GID /var/cache/nginx
+# Copy the built application from the previous stage
+COPY --chown=nginx:nginx --from=builder /app/dist/apps/console /usr/share/nginx/html
 
 # Expose port 80
 EXPOSE 80

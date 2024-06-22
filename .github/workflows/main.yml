@@ -28,7 +28,7 @@ jobs:
           git config --global user.email $GIT_USER@users.noreply.github.com
           git config --global user.name $GIT_USER
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       # - name: CI tests, image build and push tag for main or branch
       #   uses: whoan/docker-build-with-cache-action@v5
       #   with:
@@ -79,7 +79,7 @@ jobs:
       COMMIT_MSG: ${{ github.event.head_commit.message }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Set env
         run: |
           git config --global user.email $GIT_USER@users.noreply.github.com

@@ -29,6 +29,9 @@ COPY --from=builder /app/dist/apps/console /usr/share/nginx/html
 COPY /nginx/nginx.conf /etc/nginx/nginx.conf
 COPY /nginx/default.conf /etc/nginx/conf.d/default.conf
 
+# Resolve permission issue
+RUN chown -R $UID:$GID /var/cache/nginx
+
 # Expose port 80
 EXPOSE 80
 

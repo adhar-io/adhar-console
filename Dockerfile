@@ -7,9 +7,6 @@ WORKDIR /app
 # Copy package.json and package-lock.json
 COPY package*.json pnpm*.json ./
 
-# Print Node version
-RUN node -v
-
 # Install dependencies
 RUN npm install -g pnpm && pnpm install
 
@@ -32,18 +29,8 @@ COPY --from=builder /app/dist/apps/console /usr/share/nginx/html
 COPY /nginx/nginx.conf /etc/nginx/nginx.conf
 COPY /nginx/default.conf /etc/nginx/conf.d/default.conf
 
-# Create 'nginxuser' and necessary directories
-RUN addgroup -S nginxuser && adduser -S nginxuser -G nginxuser && \
-    mkdir -p /var/cache/nginx/client_temp /var/cache/nginx/proxy_temp /var/cache/nginx/fastcgi_temp /var/cache/nginx/uwsgi_temp /var/cache/nginx/scgi_temp && \
-    chown -R nginxuser:nginxuser /var/cache/nginx && \
-    touch /var/cache/nginx/nginx.pid && \
-    chown nginxuser:nginxuser /var/cache/nginx/nginx.pid
-
-# Switch to 'nginxuser'
-USER nginxuser
-
-# Expose port 8080
-EXPOSE 8080
+# Expose port 80
+EXPOSE 80
 
 # Start Nginx
 CMD ["nginx", "-g", "daemon off;"]

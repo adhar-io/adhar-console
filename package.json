@@ -19,7 +19,7 @@
     "test:all": "backstage-cli repo test --coverage",
     "test:e2e": "playwright test",
     "fix": "backstage-cli repo fix",
-    "lint": "backstage-cli repo lint --since origin/master",
+    "lint": "backstage-cli repo lint --since origin/main",
     "lint:all": "backstage-cli repo lint",
     "prettier:check": "prettier --check .",
     "new": "backstage-cli new --scope internal"
@@ -31,8 +31,8 @@
     ]
   },
   "devDependencies": {
-    "@backstage/cli": "^0.24.0",
-    "@backstage/e2e-test-utils": "^0.1.0",
+    "@backstage/cli": "^0.26.4",
+    "@backstage/e2e-test-utils": "^0.1.1",
     "@playwright/test": "^1.32.3",
     "@spotify/prettier-config": "^12.0.0",
     "concurrently": "^8.0.0",
@@ -42,8 +42,8 @@
     "typescript": "~5.2.0"
   },
   "resolutions": {
-    "@types/react": "^17",
-    "@types/react-dom": "^17"
+    "@types/react": "^18",
+    "@types/react-dom": "^18"
   },
   "prettier": "@spotify/prettier-config",
   "lint-staged": {

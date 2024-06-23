@@ -22,21 +22,52 @@ import {
 import { TechDocsAddons } from '@backstage/plugin-techdocs-react';
 import { ReportIssue } from '@backstage/plugin-techdocs-module-addons-contrib';
 import { UserSettingsPage } from '@backstage/plugin-user-settings';
-import { apis } from './apis';
+import {apis, keycloakOIDCAuthApiRef} from './apis';
 import { entityPage } from './components/catalog/EntityPage';
 import { searchPage } from './components/search/SearchPage';
 import { Root } from './components/Root';
 
-import { AlertDisplay, OAuthRequestDialog } from '@backstage/core-components';
+import {AlertDisplay, OAuthRequestDialog, SignInPage} from '@backstage/core-components';
 import { createApp } from '@backstage/app-defaults';
 import { AppRouter, FlatRoutes } from '@backstage/core-app-api';
 import { CatalogGraphPage } from '@backstage/plugin-catalog-graph';
 import { RequirePermission } from '@backstage/plugin-permission-react';
 import { catalogEntityCreatePermission } from '@backstage/plugin-catalog-common/alpha';
-import { ProxiedSignInPage } from '@backstage/core-components';
+import LightIcon from '@material-ui/icons/WbSunny';
+import {
+  CNOEHomepage,
+  cnoeLightTheme,
+  cnoeDarkTheme,
+} from '@internal/plugin-cnoe-ui';
+import {configApiRef, useApi} from "@backstage/core-plugin-api";
+import { ArgoWorkflowsPage } from '@internal/plugin-argo-workflows';
+import { ApacheSparkPage } from '@internal/plugin-apache-spark';
+import {
+  UnifiedThemeProvider
+} from "@backstage/theme";
+
 
 const app = createApp({
   apis,
+  components: {
+    SignInPage: props => {
+      const configApi = useApi(configApiRef);
+      if (configApi.getString('auth.environment') === 'local') {
+        return <SignInPage {...props} auto providers={['guest']} />;
+      }
+      return (
+        <SignInPage
+          {...props}
+          provider={{
+            id: 'keycloak-oidc',
+            title: 'Keycloak',
+            message: 'Sign in using Keycloak',
+            apiRef: keycloakOIDCAuthApiRef,
+          }}
+        />
+      );
+    },
+  },
   bindRoutes({ bind }) {
     bind(catalogPlugin.externalRoutes, {
       createComponent: scaffolderPlugin.routes.root,
@@ -54,14 +85,32 @@ const app = createApp({
       catalogIndex: catalogPlugin.routes.catalogIndex,
     });
   },
-  components: {
-    SignInPage: (props) => <ProxiedSignInPage {...props} provider="oauth2Proxy" />,
-  },
+  themes: [
+    {
+      id: 'cnoe-light-theme',
+      title: 'Light Theme',
+      variant: 'light',
+      icon: <LightIcon />,
+      Provider: ({ children }) => (
+        <UnifiedThemeProvider theme={cnoeLightTheme} children={children} />
+      ),
+    },
+    {
+      id: 'cnoe-dark-theme',
+      title: 'Dark Theme',
+      variant: 'dark',
+      icon: <LightIcon />,
+      Provider: ({ children }) => (
+        <UnifiedThemeProvider theme={cnoeDarkTheme} children={children} />
+      ),
+    },
+  ],
 });
 
 const routes = (
   <FlatRoutes>
-    <Route path="/" element={<Navigate to="catalog" />} />
+    <Route path="/" element={<Navigate to="home" />} />
+    <Route path="/home" element={<CNOEHomepage />} />
     <Route path="/catalog" element={<CatalogIndexPage />} />
     <Route
       path="/catalog/:namespace/:kind/:name"
@@ -97,6 +146,8 @@ const routes = (
     </Route>
     <Route path="/settings" element={<UserSettingsPage />} />
     <Route path="/catalog-graph" element={<CatalogGraphPage />} />
+    <Route path="/argo-workflows" element={<ArgoWorkflowsPage />} />
+    <Route path="/apache-spark" element={<ApacheSparkPage />} />
   </FlatRoutes>
 );
 
@@ -109,3 +160,6 @@ export default app.createRoot(
     </AppRouter>
   </>,
 );
+
+
+

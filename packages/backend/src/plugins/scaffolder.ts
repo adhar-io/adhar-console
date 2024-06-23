@@ -1,22 +1,44 @@
-import { CatalogClient } from '@backstage/catalog-client';
-import { createRouter } from '@backstage/plugin-scaffolder-backend';
-import { Router } from 'express';
-import type { PluginEnvironment } from '../types';
+import { ScmIntegrations } from '@backstage/integration';
+import { createPublishGiteaAction } from './gitea-actions';
 
-export default async function createPlugin(
-  env: PluginEnvironment,
-): Promise<Router> {
-  const catalogClient = new CatalogClient({
-    discoveryApi: env.discovery,
-  });
+import {
+  coreServices,
+  createBackendModule,
+} from '@backstage/backend-plugin-api';
+import { scaffolderActionsExtensionPoint } from '@backstage/plugin-scaffolder-node/alpha';
+import { createArgoCDApp } from './argocd';
+import { getRootLogger } from '@backstage/backend-common';
+import { createKubernetesApply } from './k8s-apply';
+import { createSanitizeResource } from './sanitize';
+import { createVerifyDependency } from './verify';
 
-  return await createRouter({
-    logger: env.logger,
-    config: env.config,
-    database: env.database,
-    reader: env.reader,
-    catalogClient,
-    identity: env.identity,
-    permissions: env.permissions,
-  });
-}
+export const cnoeScaffolderActions = createBackendModule({
+  pluginId: 'scaffolder',
+  moduleId: 'cnoe-actions',
+  register(env) {
+    env.registerInit({
+      deps: {
+        scaffolder: scaffolderActionsExtensionPoint,
+        config: coreServices.rootConfig,
+      },
+      async init({ scaffolder, config }) {
+        const integrations = ScmIntegrations.fromConfig(config);
+        const logger = getRootLogger();
+
+        scaffolder.addActions(
+          createPublishGiteaAction({
+            integrations,
+            config,
+          }),
+          createArgoCDApp({
+            config,
+            logger,
+          }),
+          createKubernetesApply(config),
+          createSanitizeResource(),
+          createVerifyDependency(),
+        );
+      },
+    });
+  },
+});

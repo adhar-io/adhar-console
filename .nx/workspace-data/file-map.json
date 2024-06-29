@@ -197,7 +197,7 @@
         },
         {
           "file": ".github/workflows/main.yml",
-          "hash": "11088880128301856953"
+          "hash": "8062399802290615968"
         },
         {
           "file": ".gitignore",
@@ -229,7 +229,7 @@
         },
         {
           "file": "Dockerfile",
-          "hash": "2921248305053854403"
+          "hash": "1388254134619111757"
         },
         {
           "file": "LICENSE",
@@ -279,7 +279,7 @@
         },
         {
           "file": "package.json",
-          "hash": "17967222905119001667",
+          "hash": "13087525295256648550",
           "deps": [
             "npm:@nx-tools/container-metadata",
             "npm:@nx-tools/nx-container",

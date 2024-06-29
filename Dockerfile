@@ -17,7 +17,7 @@ COPY . .
 RUN npx nx reset
 
 # Build the application
-RUN npx nx build console --verbose
+RUN npx nx build console
 
 # Stage 2: Serve the application with Nginx
 FROM nginx:stable-alpine

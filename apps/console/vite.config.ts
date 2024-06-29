@@ -14,7 +14,7 @@ export default defineConfig({
       transformMixedEsModules: true,
     },
     rollupOptions: {
-      external: ['src/Main.tsx'],
+      external: ['./src/Main.tsx'],
       output: {
         manualChunks: {
           'radix-ui': [

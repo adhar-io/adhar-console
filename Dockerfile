@@ -1,5 +1,5 @@
 # Stage 1: Build the application
-FROM node:lts-alpine as builder
+FROM node:lts-alpine AS builder
 
 # Set the working directory
 WORKDIR /app

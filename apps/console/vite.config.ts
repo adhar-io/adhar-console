@@ -14,6 +14,7 @@ export default defineConfig({
     commonjsOptions: {
       transformMixedEsModules: true,
     },
+    chunkSizeWarningLimit: 1024,
     rollupOptions: {
       external: [],
       output: {
@@ -54,7 +55,10 @@ export default defineConfig({
     host: 'localhost',
   },
 
-  plugins: [react(), nxViteTsPaths()],
+  plugins: [
+    react(),
+    nxViteTsPaths()
+  ],
 
   resolve: {
     alias: {

@@ -111,7 +111,7 @@ jobs:
 
   notification:
     needs: [build-test-cache, push-to-docker, release]
-    if: always()
+    if: always() && ((contains(needs.build-test-cache.result, 'success') && !contains(needs.integration.outputs.started, 'true')) || (contains(needs.integration.result, 'success'))) && !github.event.act
     runs-on: ubuntu-latest
     steps:
       - name: Slack Notification

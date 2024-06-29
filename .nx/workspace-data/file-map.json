@@ -117,6 +117,299 @@
   "fileMap": {
     "nonProjectFiles": [],
     "projectFileMap": {
+      "utils": [
+        {
+          "file": "libs/utils/.eslintrc.json",
+          "hash": "16896711999632553762"
+        },
+        {
+          "file": "libs/utils/README.md",
+          "hash": "3816604565008484386"
+        },
+        {
+          "file": "libs/utils/jest.config.ts",
+          "hash": "5669222313238020651"
+        },
+        {
+          "file": "libs/utils/package.json",
+          "hash": "15738207835631195449",
+          "deps": [
+            "npm:tslib"
+          ]
+        },
+        {
+          "file": "libs/utils/project.json",
+          "hash": "7894590553660049518"
+        },
+        {
+          "file": "libs/utils/src/index.ts",
+          "hash": "5679720557803443103"
+        },
+        {
+          "file": "libs/utils/src/lib/utils.spec.ts",
+          "hash": "1869297507391227175"
+        },
+        {
+          "file": "libs/utils/src/lib/utils.ts",
+          "hash": "4410618641919237161",
+          "deps": [
+            "npm:clsx",
+            "npm:tailwind-merge"
+          ]
+        },
+        {
+          "file": "libs/utils/tsconfig.json",
+          "hash": "5840880287502376438"
+        },
+        {
+          "file": "libs/utils/tsconfig.lib.json",
+          "hash": "3632393694954060084"
+        },
+        {
+          "file": "libs/utils/tsconfig.spec.json",
+          "hash": "11550347367511341917"
+        }
+      ],
+      "@adhar-console/source": [
+        {
+          "file": ".dockerignore",
+          "hash": "2303642404724327591"
+        },
+        {
+          "file": ".editorconfig",
+          "hash": "5443105041930014821"
+        },
+        {
+          "file": ".env",
+          "hash": "5238204894158769644"
+        },
+        {
+          "file": ".eslintignore",
+          "hash": "7663861978715868291"
+        },
+        {
+          "file": ".eslintrc.json",
+          "hash": "17866138117546000433"
+        },
+        {
+          "file": ".github/stale.yml",
+          "hash": "17709042610756921021"
+        },
+        {
+          "file": ".github/workflows/main.yml",
+          "hash": "11088880128301856953"
+        },
+        {
+          "file": ".gitignore",
+          "hash": "2309725262090455844"
+        },
+        {
+          "file": ".npmrc",
+          "hash": "3244421341483603138"
+        },
+        {
+          "file": ".prettierignore",
+          "hash": "16448050467312557263"
+        },
+        {
+          "file": ".prettierrc",
+          "hash": "16267754514737964994"
+        },
+        {
+          "file": ".verdaccio/config.yml",
+          "hash": "14993594506392938393"
+        },
+        {
+          "file": ".vscode/extensions.json",
+          "hash": "4637156562308165301"
+        },
+        {
+          "file": "CHANGELOG.md",
+          "hash": "4514649782101257042"
+        },
+        {
+          "file": "Dockerfile",
+          "hash": "2921248305053854403"
+        },
+        {
+          "file": "LICENSE",
+          "hash": "12649885980860800067"
+        },
+        {
+          "file": "README.md",
+          "hash": "14116602587951148954"
+        },
+        {
+          "file": "components.json",
+          "hash": "13395225042197085073"
+        },
+        {
+          "file": "jest.config.ts",
+          "hash": "12333515226966617182",
+          "deps": [
+            "npm:@nx/jest"
+          ]
+        },
+        {
+          "file": "jest.preset.js",
+          "hash": "9430166341120122740",
+          "deps": [
+            "npm:@nx/jest"
+          ]
+        },
+        {
+          "file": "migrations.json",
+          "hash": "13726210239003129902"
+        },
+        {
+          "file": "nginx/default.conf",
+          "hash": "2131434164268767195"
+        },
+        {
+          "file": "nginx/nginx.conf",
+          "hash": "2670337551245738217"
+        },
+        {
+          "file": "nx.json",
+          "hash": "6110692660640324276"
+        },
+        {
+          "file": "package-lock.json",
+          "hash": "3756077520489878262"
+        },
+        {
+          "file": "package.json",
+          "hash": "17967222905119001667",
+          "deps": [
+            "npm:@nx-tools/container-metadata",
+            "npm:@nx-tools/nx-container",
+            "npm:@nx/cypress",
+            "npm:@nx/eslint",
+            "npm:@nx/eslint-plugin",
+            "npm:@nx/jest",
+            "npm:@nx/js",
+            "npm:@nx/react",
+            "npm:@nx/vite",
+            "npm:@nx/workspace",
+            "npm:@swc-node/register",
+            "npm:@swc/cli",
+            "npm:@swc/core",
+            "npm:@testing-library/react",
+            "npm:@types/jest",
+            "npm:@types/node",
+            "npm:@types/react",
+            "npm:@types/react-dom",
+            "npm:@types/react-is",
+            "npm:@types/styled-components",
+            "npm:@typescript-eslint/eslint-plugin",
+            "npm:@typescript-eslint/parser",
+            "npm:@vitejs/plugin-react",
+            "npm:@vitest/coverage-v8",
+            "npm:@vitest/ui",
+            "npm:autoprefixer",
+            "npm:babel-plugin-styled-components",
+            "npm:cypress",
+            "npm:eslint",
+            "npm:eslint-config-prettier",
+            "npm:eslint-plugin-cypress",
+            "npm:eslint-plugin-import",
+            "npm:eslint-plugin-jsx-a11y",
+            "npm:eslint-plugin-react",
+            "npm:eslint-plugin-react-hooks",
+            "npm:jest",
+            "npm:jest-environment-node",
+            "npm:jsdom",
+            "npm:nx",
+            "npm:postcss",
+            "npm:prettier",
+            "npm:tailwindcss",
+            "npm:ts-jest",
+            "npm:ts-node",
+            "npm:typescript",
+            "npm:verdaccio",
+            "npm:vite",
+            "npm:vitest",
+            "npm:@hookform/resolvers",
+            "npm:@radix-ui/react-accordion",
+            "npm:@radix-ui/react-alert-dialog",
+            "npm:@radix-ui/react-aspect-ratio",
+            "npm:@radix-ui/react-avatar",
+            "npm:@radix-ui/react-checkbox",
+            "npm:@radix-ui/react-collapsible",
+            "npm:@radix-ui/react-context-menu",
+            "npm:@radix-ui/react-dialog",
+            "npm:@radix-ui/react-dropdown-menu",
+            "npm:@radix-ui/react-hover-card",
+            "npm:@radix-ui/react-icons",
+            "npm:@radix-ui/react-label",
+            "npm:@radix-ui/react-menubar",
+            "npm:@radix-ui/react-navigation-menu",
+            "npm:@radix-ui/react-popover",
+            "npm:@radix-ui/react-progress",
+            "npm:@radix-ui/react-radio-group",
+            "npm:@radix-ui/react-scroll-area",
+            "npm:@radix-ui/react-select",
+            "npm:@radix-ui/react-separator",
+            "npm:@radix-ui/react-slider",
+            "npm:@radix-ui/react-slot",
+            "npm:@radix-ui/react-switch",
+            "npm:@radix-ui/react-tabs",
+            "npm:@radix-ui/react-toast",
+            "npm:@radix-ui/react-toggle",
+            "npm:@radix-ui/react-toggle-group",
+            "npm:@radix-ui/react-tooltip",
+            "npm:@swc/helpers",
+            "npm:class-variance-authority",
+            "npm:clsx",
+            "npm:cmdk",
+            "npm:embla-carousel",
+            "npm:embla-carousel-react",
+            "npm:lucide-react",
+            "npm:next-themes",
+            "npm:react",
+            "npm:react-day-picker",
+            "npm:react-dom",
+            "npm:react-hook-form",
+            "npm:react-icons",
+            "npm:react-is",
+            "npm:react-router-dom",
+            "npm:sonner",
+            "npm:styled-components",
+            "npm:tailwind-merge",
+            "npm:tailwindcss-animate",
+            "npm:tslib",
+            "npm:vaul",
+            "npm:zod"
+          ]
+        },
+        {
+          "file": "pnpm-lock.yaml",
+          "hash": "6396201423551485086"
+        },
+        {
+          "file": "postcss.config.js",
+          "hash": "1579725330904862112"
+        },
+        {
+          "file": "project.json",
+          "hash": "10459292969705464846"
+        },
+        {
+          "file": "tailwind.config.js",
+          "hash": "6196628855886650156",
+          "deps": [
+            "npm:tailwindcss-animate"
+          ]
+        },
+        {
+          "file": "tools/scripts/publish.mjs",
+          "hash": "8455829797866792111"
+        },
+        {
+          "file": "tsconfig.base.json",
+          "hash": "10705868673053620399"
+        }
+      ],
       "console": [
         {
           "file": "apps/console/.eslintrc.json",
@@ -124,7 +417,7 @@
         },
         {
           "file": "apps/console/index.html",
-          "hash": "14928415718969419266"
+          "hash": "5553372040963328640"
         },
         {
           "file": "apps/console/project.json",
@@ -1187,305 +1480,20 @@
         },
         {
           "file": "apps/console/vite.config.ts",
-          "hash": "10353031470344190478",
+          "hash": "9038242362479046275",
           "deps": [
             "npm:vite",
             "npm:@vitejs/plugin-react",
             "npm:@nx/vite"
           ]
-        }
-      ],
-      "@adhar-console/source": [
-        {
-          "file": ".dockerignore",
-          "hash": "2303642404724327591"
         },
         {
-          "file": ".editorconfig",
-          "hash": "5443105041930014821"
-        },
-        {
-          "file": ".env",
-          "hash": "5238204894158769644"
-        },
-        {
-          "file": ".eslintignore",
-          "hash": "7663861978715868291"
-        },
-        {
-          "file": ".eslintrc.json",
-          "hash": "17866138117546000433"
-        },
-        {
-          "file": ".github/stale.yml",
-          "hash": "17709042610756921021"
-        },
-        {
-          "file": ".github/workflows/main.yml",
-          "hash": "13424411581324847684"
-        },
-        {
-          "file": ".gitignore",
-          "hash": "2309725262090455844"
-        },
-        {
-          "file": ".npmrc",
-          "hash": "3244421341483603138"
-        },
-        {
-          "file": ".prettierignore",
-          "hash": "16448050467312557263"
-        },
-        {
-          "file": ".prettierrc",
-          "hash": "16267754514737964994"
-        },
-        {
-          "file": ".verdaccio/config.yml",
-          "hash": "14993594506392938393"
-        },
-        {
-          "file": ".vscode/extensions.json",
-          "hash": "4637156562308165301"
-        },
-        {
-          "file": "CHANGELOG.md",
-          "hash": "4514649782101257042"
-        },
-        {
-          "file": "Dockerfile",
-          "hash": "1388254134619111757"
-        },
-        {
-          "file": "LICENSE",
-          "hash": "12649885980860800067"
-        },
-        {
-          "file": "README.md",
-          "hash": "14116602587951148954"
-        },
-        {
-          "file": "components.json",
-          "hash": "13395225042197085073"
-        },
-        {
-          "file": "jest.config.ts",
-          "hash": "12333515226966617182",
+          "file": "apps/console/src/main.tsx",
+          "hash": "8385566265722377939",
           "deps": [
-            "npm:@nx/jest"
-          ]
-        },
-        {
-          "file": "jest.preset.js",
-          "hash": "9430166341120122740",
-          "deps": [
-            "npm:@nx/jest"
-          ]
-        },
-        {
-          "file": "migrations.json",
-          "hash": "13726210239003129902"
-        },
-        {
-          "file": "nginx/default.conf",
-          "hash": "2131434164268767195"
-        },
-        {
-          "file": "nginx/nginx.conf",
-          "hash": "2670337551245738217"
-        },
-        {
-          "file": "nx.json",
-          "hash": "6110692660640324276"
-        },
-        {
-          "file": "package-lock.json",
-          "hash": "3756077520489878262"
-        },
-        {
-          "file": "package.json",
-          "hash": "10011738702434293425",
-          "deps": [
-            "npm:@nx-tools/container-metadata",
-            "npm:@nx-tools/nx-container",
-            "npm:@nx/cypress",
-            "npm:@nx/eslint",
-            "npm:@nx/eslint-plugin",
-            "npm:@nx/jest",
-            "npm:@nx/js",
-            "npm:@nx/react",
-            "npm:@nx/vite",
-            "npm:@nx/workspace",
-            "npm:@swc-node/register",
-            "npm:@swc/cli",
-            "npm:@swc/core",
-            "npm:@testing-library/react",
-            "npm:@types/jest",
-            "npm:@types/node",
-            "npm:@types/react",
-            "npm:@types/react-dom",
-            "npm:@types/react-is",
-            "npm:@types/styled-components",
-            "npm:@typescript-eslint/eslint-plugin",
-            "npm:@typescript-eslint/parser",
-            "npm:@vitejs/plugin-react",
-            "npm:@vitest/coverage-v8",
-            "npm:@vitest/ui",
-            "npm:autoprefixer",
-            "npm:babel-plugin-styled-components",
-            "npm:cypress",
-            "npm:eslint",
-            "npm:eslint-config-prettier",
-            "npm:eslint-plugin-cypress",
-            "npm:eslint-plugin-import",
-            "npm:eslint-plugin-jsx-a11y",
-            "npm:eslint-plugin-react",
-            "npm:eslint-plugin-react-hooks",
-            "npm:jest",
-            "npm:jest-environment-node",
-            "npm:jsdom",
-            "npm:nx",
-            "npm:postcss",
-            "npm:prettier",
-            "npm:tailwindcss",
-            "npm:ts-jest",
-            "npm:ts-node",
-            "npm:typescript",
-            "npm:verdaccio",
-            "npm:vite",
-            "npm:vitest",
-            "npm:@hookform/resolvers",
-            "npm:@radix-ui/react-accordion",
-            "npm:@radix-ui/react-alert-dialog",
-            "npm:@radix-ui/react-aspect-ratio",
-            "npm:@radix-ui/react-avatar",
-            "npm:@radix-ui/react-checkbox",
-            "npm:@radix-ui/react-collapsible",
-            "npm:@radix-ui/react-context-menu",
-            "npm:@radix-ui/react-dialog",
-            "npm:@radix-ui/react-dropdown-menu",
-            "npm:@radix-ui/react-hover-card",
-            "npm:@radix-ui/react-icons",
-            "npm:@radix-ui/react-label",
-            "npm:@radix-ui/react-menubar",
-            "npm:@radix-ui/react-navigation-menu",
-            "npm:@radix-ui/react-popover",
-            "npm:@radix-ui/react-progress",
-            "npm:@radix-ui/react-radio-group",
-            "npm:@radix-ui/react-scroll-area",
-            "npm:@radix-ui/react-select",
-            "npm:@radix-ui/react-separator",
-            "npm:@radix-ui/react-slider",
-            "npm:@radix-ui/react-slot",
-            "npm:@radix-ui/react-switch",
-            "npm:@radix-ui/react-tabs",
-            "npm:@radix-ui/react-toast",
-            "npm:@radix-ui/react-toggle",
-            "npm:@radix-ui/react-toggle-group",
-            "npm:@radix-ui/react-tooltip",
-            "npm:@swc/helpers",
-            "npm:class-variance-authority",
-            "npm:clsx",
-            "npm:cmdk",
-            "npm:embla-carousel",
-            "npm:embla-carousel-react",
-            "npm:lucide-react",
-            "npm:next-themes",
             "npm:react",
-            "npm:react-day-picker",
-            "npm:react-dom",
-            "npm:react-hook-form",
-            "npm:react-icons",
-            "npm:react-is",
-            "npm:react-router-dom",
-            "npm:sonner",
-            "npm:styled-components",
-            "npm:tailwind-merge",
-            "npm:tailwindcss-animate",
-            "npm:tslib",
-            "npm:vaul",
-            "npm:zod"
+            "npm:react-dom"
           ]
-        },
-        {
-          "file": "pnpm-lock.yaml",
-          "hash": "6396201423551485086"
-        },
-        {
-          "file": "postcss.config.js",
-          "hash": "1579725330904862112"
-        },
-        {
-          "file": "project.json",
-          "hash": "10459292969705464846"
-        },
-        {
-          "file": "tailwind.config.js",
-          "hash": "6196628855886650156",
-          "deps": [
-            "npm:tailwindcss-animate"
-          ]
-        },
-        {
-          "file": "tools/scripts/publish.mjs",
-          "hash": "8455829797866792111"
-        },
-        {
-          "file": "tsconfig.base.json",
-          "hash": "10705868673053620399"
-        }
-      ],
-      "utils": [
-        {
-          "file": "libs/utils/.eslintrc.json",
-          "hash": "16896711999632553762"
-        },
-        {
-          "file": "libs/utils/README.md",
-          "hash": "3816604565008484386"
-        },
-        {
-          "file": "libs/utils/jest.config.ts",
-          "hash": "5669222313238020651"
-        },
-        {
-          "file": "libs/utils/package.json",
-          "hash": "15738207835631195449",
-          "deps": [
-            "npm:tslib"
-          ]
-        },
-        {
-          "file": "libs/utils/project.json",
-          "hash": "7894590553660049518"
-        },
-        {
-          "file": "libs/utils/src/index.ts",
-          "hash": "5679720557803443103"
-        },
-        {
-          "file": "libs/utils/src/lib/utils.spec.ts",
-          "hash": "1869297507391227175"
-        },
-        {
-          "file": "libs/utils/src/lib/utils.ts",
-          "hash": "4410618641919237161",
-          "deps": [
-            "npm:clsx",
-            "npm:tailwind-merge"
-          ]
-        },
-        {
-          "file": "libs/utils/tsconfig.json",
-          "hash": "5840880287502376438"
-        },
-        {
-          "file": "libs/utils/tsconfig.lib.json",
-          "hash": "3632393694954060084"
-        },
-        {
-          "file": "libs/utils/tsconfig.spec.json",
-          "hash": "11550347367511341917"
         }
       ],
       "console-e2e": [

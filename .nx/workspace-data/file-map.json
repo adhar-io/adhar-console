@@ -117,101 +117,6 @@
   "fileMap": {
     "nonProjectFiles": [],
     "projectFileMap": {
-      "console-e2e": [
-        {
-          "file": "apps/console-e2e/.eslintrc.json",
-          "hash": "9199987846761270635"
-        },
-        {
-          "file": "apps/console-e2e/cypress.config.ts",
-          "hash": "5054456290394884373",
-          "deps": [
-            "npm:@nx/cypress",
-            "npm:cypress"
-          ]
-        },
-        {
-          "file": "apps/console-e2e/project.json",
-          "hash": "485615815432243157"
-        },
-        {
-          "file": "apps/console-e2e/src/e2e/app.cy.ts",
-          "hash": "18014579773344637391"
-        },
-        {
-          "file": "apps/console-e2e/src/fixtures/example.json",
-          "hash": "11785586596216172004"
-        },
-        {
-          "file": "apps/console-e2e/src/support/app.po.ts",
-          "hash": "11157016311132186162"
-        },
-        {
-          "file": "apps/console-e2e/src/support/commands.ts",
-          "hash": "5397443931564808659"
-        },
-        {
-          "file": "apps/console-e2e/src/support/e2e.ts",
-          "hash": "1054106023200826784"
-        },
-        {
-          "file": "apps/console-e2e/tsconfig.json",
-          "hash": "10740392072068377465"
-        }
-      ],
-      "utils": [
-        {
-          "file": "libs/utils/.eslintrc.json",
-          "hash": "16896711999632553762"
-        },
-        {
-          "file": "libs/utils/README.md",
-          "hash": "3816604565008484386"
-        },
-        {
-          "file": "libs/utils/jest.config.ts",
-          "hash": "5669222313238020651"
-        },
-        {
-          "file": "libs/utils/package.json",
-          "hash": "15738207835631195449",
-          "deps": [
-            "npm:tslib"
-          ]
-        },
-        {
-          "file": "libs/utils/project.json",
-          "hash": "7894590553660049518"
-        },
-        {
-          "file": "libs/utils/src/index.ts",
-          "hash": "5679720557803443103"
-        },
-        {
-          "file": "libs/utils/src/lib/utils.spec.ts",
-          "hash": "1869297507391227175"
-        },
-        {
-          "file": "libs/utils/src/lib/utils.ts",
-          "hash": "4410618641919237161",
-          "deps": [
-            "npm:clsx",
-            "npm:tailwind-merge"
-          ]
-        },
-        {
-          "file": "libs/utils/tsconfig.json",
-          "hash": "5840880287502376438"
-        },
-        {
-          "file": "libs/utils/tsconfig.lib.json",
-          "hash": "3632393694954060084"
-        },
-        {
-          "file": "libs/utils/tsconfig.spec.json",
-          "hash": "11550347367511341917"
-        }
-      ],
       "console": [
         {
           "file": "apps/console/.eslintrc.json",
@@ -219,7 +124,7 @@
         },
         {
           "file": "apps/console/index.html",
-          "hash": "3384791953594038155"
+          "hash": "14928415718969419266"
         },
         {
           "file": "apps/console/project.json",
@@ -233,6 +138,7 @@
           "file": "apps/console/src/App.tsx",
           "hash": "10403564047176501299",
           "deps": [
+            "npm:react",
             "npm:react-icons"
           ]
         },
@@ -248,6 +154,7 @@
           "file": "apps/console/src/Provider.tsx",
           "hash": "9629183403451408375",
           "deps": [
+            "npm:react",
             "npm:react-router-dom"
           ]
         },
@@ -703,6 +610,7 @@
           "file": "apps/console/src/components/accordion.tsx",
           "hash": "9051916960295168109",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-accordion",
             "npm:lucide-react"
           ]
@@ -718,6 +626,7 @@
           "file": "apps/console/src/components/alert-dialog.tsx",
           "hash": "1299834895018105506",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-alert-dialog"
           ]
         },
@@ -725,6 +634,7 @@
           "file": "apps/console/src/components/alert.tsx",
           "hash": "13319945136189265782",
           "deps": [
+            "npm:react",
             "npm:class-variance-authority"
           ]
         },
@@ -739,6 +649,7 @@
           "file": "apps/console/src/components/avatar.tsx",
           "hash": "10886953907489959418",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-avatar"
           ]
         },
@@ -746,6 +657,7 @@
           "file": "apps/console/src/components/badge.tsx",
           "hash": "17768393970188635895",
           "deps": [
+            "npm:react",
             "npm:class-variance-authority"
           ]
         },
@@ -753,6 +665,7 @@
           "file": "apps/console/src/components/button.tsx",
           "hash": "10017711336591589444",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-slot",
             "npm:class-variance-authority"
           ]
@@ -761,6 +674,7 @@
           "file": "apps/console/src/components/calendar.tsx",
           "hash": "16469934637468151493",
           "deps": [
+            "npm:react",
             "npm:lucide-react",
             "npm:react-day-picker"
           ]
@@ -776,6 +690,7 @@
           "file": "apps/console/src/components/carousel.tsx",
           "hash": "8705321422065583248",
           "deps": [
+            "npm:react",
             "npm:embla-carousel-react",
             "npm:embla-carousel",
             "npm:lucide-react"
@@ -785,6 +700,7 @@
           "file": "apps/console/src/components/checkbox.tsx",
           "hash": "13247663794713640501",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-checkbox",
             "npm:lucide-react"
           ]
@@ -800,6 +716,7 @@
           "file": "apps/console/src/components/command.tsx",
           "hash": "13217139542505691297",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-dialog",
             "npm:cmdk",
             "npm:lucide-react"
@@ -809,6 +726,7 @@
           "file": "apps/console/src/components/context-menu.tsx",
           "hash": "2355257763739126540",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-context-menu",
             "npm:lucide-react"
           ]
@@ -817,6 +735,7 @@
           "file": "apps/console/src/components/dialog.tsx",
           "hash": "14249379518996657823",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-dialog",
             "npm:lucide-react"
           ]
@@ -825,6 +744,7 @@
           "file": "apps/console/src/components/drawer.tsx",
           "hash": "14682483984107576498",
           "deps": [
+            "npm:react",
             "npm:vaul"
           ]
         },
@@ -832,6 +752,7 @@
           "file": "apps/console/src/components/dropdown-menu.tsx",
           "hash": "5153806449251658207",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-dropdown-menu",
             "npm:lucide-react"
           ]
@@ -840,6 +761,7 @@
           "file": "apps/console/src/components/form.tsx",
           "hash": "6609623066781883857",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-label",
             "npm:@radix-ui/react-slot",
             "npm:react-hook-form"
@@ -849,6 +771,7 @@
           "file": "apps/console/src/components/hover-card.tsx",
           "hash": "17320732890174321802",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-hover-card"
           ]
         },
@@ -863,6 +786,7 @@
           "file": "apps/console/src/components/label.tsx",
           "hash": "9258587958602660868",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-label",
             "npm:class-variance-authority"
           ]
@@ -878,6 +802,7 @@
           "file": "apps/console/src/components/menubar.tsx",
           "hash": "6459812398642338126",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-menubar",
             "npm:lucide-react"
           ]
@@ -886,6 +811,7 @@
           "file": "apps/console/src/components/navigation-menu.tsx",
           "hash": "14006427848982843781",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-navigation-menu",
             "npm:class-variance-authority",
             "npm:lucide-react"
@@ -895,6 +821,7 @@
           "file": "apps/console/src/components/pagination.tsx",
           "hash": "11019115140192352528",
           "deps": [
+            "npm:react",
             "npm:lucide-react"
           ]
         },
@@ -902,6 +829,7 @@
           "file": "apps/console/src/components/popover.tsx",
           "hash": "18438995215682687782",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-popover"
           ]
         },
@@ -909,6 +837,7 @@
           "file": "apps/console/src/components/progress.tsx",
           "hash": "16200993389650428682",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-progress"
           ]
         },
@@ -916,6 +845,7 @@
           "file": "apps/console/src/components/radio-group.tsx",
           "hash": "2740849969314374138",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-radio-group",
             "npm:lucide-react"
           ]
@@ -924,14 +854,14 @@
           "file": "apps/console/src/components/resizable.tsx",
           "hash": "8283725623876245571",
           "deps": [
-            "npm:lucide-react",
-            "npm:react-resizable-panels"
+            "npm:lucide-react"
           ]
         },
         {
           "file": "apps/console/src/components/scroll-area.tsx",
           "hash": "5365529643138415096",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-scroll-area"
           ]
         },
@@ -939,6 +869,7 @@
           "file": "apps/console/src/components/select.tsx",
           "hash": "1687109902926101677",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-select",
             "npm:lucide-react"
           ]
@@ -947,6 +878,7 @@
           "file": "apps/console/src/components/separator.tsx",
           "hash": "16116543023666509976",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-separator"
           ]
         },
@@ -954,6 +886,7 @@
           "file": "apps/console/src/components/sheet.tsx",
           "hash": "2840713868317943137",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-dialog",
             "npm:class-variance-authority",
             "npm:lucide-react"
@@ -967,6 +900,7 @@
           "file": "apps/console/src/components/slider.tsx",
           "hash": "16077834755543381244",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-slider"
           ]
         },
@@ -982,6 +916,7 @@
           "file": "apps/console/src/components/switch.tsx",
           "hash": "6532959598142554528",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-switch"
           ]
         },
@@ -996,6 +931,7 @@
           "file": "apps/console/src/components/tabs.tsx",
           "hash": "13646656305044346199",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-tabs"
           ]
         },
@@ -1010,6 +946,7 @@
           "file": "apps/console/src/components/toast.tsx",
           "hash": "2051065942247039345",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-toast",
             "npm:class-variance-authority",
             "npm:lucide-react"
@@ -1023,6 +960,7 @@
           "file": "apps/console/src/components/toggle-group.tsx",
           "hash": "40002826535381481",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-toggle-group",
             "npm:class-variance-authority"
           ]
@@ -1031,6 +969,7 @@
           "file": "apps/console/src/components/toggle.tsx",
           "hash": "3571551439209539062",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-toggle",
             "npm:class-variance-authority"
           ]
@@ -1039,6 +978,7 @@
           "file": "apps/console/src/components/tooltip.tsx",
           "hash": "7700289687620167729",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-tooltip"
           ]
         },
@@ -1064,6 +1004,7 @@
           "file": "apps/console/src/layouts/AppLayout.tsx",
           "hash": "5270877458600649094",
           "deps": [
+            "npm:react",
             "npm:react-router-dom"
           ]
         },
@@ -1176,10 +1117,7 @@
         },
         {
           "file": "apps/console/src/pages/Home/overview.tsx",
-          "hash": "1467899307838685712",
-          "deps": [
-            "npm:recharts"
-          ]
+          "hash": "1467899307838685712"
         },
         {
           "file": "apps/console/src/pages/Home/stats.tsx",
@@ -1189,6 +1127,7 @@
           "file": "apps/console/src/pages/Home/ws-switcher.tsx",
           "hash": "16784820430069312006",
           "deps": [
+            "npm:react",
             "npm:@radix-ui/react-icons"
           ]
         },
@@ -1210,6 +1149,7 @@
           "file": "apps/console/src/patterns/sidebar.tsx",
           "hash": "307284317035656946",
           "deps": [
+            "npm:react",
             "npm:react-icons",
             "npm:react-router-dom"
           ]
@@ -1247,7 +1187,7 @@
         },
         {
           "file": "apps/console/vite.config.ts",
-          "hash": "14428601205693298504",
+          "hash": "10353031470344190478",
           "deps": [
             "npm:vite",
             "npm:@vitejs/plugin-react",
@@ -1360,11 +1300,11 @@
         },
         {
           "file": "package-lock.json",
-          "hash": "13314267274511495215"
+          "hash": "3756077520489878262"
         },
         {
           "file": "package.json",
-          "hash": "1703493259493516427",
+          "hash": "10011738702434293425",
           "deps": [
             "npm:@nx-tools/container-metadata",
             "npm:@nx-tools/nx-container",
@@ -1488,14 +1428,106 @@
         },
         {
           "file": "tools/scripts/publish.mjs",
-          "hash": "8455829797866792111",
-          "deps": [
-            "npm:@nx/devkit"
-          ]
+          "hash": "8455829797866792111"
         },
         {
           "file": "tsconfig.base.json",
           "hash": "10705868673053620399"
+        }
+      ],
+      "utils": [
+        {
+          "file": "libs/utils/.eslintrc.json",
+          "hash": "16896711999632553762"
+        },
+        {
+          "file": "libs/utils/README.md",
+          "hash": "3816604565008484386"
+        },
+        {
+          "file": "libs/utils/jest.config.ts",
+          "hash": "5669222313238020651"
+        },
+        {
+          "file": "libs/utils/package.json",
+          "hash": "15738207835631195449",
+          "deps": [
+            "npm:tslib"
+          ]
+        },
+        {
+          "file": "libs/utils/project.json",
+          "hash": "7894590553660049518"
+        },
+        {
+          "file": "libs/utils/src/index.ts",
+          "hash": "5679720557803443103"
+        },
+        {
+          "file": "libs/utils/src/lib/utils.spec.ts",
+          "hash": "1869297507391227175"
+        },
+        {
+          "file": "libs/utils/src/lib/utils.ts",
+          "hash": "4410618641919237161",
+          "deps": [
+            "npm:clsx",
+            "npm:tailwind-merge"
+          ]
+        },
+        {
+          "file": "libs/utils/tsconfig.json",
+          "hash": "5840880287502376438"
+        },
+        {
+          "file": "libs/utils/tsconfig.lib.json",
+          "hash": "3632393694954060084"
+        },
+        {
+          "file": "libs/utils/tsconfig.spec.json",
+          "hash": "11550347367511341917"
+        }
+      ],
+      "console-e2e": [
+        {
+          "file": "apps/console-e2e/.eslintrc.json",
+          "hash": "9199987846761270635"
+        },
+        {
+          "file": "apps/console-e2e/cypress.config.ts",
+          "hash": "5054456290394884373",
+          "deps": [
+            "npm:@nx/cypress",
+            "npm:cypress"
+          ]
+        },
+        {
+          "file": "apps/console-e2e/project.json",
+          "hash": "485615815432243157"
+        },
+        {
+          "file": "apps/console-e2e/src/e2e/app.cy.ts",
+          "hash": "18014579773344637391"
+        },
+        {
+          "file": "apps/console-e2e/src/fixtures/example.json",
+          "hash": "11785586596216172004"
+        },
+        {
+          "file": "apps/console-e2e/src/support/app.po.ts",
+          "hash": "11157016311132186162"
+        },
+        {
+          "file": "apps/console-e2e/src/support/commands.ts",
+          "hash": "5397443931564808659"
+        },
+        {
+          "file": "apps/console-e2e/src/support/e2e.ts",
+          "hash": "1054106023200826784"
+        },
+        {
+          "file": "apps/console-e2e/tsconfig.json",
+          "hash": "10740392072068377465"
         }
       ]
     }

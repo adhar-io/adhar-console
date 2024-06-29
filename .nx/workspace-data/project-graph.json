@@ -14126,12 +14126,12 @@
     "console": [
       {
         "source": "console",
-        "target": "npm:react-icons",
+        "target": "npm:react",
         "type": "static"
       },
       {
         "source": "console",
-        "target": "npm:react",
+        "target": "npm:react-icons",
         "type": "static"
       },
       {
@@ -14271,11 +14271,6 @@
       },
       {
         "source": "console",
-        "target": "npm:react-resizable-panels",
-        "type": "static"
-      },
-      {
-        "source": "console",
         "target": "npm:@radix-ui/react-scroll-area",
         "type": "static"
       },
@@ -14332,11 +14327,6 @@
       {
         "source": "console",
         "target": "npm:@radix-ui/react-tooltip",
-        "type": "static"
-      },
-      {
-        "source": "console",
-        "target": "npm:recharts",
         "type": "static"
       },
       {

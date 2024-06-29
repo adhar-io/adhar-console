@@ -40,3 +40,5 @@ testem.log
 Thumbs.db
 
 .nx/cache
+.nx/workspace-data/d/daemon.log
+.nx/workspace-data/lockfile.hash

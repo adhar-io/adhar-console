@@ -1,0 +1,1502 @@
+{
+  "version": "6.0",
+  "nxVersion": "19.3.2",
+  "deps": {
+    "@hookform/resolvers": "^3.3.4",
+    "@radix-ui/react-accordion": "^1.1.2",
+    "@radix-ui/react-alert-dialog": "^1.0.5",
+    "@radix-ui/react-aspect-ratio": "^1.0.3",
+    "@radix-ui/react-avatar": "^1.0.4",
+    "@radix-ui/react-checkbox": "^1.0.4",
+    "@radix-ui/react-collapsible": "^1.0.3",
+    "@radix-ui/react-context-menu": "^2.1.5",
+    "@radix-ui/react-dialog": "^1.0.5",
+    "@radix-ui/react-dropdown-menu": "^2.0.6",
+    "@radix-ui/react-hover-card": "^1.0.7",
+    "@radix-ui/react-icons": "^1.3.0",
+    "@radix-ui/react-label": "^2.0.2",
+    "@radix-ui/react-menubar": "^1.0.4",
+    "@radix-ui/react-navigation-menu": "^1.1.4",
+    "@radix-ui/react-popover": "^1.0.7",
+    "@radix-ui/react-progress": "^1.0.3",
+    "@radix-ui/react-radio-group": "^1.1.3",
+    "@radix-ui/react-scroll-area": "^1.0.5",
+    "@radix-ui/react-select": "^2.0.0",
+    "@radix-ui/react-separator": "^1.0.3",
+    "@radix-ui/react-slider": "^1.1.2",
+    "@radix-ui/react-slot": "^1.0.2",
+    "@radix-ui/react-switch": "^1.0.3",
+    "@radix-ui/react-tabs": "^1.0.4",
+    "@radix-ui/react-toast": "^1.1.5",
+    "@radix-ui/react-toggle": "^1.0.3",
+    "@radix-ui/react-toggle-group": "^1.0.4",
+    "@radix-ui/react-tooltip": "^1.0.7",
+    "@swc/helpers": "0.5.11",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.0",
+    "cmdk": "^1.0.0",
+    "date-fns": "^3.4.0",
+    "embla-carousel": "^8.0.0",
+    "embla-carousel-react": "^8.0.0",
+    "lucide-react": "^0.356.0",
+    "next-themes": "^0.3.0",
+    "react": "18.3.1",
+    "react-day-picker": "^8.10.0",
+    "react-dom": "18.3.1",
+    "react-hook-form": "^7.51.0",
+    "react-icons": "^5.0.1",
+    "react-is": "18.3.1",
+    "react-resizable-panels": "^2.0.12",
+    "react-router-dom": "6.22.3",
+    "recharts": "^2.12.2",
+    "sonner": "^1.4.3",
+    "styled-components": "6.1.8",
+    "tailwind-merge": "^2.2.1",
+    "tailwindcss-animate": "^1.0.7",
+    "tslib": "^2.6.2",
+    "vaul": "^0.9.0",
+    "zod": "^3.22.4",
+    "@nx-tools/container-metadata": "^5.2.0",
+    "@nx-tools/nx-container": "^5.2.0",
+    "@nx/cypress": "19.3.2",
+    "@nx/eslint": "19.3.2",
+    "@nx/eslint-plugin": "19.3.2",
+    "@nx/jest": "19.3.2",
+    "@nx/js": "19.3.2",
+    "@nx/react": "19.3.2",
+    "@nx/vite": "19.3.2",
+    "@nx/workspace": "19.3.2",
+    "@swc-node/register": "1.9.2",
+    "@swc/cli": "0.3.14",
+    "@swc/core": "1.5.7",
+    "@testing-library/react": "15.0.6",
+    "@types/jest": "^29.5.12",
+    "@types/node": "20.11.27",
+    "@types/react": "18.3.1",
+    "@types/react-dom": "18.3.0",
+    "@types/react-is": "18.3.0",
+    "@types/styled-components": "5.1.34",
+    "@typescript-eslint/eslint-plugin": "7.9.0",
+    "@typescript-eslint/parser": "7.9.0",
+    "@vitejs/plugin-react": "4.2.1",
+    "@vitest/coverage-v8": "1.6.0",
+    "@vitest/ui": "1.6.0",
+    "autoprefixer": "^10.4.18",
+    "babel-plugin-styled-components": "2.1.4",
+    "cypress": "13.9.0",
+    "eslint": "8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-cypress": "^2.15.1",
+    "eslint-plugin-import": "2.29.1",
+    "eslint-plugin-jsx-a11y": "6.8.0",
+    "eslint-plugin-react": "7.34.0",
+    "eslint-plugin-react-hooks": "4.6.0",
+    "jest": "^29.7.0",
+    "jest-environment-node": "^29.7.0",
+    "jsdom": "~24.0.0",
+    "nx": "19.3.2",
+    "postcss": "8.4.38",
+    "prettier": "^3.2.5",
+    "tailwindcss": "3.4.3",
+    "ts-jest": "^29.1.2",
+    "ts-node": "10.9.2",
+    "typescript": "5.4.2",
+    "verdaccio": "^5.29.2",
+    "vite": "5.1.6",
+    "vitest": "1.6.0"
+  },
+  "pathMappings": {
+    "@/*": [
+      "./src/*"
+    ],
+    "@adhar/utils": [
+      "libs/utils/src/index.ts"
+    ]
+  },
+  "nxJsonPlugins": [],
+  "fileMap": {
+    "projectFileMap": {
+      "console": [
+        {
+          "file": "apps/console/.eslintrc.json",
+          "hash": "11012487992710232822"
+        },
+        {
+          "file": "apps/console/index.html",
+          "hash": "2300924364337323547"
+        },
+        {
+          "file": "apps/console/project.json",
+          "hash": "1328460875452312078"
+        },
+        {
+          "file": "apps/console/public/favicon.ico",
+          "hash": "9303420814833116677"
+        },
+        {
+          "file": "apps/console/src/App.tsx",
+          "hash": "10403564047176501299",
+          "deps": [
+            "npm:react-icons"
+          ]
+        },
+        {
+          "file": "apps/console/src/Main.tsx",
+          "hash": "8385566265722377939",
+          "deps": [
+            "npm:react",
+            "npm:react-dom"
+          ]
+        },
+        {
+          "file": "apps/console/src/Provider.tsx",
+          "hash": "9629183403451408375",
+          "deps": [
+            "npm:react-router-dom"
+          ]
+        },
+        {
+          "file": "apps/console/src/Routes.tsx",
+          "hash": "13122470210754753774"
+        },
+        {
+          "file": "apps/console/src/assets/fonts/Inter-Bold.ttf",
+          "hash": "10644715919994621296"
+        },
+        {
+          "file": "apps/console/src/assets/fonts/Inter-Regular.ttf",
+          "hash": "18351409176218132362"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io Logo-01.jpg",
+          "hash": "18215410467530425803"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io Logo-01.png",
+          "hash": "3842740708184247342"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io Logo-02.jpg",
+          "hash": "17554147339803993275"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io Logo-02.png",
+          "hash": "2227611465606170774"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io Logo-03.jpg",
+          "hash": "9400949106840748424"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io Logo-03.png",
+          "hash": "2965037765961229469"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io Logo-04.jpg",
+          "hash": "10776659074878124183"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io Logo-04.png",
+          "hash": "5388088697928614162"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io Logo-05.jpg",
+          "hash": "12574439991802744795"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io Logo-05.png",
+          "hash": "12256848182222371281"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io Logo-06.jpg",
+          "hash": "3813122295382154968"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io Logo-06.png",
+          "hash": "15195670268089371444"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io Logo-07.jpg",
+          "hash": "12064252305839315094"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io Logo-07.png",
+          "hash": "393016656147727605"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io Logo-08.jpg",
+          "hash": "11650055559082543537"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io Logo-08.png",
+          "hash": "395817166751285857"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io icon-01.jpg",
+          "hash": "3464274755962433557"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io icon-01.png",
+          "hash": "12713040779369258938"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io icon-02.jpg",
+          "hash": "14134360378078064586"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io icon-02.png",
+          "hash": "11845621820517213323"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io icon-03.jpg",
+          "hash": "15506672603817221338"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io icon-03.png",
+          "hash": "18198603781549299446"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io icon-04.jpg",
+          "hash": "5210738146632405142"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io-01.svg",
+          "hash": "18430811780744422244"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io-03.svg",
+          "hash": "9108834618292270202"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io-04.svg",
+          "hash": "8946037294015326678"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io-05.svg",
+          "hash": "8861145701092926975"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Adhar.io-06.svg",
+          "hash": "10750754993675926840"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Gitea_Logo.png",
+          "hash": "5144478354499837172"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/IntelliJ_IDEA.png",
+          "hash": "2161343675686799959"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/Keycloak_Logo.png",
+          "hash": "10979090123847503961"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/adhar-console.svg",
+          "hash": "16717651599196289379"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/adhar-io.svg",
+          "hash": "5738228990799792703"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/adhar.svg",
+          "hash": "9266615987705332253"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/affine.png",
+          "hash": "11053936195433616024"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/airbyte.png",
+          "hash": "9470224914299124674"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/alertmanager.png",
+          "hash": "12795289212406309002"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/apisix.svg",
+          "hash": "4449445267873110026"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/argocd.webp",
+          "hash": "9904225776363269249"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/assist.png",
+          "hash": "15588405499810960628"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/avatar1.png",
+          "hash": "13312715453613290040"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/backstage.webp",
+          "hash": "11933707620385214549"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/brady-bellini-_hpk_92Crhs-unsplash.jpg",
+          "hash": "6475945506543380841"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/canvas.webp",
+          "hash": "8635185621092842097"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/casandra.png",
+          "hash": "7062749535002498232"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/cert-manager.png",
+          "hash": "10950554917450033060"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/cloudshell.png",
+          "hash": "13529858270906479208"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/cnpg.png",
+          "hash": "3033325542234422140"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/coder.png",
+          "hash": "12798409957263845927"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/codium.png",
+          "hash": "7006725975967731072"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/dagster.png",
+          "hash": "12267827473834504644"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/dapr.png",
+          "hash": "9871721148854858417"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/dbt.png",
+          "hash": "12043238662210041163"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/devspace.png",
+          "hash": "15115459306784125626"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/excalidraw.svg",
+          "hash": "1509411072868993911"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/fabio-oyXis2kALVg-unsplash.jpg",
+          "hash": "14770720525036986520"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/falco.png",
+          "hash": "2712926732838507343"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/grafana.png",
+          "hash": "7803413806614518737"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/grype.png",
+          "hash": "9517780275556743136"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/harbor.svg",
+          "hash": "16055253334157200071"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/headlamp.svg",
+          "hash": "8975793344752868372"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/hunter-reilly-O7NHbnjrz94-unsplash.jpg",
+          "hash": "11539366721928896963"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/istio.png",
+          "hash": "4367802174385638421"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/jaeger.png",
+          "hash": "16819548092693128253"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/kafka.png",
+          "hash": "4095445798560818641"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/kiali.png",
+          "hash": "17166469325003053342"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/knative.png",
+          "hash": "14148244453325092910"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/kubearmour.png",
+          "hash": "10157502049117308593"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/kubernetes.png",
+          "hash": "3026105440298457655"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/kyverno.png",
+          "hash": "4060601753969557028"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/logo.png",
+          "hash": "11845621820517213323"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/logo.svg",
+          "hash": "1794055672205526566"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/loki.png",
+          "hash": "12268340008678457352"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/marvin-meyer-SYTO3xs06fU-unsplash.jpg",
+          "hash": "4846703636457613201"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/mermaid.png",
+          "hash": "10831054803527260404"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/metabase.jpeg",
+          "hash": "8126531265117593887"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/metabase.png",
+          "hash": "2201269482608977108"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/minio.png",
+          "hash": "15786118369612576757"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/n8n.png",
+          "hash": "15225443049295960674"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/nasa-Q1p7bh3SHj8-unsplash.jpg",
+          "hash": "11115452778214818722"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/next-js.svg",
+          "hash": "17778110473986974403"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/nginx.svg",
+          "hash": "7975178387461371145"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/ngnix-ingress.png",
+          "hash": "15452479649610060060"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/nx.png",
+          "hash": "15797524479788705504"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/opa.png",
+          "hash": "13982259253930729965"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/openfunction.png",
+          "hash": "14407397803622839066"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/opentelemetry.png",
+          "hash": "13494652945330882718"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/plane.png",
+          "hash": "17402034530333884727"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/plane.webp",
+          "hash": "7243450250383938759"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/posthog.png",
+          "hash": "16658204555056701517"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/prometheus.png",
+          "hash": "10546431694885705726"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/quino-al-JFeOy62yjXk-unsplash.jpg",
+          "hash": "2614704479581966538"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/rabbitmq.png",
+          "hash": "7579248272014203786"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/redis.png",
+          "hash": "14631388036984773023"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/rizki-dwi-yd1wWWilf4o-unsplash.jpg",
+          "hash": "12688444478446240925"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/sealed-secrets.png",
+          "hash": "13082444158362115162"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/spiffe.png",
+          "hash": "3149824888563496348"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/spire.png",
+          "hash": "17039140206861051590"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/storybook.png",
+          "hash": "8107495545918062902"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/strapi.png",
+          "hash": "11686587726141129992"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/supabase.png",
+          "hash": "1476377512231710294"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/tecton.png",
+          "hash": "4255436477567554114"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/tempo.png",
+          "hash": "9825612821836643626"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/thanos.png",
+          "hash": "11050485148840682441"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/trivy.png",
+          "hash": "13704651740031180304"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/velero.png",
+          "hash": "12960261444842069563"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/vscode.png",
+          "hash": "15098560477352235007"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/webstudio.png",
+          "hash": "4134103221793061665"
+        },
+        {
+          "file": "apps/console/src/assets/imgs/webstudio.svg",
+          "hash": "15125519833157867203"
+        },
+        {
+          "file": "apps/console/src/components/accordion.tsx",
+          "hash": "9051916960295168109",
+          "deps": [
+            "npm:@radix-ui/react-accordion",
+            "npm:lucide-react"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/adhar-console-logo.tsx",
+          "hash": "5963223285949113839",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/alert-dialog.tsx",
+          "hash": "1299834895018105506",
+          "deps": [
+            "npm:@radix-ui/react-alert-dialog"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/alert.tsx",
+          "hash": "13319945136189265782",
+          "deps": [
+            "npm:class-variance-authority"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/aspect-ratio.tsx",
+          "hash": "12340592216594228921",
+          "deps": [
+            "npm:@radix-ui/react-aspect-ratio"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/avatar.tsx",
+          "hash": "10886953907489959418",
+          "deps": [
+            "npm:@radix-ui/react-avatar"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/badge.tsx",
+          "hash": "17768393970188635895",
+          "deps": [
+            "npm:class-variance-authority"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/button.tsx",
+          "hash": "10017711336591589444",
+          "deps": [
+            "npm:@radix-ui/react-slot",
+            "npm:class-variance-authority"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/calendar.tsx",
+          "hash": "16469934637468151493",
+          "deps": [
+            "npm:lucide-react",
+            "npm:react-day-picker"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/card.tsx",
+          "hash": "17217074080761359852",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/carousel.tsx",
+          "hash": "8705321422065583248",
+          "deps": [
+            "npm:embla-carousel-react",
+            "npm:embla-carousel",
+            "npm:lucide-react"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/checkbox.tsx",
+          "hash": "13247663794713640501",
+          "deps": [
+            "npm:@radix-ui/react-checkbox",
+            "npm:lucide-react"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/collapsible.tsx",
+          "hash": "8040382521055521536",
+          "deps": [
+            "npm:@radix-ui/react-collapsible"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/command.tsx",
+          "hash": "13217139542505691297",
+          "deps": [
+            "npm:@radix-ui/react-dialog",
+            "npm:cmdk",
+            "npm:lucide-react"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/context-menu.tsx",
+          "hash": "2355257763739126540",
+          "deps": [
+            "npm:@radix-ui/react-context-menu",
+            "npm:lucide-react"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/dialog.tsx",
+          "hash": "14249379518996657823",
+          "deps": [
+            "npm:@radix-ui/react-dialog",
+            "npm:lucide-react"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/drawer.tsx",
+          "hash": "14682483984107576498",
+          "deps": [
+            "npm:vaul"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/dropdown-menu.tsx",
+          "hash": "5153806449251658207",
+          "deps": [
+            "npm:@radix-ui/react-dropdown-menu",
+            "npm:lucide-react"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/form.tsx",
+          "hash": "6609623066781883857",
+          "deps": [
+            "npm:@radix-ui/react-label",
+            "npm:@radix-ui/react-slot",
+            "npm:react-hook-form"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/hover-card.tsx",
+          "hash": "17320732890174321802",
+          "deps": [
+            "npm:@radix-ui/react-hover-card"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/input.tsx",
+          "hash": "7401827016685944850",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/label.tsx",
+          "hash": "9258587958602660868",
+          "deps": [
+            "npm:@radix-ui/react-label",
+            "npm:class-variance-authority"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/logo.tsx",
+          "hash": "1442211492536820186",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/menubar.tsx",
+          "hash": "6459812398642338126",
+          "deps": [
+            "npm:@radix-ui/react-menubar",
+            "npm:lucide-react"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/navigation-menu.tsx",
+          "hash": "14006427848982843781",
+          "deps": [
+            "npm:@radix-ui/react-navigation-menu",
+            "npm:class-variance-authority",
+            "npm:lucide-react"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/pagination.tsx",
+          "hash": "11019115140192352528",
+          "deps": [
+            "npm:lucide-react"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/popover.tsx",
+          "hash": "18438995215682687782",
+          "deps": [
+            "npm:@radix-ui/react-popover"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/progress.tsx",
+          "hash": "16200993389650428682",
+          "deps": [
+            "npm:@radix-ui/react-progress"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/radio-group.tsx",
+          "hash": "2740849969314374138",
+          "deps": [
+            "npm:@radix-ui/react-radio-group",
+            "npm:lucide-react"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/resizable.tsx",
+          "hash": "8283725623876245571",
+          "deps": [
+            "npm:lucide-react",
+            "npm:react-resizable-panels"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/scroll-area.tsx",
+          "hash": "5365529643138415096",
+          "deps": [
+            "npm:@radix-ui/react-scroll-area"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/select.tsx",
+          "hash": "1687109902926101677",
+          "deps": [
+            "npm:@radix-ui/react-select",
+            "npm:lucide-react"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/separator.tsx",
+          "hash": "16116543023666509976",
+          "deps": [
+            "npm:@radix-ui/react-separator"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/sheet.tsx",
+          "hash": "2840713868317943137",
+          "deps": [
+            "npm:@radix-ui/react-dialog",
+            "npm:class-variance-authority",
+            "npm:lucide-react"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/skeleton.tsx",
+          "hash": "2866887187743429673"
+        },
+        {
+          "file": "apps/console/src/components/slider.tsx",
+          "hash": "16077834755543381244",
+          "deps": [
+            "npm:@radix-ui/react-slider"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/sonner.tsx",
+          "hash": "5486619919249932301",
+          "deps": [
+            "npm:next-themes",
+            "npm:sonner"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/switch.tsx",
+          "hash": "6532959598142554528",
+          "deps": [
+            "npm:@radix-ui/react-switch"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/table.tsx",
+          "hash": "5575825212863107993",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/tabs.tsx",
+          "hash": "13646656305044346199",
+          "deps": [
+            "npm:@radix-ui/react-tabs"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/textarea.tsx",
+          "hash": "12907934924487886707",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/toast.tsx",
+          "hash": "2051065942247039345",
+          "deps": [
+            "npm:@radix-ui/react-toast",
+            "npm:class-variance-authority",
+            "npm:lucide-react"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/toaster.tsx",
+          "hash": "10067895759467160104"
+        },
+        {
+          "file": "apps/console/src/components/toggle-group.tsx",
+          "hash": "40002826535381481",
+          "deps": [
+            "npm:@radix-ui/react-toggle-group",
+            "npm:class-variance-authority"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/toggle.tsx",
+          "hash": "3571551439209539062",
+          "deps": [
+            "npm:@radix-ui/react-toggle",
+            "npm:class-variance-authority"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/tooltip.tsx",
+          "hash": "7700289687620167729",
+          "deps": [
+            "npm:@radix-ui/react-tooltip"
+          ]
+        },
+        {
+          "file": "apps/console/src/components/use-toast.ts",
+          "hash": "337490791860953100",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/config/app-config.ts",
+          "hash": "1224084976078197667"
+        },
+        {
+          "file": "apps/console/src/hooks/useDarkMode.tsx",
+          "hash": "13142950513339870803",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/layouts/AppLayout.tsx",
+          "hash": "5270877458600649094",
+          "deps": [
+            "npm:react-router-dom"
+          ]
+        },
+        {
+          "file": "apps/console/src/layouts/ErrorLayout.tsx",
+          "hash": "8706555556504022620",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/layouts/OnboardingLayout.tsx",
+          "hash": "7979494108820528311",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/pages/Administrator/index.tsx",
+          "hash": "18313470160026384892",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/pages/Define/index.tsx",
+          "hash": "14333335208390930713",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/pages/Deliver/index.tsx",
+          "hash": "8178490079579645739",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/pages/Design/index.tsx",
+          "hash": "1974820712341479625",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/pages/Develop/index.tsx",
+          "hash": "931795380056281989",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/pages/Discover/index.tsx",
+          "hash": "6653252314672735902",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/pages/Error/index.tsx",
+          "hash": "14546884686587594965",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/pages/Home/Notifications/index.tsx",
+          "hash": "8739563981375699522",
+          "deps": [
+            "npm:react-icons",
+            "npm:lucide-react"
+          ]
+        },
+        {
+          "file": "apps/console/src/pages/Home/Profile/index.tsx",
+          "hash": "9173536444670862140",
+          "deps": [
+            "npm:lucide-react"
+          ]
+        },
+        {
+          "file": "apps/console/src/pages/Home/QuickAccess/index.tsx",
+          "hash": "9859622793634695743",
+          "deps": [
+            "npm:react-icons"
+          ]
+        },
+        {
+          "file": "apps/console/src/pages/Home/Search/index.tsx",
+          "hash": "649424096733175773",
+          "deps": [
+            "npm:lucide-react",
+            "npm:react-icons"
+          ]
+        },
+        {
+          "file": "apps/console/src/pages/Home/Settings/index.tsx",
+          "hash": "12226819123116632212",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/pages/Home/index.tsx",
+          "hash": "7951798227102007139",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/pages/Home/overview.tsx",
+          "hash": "1467899307838685712",
+          "deps": [
+            "npm:recharts"
+          ]
+        },
+        {
+          "file": "apps/console/src/pages/Home/stats.tsx",
+          "hash": "17778720693968749921"
+        },
+        {
+          "file": "apps/console/src/pages/Home/ws-switcher.tsx",
+          "hash": "16784820430069312006",
+          "deps": [
+            "npm:@radix-ui/react-icons"
+          ]
+        },
+        {
+          "file": "apps/console/src/pages/Onboarding/index.tsx",
+          "hash": "15025510842626482897",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/patterns/menubar.tsx",
+          "hash": "12850399600558554284",
+          "deps": [
+            "npm:react"
+          ]
+        },
+        {
+          "file": "apps/console/src/patterns/sidebar.tsx",
+          "hash": "307284317035656946",
+          "deps": [
+            "npm:react-icons",
+            "npm:react-router-dom"
+          ]
+        },
+        {
+          "file": "apps/console/src/patterns/topbar.tsx",
+          "hash": "7267152321204438446",
+          "deps": [
+            "npm:react-icons"
+          ]
+        },
+        {
+          "file": "apps/console/src/styles/global.css",
+          "hash": "9745728321965820255"
+        },
+        {
+          "file": "apps/console/src/utils/index.ts",
+          "hash": "8395042184824563528",
+          "deps": [
+            "npm:clsx",
+            "npm:tailwind-merge"
+          ]
+        },
+        {
+          "file": "apps/console/tsconfig.app.json",
+          "hash": "7232119452847825095"
+        },
+        {
+          "file": "apps/console/tsconfig.json",
+          "hash": "13304877942557074966"
+        },
+        {
+          "file": "apps/console/tsconfig.spec.json",
+          "hash": "17874504027954657085"
+        },
+        {
+          "file": "apps/console/vite.config.ts",
+          "hash": "17221613998465072907",
+          "deps": [
+            "npm:vite",
+            "npm:@vitejs/plugin-react"
+          ]
+        }
+      ],
+      "utils": [
+        {
+          "file": "libs/utils/.eslintrc.json",
+          "hash": "16896711999632553762"
+        },
+        {
+          "file": "libs/utils/README.md",
+          "hash": "3816604565008484386"
+        },
+        {
+          "file": "libs/utils/jest.config.ts",
+          "hash": "5669222313238020651"
+        },
+        {
+          "file": "libs/utils/package.json",
+          "hash": "15738207835631195449",
+          "deps": [
+            "npm:tslib"
+          ]
+        },
+        {
+          "file": "libs/utils/project.json",
+          "hash": "7894590553660049518"
+        },
+        {
+          "file": "libs/utils/src/index.ts",
+          "hash": "5679720557803443103"
+        },
+        {
+          "file": "libs/utils/src/lib/utils.spec.ts",
+          "hash": "1869297507391227175"
+        },
+        {
+          "file": "libs/utils/src/lib/utils.ts",
+          "hash": "4410618641919237161",
+          "deps": [
+            "npm:clsx",
+            "npm:tailwind-merge"
+          ]
+        },
+        {
+          "file": "libs/utils/tsconfig.json",
+          "hash": "5840880287502376438"
+        },
+        {
+          "file": "libs/utils/tsconfig.lib.json",
+          "hash": "3632393694954060084"
+        },
+        {
+          "file": "libs/utils/tsconfig.spec.json",
+          "hash": "11550347367511341917"
+        }
+      ],
+      "@adhar-console/source": [
+        {
+          "file": ".dockerignore",
+          "hash": "2303642404724327591"
+        },
+        {
+          "file": ".editorconfig",
+          "hash": "5443105041930014821"
+        },
+        {
+          "file": ".env",
+          "hash": "5238204894158769644"
+        },
+        {
+          "file": ".eslintignore",
+          "hash": "7663861978715868291"
+        },
+        {
+          "file": ".eslintrc.json",
+          "hash": "17866138117546000433"
+        },
+        {
+          "file": ".github/stale.yml",
+          "hash": "17709042610756921021"
+        },
+        {
+          "file": ".github/workflows/main.yml",
+          "hash": "8313762150490699687"
+        },
+        {
+          "file": ".gitignore",
+          "hash": "2309725262090455844"
+        },
+        {
+          "file": ".npmrc",
+          "hash": "3244421341483603138"
+        },
+        {
+          "file": ".prettierignore",
+          "hash": "16448050467312557263"
+        },
+        {
+          "file": ".prettierrc",
+          "hash": "16267754514737964994"
+        },
+        {
+          "file": ".verdaccio/config.yml",
+          "hash": "14993594506392938393"
+        },
+        {
+          "file": ".vscode/extensions.json",
+          "hash": "4637156562308165301"
+        },
+        {
+          "file": "CHANGELOG.md",
+          "hash": "4514649782101257042"
+        },
+        {
+          "file": "Dockerfile",
+          "hash": "1388254134619111757"
+        },
+        {
+          "file": "LICENSE",
+          "hash": "12649885980860800067"
+        },
+        {
+          "file": "README.md",
+          "hash": "14116602587951148954"
+        },
+        {
+          "file": "components.json",
+          "hash": "13395225042197085073"
+        },
+        {
+          "file": "jest.config.ts",
+          "hash": "12333515226966617182",
+          "deps": [
+            "npm:@nx/jest"
+          ]
+        },
+        {
+          "file": "jest.preset.js",
+          "hash": "9430166341120122740",
+          "deps": [
+            "npm:@nx/jest"
+          ]
+        },
+        {
+          "file": "migrations.json",
+          "hash": "13726210239003129902"
+        },
+        {
+          "file": "nginx/default.conf",
+          "hash": "2131434164268767195"
+        },
+        {
+          "file": "nginx/nginx.conf",
+          "hash": "2670337551245738217"
+        },
+        {
+          "file": "nx.json",
+          "hash": "6110692660640324276"
+        },
+        {
+          "file": "package-lock.json",
+          "hash": "4511919209706480308"
+        },
+        {
+          "file": "package.json",
+          "hash": "14459058536644586548",
+          "deps": [
+            "npm:@nx-tools/container-metadata",
+            "npm:@nx-tools/nx-container",
+            "npm:@nx/cypress",
+            "npm:@nx/eslint",
+            "npm:@nx/eslint-plugin",
+            "npm:@nx/jest",
+            "npm:@nx/js",
+            "npm:@nx/react",
+            "npm:@nx/vite",
+            "npm:@nx/workspace",
+            "npm:@swc-node/register",
+            "npm:@swc/cli",
+            "npm:@swc/core",
+            "npm:@testing-library/react",
+            "npm:@types/jest",
+            "npm:@types/node",
+            "npm:@types/react",
+            "npm:@types/react-dom",
+            "npm:@types/react-is",
+            "npm:@types/styled-components",
+            "npm:@typescript-eslint/eslint-plugin",
+            "npm:@typescript-eslint/parser",
+            "npm:@vitejs/plugin-react",
+            "npm:@vitest/coverage-v8",
+            "npm:@vitest/ui",
+            "npm:autoprefixer",
+            "npm:babel-plugin-styled-components",
+            "npm:cypress",
+            "npm:eslint",
+            "npm:eslint-config-prettier",
+            "npm:eslint-plugin-cypress",
+            "npm:eslint-plugin-import",
+            "npm:eslint-plugin-jsx-a11y",
+            "npm:eslint-plugin-react",
+            "npm:eslint-plugin-react-hooks",
+            "npm:jest",
+            "npm:jest-environment-node",
+            "npm:jsdom",
+            "npm:nx",
+            "npm:postcss",
+            "npm:prettier",
+            "npm:tailwindcss",
+            "npm:ts-jest",
+            "npm:ts-node",
+            "npm:typescript",
+            "npm:verdaccio",
+            "npm:vite",
+            "npm:vitest",
+            "npm:@hookform/resolvers",
+            "npm:@radix-ui/react-accordion",
+            "npm:@radix-ui/react-alert-dialog",
+            "npm:@radix-ui/react-aspect-ratio",
+            "npm:@radix-ui/react-avatar",
+            "npm:@radix-ui/react-checkbox",
+            "npm:@radix-ui/react-collapsible",
+            "npm:@radix-ui/react-context-menu",
+            "npm:@radix-ui/react-dialog",
+            "npm:@radix-ui/react-dropdown-menu",
+            "npm:@radix-ui/react-hover-card",
+            "npm:@radix-ui/react-icons",
+            "npm:@radix-ui/react-label",
+            "npm:@radix-ui/react-menubar",
+            "npm:@radix-ui/react-navigation-menu",
+            "npm:@radix-ui/react-popover",
+            "npm:@radix-ui/react-progress",
+            "npm:@radix-ui/react-radio-group",
+            "npm:@radix-ui/react-scroll-area",
+            "npm:@radix-ui/react-select",
+            "npm:@radix-ui/react-separator",
+            "npm:@radix-ui/react-slider",
+            "npm:@radix-ui/react-slot",
+            "npm:@radix-ui/react-switch",
+            "npm:@radix-ui/react-tabs",
+            "npm:@radix-ui/react-toast",
+            "npm:@radix-ui/react-toggle",
+            "npm:@radix-ui/react-toggle-group",
+            "npm:@radix-ui/react-tooltip",
+            "npm:@swc/helpers",
+            "npm:class-variance-authority",
+            "npm:clsx",
+            "npm:cmdk",
+            "npm:embla-carousel",
+            "npm:embla-carousel-react",
+            "npm:lucide-react",
+            "npm:next-themes",
+            "npm:react",
+            "npm:react-day-picker",
+            "npm:react-dom",
+            "npm:react-hook-form",
+            "npm:react-icons",
+            "npm:react-is",
+            "npm:react-router-dom",
+            "npm:sonner",
+            "npm:styled-components",
+            "npm:tailwind-merge",
+            "npm:tailwindcss-animate",
+            "npm:tslib",
+            "npm:vaul",
+            "npm:zod"
+          ]
+        },
+        {
+          "file": "pnpm-lock.yaml",
+          "hash": "6396201423551485086"
+        },
+        {
+          "file": "postcss.config.js",
+          "hash": "1579725330904862112"
+        },
+        {
+          "file": "project.json",
+          "hash": "10459292969705464846"
+        },
+        {
+          "file": "tailwind.config.js",
+          "hash": "6196628855886650156",
+          "deps": [
+            "npm:tailwindcss-animate"
+          ]
+        },
+        {
+          "file": "tools/scripts/publish.mjs",
+          "hash": "8455829797866792111",
+          "deps": [
+            "npm:@nx/devkit"
+          ]
+        },
+        {
+          "file": "tsconfig.base.json",
+          "hash": "10705868673053620399"
+        }
+      ],
+      "console-e2e": [
+        {
+          "file": "apps/console-e2e/.eslintrc.json",
+          "hash": "9199987846761270635"
+        },
+        {
+          "file": "apps/console-e2e/cypress.config.ts",
+          "hash": "5054456290394884373",
+          "deps": [
+            "npm:@nx/cypress",
+            "npm:cypress"
+          ]
+        },
+        {
+          "file": "apps/console-e2e/project.json",
+          "hash": "485615815432243157"
+        },
+        {
+          "file": "apps/console-e2e/src/e2e/app.cy.ts",
+          "hash": "18014579773344637391"
+        },
+        {
+          "file": "apps/console-e2e/src/fixtures/example.json",
+          "hash": "11785586596216172004"
+        },
+        {
+          "file": "apps/console-e2e/src/support/app.po.ts",
+          "hash": "11157016311132186162"
+        },
+        {
+          "file": "apps/console-e2e/src/support/commands.ts",
+          "hash": "5397443931564808659"
+        },
+        {
+          "file": "apps/console-e2e/src/support/e2e.ts",
+          "hash": "1054106023200826784"
+        },
+        {
+          "file": "apps/console-e2e/tsconfig.json",
+          "hash": "10740392072068377465"
+        }
+      ]
+    },
+    "nonProjectFiles": []
+  }
+}

@@ -7,6 +7,7 @@ import { nxViteTsPaths } from '@nx/vite/plugins/nx-tsconfig-paths.plugin';
 
 export default defineConfig({
   root: __dirname,
+  base: '/',
   build: {
     outDir: '../../dist/apps/console',
     reportCompressedSize: true,
@@ -14,7 +15,7 @@ export default defineConfig({
       transformMixedEsModules: true,
     },
     rollupOptions: {
-      // external: ['src/Main.tsx'],
+      external: ['./src/Main.tsx'],
       output: {
         manualChunks: {
           'radix-ui': [

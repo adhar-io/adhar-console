@@ -14363,6 +14363,11 @@
         "source": "console",
         "target": "npm:@vitejs/plugin-react",
         "type": "static"
+      },
+      {
+        "source": "console",
+        "target": "npm:@nx/vite",
+        "type": "static"
       }
     ],
     "utils": [

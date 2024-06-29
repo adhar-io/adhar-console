@@ -22,17 +22,18 @@ RUN npx nx build console
 # Stage 2: Serve the application with Nginx
 FROM nginx:stable-alpine
 
+# Non previledge user
 RUN  touch /var/run/nginx.pid && \
      chown -R nginx:nginx /var/cache/nginx /var/run/nginx.pid
 
 USER nginx
 
+# Copy the built application from the previous stage
+COPY --chown=nginx:nginx --from=builder /app/dist/apps/console /usr/share/nginx/html
+
 # Copy nginx configuration
 COPY --chown=nginx:nginx /nginx/nginx.conf /etc/nginx/nginx.conf
 COPY --chown=nginx:nginx /nginx/default.conf /etc/nginx/conf.d/default.conf
-
-# Copy the built application from the previous stage
-COPY --chown=nginx:nginx --from=builder /app/dist/apps/console /usr/share/nginx/html
 
 # Expose port 80
 EXPOSE 80

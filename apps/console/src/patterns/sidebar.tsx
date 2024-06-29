@@ -12,15 +12,15 @@ const SideBar = () => {
     }
 
   return (
-    <div className="fixed top-0 left-0 h-screen w-16 flex flex-col bg-white dark:bg-gray-900 shadow-lg">        
-        <SideBarItem icon={<Logo selected={getSelection('home')} />} route="/" selected={getSelection('home')} onClick={() => setSelectedItem('home')} />
+    <div className="fixed top-0 left-0 h-screen w-16 flex flex-col bg-white dark:bg-gray-900 shadow-lg">
+        <SideBarItem icon={<Logo selected={getSelection('home')} />} route="/console" selected={getSelection('home')} onClick={() => setSelectedItem('home')} />
         <Divider />
-        <SideBarItem icon={<FaLayerGroup size="20" />} label="Define" route="/define" selected={getSelection('define')} onClick={() => setSelectedItem('define')}/>
-        <SideBarItem icon={<FaPalette size="20" />} label="Design" route="/design" selected={getSelection('design')} onClick={() => setSelectedItem('design')}/>
-        <SideBarItem icon={<FaFlask size="20" />} label="Develop" route="/develop" selected={getSelection('develop')} onClick={() => setSelectedItem('develop')}/>
-        <SideBarItem icon={<FaSailboat size="20" />} label="Deliver" route="/deliver" selected={getSelection('deliver')} onClick={() => setSelectedItem('deliver')}/>
-        <SideBarItem icon={<FaChartPie size="20" />} label="Discover" route="/discover" selected={getSelection('discover')} onClick={() => setSelectedItem('discover')}/>
-        <SideBarItem icon={<FaGear size="20" />} label="Admin" route="/admin" selected={getSelection('admin')} onClick={() => setSelectedItem('admin')}/>
+        <SideBarItem icon={<FaLayerGroup size="20" />} label="Define" route="/console/define" selected={getSelection('define')} onClick={() => setSelectedItem('define')}/>
+        <SideBarItem icon={<FaPalette size="20" />} label="Design" route="/console/design" selected={getSelection('design')} onClick={() => setSelectedItem('design')}/>
+        <SideBarItem icon={<FaFlask size="20" />} label="Develop" route="/console/develop" selected={getSelection('develop')} onClick={() => setSelectedItem('develop')}/>
+        <SideBarItem icon={<FaSailboat size="20" />} label="Deliver" route="/console/deliver" selected={getSelection('deliver')} onClick={() => setSelectedItem('deliver')}/>
+        <SideBarItem icon={<FaChartPie size="20" />} label="Discover" route="/console/discover" selected={getSelection('discover')} onClick={() => setSelectedItem('discover')}/>
+        <SideBarItem icon={<FaGear size="20" />} label="Admin" route="/console/admin" selected={getSelection('admin')} onClick={() => setSelectedItem('admin')}/>
         <div className="fixed bottom-0 mb-5 text-center w-16">
           <p className="version">v0.1.85</p>
           <Divider />

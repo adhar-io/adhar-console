@@ -14136,11 +14136,6 @@
       },
       {
         "source": "console",
-        "target": "npm:react-dom",
-        "type": "static"
-      },
-      {
-        "source": "console",
         "target": "npm:react-router-dom",
         "type": "static"
       },
@@ -14327,6 +14322,11 @@
       {
         "source": "console",
         "target": "npm:@radix-ui/react-tooltip",
+        "type": "static"
+      },
+      {
+        "source": "console",
+        "target": "npm:react-dom",
         "type": "static"
       },
       {

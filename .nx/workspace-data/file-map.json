@@ -117,57 +117,46 @@
   "fileMap": {
     "nonProjectFiles": [],
     "projectFileMap": {
-      "utils": [
+      "console-e2e": [
         {
-          "file": "libs/utils/.eslintrc.json",
-          "hash": "16896711999632553762"
+          "file": "apps/console-e2e/.eslintrc.json",
+          "hash": "9199987846761270635"
         },
         {
-          "file": "libs/utils/README.md",
-          "hash": "3816604565008484386"
-        },
-        {
-          "file": "libs/utils/jest.config.ts",
-          "hash": "5669222313238020651"
-        },
-        {
-          "file": "libs/utils/package.json",
-          "hash": "15738207835631195449",
+          "file": "apps/console-e2e/cypress.config.ts",
+          "hash": "5054456290394884373",
           "deps": [
-            "npm:tslib"
+            "npm:@nx/cypress",
+            "npm:cypress"
           ]
         },
         {
-          "file": "libs/utils/project.json",
-          "hash": "7894590553660049518"
+          "file": "apps/console-e2e/project.json",
+          "hash": "485615815432243157"
         },
         {
-          "file": "libs/utils/src/index.ts",
-          "hash": "5679720557803443103"
+          "file": "apps/console-e2e/src/e2e/app.cy.ts",
+          "hash": "18014579773344637391"
         },
         {
-          "file": "libs/utils/src/lib/utils.spec.ts",
-          "hash": "1869297507391227175"
+          "file": "apps/console-e2e/src/fixtures/example.json",
+          "hash": "11785586596216172004"
         },
         {
-          "file": "libs/utils/src/lib/utils.ts",
-          "hash": "4410618641919237161",
-          "deps": [
-            "npm:clsx",
-            "npm:tailwind-merge"
-          ]
+          "file": "apps/console-e2e/src/support/app.po.ts",
+          "hash": "11157016311132186162"
         },
         {
-          "file": "libs/utils/tsconfig.json",
-          "hash": "5840880287502376438"
+          "file": "apps/console-e2e/src/support/commands.ts",
+          "hash": "5397443931564808659"
         },
         {
-          "file": "libs/utils/tsconfig.lib.json",
-          "hash": "3632393694954060084"
+          "file": "apps/console-e2e/src/support/e2e.ts",
+          "hash": "1054106023200826784"
         },
         {
-          "file": "libs/utils/tsconfig.spec.json",
-          "hash": "11550347367511341917"
+          "file": "apps/console-e2e/tsconfig.json",
+          "hash": "10740392072068377465"
         }
       ],
       "@adhar-console/source": [
@@ -201,7 +190,7 @@
         },
         {
           "file": ".gitignore",
-          "hash": "2309725262090455844"
+          "hash": "11224935988836614107"
         },
         {
           "file": ".npmrc",
@@ -275,11 +264,11 @@
         },
         {
           "file": "package-lock.json",
-          "hash": "3756077520489878262"
+          "hash": "6791808875762614905"
         },
         {
           "file": "package.json",
-          "hash": "13087525295256648550",
+          "hash": "6780133647060106768",
           "deps": [
             "npm:@nx-tools/container-metadata",
             "npm:@nx-tools/nx-container",
@@ -436,14 +425,6 @@
           ]
         },
         {
-          "file": "apps/console/src/Main.tsx",
-          "hash": "8385566265722377939",
-          "deps": [
-            "npm:react",
-            "npm:react-dom"
-          ]
-        },
-        {
           "file": "apps/console/src/Provider.tsx",
           "hash": "9629183403451408375",
           "deps": [
@@ -453,7 +434,7 @@
         },
         {
           "file": "apps/console/src/Routes.tsx",
-          "hash": "13122470210754753774"
+          "hash": "9224355923495007760"
         },
         {
           "file": "apps/console/src/assets/fonts/Inter-Bold.ttf",
@@ -1316,6 +1297,14 @@
           ]
         },
         {
+          "file": "apps/console/src/main.tsx",
+          "hash": "8385566265722377939",
+          "deps": [
+            "npm:react",
+            "npm:react-dom"
+          ]
+        },
+        {
           "file": "apps/console/src/pages/Administrator/index.tsx",
           "hash": "18313470160026384892",
           "deps": [
@@ -1440,7 +1429,7 @@
         },
         {
           "file": "apps/console/src/patterns/sidebar.tsx",
-          "hash": "307284317035656946",
+          "hash": "17490784582195426815",
           "deps": [
             "npm:react",
             "npm:react-icons",
@@ -1480,62 +1469,65 @@
         },
         {
           "file": "apps/console/vite.config.ts",
-          "hash": "9038242362479046275",
+          "hash": "8664880418823821762",
           "deps": [
             "npm:vite",
             "npm:@vitejs/plugin-react",
             "npm:@nx/vite"
           ]
-        },
-        {
-          "file": "apps/console/src/main.tsx",
-          "hash": "8385566265722377939",
-          "deps": [
-            "npm:react",
-            "npm:react-dom"
-          ]
         }
       ],
-      "console-e2e": [
+      "utils": [
         {
-          "file": "apps/console-e2e/.eslintrc.json",
-          "hash": "9199987846761270635"
+          "file": "libs/utils/.eslintrc.json",
+          "hash": "16896711999632553762"
         },
         {
-          "file": "apps/console-e2e/cypress.config.ts",
-          "hash": "5054456290394884373",
+          "file": "libs/utils/README.md",
+          "hash": "3816604565008484386"
+        },
+        {
+          "file": "libs/utils/jest.config.ts",
+          "hash": "5669222313238020651"
+        },
+        {
+          "file": "libs/utils/package.json",
+          "hash": "15738207835631195449",
           "deps": [
-            "npm:@nx/cypress",
-            "npm:cypress"
+            "npm:tslib"
           ]
         },
         {
-          "file": "apps/console-e2e/project.json",
-          "hash": "485615815432243157"
+          "file": "libs/utils/project.json",
+          "hash": "7894590553660049518"
         },
         {
-          "file": "apps/console-e2e/src/e2e/app.cy.ts",
-          "hash": "18014579773344637391"
+          "file": "libs/utils/src/index.ts",
+          "hash": "5679720557803443103"
         },
         {
-          "file": "apps/console-e2e/src/fixtures/example.json",
-          "hash": "11785586596216172004"
+          "file": "libs/utils/src/lib/utils.spec.ts",
+          "hash": "1869297507391227175"
         },
         {
-          "file": "apps/console-e2e/src/support/app.po.ts",
-          "hash": "11157016311132186162"
+          "file": "libs/utils/src/lib/utils.ts",
+          "hash": "4410618641919237161",
+          "deps": [
+            "npm:clsx",
+            "npm:tailwind-merge"
+          ]
         },
         {
-          "file": "apps/console-e2e/src/support/commands.ts",
-          "hash": "5397443931564808659"
+          "file": "libs/utils/tsconfig.json",
+          "hash": "5840880287502376438"
         },
         {
-          "file": "apps/console-e2e/src/support/e2e.ts",
-          "hash": "1054106023200826784"
+          "file": "libs/utils/tsconfig.lib.json",
+          "hash": "3632393694954060084"
         },
         {
-          "file": "apps/console-e2e/tsconfig.json",
-          "hash": "10740392072068377465"
+          "file": "libs/utils/tsconfig.spec.json",
+          "hash": "11550347367511341917"
         }
       ]
     }

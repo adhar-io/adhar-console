@@ -44,3 +44,4 @@ Thumbs.db
 .nx/workspace-data/lockfile.hash
 .nx/workspace-data/file-map.json
 .nx/workspace-data/d/server-process.json
+/.nx/workspace-data

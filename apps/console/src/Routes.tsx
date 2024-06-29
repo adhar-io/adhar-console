@@ -16,7 +16,7 @@ import Settings from './pages/Home/Settings';
 const routes = [
     {
     element: <AppLayout />,
-    path: '/',
+    path: 'console',
     children: [
       {
         index: true,
@@ -126,7 +126,7 @@ const routes = [
       },
       {
         element: <Administrator />,
-        path: '/admin',
+        path: 'admin',
       }
     ],
   },

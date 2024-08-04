@@ -31,7 +31,7 @@ import {
 import {
   isGithubActionsAvailable,
   EntityGithubActionsContent,
-} from '@backstage/plugin-github-actions';
+} from '@backstage-community/plugin-github-actions';
 import {
   EntityUserProfileCard,
   EntityGroupProfileCard,
@@ -70,6 +70,7 @@ import {
   isArgoWorkflowsAvailable,
 } from '@internal/plugin-argo-workflows';
 import {ApacheSparkPage, isApacheSparkAvailable} from "@internal/plugin-apache-spark";
+import { isTerraformAvailable, TerraformPluginPage } from '@internal/plugin-terraform';
 
 const techdocsContent = (
   <EntityTechdocsContent>
@@ -154,6 +155,13 @@ const overviewContent = (
         </Grid>
         <Grid item md={6}>
           <EntityArgoWorkflowsTemplateOverviewCard />
+        </Grid>
+      </EntitySwitch.Case>
+    </EntitySwitch>
+    <EntitySwitch>
+      <EntitySwitch.Case if={e => isTerraformAvailable(e)}>
+        <Grid item md={6}>
+          <TerraformPluginPage />
         </Grid>
       </EntitySwitch.Case>
     </EntitySwitch>

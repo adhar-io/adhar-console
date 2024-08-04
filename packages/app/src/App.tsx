@@ -13,7 +13,7 @@ import {
 import { ScaffolderPage, scaffolderPlugin } from '@backstage/plugin-scaffolder';
 import { orgPlugin } from '@backstage/plugin-org';
 import { SearchPage } from '@backstage/plugin-search';
-import { TechRadarPage } from '@backstage/plugin-tech-radar';
+import { TechRadarPage } from '@backstage-community/plugin-tech-radar';
 import {
   TechDocsIndexPage,
   techdocsPlugin,
@@ -45,7 +45,7 @@ import { ApacheSparkPage } from '@internal/plugin-apache-spark';
 import {
   UnifiedThemeProvider
 } from "@backstage/theme";
-
+import { TerraformPluginPage } from '@internal/plugin-terraform';
 
 const app = createApp({
   apis,
@@ -148,6 +148,7 @@ const routes = (
     <Route path="/catalog-graph" element={<CatalogGraphPage />} />
     <Route path="/argo-workflows" element={<ArgoWorkflowsPage />} />
     <Route path="/apache-spark" element={<ApacheSparkPage />} />
+    <Route path="/terraform" element={<TerraformPluginPage />} />
   </FlatRoutes>
 );
 

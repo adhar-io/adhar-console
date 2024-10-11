@@ -1,23 +1,20 @@
-# CNOE Backstage 
+# Adhar Console 
 
-This repository contains code for the [Backstage](https://backstage.io) images used by the CNOE stacks.
+This repository contains code for `Adhar Console` which is developed based on [Backstage](https://backstage.io).
 
 ## Container Images
 
-Container images are pushed to the GitHub Container Registry and available [here](https://github.com/cnoe-io/backstage-app/pkgs/container/backstage-app).
+Container images are pushed to the GitHub Container Registry and available [here](https://github.com/adhar-io/adhar-console/pkgs/container/adhar-console).
 
 
-## Local Development
+## Getting Started
 
-Use of [**idpbuilder**](https://github.com/cnoe-io/idpbuilder) is recommended for local setup.
-See [the instructions](https://github.com/cnoe-io/idpbuilder?tab=readme-ov-file#getting-started) in the idpbuilder repository for details.
+Use of [**adhar**](https://github.com/adhar-io/adhar) is recommended for local setup.
 
 ### Create your local cluster
 
-Once idpbuilder is installed on your computer, create a stack that you are interested in. For example:
-
 ```bash
-./idpbuilder create -p https://github.com/cnoe-io/stacks//ref-implementation
+./adhar up
 ```
 
 Wait for ArgoCD applications to be healthy: 
@@ -45,7 +42,7 @@ Once all ArgoCD applications are healthy, you need to update a few fields in the
 
 #### Update control plane URL
 
-The control plane port must be updated every time a cluster is created. Run the `kubectl cluster-info` command to get the control plane URL. Once you have your URL, update your `app-config.yaml` file at [this line](https://github.com/cnoe-io/backstage-app/blob/9ee3514e51c1a354b7fe85a90117faf8328bfa0b/app-config.yaml#L122).
+The control plane port must be updated every time a cluster is created. Run the `kubectl cluster-info` command to get the control plane URL. Once you have your URL, update your `app-config.yaml` file.
 
 For example:
 
@@ -83,12 +80,12 @@ If you do not want to place the token value in your file, you can use environmen
 
 #### Update ArgoCD token
 
-ArgoCD admin passwords are generated on each fresh installation. You need to update the configuration file accordingly. To obtain your password, run: `./idpbuilder get secrets -p argocd`. Then update [this line](https://github.com/cnoe-io/backstage-app/blob/9ee3514e51c1a354b7fe85a90117faf8328bfa0b/app-config.yaml#L136)
+ArgoCD admin passwords are generated on each fresh installation. You need to update the configuration file accordingly. To obtain your password, run: `adhar get secrets -p argocd`. Then update [this line](https://github.com/cnoe-io/backstage-app/blob/9ee3514e51c1a354b7fe85a90117faf8328bfa0b/app-config.yaml#L136)
 
 For example:
 
 ```bash
-$ ./idpbuilder get secrets -p argocd
+$ adhar get secrets -p argocd
 
 ---------------------------
 Name: argocd-initial-admin-secret
@@ -100,13 +97,13 @@ Data:
 
 #### Update Gitea Credentials
 
-Gitea admin passwords are generated on each fresh installation as well. To obtain your password, run: `./idpbuilder get secrets -p argocd`.
+Gitea admin passwords are generated on each fresh installation as well. To obtain your password, run: `adhar get secrets -p argocd`.
 Then update [this line](https://github.com/cnoe-io/backstage-app/blob/9ee3514e51c1a354b7fe85a90117faf8328bfa0b/app-config.yaml#L40) and [this line](https://github.com/cnoe-io/backstage-app/blob/9ee3514e51c1a354b7fe85a90117faf8328bfa0b/app-config.yaml#L44).
 
 For example:
 
 ```bash
-$ ./idpbuilder get secrets -p gitea
+$ adhar get secrets -p gitea
 
 ---------------------------
 Name: gitea-credential

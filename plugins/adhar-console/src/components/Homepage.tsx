@@ -1,19 +1,16 @@
 import { Content, Page } from '@backstage/core-components';
-import { HomePageSearchBar } from '@backstage/plugin-search';
 import { SearchContextProvider } from '@backstage/plugin-search-react';
 import { Grid, makeStyles } from '@material-ui/core';
 import React from 'react';
 
 import {
   HomePageToolkit,
-  HomePageCompanyLogo,
   HomePageStarredEntities,
   TemplateBackstageLogoIcon,
+  HomePageRandomJoke,
 } from '@backstage/plugin-home';
-
-import {
-  AdharIcon,
-} from './logos';
+import { Graph } from './Graph';
+import { Activity } from './Activity';
 
 const useStyles = makeStyles(theme => ({
   searchBar: {
@@ -49,18 +46,159 @@ export const AdharConsoleHomepage = () => {
       <Page themeId="home">
         <Content>
           <Grid container justifyContent="center" spacing={6}>
-            <HomePageCompanyLogo className={container} logo={<AdharIcon />} />
             <Grid container item xs={12} alignItems="center" direction="row">
-              <HomePageSearchBar classes={{ root: classes.searchBar }} placeholder="Search" />
+              <Graph />
             </Grid>
             <Grid container item xs={12}>
               <Grid item xs={12} md={6}>
                 <HomePageStarredEntities />
+                <br />
+                <Activity />
               </Grid>
               <Grid item xs={12} md={6}>
                 <HomePageToolkit
-                  title="Quick Links"
+                  title="Platform Apps"
                   tools={[
+                    {
+                      url: '/catalog',
+                      label: 'Catalog',
+                      icon: <TemplateBackstageLogoIcon/>,
+                    },
+                    {
+                      url: '/docs',
+                      label: 'Tech Docs',
+                      icon: <TemplateBackstageLogoIcon />,
+                    },
+                    {
+                      url: '/catalog',
+                      label: 'Catalog',
+                      icon: <TemplateBackstageLogoIcon/>,
+                    },
+                    {
+                      url: '/docs',
+                      label: 'Tech Docs',
+                      icon: <TemplateBackstageLogoIcon />,
+                    },
+                    {
+                      url: '/catalog',
+                      label: 'Catalog',
+                      icon: <TemplateBackstageLogoIcon/>,
+                    },
+                    {
+                      url: '/docs',
+                      label: 'Tech Docs',
+                      icon: <TemplateBackstageLogoIcon />,
+                    },
+                    {
+                      url: '/catalog',
+                      label: 'Catalog',
+                      icon: <TemplateBackstageLogoIcon/>,
+                    },
+                    {
+                      url: '/docs',
+                      label: 'Tech Docs',
+                      icon: <TemplateBackstageLogoIcon />,
+                    },
+                    {
+                      url: '/catalog',
+                      label: 'Catalog',
+                      icon: <TemplateBackstageLogoIcon/>,
+                    },
+                    {
+                      url: '/docs',
+                      label: 'Tech Docs',
+                      icon: <TemplateBackstageLogoIcon />,
+                    },
+                    {
+                      url: '/catalog',
+                      label: 'Catalog',
+                      icon: <TemplateBackstageLogoIcon/>,
+                    },
+                    {
+                      url: '/docs',
+                      label: 'Tech Docs',
+                      icon: <TemplateBackstageLogoIcon />,
+                    },
+                    {
+                      url: '/catalog',
+                      label: 'Catalog',
+                      icon: <TemplateBackstageLogoIcon/>,
+                    },
+                    {
+                      url: '/docs',
+                      label: 'Tech Docs',
+                      icon: <TemplateBackstageLogoIcon />,
+                    },
+                    {
+                      url: '/catalog',
+                      label: 'Catalog',
+                      icon: <TemplateBackstageLogoIcon/>,
+                    },
+                    {
+                      url: '/docs',
+                      label: 'Tech Docs',
+                      icon: <TemplateBackstageLogoIcon />,
+                    },
+                    {
+                      url: '/catalog',
+                      label: 'Catalog',
+                      icon: <TemplateBackstageLogoIcon/>,
+                    },
+                    {
+                      url: '/docs',
+                      label: 'Tech Docs',
+                      icon: <TemplateBackstageLogoIcon />,
+                    },
+                    {
+                      url: '/catalog',
+                      label: 'Catalog',
+                      icon: <TemplateBackstageLogoIcon/>,
+                    },
+                    {
+                      url: '/docs',
+                      label: 'Tech Docs',
+                      icon: <TemplateBackstageLogoIcon />,
+                    },
+                    {
+                      url: '/catalog',
+                      label: 'Catalog',
+                      icon: <TemplateBackstageLogoIcon/>,
+                    },
+                    {
+                      url: '/docs',
+                      label: 'Tech Docs',
+                      icon: <TemplateBackstageLogoIcon />,
+                    },
+                    {
+                      url: '/catalog',
+                      label: 'Catalog',
+                      icon: <TemplateBackstageLogoIcon/>,
+                    },
+                    {
+                      url: '/docs',
+                      label: 'Tech Docs',
+                      icon: <TemplateBackstageLogoIcon />,
+                    },
+                    {
+                      url: '/catalog',
+                      label: 'Catalog',
+                      icon: <TemplateBackstageLogoIcon/>,
+                    },
+                    {
+                      url: '/docs',
+                      label: 'Tech Docs',
+                      icon: <TemplateBackstageLogoIcon />,
+                    },
+                    {
+                      url: '/catalog',
+                      label: 'Catalog',
+                      icon: <TemplateBackstageLogoIcon/>,
+                    },
+                    {
+                      url: '/docs',
+                      label: 'Tech Docs',
+                      icon: <TemplateBackstageLogoIcon />,
+                    },
                     {
                       url: '/catalog',
                       label: 'Catalog',

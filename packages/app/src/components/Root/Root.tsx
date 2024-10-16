@@ -22,6 +22,7 @@ import {
   SidebarSpace,
   useSidebarOpenState,
   Link,
+  CatalogIcon,
 } from '@backstage/core-components';
 import MenuIcon from '@material-ui/icons/Menu';
 import SearchIcon from '@material-ui/icons/Search';
@@ -64,16 +65,51 @@ export const Root = ({ children }: PropsWithChildren<{}>) => (
       <SidebarDivider />
       <SidebarGroup label="Menu" icon={<MenuIcon />}>
         {/* Global nav, not org-specific */}
-        <SidebarItem icon={HomeIcon} to="catalog" text="Home" />
+        <SidebarItem icon={CatalogIcon} to="catalog" text="Catalog" />
         <SidebarItem icon={ExtensionIcon} to="api-docs" text="APIs" />
         <SidebarItem icon={LibraryBooks} to="docs" text="Docs" />
-        <SidebarItem icon={CreateComponentIcon} to="create" text="Create..." />
         {/* End global nav */}
-        <SidebarDivider />
         <SidebarScrollWrapper>
           <SidebarItem icon={MapIcon} to="tech-radar" text="Tech Radar" />
         </SidebarScrollWrapper>
+        <SidebarItem icon={CreateComponentIcon} to="create" text="Create..." />
       </SidebarGroup>
+      <SidebarDivider />
+      <SidebarGroup label="Define" icon={<MenuIcon />}>
+        <SidebarItem icon={CatalogIcon} to="catalog" text="Catalog" />
+        <SidebarItem icon={ExtensionIcon} to="api-docs" text="APIs" />
+        <SidebarItem icon={LibraryBooks} to="docs" text="Docs" />
+        <SidebarItem icon={CreateComponentIcon} to="create" text="Create..." />
+      </SidebarGroup>
+      <SidebarDivider />
+      <SidebarGroup label="Design" icon={<MenuIcon />}>
+        <SidebarItem icon={CatalogIcon} to="catalog" text="Catalog" />
+        <SidebarItem icon={ExtensionIcon} to="api-docs" text="APIs" />
+        <SidebarItem icon={LibraryBooks} to="docs" text="Docs" />
+        <SidebarItem icon={CreateComponentIcon} to="create" text="Create..." />
+      </SidebarGroup>
+      <SidebarDivider />
+      <SidebarGroup label="Develop" icon={<MenuIcon />}>
+        <SidebarItem icon={CatalogIcon} to="catalog" text="Catalog" />
+        <SidebarItem icon={ExtensionIcon} to="api-docs" text="APIs" />
+        <SidebarItem icon={LibraryBooks} to="docs" text="Docs" />
+        <SidebarItem icon={CreateComponentIcon} to="create" text="Create..." />
+      </SidebarGroup>
+      <SidebarDivider />
+      <SidebarGroup label="Deliver" icon={<MenuIcon />}>
+        <SidebarItem icon={CatalogIcon} to="catalog" text="Catalog" />
+        <SidebarItem icon={ExtensionIcon} to="api-docs" text="APIs" />
+        <SidebarItem icon={LibraryBooks} to="docs" text="Docs" />
+        <SidebarItem icon={CreateComponentIcon} to="create" text="Create..." />
+      </SidebarGroup>
+      <SidebarDivider />
+      <SidebarGroup label="Discover" icon={<MenuIcon />}>
+        <SidebarItem icon={CatalogIcon} to="catalog" text="Catalog" />
+        <SidebarItem icon={ExtensionIcon} to="api-docs" text="APIs" />
+        <SidebarItem icon={LibraryBooks} to="docs" text="Docs" />
+        <SidebarItem icon={CreateComponentIcon} to="create" text="Create..." />
+      </SidebarGroup>
+
       <SidebarSpace />
       <SidebarDivider />
       <SidebarGroup

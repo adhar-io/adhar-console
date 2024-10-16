@@ -1,45 +1,17 @@
 import { Content, Page } from '@backstage/core-components';
 import { SearchContextProvider } from '@backstage/plugin-search-react';
-import { Grid, makeStyles } from '@material-ui/core';
+import { Grid } from '@material-ui/core';
 import React from 'react';
 
 import {
   HomePageToolkit,
   HomePageStarredEntities,
   TemplateBackstageLogoIcon,
-  HomePageRandomJoke,
 } from '@backstage/plugin-home';
 import { Graph } from './Graph';
 import { Activity } from './Activity';
 
-const useStyles = makeStyles(theme => ({
-  searchBar: {
-    display: 'flex',
-    maxWidth: '60vw',
-    backgroundColor: theme.palette.background.paper,
-    boxShadow: theme.shadows[1],
-    padding: '8px 0',
-    borderRadius: '50px',
-    margin: 'auto',
-  },
-}));
-
-const useLogoStyles = makeStyles(theme => ({
-  container: {
-    margin: theme.spacing(5, 0),
-  },
-  svg: {
-    width: 'auto',
-    height: 100,
-  },
-  path: {
-    fill: '#00568c',
-  },
-}));
-
 export const AdharConsoleHomepage = () => {
-  const classes = useStyles();
-  const { container } = useLogoStyles();
 
   return (
     <SearchContextProvider>

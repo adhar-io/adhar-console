@@ -1,6 +1,6 @@
 // Graph.tsx
 import React from 'react';
-import { LineChart, Line, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
+import { CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
 
 const data = [
   { name: 'Jan', velocity: 65 },

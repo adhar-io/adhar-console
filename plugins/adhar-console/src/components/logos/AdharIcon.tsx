@@ -1,28 +1,6 @@
 import React from 'react';
-import { makeStyles } from '@material-ui/core';
-
-const useStyles = makeStyles({
-  svg: {
-    width: 'auto',
-    height: 28,
-  },
-  whitePath: {
-    fill: '#ffffff',
-    stroke: 'none',
-  },
-  bluePath: {
-    fill: '#00568c',
-    stroke: 'none',
-  },
-  cyanPath: {
-    fill: '#00adee',
-    stroke: 'none',
-  },
-});
 
 export const AdharIcon = () => {
-  const classes = useStyles();
-
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width={108} height={108} viewBox="520 100 1000 600">
       <path

@@ -1,3 +1,4 @@
+import { Router } from 'express';
 import { Config } from '@backstage/config';
 import { createTemplateAction } from '@backstage/plugin-scaffolder-node';
 import { examples } from './gitea-actions';
@@ -11,7 +12,7 @@ import { PluginEnvironment } from '../types';
 export default async function createPlugin({
   logger,
   config,
-}: PluginEnvironment) {
+}: PluginEnvironment): Promise<Router>  {
   return await createRouter({ logger, config });
 }
 

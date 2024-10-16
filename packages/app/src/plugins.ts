@@ -1,1 +1,1 @@
-export { plugin as harbor } from '@bestsellerit/backstage-plugin-harbor'
+export { harborPlugin as harbor } from '@bestsellerit/backstage-plugin-harbor';

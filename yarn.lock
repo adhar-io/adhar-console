@@ -389,8 +389,8 @@ __metadata:
   linkType: hard
 
 "@aws-sdk/client-s3@npm:^3.350.0":
-  version: 3.670.0
-  resolution: "@aws-sdk/client-s3@npm:3.670.0"
+  version: 3.673.0
+  resolution: "@aws-sdk/client-s3@npm:3.673.0"
   dependencies:
     "@aws-crypto/sha1-browser": "npm:5.2.0"
     "@aws-crypto/sha256-browser": "npm:5.2.0"
@@ -450,7 +450,7 @@ __metadata:
     "@smithy/util-utf8": "npm:^3.0.0"
     "@smithy/util-waiter": "npm:^3.1.6"
     tslib: "npm:^2.6.2"
-  checksum: 10c0/d43cd335d3d39817c9abdd64dd3c233a2f5b9e495b378da5d064afab4aad9ee6c9b0f186da32add7ef1c84890a85df97003d81d2474247828d4032a554e82fd7
+  checksum: 10c0/8d8504024316d94b94a0f66bfbf88dcf1af74d34a68493658a79949e90c3d78a9e7e4af526d0aa398c17d1f01ac4482c45d374383ae30ef04b611ce7b8ae4425
   languageName: node
   linkType: hard
 
@@ -794,8 +794,8 @@ __metadata:
   linkType: hard
 
 "@aws-sdk/lib-storage@npm:^3.350.0":
-  version: 3.670.0
-  resolution: "@aws-sdk/lib-storage@npm:3.670.0"
+  version: 3.673.0
+  resolution: "@aws-sdk/lib-storage@npm:3.673.0"
   dependencies:
     "@smithy/abort-controller": "npm:^3.1.5"
     "@smithy/middleware-endpoint": "npm:^3.1.4"
@@ -805,8 +805,8 @@ __metadata:
     stream-browserify: "npm:3.0.0"
     tslib: "npm:^2.6.2"
   peerDependencies:
-    "@aws-sdk/client-s3": ^3.670.0
-  checksum: 10c0/31a1a8d2eeff928a7ce4ff3d337a15ce9a7684b36fb1bce22ad12b22e2f8d7d9ca5370982d924b744d4d79ffab72a3cc733479ed244a9617090bd2772842a5c4
+    "@aws-sdk/client-s3": ^3.673.0
+  checksum: 10c0/e2722e7f00de9a243578d5dfc4261dbd15852c8932cf706a2deee399bd67f153745fe4f4b8761cda199f3fba1af488e7d6037a641559b79f547fdf4d4ec5f5ad
   languageName: node
   linkType: hard
 
@@ -7274,9 +7274,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@graphql-tools/delegate@npm:^10.0.24":
-  version: 10.0.24
-  resolution: "@graphql-tools/delegate@npm:10.0.24"
+"@graphql-tools/delegate@npm:^10.0.25":
+  version: 10.0.25
+  resolution: "@graphql-tools/delegate@npm:10.0.25"
   dependencies:
     "@graphql-tools/batch-execute": "npm:^9.0.5"
     "@graphql-tools/executor": "npm:^1.3.2"
@@ -7287,7 +7287,7 @@ __metadata:
     tslib: "npm:^2.5.0"
   peerDependencies:
     graphql: ^14.0.0 || ^15.0.0 || ^16.0.0 || ^17.0.0
-  checksum: 10c0/c7e32c0630a2eecc0f3d8e77a98f5716ef5241de3b3df7666c652457abf200d4f94748eb9d7b0afbfaf5639469b1dc45c1db491ed27681f0df5efa9c067b58fe
+  checksum: 10c0/74cb40667765e2dc95188169ba8f3a04bd911d54da1f70f4ee56f4db7d4bbde14d79a901d569f3e7b75aced6d0d0a42d2b2b0d8312af7c05161edcd8d3e7d2f8
   languageName: node
   linkType: hard
 
@@ -7463,16 +7463,16 @@ __metadata:
   linkType: hard
 
 "@graphql-tools/url-loader@npm:^8.0.0":
-  version: 8.0.5
-  resolution: "@graphql-tools/url-loader@npm:8.0.5"
+  version: 8.0.6
+  resolution: "@graphql-tools/url-loader@npm:8.0.6"
   dependencies:
     "@ardatan/sync-fetch": "npm:^0.0.1"
-    "@graphql-tools/delegate": "npm:^10.0.24"
+    "@graphql-tools/delegate": "npm:^10.0.25"
     "@graphql-tools/executor-graphql-ws": "npm:^1.3.1"
     "@graphql-tools/executor-http": "npm:^1.1.7"
     "@graphql-tools/executor-legacy-ws": "npm:^1.1.1"
     "@graphql-tools/utils": "npm:^10.5.5"
-    "@graphql-tools/wrap": "npm:^10.0.8"
+    "@graphql-tools/wrap": "npm:^10.0.9"
     "@types/ws": "npm:^8.0.0"
     "@whatwg-node/fetch": "npm:^0.9.0"
     isomorphic-ws: "npm:^5.0.0"
@@ -7481,7 +7481,7 @@ __metadata:
     ws: "npm:^8.17.1"
   peerDependencies:
     graphql: ^14.0.0 || ^15.0.0 || ^16.0.0 || ^17.0.0
-  checksum: 10c0/62753ce26bd7a7624b27d2149518c6d44b400266bfd31e0163f5834ccdcef68279105cf4803e30fac1eac964588d17c4c13a6a6af167048bb5901472683824d8
+  checksum: 10c0/c2b679f706f95f4fa93c1e67fff0e2a5e462c442e298504e4e24d97302a913ac2384a812ca64ab11649b94efe08cedf0ea953313c14d5f2e314566cfacf4e390
   languageName: node
   linkType: hard
 
@@ -7521,18 +7521,18 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@graphql-tools/wrap@npm:^10.0.8":
-  version: 10.0.8
-  resolution: "@graphql-tools/wrap@npm:10.0.8"
+"@graphql-tools/wrap@npm:^10.0.9":
+  version: 10.0.9
+  resolution: "@graphql-tools/wrap@npm:10.0.9"
   dependencies:
-    "@graphql-tools/delegate": "npm:^10.0.24"
+    "@graphql-tools/delegate": "npm:^10.0.25"
     "@graphql-tools/schema": "npm:^10.0.7"
     "@graphql-tools/utils": "npm:^10.5.5"
     tslib: "npm:^2.4.0"
     value-or-promise: "npm:^1.0.12"
   peerDependencies:
     graphql: ^14.0.0 || ^15.0.0 || ^16.0.0 || ^17.0.0
-  checksum: 10c0/b8902f8b712cb03fce52d67a604b37d91cb12a4db102c066d1c2fe15595af9a1ef9b423a5fe398945d0e8aa2f25946d2e257d14cd14d0b36a284b596b92b6025
+  checksum: 10c0/566839e96670b41e64ed3ed717e400ecbdb2f73769eb4d91875b9f17e4e566dea75891c7a712393d6f62550bbd7c5d763e5b5b5c596c2fb5cff1f5b5d987ffe8
   languageName: node
   linkType: hard
 
@@ -13120,8 +13120,8 @@ __metadata:
   linkType: hard
 
 "@testing-library/jest-dom@npm:^6.0.0":
-  version: 6.5.0
-  resolution: "@testing-library/jest-dom@npm:6.5.0"
+  version: 6.6.1
+  resolution: "@testing-library/jest-dom@npm:6.6.1"
   dependencies:
     "@adobe/css-tools": "npm:^4.4.0"
     aria-query: "npm:^5.0.0"
@@ -13130,7 +13130,7 @@ __metadata:
     dom-accessibility-api: "npm:^0.6.3"
     lodash: "npm:^4.17.21"
     redent: "npm:^3.0.0"
-  checksum: 10c0/fd5936a547f04608d8de15a7de3ae26516f21023f8f45169b10c8c8847015fd20ec259b7309f08aa1031bcbc37c6e5e6f532d1bb85ef8f91bad654193ec66a4c
+  checksum: 10c0/f04aca30cd4fc3fdeafb712e2d536c190761c229628b69b6b8f70816bb7efc4ceb12b4c5799c3647286b31c8c8f15fc6edfa6f75f69a7064c8b7ebdf53bc8159
   languageName: node
   linkType: hard
 
@@ -15746,9 +15746,9 @@ __metadata:
   linkType: hard
 
 "axe-core@npm:^4.10.0":
-  version: 4.10.0
-  resolution: "axe-core@npm:4.10.0"
-  checksum: 10c0/732c171d48caaace5e784895c4dacb8ca6155e9d98045138ebe3952f78457dd05b92c57d05b41ce2a570aff87dbd0471e8398d2c0f6ebe79617b746c8f658998
+  version: 4.10.1
+  resolution: "axe-core@npm:4.10.1"
+  checksum: 10c0/53d865efb7284fd69bc95ced1a1709fd603ea07f06e272da06942e7cfeca1c823e09bde28f57178e3a1a4c9a089fe4b5d274c871e3e6522a3b1bffec8eaa7dd8
   languageName: node
   linkType: hard
 
@@ -22708,6 +22708,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"highlightjs-vue@npm:^1.0.0":
+  version: 1.0.0
+  resolution: "highlightjs-vue@npm:1.0.0"
+  checksum: 10c0/9be378c70b864ca5eee87b07859222e31c946a8ad176227e54f7006a498223974ebe19fcce6e38ad5eb3c1ed0e16a580c4edefdf2cb882b6dfab1c3866cc047a
+  languageName: node
+  linkType: hard
+
 "history@npm:^5.0.0":
   version: 5.3.0
   resolution: "history@npm:5.3.0"
@@ -29639,9 +29646,9 @@ __metadata:
   linkType: hard
 
 "picocolors@npm:^1.0.0, picocolors@npm:^1.1.0":
-  version: 1.1.0
-  resolution: "picocolors@npm:1.1.0"
-  checksum: 10c0/86946f6032148801ef09c051c6fb13b5cf942eaf147e30ea79edb91dd32d700934edebe782a1078ff859fb2b816792e97ef4dab03d7f0b804f6b01a0df35e023
+  version: 1.1.1
+  resolution: "picocolors@npm:1.1.1"
+  checksum: 10c0/e2e3e8170ab9d7c7421969adaa7e1b31434f789afb9b3f115f6b96d91945041ac3ceb02e9ec6fe6510ff036bcc0bf91e69a1772edc0b707e12b19c0f2d6bcf58
   languageName: node
   linkType: hard
 
@@ -31336,17 +31343,18 @@ __metadata:
   linkType: hard
 
 "react-syntax-highlighter@npm:^15.4.5, react-syntax-highlighter@npm:^15.5.0":
-  version: 15.5.0
-  resolution: "react-syntax-highlighter@npm:15.5.0"
+  version: 15.6.1
+  resolution: "react-syntax-highlighter@npm:15.6.1"
   dependencies:
     "@babel/runtime": "npm:^7.3.1"
     highlight.js: "npm:^10.4.1"
+    highlightjs-vue: "npm:^1.0.0"
     lowlight: "npm:^1.17.0"
     prismjs: "npm:^1.27.0"
     refractor: "npm:^3.6.0"
   peerDependencies:
     react: ">= 0.14.0"
-  checksum: 10c0/2bf57a1ea151f688efc7eba355677577c9bb55f05f9df7ef86627aae42f63f505486cddf3f4a628aecc51ec75e89beb9533201570d03201c4bf7d69d61d2545d
+  checksum: 10c0/4a4cf4695c45d7a6b25078970fb79ae5a85edeba5be0a2508766ee18e8aee1c0c4cdd97bf54f5055e4af671fe7e5e71348e81cafe09a0eb07a763ae876b7f073
   languageName: node
   linkType: hard
 
@@ -34230,8 +34238,8 @@ __metadata:
   linkType: hard
 
 "terser@npm:^5.10.0, terser@npm:^5.26.0":
-  version: 5.35.0
-  resolution: "terser@npm:5.35.0"
+  version: 5.36.0
+  resolution: "terser@npm:5.36.0"
   dependencies:
     "@jridgewell/source-map": "npm:^0.3.3"
     acorn: "npm:^8.8.2"
@@ -34239,7 +34247,7 @@ __metadata:
     source-map-support: "npm:~0.5.20"
   bin:
     terser: bin/terser
-  checksum: 10c0/c9899d23c2d1548329d5b5717cb0cfaae5cfa26e6c4930daebc7a4dc00658c3ca44c06626777a9d09f03b2b13338921769c0eb56b6ad8560d705a375425129d6
+  checksum: 10c0/f4ed2bead19f64789ddcfb85b7cef78f3942f967b8890c54f57d1e35bc7d547d551c6a4c32210bce6ba45b1c738314bbfac6acbc6c762a45cd171777d0c120d9
   languageName: node
   linkType: hard
 

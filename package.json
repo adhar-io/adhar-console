@@ -57,6 +57,7 @@
   },
   "packageManager": "yarn@4.5.0",
   "dependencies": {
+    "@mui/styles": "^6.1.4",
     "@roadiehq/scaffolder-backend-module-utils": "^2.0.2",
     "recharts": "^2.13.0"
   }

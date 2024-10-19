@@ -1,12 +1,12 @@
-import { Content, Page } from '@backstage/core-components';
+import { Content, Header, Page } from '@backstage/core-components';
 import { SearchContextProvider } from '@backstage/plugin-search-react';
-import { Grid } from '@material-ui/core';
+// eslint-disable-next-line no-restricted-imports
+import { Grid } from '@mui/material';
 import React from 'react';
 
 import {
   HomePageToolkit,
   HomePageStarredEntities,
-  TemplateBackstageLogoIcon,
 } from '@backstage/plugin-home';
 import { Graph } from './Graph';
 import { BrandIcon } from './logos';
@@ -62,6 +62,7 @@ export const AdharConsoleHomepage = () => {
   return (
     <SearchContextProvider>
       <Page themeId="home">
+        <Header title="" subtitle="Welcome, Tapas Jena!" />
         <Content>
           <Grid container justifyContent="center" spacing={6}>
             <Grid container item xs={12} alignItems="center" direction="row">

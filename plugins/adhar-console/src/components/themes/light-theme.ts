@@ -10,7 +10,7 @@ export const adharLightTheme = createUnifiedTheme({
     palette: {
       ...palettes.light,
       primary: {
-        main: '#00568c',
+        main: '#5A00B0',
       },
       secondary: {
         main: '#00adee',
@@ -19,27 +19,27 @@ export const adharLightTheme = createUnifiedTheme({
   }),
   defaultPageTheme: 'home',
   pageTheme: {
-    home: genPageTheme({colors: ['#00568c', '#00adee'], shape: shapes.wave}),
+    home: genPageTheme({colors: ['#5A00B0', '#00adee'], shape: shapes.wave2}),
     documentation: genPageTheme({
-      colors: ['#00568c', '#00adee'],
+      colors: ['#5A00B0', '#00adee'],
       shape: shapes.wave2,
     }),
-    tool: genPageTheme({colors: ['#00568c', '#00adee'], shape: shapes.round}),
+    tool: genPageTheme({colors: ['#5A00B0', '#00adee'], shape: shapes.round}),
     service: genPageTheme({
-      colors: ['#00568c', '#00adee'],
-      shape: shapes.wave,
+      colors: ['#5A00B0', '#00adee'],
+      shape: shapes.wave2,
     }),
     website: genPageTheme({
-      colors: ['#00568c', '#00adee'],
-      shape: shapes.wave,
+      colors: ['#5A00B0', '#00adee'],
+      shape: shapes.wave2,
     }),
     library: genPageTheme({
-      colors: ['#00568c', '#00adee'],
-      shape: shapes.wave,
+      colors: ['#5A00B0', '#00adee'],
+      shape: shapes.wave2,
     }),
-    other: genPageTheme({colors: ['#00568c', '#00adee'], shape: shapes.wave}),
-    app: genPageTheme({colors: ['#00568c', '#00adee'], shape: shapes.wave}),
-    apis: genPageTheme({colors: ['#00568c', '#00adee'], shape: shapes.wave}),
+    other: genPageTheme({colors: ['#5A00B0', '#00adee'], shape: shapes.wave2}),
+    app: genPageTheme({colors: ['#5A00B0', '#00adee'], shape: shapes.wave2}),
+    apis: genPageTheme({colors: ['#5A00B0', '#00adee'], shape: shapes.wave2}),
   },
 });
 

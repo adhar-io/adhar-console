@@ -61,6 +61,7 @@ import { EntityKubernetesContent, isKubernetesAvailable } from '@backstage/plugi
 
 import {
   EntityArgoCDOverviewCard,
+  EntityArgoCDHistoryCard,
   isArgocdAvailable
 } from '@roadiehq/backstage-plugin-argo-cd';
 
@@ -146,6 +147,9 @@ const overviewContent = (
       <EntitySwitch.Case if={e => Boolean(isArgocdAvailable(e))}>
         <Grid item md={6}>
           <EntityArgoCDOverviewCard />
+        </Grid>
+        <Grid item md={6}>
+          <EntityArgoCDHistoryCard />
         </Grid>
       </EntitySwitch.Case>
     </EntitySwitch>

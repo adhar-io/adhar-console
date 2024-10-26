@@ -6,15 +6,15 @@ import { legacyPlugin } from '@backstage/backend-common';
 const backend = createBackend();
 
 // core plugins
-backend.add(import('@backstage/plugin-app-backend/alpha'));
-backend.add(import('@backstage/plugin-catalog-backend/alpha'));
-backend.add(import('@backstage/plugin-proxy-backend/alpha'));
-backend.add(import('@backstage/plugin-techdocs-backend/alpha'));
+backend.add(import('@backstage/plugin-app-backend'));
+backend.add(import('@backstage/plugin-catalog-backend'));
+backend.add(import('@backstage/plugin-proxy-backend'));
+backend.add(import('@backstage/plugin-techdocs-backend'));
 // auth plugins
 backend.add(import('@backstage/plugin-auth-backend'));
 backend.add(import('@backstage/plugin-auth-backend-module-guest-provider'));
 // scaffolder plugins
-backend.add(import('@backstage/plugin-scaffolder-backend/alpha'));
+backend.add(import('@backstage/plugin-scaffolder-backend'));
 backend.add(
   import('@backstage/plugin-catalog-backend-module-scaffolder-entity-model'),
 );
@@ -31,7 +31,7 @@ backend.add(import('@backstage/plugin-search-backend-module-catalog'));
 backend.add(import('@backstage/plugin-search-backend-module-techdocs'));
 
 // other @backstage plugins
-backend.add(import('@backstage/plugin-kubernetes-backend/alpha'));
+backend.add(import('@backstage/plugin-kubernetes-backend'));
 // non-core plugins
 // roadie plugins
 // backend.add(import('@roadiehq/scaffolder-backend-module-utils/new-backend'));

@@ -52,7 +52,6 @@
     "@backstage/types": "^1.1.1",
     "@internal/backstage-plugin-terraform-backend": "^0.1.0",
     "@kubernetes/client-node": "~0.22.1",
-    "@roadiehq/backstage-plugin-argo-cd-backend": "3.2.3",
     "@roadiehq/scaffolder-backend-module-utils": "^2.0.2",
     "app": "link:../app",
     "better-sqlite3": "^11.3.0",

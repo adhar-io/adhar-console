@@ -33,3 +33,8 @@ catalog:
   # See https://backstage.io/docs/features/software-catalog/#adding-components-to-the-catalog for more details
   # on how to get entities into the catalog.
   locations: []
+
+auth:
+  keys:
+    - secret: pjKYzQjl3PYEsMJ2Dfcog4RK6gKZBTDL
+    - secret: NrUG9gNnJmy0FPLxdOr7/9GMSylHB4TU

@@ -10872,7 +10872,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@roadiehq/backstage-plugin-argo-cd@npm:^2.5.1":
+"@roadiehq/backstage-plugin-argo-cd@npm:^2.5.1, @roadiehq/backstage-plugin-argo-cd@npm:^2.8.4":
   version: 2.8.4
   resolution: "@roadiehq/backstage-plugin-argo-cd@npm:2.8.4"
   dependencies:
@@ -15917,6 +15917,7 @@ __metadata:
     "@backstage/types": "npm:^1.1.1"
     "@internal/backstage-plugin-terraform-backend": "npm:^0.1.0"
     "@kubernetes/client-node": "npm:~0.22.1"
+    "@roadiehq/backstage-plugin-argo-cd": "npm:^2.8.4"
     "@roadiehq/backstage-plugin-argo-cd-backend": "npm:3.2.3"
     "@roadiehq/scaffolder-backend-module-utils": "npm:^2.0.2"
     "@types/dockerode": "npm:^3.3.31"
@@ -32232,6 +32233,7 @@ __metadata:
     "@backstage/e2e-test-utils": "npm:^0.1.1"
     "@mui/styles": "npm:^6.1.4"
     "@playwright/test": "npm:^1.32.3"
+    "@roadiehq/backstage-plugin-argo-cd": "npm:^2.8.4"
     "@roadiehq/scaffolder-backend-module-utils": "npm:^2.0.2"
     "@spotify/prettier-config": "npm:^12.0.0"
     concurrently: "npm:^8.0.0"

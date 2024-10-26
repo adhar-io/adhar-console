@@ -1,7 +1,6 @@
 import { createBackend } from '@backstage/backend-defaults';
 import { authModuleKeycloakOIDCProvider } from './plugins/auth';
 import { cnoeScaffolderActions } from './plugins/scaffolder';
-// import { legacyPlugin } from '@backstage/backend-common';
 
 const backend = createBackend();
 
@@ -34,8 +33,7 @@ backend.add(import('@backstage/plugin-search-backend-module-techdocs'));
 backend.add(import('@backstage/plugin-kubernetes-backend'));
 // non-core plugins
 // roadie plugins
-// backend.add(import('@roadiehq/scaffolder-backend-module-utils/new-backend'));
-// backend.add(legacyPlugin('argocd', import('./plugins/argocd')));
+backend.add(import('@roadiehq/scaffolder-backend-module-utils/new-backend'));
 // cnoe plugins
 backend.add(authModuleKeycloakOIDCProvider);
 backend.add(cnoeScaffolderActions);

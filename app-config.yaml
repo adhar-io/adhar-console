@@ -53,6 +53,12 @@ proxy:
         allowedHeaders: ['Authorization', 'Coder-Session-Token']
         headers:
           X-Custom-Source: backstage
+      '/argocd/api':
+          # url to the api of your hosted argoCD instance
+          target: https://159.65.209.132/api/v1/
+          changeOrigin: true
+          # this line is required if your hosted argoCD instance has self-signed certificate
+          secure: false
   ### Example for how to add a proxy endpoint for the frontend.
   ### A typical reason to do this is to handle HTTPS and CORS for internal services.
   # endpoints:

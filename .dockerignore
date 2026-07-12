@@ -1,0 +1,16 @@
+**/node_modules
+**/dist
+**/.output
+**/.vinxi
+**/.turbo
+**/.cache
+**/coverage
+**/.deno
+**/.DS_Store
+.git
+.gitignore
+.env
+.env.*
+*.md
+!README.md
+deploy/

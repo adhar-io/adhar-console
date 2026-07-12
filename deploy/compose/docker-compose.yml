@@ -1,0 +1,48 @@
+# Local / demo stack: the console container + its Postgres. Run from the repo
+# root after building the image (see deploy/README.md "Build + push + apply"):
+#
+#   docker build --build-context adhar-ui=../../Adhar/AdharWS/adhar-ui \
+#     -f deploy/Dockerfile -t adhar/console:dev .
+#   IMAGE=adhar/console:dev docker compose -f deploy/compose/docker-compose.yml up
+#
+# This runs real SSO only if you point KEYCLOAK_URL/AUTH_* at a reachable
+# Keycloak; otherwise the console boots in stub/demo mode but the DB-backed
+# preferences/notifications APIs are NOT exercised (those require a session).
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: adhar_console
+      POSTGRES_USER: adhar
+      POSTGRES_PASSWORD: adhar
+    ports:
+      - "5432:5432"
+    volumes:
+      - adhar_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U adhar -d adhar_console"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  console:
+    image: ${IMAGE:-adhar/console:dev}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      DATABASE_URL: postgres://adhar:adhar@db:5432/adhar_console
+      # Point these at a real Keycloak to exercise SSO end-to-end:
+      KEYCLOAK_URL: ${KEYCLOAK_URL:-}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-adhar}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-adhar-console}
+      AUTH_CLIENT_SECRET: ${AUTH_CLIENT_SECRET:-}
+      AUTH_COOKIE_SECRET: ${AUTH_COOKIE_SECRET:-dev-cookie-secret-change-me-min-32-characters}
+      AUTH_PUBLIC_URL: ${AUTH_PUBLIC_URL:-http://localhost:3000}
+      AUTH_COOKIE_SECURE: "false"
+
+volumes:
+  adhar_pgdata:

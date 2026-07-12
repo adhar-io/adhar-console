@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.turbo/
+.output/
+.vinxi/
+*.tsbuildinfo
+.DS_Store
+.env
+.env.local
+.env.*.local
+coverage/
+.cache/
+.deno/

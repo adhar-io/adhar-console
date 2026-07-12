@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: adhar-console
+  labels:
+    app.kubernetes.io/name: adhar-console
+    app.kubernetes.io/part-of: adhar

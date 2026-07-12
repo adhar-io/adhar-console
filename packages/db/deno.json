@@ -1,0 +1,13 @@
+{
+  "name": "@adhar-console/db",
+  "version": "0.1.0",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "tasks": {
+    "check": "deno check src/index.ts",
+    "generate": "deno run -A npm:drizzle-kit@^0.28.1 generate",
+    "migrate": "deno run -A npm:drizzle-kit@^0.28.1 migrate",
+    "studio": "deno run -A npm:drizzle-kit@^0.28.1 studio"
+  }
+}

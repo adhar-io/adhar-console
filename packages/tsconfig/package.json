@@ -1,0 +1,6 @@
+{
+  "name": "@adhar-console/tsconfig",
+  "version": "0.1.0",
+  "private": true,
+  "files": ["base.json", "react-lib.json", "react-app.json", "server.json"]
+}

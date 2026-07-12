@@ -1,0 +1,23 @@
+{
+  "name": "@adhar-console/api-clients",
+  "version": "0.1.0",
+  "exports": {
+    ".": "./src/index.ts",
+    "./base": "./src/base/index.ts",
+    "./gitea": "./src/gitea/index.ts",
+    "./plane": "./src/plane/index.ts",
+    "./argocd": "./src/argocd/index.ts",
+    "./kargo": "./src/kargo/index.ts",
+    "./harbor": "./src/harbor/index.ts",
+    "./k8s": "./src/k8s/index.ts",
+    "./kyverno": "./src/kyverno/index.ts",
+    "./crossplane": "./src/crossplane/index.ts",
+    "./argo-workflows": "./src/argo-workflows/index.ts",
+    "./argo-rollouts": "./src/argo-rollouts/index.ts",
+    "./lgtm": "./src/lgtm/index.ts",
+    "./workspace": "./src/workspace/index.ts"
+  },
+  "tasks": {
+    "check": "deno check src/index.ts"
+  }
+}

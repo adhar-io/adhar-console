@@ -1,0 +1,431 @@
+@import 'tailwindcss';
+
+/*
+ * Tell Tailwind v4 to scan these source trees for utility classes.
+ * The host's `app/` dir is picked up automatically via @tailwindcss/vite.
+ */
+@source '../../../packages/shell-ui/src';
+@source '../../../modules';
+@source '../../../../../Adhar/AdharWS/adhar-ui/packages/react/src';
+@source '../../../../../Adhar/AdharWS/adhar-ui/packages/primitives/src';
+
+/*
+ * Design tokens.
+ *
+ * Defined with `@theme` so every custom color automatically generates the
+ * full Tailwind utility family (bg-brand-500, text-brand-600, ring-brand-500,
+ * etc.). OKLCH for uniform perceptual steps across the scale.
+ *
+ * Palette intent:
+ *   brand  — cobalt/indigo; used for primary actions, active nav state,
+ *            and the signature gradient. Warmer than slate without being loud.
+ *   surface — the layered gray background system (page → section → card).
+ *   content — text colors with deliberate contrast steps.
+ *   border  — three weights of divider/outline.
+ *   edge    — a soft highlight for raised surfaces (shadow companion).
+ */
+@theme {
+  /* ─ Brand (cobalt/indigo) ─ */
+  --color-brand-50: oklch(0.97 0.015 265);
+  --color-brand-100: oklch(0.94 0.03 265);
+  --color-brand-200: oklch(0.89 0.055 264);
+  --color-brand-300: oklch(0.81 0.09 263);
+  --color-brand-400: oklch(0.71 0.13 262);
+  --color-brand-500: oklch(0.58 0.17 262);
+  --color-brand-600: oklch(0.51 0.19 262);
+  --color-brand-700: oklch(0.44 0.18 262);
+  --color-brand-800: oklch(0.36 0.15 262);
+  --color-brand-900: oklch(0.28 0.11 262);
+  --color-brand-950: oklch(0.19 0.07 262);
+
+  /* ─ Accent (teal-leaning, for highlights + success-adjacent) ─ */
+  --color-accent-50: oklch(0.97 0.025 180);
+  --color-accent-500: oklch(0.66 0.13 180);
+  --color-accent-600: oklch(0.58 0.14 180);
+
+  /* ─ Surfaces ─ */
+  --color-surface-app: oklch(0.985 0.003 260);
+  --color-surface-sunken: oklch(0.975 0.005 260);
+  --color-surface-raised: oklch(1 0 0);
+  --color-surface-sidebar: oklch(0.975 0.006 260);
+
+  /* ─ Content / text ─ */
+  --color-content: oklch(0.21 0.02 260);
+  --color-content-muted: oklch(0.48 0.015 260);
+  --color-content-subtle: oklch(0.64 0.01 260);
+
+  /* ─ Border weights ─ */
+  --color-edge: oklch(1 0 0);
+  --color-edge-subtle: oklch(0.95 0.005 260);
+  --color-edge-default: oklch(0.91 0.008 260);
+  --color-edge-strong: oklch(0.84 0.012 260);
+
+  /* ─ Motion ─ */
+  --ease-smooth: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* ─ Radii ─ */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+
+  /* ─ Typography ─ */
+  --font-sans:
+    'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono:
+    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/*
+ * Global chrome. Kept intentionally spare — individual components carry
+ * their own color decisions rather than cascading from the body.
+ */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-surface-app);
+  color: var(--color-content);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings:
+    'cv02',
+    'cv03',
+    'cv04',
+    'cv11';
+}
+
+/*
+ * Subtle page texture — a very faint radial shimmer behind the main content
+ * so empty panels don't read as dead space. Disabled inside prose/cards via
+ * their own bg.
+ */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse at top left, oklch(0.97 0.02 265 / 0.5), transparent 55%),
+    radial-gradient(ellipse at bottom right, oklch(0.96 0.025 180 / 0.4), transparent 50%);
+}
+
+/* Scrollbars — thin, unobtrusive, match the design. */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: oklch(0.85 0.01 260);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 9999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.72 0.015 260);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+/* Selection — brand tint. */
+::selection {
+  background-color: oklch(0.88 0.08 265);
+  color: oklch(0.2 0.08 262);
+}
+
+/*
+ * Sidebar-specific scroll behaviour.
+ *
+ * The sidebar holds enough nav items to overflow on short viewports, but a
+ * vertical scrollbar competes with the compact 256-px width — so we hide the
+ * scrollbar chrome entirely while preserving wheel / trackpad / keyboard
+ * scrolling. A subtle fade at the top + bottom signals that there's more
+ * content in the direction you'd need to scroll, and the global accent color
+ * means it follows the active theme preset.
+ */
+.sidebar-scroll {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge / IE */
+  scroll-behavior: smooth;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black 12px,
+    black calc(100% - 12px),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black 12px,
+    black calc(100% - 12px),
+    transparent 100%
+  );
+}
+.sidebar-scroll::-webkit-scrollbar {
+  /* Chromium + Safari: fully hide the scrollbar without collapsing layout. */
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/*
+ * Skeleton shimmer — single keyframe shared by every loading placeholder.
+ * Tracks the active theme's edge color so the baseline plate matches card
+ * chrome, while the moving highlight stays white.
+ */
+@keyframes shimmer {
+  0% {
+    background-position: -120% 0;
+  }
+  100% {
+    background-position: 220% 0;
+  }
+}
+
+.skeleton-shimmer {
+  background-color: var(--color-edge-default);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in oklch, white 70%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: shimmer 1.6s linear infinite;
+}
+
+/* Respect reduced-motion preference. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer {
+    animation: none;
+    background-image: none;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/*
+ * Consistent focus ring for any native input, select or textarea. Brand-tinted
+ * glow replaces the default browser outlines so every form in the app feels
+ * like it belongs to the same system.
+ */
+input,
+select,
+textarea {
+  transition:
+    border-color 150ms var(--ease-smooth),
+    box-shadow 150ms var(--ease-smooth);
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--color-brand-400);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-brand-500) 22%, transparent);
+  transition:
+    border-color 120ms var(--ease-smooth, cubic-bezier(0.32, 0.72, 0, 1)),
+    box-shadow 120ms var(--ease-smooth, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+/* Link default — inherit color; views opt into brand tint explicitly. */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/*
+ * Inline code (not inside a <pre>) — subtle card chip so random `code` tags in
+ * prose don't read as a blinding-white block. Views that want the dark-slate
+ * terminal treatment override locally via className.
+ */
+:not(pre) > code {
+  border-radius: 4px;
+  padding: 0 4px;
+  background-color: color-mix(in oklch, var(--color-surface-sunken) 75%, transparent);
+  color: var(--color-content);
+  font-size: 0.92em;
+}
+
+/*
+ * Polish keyframes — keep motion small and tasteful. All durations sit
+ * under 220 ms so they read as cause-and-effect rather than decoration.
+ *
+ *   .fade-in     — pure opacity, used for late-arriving panels.
+ *   .rise-in     — tiny upwards slide; for cards / hero blocks.
+ *   .pop-in      — used for popovers and modals (palette, drawers).
+ *   .pulse-ring  — focus highlight halo for AI / "live" pills.
+ */
+@keyframes adhar-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes adhar-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes adhar-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes adhar-pulse-ring {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--color-brand-500) 0%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in oklch, var(--color-brand-500) 14%, transparent);
+  }
+}
+
+.fade-in {
+  animation: adhar-fade-in 200ms var(--ease-smooth, cubic-bezier(0.32, 0.72, 0, 1)) both;
+}
+.rise-in {
+  animation: adhar-rise-in 220ms var(--ease-smooth, cubic-bezier(0.32, 0.72, 0, 1)) both;
+}
+.pop-in {
+  animation: adhar-pop-in 180ms var(--ease-smooth, cubic-bezier(0.32, 0.72, 0, 1)) both;
+}
+.pulse-ring {
+  animation: adhar-pulse-ring 1800ms var(--ease-smooth, cubic-bezier(0.32, 0.72, 0, 1)) infinite;
+}
+
+/* Honour the user's reduced-motion preference everywhere these run. */
+@media (prefers-reduced-motion: reduce) {
+  .fade-in,
+  .rise-in,
+  .pop-in,
+  .pulse-ring {
+    animation: none !important;
+  }
+}
+
+/*
+ * ───────────────────── Dark mode ─────────────────────
+ *
+ * Strategy: variable-level swap rather than per-utility `dark:` audit.
+ * Tailwind v4 resolves `bg-white` to `background-color: var(--color-white)`
+ * and `text-slate-700` to `color: var(--color-slate-700)`. By overriding
+ * those variables under `.dark` we get every utility to flip automatically
+ * — no need to revisit the 500+ existing usages.
+ *
+ * The brand / accent ramps are deliberately preserved so the chosen color
+ * preset (Cobalt, Violet, Graphite, …) still reads in dark mode. Surfaces,
+ * content, edges, and the literal black/white tokens are what change.
+ */
+.dark {
+  color-scheme: dark;
+
+  /* ─ Surfaces (page → section → card) inverted to a deep slate ramp. ─ */
+  --color-surface-app: oklch(0.16 0.005 260);
+  --color-surface-sunken: oklch(0.13 0.005 260);
+  --color-surface-raised: oklch(0.21 0.006 260);
+  --color-surface-sidebar: oklch(0.18 0.006 260);
+
+  /* ─ Content / text — light on dark, with the same 3-step contrast scale. ─ */
+  --color-content: oklch(0.96 0.003 260);
+  --color-content-muted: oklch(0.78 0.005 260);
+  --color-content-subtle: oklch(0.6 0.008 260);
+
+  /* ─ Borders inverted: subtle dividers on a dark surface. ─ */
+  --color-edge: oklch(0.24 0.006 260);
+  --color-edge-subtle: oklch(0.22 0.005 260);
+  --color-edge-default: oklch(0.3 0.008 260);
+  --color-edge-strong: oklch(0.42 0.012 260);
+
+  /*
+   * `bg-white` lives on most cards/panels — flip the underlying token so
+   * card surfaces become dark slate rather than blinding white. Same for
+   * `bg-black` (used as a watermark in a few places).
+   */
+  --color-white: oklch(0.21 0.006 260);
+  --color-black: oklch(0.98 0.003 260);
+
+  /*
+   * Slate utility ramp — used pervasively for borders, muted text, and
+   * surface tints. Inverted so `bg-slate-50` (typically a near-white card
+   * tint) becomes a near-black panel tint, and `text-slate-700` (typical
+   * body text) becomes near-white. The middle of the ramp barely moves
+   * because mid-grays read the same in either mode.
+   */
+  --color-slate-50: oklch(0.18 0.005 260);
+  --color-slate-100: oklch(0.22 0.006 260);
+  --color-slate-200: oklch(0.27 0.008 260);
+  --color-slate-300: oklch(0.36 0.012 260);
+  --color-slate-400: oklch(0.5 0.015 260);
+  --color-slate-500: oklch(0.62 0.013 260);
+  --color-slate-600: oklch(0.74 0.01 260);
+  --color-slate-700: oklch(0.84 0.007 260);
+  --color-slate-800: oklch(0.92 0.005 260);
+  --color-slate-900: oklch(0.96 0.003 260);
+  --color-slate-950: oklch(0.985 0.002 260);
+}
+
+/* Page background + body text follow the new tokens automatically. */
+.dark body {
+  background-color: var(--color-surface-app);
+  color: var(--color-content);
+}
+
+/*
+ * Page texture ratchets way down in dark mode — the bright radial
+ * gradients defined for light mode would otherwise punch through.
+ */
+.dark body::before {
+  background:
+    radial-gradient(ellipse at top left, oklch(0.3 0.05 265 / 0.25), transparent 55%),
+    radial-gradient(ellipse at bottom right, oklch(0.28 0.04 180 / 0.18), transparent 50%);
+}
+
+/* Scrollbar thumb — invert against the dark surface. */
+.dark *::-webkit-scrollbar-thumb {
+  background: oklch(0.36 0.008 260);
+  background-clip: content-box;
+}
+.dark *::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.5 0.012 260);
+  background-clip: content-box;
+}
+
+/* Selection tint — keep brand-colored but adjust lightness for dark surfaces. */
+.dark ::selection {
+  background-color: oklch(0.42 0.12 265);
+  color: oklch(0.98 0.005 265);
+}

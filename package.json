@@ -1,0 +1,26 @@
+{
+  "name": "adhar-console",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Enterprise console for the Adhar platform — unified UI across the 6D SDLC (Define, Design, Develop, Deliver, Discover, Decide)",
+  "type": "module",
+  "packageManager": "pnpm@10.13.1",
+  "engines": {
+    "deno": ">=2.0.0",
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev": "deno task dev",
+    "dev:turbo": "turbo run dev",
+    "build": "deno task build",
+    "build:turbo": "turbo run build",
+    "preview": "deno task preview",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "fmt": "deno fmt",
+    "check": "deno task check",
+    "clean": "deno task clean && rm -rf node_modules .turbo",
+    "console:dev": "cd apps/console && deno task dev"
+  }
+}

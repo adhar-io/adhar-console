@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: adhar-console
+  namespace: adhar-console
+  labels:
+    app.kubernetes.io/name: adhar-console
+  annotations:
+    cert-manager.io/cluster-issuer: adhar-ca
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [console.adhar.local]
+      secretName: adhar-console-tls
+  rules:
+    - host: console.adhar.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: adhar-console
+                port:
+                  name: http

@@ -1,0 +1,98 @@
+{
+  "nodeModulesDir": "auto",
+  "workspace": [
+    "./packages/tsconfig",
+    "./packages/eslint-config",
+    "./packages/utils",
+    "./packages/auth",
+    "./packages/db",
+    "./packages/tenancy",
+    "./packages/shell-ui",
+    "./packages/mf-utils",
+    "./packages/platform-info",
+    "./packages/build-config",
+    "./packages/api-clients",
+    "./apps/console",
+    "./modules/define",
+    "./modules/design",
+    "./modules/develop",
+    "./modules/deliver",
+    "./modules/discover",
+    "./modules/decide",
+    "./modules/platform",
+    "./modules/workspace"
+  ],
+  "tasks": {
+    "dev": "deno run -A scripts/dev.ts",
+    "build": "deno run -A scripts/build.ts",
+    "check": "deno check packages/**/src/index.ts modules/*/src/index.ts",
+    "test": "deno test --allow-read --allow-env --allow-net packages/ modules/",
+    "lint": "deno lint",
+    "fmt": "deno fmt",
+    "clean": "rm -rf packages/*/dist packages/api-clients/*/dist modules/*/dist apps/*/.output apps/*/.vinxi apps/*/node_modules/.vite apps/*/node_modules/__mf__virtual modules/*/node_modules/.vite modules/*/node_modules/__mf__virtual",
+    "console:dev": "cd apps/console && deno task dev",
+    "console:build": "cd apps/console && deno task build",
+    "preview": "cd apps/console && deno run -A .output/server/index.mjs"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "lib": ["deno.window", "dom", "dom.iterable", "es2022"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "react"
+  },
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 100,
+    "indentWidth": 2,
+    "singleQuote": true,
+    "proseWrap": "preserve",
+    "exclude": [
+      "**/dist/",
+      "**/.output/",
+      "**/.vinxi/",
+      "**/node_modules/",
+      "**/generated/"
+    ]
+  },
+  "lint": {
+    "include": ["packages/", "modules/", "apps/"],
+    "exclude": ["**/dist/", "**/.output/", "**/.vinxi/", "**/node_modules/", "**/generated/"],
+    "rules": {
+      "tags": ["recommended"],
+      "exclude": ["no-explicit-any"]
+    }
+  },
+  "imports": {
+    "@adhar-console/utils": "./packages/utils/src/index.ts",
+    "@adhar-console/auth": "./packages/auth/src/index.ts",
+    "@adhar-console/auth/server": "./packages/auth/src/server-index.ts",
+    "@adhar-console/db": "./packages/db/src/index.ts",
+    "@adhar-console/tenancy": "./packages/tenancy/src/index.ts",
+    "@adhar-console/shell-ui": "./packages/shell-ui/src/index.ts",
+    "@adhar-console/mf-utils": "./packages/mf-utils/src/index.ts",
+    "@adhar-console/platform-info": "./packages/platform-info/src/index.ts",
+    "@adhar-console/build-config": "./packages/build-config/src/index.ts",
+    "@adhar-console/build-config/remote": "./packages/build-config/src/remote.ts",
+    "@adhar-console/build-config/host": "./packages/build-config/src/host.ts",
+    "@adhar-console/build-config/registry": "./packages/build-config/src/registry.ts",
+    "@adhar-console/api-clients": "./packages/api-clients/src/index.ts",
+    "@adhar-console/api-clients/workspace": "./packages/api-clients/src/workspace/index.ts",
+    "@adhar-console/api-clients/gitea": "./packages/api-clients/src/gitea/index.ts",
+    "@adhar-console/api-clients/plane": "./packages/api-clients/src/plane/index.ts",
+    "@adhar-console/api-clients/argocd": "./packages/api-clients/src/argocd/index.ts",
+    "@adhar-console/api-clients/kargo": "./packages/api-clients/src/kargo/index.ts",
+    "@adhar-console/api-clients/harbor": "./packages/api-clients/src/harbor/index.ts",
+    "@adhar-console/api-clients/k8s": "./packages/api-clients/src/k8s/index.ts",
+    "@adhar-console/api-clients/kyverno": "./packages/api-clients/src/kyverno/index.ts",
+    "@adhar-console/api-clients/crossplane": "./packages/api-clients/src/crossplane/index.ts",
+    "@adhar-console/api-clients/argo-workflows": "./packages/api-clients/src/argo-workflows/index.ts",
+    "@adhar-console/api-clients/argo-rollouts": "./packages/api-clients/src/argo-rollouts/index.ts",
+    "@adhar-console/api-clients/lgtm": "./packages/api-clients/src/lgtm/index.ts",
+    "jose": "npm:jose@^5.9.6",
+    "drizzle-orm": "npm:drizzle-orm@^0.36.4",
+    "drizzle-orm/": "npm:/drizzle-orm@^0.36.4/",
+    "postgres": "npm:postgres@^3.4.5",
+    "nitro": "npm:nitro@3.0.260610-beta",
+    "nitro/": "npm:/nitro@3.0.260610-beta/"
+  }
+}

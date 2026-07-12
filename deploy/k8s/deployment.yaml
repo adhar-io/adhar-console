@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adhar-console
+  namespace: adhar-console
+  labels:
+    app.kubernetes.io/name: adhar-console
+    app.kubernetes.io/component: shell
+    app.kubernetes.io/part-of: adhar
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adhar-console
+      app.kubernetes.io/component: shell
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adhar-console
+        app.kubernetes.io/component: shell
+    spec:
+      serviceAccountName: adhar-console
+      # The console reads the projected SA token to call the kube-apiserver via
+      # its BFF proxy; keep it mounted.
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: console
+          image: harbor.adhar.local/adhar/console:v0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            # Trust the cluster CA so Deno's fetch to https://kubernetes.default.svc
+            # validates. This file is mounted via the SA token projection.
+            - name: DENO_CERT
+              value: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          envFrom:
+            - configMapRef:
+                name: adhar-console-config
+            - secretRef:
+                name: adhar-console-secrets
+                optional: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 768Mi
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

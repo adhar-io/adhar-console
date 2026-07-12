@@ -1,0 +1,12 @@
+{
+  "name": "@adhar-console/console",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "deno task dev",
+    "build": "deno task build",
+    "preview": "deno task preview",
+    "typecheck": "deno task check"
+  }
+}

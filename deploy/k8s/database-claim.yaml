@@ -1,0 +1,50 @@
+# Production Postgres provisioning via the Adhar platform's own Crossplane
+# "Database" abstraction (XRD). This is the preferred path — the console treats
+# its DB as a first-class platform resource rather than running its own
+# StatefulSet.
+#
+# The exact apiVersion/kind/spec fields depend on your installed Database XRD;
+# the shape below matches the conventional Adhar `Database` composite. Adjust
+# `group/version/kind` and `spec` to your CompositeResourceDefinition.
+#
+# The composition is expected to publish connection details to a Secret named
+# in `writeConnectionSecretToRef`. Map that Secret's key into the console's
+# DATABASE_URL (see the patch note at the bottom).
+apiVersion: platform.adhar.io/v1alpha1
+kind: Database
+metadata:
+  name: adhar-console
+  namespace: adhar-console
+  labels:
+    app.kubernetes.io/name: adhar-console
+    app.kubernetes.io/part-of: adhar
+spec:
+  # Engine + sizing — tune to your composition's accepted parameters.
+  parameters:
+    engine: postgresql
+    version: "16"
+    size: small
+    storageGB: 10
+    highAvailability: false
+    databaseName: adhar_console
+  # The composition writes host/port/user/password/uri here.
+  writeConnectionSecretToRef:
+    name: adhar-console-db-conn
+  compositionSelector:
+    matchLabels:
+      provider: postgresql
+---
+# Bridge the Crossplane-provided connection Secret to the env var the console
+# reads. If your composition already writes a ready-to-use URI under a known
+# key (commonly `uri` or `endpoint`), reference that key directly in the
+# Deployment instead of this copy. Example using a known `uri` key:
+#
+#   envFrom: []          # (remove the static DATABASE_URL from adhar-console-secrets)
+#   env:
+#     - name: DATABASE_URL
+#       valueFrom:
+#         secretKeyRef:
+#           name: adhar-console-db-conn
+#           key: uri
+#
+# Keep this file out of kustomization.yaml unless the Database XRD is installed.

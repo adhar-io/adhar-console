@@ -1,0 +1,47 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .: {}
+
+  apps/console: {}
+
+  modules/decide: {}
+
+  modules/define: {}
+
+  modules/deliver: {}
+
+  modules/design: {}
+
+  modules/develop: {}
+
+  modules/discover: {}
+
+  modules/platform: {}
+
+  modules/workspace: {}
+
+  packages/api-clients: {}
+
+  packages/auth: {}
+
+  packages/build-config: {}
+
+  packages/eslint-config: {}
+
+  packages/mf-utils: {}
+
+  packages/platform-info: {}
+
+  packages/shell-ui: {}
+
+  packages/tenancy: {}
+
+  packages/tsconfig: {}
+
+  packages/utils: {}

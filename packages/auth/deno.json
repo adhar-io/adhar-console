@@ -1,0 +1,12 @@
+{
+  "name": "@adhar-console/auth",
+  "version": "0.1.0",
+  "exports": {
+    ".": "./src/index.ts",
+    "./server": "./src/server-index.ts",
+    "./client": "./src/client.ts"
+  },
+  "tasks": {
+    "check": "deno check src/index.ts src/server-index.ts src/client.ts"
+  }
+}

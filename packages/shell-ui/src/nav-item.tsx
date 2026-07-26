@@ -87,7 +87,9 @@ export function NavItem({
     <div>
       <div
         className={cn(
-          'group relative flex items-center gap-2.5 rounded-md text-sm transition-all duration-150',
+          'group relative flex items-center gap-2.5 rounded-md text-sm',
+          'transition-[background-color,color,box-shadow,transform] duration-200 ease-out',
+          'active:scale-[0.985] active:duration-75 motion-reduce:transform-none motion-reduce:transition-none',
           isSub ? 'py-1 pl-3 pr-2' : 'py-1.5 pl-2 pr-2',
           isActive
             ? 'bg-brand-600 font-medium text-white shadow-sm ring-1 ring-inset ring-white/10'
@@ -138,11 +140,28 @@ export function NavItem({
         ) : null}
       </div>
 
-      {hasChildren && expanded ? (
-        <div className="relative mt-0.5 space-y-0.5 pb-1">
-          {item.children!.map((child) => (
-            <NavItem key={child.id} item={child} depth={depth + 1} userRoles={userRoles} />
-          ))}
+      {hasChildren ? (
+        // Smooth accordion: animate `grid-template-rows` 0fr→1fr so the
+        // submenu slides open/closed with no JS height measurement. Children
+        // stay mounted; `overflow-hidden` clips them while collapsing.
+        <div
+          className={cn(
+            'grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+            expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+          )}
+        >
+          <div className="overflow-hidden">
+            <div
+              className={cn(
+                'relative mt-0.5 space-y-0.5 pb-1 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                expanded ? 'translate-y-0' : '-translate-y-1',
+              )}
+            >
+              {item.children!.map((child) => (
+                <NavItem key={child.id} item={child} depth={depth + 1} userRoles={userRoles} />
+              ))}
+            </div>
+          </div>
         </div>
       ) : null}
     </div>
@@ -316,7 +335,8 @@ function CollapsedItem({
   const icon = (
     <span
       className={cn(
-        'flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-150',
+        'flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-200 ease-out',
+        'hover:scale-105 active:scale-95 motion-reduce:transform-none motion-reduce:transition-none',
         '[&>svg]:h-[18px] [&>svg]:w-[18px]',
         isActive
           ? 'bg-brand-600 text-white shadow-sm ring-1 ring-inset ring-white/10'

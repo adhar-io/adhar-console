@@ -6,7 +6,7 @@ import {
   useRouterState,
 } from '@tanstack/react-router'
 import type { QueryClient } from '@tanstack/react-query'
-import { Spinner } from '@adhar-console/shell-ui'
+import { AdharSymbol, Spinner } from '@adhar-console/shell-ui'
 import { useAuth, type Session } from '@adhar-console/auth'
 import type { Tenant } from '@adhar-console/tenancy'
 
@@ -79,7 +79,8 @@ function RootComponent() {
 
 function BootSplash() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50">
+    <div className="flex min-h-screen flex-col items-center justify-center gap-5 bg-slate-50">
+      <AdharSymbol size={56} className="animate-pulse" />
       <div className="flex items-center gap-3 rounded-xl border border-edge-default bg-white px-4 py-3 text-sm text-content-muted shadow-sm">
         <Spinner size={14} />
         <span>Loading workspace…</span>

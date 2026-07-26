@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { Button } from '@adhar-console/shell-ui'
+import { AdharLogo, Button } from '@adhar-console/shell-ui'
 import { getStubSession, useAuth } from '@adhar-console/auth'
 
 /**
@@ -54,13 +54,8 @@ function SignupPage() {
       <div className="grid w-full max-w-4xl gap-8 lg:grid-cols-[1.1fr_1fr]">
         {/* Left — pitch */}
         <div className="hidden lg:flex lg:flex-col lg:justify-center lg:gap-5">
-          <div className="flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-sm font-bold text-white shadow-sm">
-              A
-            </div>
-            <span className="text-lg font-semibold tracking-tight text-content">
-              Adhar Console
-            </span>
+          <div className="flex items-center">
+            <AdharLogo symbolSize={40} subtitle="Console" />
           </div>
           <h1 className="text-3xl font-semibold leading-tight tracking-tight text-content">
             Adhar Platform for the whole SDLC.

@@ -1,3 +1,4 @@
+export { AdharLogo, AdharSymbol, AdharWordmark, AdharWordmarkStack } from './brand.tsx'
 export { AppShell } from './app-shell.tsx'
 export { Sidebar } from './sidebar.tsx'
 export { Topbar } from './topbar.tsx'

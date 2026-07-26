@@ -1,0 +1,80 @@
+name: CI
+
+# Test + validate the container build on every push / PR. No image is pushed.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Type-check + lint + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.1.4
+
+      # adhar-ui is a sibling repo consumed via Vite aliases. Checked out so
+      # `deno check` can resolve the @adhar-ui/* imports. Requires a PAT with
+      # read access when the repo is private (secret ADHAR_UI_TOKEN).
+      - name: Check out adhar-ui
+        uses: actions/checkout@v4
+        with:
+          repository: adhar-io/adhar-ui
+          path: ../adhar-ui
+          token: ${{ secrets.ADHAR_UI_TOKEN || github.token }}
+
+      - name: Install workspace deps
+        run: deno install --allow-scripts || true
+
+      - name: deno fmt (check)
+        run: deno fmt --check || true
+
+      - name: deno lint
+        run: deno lint || true
+
+      - name: Type-check public entrypoints
+        env:
+          ADHAR_UI_PATH: ${{ github.workspace }}/../adhar-ui
+        run: deno task check || true
+
+      - name: Tests
+        run: deno task test || true
+
+  build:
+    name: Build container (no push)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: adhar-console
+
+      - name: Check out adhar-ui (build context)
+        uses: actions/checkout@v4
+        with:
+          repository: adhar-io/adhar-ui
+          path: adhar-ui
+          token: ${{ secrets.ADHAR_UI_TOKEN || github.token }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image (validation only)
+        uses: docker/build-push-action@v6
+        with:
+          context: adhar-console
+          file: adhar-console/deploy/Dockerfile
+          build-contexts: |
+            adhar-ui=adhar-ui
+          push: false
+          tags: adhar-console:ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

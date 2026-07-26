@@ -6,6 +6,7 @@ import type { User } from '@adhar-console/auth'
 import { TenantSwitcher } from './tenant-switcher.tsx'
 import { hasActiveDescendant, isItemActive, NavItem } from './nav-item.tsx'
 import { DEFAULT_NAV, type NavItem as TNavItem, type NavSection } from './nav-tree.tsx'
+import { AdharSymbol, AdharWordmarkStack } from './brand.tsx'
 
 interface Props {
   tenants: Tenant[]
@@ -230,22 +231,8 @@ function Header({
         aria-label="Adhar Console — home"
         className="group flex min-w-0 items-center gap-2.5 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25"
       >
-        <div
-          className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white shadow-sm ring-1 ring-black/10 transition-transform duration-200 ease-out group-hover:scale-105"
-          style={{
-            backgroundImage:
-              'linear-gradient(135deg, oklch(0.62 0.19 262) 0%, oklch(0.48 0.18 263) 50%, oklch(0.32 0.14 264) 100%)',
-          }}
-        >
-          <span
-            aria-hidden
-            className="absolute inset-0 rounded-xl bg-linear-to-tr from-white/0 via-white/20 to-white/0"
-          />
-          <span
-            aria-hidden
-            className="absolute inset-x-0 bottom-0 h-1/2 rounded-b-xl bg-linear-to-t from-black/15 to-transparent"
-          />
-          <BrandMarkIcon />
+        <div className="relative shrink-0 transition-transform duration-200 ease-out group-hover:scale-105">
+          <AdharSymbol size={36} />
           <span
             className="pointer-events-none absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white"
             aria-hidden
@@ -260,12 +247,7 @@ function Header({
           )}
           aria-hidden={collapsed}
         >
-          <div className="truncate font-semibold uppercase tracking-[0.18em] text-[15px] leading-none text-content">
-            ADHAR
-          </div>
-          <div className="mt-1 truncate text-[10px] font-medium uppercase tracking-[0.22em] text-content-subtle">
-            Console
-          </div>
+          <AdharWordmarkStack fontSize={17} subtitle="Console" />
         </div>
       </Link>
       {collapsed ? (
@@ -293,27 +275,6 @@ function Header({
         </button>
       )}
     </div>
-  )
-}
-
-function BrandMarkIcon() {
-  // Stylised "A" with a horizontal crossbar — ADHAR's primary mark.
-  return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="relative drop-shadow-[0_1px_0_rgba(0,0,0,0.18)]"
-      aria-hidden
-    >
-      <path d="M4.5 20 12 4l7.5 16" />
-      <path d="M8 14h8" />
-    </svg>
   )
 }
 

@@ -92,7 +92,7 @@
     "drizzle-orm": "npm:drizzle-orm@^0.36.4",
     "drizzle-orm/": "npm:/drizzle-orm@^0.36.4/",
     "postgres": "npm:postgres@^3.4.5",
-    "nitro": "npm:nitro@3.0.260610-beta",
-    "nitro/": "npm:/nitro@3.0.260610-beta/"
+    "clsx": "npm:clsx@^2.1.1",
+    "tailwind-merge": "npm:tailwind-merge@^2.5.0"
   }
 }

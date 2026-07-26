@@ -1,7 +1,7 @@
 {
   "tasks": {
     "dev": "deno run -A npm:vite@^7.1.12 --host --port 5100",
-    "build": "deno run -A npm:vite@^7.1.12 build --configLoader runner",
+    "build": "deno run -A npm:vite@^7.1.12 build",
     "preview": "deno run -A npm:vite@^7.1.12 preview --port 5100",
     "check": "deno check app/**/*.ts app/**/*.tsx"
   },
@@ -28,9 +28,7 @@
     "jose": "npm:jose@^5.9.6",
     "drizzle-orm": "npm:drizzle-orm@^0.36.4",
     "drizzle-orm/": "npm:/drizzle-orm@^0.36.4/",
-    "postgres": "npm:postgres@^3.4.5",
-    "nitro": "npm:nitro@3.0.260610-beta",
-    "nitro/": "npm:/nitro@3.0.260610-beta/"
+    "postgres": "npm:postgres@^3.4.5"
   },
   "compilerOptions": {
     "jsx": "react-jsx",

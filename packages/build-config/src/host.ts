@@ -1,10 +1,5 @@
 import { defineConfig, type UserConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { tanstackStart } from '@tanstack/react-start/plugin/vite'
-// Nitro turns the TanStack Start SSR handler into a runnable server that emits
-// `.output/server/index.mjs` (+ `.output/public/`). Without it the build only
-// produces SSR assets with no HTTP host. Build-only (see the isBuild branch).
-import { nitro } from 'nitro/vite'
 import { federation } from '@module-federation/vite'
 import tailwind from '@tailwindcss/vite'
 import { resolve } from 'node:path'
@@ -142,15 +137,14 @@ export function defineHostConfig(opts: HostOpts) {
             '@tanstack/react-query': { singleton: true, eager: true },
           },
         }),
-        // TanStack Start (SSR + BFF server functions) + Nitro (server host) —
-        // production build only. See the block comment at the top of this file.
-        // `.flat()` because each plugin factory may return an array.
-        ...(isBuild
-          ? [
-              tanstackStart({ srcDirectory: 'app', server: { entry: 'ssr' } }),
-              nitro(),
-            ].flat()
-          : []),
+        // Pure SPA build (index.html → app/main.tsx). The console ships as a
+        // client-rendered SPA served by a small standalone Deno server
+        // (apps/console/server.ts) that also hosts the BFF API routes. We do
+        // NOT use TanStack Start's SSR/Nitro server: the Deno + MF + Vite-7 +
+        // Nitro toolchain doesn't converge, and the app is SPA-first anyway
+        // (the root gate renders a boot splash until auth resolves client-side,
+        // so SSR added no first-paint value). The API handlers are wired
+        // framework-agnostically in server.ts.
         react(),
       ],
     }

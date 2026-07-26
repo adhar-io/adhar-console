@@ -65,7 +65,10 @@ async function run(cmd: string[], cwd: string, label: string): Promise<void> {
 
 async function copyRemoteDist(remoteDir: string, name: string) {
   const src = resolve(remoteDir, 'dist')
-  const dst = resolve(HOST.dir, '.output/public/mf', name)
+  // Host is a Vite SPA build → served from `apps/console/dist/`. Stage each
+  // remote under `dist/mf/<name>/` so the standalone server serves host +
+  // every remote from one origin (matching the remote `base: /mf/<name>/`).
+  const dst = resolve(HOST.dir, 'dist/mf', name)
   if (!(await exists(src))) {
     throw new Error(`${remoteDir}/dist does not exist — did its build fail silently?`)
   }
@@ -107,16 +110,16 @@ if (buildHost && selectedRemotes.length > 0) {
   console.log()
 }
 
-// 4. Sanity check.
+// 4. Sanity check — the SPA entry HTML must exist.
 if (buildHost) {
-  const entry = join(HOST.dir, '.output/server/index.mjs')
+  const entry = join(HOST.dir, 'dist/index.html')
   if (!(await exists(entry))) {
     console.warn(
-      `\x1b[33m⚠  Expected host entry at ${entry} — TanStack Start's Nitro preset may emit a different path. Update deploy/Dockerfile's CMD if so.\x1b[0m`,
+      `\x1b[33m⚠  Expected SPA entry at ${entry} — did the host build fail?\x1b[0m`,
     )
   }
 }
 
 console.log(`\x1b[32m✓ build complete\x1b[0m`)
 console.log(`\nTo serve locally (production-equivalent):`)
-console.log(`  cd apps/console && deno run -A .output/server/index.mjs`)
+console.log(`  cd apps/console && deno run -A server.ts`)

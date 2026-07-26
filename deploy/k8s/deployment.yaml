@@ -59,14 +59,21 @@ spec:
             limits:
               cpu: 1000m
               memory: 768Mi
+          # Deno warms its module graph on boot (~30-40s). The startup probe
+          # gives it up to ~100s before liveness/readiness kick in, so a slow
+          # cold start never gets the pod killed.
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 3
+            failureThreshold: 34
           livenessProbe:
             httpGet: { path: /healthz, port: http }
-            initialDelaySeconds: 15
             periodSeconds: 20
+            timeoutSeconds: 3
           readinessProbe:
             httpGet: { path: /readyz, port: http }
-            initialDelaySeconds: 5
-            periodSeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { createFileRoute, Link, useNavigate, useSearch } from '@tanstack/react-router'
-import { Button } from '@adhar-console/shell-ui'
+import { AdharLogo, Button } from '@adhar-console/shell-ui'
 import { getStubSession, useAuth } from '@adhar-console/auth'
 import { z } from 'zod'
 
@@ -68,11 +68,8 @@ function LoginPage() {
       }}
     >
       <div className="w-full max-w-md space-y-6">
-        <div className="flex items-center justify-center gap-2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-sm font-bold text-white shadow-sm">
-            A
-          </div>
-          <span className="text-lg font-semibold tracking-tight text-content">Adhar Console</span>
+        <div className="flex items-center justify-center">
+          <AdharLogo symbolSize={44} subtitle="Console" />
         </div>
 
         <div className="rounded-2xl border border-edge-default bg-white p-7 shadow-sm">

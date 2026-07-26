@@ -1,6 +1,16 @@
 name: CI
 
-# Test + validate the container build on every push / PR. No image is pushed.
+# Validate the console on every push / PR. No image is published here.
+#
+# adhar-ui is a SEPARATE repo (adhar-io/adhar-ui) that the console consumes via
+# Vite aliases + as a Docker build context. Both repos are checked out into
+# sibling subdirectories UNDER the runner workspace — actions/checkout refuses a
+# path outside $GITHUB_WORKSPACE (that was the "not under …/adhar-console" error).
+#
+# Checking out another repo needs a token with read access to it. Set the
+# `ADHAR_UI_TOKEN` repo secret to a PAT (or a fine-grained token scoped to
+# adhar-io/adhar-ui) when that repo is private; the default GITHUB_TOKEN can
+# only read the current repo.
 on:
   push:
     branches: [main]
@@ -13,52 +23,62 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
-    name: Type-check + lint + test
+  quality:
+    name: Format · lint · type-check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout adhar-console
+        uses: actions/checkout@v4
+        with:
+          path: adhar-console
+
+      - name: Checkout adhar-ui (sibling, for @adhar-ui/* resolution)
+        uses: actions/checkout@v4
+        with:
+          repository: adhar-io/adhar-ui
+          path: adhar-ui
+          token: ${{ secrets.ADHAR_UI_TOKEN || github.token }}
 
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.1.4
 
-      # adhar-ui is a sibling repo consumed via Vite aliases. Checked out so
-      # `deno check` can resolve the @adhar-ui/* imports. Requires a PAT with
-      # read access when the repo is private (secret ADHAR_UI_TOKEN).
-      - name: Check out adhar-ui
-        uses: actions/checkout@v4
-        with:
-          repository: adhar-io/adhar-ui
-          path: ../adhar-ui
-          token: ${{ secrets.ADHAR_UI_TOKEN || github.token }}
-
-      - name: Install workspace deps
-        run: deno install --allow-scripts || true
-
-      - name: deno fmt (check)
-        run: deno fmt --check || true
+      # Reported for visibility but non-blocking: fmt/lint/type-check surface
+      # issues without gating the pipeline (the build job is the hard gate).
+      - name: deno fmt --check
+        working-directory: adhar-console
+        continue-on-error: true
+        run: deno fmt --check
 
       - name: deno lint
-        run: deno lint || true
+        working-directory: adhar-console
+        continue-on-error: true
+        run: deno lint
 
-      - name: Type-check public entrypoints
+      - name: deno check
+        working-directory: adhar-console
+        continue-on-error: true
         env:
-          ADHAR_UI_PATH: ${{ github.workspace }}/../adhar-ui
-        run: deno task check || true
+          ADHAR_UI_PATH: ${{ github.workspace }}/adhar-ui
+        run: deno task check
 
-      - name: Tests
-        run: deno task test || true
+      - name: deno test
+        working-directory: adhar-console
+        continue-on-error: true
+        env:
+          ADHAR_UI_PATH: ${{ github.workspace }}/adhar-ui
+        run: deno task test
 
   build:
-    name: Build container (no push)
+    name: Build container image (no push)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout adhar-console
+        uses: actions/checkout@v4
         with:
           path: adhar-console
 
-      - name: Check out adhar-ui (build context)
+      - name: Checkout adhar-ui (Docker build context)
         uses: actions/checkout@v4
         with:
           repository: adhar-io/adhar-ui
@@ -73,8 +93,9 @@ jobs:
           context: adhar-console
           file: adhar-console/deploy/Dockerfile
           build-contexts: |
-            adhar-ui=adhar-ui
+            adhar-ui=${{ github.workspace }}/adhar-ui
           push: false
+          load: false
           tags: adhar-console:ci-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

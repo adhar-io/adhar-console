@@ -63,7 +63,7 @@ jobs:
           context: adhar-console
           file: adhar-console/deploy/Dockerfile
           build-contexts: |
-            adhar-ui=adhar-ui
+            adhar-ui=${{ github.workspace }}/adhar-ui
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

@@ -280,6 +280,11 @@ export const DEFAULT_NAV: NavSection[] = [
             badge: { kind: 'degraded', value: '2 warn' },
           },
           { id: 'platform.crds', label: 'Custom Resources', to: '/platform', search: 'crds' },
+          { id: 'platform.explore', label: 'Explore', to: '/platform', search: 'explore' },
+          { id: 'platform.shell', label: 'Cloud Shell', to: '/platform', search: 'shell' },
+          { id: 'platform.logs', label: 'Logs', to: '/platform', search: 'logs' },
+          { id: 'platform.metrics', label: 'Metrics', to: '/platform', search: 'metrics' },
+          { id: 'platform.ci', label: 'CI / CD', to: '/platform', search: 'ci' },
           { id: 'platform.policy', label: 'Policy', to: '/platform', search: 'policy' },
           {
             id: 'platform.marketplace',

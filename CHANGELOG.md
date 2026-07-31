@@ -6,6 +6,33 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Added — mature Kubernetes integration + AI assistance (0.3.0)
+
+- **Per-user Kubernetes access.** The console authenticates to the kube-apiserver
+  **as the signed-in user** (OIDC impersonation): their Keycloak token (now
+  minted with the apiserver's `adhar-cli` audience + `groups` claim) is
+  forwarded by a new gateway, so the apiserver enforces that user's RBAC and
+  native audit — the console holds no cluster privilege of its own.
+- **Kubernetes gateway** (`/api/k8s/*`) — a discovery-driven **streaming reverse
+  proxy**: the full apiserver REST surface (every built-in resource *and* CRD,
+  every verb), live **watch** + **log-follow** streaming, meta endpoints for API
+  discovery, `SelfSubjectAccessReview`, and **server-side apply** with dry-run.
+- **Live everything** — a `kube` client + `useLiveList` hook stream resource
+  deltas (watch, auto-reconnect) instead of polling; a gateway-backed adapter
+  gives all existing platform views per-user identity.
+- **Interactive terminal** — pod exec over WebSocket (`v5.channel.k8s.io`) with
+  an xterm terminal.
+- **Universal resource browser** (discovery-driven, live, RBAC-gated actions),
+  **manifest editor** (Monaco, dry-run + server-side apply, access-gated),
+  **events timeline**, and **owner-reference topology** on every resource.
+- **AI assistant** woven into every view — a self-hosted / OpenAI-compatible
+  provider (no external calls), read-only Kubernetes tool-use (list/get/logs/
+  events/discovery with the user's RBAC), diagnose / explain / generate, and
+  **human-approved change proposals** (the AI proposes a manifest; the operator
+  reviews and applies). Global streaming assistant + inline "Diagnose / Explain"
+  on resources. Configure via `AI_BASE_URL` / `AI_MODEL` / `AI_API_KEY`.
+
+
 ## [0.2.0] — 2026-07-04
 
 ### Fixed — container build

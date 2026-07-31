@@ -1,4 +1,4 @@
-import { HttpClient, HttpError, isProdBuild, svcBaseUrl, type HttpClientOptions } from '../base/index.ts'
+import { HttpClient, HttpError, isProdBuild, type HttpClientOptions } from '../base/index.ts'
 import type {
   Cluster,
   Deployment,
@@ -475,21 +475,24 @@ export const K8sClient = {
     )
   },
   /**
-   * Environment-aware client. Prod build → kube-apiserver through the BFF
-   * proxy at `/api/svc/k8s` (cookie-authenticated; the server attaches the
-   * console SA token). Dev → `kubectl proxy` at `/kube-api`, or the stub when
-   * forced. Set `mode: 'stub'` to render fixtures regardless of environment.
+   * Environment-aware client.
+   *   - Production build → the kube-apiserver through the console's **Kubernetes
+   *     gateway** at `/api/k8s` (cookie-authenticated; forwards the signed-in
+   *     user's token for per-user RBAC).
+   *   - Dev (or `mode: 'stub'`) → in-memory **stub fixtures**, so the UI runs
+   *     with no cluster and no `kubectl proxy` (that flood of ECONNREFUSED
+   *     proxy errors is gone). Force live dev with `mode: 'real'`.
    */
   auto(opts: { mode?: 'real' | 'stub' } & Partial<HttpClientOptions> = {}): K8sClient {
     const real = opts.mode ? opts.mode === 'real' : isProdBuild()
-    if (opts.mode === 'stub') return stub()
+    if (!real) return stub()
     return build(
       new HttpClient({
-        baseUrl: opts.baseUrl ?? (real ? svcBaseUrl('k8s') : '/kube-api'),
+        baseUrl: opts.baseUrl ?? '/api/k8s',
         token: opts.token,
         headers: opts.headers,
         fetchImpl: opts.fetchImpl,
-        credentials: opts.credentials ?? (real ? 'include' : 'same-origin'),
+        credentials: opts.credentials ?? 'include',
       }),
     )
   },

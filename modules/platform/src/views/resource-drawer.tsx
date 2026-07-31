@@ -1,14 +1,42 @@
 import { useEffect, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  AiButton,
   Card,
   CardBody,
   CardHeader,
   StatusBadge,
+  type AiContext,
   type StatusKind,
 } from '@adhar-console/shell-ui'
+import type { KubeObject } from '@adhar-console/api-clients/k8s'
 import { cn } from '@adhar-console/utils'
 import { age } from '../data/format.ts'
+import { EventsTimeline } from './events-timeline.tsx'
+import { Topology } from './topology.tsx'
+
+/** Best-effort plural resource name from a Kind (for the AI context). */
+function pluralize(kind: string): string {
+  const k = kind.toLowerCase()
+  if (k.endsWith('s')) return `${k}es`
+  if (k.endsWith('y')) return `${k.slice(0, -1)}ies`
+  return `${k}s`
+}
+
+function aiContextOf(resource: Resource): AiContext | undefined {
+  if (!resource.kind) return undefined
+  const [group, version] = (resource.apiVersion ?? 'v1').includes('/')
+    ? (resource.apiVersion ?? 'v1').split('/')
+    : ['', resource.apiVersion ?? 'v1']
+  return {
+    group,
+    version,
+    resource: pluralize(resource.kind),
+    kind: resource.kind,
+    namespace: resource.metadata.namespace,
+    name: resource.metadata.name,
+  }
+}
 
 /**
  * Headlamp-style detail drawer used by Deployment / Service / Ingress and
@@ -53,6 +81,8 @@ export function ResourceDrawer<T extends Resource>({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  const ai = aiContextOf(resource)
+
   if (typeof document === 'undefined') return null
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
@@ -79,6 +109,12 @@ export function ResourceDrawer<T extends Resource>({
             ) : null}
           </div>
           <div className="flex items-center gap-2">
+            {ai ? (
+              <>
+                <AiButton mode="diagnose" context={ai} label="Diagnose" title={`Diagnose ${resource.metadata.name}`} />
+                <AiButton mode="explain" context={ai} label="Explain" title={`Explain ${resource.metadata.name}`} />
+              </>
+            ) : null}
             {statusBadge}
             <button
               type="button"
@@ -93,6 +129,28 @@ export function ResourceDrawer<T extends Resource>({
 
         <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
           {children}
+
+          <Card>
+            <CardHeader>
+              <div className="text-sm font-semibold text-content">Topology</div>
+            </CardHeader>
+            <CardBody>
+              <Topology object={resource as unknown as KubeObject} />
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="text-sm font-semibold text-content">Related events</div>
+            </CardHeader>
+            <CardBody>
+              <EventsTimeline
+                namespace={resource.metadata.namespace}
+                name={resource.metadata.name}
+                kind={resource.kind}
+              />
+            </CardBody>
+          </Card>
 
           <Card>
             <CardHeader>

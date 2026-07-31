@@ -29,6 +29,9 @@ import {
 import { proxyToolRequest } from './app/server/proxy.ts'
 import { publicToolInfo } from './app/server/tool-registry.ts'
 import { handleNotifications, handlePreferences } from './app/server/api-handlers.ts'
+import { handleK8s } from './app/server/k8s/gateway.ts'
+import { handleExec } from './app/server/k8s/exec.ts'
+import { handleAi } from './app/server/ai/handlers.ts'
 
 const PORT = Number(env('PORT') ?? 3000)
 const HOSTNAME = env('HOST') ?? '0.0.0.0'
@@ -150,6 +153,18 @@ async function route(req: Request): Promise<Response> {
   if (path === '/api/auth/callback') return handleCallback(req)
   if (path === '/api/auth/logout') return handleLogout(req)
   if (path === '/api/auth/session') return handleSession(req)
+
+  // Pod exec/attach terminal (WebSocket upgrade).
+  if (path === '/api/k8s/exec') return handleExec(req)
+
+  // AI assistant (SSE chat + diagnose/explain/generate).
+  const ai = path.match(/^\/api\/ai\/(.*)$/)
+  if (ai) return handleAi(req, ai[1])
+
+  // Kubernetes gateway: /api/k8s/<apiserver path…> — user-token, streaming,
+  // discovery + access-review + apply under /api/k8s/-/…
+  const k8s = path.match(/^\/api\/k8s\/(.*)$/)
+  if (k8s) return handleK8s(req, k8s[1])
 
   // Backing-tool proxy: /api/svc/<tool>/<upstream path...>
   const svc = path.match(/^\/api\/svc\/([^/]+)(?:\/(.*))?$/)

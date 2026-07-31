@@ -1,4 +1,12 @@
 export { AdharLogo, AdharSymbol, AdharWordmark, AdharWordmarkStack } from './brand.tsx'
+export { AiProvider, AiButton, useAi, type AskOptions } from './ai-assistant.tsx'
+export {
+  streamAi,
+  getAiConfig,
+  type AiContext,
+  type AiMode,
+  type AiProposal,
+} from './ai.ts'
 export { AppShell } from './app-shell.tsx'
 export { Sidebar } from './sidebar.tsx'
 export { Topbar } from './topbar.tsx'

@@ -1,8 +1,15 @@
 import { useQuery } from '@tanstack/react-query'
 import type { k8s } from '@adhar-console/api-clients'
 import { client, LOCAL_CLUSTER } from './client.ts'
+import { useLiveList } from './live.ts'
+import { GVRS } from './gvr.ts'
 
 export const AUTO_REFRESH_MS = 10_000
+
+/** Cast a live (generic) list to a concrete resource type for the views. */
+function asLive<T>(live: ReturnType<typeof useLiveList>) {
+  return { ...live, data: live.data as unknown as T[] }
+}
 
 export function useConnection() {
   return useQuery({
@@ -34,43 +41,23 @@ export function useClusters() {
 }
 
 export function useNodes() {
-  return useQuery({
-    queryKey: ['k8s', 'nodes'],
-    queryFn: () => client.listNodes(),
-    refetchInterval: AUTO_REFRESH_MS,
-  })
+  return asLive<k8s.Node>(useLiveList(GVRS.nodes))
 }
 
 export function usePods(namespace?: string) {
-  return useQuery({
-    queryKey: ['k8s', 'pods', namespace ?? '*'],
-    queryFn: () => client.listPods(LOCAL_CLUSTER, namespace),
-    refetchInterval: AUTO_REFRESH_MS,
-  })
+  return asLive<k8s.Pod>(useLiveList(GVRS.pods, { namespace }))
 }
 
 export function useDeployments(namespace?: string) {
-  return useQuery({
-    queryKey: ['k8s', 'deployments', namespace ?? '*'],
-    queryFn: () => client.listDeployments(LOCAL_CLUSTER, namespace),
-    refetchInterval: AUTO_REFRESH_MS,
-  })
+  return asLive<k8s.Deployment>(useLiveList(GVRS.deployments, { namespace }))
 }
 
 export function useStatefulSets(namespace?: string) {
-  return useQuery({
-    queryKey: ['k8s', 'statefulsets', namespace ?? '*'],
-    queryFn: () => client.listStatefulSets(LOCAL_CLUSTER, namespace),
-    refetchInterval: AUTO_REFRESH_MS,
-  })
+  return asLive<k8s.Generic>(useLiveList(GVRS.statefulsets, { namespace }))
 }
 
 export function useDaemonSets(namespace?: string) {
-  return useQuery({
-    queryKey: ['k8s', 'daemonsets', namespace ?? '*'],
-    queryFn: () => client.listDaemonSets(LOCAL_CLUSTER, namespace),
-    refetchInterval: AUTO_REFRESH_MS,
-  })
+  return asLive<k8s.Generic>(useLiveList(GVRS.daemonsets, { namespace }))
 }
 
 export function useJobs(namespace?: string) {
@@ -166,11 +153,7 @@ export function useClusterRoleBindings() {
 }
 
 export function useEvents(namespace?: string) {
-  return useQuery({
-    queryKey: ['k8s', 'events', namespace ?? '*'],
-    queryFn: () => client.listEvents(LOCAL_CLUSTER, namespace),
-    refetchInterval: 5_000,
-  })
+  return asLive<k8s.Event>(useLiveList(GVRS.events, { namespace }))
 }
 
 /**
@@ -208,29 +191,11 @@ export function useGeneric(gvr: k8s.GVR, namespace?: string) {
 /* ─── Workload extras ──────────────────────────────────────────────── */
 
 export function useReplicaSets(namespace?: string) {
-  return useQuery({
-    queryKey: ['k8s', 'replicasets', namespace ?? '*'],
-    queryFn: () =>
-      client.listGeneric(
-        LOCAL_CLUSTER,
-        { group: 'apps', version: 'v1', resource: 'replicasets', namespaced: true },
-        namespace,
-      ),
-    refetchInterval: AUTO_REFRESH_MS,
-  })
+  return asLive<k8s.Generic>(useLiveList(GVRS.replicasets, { namespace }))
 }
 
 export function useHorizontalPodAutoscalers(namespace?: string) {
-  return useQuery({
-    queryKey: ['k8s', 'hpa', namespace ?? '*'],
-    queryFn: () =>
-      client.listGeneric(
-        LOCAL_CLUSTER,
-        { group: 'autoscaling', version: 'v2', resource: 'horizontalpodautoscalers', namespaced: true },
-        namespace,
-      ),
-    refetchInterval: AUTO_REFRESH_MS,
-  })
+  return asLive<k8s.Generic>(useLiveList(GVRS.hpa, { namespace }))
 }
 
 /* ─── Networking extras ────────────────────────────────────────────── */

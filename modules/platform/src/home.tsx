@@ -13,6 +13,11 @@ import { ConfigView } from './views/config-list.tsx'
 import { RbacView } from './views/rbac-list.tsx'
 import { EventsView } from './views/events-list.tsx'
 import { CrdBrowser } from './views/crd-browser.tsx'
+import { ResourceBrowser } from './views/resource-browser.tsx'
+import { CloudShell } from './views/cloud-shell.tsx'
+import { LogsViewer } from './views/logs-viewer.tsx'
+import { MetricsView } from './views/metrics-view.tsx'
+import { CiRunsView } from './views/ci-runs.tsx'
 import { PolicyView } from './views/policy-list.tsx'
 import { ObservabilityView } from './views/observability-list.tsx'
 import { MarketplaceView } from './views/marketplace.tsx'
@@ -46,6 +51,11 @@ type Section =
   | 'rbac'
   | 'events'
   | 'crds'
+  | 'explore'
+  | 'shell'
+  | 'logs'
+  | 'metrics'
+  | 'ci'
   | 'policy'
   | 'observability'
   | 'marketplace'
@@ -135,6 +145,36 @@ const SECTIONS: Record<Section, SectionDef> = {
     id: 'crds',
     label: 'Custom Resources',
     description: 'Browse CRDs from Argo, Kargo, Crossplane, Kyverno, and more.',
+    kind: 'k8s',
+  },
+  explore: {
+    id: 'explore',
+    label: 'Explore',
+    description: 'Discovery-driven browser for every Kubernetes kind — live tables with an inline manifest editor.',
+    kind: 'k8s',
+  },
+  shell: {
+    id: 'shell',
+    label: 'Cloud Shell',
+    description: 'An in-browser terminal into any pod — runs as you, with your Kubernetes RBAC.',
+    kind: 'k8s',
+  },
+  logs: {
+    id: 'logs',
+    label: 'Logs',
+    description: 'Live, streaming pod logs with follow, filter, and download.',
+    kind: 'k8s',
+  },
+  metrics: {
+    id: 'metrics',
+    label: 'Metrics',
+    description: 'Cluster CPU + memory — node capacity, usage, and the heaviest pods.',
+    kind: 'k8s',
+  },
+  ci: {
+    id: 'ci',
+    label: 'CI / CD Runs',
+    description: 'Live Argo Workflows + Tekton pipeline runs with status and drill-in.',
     kind: 'k8s',
   },
   policy: {
@@ -249,12 +289,16 @@ export default function PlatformHome({ section }: { section?: string } = {}) {
   const def = SECTIONS[active]
   const [namespace, setNamespace] = useState<string | undefined>(undefined)
 
+  const ownNamespacePicker = active === 'shell' || active === 'logs' || active === 'ci'
   const showNamespacePicker =
     active !== 'marketplace' &&
     active !== 'dashboard' &&
     active !== 'catalog' &&
     active !== 'clusters' &&
-    active !== 'environments'
+    active !== 'environments' &&
+    active !== 'explore' &&
+    active !== 'metrics' &&
+    !ownNamespacePicker
 
   return (
     <div className="space-y-6">
@@ -304,6 +348,16 @@ function SectionBody({
       return <EventsView namespace={namespace} />
     case 'crds':
       return <CrdBrowser namespace={namespace} />
+    case 'explore':
+      return <ResourceBrowser namespace={namespace} />
+    case 'shell':
+      return <CloudShell namespace={namespace} />
+    case 'logs':
+      return <LogsViewer namespace={namespace} />
+    case 'metrics':
+      return <MetricsView />
+    case 'ci':
+      return <CiRunsView namespace={namespace} />
     case 'policy':
       return <PolicyView />
     case 'observability':

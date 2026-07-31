@@ -21,7 +21,13 @@ data:
   AUTH_PUBLIC_URL: "https://console.adhar.localtest.me:8443"
   AUTH_SCOPES: "openid profile email offline_access"
   AUTH_COOKIE_SECURE: "true"
-  ADHAR_CONSOLE_VERSION: "0.2.0"
+  ADHAR_CONSOLE_VERSION: "0.3.0"
+
+  # AI assistant (self-hosted / OpenAI-compatible). Leave AI_BASE_URL empty to
+  # disable AI. Point it at an in-cluster OpenAI-compatible endpoint (vLLM,
+  # Ollama /v1, LiteLLM, LocalAI). The API key (if any) lives in the Secret.
+  AI_BASE_URL: ""
+  AI_MODEL: "default"
   GITEA_URL: "https://gitea.adhar.localtest.me:8443"
   ARGOCD_URL: "https://argocd.adhar.localtest.me:8443"
   KARGO_URL: "https://kargo.adhar.localtest.me:8443"

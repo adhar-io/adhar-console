@@ -213,14 +213,47 @@ adhar-console/
 
 ## CI / Release
 
-- **CI** ([`ci.yml`](./.github/workflows/ci.yml)) runs on push/PR: fmt · lint ·
-  type-check · test (reported, non-blocking) and a validation container build.
-- **Release** ([`release.yml`](./.github/workflows/release.yml)) builds a
-  multi-arch image and pushes to Docker Hub on a `v*` tag.
+Three workflows form a full release pipeline:
 
-Both check out `adhar-io/adhar-ui` as a sibling for the build context — set the
-`ADHAR_UI_TOKEN` secret if that repo is private, and `DOCKERHUB_USERNAME` +
-`DOCKERHUB_TOKEN` for releases.
+- **CI** ([`ci.yml`](./.github/workflows/ci.yml)) — on push/PR: fmt · lint ·
+  type-check · test (reported, non-blocking) and a validation container build.
+- **Version bump** ([`version-bump.yml`](./.github/workflows/version-bump.yml)) —
+  manual dispatch. Pick `patch`/`minor`/`major` (or an explicit version) and it
+  bumps `package.json`, promotes the `CHANGELOG` `[Unreleased]` section, commits,
+  and pushes the annotated tag `vX.Y.Z`.
+- **Release** ([`release.yml`](./.github/workflows/release.yml)) — fired by the
+  `v*` tag: builds the **multi-arch** (amd64 + arm64) image and pushes it with
+  `:X.Y.Z`, `:X.Y`, `:latest`, `:sha-<short>` tags plus **SBOM + provenance** to
+  **GHCR** (`ghcr.io/<owner>/adhar-console`, always) and **Docker Hub** (only if
+  its secrets are set), then cuts a **GitHub Release** with auto-generated notes
+  and the image digest. Refuses to overwrite an already-published version.
+
+### Cut a release
+
+1. **Actions → Version bump → Run workflow** → choose the bump. That tags `vX.Y.Z`.
+2. The **Release** workflow builds, pushes to Docker Hub, and publishes the GitHub Release.
+
+> Re-publish an existing version without moving the tag via **Actions → Release →
+> Run workflow** (enter the version).
+
+### Registries & secrets
+
+The image publishes to **GHCR by default with no setup** — it authenticates with
+the built-in `GITHUB_TOKEN`, so `ghcr.io/<owner>/adhar-console` just works. Docker
+Hub is an optional mirror, enabled only when its secrets are present.
+
+| Secret | Required? | Purpose |
+|---|---|---|
+| *(none)* | — | GHCR push uses the built-in `GITHUB_TOKEN` |
+| `DOCKERHUB_USERNAME` | optional | Docker Hub org/namespace (`adhario`) — also mirrors the image there |
+| `DOCKERHUB_TOKEN` | optional | Docker Hub access token (Read/Write) |
+| `ADHAR_UI_TOKEN` | optional | PAT to check out `adhar-io/adhar-ui` if private |
+| `RELEASE_PAT` | optional | PAT so the bump's tag auto-triggers Release (GitHub blocks `GITHUB_TOKEN` tag pushes from starting workflows) — without it, dispatch Release manually |
+
+> GHCR images start **private**. Make the package public (or grant pull access)
+> under the org's **Packages** settings, or configure an `imagePullSecret`.
+
+Both build jobs check out `adhar-io/adhar-ui` as a sibling for the Docker build context.
 
 ---
 

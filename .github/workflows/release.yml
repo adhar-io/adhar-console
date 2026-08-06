@@ -1,63 +1,146 @@
 name: Release
 
-# Build and publish the multi-arch adhar-console image to Docker Hub.
-# Triggers:
-#   - pushing a semver tag `v*` (e.g. v0.2.0) → tags :<version>, :<major.minor>, :latest
-#   - manual dispatch with an explicit tag input
+# Build + publish the multi-arch adhar-console image AND cut a GitHub Release.
+# This is the single publisher for the project.
 #
-# Required repository secrets:
-#   DOCKERHUB_USERNAME  — Docker Hub account/org (also the image namespace)
-#   DOCKERHUB_TOKEN     — Docker Hub access token with write scope
-#   ADHAR_UI_TOKEN      — (optional) PAT to check out adhar-io/adhar-ui if private
+# Registries:
+#   - GHCR  (ghcr.io/<owner>/adhar-console) — ALWAYS. Authenticates with the
+#     built-in GITHUB_TOKEN, so it needs zero setup.
+#   - Docker Hub (<user>/adhar-console) — ONLY when the DOCKERHUB_USERNAME /
+#     DOCKERHUB_TOKEN secrets are set. Skipped cleanly otherwise.
+#
+# Triggers:
+#   - pushing a semver tag `v*` (e.g. v0.3.1) → the full release: image tags
+#     :<version>, :<major.minor>, :<major>, :latest, :sha-<short> + a GitHub
+#     Release with auto-generated notes.
+#   - manual dispatch with an explicit version → publishes the image only.
+#
+# Cut a release the easy way with the "Version bump" workflow.
+#
+# Optional repository secrets:
+#   DOCKERHUB_USERNAME  — Docker Hub account/org (also the image namespace, e.g. adhario)
+#   DOCKERHUB_TOKEN     — Docker Hub access token with Read/Write scope
+#   ADHAR_UI_TOKEN      — PAT to check out adhar-io/adhar-ui if private
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
-      tag:
-        description: Image tag to publish (e.g. 0.2.0)
+      version:
+        description: Version to publish (e.g. 0.3.1) — image only, no GitHub Release
         required: true
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
-  contents: read
+  contents: write # create the GitHub Release
+  packages: write # push to GHCR
 
 jobs:
   publish:
-    name: Build + push to Docker Hub
+    name: Build · push · release
     runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      digest: ${{ steps.build.outputs.digest }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout adhar-console
+        uses: actions/checkout@v4
         with:
           path: adhar-console
+          fetch-depth: 0 # full history so release notes can diff against the last tag
 
-      - name: Check out adhar-ui (build context)
+      - name: Checkout adhar-ui (build context)
         uses: actions/checkout@v4
         with:
           repository: adhar-io/adhar-ui
           path: adhar-ui
           token: ${{ secrets.ADHAR_UI_TOKEN || github.token }}
 
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          VERSION="${VERSION#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Publishing adhar-console ${VERSION}"
+
+      - name: Resolve registries
+        id: reg
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          GHCR="ghcr.io/${OWNER}/adhar-console"
+          echo "ghcr=${GHCR}" >> "$GITHUB_OUTPUT"
+          {
+            echo "images<<EOF"
+            echo "${GHCR}"
+            if [ -n "${DOCKERHUB_USERNAME}" ]; then echo "${DOCKERHUB_USERNAME}/adhar-console"; fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          if [ -n "${DOCKERHUB_USERNAME}" ]; then
+            echo "Publishing to: ${GHCR} + ${DOCKERHUB_USERNAME}/adhar-console"
+          else
+            echo "Publishing to: ${GHCR} (Docker Hub secrets not set — skipping)"
+          fi
+
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Log in to Docker Hub
+        if: ${{ env.DOCKERHUB_USERNAME != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
+
+      - name: Guard — version not already published
+        if: github.event_name == 'push'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GHCR: ${{ steps.reg.outputs.ghcr }}
+        run: |
+          # A published semver tag is immutable — fail early rather than clobber.
+          if docker buildx imagetools inspect "${GHCR}:${VERSION}" >/dev/null 2>&1; then
+            echo "::error::${GHCR}:${VERSION} already exists. Bump the version."
+            exit 1
+          fi
+          echo "Version ${VERSION} is free — proceeding."
 
       - name: Derive image + tags
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/adhar-console
+          images: ${{ steps.reg.outputs.images }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=semver,pattern={{version}},value=${{ steps.version.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.version }}
+            type=semver,pattern={{major}},value=${{ steps.version.outputs.version }},enable=${{ !startsWith(steps.version.outputs.version, '0.') }}
+            type=sha,format=short
             type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
+          labels: |
+            org.opencontainers.image.title=Adhar Console
+            org.opencontainers.image.description=Kubernetes-native SDLC control plane for the Adhar platform
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.vendor=Adhar
 
       - name: Build + push (amd64 + arm64)
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: adhar-console
@@ -68,5 +151,64 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          provenance: true
+          sbom: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Create GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          GHCR: ${{ steps.reg.outputs.ghcr }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAG: ${{ github.ref_name }}
+        working-directory: adhar-console
+        run: |
+          MINOR="${VERSION%.*}"
+          NOTES_FILE="$(mktemp)"
+          {
+            echo "## Container image"
+            echo
+            echo '```'
+            echo "docker pull ${GHCR}:${VERSION}"
+            echo '```'
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| **Image (GHCR)** | \`${GHCR}:${VERSION}\` |"
+            if [ -n "${DOCKERHUB_USERNAME}" ]; then
+              echo "| **Image (Docker Hub)** | \`${DOCKERHUB_USERNAME}/adhar-console:${VERSION}\` |"
+            fi
+            echo "| **Also tagged** | \`${MINOR}\`, \`latest\` |"
+            echo "| **Platforms** | linux/amd64, linux/arm64 |"
+            echo "| **Digest** | \`${DIGEST}\` |"
+            echo
+          } > "$NOTES_FILE"
+          # --generate-notes appends the commit/PR changelog since the last tag.
+          gh release create "$TAG" \
+            --title "adhar-console ${VERSION}" \
+            --notes-file "$NOTES_FILE" \
+            --generate-notes \
+            --verify-tag
+
+      - name: Job summary
+        if: always()
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GHCR: ${{ steps.reg.outputs.ghcr }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo "### 🚀 adhar-console ${VERSION}"
+            echo
+            echo "- **GHCR:** \`${GHCR}:${VERSION}\`"
+            if [ -n "${DOCKERHUB_USERNAME}" ]; then
+              echo "- **Docker Hub:** \`${DOCKERHUB_USERNAME}/adhar-console:${VERSION}\`"
+            else
+              echo "- **Docker Hub:** _skipped (no secrets)_"
+            fi
+            echo "- **Digest:** \`${DIGEST:-n/a}\`"
+            echo "- **Trigger:** ${{ github.event_name }} (${{ github.ref_name }})"
+          } >> "$GITHUB_STEP_SUMMARY"

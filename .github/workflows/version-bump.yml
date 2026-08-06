@@ -1,0 +1,123 @@
+name: Version bump
+
+# Cut a release from the GitHub UI. Pick a bump (or type an explicit version)
+# and this workflow:
+#   1. computes the new SemVer from package.json,
+#   2. writes it into package.json,
+#   3. promotes the CHANGELOG "[Unreleased]" section to "[x.y.z] - <date>",
+#   4. commits to the default branch,
+#   5. creates + pushes the annotated tag `vX.Y.Z`.
+#
+# Pushing that tag triggers the Release workflow (build → push → GitHub Release).
+#
+# GITHUB_TOKEN-pushed tags do NOT start other workflows (GitHub's loop guard).
+# To auto-chain into Release, add a `RELEASE_PAT` secret (a fine-grained PAT
+# with contents:write on this repo). Without it, the tag is still created — just
+# run the Release workflow manually, or push the tag from your machine.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Semver bump
+        type: choice
+        default: patch
+        options: [patch, minor, major]
+      version:
+        description: Explicit version (overrides bump, e.g. 1.0.0) — no leading v
+        required: false
+        default: ''
+
+concurrency:
+  group: version-bump
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    name: Bump · changelog · tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # Use RELEASE_PAT so the pushed tag triggers the Release workflow.
+          # Falls back to GITHUB_TOKEN (tag is created, Release must be started manually).
+          token: ${{ secrets.RELEASE_PAT || github.token }}
+
+      - name: Compute next version
+        id: v
+        run: |
+          set -euo pipefail
+          CURRENT=$(node -p "require('./package.json').version")
+          INPUT="${{ github.event.inputs.version }}"
+          if [ -n "$INPUT" ]; then
+            NEXT="${INPUT#v}"
+          else
+            IFS=. read -r MA MI PA <<< "$CURRENT"
+            case "${{ github.event.inputs.bump }}" in
+              major) MA=$((MA+1)); MI=0; PA=0 ;;
+              minor) MI=$((MI+1)); PA=0 ;;
+              patch) PA=$((PA+1)) ;;
+            esac
+            NEXT="${MA}.${MI}.${PA}"
+          fi
+          if ! echo "$NEXT" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$NEXT' is not a valid SemVer x.y.z"; exit 1
+          fi
+          if git rev-parse "v${NEXT}" >/dev/null 2>&1; then
+            echo "::error::tag v${NEXT} already exists"; exit 1
+          fi
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "Bumping ${CURRENT} → ${NEXT}"
+
+      - name: Write package.json version
+        env:
+          NEXT: ${{ steps.v.outputs.next }}
+        run: node -e "const f='package.json',p=require('./'+f);p.version=process.env.NEXT;require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
+
+      - name: Promote CHANGELOG [Unreleased]
+        env:
+          NEXT: ${{ steps.v.outputs.next }}
+        run: |
+          set -euo pipefail
+          DATE=$(date +%Y-%m-%d)
+          if grep -q '## \[Unreleased\]' CHANGELOG.md; then
+            # Insert a fresh empty Unreleased above the newly-dated section.
+            perl -0pi -e "s/## \\[Unreleased\\]/## [Unreleased]\n\n## [$ENV{NEXT}] - $DATE/" CHANGELOG.md
+            echo "Promoted [Unreleased] → [$NEXT] - $DATE"
+          else
+            echo "::warning::No [Unreleased] heading in CHANGELOG.md — skipping promotion"
+          fi
+
+      - name: Commit, tag, push
+        env:
+          NEXT: ${{ steps.v.outputs.next }}
+        run: |
+          set -euo pipefail
+          git config user.name  "adhar-release-bot"
+          git config user.email "release-bot@adhar.io"
+          git add package.json CHANGELOG.md
+          git commit -m "chore(release): v${NEXT}"
+          git tag -a "v${NEXT}" -m "adhar-console v${NEXT}"
+          git push origin HEAD
+          git push origin "v${NEXT}"
+
+      - name: Summary
+        if: always()
+        env:
+          NEXT: ${{ steps.v.outputs.next }}
+        run: |
+          {
+            echo "### 🏷️ Tagged v${NEXT}"
+            echo
+            if [ -n "${{ secrets.RELEASE_PAT }}" ]; then
+              echo "The **Release** workflow will now build + publish \`adhar-console:${NEXT}\`."
+            else
+              echo "> ⚠️ No \`RELEASE_PAT\` secret — the tag was created but the Release workflow was **not** auto-triggered."
+              echo ">"
+              echo "> Start it from **Actions → Release → Run workflow** (version \`${NEXT}\`), or add a \`RELEASE_PAT\` secret for full automation."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

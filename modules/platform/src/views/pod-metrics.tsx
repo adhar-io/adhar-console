@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { EmptyState, StatusBadge } from '@adhar-console/shell-ui'
-import { client, LOCAL_CLUSTER } from '../data/client.ts'
+import { client, isDevK8s, LOCAL_CLUSTER } from '../data/client.ts'
 import { formatBytes, formatCpu, parseQuantity } from '../data/format.ts'
 
 /**
@@ -33,15 +33,38 @@ interface ContainerSeries {
   samples: Sample[]
 }
 
+interface ContainerResources {
+  name: string
+  resources?: {
+    requests?: { cpu?: string; memory?: string }
+    limits?: { cpu?: string; memory?: string }
+  }
+}
+
+/** Sum requests/limits across a pod's containers into total cores / bytes. */
+function sumResources(containers: ContainerResources[]) {
+  let cpuReq = 0, cpuLim = 0, memReq = 0, memLim = 0
+  for (const c of containers) {
+    const r = c.resources
+    if (r?.requests?.cpu) cpuReq += parseQuantity(r.requests.cpu)
+    if (r?.limits?.cpu) cpuLim += parseQuantity(r.limits.cpu)
+    if (r?.requests?.memory) memReq += parseQuantity(r.requests.memory)
+    if (r?.limits?.memory) memLim += parseQuantity(r.limits.memory)
+  }
+  return { cpuReq, cpuLim, memReq, memLim }
+}
+
 export function PodMetricsPanel({
   namespace,
   podName,
-  containerNames,
+  containers,
 }: {
   namespace: string
   podName: string
-  containerNames: string[]
+  containers: ContainerResources[]
 }) {
+  const containerNames = containers.map((c) => c.name)
+  const limits = useMemo(() => sumResources(containers), [containers])
   const [series, setSeries] = useState<Record<string, ContainerSeries>>({})
   const seriesRef = useRef(series)
   seriesRef.current = series
@@ -89,6 +112,9 @@ export function PodMetricsPanel({
           series={aggregate.cpuSeries}
           format={(v) => formatCpu(v)}
           unit="cores"
+          usage={aggregate.cpuCores}
+          request={limits.cpuReq || undefined}
+          limit={limits.cpuLim || undefined}
         />
         <MetricCard
           title="Memory usage"
@@ -97,6 +123,9 @@ export function PodMetricsPanel({
           series={aggregate.memSeries}
           format={(v) => formatBytes(v)}
           unit=""
+          usage={aggregate.memBytes}
+          request={limits.memReq || undefined}
+          limit={limits.memLim || undefined}
         />
       </div>
 
@@ -185,13 +214,16 @@ function TrafficPanel({
       // Try the node-summary shortcut first — only works when the apiserver
       // has the stats/summary subresource enabled. We route through the
       // pod's node; for simplicity we fetch the pod and grab spec.nodeName.
+      // Dev runs against stub fixtures with no cluster — skip the live
+      // node-summary probe so we don't flood the console with proxy errors.
+      if (isDevK8s) return null
       const pod = await client.getPod(LOCAL_CLUSTER, namespace, podName)
       const node = pod.spec.nodeName
       if (!node) return null
       try {
         const body = await fetch(
-          `/kube-api/api/v1/nodes/${encodeURIComponent(node)}/proxy/stats/summary`,
-          { credentials: 'same-origin' },
+          `/api/k8s/api/v1/nodes/${encodeURIComponent(node)}/proxy/stats/summary`,
+          { credentials: 'include' },
         )
         if (!body.ok) return null
         const parsed = (await body.json()) as {
@@ -282,6 +314,9 @@ function MetricCard({
   series,
   format,
   unit,
+  usage,
+  request,
+  limit,
 }: {
   title: string
   color: string
@@ -289,8 +324,17 @@ function MetricCard({
   series: number[]
   format(v: number): string
   unit: string
+  usage?: number
+  request?: number
+  limit?: number
 }) {
-  const max = Math.max(1, ...series)
+  // Scale the chart so the limit line is always in view when defined.
+  const max = Math.max(1, limit ?? 0, ...series)
+  const pctOfLimit = limit && usage ? Math.min(999, Math.round((usage / limit) * 100)) : undefined
+  const pctOfRequest = request && usage ? Math.round((usage / request) * 100) : undefined
+  const utilKind: 'healthy' | 'degraded' | 'failed' =
+    pctOfLimit == null ? 'healthy' : pctOfLimit >= 90 ? 'failed' : pctOfLimit >= 75 ? 'degraded' : 'healthy'
+
   return (
     <div className="rounded-xl border border-edge-default bg-white p-4 shadow-sm">
       <div className="mb-2 flex items-baseline justify-between gap-2">
@@ -302,16 +346,41 @@ function MetricCard({
             <span className="text-lg font-semibold tabular-nums">{subtitle}</span>
           </div>
         </div>
-        <StatusBadge kind={series.length ? 'healthy' : 'unknown'}>
-          {series.length}/{WINDOW} pts
-        </StatusBadge>
+        {pctOfLimit != null ? (
+          <StatusBadge kind={utilKind}>{pctOfLimit}% of limit</StatusBadge>
+        ) : (
+          <StatusBadge kind={series.length ? 'healthy' : 'unknown'}>
+            {series.length}/{WINDOW} pts
+          </StatusBadge>
+        )}
       </div>
-      <AreaSpark points={series} color={color} max={max} />
+      <AreaSpark points={series} color={color} max={max} request={request} limit={limit} />
       <div className="mt-1 flex items-center justify-between text-[10px] text-content-subtle">
         <span>{format(0)}</span>
         <span>{unit}</span>
         <span>{format(max)}</span>
       </div>
+      {(request || limit) ? (
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-edge-subtle pt-2 text-[10px]">
+          {request ? (
+            <span className="inline-flex items-center gap-1 text-content-muted">
+              <span className="inline-block h-2 w-3 border-t-2 border-dashed border-emerald-500" />
+              request {format(request)}
+              {pctOfRequest != null ? <span className="text-content-subtle">· {pctOfRequest}%</span> : null}
+            </span>
+          ) : (
+            <span className="text-content-subtle">no request set</span>
+          )}
+          {limit ? (
+            <span className="inline-flex items-center gap-1 text-content-muted">
+              <span className="inline-block h-2 w-3 border-t-2 border-dashed border-rose-500" />
+              limit {format(limit)}
+            </span>
+          ) : (
+            <span className="text-content-subtle">no limit set</span>
+          )}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -320,22 +389,38 @@ function AreaSpark({
   points,
   color,
   max,
+  request,
+  limit,
 }: {
   points: number[]
   color: string
   max: number
+  request?: number
+  limit?: number
 }) {
   const width = 320
   const height = 64
+  const yOf = (v: number) => height - (v / max) * (height - 4) - 2
+  const refLines = (
+    <>
+      {request ? (
+        <line x1="0" x2={width} y1={yOf(request)} y2={yOf(request)} stroke="#10b981" strokeWidth="1" strokeDasharray="4 3" strokeOpacity="0.7" />
+      ) : null}
+      {limit ? (
+        <line x1="0" x2={width} y1={yOf(limit)} y2={yOf(limit)} stroke="#f43f5e" strokeWidth="1" strokeDasharray="4 3" strokeOpacity="0.7" />
+      ) : null}
+    </>
+  )
   if (points.length < 2) {
     return (
       <svg width="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
         <line x1="0" x2={width} y1={height / 2} y2={height / 2} stroke={color} strokeOpacity="0.15" strokeDasharray="3 3" />
+        {refLines}
       </svg>
     )
   }
   const step = width / (points.length - 1)
-  const ys = points.map((p) => height - (p / max) * (height - 4) - 2)
+  const ys = points.map((p) => yOf(p))
   const path = ys.map((y, i) => `${i === 0 ? 'M' : 'L'}${(i * step).toFixed(2)},${y.toFixed(2)}`).join(' ')
   const area = `${path} L${width},${height} L0,${height} Z`
   return (
@@ -348,6 +433,7 @@ function AreaSpark({
       </defs>
       <path d={area} fill={`url(#g-${color})`} />
       <path d={path} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+      {refLines}
       <circle cx={(points.length - 1) * step} cy={ys[ys.length - 1]} r="2.5" fill={color} />
     </svg>
   )

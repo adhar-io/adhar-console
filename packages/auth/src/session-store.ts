@@ -25,6 +25,12 @@ export interface ServerSession {
   idToken?: string
   /** Epoch ms when the access token expires. */
   expiresAt: number
+  /**
+   * Epoch ms of the original interactive login. Immutable across refreshes —
+   * used to enforce an absolute session lifetime so a stolen/rolling cookie
+   * can't be extended forever within the sliding TTL window.
+   */
+  authTime?: number
   activeTenant: string
 }
 

@@ -35,12 +35,15 @@ export interface ServerAuthConfig {
   publicUrl?: string
   scopes: string
   sessionTtlSeconds: number
+  /** Hard ceiling on total session age regardless of refreshes (forces re-login). */
+  sessionAbsoluteTtlSeconds: number
 }
 
 const DEFAULT_REALM = 'adhar'
 const DEFAULT_CLIENT = 'adhar-console'
 const DEFAULT_SCOPES = 'openid profile email offline_access'
 const DEFAULT_SESSION_TTL = 8 * 60 * 60
+const DEFAULT_SESSION_ABSOLUTE_TTL = 24 * 60 * 60
 const DEFAULT_COOKIE_NAME = 'adhar_session'
 
 function isDev(): boolean {
@@ -56,7 +59,22 @@ export function getServerAuthConfig(): ServerAuthConfig | null {
   const url = env('KEYCLOAK_URL')?.replace(/\/$/, '')
   const clientSecret = env('AUTH_CLIENT_SECRET') ?? env('KEYCLOAK_CLIENT_SECRET')
   const cookieSecret = env('AUTH_COOKIE_SECRET')
-  if (!url || !clientSecret || !cookieSecret) return null
+  if (!url || !clientSecret || !cookieSecret) {
+    // FAIL CLOSED: in production, refuse to run in stub/demo mode — otherwise a
+    // forgotten env var would silently expose the console shell with a
+    // client-minted "demo" admin session. Dev may run stubbed.
+    if (!isDev()) {
+      const missing = [
+        !url && 'KEYCLOAK_URL',
+        !clientSecret && 'AUTH_CLIENT_SECRET',
+        !cookieSecret && 'AUTH_COOKIE_SECRET',
+      ].filter(Boolean).join(', ')
+      throw new Error(
+        `Auth is not configured but NODE_ENV=production — refusing to start in demo mode. Missing: ${missing}.`,
+      )
+    }
+    return null
+  }
 
   if (cookieSecret.length < 32) {
     throw new Error(
@@ -66,17 +84,28 @@ export function getServerAuthConfig(): ServerAuthConfig | null {
 
   const realm = env('KEYCLOAK_REALM') ?? DEFAULT_REALM
   const secureRaw = env('AUTH_COOKIE_SECURE')
+  const cookieSecure = secureRaw ? secureRaw === 'true' : !isDev()
+  // `__Host-` prefix (Secure + Path=/ + no Domain) prevents a sibling subdomain
+  // — e.g. a compromised grafana.adhar.* — from shadowing/fixating the session
+  // cookie. The prefix is only legal over HTTPS, so we skip it when insecure (dev).
+  const baseCookieName = env('AUTH_COOKIE_NAME') ?? DEFAULT_COOKIE_NAME
+  const cookieName = cookieSecure && !baseCookieName.startsWith('__Host-')
+    ? `__Host-${baseCookieName}`
+    : baseCookieName
   return {
     issuer: `${url}/realms/${realm}`,
     realm,
     clientId: env('KEYCLOAK_CLIENT_ID') ?? DEFAULT_CLIENT,
     clientSecret,
     cookieSecret,
-    cookieName: env('AUTH_COOKIE_NAME') ?? DEFAULT_COOKIE_NAME,
-    cookieSecure: secureRaw ? secureRaw === 'true' : !isDev(),
+    cookieName,
+    cookieSecure,
     publicUrl: env('AUTH_PUBLIC_URL')?.replace(/\/$/, ''),
     scopes: env('AUTH_SCOPES') ?? DEFAULT_SCOPES,
     sessionTtlSeconds: Number(env('AUTH_SESSION_TTL_SECONDS') ?? DEFAULT_SESSION_TTL),
+    sessionAbsoluteTtlSeconds: Number(
+      env('AUTH_SESSION_ABSOLUTE_TTL_SECONDS') ?? DEFAULT_SESSION_ABSOLUTE_TTL,
+    ),
   }
 }
 
@@ -92,6 +121,14 @@ export function isServerAuthConfigured(): boolean {
  */
 export function resolvePublicOrigin(cfg: ServerAuthConfig, req: Request): string {
   if (cfg.publicUrl) return cfg.publicUrl
+  // Deriving the origin from `X-Forwarded-Host`/`Host` lets a forged header
+  // redirect the OIDC flow (and the post-login `Location`) to an attacker's
+  // site. Only trust request headers in dev; production MUST pin AUTH_PUBLIC_URL.
+  if (!isDev()) {
+    throw new Error(
+      'AUTH_PUBLIC_URL must be set in production — refusing to derive the redirect origin from request headers.',
+    )
+  }
   const h = req.headers
   const proto = h.get('x-forwarded-proto') ?? new URL(req.url).protocol.replace(':', '')
   const host = h.get('x-forwarded-host') ?? h.get('host') ?? new URL(req.url).host

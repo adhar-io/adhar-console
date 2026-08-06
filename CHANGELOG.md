@@ -6,6 +6,37 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Security — enterprise hardening (k8s gateway + Keycloak)
+
+- **k8s gateway** — strict request-header **allow-list** (never forwards
+  `Impersonate-*`), client-disconnect propagated upstream, 30s timeout on
+  non-streaming calls, request-body size cap, `Origin` (CSRF) check on all
+  mutating verbs, structured **audit log** for every mutation + pod exec, SSA
+  namespace validation/encoding, `force:false` apply default, and generic
+  (non-leaking) upstream error messages.
+- **Pod exec** — Origin-gated WebSocket upgrade, audited session start, stdin
+  buffer cap + apiserver-open timeout, refreshed cookie carried on upgrade.
+- **Keycloak/OIDC** — **fails closed in production** (refuses to boot in demo
+  mode / without `AUTH_PUBLIC_URL`), **absolute session lifetime** cap on top of
+  the sliding TTL, refresh **single-flight** (no rotation thundering-herd
+  logout), **`__Host-`** session cookie, `Cache-Control: no-store` on session
+  responses, 60s JWKS **clock-skew** tolerance, refresh-token **revocation** on
+  logout, and generic auth error messages (no token-endpoint body leakage).
+
+### Added — release management (GitHub Actions)
+
+- **`version-bump.yml`** cuts a release from the Actions UI (bump → CHANGELOG →
+  commit → `vX.Y.Z` tag); **`release.yml`** builds the multi-arch image, pushes
+  it with a full tag matrix + **SBOM/provenance** to **GHCR** (always, via the
+  built-in `GITHUB_TOKEN`) and **Docker Hub** (optional mirror when its secrets
+  are set), and publishes a **GitHub Release** with generated notes + image
+  digest (refuses to overwrite a published version).
+
+### Fixed
+
+- Dev K8s request flood eliminated — the host overview, workflow list, and pod
+  metrics now use stub fixtures in dev instead of hitting `/kube-api`.
+
 ### Added — mature Kubernetes integration + AI assistance (0.3.0)
 
 - **Per-user Kubernetes access.** The console authenticates to the kube-apiserver

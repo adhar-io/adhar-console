@@ -6,7 +6,9 @@ import { useQuery } from '@tanstack/react-query'
  * has its own copy tailored to its KPI tiles; the Overview only needs the
  * coarse-grained aggregates below.
  */
-const client = k8s.K8sClient.create({ baseUrl: '/kube-api' })
+// `auto()` → in-memory stub fixtures in dev (no cluster / no kubectl proxy),
+// and the console's authenticated `/api/k8s` gateway in production.
+const client = k8s.K8sClient.auto()
 const REFRESH_MS = 15_000
 
 export function useClusterSignals() {

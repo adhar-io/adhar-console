@@ -109,6 +109,7 @@ const gatewayClient: K8sClient = {
       tailLines: params.tailLines,
       timestamps: params.timestamps,
       sinceSeconds: params.sinceSeconds,
+      previous: params.previous,
       follow: false,
     }),
   podMetrics: async (_c, ns, name) => {

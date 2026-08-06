@@ -13,6 +13,7 @@ import { age, shortImage } from '../data/format.ts'
 import type { k8s } from '@adhar-console/api-clients'
 import { DrawerSection, DrawerStatusTile, ResourceDrawer, Row } from './resource-drawer.tsx'
 import { ListShell, matchesSearch } from './list-shell.tsx'
+import { WorkloadOpsForKind } from './workload-ops.tsx'
 
 type Sub = 'deployments' | 'replicasets' | 'statefulsets' | 'daemonsets' | 'jobs' | 'cronjobs' | 'hpa'
 
@@ -204,6 +205,13 @@ function DeploymentDrawer({
         />
         <DrawerStatusTile label="Up-to-date" kind="info" value={String(updated)} />
       </section>
+
+      <WorkloadOpsForKind
+        namespace={deployment.metadata.namespace ?? 'default'}
+        kind="Deployment"
+        name={deployment.metadata.name}
+        showStatus={false}
+      />
 
       <DrawerSection title="Spec">
         <div className="divide-y divide-edge-subtle text-sm">

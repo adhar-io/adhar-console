@@ -81,6 +81,7 @@ export type K8sPermission =
   | 'crds.read'
   | 'crds.write'
   | 'events.read'
+  | 'nodes.cordon'
 
 const ALL_PERMS: K8sPermission[] = [
   'pods.read',
@@ -102,6 +103,7 @@ const ALL_PERMS: K8sPermission[] = [
   'crds.read',
   'crds.write',
   'events.read',
+  'nodes.cordon',
 ]
 
 const READ_ONLY = ALL_PERMS.filter((p) => p.endsWith('.read'))
@@ -162,6 +164,7 @@ export const K8S_PERMISSION_LABEL: Record<K8sPermission, string> = {
   'crds.read': 'View custom resources',
   'crds.write': 'Edit custom resources',
   'events.read': 'View events',
+  'nodes.cordon': 'Cordon / uncordon nodes',
 }
 
 /* ─────────── current roles + view-as override ─────────── */

@@ -39,6 +39,52 @@ const HOP_BY_HOP = new Set([
   'content-length',
 ])
 
+/**
+ * Strict allow-list of request headers we forward to the apiserver. A denylist
+ * is unsafe here: the console injects the user's identity via the Bearer token,
+ * so anything a client could set that the apiserver trusts — above all
+ * `Impersonate-User`/`Impersonate-Group`/`Impersonate-Uid` — must NOT ride
+ * through. Only these content-negotiation headers are ever forwarded.
+ */
+const FORWARD_HEADERS = new Set(['accept', 'accept-encoding', 'content-type'])
+
+/** Max buffered request body (SSA manifests, patches). Guards against memory DoS. */
+const MAX_BODY_BYTES = 3 * 1024 * 1024
+
+/** Non-streaming upstream calls get a hard timeout; watch/follow stream instead. */
+const UPSTREAM_TIMEOUT_MS = 30_000
+
+/** True for streaming requests (watch list / log follow) that must not time out. */
+function isStreaming(search: string): boolean {
+  const q = new URLSearchParams(search)
+  return q.get('watch') === '1' || q.get('watch') === 'true' || q.get('follow') === 'true'
+}
+
+/**
+ * CSRF defense-in-depth. The session cookie is `SameSite=Lax`, but for
+ * state-changing verbs we additionally reject any browser request whose `Origin`
+ * isn't our own. A missing Origin (non-browser client, same-origin navigation)
+ * is allowed — the cookie still gates it.
+ */
+export function originOk(req: Request): boolean {
+  const origin = req.headers.get('origin')
+  if (!origin) return true
+  try {
+    return new URL(origin).host === new URL(req.url).host
+  } catch {
+    return false
+  }
+}
+
+/** Structured audit line for the console tier (user + verb + resource + outcome). */
+export function audit(entry: Record<string, unknown>): void {
+  try {
+    console.log(JSON.stringify({ ts: new Date().toISOString(), kind: 'k8s.audit', ...entry }))
+  } catch {
+    // never let logging break a request
+  }
+}
+
 function apiServerBaseUrl(): string {
   return (env('K8S_API_URL') ?? 'https://kubernetes.default.svc').replace(/\/$/, '')
 }
@@ -90,7 +136,13 @@ function withCookie(res: Response, cookie?: string): Response {
 export function apiServerFetch(
   token: string,
   path: string,
-  init: { method?: string; body?: BodyInit | null; headers?: Record<string, string>; search?: string } = {},
+  init: {
+    method?: string
+    body?: BodyInit | null
+    headers?: Record<string, string>
+    search?: string
+    signal?: AbortSignal
+  } = {},
 ): Promise<Response> {
   const base = apiServerBaseUrl()
   const clean = path.startsWith('/') ? path : `/${path}`
@@ -103,6 +155,7 @@ export function apiServerFetch(
     headers,
     body: init.body ?? undefined,
     redirect: 'manual',
+    signal: init.signal,
   })
 }
 
@@ -132,6 +185,14 @@ export async function handleK8s(req: Request, subpath: string): Promise<Response
   const id = await resolveIdentity(req)
   if (!id) return unauthorized()
 
+  const method = req.method.toUpperCase()
+  const mutating = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS'
+
+  // CSRF defence-in-depth for state-changing verbs (meta apply/access included).
+  if (mutating && !originOk(req)) {
+    return Response.json({ error: 'origin_not_allowed' }, { status: 403 })
+  }
+
   if (subpath.startsWith('-/')) {
     return withCookie(await handleMeta(req, subpath.slice(2), id), id.refreshedCookie)
   }
@@ -143,25 +204,59 @@ export async function handleK8s(req: Request, subpath: string): Promise<Response
   }
 
   const url = new URL(req.url)
-  const method = req.method.toUpperCase()
+  // Strict allow-list — never forward Impersonate-*/auth/etc. (see FORWARD_HEADERS).
   const headers: Record<string, string> = {}
   for (const [k, v] of req.headers) {
-    if (!HOP_BY_HOP.has(k.toLowerCase())) headers[k] = v
+    if (FORWARD_HEADERS.has(k.toLowerCase())) headers[k] = v
   }
-  const hasBody = method !== 'GET' && method !== 'HEAD'
+
+  // Buffer the body under a hard cap (memory-DoS guard).
+  let body: ArrayBuffer | undefined
+  if (mutating) {
+    const declared = Number(req.headers.get('content-length') ?? '0')
+    if (declared > MAX_BODY_BYTES) {
+      return Response.json({ error: 'request_entity_too_large', maxBytes: MAX_BODY_BYTES }, { status: 413 })
+    }
+    body = await req.arrayBuffer()
+    if (body.byteLength > MAX_BODY_BYTES) {
+      return Response.json({ error: 'request_entity_too_large', maxBytes: MAX_BODY_BYTES }, { status: 413 })
+    }
+  }
+
+  // Propagate client disconnect upstream; add a timeout for non-streaming calls
+  // so a hung apiserver socket can't pin the connection forever.
+  const streaming = isStreaming(url.search)
+  const signal = streaming
+    ? req.signal
+    : AbortSignal.any([req.signal, AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)])
+
+  const started = Date.now()
   let upstream: Response
   try {
     upstream = await apiServerFetch(id.token, `/${subpath}`, {
       method,
       headers,
       search: url.search,
-      body: hasBody ? await req.arrayBuffer() : undefined,
+      body,
+      signal,
     })
   } catch (e) {
-    return Response.json(
-      { error: 'apiserver_unreachable', detail: e instanceof Error ? e.message : String(e) },
-      { status: 502 },
-    )
+    const aborted = e instanceof DOMException && e.name === 'AbortError'
+    if (mutating) {
+      audit({ user: id.user.id, method, path: subpath, status: aborted ? 499 : 502, ms: Date.now() - started })
+    }
+    if (aborted && req.signal.aborted) {
+      // Client went away — nothing to return.
+      return new Response(null, { status: 499 })
+    }
+    // Log internal detail server-side, return a generic message to the browser.
+    console.error(`[k8s] upstream error ${method} /${subpath}:`, e instanceof Error ? e.message : e)
+    return Response.json({ error: aborted ? 'apiserver_timeout' : 'apiserver_unreachable' }, {
+      status: aborted ? 504 : 502,
+    })
+  }
+  if (mutating) {
+    audit({ user: id.user.id, method, path: subpath, status: upstream.status, ms: Date.now() - started })
   }
   return passthrough(upstream, id.refreshedCookie)
 }
@@ -177,7 +272,7 @@ async function handleMeta(req: Request, name: string, id: K8sIdentity): Promise<
     case 'rules':
       return rulesReview(req, id.token)
     case 'apply':
-      return apply(req, id.token)
+      return apply(req, id.token, id.user)
     case 'whoami':
       return Response.json({ user: id.user })
     default:
@@ -210,9 +305,13 @@ async function discovery(token: string): Promise<Response> {
     return Response.json({ resources: discoveryCache.data, cached: true })
   }
   try {
+    const okJson = async (r: Response) => {
+      if (!r.ok) throw new Error(`discovery upstream ${r.status}`)
+      return r.json()
+    }
     const [coreRes, groupsRes] = await Promise.all([
-      apiServerFetch(token, '/api/v1').then((r) => r.json()),
-      apiServerFetch(token, '/apis').then((r) => r.json()),
+      apiServerFetch(token, '/api/v1').then(okJson),
+      apiServerFetch(token, '/apis').then(okJson),
     ])
     const groupVersions: string[] = ['v1']
     for (const g of (groupsRes.groups ?? []) as Array<{ preferredVersion?: { groupVersion: string } }>) {
@@ -251,10 +350,8 @@ async function discovery(token: string): Promise<Response> {
     discoveryCache = { at: Date.now(), data: out }
     return Response.json({ resources: out, cached: false })
   } catch (e) {
-    return Response.json(
-      { error: 'discovery_failed', detail: e instanceof Error ? e.message : String(e) },
-      { status: 502 },
-    )
+    console.error('[k8s] discovery failed:', e instanceof Error ? e.message : e)
+    return Response.json({ error: 'discovery_failed' }, { status: 502 })
   }
 }
 
@@ -335,7 +432,7 @@ async function rulesReview(req: Request, token: string): Promise<Response> {
  * plural resource name, so we consult discovery. PATCH with
  * `application/apply-patch+yaml` + fieldManager.
  */
-async function apply(req: Request, token: string): Promise<Response> {
+async function apply(req: Request, token: string, user: K8sIdentity['user']): Promise<Response> {
   let body: { manifest?: KubeObject; dryRun?: boolean; force?: boolean }
   try {
     body = await req.json()
@@ -345,6 +442,10 @@ async function apply(req: Request, token: string): Promise<Response> {
   const m = body.manifest
   if (!m?.apiVersion || !m.kind || !m.metadata?.name) {
     return Response.json({ error: 'manifest_requires_apiVersion_kind_metadata.name' }, { status: 400 })
+  }
+  // Namespace must be a DNS-1123 label — reject anything that could alter the path.
+  if (m.metadata.namespace && !/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(m.metadata.namespace)) {
+    return Response.json({ error: 'invalid_namespace' }, { status: 400 })
   }
   // Resolve the plural resource name from discovery (cache-warm on first apply).
   if (!discoveryCache || Date.now() - discoveryCache.at >= DISCOVERY_TTL_MS) {
@@ -358,16 +459,31 @@ async function apply(req: Request, token: string): Promise<Response> {
     return Response.json({ error: 'unknown_kind', kind: m.kind, apiVersion: m.apiVersion }, { status: 400 })
   }
   const root = group === '' ? `/api/${version}` : `/apis/${group}/${version}`
-  const ns = def.namespaced && m.metadata.namespace ? `/namespaces/${m.metadata.namespace}` : ''
+  const ns = def.namespaced && m.metadata.namespace
+    ? `/namespaces/${encodeURIComponent(m.metadata.namespace)}`
+    : ''
   const path = `${root}${ns}/${def.name}/${encodeURIComponent(m.metadata.name)}`
-  const params = new URLSearchParams({ fieldManager: 'adhar-console', force: String(body.force ?? true) })
+  // Don't steal field ownership by default — the caller must opt into force.
+  const params = new URLSearchParams({ fieldManager: 'adhar-console', force: String(body.force ?? false) })
   if (body.dryRun) params.set('dryRun', 'All')
 
+  const started = Date.now()
   const res = await apiServerFetch(token, path, {
     method: 'PATCH',
     headers: { 'content-type': 'application/apply-patch+yaml' },
     search: `?${params}`,
     body: JSON.stringify(m),
+  })
+  audit({
+    user: user.id,
+    action: 'apply',
+    kind: m.kind,
+    apiVersion: m.apiVersion,
+    name: m.metadata.name,
+    namespace: m.metadata.namespace,
+    dryRun: Boolean(body.dryRun),
+    status: res.status,
+    ms: Date.now() - started,
   })
   return passthrough(res)
 }

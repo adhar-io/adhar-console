@@ -152,6 +152,7 @@ export async function verifyIdToken(
   const { payload } = await jwtVerify(idToken, jwks, {
     issuer: cfg.issuer,
     audience: cfg.clientId,
+    clockTolerance: '60s', // tolerate minor node/Keycloak clock drift
   })
   if (expectedNonce && payload.nonce !== expectedNonce) {
     throw new Error('OIDC nonce mismatch — possible replay.')
@@ -182,7 +183,12 @@ export async function verifyAccessToken(
   token: string,
 ): Promise<Claims> {
   const jwks = await getJwks(cfg)
-  const { payload } = await jwtVerify(token, jwks, { issuer: cfg.issuer })
+  // NB: the access token's `aud` targets the apiserver (`adhar-cli`), not the
+  // console's clientId, so we verify iss + signature but not audience here.
+  const { payload } = await jwtVerify(token, jwks, {
+    issuer: cfg.issuer,
+    clockTolerance: '60s',
+  })
   return ClaimsSchema.parse({
     sub: payload.sub,
     email: (payload.email as string) ?? '',
@@ -236,6 +242,37 @@ export async function sessionFromTokens(
     refreshToken: tokens.refresh_token ?? opts.previous?.refreshToken,
     idToken: tokens.id_token ?? opts.previous?.idToken,
     expiresAt: Date.now() + tokens.expires_in * 1000,
+    // Preserve the original login time across refreshes for the absolute cap.
+    authTime: opts.previous?.authTime ?? Date.now(),
     activeTenant,
+  }
+}
+
+/**
+ * Best-effort refresh-token revocation at Keycloak's revocation endpoint —
+ * defence-in-depth on logout so an exfiltrated refresh token dies immediately
+ * (the stateless session cookie can't be revoked before its own expiry).
+ */
+export async function revokeToken(
+  cfg: ServerAuthConfig,
+  token: string,
+  tokenTypeHint: 'refresh_token' | 'access_token' = 'refresh_token',
+): Promise<void> {
+  try {
+    const disc = await getDiscovery(cfg)
+    const endpoint = (disc as { revocation_endpoint?: string }).revocation_endpoint ??
+      `${cfg.issuer}/protocol/openid-connect/revoke`
+    await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        token,
+        token_type_hint: tokenTypeHint,
+        client_id: cfg.clientId,
+        client_secret: cfg.clientSecret,
+      }),
+    })
+  } catch (e) {
+    console.error('[auth] token revocation failed (non-fatal):', e instanceof Error ? e.message : e)
   }
 }

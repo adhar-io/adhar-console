@@ -155,15 +155,26 @@ function OnboardingWizard() {
             <IconArrowLeft />
             Skip for now
           </Link>
-          <div className="flex items-center gap-2 text-xs text-content-muted">
-            <span
-              className="inline-flex h-8 items-center gap-2 rounded-full border border-edge-default bg-white/80 px-3 shadow-sm backdrop-blur"
-            >
+          {session ? (
+            <div className="inline-flex h-10 items-center gap-2.5 rounded-full border border-edge-default bg-white/80 py-1 pl-1.5 pr-3.5 shadow-sm backdrop-blur">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-linear-to-br from-brand-500 to-accent-500 text-[11px] font-semibold text-white">
+                {initials(session.user.name)}
+              </span>
+              <span className="hidden flex-col leading-tight sm:flex">
+                <span className="text-xs font-semibold text-content">{session.user.name}</span>
+                <span className="text-[10px] text-content-subtle">{session.user.email}</span>
+              </span>
+              <span className="ml-0.5 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700 ring-1 ring-inset ring-emerald-200">
+                <IconShieldMini /> SSO
+              </span>
+            </div>
+          ) : (
+            <span className="inline-flex h-8 items-center gap-2 rounded-full border border-edge-default bg-white/80 px-3 text-xs shadow-sm backdrop-blur">
               <AdharMark />
               <span className="font-semibold text-content">Adhar</span>
               <span className="text-content-subtle">Console</span>
             </span>
-          </div>
+          )}
         </header>
 
         {/* Stepper */}
@@ -240,7 +251,7 @@ function OnboardingWizard() {
             </div>
 
             <div className="px-6 py-6 sm:px-10 sm:py-8">
-              {step === 0 && <StepWelcome />}
+              {step === 0 && <StepWelcome session={session} />}
               {step === 1 && <StepOrg state={state} setState={setState} />}
               {step === 2 && <StepInvites state={state} setState={setState} />}
               {step === 3 && <StepConnect state={state} setState={setState} />}
@@ -286,7 +297,7 @@ function OnboardingWizard() {
 
 /* ───── step panels ───── */
 
-function StepWelcome() {
+function StepWelcome({ session }: { session: Session | null }) {
   const highlights = [
     {
       title: 'Unified operator UI',
@@ -310,8 +321,41 @@ function StepWelcome() {
     },
   ]
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      {highlights.map((h, i) => (
+    <div className="space-y-6">
+      {session ? (
+        <div className="flex items-center gap-4 rounded-2xl border border-edge-subtle bg-linear-to-br from-brand-50 via-white to-accent-50/40 p-4 sm:p-5">
+          <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br from-brand-500 to-accent-500 text-lg font-semibold text-white shadow-sm">
+            {initials(session.user.name)}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-emerald-700">
+              <IconShieldMini /> Signed in via single sign-on
+            </div>
+            <div className="mt-0.5 truncate text-lg font-semibold text-content">
+              Welcome, {firstName(session.user.name)} 👋
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <span className="truncate rounded-full bg-white px-2 py-0.5 text-[11px] text-content-muted ring-1 ring-inset ring-edge-default">
+                {session.user.email}
+              </span>
+              {session.user.roles.map((r) => (
+                <span
+                  key={r}
+                  className="rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-medium text-brand-700 ring-1 ring-inset ring-brand-200"
+                >
+                  {r}
+                </span>
+              ))}
+            </div>
+          </div>
+          <span className="hidden shrink-0 items-center gap-1.5 self-start rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-content-muted shadow-sm ring-1 ring-inset ring-edge-default sm:inline-flex">
+            <AdharMark /> Keycloak
+          </span>
+        </div>
+      ) : null}
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {highlights.map((h, i) => (
         <div
           key={h.title}
           className="rounded-xl border border-edge-subtle bg-surface-sunken/60 p-4"
@@ -322,9 +366,10 @@ function StepWelcome() {
             </span>
             <div className="text-sm font-semibold text-content">{h.title}</div>
           </div>
-          <p className="mt-2 text-sm leading-relaxed text-content-muted">{h.body}</p>
-        </div>
-      ))}
+            <p className="mt-2 text-sm leading-relaxed text-content-muted">{h.body}</p>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -751,7 +796,29 @@ function StepStarter({
   )
 }
 
+/* ───── helpers ───── */
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+
+function firstName(name: string): string {
+  return name.trim().split(/\s+/)[0] || name
+}
+
 /* ───── tiny icon set ───── */
+
+function IconShieldMini() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
+      <path d="m9 12 2 2 4-4" />
+    </svg>
+  )
+}
 
 function AdharMark() {
   return (

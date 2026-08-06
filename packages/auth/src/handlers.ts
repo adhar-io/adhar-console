@@ -13,6 +13,7 @@ import {
   exchangeCode,
   randomNonce,
   refreshTokens,
+  revokeToken,
   sessionFromTokens,
 } from './server.ts'
 import {
@@ -65,18 +66,30 @@ export async function handleLogin(req: Request): Promise<Response> {
   const returnTo = safeReturnTo(url.searchParams.get('returnTo'))
   const intent = url.searchParams.get('intent') === 'register' ? 'register' : 'login'
 
-  const { verifier, challenge } = await createPkce()
-  const state = randomNonce()
-  const nonce = randomNonce()
-  const redirectUri = `${resolvePublicOrigin(cfg, req)}${REDIRECT_PATH}`
-
-  const authorizeUrl = await buildAuthorizeUrl(cfg, {
-    redirectUri,
-    state,
-    nonce,
-    codeChallenge: challenge,
-    intent,
-  })
+  // resolvePublicOrigin throws only on prod misconfig (no AUTH_PUBLIC_URL) — a
+  // legitimate 500. Discovery/PKCE failures below get a friendly redirect.
+  const origin = resolvePublicOrigin(cfg, req)
+  let authorizeUrl: string
+  let verifier: string
+  let state: string
+  let nonce: string
+  try {
+    const pkce = await createPkce()
+    verifier = pkce.verifier
+    state = randomNonce()
+    nonce = randomNonce()
+    authorizeUrl = await buildAuthorizeUrl(cfg, {
+      redirectUri: `${origin}${REDIRECT_PATH}`,
+      state,
+      nonce,
+      codeChallenge: pkce.challenge,
+      intent,
+    })
+  } catch (e) {
+    // Keycloak discovery unreachable → friendly error instead of a raw 500.
+    console.error('[auth] login start failed:', e instanceof Error ? e.message : e)
+    return redirectWithError(origin, 'Sign-in is temporarily unavailable. Please try again shortly.')
+  }
 
   const txn: TxnState = { state, nonce, codeVerifier: verifier, returnTo }
   const txnCookie = serializeCookie(
@@ -125,7 +138,10 @@ export async function handleCallback(req: Request): Promise<Response> {
     })
     session = await sessionFromTokens(cfg, tokens, { nonce: txn.nonce })
   } catch (e) {
-    return redirectWithError(origin, e instanceof Error ? e.message : 'Sign-in failed.')
+    // Log the upstream detail server-side; show the user a generic message so
+    // token-endpoint error bodies never reach the browser / login URL.
+    console.error('[auth] callback token exchange failed:', e instanceof Error ? e.message : e)
+    return redirectWithError(origin, 'Sign-in could not be completed. Please try again.')
   }
 
   // Fresh signup with no tenant yet → send through onboarding.
@@ -148,6 +164,10 @@ export async function handleLogout(req: Request): Promise<Response> {
 
   const current = await readSession(req, cfg)
   headers.append('set-cookie', clearCookie(cfg.cookieName, { secure: cfg.cookieSecure }))
+  // Defence-in-depth: proactively revoke the refresh token at Keycloak so a
+  // stolen copy can't be reused (the RP-initiated end-session below ends the
+  // browser SSO session, but doesn't kill an exfiltrated refresh token).
+  if (current?.refreshToken) await revokeToken(cfg, current.refreshToken)
   const endSession = await buildEndSessionUrl(cfg, {
     idToken: current?.idToken,
     postLogoutRedirectUri: `${origin}/login`,
@@ -163,9 +183,13 @@ export async function handleSession(req: Request): Promise<Response> {
   }
   const result = await getValidSession(req, cfg)
   if (!result) {
-    return Response.json({ authenticated: false, configured: true }, { status: 200 })
+    return Response.json(
+      { authenticated: false, configured: true },
+      { status: 200, headers: { 'cache-control': 'no-store' } },
+    )
   }
-  const headers = new Headers({ 'content-type': 'application/json' })
+  // Never let a cache store an authenticated body or a rotated Set-Cookie.
+  const headers = new Headers({ 'content-type': 'application/json', 'cache-control': 'no-store' })
   if (result.refreshedCookie) headers.append('set-cookie', result.refreshedCookie)
   return new Response(
     JSON.stringify({
@@ -190,6 +214,15 @@ export async function readSession(
 }
 
 /**
+ * In-process single-flight for refreshes. With Keycloak refresh-token rotation
+ * on, the first refresh invalidates the token; without this, a burst of
+ * concurrent requests each try to rotate the same token and all but one fail →
+ * spurious logout. Keyed by the refresh token so requests sharing a cookie
+ * share one refresh. (Per-replica; good enough — rotation is per token.)
+ */
+const inflightRefresh = new Map<string, Promise<ServerSession | null>>()
+
+/**
  * Resolve the current session and transparently refresh the access token when
  * it is within 60s of expiry. Returns the (possibly refreshed) session plus a
  * `Set-Cookie` string the caller must attach when a refresh occurred.
@@ -201,18 +234,39 @@ export async function getValidSession(
   const session = await readSession(req, cfg)
   if (!session) return null
 
+  // Absolute lifetime cap — a rolling cookie can't be extended past this even
+  // while the offline refresh token lives. Forces a fresh interactive login.
+  if (
+    typeof session.authTime === 'number' &&
+    Date.now() - session.authTime > cfg.sessionAbsoluteTtlSeconds * 1000
+  ) {
+    return null
+  }
+
   const needsRefresh = session.expiresAt - Date.now() < 60_000
   if (!needsRefresh) return { session }
   if (!session.refreshToken) return null
 
-  try {
-    const tokens = await refreshTokens(cfg, session.refreshToken)
-    const next = await sessionFromTokens(cfg, tokens, { previous: session })
-    return { session: next, refreshedCookie: await sessionSetCookie(next, cfg) }
-  } catch {
-    // Refresh failed (token revoked / Keycloak down) → treat as logged out.
-    return null
+  const key = session.refreshToken
+  let flight = inflightRefresh.get(key)
+  if (!flight) {
+    flight = (async () => {
+      try {
+        const tokens = await refreshTokens(cfg, session.refreshToken!)
+        return await sessionFromTokens(cfg, tokens, { previous: session })
+      } catch {
+        // Refresh failed (token revoked / Keycloak down) → treat as logged out.
+        return null
+      } finally {
+        inflightRefresh.delete(key)
+      }
+    })()
+    inflightRefresh.set(key, flight)
   }
+
+  const next = await flight
+  if (!next) return null
+  return { session: next, refreshedCookie: await sessionSetCookie(next, cfg) }
 }
 
 async function sessionSetCookie(session: ServerSession, cfg: ServerAuthConfig): Promise<string> {

@@ -222,6 +222,7 @@ function build(http: HttpClient): K8sClient {
       if (params.sinceSeconds) qs.set('sinceSeconds', String(params.sinceSeconds))
       if (params.timestamps) qs.set('timestamps', 'true')
       if (params.follow) qs.set('follow', 'true')
+      if (params.previous) qs.set('previous', 'true')
       const url = `/api/v1/namespaces/${encodeURIComponent(ns)}/pods/${encodeURIComponent(name)}/log${
         qs.toString() ? `?${qs}` : ''
       }`
@@ -359,6 +360,20 @@ function build(http: HttpClient): K8sClient {
  * still feels alive but doesn't churn out wildly different text.
  */
 function buildStubLogs(ns: string, name: string, params: LogsParams): string {
+  // Previous (last-terminated) instance — simulate a crash tail so the "Previous"
+  // toggle shows something useful in dev.
+  if (params.previous) {
+    const ts = params.timestamps ? `${new Date(Date.now() - 6 * 60_000).toISOString()} ` : ''
+    return [
+      `${ts}INFO  http listening on :8080`,
+      `${ts}INFO  worker pool started (size=8)`,
+      `${ts}WARN  db connection pool exhausted, retrying`,
+      `${ts}ERROR failed to acquire connection: context deadline exceeded`,
+      `${ts}FATAL panic: runtime error: invalid memory address or nil pointer dereference`,
+      `${ts}FATAL [signal SIGSEGV: segmentation violation code=0x1 addr=0x0]`,
+      `${ts}INFO  process exited (code 2)`,
+    ].join('\n')
+  }
   const tail = params.tailLines ?? 200
   const sinceMs = params.sinceSeconds ? params.sinceSeconds * 1000 : 24 * 60 * 60 * 1000
   const now = Date.now()

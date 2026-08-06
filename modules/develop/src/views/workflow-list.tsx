@@ -7,7 +7,8 @@ import {
 } from '@adhar-console/shell-ui'
 import { k8s } from '@adhar-console/api-clients'
 
-const client = k8s.K8sClient.create({ baseUrl: '/kube-api' })
+// Stub fixtures in dev, authenticated `/api/k8s` gateway in prod.
+const client = k8s.K8sClient.auto()
 
 const WORKFLOWS_GVR: k8s.GVR = {
   group: 'argoproj.io',

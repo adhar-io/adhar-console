@@ -317,4 +317,6 @@ export interface LogsParams {
   sinceSeconds?: number
   follow?: boolean
   timestamps?: boolean
+  /** Return logs from the previous (last-terminated) container instance. */
+  previous?: boolean
 }

@@ -15,15 +15,17 @@ import { PodShell } from './pod-shell.tsx'
 import { PodLogsPanel } from './pod-logs.tsx'
 import { PodYamlPanel } from './pod-yaml.tsx'
 import { PodMetricsPanel } from './pod-metrics.tsx'
+import { WorkloadOpsPanel } from './workload-ops.tsx'
 import {
   K8sPermissionDenied,
   K8sRolePill,
 } from '../components/role-gate.tsx'
 import { useHasK8sPermission } from '../data/access.ts'
 
-type Sub = 'overview' | 'metrics' | 'logs' | 'shell' | 'yaml' | 'events'
+type Sub = 'overview' | 'operations' | 'metrics' | 'logs' | 'shell' | 'yaml' | 'events'
 const TABS: readonly TabDef<Sub>[] = [
   { id: 'overview', label: 'Overview' },
+  { id: 'operations', label: 'Operations' },
   { id: 'metrics', label: 'Metrics' },
   { id: 'logs', label: 'Logs' },
   { id: 'shell', label: 'Shell' },
@@ -171,11 +173,17 @@ export function PodDrawer({ namespace, name, onClose }: Props) {
             {(active) => (
               <>
                 {active === 'overview' && <Overview pod={pod.data} loading={pod.isLoading} />}
+                {active === 'operations' && pod.data ? (
+                  <WorkloadOpsPanel pod={pod.data} />
+                ) : null}
                 {active === 'metrics' && pod.data ? (
                   <PodMetricsPanel
                     namespace={namespace}
                     podName={name}
-                    containerNames={pod.data.spec.containers.map((c) => c.name)}
+                    containers={pod.data.spec.containers.map((c) => ({
+                      name: c.name,
+                      resources: c.resources,
+                    }))}
                   />
                 ) : null}
                 {active === 'logs' && pod.data ? (

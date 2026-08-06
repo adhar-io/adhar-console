@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
+  Button,
   Card,
   CardBody,
   CardHeader,
@@ -10,7 +12,12 @@ import {
   Tabs,
   type TabDef,
 } from '@adhar-console/shell-ui'
+import { kube } from '@adhar-console/api-clients/k8s'
 import { useNodes } from '../data/hooks.ts'
+import { isDevK8s } from '../data/client.ts'
+import { GVRS } from '../data/gvr.ts'
+import { useHasK8sPermission } from '../data/access.ts'
+import { K8sRolePill } from '../components/role-gate.tsx'
 import {
   age,
   findCondition,
@@ -158,6 +165,27 @@ function NodeDrawer({
   node: NonNullable<ReturnType<typeof useNodes>['data']>[number]
   onClose(): void
 }) {
+  const canCordon = useHasK8sPermission('nodes.cordon')
+  const qc = useQueryClient()
+  // Local override reflects the new state immediately (and is the only feedback
+  // in dev, where the stub node list won't actually change).
+  const [override, setOverride] = useState<boolean | null>(null)
+  const [confirmCordon, setConfirmCordon] = useState(false)
+  const unschedulable = override ?? Boolean(node.spec.unschedulable)
+
+  const cordonMut = useMutation({
+    mutationFn: async (next: boolean) => {
+      if (!isDevK8s) {
+        await kube.patch(GVRS.nodes, undefined, node.metadata.name, { spec: { unschedulable: next } }, 'merge')
+      }
+      return next
+    },
+    onSuccess: (next) => {
+      setOverride(next)
+      qc.invalidateQueries({ queryKey: ['k8s'] })
+    },
+  })
+
   if (typeof document === 'undefined') return null
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
@@ -176,15 +204,73 @@ function NodeDrawer({
               {node.metadata.name}
             </h2>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md p-1 text-content-muted hover:bg-surface-sunken hover:text-content"
-            aria-label="Close"
-          >
-            ✕
-          </button>
+          <div className="flex items-center gap-2">
+            <StatusBadge kind={unschedulable ? 'paused' : 'healthy'}>
+              {unschedulable ? 'Cordoned' : 'Schedulable'}
+            </StatusBadge>
+            {canCordon ? (
+              unschedulable ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={cordonMut.isPending}
+                  onClick={() => cordonMut.mutate(false)}
+                  title="Allow new pods to schedule onto this node"
+                >
+                  {cordonMut.isPending ? 'Working…' : 'Uncordon'}
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={cordonMut.isPending}
+                  onClick={() => setConfirmCordon(true)}
+                  title="Mark unschedulable — new pods won't be placed here"
+                >
+                  Cordon
+                </Button>
+              )
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-edge-default px-2 py-1 text-[11px] text-content-muted">
+                Cordon <K8sRolePill perm="nodes.cordon" />
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md p-1 text-content-muted hover:bg-surface-sunken hover:text-content"
+              aria-label="Close"
+            >
+              ✕
+            </button>
+          </div>
         </header>
+        {confirmCordon ? (
+          <div className="flex flex-wrap items-center gap-3 border-b border-amber-200 bg-amber-50/70 px-6 py-3" role="alert">
+            <div className="min-w-0 flex-1 text-sm">
+              <div className="font-semibold text-amber-900">Cordon this node?</div>
+              <div className="text-[12px] text-content-muted">
+                New pods won't schedule onto <code className="font-mono">{node.metadata.name}</code>.
+                Existing pods keep running — this is reversible with Uncordon.
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setConfirmCordon(false)} disabled={cordonMut.isPending}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={cordonMut.isPending}
+                onClick={() => {
+                  cordonMut.mutate(true)
+                  setConfirmCordon(false)
+                }}
+              >
+                {cordonMut.isPending ? 'Cordoning…' : 'Cordon node'}
+              </Button>
+            </div>
+          </div>
+        ) : null}
         <div className="flex-1 overflow-y-auto px-6 py-5">
           <Tabs<Sub> tabs={SUB_TABS} defaultValue="overview" ariaLabel="Node sections">
             {(active) => (

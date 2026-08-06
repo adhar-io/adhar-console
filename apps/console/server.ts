@@ -195,8 +195,10 @@ async function handler(req: Request): Promise<Response> {
   try {
     return await route(req)
   } catch (err) {
-    // Never let a handler error crash the server.
-    console.error(`[server] unhandled error for ${req.method} ${req.url}:`, err)
+    // Never let a handler error crash the server. Redact the query string —
+    // `/api/auth/callback` carries a single-use `?code=` we must not log.
+    const u = new URL(req.url)
+    console.error(`[server] unhandled error for ${req.method} ${u.pathname}:`, err)
     return Response.json({ error: 'internal_error' }, { status: 500 })
   }
 }

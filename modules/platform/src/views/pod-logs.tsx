@@ -44,6 +44,7 @@ export function PodLogsPanel({
   const [timestamps, setTimestamps] = useState(true)
   const [wrap, setWrap] = useState(true)
   const [follow, setFollow] = useState(true)
+  const [previous, setPrevious] = useState(false)
   const [search, setSearch] = useState('')
 
   useEffect(() => {
@@ -51,6 +52,9 @@ export function PodLogsPanel({
   }, [container, containers])
 
   const sinceSeconds = SINCE_OPTIONS.find((s) => s.label === since)?.seconds
+  // "Previous" is a static snapshot of the last-terminated instance — there's
+  // nothing live to tail, so following is disabled while it's on.
+  const effectiveFollow = follow && !previous
 
   const q = useQuery({
     queryKey: [
@@ -61,6 +65,7 @@ export function PodLogsPanel({
       container,
       tailLines,
       timestamps,
+      previous,
       sinceSeconds ?? null,
     ],
     queryFn: () =>
@@ -69,10 +74,12 @@ export function PodLogsPanel({
         tailLines,
         timestamps,
         sinceSeconds,
+        previous,
       }),
     enabled: Boolean(container && podName),
-    refetchInterval: follow ? 2_000 : false,
-    refetchOnWindowFocus: follow,
+    refetchInterval: effectiveFollow ? 2_000 : false,
+    refetchOnWindowFocus: effectiveFollow,
+    retry: false,
   })
 
   const text = q.data ?? ''
@@ -148,12 +155,28 @@ export function PodLogsPanel({
         </Pill>
         <ToggleChip checked={timestamps} onChange={setTimestamps} label="timestamps" />
         <ToggleChip checked={wrap} onChange={setWrap} label="wrap" />
+        <button
+          type="button"
+          onClick={() => setPrevious((p) => !p)}
+          title="Show logs from the previous (last-terminated) container instance — useful after a crash/restart"
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+            previous
+              ? 'border-amber-300 bg-amber-100 text-amber-900'
+              : 'border-edge-default bg-white text-content-muted hover:border-edge-strong',
+          )}
+        >
+          <IconHistory />
+          Previous
+        </button>
         <Button
           size="sm"
-          variant={follow ? 'primary' : 'secondary'}
+          variant={effectiveFollow ? 'primary' : 'secondary'}
+          disabled={previous}
           onClick={() => setFollow((f) => !f)}
+          title={previous ? 'Following is unavailable for previous-instance logs' : undefined}
         >
-          {follow ? (
+          {effectiveFollow ? (
             <span className="inline-flex items-center gap-1.5">
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-300/80" />
@@ -184,16 +207,32 @@ export function PodLogsPanel({
         </Button>
       </div>
 
+      {previous ? (
+        <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+          <IconHistory />
+          <span>
+            Showing logs from the <strong>previous terminated instance</strong> of{' '}
+            <code className="font-mono">{container}</code> — the last run before the current one
+            (restart/crash). Live tailing is paused.
+          </span>
+        </div>
+      ) : null}
+
       <div className="flex items-center gap-3 text-[11px] text-content-subtle">
         {q.isFetching ? <Spinner size={10} /> : null}
         <span>
           {filtered.length.toLocaleString()} {filtered.length === 1 ? 'line' : 'lines'}
           {search ? ` matching "${search}"` : ''} · tail {tailLines.toLocaleString()}
           {sinceSeconds ? ` · last ${since}` : ''}
+          {previous ? ' · previous instance' : ''}
         </span>
         {q.isError ? (
           <StatusBadge kind="failed">
-            {q.error instanceof Error ? q.error.message : 'error'}
+            {previous
+              ? 'No previous instance — this container has not restarted'
+              : q.error instanceof Error
+                ? q.error.message
+                : 'error'}
           </StatusBadge>
         ) : null}
       </div>
@@ -202,7 +241,7 @@ export function PodLogsPanel({
         lines={filtered}
         search={search}
         wrap={wrap}
-        follow={follow}
+        follow={effectiveFollow}
         loading={q.isLoading}
       />
     </div>
@@ -403,6 +442,26 @@ function IconSearch() {
     >
       <circle cx="11" cy="11" r="7" />
       <path d="m21 21-4.35-4.35" />
+    </svg>
+  )
+}
+
+function IconHistory() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M3 3v5h5" />
+      <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" />
+      <path d="M12 7v5l4 2" />
     </svg>
   )
 }

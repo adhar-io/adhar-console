@@ -143,6 +143,51 @@ export interface Diagram {
   updated_at: string
 }
 
+/* ───── API / schema design ───── */
+
+export interface ApiSpec {
+  id: string
+  name: string
+  version: string
+  description: string
+  /** Raw OpenAPI document — JSON or (best-effort) YAML text. */
+  document: string
+  created_at: string
+  updated_at: string
+}
+
+/* ───── Design tokens ───── */
+
+export interface ColorToken {
+  name: string
+  value: string
+  role: string
+}
+export interface ValueToken {
+  name: string
+  value: string
+}
+export interface MotionToken {
+  name: string
+  value: string
+  curve: string
+}
+export interface BreakpointToken {
+  name: string
+  value: string
+  label: string
+}
+
+export interface TokenSet {
+  color: ColorToken[]
+  spacing: ValueToken[]
+  typography: ValueToken[]
+  radius: ValueToken[]
+  elevation: ValueToken[]
+  motion: MotionToken[]
+  breakpoint: BreakpointToken[]
+}
+
 export interface NoteConnection {
   from: string
   to: string

@@ -21,9 +21,16 @@ interface Proc {
   port: number
   /** ANSI color (SGR code). */
   color: string
+  /** Deno task to run in `cwd` (default `dev`). */
+  task?: string
 }
 
 const PROCS: Proc[] = [
+  // The BFF: the Deno server serving /api/* (auth, k8s gateway, tool proxies,
+  // document store) against the locally-running adhar cluster. The Vite host
+  // (:5100) proxies /api/* here — this is what makes `pnpm dev` connect to the
+  // real cluster by default. Reads ./.env for cluster endpoints + secrets.
+  { name: 'bff      ', cwd: 'apps/console', port: 5099, color: '1;33', task: 'dev:server' },
   { name: 'console  ', cwd: 'apps/console', port: 5100, color: '1;36' },
   { name: 'define   ', cwd: 'modules/define', port: 5101, color: '34' },
   { name: 'design   ', cwd: 'modules/design', port: 5102, color: '35' },
@@ -79,7 +86,7 @@ async function pipe(
 
 function spawn(proc: Proc) {
   const cmd = new Deno.Command('deno', {
-    args: ['task', 'dev'],
+    args: ['task', proc.task ?? 'dev'],
     cwd: proc.cwd,
     stdout: 'piped',
     stderr: 'piped',

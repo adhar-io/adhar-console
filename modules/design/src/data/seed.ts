@@ -1,4 +1,4 @@
-import type { Adr, Persona, Journey, StickyNote, Wireframe } from './types.ts'
+import type { Adr, ApiSpec, Persona, Journey, StickyNote, Wireframe } from './types.ts'
 
 /* ───── ADRs ───── */
 
@@ -361,5 +361,163 @@ export const SEED_WIREFRAMES: Wireframe[] = [
       { type: 'card', x: 24, y: 196, w: 660, h: 140, label: 'Timeline' },
       { type: 'button', x: 24, y: 352, w: 120, h: 36, label: 'Trigger rollback' },
     ],
+  },
+]
+
+/* ───── API / schema design ───── */
+
+const WORKSPACES_OPENAPI = `{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Adhar Workspaces API",
+    "version": "1.4.0",
+    "description": "Provision and manage self-serve developer workspaces."
+  },
+  "servers": [{ "url": "https://api.adhar.dev/v1" }],
+  "paths": {
+    "/workspaces": {
+      "get": {
+        "tags": ["Workspaces"],
+        "summary": "List workspaces for the current tenant"
+      },
+      "post": {
+        "tags": ["Workspaces"],
+        "summary": "Create a new workspace"
+      }
+    },
+    "/workspaces/{id}": {
+      "get": {
+        "tags": ["Workspaces"],
+        "summary": "Fetch a single workspace by id"
+      },
+      "delete": {
+        "tags": ["Workspaces"],
+        "summary": "Archive a workspace"
+      }
+    },
+    "/workspaces/{id}/clusters": {
+      "get": {
+        "tags": ["Clusters"],
+        "summary": "List clusters attached to a workspace"
+      },
+      "post": {
+        "tags": ["Clusters"],
+        "summary": "Attach a cluster via kubeconfig or cloud OAuth"
+      }
+    },
+    "/clusters/{id}/health": {
+      "get": {
+        "tags": ["Clusters"],
+        "summary": "Read live health for an attached cluster"
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Workspace": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "slug": { "type": "string" },
+          "name": { "type": "string" },
+          "tier": { "type": "string", "enum": ["free", "team", "enterprise"] },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "clusters": { "type": "array", "items": { "$ref": "#/components/schemas/Cluster" } }
+        },
+        "required": ["id", "slug", "name"]
+      },
+      "Cluster": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "provider": { "type": "string", "enum": ["gke", "eks", "aks", "self-hosted"] },
+          "region": { "type": "string" },
+          "healthy": { "type": "boolean" },
+          "nodeCount": { "type": "integer" }
+        },
+        "required": ["id", "name", "provider"]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      }
+    }
+  }
+}`
+
+const INCIDENTS_OPENAPI = `{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Adhar Incidents API",
+    "version": "0.9.0",
+    "description": "Triage, annotate, and resolve incidents with a full audit trail."
+  },
+  "servers": [{ "url": "https://api.adhar.dev/v1" }],
+  "paths": {
+    "/incidents": {
+      "get": { "tags": ["Incidents"], "summary": "List incidents, newest first" },
+      "post": { "tags": ["Incidents"], "summary": "Open a new incident" }
+    },
+    "/incidents/{id}": {
+      "get": { "tags": ["Incidents"], "summary": "Fetch an incident with its timeline" },
+      "patch": { "tags": ["Incidents"], "summary": "Update severity or status" }
+    },
+    "/incidents/{id}/annotations": {
+      "post": { "tags": ["Timeline"], "summary": "Append an annotation to the timeline" }
+    },
+    "/incidents/{id}/rollback": {
+      "post": { "tags": ["Actions"], "summary": "Trigger a rollback with inline approval" }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Incident": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "severity": { "type": "string", "enum": ["sev1", "sev2", "sev3"] },
+          "status": { "type": "string", "enum": ["open", "mitigated", "resolved"] },
+          "service": { "type": "string" },
+          "openedAt": { "type": "string", "format": "date-time" },
+          "timeline": { "type": "array", "items": { "$ref": "#/components/schemas/Annotation" } }
+        },
+        "required": ["id", "title", "severity", "status"]
+      },
+      "Annotation": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "author": { "type": "string" },
+          "note": { "type": "string" },
+          "at": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}`
+
+export const SEED_API_SPECS: ApiSpec[] = [
+  {
+    id: 'api-workspaces',
+    name: 'Workspaces API',
+    version: '1.4.0',
+    description: 'Provision and manage self-serve developer workspaces and their clusters.',
+    document: WORKSPACES_OPENAPI,
+    created_at: '2026-05-02T10:00:00Z',
+    updated_at: '2026-06-18T10:00:00Z',
+  },
+  {
+    id: 'api-incidents',
+    name: 'Incidents API',
+    version: '0.9.0',
+    description: 'Triage, annotate, and resolve incidents with a full audit trail.',
+    document: INCIDENTS_OPENAPI,
+    created_at: '2026-05-20T10:00:00Z',
+    updated_at: '2026-06-30T10:00:00Z',
   },
 ]

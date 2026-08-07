@@ -110,16 +110,17 @@ export function defineHostConfig(opts: HostOpts) {
       server: {
         port: 5100,
         fs: { allow: ['..', adharUiPath] },
-        // Proxy the browser's K8s API calls through kubectl proxy so we can
-        // talk to the live cluster in dev without CORS/auth plumbing.
-        // Run `kubectl proxy --port=8001` in a separate terminal; the user's
-        // current kubeconfig context is used.
+        // Proxy every BFF/API call to the console's Deno server, which `pnpm dev`
+        // runs alongside Vite (the `bff` process, default :5099). The server does
+        // the real work against the locally-running adhar cluster — OIDC login
+        // (/api/auth/*), the per-user Kubernetes gateway (/api/k8s/*, incl. exec
+        // over WebSocket), backing-tool proxies (/api/svc/*), and the Postgres
+        // document store (/api/store/*). Override the target with ADHAR_BFF_URL.
         proxy: {
-          '/kube-api': {
-            target: process.env.ADHAR_K8S_PROXY ?? 'http://127.0.0.1:8001',
+          '/api': {
+            target: process.env.ADHAR_BFF_URL ?? 'http://127.0.0.1:5099',
             changeOrigin: false,
             ws: true,
-            rewrite: (p: string) => p.replace(/^\/kube-api/, ''),
           },
         },
       },

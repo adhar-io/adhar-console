@@ -8,8 +8,9 @@ import {
   Modal,
   StatusBadge,
 } from '@adhar-console/shell-ui'
-import { newId, store } from '../data/store.ts'
-import { SEED_JOURNEYS, SEED_PERSONAS } from '../data/seed.ts'
+import { KIND, newId, useCollection, useCreate, useRemove, useSeedExamples, useUpdate } from '../data/store.ts'
+import { SEED_JOURNEYS } from '../data/seed.ts'
+import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import type { Journey, JourneyEmotion, JourneyStage, Persona } from '../data/types.ts'
 
 /**
@@ -21,30 +22,33 @@ import type { Journey, JourneyEmotion, JourneyStage, Persona } from '../data/typ
  * All edits autosave to localStorage.
  */
 export function Journeys() {
-  const [list, setList] = useState<Journey[]>([])
-  const [personas, setPersonas] = useState<Persona[]>([])
+  const { items: list, isLoading, error, refetch } = useCollection<Journey>(KIND.journey)
+  const { items: personas } = useCollection<Persona>(KIND.persona)
+  const createJourney = useCreate<Journey>(KIND.journey)
+  const updateJourney = useUpdate<Journey>(KIND.journey)
+  const removeJourney = useRemove(KIND.journey)
+  const seed = useSeedExamples<Journey>(KIND.journey)
+
   const [openId, setOpenId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
 
+  // Auto-select the first journey once the list has loaded.
   useEffect(() => {
-    const loaded = store.get<Journey[]>('journeys', SEED_JOURNEYS)
-    setList(loaded)
-    setPersonas(store.get<Persona[]>('personas', SEED_PERSONAS))
-    if (loaded.length && !openId) setOpenId(loaded[0].id)
-  }, [])
-
-  const persist = (next: Journey[]) => {
-    setList(next)
-    store.set('journeys', next)
-  }
+    if (list.length && (openId == null || !list.some((j) => j.id === openId))) {
+      setOpenId(list[0].id)
+    }
+  }, [list, openId])
 
   const open = list.find((j) => j.id === openId) ?? null
   const persona = open ? personas.find((p) => p.id === open.persona) : undefined
 
   const updateOpen = (patch: Partial<Journey>) => {
     if (!open) return
-    persist(list.map((j) => (j.id === open.id ? { ...j, ...patch } : j)))
+    updateJourney.mutate({ ...open, ...patch })
   }
+
+  if (error) return <ErrorBlock error={error} onRetry={refetch} />
+  if (isLoading) return <LoadingBlock label="Loading journey maps…" />
 
   return (
     <div className="space-y-4">
@@ -86,15 +90,25 @@ export function Journeys() {
           onUpdate={updateOpen}
           onDelete={() => {
             if (!confirm(`Delete journey "${open.name}"?`)) return
-            const next = list.filter((j) => j.id !== open.id)
-            persist(next)
-            setOpenId(next[0]?.id ?? null)
+            const remaining = list.filter((j) => j.id !== open.id)
+            removeJourney.mutate(open.id)
+            setOpenId(remaining[0]?.id ?? null)
           }}
         />
       ) : (
         <EmptyState
           title="No journey maps yet"
           description="Map a user journey — stages, actions, emotions, opportunities."
+          action={
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => seed.mutate(SEED_JOURNEYS)}
+              disabled={seed.isPending}
+            >
+              {seed.isPending ? 'Loading…' : 'Load examples'}
+            </Button>
+          }
         />
       )}
 
@@ -110,8 +124,7 @@ export function Journeys() {
             summary: input.summary,
             stages: blankStages(),
           }
-          persist([j, ...list])
-          setOpenId(j.id)
+          createJourney.mutate(j, { onSuccess: (created) => setOpenId(created.id) })
         }}
       />
     </div>

@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
+  Button,
   Card,
   CardBody,
   CardHeader,
@@ -8,20 +9,36 @@ import {
   StatusBadge,
 } from '@adhar-console/shell-ui'
 import { formatRelative } from '@adhar-console/utils'
-import { useDeleteView, useViews } from '../data/plane.ts'
+import { useDeleteView, useLabels, useMembers, useStates, useViews } from '../data/plane.ts'
 import { CreateViewModal } from '../components/create-forms.tsx'
 import { ListToolbar } from '../components/list-toolbar.tsx'
+import { issueQueryChips, readIssueQuery, type SavedIssueQuery } from '../data/view-query.ts'
 
 /**
- * Saved Views — Plane's per-project filter bookmarks. Renders each view's
- * `query_data` as a chip strip so operators can read at-a-glance what each
- * filter does.
+ * Saved Views — Plane's per-project filter bookmarks. Each view's `query_data`
+ * renders as a resolved chip strip (ids → names), and Open re-applies the
+ * saved filter set to the Issues board.
  */
-export function Views({ projectId }: { projectId?: string }) {
+export function Views({
+  projectId,
+  onApply,
+}: {
+  projectId?: string
+  /** Applies a saved view's filters to the Issues board (handled by the shell). */
+  onApply?(query: SavedIssueQuery): void
+}) {
   const q = useViews(projectId)
+  const states = useStates(projectId)
+  const labels = useLabels(projectId)
+  const members = useMembers()
   const remove = useDeleteView(projectId)
   const [createOpen, setCreateOpen] = useState(false)
   const [search, setSearch] = useState('')
+
+  const chipCtx = useMemo(
+    () => ({ states: states.data, labels: labels.data, members: members.data }),
+    [states.data, labels.data, members.data],
+  )
 
   if (!projectId) return <EmptyState title="Pick a project" />
   if (q.isLoading) {
@@ -63,7 +80,7 @@ export function Views({ projectId }: { projectId?: string }) {
       {all.length === 0 ? (
         <EmptyState
           title="No saved views"
-          description="Click New view to capture a blank starter — or save a filter set from the Issues page."
+          description="Click New view to capture a filter set — or hit Save view on the Issues page."
         />
       ) : rows.length === 0 ? (
         <EmptyState
@@ -72,51 +89,71 @@ export function Views({ projectId }: { projectId?: string }) {
         />
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {rows.map((v) => (
-            <Card key={v.id} className="group relative" interactive>
-              <CardHeader>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-content">{v.name}</div>
-                    {v.description ? (
-                      <div className="mt-0.5 line-clamp-2 text-xs text-content-muted">
-                        {v.description}
-                      </div>
-                    ) : null}
+          {rows.map((v) => {
+            const chips = issueQueryChips(v.query_data, chipCtx)
+            return (
+              <Card key={v.id} className="group relative" interactive>
+                <CardHeader>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-content">{v.name}</div>
+                      {v.description ? (
+                        <div className="mt-0.5 line-clamp-2 text-xs text-content-muted">
+                          {v.description}
+                        </div>
+                      ) : null}
+                    </div>
+                    <StatusBadge kind={v.access === 'public' ? 'info' : 'unknown'}>
+                      {v.access ?? 'public'}
+                    </StatusBadge>
                   </div>
-                  <StatusBadge kind={v.access === 'public' ? 'info' : 'unknown'}>
-                    {v.access ?? 'public'}
-                  </StatusBadge>
-                </div>
-              </CardHeader>
-              <CardBody className="space-y-3">
-                <div className="flex flex-wrap gap-1">
-                  {chipsFromQuery(v.query_data).map((chip, i) => (
-                    <span
-                      key={i}
-                      className="inline-flex items-center gap-1 rounded-full bg-surface-sunken px-2 py-0.5 text-[10px] font-medium text-content-muted"
-                    >
-                      <span className="text-content-subtle">{chip.key}</span>
-                      <span className="text-content">{chip.value}</span>
-                    </span>
-                  ))}
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-content-subtle">
-                  <span>{v.created_at ? `Saved ${formatRelative(v.created_at)}` : null}</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!confirm(`Delete view "${v.name}"?`)) return
-                      remove.mutate(v.id)
-                    }}
-                    className="rounded-md px-2 py-0.5 text-[11px] font-medium text-rose-700 opacity-0 transition-opacity hover:bg-rose-50 group-hover:opacity-100"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </CardBody>
-            </Card>
-          ))}
+                </CardHeader>
+                <CardBody className="space-y-3">
+                  {chips.length ? (
+                    <div className="flex flex-wrap gap-1">
+                      {chips.map((chip, i) => (
+                        <span
+                          key={i}
+                          className="inline-flex items-center gap-1 rounded-full bg-surface-sunken px-2 py-0.5 text-[10px] font-medium text-content-muted"
+                        >
+                          <span className="text-content-subtle">{chip.key}</span>
+                          <span className="text-content">{chip.value}</span>
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-content-subtle">
+                      No filters — shows all issues.
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between text-[11px] text-content-subtle">
+                    <span>{v.created_at ? `Saved ${formatRelative(v.created_at)}` : null}</span>
+                    <div className="flex items-center gap-1">
+                      {onApply ? (
+                        <Button
+                          size="xs"
+                          variant="secondary"
+                          onClick={() => onApply(readIssueQuery(v.query_data))}
+                        >
+                          Open
+                        </Button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!confirm(`Delete view "${v.name}"?`)) return
+                          remove.mutate(v.id)
+                        }}
+                        className="rounded-md px-2 py-0.5 text-[11px] font-medium text-rose-700 opacity-0 transition-opacity hover:bg-rose-50 group-hover:opacity-100"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </CardBody>
+              </Card>
+            )
+          })}
         </div>
       )}
 
@@ -124,22 +161,7 @@ export function Views({ projectId }: { projectId?: string }) {
         projectId={projectId}
         open={createOpen}
         onClose={() => setCreateOpen(false)}
-        query={{}}
       />
     </div>
   )
-}
-
-function chipsFromQuery(q: Record<string, unknown>): { key: string; value: string }[] {
-  const out: { key: string; value: string }[] = []
-  for (const [k, v] of Object.entries(q)) {
-    if (Array.isArray(v)) {
-      out.push({ key: k, value: v.join(' / ') })
-    } else if (typeof v === 'object' && v !== null) {
-      out.push({ key: k, value: JSON.stringify(v) })
-    } else if (v !== undefined && v !== null) {
-      out.push({ key: k, value: String(v) })
-    }
-  }
-  return out
 }

@@ -42,6 +42,15 @@ export const TraceSchema = z.object({
 })
 export type Trace = z.infer<typeof TraceSchema>
 
+/** A timestamped event/log recorded during a span (OTel span event). */
+export const SpanEventSchema = z.object({
+  /** Offset in ms from the span's own start. */
+  timeMs: z.number(),
+  name: z.string(),
+  attributes: z.record(z.string(), z.string()).optional(),
+})
+export type SpanEvent = z.infer<typeof SpanEventSchema>
+
 export const SpanSchema = z.object({
   spanID: z.string(),
   parentSpanID: z.string().optional(),
@@ -50,7 +59,10 @@ export const SpanSchema = z.object({
   startTimeMs: z.number(),
   durationMs: z.number(),
   status: z.enum(['ok', 'error']).optional(),
+  /** Span status message (e.g. the OTel status description on errors). */
+  statusMessage: z.string().optional(),
   tags: z.record(z.string(), z.string()).optional(),
+  events: z.array(SpanEventSchema).optional(),
 })
 export type Span = z.infer<typeof SpanSchema>
 
@@ -137,6 +149,122 @@ export interface LgtmClient {
   listDashboards(): Promise<Array<{ uid: string; title: string; tags: string[]; folder?: string }>>
 }
 
+/* ─────────── OTLP trace parsing ─────────── */
+
+/**
+ * Tempo's trace-by-id endpoint (`GET /api/traces/{id}`) returns OTLP
+ * resource/scope spans. These interfaces mirror the subset we read; the
+ * parser flattens them into the flat {@link Span} shape the views render,
+ * keeping real attributes, status, and span events.
+ */
+interface OtlpAnyValue {
+  stringValue?: string
+  intValue?: string | number
+  boolValue?: boolean
+  doubleValue?: number
+  bytesValue?: string
+  arrayValue?: { values?: OtlpAnyValue[] }
+  kvlistValue?: { values?: OtlpKeyValue[] }
+}
+interface OtlpKeyValue {
+  key?: string
+  value?: OtlpAnyValue
+}
+interface OtlpSpanEvent {
+  timeUnixNano?: string | number
+  name?: string
+  attributes?: OtlpKeyValue[]
+}
+interface OtlpSpan {
+  spanId?: string
+  spanID?: string
+  parentSpanId?: string
+  parentSpanID?: string
+  name?: string
+  startTimeUnixNano?: string | number
+  endTimeUnixNano?: string | number
+  attributes?: OtlpKeyValue[]
+  status?: { code?: number | string; message?: string }
+  events?: OtlpSpanEvent[]
+}
+interface OtlpScopeSpans {
+  spans?: OtlpSpan[]
+}
+interface OtlpResourceSpans {
+  resource?: { attributes?: OtlpKeyValue[] }
+  scopeSpans?: OtlpScopeSpans[]
+  instrumentationLibrarySpans?: OtlpScopeSpans[]
+}
+interface OtlpTraceResponse {
+  batches?: OtlpResourceSpans[]
+  resourceSpans?: OtlpResourceSpans[]
+}
+
+function anyValueToString(v?: OtlpAnyValue): string {
+  if (!v) return ''
+  if (v.stringValue !== undefined) return v.stringValue
+  if (v.intValue !== undefined) return String(v.intValue)
+  if (v.boolValue !== undefined) return String(v.boolValue)
+  if (v.doubleValue !== undefined) return String(v.doubleValue)
+  if (v.bytesValue !== undefined) return v.bytesValue
+  if (v.arrayValue) return JSON.stringify((v.arrayValue.values ?? []).map(anyValueToString))
+  if (v.kvlistValue) return JSON.stringify(flattenAttrs(v.kvlistValue.values))
+  return ''
+}
+
+function flattenAttrs(kvs?: OtlpKeyValue[]): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const kv of kvs ?? []) if (kv.key) out[kv.key] = anyValueToString(kv.value)
+  return out
+}
+
+/** OTLP status code → our two-state status (UNSET → undefined). */
+function statusFromCode(code?: number | string): Span['status'] {
+  if (code === 2 || code === 'STATUS_CODE_ERROR' || code === 'ERROR') return 'error'
+  if (code === 1 || code === 'STATUS_CODE_OK' || code === 'OK') return 'ok'
+  return undefined
+}
+
+function parseOtlpTrace(res: OtlpTraceResponse): Span[] {
+  const batches = res.batches ?? res.resourceSpans ?? []
+  const collected: Array<{ span: OtlpSpan; serviceName: string; startMs: number }> = []
+  for (const batch of batches) {
+    const serviceName = flattenAttrs(batch.resource?.attributes)['service.name'] ?? 'unknown'
+    const scopes = batch.scopeSpans ?? batch.instrumentationLibrarySpans ?? []
+    for (const scope of scopes) {
+      for (const span of scope.spans ?? []) {
+        collected.push({ span, serviceName, startMs: Number(span.startTimeUnixNano ?? 0) / 1e6 })
+      }
+    }
+  }
+  // Span offsets are relative to the earliest span start in the trace.
+  const traceStartMs = collected.length ? Math.min(...collected.map((c) => c.startMs)) : 0
+  return collected.map(({ span, serviceName, startMs }) => {
+    const endMs = Number(span.endTimeUnixNano ?? span.startTimeUnixNano ?? 0) / 1e6
+    const tags = flattenAttrs(span.attributes)
+    const events: SpanEvent[] = (span.events ?? []).map((ev) => {
+      const attrs = flattenAttrs(ev.attributes)
+      return {
+        timeMs: Math.max(0, Number(ev.timeUnixNano ?? 0) / 1e6 - startMs),
+        name: ev.name ?? '',
+        attributes: Object.keys(attrs).length ? attrs : undefined,
+      }
+    })
+    return {
+      spanID: span.spanId ?? span.spanID ?? '',
+      parentSpanID: (span.parentSpanId ?? span.parentSpanID) || undefined,
+      serviceName,
+      operationName: span.name ?? '',
+      startTimeMs: Math.max(0, startMs - traceStartMs),
+      durationMs: Math.max(0, endMs - startMs),
+      status: statusFromCode(span.status?.code),
+      statusMessage: span.status?.message || undefined,
+      tags: Object.keys(tags).length ? tags : undefined,
+      events: events.length ? events : undefined,
+    }
+  })
+}
+
 function build(http: HttpClient, grafanaUrl: string): LgtmClient {
   return {
     queryLogs: async (query, start, end, limit = 500) => {
@@ -168,8 +296,8 @@ function build(http: HttpClient, grafanaUrl: string): LgtmClient {
       return res.traces
     },
     getTrace: async (id) => {
-      const res = await http.get<{ batches: { spans: Span[] }[] }>(`/api/traces/${id}`)
-      return res.batches.flatMap((b) => b.spans)
+      const res = await http.get<OtlpTraceResponse>(`/api/traces/${id}`)
+      return parseOtlpTrace(res)
     },
     listServices: async () => {
       const res = await http.get<{ services: ServiceNode[] }>(`/api/services`)
@@ -346,20 +474,23 @@ const STUB_TRACES: Trace[] = [
   },
 ]
 
+// Dev fixture shaped like a parsed Tempo trace: bare spans already carrying
+// real attributes, status messages, and span events (as production spans do),
+// so the inspector renders without any client-side enrichment layer.
 const STUB_SPANS_FOR_TRACE: Record<string, Span[]> = {
   a1b2c3d4e5f60718: [
-    { spanID: 's1', serviceName: 'platform-bff', operationName: 'GET /api/repos', startTimeMs: 0, durationMs: 142, status: 'ok' },
-    { spanID: 's2', parentSpanID: 's1', serviceName: 'platform-bff', operationName: 'middleware.auth', startTimeMs: 1, durationMs: 6 },
-    { spanID: 's3', parentSpanID: 's1', serviceName: 'platform-bff', operationName: 'http.request gitea.adhar.local', startTimeMs: 8, durationMs: 124 },
-    { spanID: 's4', parentSpanID: 's3', serviceName: 'gitea', operationName: 'GET /api/v1/orgs/acme/repos', startTimeMs: 18, durationMs: 86 },
-    { spanID: 's5', parentSpanID: 's4', serviceName: 'postgres', operationName: 'SELECT repos', startTimeMs: 22, durationMs: 12 },
-    { spanID: 's6', parentSpanID: 's3', serviceName: 'platform-bff', operationName: 'response.serialize', startTimeMs: 134, durationMs: 6 },
+    { spanID: 's1', serviceName: 'platform-bff', operationName: 'GET /api/repos', startTimeMs: 0, durationMs: 142, status: 'ok', tags: { 'http.method': 'GET', 'http.route': '/api/repos', 'http.status_code': '200', 'net.peer.ip': '10.4.2.11', 'user.tenant': 'acme', 'otel.library.name': 'platform-bff/http' }, events: [{ timeMs: 0, name: 'request.received', attributes: { 'http.host': 'bff.adhar.local' } }, { timeMs: 138, name: 'response.sent', attributes: { 'http.status_code': '200', 'response.bytes': '4213' } }] },
+    { spanID: 's2', parentSpanID: 's1', serviceName: 'platform-bff', operationName: 'middleware.auth', startTimeMs: 1, durationMs: 6, tags: { 'auth.method': 'oidc', 'auth.subject': 'user:tapas', 'cache.hit': 'true' }, events: [{ timeMs: 1, name: 'token.validated', attributes: { issuer: 'https://auth.adhar.local' } }] },
+    { spanID: 's3', parentSpanID: 's1', serviceName: 'platform-bff', operationName: 'http.request gitea.adhar.local', startTimeMs: 8, durationMs: 124, tags: { 'http.method': 'GET', 'http.url': 'https://gitea.adhar.local/api/v1/orgs/acme/repos', 'peer.service': 'gitea', 'retry.count': '0' }, events: [{ timeMs: 0, name: 'connect.start' }, { timeMs: 4, name: 'connect.established', attributes: { 'tls.version': '1.3' } }] },
+    { spanID: 's4', parentSpanID: 's3', serviceName: 'gitea', operationName: 'GET /api/v1/orgs/acme/repos', startTimeMs: 18, durationMs: 86, tags: { 'http.method': 'GET', 'http.status_code': '200', 'db.rows': '37', 'gitea.org': 'acme' }, events: [{ timeMs: 60, name: 'cache.miss', attributes: { key: 'orgs:acme:repos' } }] },
+    { spanID: 's5', parentSpanID: 's4', serviceName: 'postgres', operationName: 'SELECT repos', startTimeMs: 22, durationMs: 12, tags: { 'db.system': 'postgresql', 'db.statement': 'SELECT id, name FROM repository WHERE owner_id = $1', 'db.rows': '37', 'db.pool.wait_ms': '0' }, events: [{ timeMs: 0, name: 'query.start' }, { timeMs: 12, name: 'query.done', attributes: { rows: '37' } }] },
+    { spanID: 's6', parentSpanID: 's3', serviceName: 'platform-bff', operationName: 'response.serialize', startTimeMs: 134, durationMs: 6, tags: { 'serializer.format': 'json', 'response.bytes': '4213' } },
   ],
   b2c3d4e5f6071829: [
-    { spanID: 'b1', serviceName: 'billing-service', operationName: 'POST /v1/invoices/finalize', startTimeMs: 0, durationMs: 1843, status: 'error' },
-    { spanID: 'b2', parentSpanID: 'b1', serviceName: 'billing-service', operationName: 'tax.calculate', startTimeMs: 5, durationMs: 38 },
-    { spanID: 'b3', parentSpanID: 'b1', serviceName: 'postgres', operationName: 'SELECT subscriptions FOR UPDATE', startTimeMs: 50, durationMs: 1700, status: 'error', tags: { 'db.statement': 'SELECT * FROM subscriptions WHERE id=$1 FOR UPDATE', error: 'lock_timeout' } },
-    { spanID: 'b4', parentSpanID: 'b1', serviceName: 'billing-service', operationName: 'response.error 500', startTimeMs: 1820, durationMs: 8 },
+    { spanID: 'b1', serviceName: 'billing-service', operationName: 'POST /v1/invoices/finalize', startTimeMs: 0, durationMs: 1843, status: 'error', statusMessage: 'invoice finalize failed: downstream lock_timeout', tags: { 'http.method': 'POST', 'http.route': '/v1/invoices/finalize', 'http.status_code': '500', 'invoice.id': 'inv_8842', tenant: 'acme', error: 'true' }, events: [{ timeMs: 0, name: 'request.received' }, { timeMs: 43, name: 'tax.calculated', attributes: { 'tax.amount': '128.40' } }, { timeMs: 1750, name: 'exception', attributes: { 'exception.type': 'LockTimeout', 'exception.message': 'could not obtain lock on relation "subscriptions"' } }, { timeMs: 1820, name: 'response.error', attributes: { 'http.status_code': '500' } }] },
+    { spanID: 'b2', parentSpanID: 'b1', serviceName: 'billing-service', operationName: 'tax.calculate', startTimeMs: 5, durationMs: 38, tags: { 'tax.provider': 'avalara', 'tax.amount': '128.40', 'cache.hit': 'false' }, events: [{ timeMs: 30, name: 'tax.provider.responded', attributes: { latency_ms: '33' } }] },
+    { spanID: 'b3', parentSpanID: 'b1', serviceName: 'postgres', operationName: 'SELECT subscriptions FOR UPDATE', startTimeMs: 50, durationMs: 1700, status: 'error', statusMessage: 'lock_timeout after 1700ms waiting on row lock', tags: { 'db.statement': 'SELECT * FROM subscriptions WHERE id=$1 FOR UPDATE', error: 'lock_timeout', 'db.system': 'postgresql', 'db.pool.wait_ms': '1680', 'db.lock.mode': 'FOR UPDATE', 'error.kind': 'lock_timeout' }, events: [{ timeMs: 0, name: 'query.start' }, { timeMs: 20, name: 'lock.wait.begin', attributes: { relation: 'subscriptions', 'blocking.pid': '48213' } }, { timeMs: 1700, name: 'exception', attributes: { 'exception.type': 'QueryCanceled', 'exception.message': 'canceling statement due to lock timeout' } }] },
+    { spanID: 'b4', parentSpanID: 'b1', serviceName: 'billing-service', operationName: 'response.error 500', startTimeMs: 1820, durationMs: 8, status: 'error', statusMessage: 'returned HTTP 500 to caller', tags: { 'http.status_code': '500', error: 'true', 'response.bytes': '182' } },
   ],
 }
 

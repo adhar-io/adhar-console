@@ -34,15 +34,92 @@ export function rangeToWindow(id: TimeRangeId): { start: Date; end: Date } {
   return { start, end }
 }
 
+/**
+ * A time selection is either one of the quick presets or an absolute
+ * from/to window (ISO strings so it hashes stably into a query key).
+ */
+export type TimeSelection =
+  | { kind: 'preset'; id: TimeRangeId }
+  | { kind: 'absolute'; from: string; to: string }
+
+export const presetSelection = (id: TimeRangeId): TimeSelection => ({ kind: 'preset', id })
+
+export function selectionToWindow(sel: TimeSelection): { start: Date; end: Date } {
+  if (sel.kind === 'absolute') return { start: new Date(sel.from), end: new Date(sel.to) }
+  return rangeToWindow(sel.id)
+}
+
+/** Human label for the toolbar / histogram header. */
+export function selectionLabel(sel: TimeSelection): string {
+  if (sel.kind === 'preset') return `last ${TIME_RANGES.find((r) => r.id === sel.id)?.label ?? sel.id}`
+  const f = new Date(sel.from)
+  const t = new Date(sel.to)
+  const fmt = (d: Date) =>
+    `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  return `${fmt(f)} → ${fmt(t)}`
+}
+
 /* ─────────── LGTM ─────────── */
 
-export function useLogs(query: string, range: TimeRangeId, limit = 200) {
-  const { start, end } = rangeToWindow(range)
+export function useLogs(query: string, sel: TimeSelection, limit = 200) {
+  const { start, end } = selectionToWindow(sel)
   return useQuery({
-    queryKey: ['lgtm', 'logs', query, range],
+    queryKey: ['lgtm', 'logs', query, sel],
     queryFn: () => lgtmClient.queryLogs(query, start, end, limit),
     refetchInterval: REFRESH_MS,
   })
+}
+
+/* ─────────── log volume histogram (derived from real logs) ─────────── */
+
+/** One time bucket of the log-volume histogram, split by level bucket. */
+export interface HistogramBucket {
+  /** epoch ms — bucket start / end. */
+  start: number
+  end: number
+  info: number
+  warn: number
+  error: number
+}
+
+export type HistogramLevel = 'info' | 'warn' | 'error'
+export const HISTOGRAM_LEVELS: HistogramLevel[] = ['error', 'warn', 'info']
+
+/** Collapse a log entry's level onto one of the three histogram buckets. */
+function histogramLevelOf(level: lgtm.LogEntry['level']): HistogramLevel {
+  if (level === 'error' || level === 'fatal') return 'error'
+  if (level === 'warn') return 'warn'
+  return 'info'
+}
+
+/**
+ * Bucket real log lines by timestamp across [start, end), split by level.
+ * This is the actual observed volume of the returned stream — no synthetic
+ * fill — so a sparse stream renders sparsely and an error burst shows up
+ * exactly where it happened.
+ */
+export function bucketLogsByLevel(
+  logs: lgtm.LogEntry[],
+  start: Date,
+  end: Date,
+  buckets = 48,
+): HistogramBucket[] {
+  const t0 = start.getTime()
+  const t1 = end.getTime()
+  const width = Math.max(1, t1 - t0) / buckets
+  const out: HistogramBucket[] = []
+  for (let i = 0; i < buckets; i++) {
+    out.push({ start: t0 + i * width, end: t0 + (i + 1) * width, info: 0, warn: 0, error: 0 })
+  }
+  for (const l of logs) {
+    const t = new Date(l.timestamp).getTime()
+    if (Number.isNaN(t) || t < t0 || t > t1) continue
+    let idx = Math.floor((t - t0) / width)
+    if (idx < 0) idx = 0
+    if (idx >= buckets) idx = buckets - 1
+    out[idx][histogramLevelOf(l.level)] += 1
+  }
+  return out
 }
 
 export function useMetrics(query: string, range: TimeRangeId, step = '1m') {
@@ -62,10 +139,20 @@ export function useTraces(filter: { service?: string; minDurationMs?: number; st
   })
 }
 
+/* ─────────── span detail ─────────── */
+
+/**
+ * A timestamped event recorded during a span (OTel span event) and a span
+ * carrying its real attributes, status message, and events — both sourced
+ * straight from the Tempo trace response the LGTM client parses.
+ */
+export type SpanEvent = lgtm.SpanEvent
+export type SpanDetail = lgtm.Span
+
 export function useTrace(traceID?: string) {
   return useQuery({
     queryKey: ['lgtm', 'trace', traceID],
-    queryFn: () => lgtmClient.getTrace(traceID!),
+    queryFn: (): Promise<SpanDetail[]> => lgtmClient.getTrace(traceID!),
     enabled: !!traceID,
   })
 }

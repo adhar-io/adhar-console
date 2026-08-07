@@ -8,8 +8,9 @@ import {
   EmptyState,
   Modal,
 } from '@adhar-console/shell-ui'
-import { newId, store } from '../data/store.ts'
+import { KIND, newId, useCollection, useCreate, useRemove, useSeedExamples, useUpdate } from '../data/store.ts'
 import { SEED_PERSONAS } from '../data/seed.ts'
+import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import type { Persona } from '../data/types.ts'
 
 const AVATAR_OPTIONS = ['👩🏽‍💻', '🧑🏽‍💼', '🎨', '👨🏿‍🔬', '🧑🏼‍🎤', '👩🏻‍🚀', '🧑🏽‍🚒', '👨🏽‍🏫', '🦊', '🐙']
@@ -21,22 +22,21 @@ const AVATAR_OPTIONS = ['👩🏽‍💻', '🧑🏽‍💼', '🎨', '👨🏿�
  * modal with comma-separated list inputs (lightweight, fast to fill).
  */
 export function Personas() {
-  const [list, setList] = useState<Persona[]>([])
+  const { items: list, isLoading, error, refetch } = useCollection<Persona>(KIND.persona)
+  const createPersona = useCreate<Persona>(KIND.persona)
+  const updatePersona = useUpdate<Persona>(KIND.persona)
+  const removePersona = useRemove(KIND.persona)
+  const seed = useSeedExamples<Persona>(KIND.persona)
+
   const [openId, setOpenId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
 
-  useEffect(() => {
-    setList(store.get<Persona[]>('personas', SEED_PERSONAS))
-  }, [])
-
-  const persist = (next: Persona[]) => {
-    setList(next)
-    store.set('personas', next)
-  }
-
   const open = list.find((p) => p.id === openId) ?? null
   const editing = list.find((p) => p.id === editingId) ?? null
+
+  if (error) return <ErrorBlock error={error} onRetry={refetch} />
+  if (isLoading) return <LoadingBlock label="Loading personas…" />
 
   return (
     <div className="space-y-4">
@@ -55,6 +55,16 @@ export function Personas() {
         <EmptyState
           title="No personas yet"
           description="Define who you're designing for — goals, frustrations, behaviors."
+          action={
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => seed.mutate(SEED_PERSONAS)}
+              disabled={seed.isPending}
+            >
+              {seed.isPending ? 'Loading…' : 'Load examples'}
+            </Button>
+          }
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -73,12 +83,11 @@ export function Personas() {
         initial={editing ?? undefined}
         onSubmit={(input) => {
           if (editing) {
-            persist(list.map((p) => (p.id === editing.id ? { ...editing, ...input } : p)))
+            updatePersona.mutate({ ...editing, ...input })
             setEditingId(null)
           } else {
             const next: Persona = { id: newId('persona'), ...input }
-            persist([next, ...list])
-            setOpenId(next.id)
+            createPersona.mutate(next, { onSuccess: (created) => setOpenId(created.id) })
           }
         }}
       />
@@ -93,7 +102,7 @@ export function Personas() {
           }}
           onDelete={() => {
             if (!confirm(`Delete persona "${open.name}"?`)) return
-            persist(list.filter((p) => p.id !== open.id))
+            removePersona.mutate(open.id)
             setOpenId(null)
           }}
         />

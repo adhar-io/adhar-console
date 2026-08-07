@@ -43,14 +43,14 @@ async function raw<T>(path: string): Promise<T> {
 const items = <T>(gvr: GVR, ns?: string) =>
   kube.list<T>(gvr, { namespace: ns }).then((l) => l.items)
 
-/** Dev (pure SPA, no gateway) → stub fixtures; prod → the per-user gateway. */
-export const isDevK8s = (() => {
-  try {
-    return Boolean((import.meta as { env?: { DEV?: boolean } }).env?.DEV)
-  } catch {
-    return false
-  }
-})()
+/**
+ * The console connects to the cluster's apiserver through the per-user gateway
+ * in every environment — including `pnpm dev`, which runs the BFF and proxies
+ * `/api/*` to it against the locally-running adhar cluster. There is no stub
+ * fallback. Kept as an exported constant (always false) so the historical
+ * dev-branch call sites compile without change.
+ */
+export const isDevK8s = false
 
 const gatewayClient: K8sClient = {
   getVersion: () => raw<VersionInfo>('/version'),
@@ -150,4 +150,4 @@ const gatewayClient: K8sClient = {
     kube.apply<Generic>(obj as Parameters<typeof kube.apply>[0], { force: true }),
 }
 
-export const client: K8sClient = isDevK8s ? k8s.K8sClient.stub() : gatewayClient
+export const client: K8sClient = gatewayClient

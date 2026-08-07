@@ -1,86 +1,71 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Button, Card, CardBody, CardHeader, StatusBadge } from '@adhar-console/shell-ui'
-
-const COLOR_TOKENS = [
-  { name: '--adhar-color-primary', value: '#0f172a', role: 'Primary surface' },
-  { name: '--adhar-color-accent', value: '#4f46e5', role: 'Accent / link' },
-  { name: '--adhar-color-success', value: '#059669', role: 'Success' },
-  { name: '--adhar-color-warning', value: '#d97706', role: 'Warning' },
-  { name: '--adhar-color-danger', value: '#e11d48', role: 'Danger' },
-  { name: '--adhar-color-muted', value: '#f1f5f9', role: 'Muted surface' },
-  { name: '--adhar-color-border', value: '#e2e8f0', role: 'Border' },
-]
-
-const SPACING_TOKENS = [
-  { name: '--adhar-space-1', value: '4px' },
-  { name: '--adhar-space-2', value: '8px' },
-  { name: '--adhar-space-3', value: '12px' },
-  { name: '--adhar-space-4', value: '16px' },
-  { name: '--adhar-space-6', value: '24px' },
-  { name: '--adhar-space-8', value: '32px' },
-  { name: '--adhar-space-12', value: '48px' },
-  { name: '--adhar-space-16', value: '64px' },
-]
-
-const TYPE_TOKENS = [
-  { name: '--adhar-font-sans', value: 'Inter, system-ui, sans-serif' },
-  { name: '--adhar-font-mono', value: 'JetBrains Mono, ui-monospace' },
-  { name: '--adhar-text-xs', value: '12px / 16px' },
-  { name: '--adhar-text-sm', value: '14px / 20px' },
-  { name: '--adhar-text-base', value: '16px / 24px' },
-  { name: '--adhar-text-lg', value: '18px / 28px' },
-  { name: '--adhar-text-xl', value: '20px / 28px' },
-  { name: '--adhar-text-2xl', value: '24px / 32px' },
-]
-
-const RADIUS_TOKENS = [
-  { name: '--adhar-radius-sm', value: '4px' },
-  { name: '--adhar-radius-md', value: '8px' },
-  { name: '--adhar-radius-lg', value: '12px' },
-  { name: '--adhar-radius-xl', value: '16px' },
-  { name: '--adhar-radius-2xl', value: '20px' },
-  { name: '--adhar-radius-full', value: '9999px' },
-]
-
-const ELEVATION_TOKENS = [
-  { name: '--adhar-shadow-sm', value: '0 1px 2px rgba(15,23,42,0.05)' },
-  { name: '--adhar-shadow-md', value: '0 4px 6px -1px rgba(15,23,42,0.08)' },
-  { name: '--adhar-shadow-lg', value: '0 10px 15px -3px rgba(15,23,42,0.10)' },
-  { name: '--adhar-shadow-xl', value: '0 20px 25px -5px rgba(15,23,42,0.12)' },
-]
-
-const MOTION_TOKENS = [
-  { name: '--adhar-duration-fast', value: '120ms', curve: 'ease-out' },
-  { name: '--adhar-duration-base', value: '200ms', curve: 'cubic-bezier(0.4, 0, 0.2, 1)' },
-  { name: '--adhar-duration-slow', value: '320ms', curve: 'cubic-bezier(0.16, 1, 0.3, 1)' },
-  { name: '--adhar-duration-page', value: '500ms', curve: 'cubic-bezier(0.22, 1, 0.36, 1)' },
-]
-
-const BREAKPOINT_TOKENS = [
-  { name: '--adhar-bp-sm', value: '640px', label: 'Phone landscape' },
-  { name: '--adhar-bp-md', value: '768px', label: 'Tablet portrait' },
-  { name: '--adhar-bp-lg', value: '1024px', label: 'Tablet landscape / laptop' },
-  { name: '--adhar-bp-xl', value: '1280px', label: 'Desktop' },
-  { name: '--adhar-bp-2xl', value: '1536px', label: 'Wide desktop' },
-]
+import { KIND, TOKEN_SET_ID, useDoc, useUpsertDoc } from '../data/store.ts'
+import { DEFAULT_TOKENS } from '../data/tokens-seed.ts'
+import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
+import type { TokenSet } from '../data/types.ts'
 
 type Format = 'json' | 'css'
 
+/**
+ * Design tokens — now fully editable and persisted. The token set is seeded
+ * from DEFAULT_TOKENS into localStorage (`adhar.design.tokens`); every edit
+ * writes straight back, the swatches/previews re-render live, and the CSS/JSON
+ * export always reflects the current (edited) values. "Reset to defaults"
+ * restores the canonical baseline.
+ */
 export function Tokens() {
+  const { data, isLoading, error } = useDoc<TokenSet>(KIND.tokenSet, TOKEN_SET_ID)
+  const upsert = useUpsertDoc<TokenSet>(KIND.tokenSet, TOKEN_SET_ID)
+
+  const [tokens, setTokens] = useState<TokenSet>(DEFAULT_TOKENS)
   const [exportOpen, setExportOpen] = useState(false)
 
+  // Sync the editable working set from the stored document as it loads.
+  useEffect(() => {
+    if (data) setTokens(mergeDefaults(data))
+  }, [data])
+
+  const persist = (next: TokenSet) => {
+    setTokens(next)
+    upsert.mutate(next)
+  }
+
+  const setValue = (category: keyof TokenSet, index: number, value: string) => {
+    persist({
+      ...tokens,
+      [category]: tokens[category].map((t, i) => (i === index ? { ...t, value } : t)),
+    })
+  }
+
+  const setCurve = (index: number, curve: string) => {
+    persist({
+      ...tokens,
+      motion: tokens.motion.map((t, i) => (i === index ? { ...t, curve } : t)),
+    })
+  }
+
+  const reset = () => {
+    if (!confirm('Reset all tokens to their default values? Your edits will be discarded.')) return
+    persist(DEFAULT_TOKENS)
+  }
+
+  const total = useMemo(
+    () => Object.values(tokens).reduce((acc, list) => acc + list.length, 0),
+    [tokens],
+  )
+
   const exported = useMemo(() => {
-    const flat = {
-      color: Object.fromEntries(COLOR_TOKENS.map((t) => [t.name, t.value])),
-      spacing: Object.fromEntries(SPACING_TOKENS.map((t) => [t.name, t.value])),
-      typography: Object.fromEntries(TYPE_TOKENS.map((t) => [t.name, t.value])),
-      radius: Object.fromEntries(RADIUS_TOKENS.map((t) => [t.name, t.value])),
-      elevation: Object.fromEntries(ELEVATION_TOKENS.map((t) => [t.name, t.value])),
-      motion: Object.fromEntries(MOTION_TOKENS.map((t) => [t.name, `${t.value} ${t.curve}`])),
-      breakpoint: Object.fromEntries(BREAKPOINT_TOKENS.map((t) => [t.name, t.value])),
+    return {
+      color: Object.fromEntries(tokens.color.map((t) => [t.name, t.value])),
+      spacing: Object.fromEntries(tokens.spacing.map((t) => [t.name, t.value])),
+      typography: Object.fromEntries(tokens.typography.map((t) => [t.name, t.value])),
+      radius: Object.fromEntries(tokens.radius.map((t) => [t.name, t.value])),
+      elevation: Object.fromEntries(tokens.elevation.map((t) => [t.name, t.value])),
+      motion: Object.fromEntries(tokens.motion.map((t) => [t.name, `${t.value} ${t.curve}`])),
+      breakpoint: Object.fromEntries(tokens.breakpoint.map((t) => [t.name, t.value])),
     }
-    return flat
-  }, [])
+  }, [tokens])
 
   const asCss = useMemo(() => {
     const lines: string[] = [':root {']
@@ -93,22 +78,17 @@ export function Tokens() {
 
   const asJson = useMemo(() => JSON.stringify(exported, null, 2), [exported])
 
+  if (error) return <ErrorBlock error={error} />
+  if (isLoading) return <LoadingBlock label="Loading design tokens…" />
+
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="text-[11px] text-content-muted">
-          7 categories · {[
-            COLOR_TOKENS,
-            SPACING_TOKENS,
-            TYPE_TOKENS,
-            RADIUS_TOKENS,
-            ELEVATION_TOKENS,
-            MOTION_TOKENS,
-            BREAKPOINT_TOKENS,
-          ].reduce((acc, l) => acc + l.length, 0)}{' '}
-          tokens
-        </div>
-        <div className="ml-auto">
+        <div className="text-[11px] text-content-muted">7 categories · {total} tokens · editable</div>
+        <div className="ml-auto flex items-center gap-2">
+          <Button size="sm" variant="ghost" onClick={reset} leading={<IconReset />}>
+            Reset to defaults
+          </Button>
           <Button size="sm" onClick={() => setExportOpen((o) => !o)} leading={<IconDownload />}>
             {exportOpen ? 'Hide export' : 'Export'}
           </Button>
@@ -117,21 +97,35 @@ export function Tokens() {
 
       {exportOpen ? <ExportPanel css={asCss} json={asJson} /> : null}
 
-      <Section title="Color" sub="Brand and semantic colors">
+      <Section title="Color" sub="Brand and semantic colors — click a swatch to recolor">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {COLOR_TOKENS.map((t) => (
+          {tokens.color.map((t, i) => (
             <div
               key={t.name}
               className="flex items-center gap-3 rounded-lg border border-edge-default bg-white p-3 shadow-sm"
             >
-              <div
-                className="h-12 w-12 shrink-0 rounded-lg border border-edge-subtle"
-                style={{ background: t.value }}
-              />
-              <div className="min-w-0">
+              <label className="relative h-12 w-12 shrink-0 cursor-pointer">
+                <span
+                  className="block h-full w-full rounded-lg border border-edge-subtle"
+                  style={{ background: t.value }}
+                />
+                <input
+                  type="color"
+                  value={normalizeColor(t.value)}
+                  onChange={(e) => setValue('color', i, e.target.value)}
+                  className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                  aria-label={`${t.role} color`}
+                />
+              </label>
+              <div className="min-w-0 flex-1">
                 <div className="truncate text-xs font-semibold text-content">{t.role}</div>
                 <div className="truncate font-mono text-[10px] text-content-subtle">{t.name}</div>
-                <div className="truncate font-mono text-[10px] text-content-muted">{t.value}</div>
+                <input
+                  value={t.value}
+                  onChange={(e) => setValue('color', i, e.target.value)}
+                  spellCheck={false}
+                  className="mt-0.5 w-full rounded border border-transparent bg-transparent font-mono text-[10px] text-content-muted hover:border-edge-subtle focus:border-brand-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-brand-400/30"
+                />
               </div>
             </div>
           ))}
@@ -141,11 +135,18 @@ export function Tokens() {
       <Section title="Spacing" sub="Pixel scale that drives layout rhythm">
         <Card>
           <CardBody className="space-y-2 p-3">
-            {SPACING_TOKENS.map((t) => (
-              <div key={t.name} className="flex items-center gap-3 rounded-md border border-edge-subtle bg-surface-sunken/40 p-2">
+            {tokens.spacing.map((t, i) => (
+              <div
+                key={t.name}
+                className="flex items-center gap-3 rounded-md border border-edge-subtle bg-surface-sunken/40 p-2"
+              >
                 <div className="h-3 rounded-sm bg-brand-500" style={{ width: t.value }} />
                 <span className="font-mono text-xs text-content-subtle">{t.name}</span>
-                <span className="ml-auto font-mono text-xs text-content">{t.value}</span>
+                <ValueInput
+                  className="ml-auto w-24 text-right"
+                  value={t.value}
+                  onChange={(v) => setValue('spacing', i, v)}
+                />
               </div>
             ))}
           </CardBody>
@@ -155,10 +156,17 @@ export function Tokens() {
       <Section title="Typography" sub="Font families and type scale">
         <Card>
           <CardBody className="space-y-3 p-4">
-            {TYPE_TOKENS.map((t) => (
-              <div key={t.name} className="flex items-baseline justify-between gap-2 border-b border-edge-subtle pb-2 last:border-0 last:pb-0">
-                <span className="font-mono text-xs text-content-subtle">{t.name}</span>
-                <span className="font-mono text-xs text-content">{t.value}</span>
+            {tokens.typography.map((t, i) => (
+              <div
+                key={t.name}
+                className="flex items-baseline justify-between gap-2 border-b border-edge-subtle pb-2 last:border-0 last:pb-0"
+              >
+                <span className="shrink-0 font-mono text-xs text-content-subtle">{t.name}</span>
+                <ValueInput
+                  className="w-64 text-right"
+                  value={t.value}
+                  onChange={(v) => setValue('typography', i, v)}
+                />
               </div>
             ))}
           </CardBody>
@@ -167,7 +175,7 @@ export function Tokens() {
 
       <Section title="Radius" sub="Corner rounding for surfaces">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          {RADIUS_TOKENS.map((t) => (
+          {tokens.radius.map((t, i) => (
             <Card key={t.name}>
               <CardBody className="flex flex-col items-center gap-2 p-3 text-center">
                 <div
@@ -175,7 +183,11 @@ export function Tokens() {
                   style={{ borderRadius: t.value }}
                 />
                 <div className="font-mono text-[10px] text-content-subtle">{t.name}</div>
-                <div className="font-mono text-[11px] text-content">{t.value}</div>
+                <ValueInput
+                  className="w-full text-center"
+                  value={t.value}
+                  onChange={(v) => setValue('radius', i, v)}
+                />
               </CardBody>
             </Card>
           ))}
@@ -184,7 +196,7 @@ export function Tokens() {
 
       <Section title="Elevation" sub="Shadow stack for layered surfaces">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {ELEVATION_TOKENS.map((t) => (
+          {tokens.elevation.map((t, i) => (
             <Card key={t.name}>
               <CardBody className="space-y-3 p-4">
                 <div
@@ -193,9 +205,11 @@ export function Tokens() {
                 >
                   <span className="font-mono text-[10px] text-content-subtle">{t.name}</span>
                 </div>
-                <div className="font-mono text-[10px] leading-relaxed text-content-muted">
-                  {t.value}
-                </div>
+                <ValueInput
+                  className="w-full font-mono text-[10px]! leading-relaxed"
+                  value={t.value}
+                  onChange={(v) => setValue('elevation', i, v)}
+                />
               </CardBody>
             </Card>
           ))}
@@ -204,15 +218,26 @@ export function Tokens() {
 
       <Section title="Motion" sub="Durations + easing curves">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          {MOTION_TOKENS.map((t) => (
+          {tokens.motion.map((t, i) => (
             <Card key={t.name}>
               <CardBody className="space-y-2 p-4">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <span className="font-mono text-xs text-content">{t.name}</span>
-                  <StatusBadge kind="info">{t.value}</StatusBadge>
+                  <div className="flex items-center gap-1">
+                    <ValueInput
+                      className="w-16 text-right"
+                      value={t.value}
+                      onChange={(v) => setValue('motion', i, v)}
+                    />
+                    <StatusBadge kind="info">{t.value}</StatusBadge>
+                  </div>
                 </div>
                 <MotionPreview duration={t.value} curve={t.curve} />
-                <div className="font-mono text-[10px] text-content-subtle">{t.curve}</div>
+                <ValueInput
+                  className="w-full font-mono text-[10px]!"
+                  value={t.curve}
+                  onChange={(v) => setCurve(i, v)}
+                />
               </CardBody>
             </Card>
           ))}
@@ -223,13 +248,15 @@ export function Tokens() {
         <Card>
           <CardBody className="p-0">
             <ul className="divide-y divide-edge-subtle">
-              {BREAKPOINT_TOKENS.map((t) => (
+              {tokens.breakpoint.map((t, i) => (
                 <li key={t.name} className="flex items-center gap-3 px-4 py-3">
                   <span className="font-mono text-xs text-content">{t.name}</span>
                   <span className="text-xs text-content-muted">· {t.label}</span>
-                  <span className="ml-auto font-mono text-xs font-semibold text-content">
-                    {t.value}
-                  </span>
+                  <ValueInput
+                    className="ml-auto w-24 text-right font-semibold"
+                    value={t.value}
+                    onChange={(v) => setValue('breakpoint', i, v)}
+                  />
                 </li>
               ))}
             </ul>
@@ -237,6 +264,58 @@ export function Tokens() {
         </Card>
       </Section>
     </div>
+  )
+}
+
+/**
+ * Guard against an older/partial persisted shape by backfilling any category
+ * missing from the stored set with its default list.
+ */
+function mergeDefaults(stored: Partial<TokenSet> | null): TokenSet {
+  const s = stored ?? {}
+  const pick = <K extends keyof TokenSet>(k: K): TokenSet[K] => {
+    const v = s[k]
+    return Array.isArray(v) && v.length ? (v as TokenSet[K]) : DEFAULT_TOKENS[k]
+  }
+  return {
+    color: pick('color'),
+    spacing: pick('spacing'),
+    typography: pick('typography'),
+    radius: pick('radius'),
+    elevation: pick('elevation'),
+    motion: pick('motion'),
+    breakpoint: pick('breakpoint'),
+  }
+}
+
+/** A hex string an <input type="color"> will accept, else a neutral fallback. */
+function normalizeColor(value: string): string {
+  const v = value.trim()
+  if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v)) {
+    if (v.length === 4) {
+      return `#${v[1]}${v[1]}${v[2]}${v[2]}${v[3]}${v[3]}`
+    }
+    return v
+  }
+  return '#888888'
+}
+
+function ValueInput({
+  value,
+  onChange,
+  className = '',
+}: {
+  value: string
+  onChange(v: string): void
+  className?: string
+}) {
+  return (
+    <input
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      spellCheck={false}
+      className={`rounded border border-transparent bg-transparent px-1 py-0.5 font-mono text-xs text-content hover:border-edge-subtle focus:border-brand-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-brand-400/30 ${className}`}
+    />
   )
 }
 
@@ -270,7 +349,9 @@ function ExportPanel({ css, json }: { css: string; json: string }) {
         <div className="flex items-center justify-between gap-2">
           <div>
             <div className="text-sm font-semibold text-content">Export tokens</div>
-            <div className="text-[11px] text-content-subtle">Copy the snippet into your codebase or design tool.</div>
+            <div className="text-[11px] text-content-subtle">
+              Reflects your edits — copy the snippet into your codebase or design tool.
+            </div>
           </div>
           <div className="flex items-center gap-1 rounded-md border border-edge-default bg-white p-1 shadow-sm">
             {(['css', 'json'] as Format[]).map((f) => (
@@ -334,6 +415,14 @@ function IconDownload() {
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
       <polyline points="7 10 12 15 17 10" />
       <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  )
+}
+function IconReset() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+      <path d="M3 3v5h5" />
     </svg>
   )
 }

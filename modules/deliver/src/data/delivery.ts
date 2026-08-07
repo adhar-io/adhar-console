@@ -1,5 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { argocd, argoRollouts, falco, harbor, kargo, trivy } from '@adhar-console/api-clients'
+import {
+  fetchManagedResources,
+  fetchRevisionHistory,
+  rollbackApplication,
+  syncApplication,
+  type ArgoHealthState,
+  type ArgoSyncState,
+  type ResourceNode,
+  type RevisionHistoryEntry,
+  type SyncOptions,
+} from './argocd-api.ts'
+
+// Re-exported so views keep importing these types from the delivery hooks layer.
+export type {
+  ArgoHealthState,
+  ArgoSyncState,
+  ResourceNode,
+  RevisionHistoryEntry,
+  SyncOptions,
+}
 
 /**
  * Delivery hooks layer. Wraps the stub-backed clients in react-query so
@@ -36,11 +56,69 @@ export function useApplication(name?: string) {
   })
 }
 
+/**
+ * Options-aware sync. Threads the ArgoCD `sync` dialog options (prune / dry-run
+ * / force) through to the real ArgoCD REST API via the module-scoped helper.
+ */
 export function useSyncApplication() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (name: string) => argocdClient.syncApplication(name),
+    mutationFn: ({ name, options }: { name: string; options?: SyncOptions }) =>
+      syncApplication(name, options),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['argocd'] }),
+  })
+}
+
+/* ─────────── ArgoCD — managed resources, history, rollback ───────────
+ *
+ * The shared ArgoCD client only models the Application summary. The detail
+ * drawer additionally needs the managed-resource tree + deployment history +
+ * rollback, so those are backed by the real ArgoCD REST API through the console
+ * BFF proxy (`/api/svc/argocd/…`) via the module-scoped `./argocd-api.ts`
+ * helpers. Errors propagate to react-query — no fake fallbacks.
+ */
+
+export function useAppResources(name?: string) {
+  return useQuery({
+    queryKey: ['argocd', 'resources', name],
+    queryFn: () => fetchManagedResources(name!),
+    enabled: !!name,
+    refetchInterval: REFRESH_MS,
+  })
+}
+
+export function useAppHistory(name?: string) {
+  return useQuery({
+    queryKey: ['argocd', 'history', name],
+    queryFn: () => fetchRevisionHistory(name!),
+    enabled: !!name,
+  })
+}
+
+export function useRollbackApplication() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, id }: { name: string; id: number }) =>
+      rollbackApplication(name, id),
+    // Optimistically mark the target revision as current so the drawer reflects
+    // the rollback immediately; the refetch reconciles once the op "completes".
+    onMutate: async ({ name, id }) => {
+      await qc.cancelQueries({ queryKey: ['argocd', 'history', name] })
+      const prev = qc.getQueryData<RevisionHistoryEntry[]>(['argocd', 'history', name])
+      if (prev) {
+        qc.setQueryData<RevisionHistoryEntry[]>(
+          ['argocd', 'history', name],
+          prev.map((h) => ({ ...h, current: h.id === id })),
+        )
+      }
+      return { prev, name }
+    },
+    onError: (_err, { name }, ctx) => {
+      if (ctx?.prev) qc.setQueryData(['argocd', 'history', name], ctx.prev)
+    },
+    onSettled: (_data, _err, { name }) => {
+      qc.invalidateQueries({ queryKey: ['argocd', 'history', name] })
+    },
   })
 }
 

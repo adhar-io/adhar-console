@@ -9,8 +9,17 @@ import {
   useCreateProject,
   useCreateView,
   useInviteMember,
+  useLabels,
   useMembers,
+  useStates,
 } from '../data/plane.ts'
+import {
+  buildIssueQuery,
+  issueQueryChips,
+  type IssueGroupBy,
+  type IssueSortBy,
+  type SavedIssueQuery,
+} from '../data/view-query.ts'
 
 /**
  * Lightweight create-modal forms for every Plane entity Adhar can manage.
@@ -362,19 +371,46 @@ export function CreateViewModal({
   projectId,
   open,
   onClose,
-  query,
+  initialQuery,
   onCreated,
 }: {
   projectId?: string
   open: boolean
   onClose(): void
-  query: Record<string, unknown>
+  /** Seed the filter form — e.g. the Issues board's live filters. */
+  initialQuery?: SavedIssueQuery
   onCreated?(v: plane.View): void
 }) {
   const create = useCreateView(projectId)
+  const states = useStates(projectId)
+  const labels = useLabels(projectId)
+  const members = useMembers()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [access, setAccess] = useState<plane.View['access']>('private')
+
+  // Editable filter criteria — seeded from the board when saving live filters.
+  const [priority, setPriority] = useState<plane.Priority | ''>(initialQuery?.priority ?? '')
+  const [state, setState] = useState<string>(initialQuery?.state ?? '')
+  const [label, setLabel] = useState<string>(initialQuery?.label ?? '')
+  const [assignee, setAssignee] = useState<string>(initialQuery?.assignee ?? '')
+  const [groupBy, setGroupBy] = useState<IssueGroupBy>(initialQuery?.group_by ?? 'state')
+  const [sortBy, setSortBy] = useState<IssueSortBy>(initialQuery?.sort_by ?? 'updated')
+
+  const draft: SavedIssueQuery = {
+    priority: priority || undefined,
+    state: state || undefined,
+    label: label || undefined,
+    assignee: assignee || undefined,
+    group_by: groupBy,
+    sort_by: sortBy,
+  }
+  const query = buildIssueQuery(draft)
+  const chips = issueQueryChips(query, {
+    states: states.data,
+    labels: labels.data,
+    members: members.data,
+  })
 
   const submit = () => {
     if (!projectId || !name.trim()) return
@@ -396,20 +432,12 @@ export function CreateViewModal({
     )
   }
 
-  const chips = Object.entries(query).filter(
-    ([, v]) =>
-      v !== undefined &&
-      v !== null &&
-      v !== '' &&
-      !(Array.isArray(v) && v.length === 0),
-  )
-
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title="Save current filters as view"
-      description="Captures your active group-by, sort, and filter state for reuse."
+      title="Save filters as view"
+      description="Pick the filter, group-by, and sort this view should re-apply on the Issues board."
       branded
       footer={
         <>
@@ -457,25 +485,113 @@ export function CreateViewModal({
             </select>
           </Field>
         </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Priority">
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value as plane.Priority | '')}
+              className={VIEW_SELECT}
+            >
+              <option value="">Any priority</option>
+              {(['urgent', 'high', 'medium', 'low', 'none'] as plane.Priority[]).map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="State">
+            <select
+              value={state}
+              onChange={(e) => setState(e.target.value)}
+              className={VIEW_SELECT}
+            >
+              <option value="">Any state</option>
+              {(states.data ?? []).map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Label">
+            <select
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              className={VIEW_SELECT}
+            >
+              <option value="">Any label</option>
+              {(labels.data ?? []).map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Assignee">
+            <select
+              value={assignee}
+              onChange={(e) => setAssignee(e.target.value)}
+              className={VIEW_SELECT}
+            >
+              <option value="">Anyone</option>
+              {(members.data ?? []).map((m) => (
+                <option key={m.id} value={m.member?.id ?? m.id}>
+                  {memberDisplayName(m)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Group by">
+            <select
+              value={groupBy}
+              onChange={(e) => setGroupBy(e.target.value as IssueGroupBy)}
+              className={VIEW_SELECT}
+            >
+              {(['state', 'priority', 'assignee', 'label', 'cycle', 'module'] as IssueGroupBy[]).map(
+                (g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ),
+              )}
+            </select>
+          </Field>
+          <Field label="Sort by">
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as IssueSortBy)}
+              className={VIEW_SELECT}
+            >
+              {(['updated', 'created', 'priority', 'target', 'estimate'] as IssueSortBy[]).map(
+                (s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ),
+              )}
+            </select>
+          </Field>
+        </div>
+
         <div>
           <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">
             Filters captured
           </div>
           {chips.length === 0 ? (
             <div className="rounded-lg border border-dashed border-edge-default bg-surface-sunken/40 px-3 py-3 text-xs text-content-subtle">
-              No active filters yet — your view will show all issues.
+              No filters selected — this view will show all issues, grouped by state.
             </div>
           ) : (
             <div className="flex flex-wrap gap-1">
-              {chips.map(([k, v]) => (
+              {chips.map((chip) => (
                 <span
-                  key={k}
+                  key={chip.key}
                   className="inline-flex items-center gap-1 rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] font-medium text-content-muted"
                 >
-                  <span className="text-content-subtle">{k}</span>
-                  <span className="text-content">
-                    {Array.isArray(v) ? v.join(' / ') : String(v)}
-                  </span>
+                  <span className="text-content-subtle">{chip.key}</span>
+                  <span className="text-content">{chip.value}</span>
                 </span>
               ))}
             </div>
@@ -485,6 +601,9 @@ export function CreateViewModal({
     </Modal>
   )
 }
+
+const VIEW_SELECT =
+  'block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm capitalize focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20'
 
 /* ───── Invite member ───── */
 

@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import {
   Card,
   CardBody,
@@ -6,36 +5,45 @@ import {
   StatusBadge,
 } from '@adhar-console/shell-ui'
 import { formatRelative } from '@adhar-console/utils'
-import { store } from '../data/store.ts'
-import {
-  SEED_ADRS,
-  SEED_JOURNEYS,
-  SEED_NOTES,
-  SEED_PERSONAS,
-  SEED_WIREFRAMES,
-} from '../data/seed.ts'
-import type { Adr, Journey, Persona, StickyNote, Wireframe } from '../data/types.ts'
+import { KIND, useCollection } from '../data/store.ts'
+import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
+import type { Adr, Diagram, Journey, Persona, WhiteboardBoard, Wireframe } from '../data/types.ts'
 
 /**
- * Workspace-level Design dashboard. Aggregates the cheap-to-fetch lists
- * (ADRs, personas, journeys, notes, wireframes) into hero counters + a
- * recent-activity feed. All numbers come from localStorage (with seed
- * fallback) so the dashboard is fully interactive even before the BFF lands.
+ * Workspace-level Design dashboard. Aggregates the design collections (ADRs,
+ * diagrams, personas, journeys, whiteboard notes, wireframes) into hero
+ * counters + a recent-activity feed. Every number comes from the real,
+ * Postgres-backed document store — an unavailable store surfaces as an error,
+ * never fake data.
  */
 export function Dashboard() {
-  const [adrs, setAdrs] = useState<Adr[]>([])
-  const [personas, setPersonas] = useState<Persona[]>([])
-  const [journeys, setJourneys] = useState<Journey[]>([])
-  const [notes, setNotes] = useState<StickyNote[]>([])
-  const [wireframes, setWireframes] = useState<Wireframe[]>([])
+  const adrsQ = useCollection<Adr>(KIND.adr)
+  const diagramsQ = useCollection<Diagram>(KIND.diagram)
+  const personasQ = useCollection<Persona>(KIND.persona)
+  const journeysQ = useCollection<Journey>(KIND.journey)
+  const boardsQ = useCollection<WhiteboardBoard>(KIND.board)
+  const wireframesQ = useCollection<Wireframe>(KIND.wireframe)
 
-  useEffect(() => {
-    setAdrs(store.get<Adr[]>('adrs', SEED_ADRS))
-    setPersonas(store.get<Persona[]>('personas', SEED_PERSONAS))
-    setJourneys(store.get<Journey[]>('journeys', SEED_JOURNEYS))
-    setNotes(store.get<StickyNote[]>('notes', SEED_NOTES))
-    setWireframes(store.get<Wireframe[]>('wireframes', SEED_WIREFRAMES))
-  }, [])
+  const adrs = adrsQ.items
+  const personas = personasQ.items
+  const journeys = journeysQ.items
+  const wireframes = wireframesQ.items
+  const noteCount = boardsQ.items.reduce((n, b) => n + b.notes.length, 0)
+
+  const anyError =
+    adrsQ.error ||
+    diagramsQ.error ||
+    personasQ.error ||
+    journeysQ.error ||
+    boardsQ.error ||
+    wireframesQ.error
+  const anyLoading =
+    adrsQ.isLoading ||
+    diagramsQ.isLoading ||
+    personasQ.isLoading ||
+    journeysQ.isLoading ||
+    boardsQ.isLoading ||
+    wireframesQ.isLoading
 
   const proposed = adrs.filter((a) => a.status === 'proposed').length
   const accepted = adrs.filter((a) => a.status === 'accepted').length
@@ -66,6 +74,9 @@ export function Dashboard() {
     .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
     .slice(0, 8)
 
+  if (anyError) return <ErrorBlock error={anyError} onRetry={adrsQ.refetch} />
+  if (anyLoading) return <LoadingBlock label="Loading design workspace…" />
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -76,10 +87,16 @@ export function Dashboard() {
           icon={<IconBook />}
           hint={`${accepted} accepted · ${proposed} proposed`}
         />
-        <HeroStat label="Diagrams" value={3} tone="amber" icon={<IconDiagram />} hint="System maps" />
+        <HeroStat
+          label="Diagrams"
+          value={diagramsQ.items.length}
+          tone="amber"
+          icon={<IconDiagram />}
+          hint="System maps"
+        />
         <HeroStat
           label="Whiteboard notes"
-          value={notes.length}
+          value={noteCount}
           tone="sky"
           icon={<IconNote />}
           hint="Sticky brainstorms"

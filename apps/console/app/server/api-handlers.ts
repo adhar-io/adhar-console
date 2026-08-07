@@ -11,6 +11,10 @@ import { getRequestUser, unauthorized } from './request-user.ts'
 const db = () => import('@adhar-console/db')
 
 const SCOPE_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
+/** Collection namespace, e.g. `okr.objective`, `design.adr`, `workspace.webhook`. */
+const KIND_RE = /^[a-z0-9][a-z0-9.-]{0,63}$/
+/** Document id — client-chosen slug/uuid. */
+const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 
 function withCookie(res: Response, cookie?: string): Response {
   if (cookie) res.headers.append('set-cookie', cookie)
@@ -50,6 +54,103 @@ export async function handlePreferences(req: Request, scope: string): Promise<Re
   }
 
   return new Response('Method Not Allowed', { status: 405 })
+}
+
+/**
+ * Generic tenant-scoped document store: `/api/store/<kind>[/<id>]`.
+ *   GET    /api/store/<kind>        → list all documents of a kind
+ *   POST   /api/store/<kind>        → create (server-assigned id unless body.id)
+ *   GET    /api/store/<kind>/<id>   → one document
+ *   PUT    /api/store/<kind>/<id>   → upsert
+ *   DELETE /api/store/<kind>/<id>   → delete
+ *
+ * Backs the console's own domain entities (OKRs, saved views, custom roles,
+ * webhooks, design docs, API specs). Scoped to the caller's active tenant so
+ * data is shared across the tenant's members and persists in Postgres. Returns
+ * 503 when no DB is configured — callers must surface that, not silently stub.
+ */
+export async function handleDocuments(
+  req: Request,
+  kind: string,
+  id?: string,
+): Promise<Response> {
+  if (!KIND_RE.test(kind)) return Response.json({ error: 'invalid_kind' }, { status: 400 })
+  if (id !== undefined && !ID_RE.test(id)) {
+    return Response.json({ error: 'invalid_id' }, { status: 400 })
+  }
+  const auth = await getRequestUser(req)
+  if (!auth) return unauthorized()
+  const method = req.method.toUpperCase()
+  const tenant = auth.activeTenant
+
+  const {
+    getMigratedDb,
+    listDocuments,
+    getDocument,
+    putDocument,
+    deleteDocument,
+    touchUser,
+  } = await db()
+  const conn = await getMigratedDb()
+  if (!conn) {
+    return withCookie(
+      Response.json({ error: 'store_unavailable', detail: 'database not configured' }, { status: 503 }),
+      auth.refreshedCookie,
+    )
+  }
+
+  // Collection endpoints (no id)
+  if (id === undefined) {
+    if (method === 'GET') {
+      const items = await listDocuments(conn, tenant, kind)
+      return withCookie(Response.json({ items }), auth.refreshedCookie)
+    }
+    if (method === 'POST') {
+      const data = await readData(req)
+      if (data === null) return Response.json({ error: 'data_must_be_object' }, { status: 400 })
+      const newId = typeof (data as { id?: unknown }).id === 'string' && ID_RE.test((data as { id: string }).id)
+        ? (data as { id: string }).id
+        : crypto.randomUUID()
+      await touchUser(conn, auth.user)
+      const doc = await putDocument(conn, tenant, kind, newId, data, auth.user.id)
+      return withCookie(Response.json({ item: doc }, { status: 201 }), auth.refreshedCookie)
+    }
+    return new Response('Method Not Allowed', { status: 405 })
+  }
+
+  // Item endpoints (with id)
+  if (method === 'GET') {
+    const doc = await getDocument(conn, tenant, kind, id)
+    if (!doc) return withCookie(Response.json({ error: 'not_found' }, { status: 404 }), auth.refreshedCookie)
+    return withCookie(Response.json({ item: doc }), auth.refreshedCookie)
+  }
+  if (method === 'PUT') {
+    const data = await readData(req)
+    if (data === null) return Response.json({ error: 'data_must_be_object' }, { status: 400 })
+    await touchUser(conn, auth.user)
+    const doc = await putDocument(conn, tenant, kind, id, data, auth.user.id)
+    return withCookie(Response.json({ item: doc }), auth.refreshedCookie)
+  }
+  if (method === 'DELETE') {
+    const removed = await deleteDocument(conn, tenant, kind, id)
+    return withCookie(Response.json({ ok: removed }, { status: removed ? 200 : 404 }), auth.refreshedCookie)
+  }
+  return new Response('Method Not Allowed', { status: 405 })
+}
+
+/** Parse a JSON body's document payload — accepts `{data:{…}}` or a bare object. */
+async function readData(req: Request): Promise<Record<string, unknown> | null> {
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return null
+  }
+  if (typeof body !== 'object' || body === null) return null
+  const maybe = body as { data?: unknown }
+  const data = maybe.data !== undefined ? maybe.data : body
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return null
+  return data as Record<string, unknown>
 }
 
 export async function handleNotifications(req: Request): Promise<Response> {

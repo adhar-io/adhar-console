@@ -69,6 +69,37 @@ export const notificationState = pgTable(
   }),
 )
 
+/**
+ * Generic tenant-scoped document store for the console's OWN domain entities
+ * that no cluster resource or backing tool owns — OKRs, saved views, custom
+ * roles, webhooks, design docs (ADRs/diagrams/personas/…), API specs, etc.
+ *
+ * One row = one entity, addressed by (tenant, kind, id). `kind` namespaces a
+ * collection (e.g. `okr.objective`, `design.adr`, `workspace.webhook`); `data`
+ * holds the typed JSON document. Tenant-scoping makes this shared/multi-user
+ * (the whole tenant sees the same objectives), not per-browser. This is the
+ * real persistence backing that replaces the former in-memory/localStorage
+ * stubs across the feature modules.
+ */
+export const documents = pgTable(
+  'documents',
+  {
+    tenant: text('tenant').notNull(),
+    kind: text('kind').notNull(),
+    id: text('id').notNull(),
+    data: jsonb('data').$type<Record<string, unknown>>().notNull().default({}),
+    createdBy: text('created_by'),
+    updatedBy: text('updated_by'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.tenant, t.kind, t.id] }),
+    byKind: index('documents_tenant_kind_idx').on(t.tenant, t.kind),
+  }),
+)
+
 export type User = typeof users.$inferSelect
 export type UserPreference = typeof userPreferences.$inferSelect
 export type NotificationStateRow = typeof notificationState.$inferSelect
+export type DocumentRow = typeof documents.$inferSelect

@@ -7,6 +7,7 @@ import { Personas } from './views/personas.tsx'
 import { Journeys } from './views/journeys.tsx'
 import { Wireframes } from './views/wireframes.tsx'
 import { Tokens } from './views/tokens.tsx'
+import { ApiSchemas } from './views/api-schemas.tsx'
 import { Catalog } from './views/catalog.tsx'
 import { Builder } from './views/builder.tsx'
 
@@ -19,6 +20,7 @@ type Section =
   | 'journeys'
   | 'wireframes'
   | 'tokens'
+  | 'api-schemas'
   | 'catalog'
   | 'builder'
 
@@ -55,6 +57,10 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
     label: 'Design Tokens',
     description: 'Color, spacing, typography, motion, elevation, and breakpoint primitives.',
   },
+  'api-schemas': {
+    label: 'API & Schemas',
+    description: 'OpenAPI-driven API design — endpoints grouped by tag and component schemas.',
+  },
   catalog: {
     label: 'Component Catalog',
     description: 'Embedded adhar-ui Storybook — live components with props and docs.',
@@ -79,6 +85,7 @@ export default function DesignHome({ section }: { section?: string } = {}) {
       {active === 'journeys' && <Journeys />}
       {active === 'wireframes' && <Wireframes />}
       {active === 'tokens' && <Tokens />}
+      {active === 'api-schemas' && <ApiSchemas />}
       {active === 'catalog' && <Catalog />}
       {active === 'builder' && <Builder />}
     </div>

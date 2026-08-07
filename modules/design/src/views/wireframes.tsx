@@ -8,8 +8,9 @@ import {
   Modal,
   StatusBadge,
 } from '@adhar-console/shell-ui'
-import { newId, store } from '../data/store.ts'
+import { KIND, newId, useCollection, useCreate, useRemove, useSeedExamples, useUpdate } from '../data/store.ts'
 import { SEED_WIREFRAMES } from '../data/seed.ts'
+import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import type { Wireframe, WireframeBlock } from '../data/types.ts'
 import { FrameCanvas } from '../components/frame-canvas.tsx'
 import { BuilderEmbed } from './builder.tsx'
@@ -29,18 +30,14 @@ const FLOW_LABEL: Record<string, string> = {
  *                 a read-only fallback for when the builder isn't running.
  */
 export function Wireframes() {
-  const [list, setList] = useState<Wireframe[]>([])
+  const { items: list, isLoading, error, refetch } = useCollection<Wireframe>(KIND.wireframe)
+  const createWf = useCreate<Wireframe>(KIND.wireframe)
+  const updateWf = useUpdate<Wireframe>(KIND.wireframe)
+  const removeWf = useRemove(KIND.wireframe)
+  const seed = useSeedExamples<Wireframe>(KIND.wireframe)
+
   const [editingId, setEditingId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
-
-  useEffect(() => {
-    setList(store.get<Wireframe[]>('wireframes', SEED_WIREFRAMES))
-  }, [])
-
-  const persist = (next: Wireframe[]) => {
-    setList(next)
-    store.set('wireframes', next)
-  }
 
   const editing = useMemo(
     () => list.find((f) => f.id === editingId) ?? null,
@@ -65,21 +62,14 @@ export function Wireframes() {
         onBack={() => setEditingId(null)}
         onSave={(saved) => {
           const blocks = (saved.blocks as WireframeBlock[] | undefined) ?? editing.blocks
-          persist(
-            list.map((f) =>
-              f.id === editing.id
-                ? {
-                    ...f,
-                    name: saved.name || f.name,
-                    blocks,
-                  }
-                : f,
-            ),
-          )
+          updateWf.mutate({ ...editing, name: saved.name || editing.name, blocks })
         }}
       />
     )
   }
+
+  if (error) return <ErrorBlock error={error} onRetry={refetch} />
+  if (isLoading) return <LoadingBlock label="Loading wireframes…" />
 
   return (
     <div className="space-y-4">
@@ -99,6 +89,16 @@ export function Wireframes() {
         <EmptyState
           title="No wireframes yet"
           description="Sketch a screen — pick a template or start blank. Editing opens in the Visual Builder."
+          action={
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => seed.mutate(SEED_WIREFRAMES)}
+              disabled={seed.isPending}
+            >
+              {seed.isPending ? 'Loading…' : 'Load examples'}
+            </Button>
+          }
         />
       ) : (
         <div className="space-y-8">
@@ -115,11 +115,8 @@ export function Wireframes() {
                 if (idx < 0 || nxt < 0 || nxt >= sameFlow.length) return
                 const a = sameFlow[idx]
                 const b = sameFlow[nxt]
-                persist(
-                  list.map((f) =>
-                    f.id === a.id ? { ...f, order: b.order } : f.id === b.id ? { ...f, order: a.order } : f,
-                  ),
-                )
+                updateWf.mutate({ ...a, order: b.order })
+                updateWf.mutate({ ...b, order: a.order })
               }}
               onDuplicate={(id) => {
                 const src = list.find((f) => f.id === id)
@@ -133,14 +130,13 @@ export function Wireframes() {
                   order,
                   blocks: src.blocks.map((b) => ({ ...b })),
                 }
-                persist([...list, clone])
-                setEditingId(clone.id)
+                createWf.mutate(clone, { onSuccess: (created) => setEditingId(created.id) })
               }}
               onDelete={(id) => {
                 const f = list.find((x) => x.id === id)
                 if (!f) return
                 if (!confirm(`Delete frame "${f.name}"?`)) return
-                persist(list.filter((x) => x.id !== id))
+                removeWf.mutate(id)
               }}
             />
           ))}
@@ -162,8 +158,7 @@ export function Wireframes() {
             notes: notes || tpl.notes,
             blocks: tpl.build().map((b) => ({ ...b })),
           }
-          persist([...list, next])
-          setEditingId(next.id)
+          createWf.mutate(next, { onSuccess: (created) => setEditingId(created.id) })
         }}
       />
     </div>

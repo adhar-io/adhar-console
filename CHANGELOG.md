@@ -6,6 +6,28 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed — real backends everywhere; dev connects to the local cluster
+
+- **No stubs in a running system.** `K8sClient.auto()` and the backing-tool
+  client factory are now **real by default**; the in-memory `.stub()` fixtures
+  are opt-in (`mode:'stub'`) for tests/offline only. The platform module always
+  uses the per-user Kubernetes gateway (`isDevK8s` removed).
+- **`pnpm dev` connects to a locally-running adhar cluster.** Dev now starts the
+  BFF (Deno `server.ts`, `:5099`) alongside Vite; the host proxies `/api/*` to
+  it, so login (real Keycloak), the k8s gateway, tool proxies, and Postgres all
+  hit the real local cluster. `.env.example` retargeted at `*.adhar.localtest.me`;
+  the Keycloak `adhar-console` client now also allows the `localhost:5100` dev
+  redirect.
+
+### Added — Postgres-backed document store (console-owned data)
+
+- New tenant-scoped **document store**: `documents` table (`(tenant, kind, id) →
+  jsonb`), Drizzle CRUD, idempotent bootstrap DDL, an auth-gated
+  `/api/store/<kind>[/<id>]` API, and a `docStore` browser client
+  (`@adhar-console/shell-ui`). Backs OKRs, saved views, custom roles, webhooks,
+  design docs, and API specs with **real, multi-user persistence** (no
+  localStorage/in-memory fallback — a missing DB returns `503`).
+
 ## [0.1.0] - 2026-08-07
 
 First tagged release — published to `ghcr.io/adhar-io/adhar-console`.

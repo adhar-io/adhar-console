@@ -11,8 +11,9 @@ import {
   type StatusKind,
 } from '@adhar-console/shell-ui'
 import { formatRelative } from '@adhar-console/utils'
-import { newId, store } from '../data/store.ts'
+import { KIND, newId, useCollection, useCreate, useRemove, useSeedExamples, useUpdate } from '../data/store.ts'
 import { SEED_ADRS } from '../data/seed.ts'
+import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import type { Adr, AdrStatus } from '../data/types.ts'
 
 const STATUS_KIND: Record<AdrStatus, StatusKind> = {
@@ -26,20 +27,16 @@ const STATUS_KIND: Record<AdrStatus, StatusKind> = {
 const STATUS_ORDER: AdrStatus[] = ['proposed', 'accepted', 'superseded', 'deprecated', 'rejected']
 
 export function Adrs() {
-  const [adrs, setAdrs] = useState<Adr[]>([])
+  const { items: adrs, isLoading, error, refetch } = useCollection<Adr>(KIND.adr)
+  const createAdr = useCreate<Adr>(KIND.adr)
+  const updateAdr = useUpdate<Adr>(KIND.adr)
+  const removeAdr = useRemove(KIND.adr)
+  const seed = useSeedExamples<Adr>(KIND.adr)
+
   const [filter, setFilter] = useState<'all' | AdrStatus>('all')
   const [search, setSearch] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
-
-  useEffect(() => {
-    setAdrs(store.get<Adr[]>('adrs', SEED_ADRS))
-  }, [])
-
-  const persist = (next: Adr[]) => {
-    setAdrs(next)
-    store.set('adrs', next)
-  }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -63,6 +60,9 @@ export function Adrs() {
 
   const open = adrs.find((a) => a.id === openId) ?? null
 
+  if (error) return <ErrorBlock error={error} onRetry={refetch} />
+  if (isLoading) return <LoadingBlock label="Loading ADRs…" />
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -82,6 +82,18 @@ export function Adrs() {
             adrs.length === 0
               ? 'Capture the first decision — context, alternatives, consequences.'
               : 'Try a different status or search term.'
+          }
+          action={
+            adrs.length === 0 ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => seed.mutate(SEED_ADRS)}
+                disabled={seed.isPending}
+              >
+                {seed.isPending ? 'Loading…' : 'Load examples'}
+              </Button>
+            ) : undefined
           }
         />
       ) : (
@@ -103,8 +115,7 @@ export function Adrs() {
             repo: 'acme/docs',
             ...input,
           }
-          persist([next, ...adrs])
-          setOpenId(next.id)
+          createAdr.mutate(next, { onSuccess: (created) => setOpenId(created.id) })
         }}
       />
 
@@ -113,14 +124,11 @@ export function Adrs() {
           adr={open}
           onClose={() => setOpenId(null)}
           onChangeStatus={(status) => {
-            const next = adrs.map((a) =>
-              a.id === open.id ? { ...a, status, updated_at: new Date().toISOString() } : a,
-            )
-            persist(next)
+            updateAdr.mutate({ ...open, status, updated_at: new Date().toISOString() })
           }}
           onDelete={() => {
             if (!confirm(`Delete ADR-${String(open.number).padStart(4, '0')}?`)) return
-            persist(adrs.filter((a) => a.id !== open.id))
+            removeAdr.mutate(open.id)
             setOpenId(null)
           }}
         />

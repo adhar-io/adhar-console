@@ -37,6 +37,20 @@ CREATE TABLE IF NOT EXISTS notification_state (
 );
 
 CREATE INDEX IF NOT EXISTS notification_state_user_idx ON notification_state (user_id);
+
+CREATE TABLE IF NOT EXISTS documents (
+  tenant      text NOT NULL,
+  kind        text NOT NULL,
+  id          text NOT NULL,
+  data        jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_by  text,
+  updated_by  text,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant, kind, id)
+);
+
+CREATE INDEX IF NOT EXISTS documents_tenant_kind_idx ON documents (tenant, kind);
 `
 
 /** Apply the bootstrap DDL. Safe to run repeatedly. */

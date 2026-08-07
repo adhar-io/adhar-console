@@ -81,6 +81,7 @@ export {
   type NotificationsApi,
   type NotificationKind,
 } from './notifications.ts'
+export { docStore, DocStoreError, type StoredDoc } from './doc-store.ts'
 
 /* ─ Primitives (new polish layer) ─ */
 export {

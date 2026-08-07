@@ -9,7 +9,7 @@ import {
   StatusBadge,
 } from '@adhar-console/shell-ui'
 import { formatRelative } from '@adhar-console/utils'
-import { newId, store } from '../data/store.ts'
+import { KIND, newId, useCollection, useCreate, useRemove, useSeedExamples, useUpdate } from '../data/store.ts'
 import {
   SEED_DIAGRAMS,
   TEMPLATES,
@@ -17,6 +17,7 @@ import {
   TYPE_DESCRIPTION,
   TYPE_LABEL,
 } from '../data/diagrams-seed.ts'
+import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import type { Diagram, DiagramType } from '../data/types.ts'
 import { MermaidPreview, renderToSvg } from '../components/mermaid-render.tsx'
 
@@ -34,20 +35,16 @@ import { MermaidPreview, renderToSvg } from '../components/mermaid-render.tsx'
  * lazy-loaded once on first render via the MermaidPreview component.
  */
 export function Diagrams() {
-  const [list, setList] = useState<Diagram[]>([])
+  const { items: list, isLoading, error, refetch } = useCollection<Diagram>(KIND.diagram)
+  const createDiag = useCreate<Diagram>(KIND.diagram)
+  const updateDiag = useUpdate<Diagram>(KIND.diagram)
+  const removeDiag = useRemove(KIND.diagram)
+  const seed = useSeedExamples<Diagram>(KIND.diagram)
+
   const [editingId, setEditingId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<'all' | DiagramType>('all')
-
-  useEffect(() => {
-    setList(store.get<Diagram[]>('diagrams', SEED_DIAGRAMS))
-  }, [])
-
-  const persist = (next: Diagram[]) => {
-    setList(next)
-    store.set('diagrams', next)
-  }
 
   const editing = useMemo(
     () => list.find((d) => d.id === editingId) ?? null,
@@ -79,12 +76,7 @@ export function Diagrams() {
         diagram={editing}
         onBack={() => setEditingId(null)}
         onSave={(patch) => {
-          const next = list.map((d) =>
-            d.id === editing.id
-              ? { ...d, ...patch, updated_at: new Date().toISOString() }
-              : d,
-          )
-          persist(next)
+          updateDiag.mutate({ ...editing, ...patch, updated_at: new Date().toISOString() })
         }}
         onClone={() => {
           const clone: Diagram = {
@@ -94,17 +86,19 @@ export function Diagrams() {
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           }
-          persist([clone, ...list])
-          setEditingId(clone.id)
+          createDiag.mutate(clone, { onSuccess: (created) => setEditingId(created.id) })
         }}
         onDelete={() => {
           if (!confirm(`Delete "${editing.title}"?`)) return
-          persist(list.filter((d) => d.id !== editing.id))
+          removeDiag.mutate(editing.id)
           setEditingId(null)
         }}
       />
     )
   }
+
+  if (error) return <ErrorBlock error={error} onRetry={refetch} />
+  if (isLoading) return <LoadingBlock label="Loading diagrams…" />
 
   return (
     <div className="space-y-4">
@@ -125,6 +119,18 @@ export function Diagrams() {
             list.length === 0
               ? 'Click New diagram to start from a template.'
               : 'Try a different type filter or search term.'
+          }
+          action={
+            list.length === 0 ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => seed.mutate(SEED_DIAGRAMS)}
+                disabled={seed.isPending}
+              >
+                {seed.isPending ? 'Loading…' : 'Load examples'}
+              </Button>
+            ) : undefined
           }
         />
       ) : (
@@ -148,8 +154,7 @@ export function Diagrams() {
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           }
-          persist([next, ...list])
-          setEditingId(next.id)
+          createDiag.mutate(next, { onSuccess: (created) => setEditingId(created.id) })
         }}
       />
     </div>

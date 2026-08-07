@@ -4,6 +4,7 @@ import { Dashboard } from './views/dashboard.tsx'
 import { Projects } from './views/projects.tsx'
 import { Issues } from './views/issues.tsx'
 import { Cycles } from './views/cycles.tsx'
+import { Okrs } from './views/okrs.tsx'
 import { Modules } from './views/modules.tsx'
 import { Pages } from './views/pages.tsx'
 import { Views } from './views/views.tsx'
@@ -17,6 +18,7 @@ import {
   useProject,
   useProjects,
 } from './data/plane.ts'
+import type { SavedIssueQuery } from './data/view-query.ts'
 
 type Section =
   | 'dashboard'
@@ -27,6 +29,7 @@ type Section =
   | 'pages'
   | 'views'
   | 'roadmap'
+  | 'okrs'
   | 'members'
 
 const SECTIONS: Record<Section, { label: string; description: string }> = {
@@ -62,6 +65,10 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
     label: 'Roadmap',
     description: 'Issues with target dates grouped by quarter — overdue items pinned to the top.',
   },
+  okrs: {
+    label: 'OKRs',
+    description: 'Objectives and their key results — progress rolls up per quarter with pace-aware status.',
+  },
   members: {
     label: 'Members',
     description: 'Workspace-wide membership and Plane RBAC role assignment.',
@@ -75,15 +82,27 @@ const PROJECT_SCOPED: Set<Section> = new Set([
   'pages',
   'views',
   'roadmap',
+  'okrs',
 ])
 
 export default function DefineHome({ section }: { section?: string } = {}) {
-  const active = (SECTIONS[section as Section] ? (section as Section) : 'dashboard') as Section
-  const def = SECTIONS[active]
-  const projects = useProjects()
+  const routeSection = (SECTIONS[section as Section] ? (section as Section) : 'dashboard') as Section
 
   const [activeProjectId, setActiveProjectIdState] = useState<string | undefined>(undefined)
   const [openProjectId, setOpenProjectId] = useState<string | null>(null)
+  // In-module navigation override — e.g. opening a Saved View jumps to Issues
+  // with its filter set applied, without a URL round-trip.
+  const [sectionOverride, setSectionOverride] = useState<Section | null>(null)
+  const [appliedIssueQuery, setAppliedIssueQuery] = useState<SavedIssueQuery | undefined>(undefined)
+
+  // A real navigation (URL `section` change) clears any local override.
+  useEffect(() => {
+    setSectionOverride(null)
+  }, [section])
+
+  const active = sectionOverride ?? routeSection
+  const def = SECTIONS[active]
+  const projects = useProjects()
 
   // First mount — restore from localStorage; fall back to first project once
   // the projects query lands.
@@ -146,12 +165,23 @@ export default function DefineHome({ section }: { section?: string } = {}) {
           onOpenDetails={(id) => setOpenProjectId(id)}
         />
       )}
-      {active === 'issues' && <Issues projectId={activeProjectId} />}
+      {active === 'issues' && (
+        <Issues projectId={activeProjectId} appliedQuery={appliedIssueQuery} />
+      )}
       {active === 'cycles' && <Cycles projectId={activeProjectId} />}
       {active === 'modules' && <Modules projectId={activeProjectId} />}
       {active === 'pages' && <Pages projectId={activeProjectId} />}
-      {active === 'views' && <Views projectId={activeProjectId} />}
+      {active === 'views' && (
+        <Views
+          projectId={activeProjectId}
+          onApply={(query) => {
+            setAppliedIssueQuery(query)
+            setSectionOverride('issues')
+          }}
+        />
+      )}
       {active === 'roadmap' && <Roadmap projectId={activeProjectId} />}
+      {active === 'okrs' && <Okrs projectId={activeProjectId} />}
       {active === 'members' && <Members />}
       {openProjectId ? (
         <ProjectDetail

@@ -1,6 +1,7 @@
 {
   "tasks": {
     "dev": "deno run -A npm:vite@^7.1.12 --host --port 5100",
+    "dev:server": "PORT=5099 deno run -A --env-file=../../.env --watch server.ts",
     "build": "deno run -A npm:vite@^7.1.12 build",
     "preview": "deno run -A npm:vite@^7.1.12 preview --port 5100",
     "check": "deno check app/**/*.ts app/**/*.tsx"

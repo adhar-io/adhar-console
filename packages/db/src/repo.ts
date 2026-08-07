@@ -1,6 +1,7 @@
-import { and, eq } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
 import type { Db } from './client.ts'
-import { notificationState, userPreferences, users } from './schema.ts'
+import { documents, notificationState, userPreferences, users } from './schema.ts'
+import type { DocumentRow } from './schema.ts'
 
 /**
  * Data-access functions for the console's own state. Thin, typed wrappers over
@@ -109,4 +110,89 @@ export async function setNotificationStateBulk(
   for (const id of ids) {
     await setNotificationState(db, userId, id, patch)
   }
+}
+
+/* ─────────────── generic tenant-scoped document store ─────────────── */
+
+export interface StoredDocument {
+  id: string
+  data: Record<string, unknown>
+  createdBy: string | null
+  updatedBy: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+function toStored(row: DocumentRow): StoredDocument {
+  return {
+    id: row.id,
+    data: row.data,
+    createdBy: row.createdBy,
+    updatedBy: row.updatedBy,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }
+}
+
+/** All documents of a kind for a tenant, oldest-first (stable ordering). */
+export async function listDocuments(
+  db: Db,
+  tenant: string,
+  kind: string,
+): Promise<StoredDocument[]> {
+  const rows = await db
+    .select()
+    .from(documents)
+    .where(and(eq(documents.tenant, tenant), eq(documents.kind, kind)))
+    .orderBy(asc(documents.createdAt))
+  return rows.map(toStored)
+}
+
+/** One document by (tenant, kind, id). Null when absent. */
+export async function getDocument(
+  db: Db,
+  tenant: string,
+  kind: string,
+  id: string,
+): Promise<StoredDocument | null> {
+  const rows = await db
+    .select()
+    .from(documents)
+    .where(and(eq(documents.tenant, tenant), eq(documents.kind, kind), eq(documents.id, id)))
+    .limit(1)
+  return rows[0] ? toStored(rows[0]) : null
+}
+
+/** Upsert a document. Preserves createdBy/createdAt on update. */
+export async function putDocument(
+  db: Db,
+  tenant: string,
+  kind: string,
+  id: string,
+  data: Record<string, unknown>,
+  userId: string,
+): Promise<StoredDocument> {
+  const rows = await db
+    .insert(documents)
+    .values({ tenant, kind, id, data, createdBy: userId, updatedBy: userId })
+    .onConflictDoUpdate({
+      target: [documents.tenant, documents.kind, documents.id],
+      set: { data, updatedBy: userId, updatedAt: new Date() },
+    })
+    .returning()
+  return toStored(rows[0])
+}
+
+/** Delete a document. Returns true when a row was removed. */
+export async function deleteDocument(
+  db: Db,
+  tenant: string,
+  kind: string,
+  id: string,
+): Promise<boolean> {
+  const rows = await db
+    .delete(documents)
+    .where(and(eq(documents.tenant, tenant), eq(documents.kind, kind), eq(documents.id, id)))
+    .returning({ id: documents.id })
+  return rows.length > 0
 }

@@ -39,6 +39,10 @@ data:
   ARGO_WORKFLOWS_URL: "https://argo-workflows.adhar.localtest.me:8443"
   ARGO_ROLLOUTS_URL: "https://rollouts.adhar.localtest.me:8443"
 
+  # OpenCost / Kubecost allocation API (Decide → cost/spend). In-cluster this is
+  # the opencost service on its API port; no auth by default.
+  OPENCOST_URL: "http://opencost.opencost.svc:9003"
+
   # LGTM (Discover phase).
   GRAFANA_URL: "https://grafana.adhar.localtest.me:8443"
   LOKI_URL: "https://loki.adhar.localtest.me:8443"

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Card,
@@ -10,7 +10,12 @@ import {
 } from '@adhar-console/shell-ui'
 import { formatRelative } from '@adhar-console/utils'
 import type { lgtm } from '@adhar-console/api-clients'
-import { useServices, useTrace, useTraces } from '../data/observability.ts'
+import {
+  useServices,
+  useTrace,
+  useTraces,
+  type SpanDetail,
+} from '../data/observability.ts'
 
 /**
  * Traces — Tempo search with a span-timeline drawer.
@@ -168,10 +173,13 @@ function TraceDetail({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null)
   const meta = list.find((t) => t.traceID === traceID)
   const q = useTrace(traceID)
   const spans = q.data ?? []
   const totalMs = Math.max(meta?.durationMs ?? 0, ...spans.map((s) => s.startTimeMs + s.durationMs), 1)
+  const traceStartMs = meta ? Number(meta.startTimeUnixNano) / 1e6 : 0
+  const selected = spans.find((s) => s.spanID === selectedSpanId) ?? null
 
   if (typeof document === 'undefined') return null
   return createPortal(
@@ -212,16 +220,35 @@ function TraceDetail({
               <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700">
                 Span timeline
               </div>
-              <div className="text-[11px] text-content-subtle">Total {totalMs.toFixed(0)} ms</div>
+              <div className="text-[11px] text-content-subtle">
+                {selected ? 'Click a span to inspect' : 'Total'} {totalMs.toFixed(0)} ms
+              </div>
             </CardHeader>
             <CardBody>
               {q.isLoading ? (
                 <div className="flex h-40 items-center justify-center"><Spinner size={12} /></div>
               ) : (
-                <SpanTimeline spans={spans} totalMs={totalMs} />
+                <SpanTimeline
+                  spans={spans}
+                  totalMs={totalMs}
+                  selectedId={selectedSpanId}
+                  onSelect={(id) => setSelectedSpanId((cur) => (cur === id ? null : id))}
+                />
               )}
             </CardBody>
           </Card>
+
+          {selected ? (
+            <SpanDetailPanel
+              span={selected}
+              traceStartMs={traceStartMs}
+              onClose={() => setSelectedSpanId(null)}
+            />
+          ) : (
+            <p className="px-1 text-[11px] text-content-subtle">
+              Select a span in the waterfall to view its attributes, status, and events.
+            </p>
+          )}
         </div>
       </aside>
     </div>,
@@ -229,7 +256,17 @@ function TraceDetail({
   )
 }
 
-function SpanTimeline({ spans, totalMs }: { spans: lgtm.Span[]; totalMs: number }) {
+function SpanTimeline({
+  spans,
+  totalMs,
+  selectedId,
+  onSelect,
+}: {
+  spans: SpanDetail[]
+  totalMs: number
+  selectedId: string | null
+  onSelect(id: string): void
+}) {
   if (spans.length === 0) {
     return <EmptyState compact title="No spans" />
   }
@@ -239,9 +276,9 @@ function SpanTimeline({ spans, totalMs }: { spans: lgtm.Span[]; totalMs: number 
 
   // Determine depth (how many ancestors).
   const byId = new Map(spans.map((s) => [s.spanID, s]))
-  const depthOf = (s: lgtm.Span): number => {
+  const depthOf = (s: SpanDetail): number => {
     let d = 0
-    let cur: lgtm.Span | undefined = s
+    let cur: SpanDetail | undefined = s
     while (cur?.parentSpanID) {
       const parent = byId.get(cur.parentSpanID)
       if (!parent) break
@@ -252,15 +289,24 @@ function SpanTimeline({ spans, totalMs }: { spans: lgtm.Span[]; totalMs: number 
   }
 
   return (
-    <div className="space-y-1">
+    <div className="space-y-0.5">
       {spans.map((s) => {
         const left = (s.startTimeMs / totalMs) * 100
         const width = Math.max(0.5, (s.durationMs / totalMs) * 100)
         const depth = depthOf(s)
         const color = colorFor(s.serviceName)
         const error = s.status === 'error'
+        const active = s.spanID === selectedId
         return (
-          <div key={s.spanID} className="grid grid-cols-[260px_1fr_70px] items-center gap-3 text-[11px]">
+          <button
+            key={s.spanID}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onSelect(s.spanID)}
+            className={`grid w-full grid-cols-[260px_1fr_70px] items-center gap-3 rounded-md px-1.5 py-1 text-left text-[11px] transition-colors ${
+              active ? 'bg-brand-50 ring-1 ring-brand-300' : 'hover:bg-surface-sunken/70'
+            }`}
+          >
             <div
               className="flex min-w-0 items-center gap-1.5"
               style={{ paddingLeft: depth * 12 }}
@@ -272,11 +318,14 @@ function SpanTimeline({ spans, totalMs }: { spans: lgtm.Span[]; totalMs: number 
               <span className="rounded bg-surface-sunken px-1 py-0.5 font-mono text-[10px] text-content-subtle">
                 {s.serviceName}
               </span>
-              <span className="truncate font-mono text-content">{s.operationName}</span>
+              <span className={`truncate font-mono ${active ? 'font-semibold text-brand-800' : 'text-content'}`}>
+                {s.operationName}
+              </span>
+              {error ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-rose-500" /> : null}
             </div>
-            <div className="relative h-4 rounded-full bg-surface-sunken/60">
+            <div className={`relative h-4 rounded-full ${active ? 'bg-brand-100/70' : 'bg-surface-sunken/60'}`}>
               <div
-                className={`absolute inset-y-0 rounded-full ${error ? 'bg-rose-500' : ''}`}
+                className={`absolute inset-y-0 rounded-full ${error ? 'bg-rose-500' : ''} ${active ? 'ring-1 ring-inset ring-brand-400' : ''}`}
                 style={{
                   left: `${left}%`,
                   width: `${width}%`,
@@ -287,11 +336,147 @@ function SpanTimeline({ spans, totalMs }: { spans: lgtm.Span[]; totalMs: number 
             <span className="text-right font-mono tabular-nums text-content-muted">
               {s.durationMs.toFixed(0)} ms
             </span>
-          </div>
+          </button>
         )
       })}
     </div>
   )
+}
+
+/* ─────────── span detail inspector ─────────── */
+
+function SpanDetailPanel({
+  span,
+  traceStartMs,
+  onClose,
+}: {
+  span: SpanDetail
+  traceStartMs: number
+  onClose(): void
+}) {
+  const error = span.status === 'error'
+  const attributes = useMemo(() => Object.entries(span.tags ?? {}).sort(), [span.tags])
+  const spanStartMs = traceStartMs + span.startTimeMs
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="min-w-0">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700">
+            Span detail
+          </div>
+          <div className="mt-0.5 truncate font-mono text-[13px] text-content">{span.operationName}</div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Deselect span"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+        >
+          <IconClose />
+        </button>
+      </CardHeader>
+      <CardBody className="space-y-4">
+        {/* summary grid */}
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[11px] sm:grid-cols-4">
+          <Meta label="Service" value={<span className="font-mono">{span.serviceName}</span>} />
+          <Meta label="Duration" value={<span className="font-mono tabular-nums">{span.durationMs.toFixed(0)} ms</span>} />
+          <Meta label="Start" value={<span className="font-mono tabular-nums">+{span.startTimeMs.toFixed(0)} ms</span>} />
+          <Meta
+            label="Status"
+            value={<StatusBadge kind={error ? 'failed' : 'healthy'}>{span.status ?? 'ok'}</StatusBadge>}
+          />
+        </dl>
+
+        {span.statusMessage ? (
+          <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-800">
+            {span.statusMessage}
+          </div>
+        ) : null}
+
+        {/* attributes */}
+        <section>
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+            Attributes
+          </div>
+          {attributes.length === 0 ? (
+            <p className="text-[11px] text-content-subtle">No attributes.</p>
+          ) : (
+            <div className="overflow-hidden rounded-md border border-edge-subtle">
+              <table className="w-full text-left text-[11px]">
+                <tbody className="divide-y divide-edge-subtle">
+                  {attributes.map(([k, v]) => (
+                    <tr key={k} className="align-top hover:bg-surface-sunken/40">
+                      <td className="w-1/3 whitespace-nowrap px-3 py-1.5 font-mono text-content-muted">{k}</td>
+                      <td className="break-all px-3 py-1.5 font-mono text-content">{v}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {/* events */}
+        <section>
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+            Events {span.events?.length ? `(${span.events.length})` : ''}
+          </div>
+          {!span.events?.length ? (
+            <p className="text-[11px] text-content-subtle">No span events.</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {span.events.map((ev, i) => {
+                const evError = ev.name === 'exception' || ev.name.endsWith('.error')
+                return (
+                  <li key={i} className="flex items-start gap-2 text-[11px]">
+                    <span
+                      className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${evError ? 'bg-rose-500' : 'bg-brand-400'}`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono tabular-nums text-content-subtle">{fmtClock(spanStartMs + ev.timeMs)}</span>
+                        <span className="text-[10px] tabular-nums text-content-subtle">+{ev.timeMs} ms</span>
+                        <span className={`font-mono ${evError ? 'font-semibold text-rose-700' : 'text-content'}`}>{ev.name}</span>
+                      </div>
+                      {ev.attributes ? (
+                        <div className="mt-0.5 flex flex-wrap gap-1">
+                          {Object.entries(ev.attributes).map(([k, v]) => (
+                            <span
+                              key={k}
+                              className="inline-flex items-center rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-content-subtle"
+                            >
+                              <span className="opacity-60">{k}=</span>
+                              {v}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </section>
+      </CardBody>
+    </Card>
+  )
+}
+
+function Meta({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div>
+      <dt className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{label}</dt>
+      <dd className="mt-0.5">{value}</dd>
+    </div>
+  )
+}
+
+function fmtClock(ms: number): string {
+  const d = new Date(ms)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`
 }
 
 const SVC_COLORS = [

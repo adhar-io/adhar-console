@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Button,
   DataTable,
@@ -21,6 +21,8 @@ import {
 } from '../data/plane.ts'
 import { IssueDrawer } from '../components/issue-drawer.tsx'
 import { NewIssueModal } from '../components/new-issue-modal.tsx'
+import { CreateViewModal } from '../components/create-forms.tsx'
+import type { SavedIssueQuery } from '../data/view-query.ts'
 
 /**
  * Issues — Plane parity:
@@ -37,20 +39,39 @@ type SortBy = 'updated' | 'created' | 'priority' | 'target' | 'estimate'
 
 interface Props {
   projectId?: string
+  /** A Saved View's filter set to hydrate the board with on mount. */
+  appliedQuery?: SavedIssueQuery
 }
 
 const PRIORITIES: plane.Priority[] = ['urgent', 'high', 'medium', 'low', 'none']
 
-export function Issues({ projectId }: Props) {
+export function Issues({ projectId, appliedQuery }: Props) {
   const [mode, setMode] = useState<ViewMode>('kanban')
-  const [groupBy, setGroupBy] = useState<GroupBy>('state')
-  const [sortBy, setSortBy] = useState<SortBy>('updated')
+  const [groupBy, setGroupBy] = useState<GroupBy>(appliedQuery?.group_by ?? 'state')
+  const [sortBy, setSortBy] = useState<SortBy>(appliedQuery?.sort_by ?? 'updated')
   const [search, setSearch] = useState('')
-  const [priority, setPriority] = useState<plane.Priority | 'all'>('all')
-  const [labelFilter, setLabelFilter] = useState<string | 'all'>('all')
-  const [assigneeFilter, setAssigneeFilter] = useState<string | 'all'>('all')
+  const [priority, setPriority] = useState<plane.Priority | 'all'>(appliedQuery?.priority ?? 'all')
+  const [stateFilter, setStateFilter] = useState<string | 'all'>(appliedQuery?.state ?? 'all')
+  const [labelFilter, setLabelFilter] = useState<string | 'all'>(appliedQuery?.label ?? 'all')
+  const [assigneeFilter, setAssigneeFilter] = useState<string | 'all'>(
+    appliedQuery?.assignee ?? 'all',
+  )
   const [openId, setOpenId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+  const [saveOpen, setSaveOpen] = useState(false)
+
+  // Re-hydrate when a different Saved View is applied while mounted.
+  const appliedKey = appliedQuery ? JSON.stringify(appliedQuery) : ''
+  useEffect(() => {
+    if (!appliedQuery) return
+    setGroupBy(appliedQuery.group_by ?? 'state')
+    setSortBy(appliedQuery.sort_by ?? 'updated')
+    setPriority(appliedQuery.priority ?? 'all')
+    setStateFilter(appliedQuery.state ?? 'all')
+    setLabelFilter(appliedQuery.label ?? 'all')
+    setAssigneeFilter(appliedQuery.assignee ?? 'all')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appliedKey])
 
   const issues = useIssues(projectId)
   const states = useStates(projectId)
@@ -79,6 +100,7 @@ export function Issues({ projectId }: Props) {
   const filtered = all
     .filter((i) => {
       if (priority !== 'all' && i.priority !== priority) return false
+      if (stateFilter !== 'all' && i.state !== stateFilter) return false
       if (labelFilter !== 'all' && !i.labels.includes(labelFilter)) return false
       if (assigneeFilter !== 'all' && !i.assignees.includes(assigneeFilter)) return false
       if (search && !i.name.toLowerCase().includes(search.toLowerCase())) return false
@@ -93,8 +115,18 @@ export function Issues({ projectId }: Props) {
 
   const activeFilters =
     (priority !== 'all' ? 1 : 0) +
+    (stateFilter !== 'all' ? 1 : 0) +
     (labelFilter !== 'all' ? 1 : 0) +
     (assigneeFilter !== 'all' ? 1 : 0)
+
+  const currentQuery: SavedIssueQuery = {
+    priority: priority !== 'all' ? priority : undefined,
+    state: stateFilter !== 'all' ? stateFilter : undefined,
+    label: labelFilter !== 'all' ? labelFilter : undefined,
+    assignee: assigneeFilter !== 'all' ? assigneeFilter : undefined,
+    group_by: groupBy,
+    sort_by: sortBy,
+  }
 
   return (
     <div className="space-y-4">
@@ -152,6 +184,14 @@ export function Issues({ projectId }: Props) {
             </option>
           ))}
         </ToolbarSelect>
+        <ToolbarSelect label="State" value={stateFilter} onChange={setStateFilter}>
+          <option value="all">All</option>
+          {(states.data ?? []).map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </ToolbarSelect>
         <ToolbarSelect label="Label" value={labelFilter} onChange={setLabelFilter}>
           <option value="all">All</option>
           {(labels.data ?? []).map((l) => (
@@ -174,6 +214,7 @@ export function Issues({ projectId }: Props) {
             type="button"
             onClick={() => {
               setPriority('all')
+              setStateFilter('all')
               setLabelFilter('all')
               setAssigneeFilter('all')
             }}
@@ -187,6 +228,14 @@ export function Issues({ projectId }: Props) {
           {issues.isFetching ? <Spinner size={10} /> : null}
           {filtered.length} of {all.length}
         </span>
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => setSaveOpen(true)}
+          leading={<IconBookmark />}
+        >
+          Save view
+        </Button>
         <Button size="sm" onClick={() => setCreateOpen(true)} leading={<IconPlus />}>
           New issue
         </Button>
@@ -270,6 +319,15 @@ export function Issues({ projectId }: Props) {
           projectId={projectId}
           onClose={() => setCreateOpen(false)}
           onCreated={(issue) => setOpenId(issue.id)}
+        />
+      ) : null}
+
+      {saveOpen ? (
+        <CreateViewModal
+          projectId={projectId}
+          open
+          onClose={() => setSaveOpen(false)}
+          initialQuery={currentQuery}
         />
       ) : null}
 
@@ -1176,6 +1234,13 @@ function IconPlus() {
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" aria-hidden>
       <path d="M12 5v14M5 12h14" />
+    </svg>
+  )
+}
+function IconBookmark() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
     </svg>
   )
 }

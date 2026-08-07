@@ -5,13 +5,18 @@
 export { getDb, getMigratedDb, ensureMigrated, isDbConfigured, pingDb, type Db } from './client.ts'
 export { INIT_DDL, runInitDdl } from './migrate.ts'
 export {
+  deleteDocument,
+  getDocument,
   getNotificationState,
   getPreferences,
+  listDocuments,
+  putDocument,
   setNotificationState,
   setNotificationStateBulk,
   setPreferences,
   touchUser,
   type NotificationStateEntry,
+  type StoredDocument,
 } from './repo.ts'
 export * as schema from './schema.ts'
-export type { NotificationStateRow, User, UserPreference } from './schema.ts'
+export type { DocumentRow, NotificationStateRow, User, UserPreference } from './schema.ts'

@@ -58,9 +58,12 @@ Published as a container image and deployable on the Adhar platform via
 
 ```
 browser ─┬─▶  SPA (host + federated remotes, one origin)
-         └─▶  BFF API  ── /api/auth/*   OIDC login (Keycloak, server-side)
+         └─▶  BFF API  ── /api/auth/*    OIDC login (Keycloak, server-side)
+                        ── /api/k8s/*     per-user Kubernetes gateway (impersonation, watch, exec)
                         ── /api/svc/<tool>/…   token-injecting reverse proxy
+                        ── /api/store/<kind>[/<id>]   console-owned entities (Postgres)
                         ── /api/prefs, /api/notifications   (Postgres via Drizzle)
+                        ── /api/ai/*      AI assistant (read + propose)
                         ── /healthz, /readyz, /api/config
                               │
                     apps/console/server.ts  (standalone Deno server)
@@ -74,10 +77,21 @@ browser ─┬─▶  SPA (host + federated remotes, one origin)
 - **Auth** is a **confidential OIDC client**: the server does the code exchange,
   verifies the ID token against Keycloak's JWKS (`jose`), refreshes
   transparently, and keeps a stateless signed session in an HttpOnly cookie —
-  tokens never reach the browser. Backing tools are reached through
-  `/api/svc/<tool>` which injects the upstream credential server-side.
+  tokens never reach the browser.
+- **Kubernetes** is reached through `/api/k8s/*` as the **signed-in user**
+  (per-user OIDC impersonation): the user's Keycloak access token — minted with
+  the apiserver's `kubernetes` audience + `groups` claim — is forwarded to the
+  kube-apiserver, so the apiserver enforces that user's RBAC + native audit. The
+  console holds no cluster privilege of its own for user-facing calls.
+- **Backing tools** are reached through `/api/svc/<tool>` which injects the
+  upstream credential server-side.
 - **State**: live infra comes from the Kubernetes API / backing tools; Postgres
-  (Drizzle) holds only console-owned state — preferences, notification state.
+  (Drizzle) holds the console's **own** state — preferences, notifications, and
+  the **document store** (`/api/store/*`): OKRs, saved views, custom roles,
+  webhooks, design docs, API specs — tenant-scoped, shared across a tenant's members.
+- **No stubs in a running system.** Everything above talks to real backends. The
+  in-memory `.stub()` clients exist only for tests/offline (opt-in via
+  `mode:'stub'`); `pnpm dev` connects to a **locally-running adhar cluster** (below).
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) and [docs/architecture/](./docs/architecture/).
 
@@ -94,31 +108,60 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) and [docs/architecture/](./docs/archite
 | Server        | Standalone Deno server (`Deno.serve`) — SPA host + BFF API               |
 | UI            | `@adhar-ui/*` — React 19.2, Tailwind v4, CVA, Mitosis primitives         |
 | Auth          | Keycloak OIDC (confidential client) → signed HttpOnly session cookie     |
-| Database      | Postgres + Drizzle ORM (`postgres.js`)                                    |
-| Deploy        | OCI image (`adhario/adhar-console`) on the Adhar Kubernetes platform     |
+| Database      | Postgres + Drizzle ORM (`postgres.js`) — prefs, notifications, doc store  |
+| Deploy        | OCI image (`ghcr.io/adhar-io/adhar-console`) on the Adhar Kubernetes platform |
 
 ---
 
 ## Quickstart (dev)
 
-Prerequisites: **Deno ≥ 2.0**, **pnpm ≥ 10**, **Node ≥ 20**, and a checkout of
-[`adhar-ui`](https://github.com/adhar-io/adhar-ui) as a sibling directory
-(override the location with `ADHAR_UI_PATH`).
+`pnpm dev` connects to a **locally-running adhar cluster** — real Keycloak login,
+the real kube-apiserver, real backing tools, and real Postgres. There is no stub
+mode in dev.
+
+Prerequisites: **Deno ≥ 2.0**, **pnpm ≥ 10**, **Node ≥ 20**, a sibling checkout
+of [`adhar-ui`](https://github.com/adhar-io/adhar-ui) (or set `ADHAR_UI_PATH`),
+and the **adhar platform running locally** (kind cluster reachable at
+`*.adhar.localtest.me:8443`).
 
 ```bash
 pnpm install
-
-# Host app + every federated remote in parallel (SPA mode).
-pnpm dev                       # → http://localhost:5100  (remotes 5101–5108)
-
-# A subset only:
-deno task dev console develop platform
+cp .env.example .env      # then fill in the values noted in the file
+pnpm dev                  # → http://localhost:5100
 ```
 
-Dev runs as a **pure SPA with no server**, so `/api/*` isn't available and the
-login page offers a stub "Continue as demo user"; every backing-tool client
-serves realistic fixtures via `.auto({ tool })`. Real SSO + real backends run in
-the built/container image (below).
+`pnpm dev` starts **10 processes**: the **BFF** (Deno `server.ts`, `:5099`) plus
+the Vite host (`:5100`) and every federated remote (`:5101–5108`). The Vite host
+proxies all `/api/*` calls to the BFF, which does the real work against the
+cluster. Log in at `http://localhost:5100` via the real Keycloak.
+
+Minimum `.env` to wire (see comments in `.env.example` for how to obtain each):
+
+| Var | Dev value |
+| --- | --- |
+| `KEYCLOAK_URL` | `https://keycloak.adhar.localtest.me:8443` |
+| `KEYCLOAK_CLIENT_ID` | `adhar-console` |
+| `AUTH_CLIENT_SECRET` | from the cluster's `keycloak-clients` secret |
+| `AUTH_COOKIE_SECRET` | any random ≥32 chars |
+| `AUTH_PUBLIC_URL` | `http://localhost:5100` |
+| `AUTH_COOKIE_SECURE` | `false` (plain-HTTP localhost) |
+| `K8S_API_URL` | your kube context server (e.g. `https://127.0.0.1:6443`) |
+| `DENO_CERT` | PEM bundle trusting the apiserver + Keycloak CAs |
+| `DATABASE_URL` | port-forward `console-db`, or the compose Postgres |
+| tool `*_URL` | `https://<tool>.adhar.localtest.me:8443` |
+
+> The Keycloak `adhar-console` client already allows the dev redirect
+> `http://localhost:5100/api/auth/callback` (see the platform's
+> `keycloak-config.yaml`).
+
+Run a subset of remotes (the `bff` + `console` come along automatically):
+
+```bash
+deno task dev develop platform
+```
+
+**Offline / tests only:** pass `mode:'stub'` to a client factory to use the
+in-memory fixtures; there is no automatic stub fallback.
 
 ## Build & run the container
 
@@ -130,10 +173,12 @@ easiest path is the container:
 docker build \
   --build-context adhar-ui=../adhar-ui \
   -f deploy/Dockerfile \
-  -t adhario/adhar-console:0.2.0 .
+  -t ghcr.io/adhar-io/adhar-console:dev .
 
-# Run — stub/demo mode (no Keycloak/DB needed).
-docker run --rm -p 3000:3000 adhario/adhar-console:0.2.0
+# Run — needs real config. In production the server FAILS CLOSED without
+# Keycloak (KEYCLOAK_URL + AUTH_CLIENT_SECRET + AUTH_COOKIE_SECRET) — it will
+# not boot in demo mode. Pass the env (or use the compose stack below).
+docker run --rm -p 3000:3000 --env-file .env ghcr.io/adhar-io/adhar-console:dev
 #   → http://localhost:3000   ·   /healthz  /readyz  /api/config
 
 # Local full stack (console + Postgres):
@@ -141,7 +186,7 @@ docker compose -f deploy/compose/docker-compose.yml up
 ```
 
 Building without Docker: `pnpm build` (→ `apps/console/dist/`) then
-`cd apps/console && deno run -A server.ts`.
+`cd apps/console && deno run -A --env-file=../../.env server.ts`.
 
 ### Runtime endpoints
 
@@ -149,29 +194,56 @@ Building without Docker: `pnpm build` (→ `apps/console/dist/`) then
 | ------------------- | ---------------------------------------------------- |
 | `/`                 | SPA (host + remotes, SPA-routing fallback)           |
 | `/api/auth/*`       | OIDC login / callback / logout / session             |
+| `/api/k8s/*`        | Per-user Kubernetes gateway (watch, log-follow, SSA); `/api/k8s/exec` (WebSocket) |
 | `/api/svc/<tool>/…` | Authenticated reverse proxy to a backing tool        |
+| `/api/store/<kind>[/<id>]` | Console-owned document store (Postgres, tenant-scoped) |
 | `/api/prefs/<s>`, `/api/notifications` | Postgres-backed user state        |
+| `/api/ai/*`         | AI assistant (read-only tools + human-approved proposals) |
 | `/api/config`       | Non-secret runtime config for the browser            |
 | `/healthz` `/readyz`| Liveness / readiness probes                          |
 
+### Console-owned data (document store)
+
+Entities that no cluster resource or backing tool owns — OKRs, saved views,
+custom roles, webhooks, design docs (ADRs/diagrams/…), API specs — persist in
+Postgres via a generic, tenant-scoped store at `/api/store/<kind>[/<id>]`
+(`documents` table: `(tenant, kind, id) → jsonb`). It's real and multi-user:
+everyone in a tenant sees the same objectives. There is **no** localStorage or
+in-memory fallback — a missing DB returns `503`.
+
+Modules use the `docStore` browser client (from `@adhar-console/shell-ui`):
+
+```ts
+import { docStore } from '@adhar-console/shell-ui'
+
+await docStore.list('okr.objective')          // → StoredDoc[]
+await docStore.create('okr.objective', {...})  // server-assigned id
+await docStore.put('design.adr', id, {...})    // upsert
+await docStore.remove('workspace.webhook', id)
+```
+
 ## Enable SSO (Keycloak)
 
-The console is a **confidential OIDC client** — set these at runtime and it
-switches from "Keycloak not configured" to real SSO (see
+The console is a **confidential OIDC client**. In production these are
+**required** — the server **fails closed** (refuses to boot) if Keycloak isn't
+configured, so it can never silently run in demo mode (see
 [docs/architecture/auth.md](./docs/architecture/auth.md)):
 
 ```bash
 KEYCLOAK_URL=https://keycloak.example.com   KEYCLOAK_REALM=adhar
-KEYCLOAK_CLIENT_ID=adhar-console
+KEYCLOAK_CLIENT_ID=adhar-console            # dedicated confidential client
 AUTH_CLIENT_SECRET=<confidential client secret>
 AUTH_COOKIE_SECRET=<random ≥32 chars>       # openssl rand -base64 48
-AUTH_PUBLIC_URL=https://console.example.com # external origin (redirect_uri base)
-DATABASE_URL=postgres://user:pass@host:5432/db   # optional; enables persistence
+AUTH_PUBLIC_URL=https://console.example.com # external origin (redirect_uri base); required in prod
+DATABASE_URL=postgres://user:pass@host:5432/db   # required for prefs + the document store
 ```
 
-Register a confidential client with redirect URI `…/api/auth/callback`. Without
-`DATABASE_URL` the console still runs; persistence is disabled and `/readyz`
-reports `db: unconfigured`.
+On the Adhar platform this client is provisioned automatically as `adhar-console`
+(redirect `…/api/auth/callback`, access-token audience `kubernetes` + `groups`
+claim for per-user cluster impersonation) — see the platform's
+`keycloak-config.yaml`. `DATABASE_URL` is required for `/api/prefs`,
+`/api/notifications`, and `/api/store/*`; without it those endpoints return
+`503` and `/readyz` reports `db: unconfigured`.
 
 ## Deploy on the Adhar platform
 

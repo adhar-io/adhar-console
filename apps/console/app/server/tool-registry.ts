@@ -116,6 +116,16 @@ export function getToolRegistry(): Record<string, ToolDef> {
       authMode: 'service',
       serviceToken: env('METABASE_TOKEN'),
     },
+    // OpenCost / Kubecost allocation API (Decide → cost/spend). The OpenCost
+    // REST API needs no auth by default; run `service` mode so an optional
+    // `OPENCOST_TOKEN` is forwarded when fronted by an authenticating proxy.
+    // In-cluster this is usually the opencost svc, e.g.
+    // http://opencost.opencost.svc:9003 (its API port).
+    opencost: {
+      baseUrl: clean(env('OPENCOST_URL')),
+      authMode: 'service',
+      serviceToken: env('OPENCOST_TOKEN'),
+    },
     airbyte: {
       baseUrl: clean(env('AIRBYTE_URL')),
       authMode: 'service',

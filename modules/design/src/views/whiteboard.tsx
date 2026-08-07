@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button, EmptyState, Modal } from '@adhar-console/shell-ui'
-import { newId, store } from '../data/store.ts'
+import { KIND, newId, useCollection, useCreate, useRemove, useSeedExamples, useUpdate } from '../data/store.ts'
 import { SEED_NOTES } from '../data/seed.ts'
+import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import type { NoteConnection, StickyColor, StickyNote, WhiteboardBoard } from '../data/types.ts'
 
 const COLORS: { id: StickyColor; bg: string; text: string; ring: string }[] = [
@@ -135,7 +136,12 @@ function defaultBoards(): WhiteboardBoard[] {
 }
 
 export function Whiteboard() {
-  const [boards, setBoards] = useState<WhiteboardBoard[]>([])
+  const { items: boards, isLoading, error, refetch } = useCollection<WhiteboardBoard>(KIND.board)
+  const createBoard = useCreate<WhiteboardBoard>(KIND.board)
+  const updateBoard = useUpdate<WhiteboardBoard>(KIND.board)
+  const removeBoard_ = useRemove(KIND.board)
+  const seed = useSeedExamples<WhiteboardBoard>(KIND.board)
+
   const [activeId, setActiveId] = useState<string | null>(null)
   const [activeColor, setActiveColor] = useState<StickyColor>('amber')
   const [tplOpen, setTplOpen] = useState(false)
@@ -143,28 +149,17 @@ export function Whiteboard() {
   const [connectFrom, setConnectFrom] = useState<string | null>(null)
   const boardRef = useRef<HTMLDivElement>(null)
 
+  // Keep a valid active board selected as the list loads / changes.
   useEffect(() => {
-    const stored = store.get<WhiteboardBoard[] | null>('boards', null)
-    const next = stored && stored.length ? stored : defaultBoards()
-    setBoards(next)
-    setActiveId(next[0].id)
-  }, [])
-
-  const persist = (next: WhiteboardBoard[]) => {
-    setBoards(next)
-    store.set('boards', next)
-  }
+    if (boards.length && (activeId == null || !boards.some((b) => b.id === activeId))) {
+      setActiveId(boards[0].id)
+    }
+  }, [boards, activeId])
 
   const active = boards.find((b) => b.id === activeId) ?? null
   const updateActive = (patch: Partial<WhiteboardBoard>) => {
     if (!active) return
-    persist(
-      boards.map((b) =>
-        b.id === active.id
-          ? { ...b, ...patch, updated_at: new Date().toISOString() }
-          : b,
-      ),
-    )
+    updateBoard.mutate({ ...active, ...patch, updated_at: new Date().toISOString() })
   }
 
   const addNote = () => {
@@ -233,19 +228,51 @@ export function Whiteboard() {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }
-    persist([...boards, board])
-    setActiveId(board.id)
+    createBoard.mutate(board, { onSuccess: (created) => setActiveId(created.id) })
   }
 
   const removeBoard = (id: string) => {
-    if (boards.length <= 1) {
-      alert('At least one board is required.')
-      return
-    }
     if (!confirm('Delete this board? Notes are not recoverable.')) return
-    const next = boards.filter((b) => b.id !== id)
-    persist(next)
-    if (activeId === id) setActiveId(next[0].id)
+    const remaining = boards.filter((b) => b.id !== id)
+    removeBoard_.mutate(id)
+    if (activeId === id) setActiveId(remaining[0]?.id ?? null)
+  }
+
+  if (error) return <ErrorBlock error={error} onRetry={refetch} />
+  if (isLoading) return <LoadingBlock label="Loading boards…" />
+
+  if (boards.length === 0) {
+    return (
+      <div className="space-y-3">
+        <EmptyState
+          title="No whiteboards yet"
+          description="Create a board to start dropping sticky notes, or load an example brainstorm."
+          action={
+            <div className="flex items-center gap-2">
+              <Button size="sm" onClick={() => setTplOpen(true)} leading={<IconPlus />}>
+                New board
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => seed.mutate(defaultBoards())}
+                disabled={seed.isPending}
+              >
+                {seed.isPending ? 'Loading…' : 'Load examples'}
+              </Button>
+            </div>
+          }
+        />
+        <NewBoardModal
+          open={tplOpen}
+          onClose={() => setTplOpen(false)}
+          onCreate={(name, tplId) => {
+            const tpl = TEMPLATES.find((t) => t.id === tplId)
+            newBoard(name, tpl?.build)
+          }}
+        />
+      </div>
+    )
   }
 
   return (

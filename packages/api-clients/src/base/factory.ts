@@ -4,11 +4,12 @@ export type ClientFactory<TClient> = {
   create(opts: HttpClientOptions): TClient
   stub(): TClient
   /**
-   * Environment-aware client. In a production build it talks to the backing
-   * tool through the console's same-origin BFF proxy
-   * (`/api/svc/<tool>/…`, cookie-authenticated — the server injects the
-   * upstream token). In dev (pure SPA, no server) it returns the stub so the
-   * UI still renders. Override `mode` to force one or the other (e.g. tests).
+   * Environment-aware client. **Real by default** — talks to the backing tool
+   * through the console's same-origin BFF proxy (`/api/svc/<tool>/…`,
+   * cookie-authenticated; the server injects the upstream token). This holds in
+   * dev too: `pnpm dev` runs the BFF and the Vite host proxies `/api/*` to it,
+   * so the console connects to the locally-running adhar cluster. Pass
+   * `mode: 'stub'` to force the in-memory stub (tests / offline only).
    */
   auto(opts: { tool: string; mode?: BackendMode } & Partial<HttpClientOptions>): TClient
 }
@@ -37,7 +38,8 @@ export function defineClient<TClient>(
     create: (opts) => build(new HttpClient(opts)),
     stub: stubImpl,
     auto: ({ tool, mode, ...opts }) => {
-      const real = mode ? mode === 'real' : isProdBuild()
+      // Real by default; the in-memory stub is opt-in (tests/offline).
+      const real = mode !== 'stub'
       if (!real) return stubImpl()
       return build(
         new HttpClient({

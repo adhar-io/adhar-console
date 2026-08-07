@@ -115,6 +115,8 @@ export interface GiteaClient {
   listCommits(org: string, repo: string, ref?: string, limit?: number): Promise<Commit[]>
   listPullRequests(org: string, repo: string, state?: 'open' | 'closed' | 'all'): Promise<PullRequest[]>
   getPullRequest(org: string, repo: string, number: number): Promise<PullRequest>
+  /** Raw unified diff (`.diff`) text for a pull request. */
+  getPullDiff(org: string, repo: string, index: number): Promise<string>
   listIssues(org: string, repo: string, state?: 'open' | 'closed' | 'all'): Promise<Issue[]>
   /** List files at a path. Empty path = repo root. */
   listTree(org: string, repo: string, ref: string, path?: string): Promise<TreeEntry[]>
@@ -141,6 +143,11 @@ function build(http: HttpClient): GiteaClient {
       http.get<PullRequest[]>(`/api/v1/repos/${org}/${repo}/pulls?state=${state}`),
     getPullRequest: (org, repo, number) =>
       http.get<PullRequest>(`/api/v1/repos/${org}/${repo}/pulls/${number}`),
+    getPullDiff: (org, repo, index) =>
+      http.get<string>(`/api/v1/repos/${org}/${repo}/pulls/${index}.diff`, {
+        response: 'text',
+        headers: { accept: 'text/plain' },
+      }),
     listIssues: (org, repo, state = 'open') =>
       http.get<Issue[]>(`/api/v1/repos/${org}/${repo}/issues?type=issues&state=${state}`),
     listTree: (org, repo, ref, path = '') =>
@@ -595,6 +602,18 @@ export const GiteaClient = defineClient<GiteaClient>(build, () => ({
     if (!p) throw new Error(`Stub: PR ${number} not found`)
     return p
   },
+  getPullDiff: async (_, repo, index) =>
+    `diff --git a/CHANGELOG.md b/CHANGELOG.md
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,4 +1,6 @@
+ # Changelog
+
++## Unreleased — ${repo} #${index}
++- Stub diff (offline / test mode).
+
+ ## 1.0.0
+`,
   listIssues: async (_, repo) => STUB_ISSUES[repo] ?? [],
   listTree: async (_, _repo, _ref, path = '') => STUB_TREE[path] ?? [],
   getFile: async (_, _repo, _ref, path) => {

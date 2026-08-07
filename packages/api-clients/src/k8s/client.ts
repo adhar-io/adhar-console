@@ -499,7 +499,10 @@ export const K8sClient = {
    *     proxy errors is gone). Force live dev with `mode: 'real'`.
    */
   auto(opts: { mode?: 'real' | 'stub' } & Partial<HttpClientOptions> = {}): K8sClient {
-    const real = opts.mode ? opts.mode === 'real' : isProdBuild()
+    // Real by default — the console connects to the cluster's apiserver through
+    // the BFF gateway (`/api/k8s`), in dev (via the dev BFF + Vite proxy) and
+    // prod alike. Pass `mode: 'stub'` for tests / offline only.
+    const real = opts.mode !== 'stub'
     if (!real) return stub()
     return build(
       new HttpClient({

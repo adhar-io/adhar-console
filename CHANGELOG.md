@@ -6,6 +6,10 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-07
+
+First tagged release — published to `ghcr.io/adhar-io/adhar-console`.
+
 ### Security — enterprise hardening (k8s gateway + Keycloak)
 
 - **k8s gateway** — strict request-header **allow-list** (never forwards

@@ -6,6 +6,12 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-08
+
+Real backends across every module (no stubs in a running system), a
+Postgres-backed document store for console-owned data, `pnpm dev` wired to a
+locally-running adhar cluster, and a dedicated `adhar-console` Keycloak client.
+
 ### Changed — real backends everywhere; dev connects to the local cluster
 
 - **No stubs in a running system.** `K8sClient.auto()` and the backing-tool

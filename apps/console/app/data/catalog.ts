@@ -1,4 +1,6 @@
+import { useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { type SourceStatus, useLiveCatalog } from './catalog-live.ts'
 
 /**
  * Backstage-style Service Catalog.
@@ -17,12 +19,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 export type EntityKind = 'Component' | 'API' | 'Resource' | 'System' | 'Domain' | 'Group' | 'User'
 
-export type ComponentType =
-  | 'service'
-  | 'website'
-  | 'library'
-  | 'mobile-app'
-  | 'documentation'
+export type ComponentType = 'service' | 'website' | 'library' | 'mobile-app' | 'documentation'
 export type ApiType = 'openapi' | 'asyncapi' | 'graphql' | 'grpc' | 'trpc'
 export type ResourceType =
   | 'database'
@@ -85,11 +82,16 @@ export interface EntitySpec {
   email?: string
 }
 
+/** Where an entity came from — drives the source badge in the UI. */
+export type EntityOrigin = 'live' | 'registered' | 'seed'
+
 export interface Entity {
   apiVersion: 'backstage.io/v1alpha1'
   kind: EntityKind
   metadata: EntityMetadata
   spec: EntitySpec
+  /** Non-schema hint: how this entity entered the catalog. Absent = seed. */
+  origin?: EntityOrigin
 }
 
 export type EntityRef = `${string}:${string}` | `${string}:${string}/${string}`
@@ -102,7 +104,9 @@ function entity(
   spec: EntitySpec,
   meta: Partial<EntityMetadata> = {},
 ): Entity {
-  const created = new Date(Date.now() - Math.floor(Math.random() * 90 + 1) * 86_400_000).toISOString()
+  const created = new Date(
+    Date.now() - Math.floor(Math.random() * 90 + 1) * 86_400_000,
+  ).toISOString()
   return {
     apiVersion: 'backstage.io/v1alpha1',
     kind,
@@ -114,65 +118,126 @@ function entity(
       ...meta,
     },
     spec,
+    origin: 'seed',
   }
 }
 
 export const SEED_CATALOG: Entity[] = [
   /* ─── Domains ─── */
-  entity('Domain', 'commerce', { owner: 'group:team-commerce' }, {
-    title: 'Commerce',
-    description: 'Storefront, ordering, fulfilment, and payments.',
-    tags: ['core'],
-  }),
-  entity('Domain', 'data-platform', { owner: 'group:team-data' }, {
-    title: 'Data Platform',
-    description: 'Lakehouse, streaming, BI, ML feature store.',
-    tags: ['platform'],
-  }),
-  entity('Domain', 'platform', { owner: 'group:team-platform' }, {
-    title: 'Internal Developer Platform',
-    description: 'Cluster, CI/CD, observability, and developer-experience tooling.',
-    tags: ['platform'],
-  }),
+  entity(
+    'Domain',
+    'commerce',
+    { owner: 'group:team-commerce' },
+    {
+      title: 'Commerce',
+      description: 'Storefront, ordering, fulfilment, and payments.',
+      tags: ['core'],
+    },
+  ),
+  entity(
+    'Domain',
+    'data-platform',
+    { owner: 'group:team-data' },
+    {
+      title: 'Data Platform',
+      description: 'Lakehouse, streaming, BI, ML feature store.',
+      tags: ['platform'],
+    },
+  ),
+  entity(
+    'Domain',
+    'platform',
+    { owner: 'group:team-platform' },
+    {
+      title: 'Internal Developer Platform',
+      description: 'Cluster, CI/CD, observability, and developer-experience tooling.',
+      tags: ['platform'],
+    },
+  ),
 
   /* ─── Systems ─── */
-  entity('System', 'storefront', { owner: 'group:team-commerce', domain: 'domain:commerce' }, {
-    title: 'Storefront',
-    description: 'The customer-facing web + mobile experience.',
-  }),
-  entity('System', 'orders', { owner: 'group:team-orders', domain: 'domain:commerce' }, {
-    title: 'Orders',
-    description: 'Order capture, payment authorisation, fulfilment hand-off.',
-  }),
-  entity('System', 'lakehouse', { owner: 'group:team-data', domain: 'domain:data-platform' }, {
-    title: 'Lakehouse',
-    description: 'Bronze / silver / gold lake plus the BI surface.',
-  }),
-  entity('System', 'idp', { owner: 'group:team-platform', domain: 'domain:platform' }, {
-    title: 'Internal Developer Platform',
-    description: 'Adhar Console, IaC, Crossplane compositions.',
-  }),
+  entity(
+    'System',
+    'storefront',
+    { owner: 'group:team-commerce', domain: 'domain:commerce' },
+    {
+      title: 'Storefront',
+      description: 'The customer-facing web + mobile experience.',
+    },
+  ),
+  entity(
+    'System',
+    'orders',
+    { owner: 'group:team-orders', domain: 'domain:commerce' },
+    {
+      title: 'Orders',
+      description: 'Order capture, payment authorisation, fulfilment hand-off.',
+    },
+  ),
+  entity(
+    'System',
+    'lakehouse',
+    { owner: 'group:team-data', domain: 'domain:data-platform' },
+    {
+      title: 'Lakehouse',
+      description: 'Bronze / silver / gold lake plus the BI surface.',
+    },
+  ),
+  entity(
+    'System',
+    'idp',
+    { owner: 'group:team-platform', domain: 'domain:platform' },
+    {
+      title: 'Internal Developer Platform',
+      description: 'Adhar Console, IaC, Crossplane compositions.',
+    },
+  ),
 
   /* ─── Groups ─── */
-  entity('Group', 'team-commerce', {
-    members: ['user:tapas', 'user:olivia', 'user:rohan', 'user:sara'],
-    parent: 'group:engineering',
-  }, { title: 'Team Commerce', description: 'Owns storefront + cart.' }),
-  entity('Group', 'team-orders', {
-    members: ['user:olivia', 'user:nik'],
-    parent: 'group:engineering',
-  }, { title: 'Team Orders', description: 'Owns order + payment.' }),
-  entity('Group', 'team-data', {
-    members: ['user:lin', 'user:vivek'],
-    parent: 'group:engineering',
-  }, { title: 'Team Data', description: 'Owns the lakehouse + warehouse.' }),
-  entity('Group', 'team-platform', {
-    members: ['user:tapas', 'user:rohan'],
-    parent: 'group:engineering',
-  }, { title: 'Team Platform', description: 'Owns the IDP + CI/CD.' }),
-  entity('Group', 'engineering', {
-    members: [],
-  }, { title: 'Engineering' }),
+  entity(
+    'Group',
+    'team-commerce',
+    {
+      members: ['user:tapas', 'user:olivia', 'user:rohan', 'user:sara'],
+      parent: 'group:engineering',
+    },
+    { title: 'Team Commerce', description: 'Owns storefront + cart.' },
+  ),
+  entity(
+    'Group',
+    'team-orders',
+    {
+      members: ['user:olivia', 'user:nik'],
+      parent: 'group:engineering',
+    },
+    { title: 'Team Orders', description: 'Owns order + payment.' },
+  ),
+  entity(
+    'Group',
+    'team-data',
+    {
+      members: ['user:lin', 'user:vivek'],
+      parent: 'group:engineering',
+    },
+    { title: 'Team Data', description: 'Owns the lakehouse + warehouse.' },
+  ),
+  entity(
+    'Group',
+    'team-platform',
+    {
+      members: ['user:tapas', 'user:rohan'],
+      parent: 'group:engineering',
+    },
+    { title: 'Team Platform', description: 'Owns the IDP + CI/CD.' },
+  ),
+  entity(
+    'Group',
+    'engineering',
+    {
+      members: [],
+    },
+    { title: 'Engineering' },
+  ),
 
   /* ─── Users ─── */
   entity('User', 'tapas', { email: 'tapas@acme.com' }, { title: 'Tapas Jena' }),
@@ -184,270 +249,412 @@ export const SEED_CATALOG: Entity[] = [
   entity('User', 'vivek', { email: 'vivek@acme.com' }, { title: 'Vivek Rao' }),
 
   /* ─── Components: services / websites / libraries ─── */
-  entity('Component', 'web', {
-    type: 'website',
-    lifecycle: 'production',
-    owner: 'group:team-commerce',
-    system: 'system:storefront',
-    consumesApis: ['api:catalog-api', 'api:orders-api', 'api:cart-api'],
-    dependsOn: ['component:image-cdn'],
-  }, {
-    title: 'Storefront Web',
-    description: 'Next.js 15 storefront — SSR, edge cache, fully internationalised.',
-    tags: ['react', 'next', 'typescript'],
-    links: [
-      { url: 'https://github.com/acme/web', title: 'Source', icon: 'repo' },
-      { url: 'https://app.acme.io', title: 'Production', icon: 'dashboard' },
-      { url: 'https://docs.acme.io/web', title: 'Docs', icon: 'docs' },
-    ],
-  }),
-  entity('Component', 'mobile-ios', {
-    type: 'mobile-app',
-    lifecycle: 'production',
-    owner: 'group:team-commerce',
-    system: 'system:storefront',
-    consumesApis: ['api:catalog-api', 'api:orders-api'],
-  }, {
-    title: 'Storefront iOS',
-    description: 'SwiftUI client, share-extension support, deep-link routing.',
-    tags: ['swift', 'ios'],
-  }),
-  entity('Component', 'cart', {
-    type: 'service',
-    lifecycle: 'production',
-    owner: 'group:team-commerce',
-    system: 'system:storefront',
-    providesApis: ['api:cart-api'],
-    consumesApis: ['api:catalog-api'],
-    dependsOn: ['resource:cart-redis'],
-  }, {
-    title: 'Cart Service',
-    description: 'Stateless service backed by Redis — cart hold, coupon engine.',
-    tags: ['go', 'grpc'],
-    links: [
-      { url: 'https://github.com/acme/cart', title: 'Source', icon: 'repo' },
-      { url: 'https://runbooks.acme.io/cart', title: 'Runbook', icon: 'runbook' },
-    ],
-  }),
-  entity('Component', 'catalog-svc', {
-    type: 'service',
-    lifecycle: 'production',
-    owner: 'group:team-commerce',
-    system: 'system:storefront',
-    providesApis: ['api:catalog-api'],
-    dependsOn: ['resource:catalog-pg', 'resource:catalog-search'],
-  }, {
-    title: 'Catalog Service',
-    description: 'Product catalog read API + search facade.',
-    tags: ['rust', 'rest'],
-  }),
-  entity('Component', 'orders-svc', {
-    type: 'service',
-    lifecycle: 'production',
-    owner: 'group:team-orders',
-    system: 'system:orders',
-    providesApis: ['api:orders-api'],
-    consumesApis: ['api:payments-api'],
-    dependsOn: ['resource:orders-pg', 'resource:orders-events'],
-  }, {
-    title: 'Orders Service',
-    description: 'Order lifecycle state machine + outbox pattern.',
-    tags: ['kotlin', 'rest'],
-  }),
-  entity('Component', 'payments-svc', {
-    type: 'service',
-    lifecycle: 'production',
-    owner: 'group:team-orders',
-    system: 'system:orders',
-    providesApis: ['api:payments-api'],
-    dependsOn: ['resource:payments-pg'],
-  }, {
-    title: 'Payments Service',
-    description: 'PCI-segregated payment authorisation gateway.',
-    tags: ['go', 'rest', 'pci'],
-  }),
-  entity('Component', 'image-cdn', {
-    type: 'service',
-    lifecycle: 'production',
-    owner: 'group:team-platform',
-    system: 'system:idp',
-    dependsOn: ['resource:asset-bucket'],
-  }, {
-    title: 'Image CDN',
-    description: 'On-the-fly resizing + signed URL service.',
-    tags: ['go', 'rest'],
-  }),
-  entity('Component', 'fraud-detection', {
-    type: 'service',
-    lifecycle: 'experimental',
-    owner: 'group:team-data',
-    system: 'system:orders',
-    consumesApis: ['api:orders-api'],
-    dependsOn: ['resource:fraud-features'],
-  }, {
-    title: 'Fraud Detection',
-    description: 'Online ML scorer for transaction-level fraud risk.',
-    tags: ['python', 'ml'],
-  }),
-  entity('Component', 'lake-ingest', {
-    type: 'service',
-    lifecycle: 'production',
-    owner: 'group:team-data',
-    system: 'system:lakehouse',
-    dependsOn: ['resource:bronze-bucket', 'resource:lake-events'],
-  }, {
-    title: 'Lake Ingest',
-    description: 'Streaming ingest into the bronze layer with schema validation.',
-    tags: ['scala', 'spark', 'streaming'],
-  }),
-  entity('Component', 'metrics-shared', {
-    type: 'library',
-    lifecycle: 'production',
-    owner: 'group:team-platform',
-  }, {
-    title: '@acme/metrics',
-    description: 'Shared OpenTelemetry instrumentation library used by every service.',
-    tags: ['opentelemetry', 'library'],
-  }),
-  entity('Component', 'auth-shared', {
-    type: 'library',
-    lifecycle: 'production',
-    owner: 'group:team-platform',
-  }, {
-    title: '@acme/auth',
-    description: 'OIDC client + middleware shared across all services.',
-    tags: ['library', 'oidc'],
-  }),
-  entity('Component', 'docs-portal', {
-    type: 'documentation',
-    lifecycle: 'production',
-    owner: 'group:team-platform',
-    system: 'system:idp',
-  }, {
-    title: 'Engineering Docs',
-    description: 'Markdown-as-code docs portal — every service publishes here.',
-    tags: ['docs'],
-  }),
+  entity(
+    'Component',
+    'web',
+    {
+      type: 'website',
+      lifecycle: 'production',
+      owner: 'group:team-commerce',
+      system: 'system:storefront',
+      consumesApis: ['api:catalog-api', 'api:orders-api', 'api:cart-api'],
+      dependsOn: ['component:image-cdn'],
+    },
+    {
+      title: 'Storefront Web',
+      description: 'Next.js 15 storefront — SSR, edge cache, fully internationalised.',
+      tags: ['react', 'next', 'typescript'],
+      links: [
+        { url: 'https://github.com/acme/web', title: 'Source', icon: 'repo' },
+        { url: 'https://app.acme.io', title: 'Production', icon: 'dashboard' },
+        { url: 'https://docs.acme.io/web', title: 'Docs', icon: 'docs' },
+      ],
+    },
+  ),
+  entity(
+    'Component',
+    'mobile-ios',
+    {
+      type: 'mobile-app',
+      lifecycle: 'production',
+      owner: 'group:team-commerce',
+      system: 'system:storefront',
+      consumesApis: ['api:catalog-api', 'api:orders-api'],
+    },
+    {
+      title: 'Storefront iOS',
+      description: 'SwiftUI client, share-extension support, deep-link routing.',
+      tags: ['swift', 'ios'],
+    },
+  ),
+  entity(
+    'Component',
+    'cart',
+    {
+      type: 'service',
+      lifecycle: 'production',
+      owner: 'group:team-commerce',
+      system: 'system:storefront',
+      providesApis: ['api:cart-api'],
+      consumesApis: ['api:catalog-api'],
+      dependsOn: ['resource:cart-redis'],
+    },
+    {
+      title: 'Cart Service',
+      description: 'Stateless service backed by Redis — cart hold, coupon engine.',
+      tags: ['go', 'grpc'],
+      links: [
+        { url: 'https://github.com/acme/cart', title: 'Source', icon: 'repo' },
+        { url: 'https://runbooks.acme.io/cart', title: 'Runbook', icon: 'runbook' },
+      ],
+    },
+  ),
+  entity(
+    'Component',
+    'catalog-svc',
+    {
+      type: 'service',
+      lifecycle: 'production',
+      owner: 'group:team-commerce',
+      system: 'system:storefront',
+      providesApis: ['api:catalog-api'],
+      dependsOn: ['resource:catalog-pg', 'resource:catalog-search'],
+    },
+    {
+      title: 'Catalog Service',
+      description: 'Product catalog read API + search facade.',
+      tags: ['rust', 'rest'],
+    },
+  ),
+  entity(
+    'Component',
+    'orders-svc',
+    {
+      type: 'service',
+      lifecycle: 'production',
+      owner: 'group:team-orders',
+      system: 'system:orders',
+      providesApis: ['api:orders-api'],
+      consumesApis: ['api:payments-api'],
+      dependsOn: ['resource:orders-pg', 'resource:orders-events'],
+    },
+    {
+      title: 'Orders Service',
+      description: 'Order lifecycle state machine + outbox pattern.',
+      tags: ['kotlin', 'rest'],
+    },
+  ),
+  entity(
+    'Component',
+    'payments-svc',
+    {
+      type: 'service',
+      lifecycle: 'production',
+      owner: 'group:team-orders',
+      system: 'system:orders',
+      providesApis: ['api:payments-api'],
+      dependsOn: ['resource:payments-pg'],
+    },
+    {
+      title: 'Payments Service',
+      description: 'PCI-segregated payment authorisation gateway.',
+      tags: ['go', 'rest', 'pci'],
+    },
+  ),
+  entity(
+    'Component',
+    'image-cdn',
+    {
+      type: 'service',
+      lifecycle: 'production',
+      owner: 'group:team-platform',
+      system: 'system:idp',
+      dependsOn: ['resource:asset-bucket'],
+    },
+    {
+      title: 'Image CDN',
+      description: 'On-the-fly resizing + signed URL service.',
+      tags: ['go', 'rest'],
+    },
+  ),
+  entity(
+    'Component',
+    'fraud-detection',
+    {
+      type: 'service',
+      lifecycle: 'experimental',
+      owner: 'group:team-data',
+      system: 'system:orders',
+      consumesApis: ['api:orders-api'],
+      dependsOn: ['resource:fraud-features'],
+    },
+    {
+      title: 'Fraud Detection',
+      description: 'Online ML scorer for transaction-level fraud risk.',
+      tags: ['python', 'ml'],
+    },
+  ),
+  entity(
+    'Component',
+    'lake-ingest',
+    {
+      type: 'service',
+      lifecycle: 'production',
+      owner: 'group:team-data',
+      system: 'system:lakehouse',
+      dependsOn: ['resource:bronze-bucket', 'resource:lake-events'],
+    },
+    {
+      title: 'Lake Ingest',
+      description: 'Streaming ingest into the bronze layer with schema validation.',
+      tags: ['scala', 'spark', 'streaming'],
+    },
+  ),
+  entity(
+    'Component',
+    'metrics-shared',
+    {
+      type: 'library',
+      lifecycle: 'production',
+      owner: 'group:team-platform',
+    },
+    {
+      title: '@acme/metrics',
+      description: 'Shared OpenTelemetry instrumentation library used by every service.',
+      tags: ['opentelemetry', 'library'],
+    },
+  ),
+  entity(
+    'Component',
+    'auth-shared',
+    {
+      type: 'library',
+      lifecycle: 'production',
+      owner: 'group:team-platform',
+    },
+    {
+      title: '@acme/auth',
+      description: 'OIDC client + middleware shared across all services.',
+      tags: ['library', 'oidc'],
+    },
+  ),
+  entity(
+    'Component',
+    'docs-portal',
+    {
+      type: 'documentation',
+      lifecycle: 'production',
+      owner: 'group:team-platform',
+      system: 'system:idp',
+    },
+    {
+      title: 'Engineering Docs',
+      description: 'Markdown-as-code docs portal — every service publishes here.',
+      tags: ['docs'],
+    },
+  ),
 
   /* ─── APIs ─── */
-  entity('API', 'cart-api', {
-    type: 'grpc',
-    lifecycle: 'production',
-    owner: 'group:team-commerce',
-    system: 'system:storefront',
-    definition: 'component:cart',
-  }, { title: 'Cart API', description: 'gRPC interface for the storefront cart.' }),
-  entity('API', 'catalog-api', {
-    type: 'openapi',
-    lifecycle: 'production',
-    owner: 'group:team-commerce',
-    system: 'system:storefront',
-    definition: 'component:catalog-svc',
-  }, { title: 'Catalog API', description: 'REST API for product browse + search.' }),
-  entity('API', 'orders-api', {
-    type: 'openapi',
-    lifecycle: 'production',
-    owner: 'group:team-orders',
-    system: 'system:orders',
-    definition: 'component:orders-svc',
-  }, { title: 'Orders API', description: 'Order lifecycle + retrieval REST API.' }),
-  entity('API', 'payments-api', {
-    type: 'openapi',
-    lifecycle: 'production',
-    owner: 'group:team-orders',
-    system: 'system:orders',
-    definition: 'component:payments-svc',
-  }, { title: 'Payments API', description: 'Internal gateway for payment authorisation.' }),
-  entity('API', 'order-events', {
-    type: 'asyncapi',
-    lifecycle: 'production',
-    owner: 'group:team-orders',
-    system: 'system:orders',
-    definition: 'component:orders-svc',
-  }, { title: 'Order Events', description: 'AsyncAPI v3 spec for the orders Kafka topic.' }),
+  entity(
+    'API',
+    'cart-api',
+    {
+      type: 'grpc',
+      lifecycle: 'production',
+      owner: 'group:team-commerce',
+      system: 'system:storefront',
+      definition: 'component:cart',
+    },
+    { title: 'Cart API', description: 'gRPC interface for the storefront cart.' },
+  ),
+  entity(
+    'API',
+    'catalog-api',
+    {
+      type: 'openapi',
+      lifecycle: 'production',
+      owner: 'group:team-commerce',
+      system: 'system:storefront',
+      definition: 'component:catalog-svc',
+    },
+    { title: 'Catalog API', description: 'REST API for product browse + search.' },
+  ),
+  entity(
+    'API',
+    'orders-api',
+    {
+      type: 'openapi',
+      lifecycle: 'production',
+      owner: 'group:team-orders',
+      system: 'system:orders',
+      definition: 'component:orders-svc',
+    },
+    { title: 'Orders API', description: 'Order lifecycle + retrieval REST API.' },
+  ),
+  entity(
+    'API',
+    'payments-api',
+    {
+      type: 'openapi',
+      lifecycle: 'production',
+      owner: 'group:team-orders',
+      system: 'system:orders',
+      definition: 'component:payments-svc',
+    },
+    { title: 'Payments API', description: 'Internal gateway for payment authorisation.' },
+  ),
+  entity(
+    'API',
+    'order-events',
+    {
+      type: 'asyncapi',
+      lifecycle: 'production',
+      owner: 'group:team-orders',
+      system: 'system:orders',
+      definition: 'component:orders-svc',
+    },
+    { title: 'Order Events', description: 'AsyncAPI v3 spec for the orders Kafka topic.' },
+  ),
 
   /* ─── Resources ─── */
-  entity('Resource', 'cart-redis', {
-    type: 'cache',
-    owner: 'group:team-commerce',
-    system: 'system:storefront',
-    provider: 'platform.adhar.io/Cache',
-  }, { title: 'Cart Redis', description: 'HA Redis cluster for cart hold (TTL 30 min).' }),
-  entity('Resource', 'catalog-pg', {
-    type: 'database',
-    owner: 'group:team-commerce',
-    system: 'system:storefront',
-    provider: 'platform.adhar.io/Database',
-  }, { title: 'Catalog Postgres', description: 'Source of truth for products + variants.' }),
-  entity('Resource', 'catalog-search', {
-    type: 'cluster',
-    owner: 'group:team-commerce',
-    system: 'system:storefront',
-    provider: 'opensearch',
-  }, { title: 'Catalog Search', description: 'OpenSearch — product search index.' }),
-  entity('Resource', 'orders-pg', {
-    type: 'database',
-    owner: 'group:team-orders',
-    system: 'system:orders',
-    provider: 'platform.adhar.io/Database',
-  }, { title: 'Orders Postgres', description: 'Order ledger + outbox table.' }),
-  entity('Resource', 'orders-events', {
-    type: 'topic',
-    owner: 'group:team-orders',
-    system: 'system:orders',
-    provider: 'platform.adhar.io/Topic',
-  }, { title: 'orders.events.v1', description: 'Kafka topic — domain events from Orders.' }),
-  entity('Resource', 'payments-pg', {
-    type: 'database',
-    owner: 'group:team-orders',
-    system: 'system:orders',
-    provider: 'platform.adhar.io/Database',
-  }, { title: 'Payments Postgres', description: 'PCI-segregated payment ledger.' }),
-  entity('Resource', 'asset-bucket', {
-    type: 'bucket',
-    owner: 'group:team-platform',
-    system: 'system:idp',
-    provider: 'platform.adhar.io/Bucket',
-  }, { title: 'Assets Bucket', description: 'S3 bucket for images + downloads.' }),
-  entity('Resource', 'bronze-bucket', {
-    type: 'bucket',
-    owner: 'group:team-data',
-    system: 'system:lakehouse',
-    provider: 'platform.adhar.io/Bucket',
-  }, { title: 'Bronze Bucket', description: 'Raw landing zone for the data lake.' }),
-  entity('Resource', 'lake-events', {
-    type: 'topic',
-    owner: 'group:team-data',
-    system: 'system:lakehouse',
-    provider: 'platform.adhar.io/Topic',
-  }, { title: 'lake.events', description: 'Kafka topic feeding the bronze layer.' }),
-  entity('Resource', 'fraud-features', {
-    type: 'database',
-    owner: 'group:team-data',
-    system: 'system:orders',
-    provider: 'feast',
-  }, { title: 'Feature Store', description: 'Feast online + offline store for fraud features.' }),
+  entity(
+    'Resource',
+    'cart-redis',
+    {
+      type: 'cache',
+      owner: 'group:team-commerce',
+      system: 'system:storefront',
+      provider: 'platform.adhar.io/Cache',
+    },
+    { title: 'Cart Redis', description: 'HA Redis cluster for cart hold (TTL 30 min).' },
+  ),
+  entity(
+    'Resource',
+    'catalog-pg',
+    {
+      type: 'database',
+      owner: 'group:team-commerce',
+      system: 'system:storefront',
+      provider: 'platform.adhar.io/Database',
+    },
+    { title: 'Catalog Postgres', description: 'Source of truth for products + variants.' },
+  ),
+  entity(
+    'Resource',
+    'catalog-search',
+    {
+      type: 'cluster',
+      owner: 'group:team-commerce',
+      system: 'system:storefront',
+      provider: 'opensearch',
+    },
+    { title: 'Catalog Search', description: 'OpenSearch — product search index.' },
+  ),
+  entity(
+    'Resource',
+    'orders-pg',
+    {
+      type: 'database',
+      owner: 'group:team-orders',
+      system: 'system:orders',
+      provider: 'platform.adhar.io/Database',
+    },
+    { title: 'Orders Postgres', description: 'Order ledger + outbox table.' },
+  ),
+  entity(
+    'Resource',
+    'orders-events',
+    {
+      type: 'topic',
+      owner: 'group:team-orders',
+      system: 'system:orders',
+      provider: 'platform.adhar.io/Topic',
+    },
+    { title: 'orders.events.v1', description: 'Kafka topic — domain events from Orders.' },
+  ),
+  entity(
+    'Resource',
+    'payments-pg',
+    {
+      type: 'database',
+      owner: 'group:team-orders',
+      system: 'system:orders',
+      provider: 'platform.adhar.io/Database',
+    },
+    { title: 'Payments Postgres', description: 'PCI-segregated payment ledger.' },
+  ),
+  entity(
+    'Resource',
+    'asset-bucket',
+    {
+      type: 'bucket',
+      owner: 'group:team-platform',
+      system: 'system:idp',
+      provider: 'platform.adhar.io/Bucket',
+    },
+    { title: 'Assets Bucket', description: 'S3 bucket for images + downloads.' },
+  ),
+  entity(
+    'Resource',
+    'bronze-bucket',
+    {
+      type: 'bucket',
+      owner: 'group:team-data',
+      system: 'system:lakehouse',
+      provider: 'platform.adhar.io/Bucket',
+    },
+    { title: 'Bronze Bucket', description: 'Raw landing zone for the data lake.' },
+  ),
+  entity(
+    'Resource',
+    'lake-events',
+    {
+      type: 'topic',
+      owner: 'group:team-data',
+      system: 'system:lakehouse',
+      provider: 'platform.adhar.io/Topic',
+    },
+    { title: 'lake.events', description: 'Kafka topic feeding the bronze layer.' },
+  ),
+  entity(
+    'Resource',
+    'fraud-features',
+    {
+      type: 'database',
+      owner: 'group:team-data',
+      system: 'system:orders',
+      provider: 'feast',
+    },
+    { title: 'Feature Store', description: 'Feast online + offline store for fraud features.' },
+  ),
 ]
 
-/* ─────────── persistence ─────────── */
+/* ─────────── persistence (user-registered / manual entities only) ─────────── */
 
-const STORAGE_KEY = 'adhar.catalog.entities'
+/**
+ * The store now holds ONLY the entities a user explicitly registered through the
+ * UI. Live entities are derived fresh from the cluster / Gitea (see
+ * `catalog-live.ts`) and never persisted; the seed is a dev/offline fallback
+ * only. A new storage key is used so any legacy full-catalog blob under the old
+ * key is ignored rather than resurrected as the primary source.
+ */
+const REGISTERED_KEY = 'adhar.catalog.registered'
 
-function readStore(): Entity[] | null {
-  if (typeof localStorage === 'undefined') return null
+function readStore(): Entity[] {
+  if (typeof localStorage === 'undefined') return []
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return null
+    const raw = localStorage.getItem(REGISTERED_KEY)
+    if (!raw) return []
     const parsed = JSON.parse(raw) as Entity[]
-    return Array.isArray(parsed) ? parsed : null
+    return Array.isArray(parsed) ? parsed.map((e) => ({ ...e, origin: 'registered' as const })) : []
   } catch {
-    return null
+    return []
   }
 }
 function writeStore(entities: Entity[]): void {
   if (typeof localStorage === 'undefined') return
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entities))
+    localStorage.setItem(REGISTERED_KEY, JSON.stringify(entities))
   } catch {
     /* quota — ignore */
   }
@@ -457,14 +664,14 @@ function delay(ms: number) {
   return new Promise<void>((r) => setTimeout(r, ms))
 }
 
-async function fetchEntities(): Promise<Entity[]> {
-  await delay(80)
-  return readStore() ?? SEED_CATALOG
+async function fetchRegistered(): Promise<Entity[]> {
+  await delay(40)
+  return readStore()
 }
 
 async function persistEntity(next: Entity): Promise<Entity> {
   await delay(160)
-  const list = readStore() ?? SEED_CATALOG
+  const list = readStore()
   const idx = list.findIndex(
     (e) =>
       e.kind === next.kind &&
@@ -473,6 +680,7 @@ async function persistEntity(next: Entity): Promise<Entity> {
   )
   const stamped: Entity = {
     ...next,
+    origin: 'registered',
     metadata: { ...next.metadata, updatedAt: new Date().toISOString() },
   }
   const updated = idx >= 0 ? list.with(idx, stamped) : [stamped, ...list]
@@ -480,16 +688,38 @@ async function persistEntity(next: Entity): Promise<Entity> {
   return stamped
 }
 
+/* ─────────── merge helpers ─────────── */
+
+function entityKey(e: Entity): string {
+  return `${e.kind}|${e.metadata.namespace ?? 'default'}|${e.metadata.name}`
+}
+
+/**
+ * Merge entity lists by identity, first-writer-wins. Callers order sources by
+ * precedence: registered (user intent) → live (cluster truth) → seed (fallback).
+ */
+export function mergeCatalogs(...lists: Entity[][]): Entity[] {
+  const byKey = new Map<string, Entity>()
+  for (const list of lists) {
+    for (const e of list) {
+      const k = entityKey(e)
+      if (!byKey.has(k)) byKey.set(k, e)
+    }
+  }
+  return Array.from(byKey.values())
+}
+
 /* ─────────── React Query ─────────── */
 
-const QUERY_KEY = ['catalog', 'entities'] as const
+const REGISTERED_QUERY_KEY = ['catalog', 'registered'] as const
 
-export function useCatalog() {
+/** Just the user-registered entities from the local store. */
+export function useRegisteredEntities() {
   return useQuery<Entity[]>({
-    queryKey: QUERY_KEY,
-    queryFn: fetchEntities,
+    queryKey: REGISTERED_QUERY_KEY,
+    queryFn: fetchRegistered,
     staleTime: 60_000,
-    placeholderData: SEED_CATALOG,
+    placeholderData: [],
   })
 }
 
@@ -498,17 +728,17 @@ export function useRegisterEntity() {
   return useMutation({
     mutationFn: persistEntity,
     onMutate: async (next) => {
-      await qc.cancelQueries({ queryKey: QUERY_KEY })
-      const prev = qc.getQueryData<Entity[]>(QUERY_KEY)
-      const optimistic = prev ? mergeEntity(prev, next) : [next]
-      qc.setQueryData<Entity[]>(QUERY_KEY, optimistic)
+      await qc.cancelQueries({ queryKey: REGISTERED_QUERY_KEY })
+      const prev = qc.getQueryData<Entity[]>(REGISTERED_QUERY_KEY)
+      const optimistic = mergeEntity(prev ?? [], { ...next, origin: 'registered' })
+      qc.setQueryData<Entity[]>(REGISTERED_QUERY_KEY, optimistic)
       return { prev }
     },
     onError: (_e, _v, ctx) => {
-      if (ctx?.prev) qc.setQueryData(QUERY_KEY, ctx.prev)
+      if (ctx?.prev) qc.setQueryData(REGISTERED_QUERY_KEY, ctx.prev)
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: QUERY_KEY })
+      qc.invalidateQueries({ queryKey: REGISTERED_QUERY_KEY })
     },
   })
 }
@@ -521,6 +751,54 @@ function mergeEntity(list: Entity[], next: Entity): Entity[] {
       e.metadata.name === next.metadata.name,
   )
   return idx >= 0 ? list.with(idx, next) : [next, ...list]
+}
+
+/* ─────────── composed catalog (registered + live, seed fallback) ─────────── */
+
+export interface CatalogResult {
+  /** The merged entity list the UI renders. */
+  data: Entity[]
+  isLoading: boolean
+  /** Per-source health so the UI can render honest banners. */
+  sources: SourceStatus[]
+  /** True when live cluster/tool data is present (registered-only counts too). */
+  live: boolean
+  /**
+   * True when we are showing the built-in sample catalog because no live source
+   * and no registered entities were available (dev / offline / all sources down).
+   */
+  offline: boolean
+}
+
+/**
+ * Primary catalog hook. Prefers live data (cluster + Gitea) merged with the
+ * user's registered entities. Falls back to the bundled sample catalog only when
+ * nothing live and nothing registered is available — clearly flagged via
+ * `offline` so the UI never passes off sample data as real.
+ */
+export function useCatalog(): CatalogResult {
+  const registeredQ = useRegisteredEntities()
+  const liveCatalog = useLiveCatalog()
+
+  const registered = registeredQ.data ?? []
+  const isLoading = registeredQ.isLoading || liveCatalog.isLoading
+
+  return useMemo(() => {
+    const hasReal = liveCatalog.hasLive || registered.length > 0
+    const offline = !hasReal && !isLoading
+    const data = hasReal
+      ? mergeCatalogs(registered, liveCatalog.entities)
+      : offline
+        ? SEED_CATALOG
+        : mergeCatalogs(registered, liveCatalog.entities)
+    return {
+      data,
+      isLoading,
+      sources: liveCatalog.sources,
+      live: liveCatalog.hasLive,
+      offline,
+    }
+  }, [registered, liveCatalog.entities, liveCatalog.hasLive, liveCatalog.sources, isLoading])
 }
 
 /* ─────────── helpers used by UI ─────────── */

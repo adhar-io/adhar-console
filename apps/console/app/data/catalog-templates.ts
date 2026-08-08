@@ -124,6 +124,23 @@ export interface CatalogTemplate {
   glyph: string
   /** Tone for the card border. */
   tone: 'brand' | 'emerald' | 'sky' | 'amber' | 'violet' | 'rose' | 'slate'
+  /**
+   * Declarative scaffold contract executed by the BFF `/api/scaffold` endpoint.
+   * Absent → the template only registers a catalog entry (no repo/GitOps). This
+   * is the low-maintenance knob: point `sourceRepo` at a real Gitea template
+   * repo and the runtime does generate-repo → commit descriptor → GitOps.
+   * See docs/guides/authoring-templates.md.
+   */
+  scaffold?: {
+    /** Gitea template repo to generate from, "owner/repo". Omit → empty repo. */
+    sourceRepo?: string
+    /** Also create an Argo CD Application (GitOps). Default false. */
+    gitops?: boolean
+    /** Path Argo CD syncs within the new repo. Default "deploy". */
+    manifestPath?: string
+    /** Path for the catalog descriptor. Default "catalog-info.yaml". */
+    catalogInfoPath?: string
+  }
 }
 
 /** Human-friendly label for each language used in filters and chips. */

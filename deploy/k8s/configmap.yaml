@@ -39,6 +39,14 @@ data:
   ARGO_WORKFLOWS_URL: "https://argo-workflows.adhar.localtest.me:8443"
   ARGO_ROLLOUTS_URL: "https://rollouts.adhar.localtest.me:8443"
 
+  # Component scaffolder (Catalog → Create): org for new + template repos, and
+  # where GitOps Argo CD Applications are created. Repo creation uses GITEA_TOKEN
+  # (Secret); the Application is created as the signed-in user.
+  GITEA_ORG: "platform"
+  ARGOCD_NAMESPACE: "argocd"
+  ARGOCD_PROJECT: "default"
+  SCAFFOLD_DEST_NAMESPACE: "default"
+
   # OpenCost / Kubecost allocation API (Decide → cost/spend). In-cluster this is
   # the opencost service on its API port; no auth by default.
   OPENCOST_URL: "http://opencost.opencost.svc:9003"

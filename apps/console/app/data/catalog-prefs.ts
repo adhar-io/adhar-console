@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 
 /**
  * User preferences for the Service Catalog: starred entities and a recently
@@ -48,12 +48,18 @@ function makeRefStore(key: string, max?: number, scope?: string): RefStore {
   const hydrate = () => {
     if (!isProdBuild() || !scope || hydrated || typeof localStorage === 'undefined') return
     hydrated = true
-    void fetch(`/api/prefs/${scope}`, { credentials: 'include', headers: { accept: 'application/json' } })
+    void fetch(`/api/prefs/${scope}`, {
+      credentials: 'include',
+      headers: { accept: 'application/json' },
+    })
       .then((r) => (r.ok ? r.json() : null))
       .then((j: { data?: { items?: unknown } } | null) => {
         const items = j?.data?.items
         if (Array.isArray(items)) {
-          localStorage.setItem(key, JSON.stringify(items.filter((x): x is string => typeof x === 'string')))
+          localStorage.setItem(
+            key,
+            JSON.stringify(items.filter((x): x is string => typeof x === 'string')),
+          )
           notify()
         }
       })
@@ -118,17 +124,14 @@ function makeRefStore(key: string, max?: number, scope?: string): RefStore {
   const getServerSnapshot = (): readonly string[] => EMPTY
 
   return {
-    useValue: () =>
-      useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot),
+    useValue: () => useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot),
     read: () => {
       if (typeof localStorage === 'undefined') return []
       try {
         const raw = localStorage.getItem(key)
         if (!raw) return []
         const parsed = JSON.parse(raw)
-        return Array.isArray(parsed)
-          ? parsed.filter((x): x is string => typeof x === 'string')
-          : []
+        return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
       } catch {
         return []
       }
@@ -146,6 +149,8 @@ function makeRefStore(key: string, max?: number, scope?: string): RefStore {
 
 const starsStore = makeRefStore('adhar.catalog.stars', undefined, 'catalog-stars')
 const recentsStore = makeRefStore('adhar.catalog.recently-viewed', 8, 'catalog-recents')
+// Saved views persist each entry as a JSON string (`{ name, search }`).
+const savedViewsStore = makeRefStore('adhar.catalog.saved-views', 24, 'catalog-saved-views')
 
 /* ─────────── stars ─────────── */
 
@@ -175,4 +180,46 @@ export function useRecentlyViewed(): readonly string[] {
 export function pushRecentlyViewed(ref: string): void {
   const cur = recentsStore.read()
   recentsStore.write([ref, ...cur.filter((x) => x !== ref)])
+}
+
+/* ─────────── saved views ─────────── */
+
+export interface SavedView {
+  name: string
+  /** Serialisable snapshot of the route search params for this view. */
+  search: Record<string, string>
+}
+
+function parseView(raw: string): SavedView | null {
+  try {
+    const v = JSON.parse(raw) as SavedView
+    if (v && typeof v.name === 'string' && v.search && typeof v.search === 'object') return v
+    return null
+  } catch {
+    return null
+  }
+}
+
+export function useSavedViews(): SavedView[] {
+  const raws = savedViewsStore.useValue()
+  return useMemo(() => raws.map(parseView).filter((v): v is SavedView => v !== null), [raws])
+}
+
+export function saveView(name: string, search: Record<string, string>): void {
+  const trimmed = name.trim()
+  if (!trimmed) return
+  const cur = savedViewsStore
+    .read()
+    .map(parseView)
+    .filter((v): v is SavedView => v !== null)
+  const next = [{ name: trimmed, search }, ...cur.filter((v) => v.name !== trimmed)]
+  savedViewsStore.write(next.map((v) => JSON.stringify(v)))
+}
+
+export function deleteView(name: string): void {
+  const cur = savedViewsStore
+    .read()
+    .map(parseView)
+    .filter((v): v is SavedView => v !== null)
+  savedViewsStore.write(cur.filter((v) => v.name !== name).map((v) => JSON.stringify(v)))
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { cn } from '@adhar-console/utils'
 import {
   AirbyteIcon,
@@ -51,7 +51,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     id: 'gitea',
     name: 'Gitea',
     description: 'Source control + code review',
-    url: 'https://gitea.adhar.local',
+    url: 'https://gitea.adhar.localtest.me:8443',
     category: 'Develop',
     icon: <GiteaIcon />,
   },
@@ -59,7 +59,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     id: 'plane',
     name: 'Plane',
     description: 'Issues, roadmap, OKRs',
-    url: 'https://plane.adhar.local',
+    url: 'https://plane.adhar.localtest.me:8443',
     category: 'Develop',
     icon: <PlaneIcon />,
   },
@@ -67,7 +67,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     id: 'argo-workflows',
     name: 'Argo Workflows',
     description: 'Container-native CI pipelines',
-    url: 'https://workflows.adhar.local',
+    url: 'https://workflows.adhar.localtest.me:8443',
     category: 'Develop',
     icon: <ArgoWorkflowsIcon />,
   },
@@ -76,7 +76,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     id: 'argocd',
     name: 'Argo CD',
     description: 'GitOps continuous delivery',
-    url: 'https://argocd.adhar.local',
+    url: 'https://argocd.adhar.localtest.me:8443',
     category: 'Deliver',
     icon: <ArgoCDIcon />,
   },
@@ -84,7 +84,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     id: 'kargo',
     name: 'Kargo',
     description: 'Multi-stage promotion',
-    url: 'https://kargo.adhar.local',
+    url: 'https://kargo.adhar.localtest.me:8443',
     category: 'Deliver',
     icon: <KargoIcon />,
   },
@@ -92,7 +92,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     id: 'argo-rollouts',
     name: 'Argo Rollouts',
     description: 'Progressive delivery',
-    url: 'https://rollouts.adhar.local',
+    url: 'https://rollouts.adhar.localtest.me:8443',
     category: 'Deliver',
     icon: <ArgoRolloutsIcon />,
   },
@@ -100,7 +100,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     id: 'harbor',
     name: 'Harbor',
     description: 'Container registry',
-    url: 'https://harbor.adhar.local',
+    url: 'https://harbor.adhar.localtest.me:8443',
     category: 'Deliver',
     icon: <HarborIcon />,
   },
@@ -109,7 +109,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     id: 'grafana',
     name: 'Grafana',
     description: 'Dashboards & alerting',
-    url: 'https://grafana.adhar.local',
+    url: 'https://grafana.adhar.localtest.me:8443',
     category: 'Observe',
     icon: <GrafanaIcon />,
   },
@@ -117,7 +117,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     id: 'loki',
     name: 'Loki',
     description: 'Log aggregation',
-    url: 'https://grafana.adhar.local/explore?left={"datasource":"loki"}',
+    url: 'https://grafana.adhar.localtest.me:8443/explore?left={"datasource":"loki"}',
     category: 'Observe',
     icon: <LokiIcon />,
   },
@@ -125,7 +125,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     id: 'prometheus',
     name: 'Prometheus',
     description: 'Metrics (via Mimir)',
-    url: 'https://mimir.adhar.local',
+    url: 'https://mimir.adhar.localtest.me:8443',
     category: 'Observe',
     icon: <PrometheusIcon />,
   },
@@ -133,7 +133,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     id: 'tempo',
     name: 'Tempo',
     description: 'Distributed traces',
-    url: 'https://tempo.adhar.local',
+    url: 'https://tempo.adhar.localtest.me:8443',
     category: 'Observe',
     icon: <TempoIcon />,
   },
@@ -141,7 +141,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     id: 'otel',
     name: 'OpenTelemetry',
     description: 'Collector config',
-    url: 'https://otel.adhar.local',
+    url: 'https://otel.adhar.localtest.me:8443',
     category: 'Observe',
     icon: <OTelIcon />,
   },
@@ -150,7 +150,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     id: 'airbyte',
     name: 'Airbyte',
     description: 'ELT & data ingestion',
-    url: 'https://airbyte.adhar.local',
+    url: 'https://airbyte.adhar.localtest.me:8443',
     category: 'Data',
     icon: <AirbyteIcon />,
   },
@@ -158,7 +158,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     id: 'metabase',
     name: 'Metabase',
     description: 'BI & ad-hoc analytics',
-    url: 'https://metabase.adhar.local',
+    url: 'https://metabase.adhar.localtest.me:8443',
     category: 'Data',
     icon: <MetabaseIcon />,
   },
@@ -166,7 +166,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     id: 'iceberg',
     name: 'Iceberg',
     description: 'Lakehouse table format',
-    url: 'https://iceberg.adhar.local',
+    url: 'https://iceberg.adhar.localtest.me:8443',
     category: 'Data',
     icon: <IcebergIcon />,
   },
@@ -174,7 +174,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     id: 'minio',
     name: 'MinIO',
     description: 'S3-compatible object store',
-    url: 'https://minio.adhar.local',
+    url: 'https://minio.adhar.localtest.me:8443',
     category: 'Data',
     icon: <MinIOIcon />,
   },
@@ -183,7 +183,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     id: 'keycloak',
     name: 'Keycloak',
     description: 'Identity & SSO',
-    url: 'https://keycloak.adhar.local',
+    url: 'https://keycloak.adhar.localtest.me:8443',
     category: 'Identity',
     icon: <KeycloakIcon />,
   },
@@ -192,7 +192,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     id: 'kyverno',
     name: 'Kyverno',
     description: 'Policy engine',
-    url: 'https://kyverno.adhar.local',
+    url: 'https://kyverno.adhar.localtest.me:8443',
     category: 'Policy',
     icon: <KyvernoIcon />,
   },
@@ -200,7 +200,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     id: 'crossplane',
     name: 'Crossplane',
     description: 'Infra composition',
-    url: 'https://crossplane.adhar.local',
+    url: 'https://crossplane.adhar.localtest.me:8443',
     category: 'Platform',
     icon: <CrossplaneIcon />,
   },
@@ -208,7 +208,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     id: 'kubernetes',
     name: 'Kubernetes',
     description: 'Cluster dashboard',
-    url: 'https://dashboard.adhar.local',
+    url: 'https://dashboard.adhar.localtest.me:8443',
     category: 'Platform',
     icon: <KubernetesIcon />,
   },
@@ -273,6 +273,84 @@ interface AppLauncherProps {
   apps?: AppLink[]
 }
 
+export interface ResolvedApp extends AppLink {
+  /** True when the BFF reports the tool configured (or it's a direct-ingress app). */
+  configured: boolean
+}
+
+interface ToolInfo {
+  configured: boolean
+  url: string
+}
+
+/**
+ * Resolve each app's REAL launch URL + availability from `/api/config` (which
+ * reports every backing tool's external URL for this deployment). For tools the
+ * BFF proxies we use the reported URL directly; for direct-ingress apps not in
+ * the registry (Keycloak, Kyverno, …) we derive the URL from the cluster's base
+ * domain (inferred from any configured tool), so every tile points at the right
+ * host in every environment. The static `DEFAULT_APP_LINKS` URL is the last
+ * resort. All apps open in a new tab and are already Keycloak-SSO enabled, so no
+ * separate login is needed.
+ */
+function useResolvedApps(apps: AppLink[]): { apps: ResolvedApp[]; loading: boolean } {
+  const [tools, setTools] = useState<Record<string, ToolInfo> | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let alive = true
+    fetch('/api/config', { credentials: 'include', headers: { accept: 'application/json' } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { tools?: Record<string, ToolInfo> } | null) => {
+        if (!alive) return
+        setTools(d?.tools ?? {})
+        setLoading(false)
+      })
+      .catch(() => {
+        if (alive) setLoading(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const resolved = useMemo<ResolvedApp[]>(() => {
+    const map = tools ?? {}
+    // Infer the cluster base domain (e.g. adhar.localtest.me:8443) from any
+    // configured tool URL, to build correct URLs for non-proxied apps.
+    let base: { protocol: string; host: string } | null = null
+    for (const t of Object.values(map)) {
+      if (!t.url) continue
+      try {
+        const u = new URL(t.url)
+        base = { protocol: u.protocol, host: u.host.split('.').slice(1).join('.') }
+        break
+      } catch {
+        /* skip malformed */
+      }
+    }
+    return apps.map((a) => {
+      const info = map[a.id]
+      let url = a.url
+      let configured = true
+      if (info) {
+        configured = info.configured
+        if (info.url) url = info.url
+      } else if (base) {
+        try {
+          const sub = new URL(a.url).hostname.split('.')[0]
+          url = `${base.protocol}//${sub}.${base.host}`
+        } catch {
+          /* keep static */
+        }
+      }
+      return { ...a, url, configured }
+    })
+  }, [apps, tools])
+
+  return { apps: resolved, loading }
+}
+
 /**
  * App launcher — grid-drawer of every backing tool in the platform, with brand
  * marks and one-click links. Replaces the "where do I find X?" tab chaos.
@@ -281,6 +359,7 @@ export function AppLauncher({ apps = DEFAULT_APP_LINKS }: AppLauncherProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const { apps: resolved } = useResolvedApps(apps)
 
   // Autofocus the filter when the panel opens.
   useEffect(() => {
@@ -302,13 +381,13 @@ export function AppLauncher({ apps = DEFAULT_APP_LINKS }: AppLauncherProps) {
 
   const trimmed = query.trim().toLowerCase()
   const filtered = trimmed
-    ? apps.filter(
+    ? resolved.filter(
         (a) =>
           a.name.toLowerCase().includes(trimmed) ||
           a.description.toLowerCase().includes(trimmed) ||
           a.category.toLowerCase().includes(trimmed),
       )
-    : apps
+    : resolved
 
   return (
     <div className="relative">
@@ -343,9 +422,13 @@ export function AppLauncher({ apps = DEFAULT_APP_LINKS }: AppLauncherProps) {
                       <IconSparkle />
                     </span>
                     Adhar apps
+                    <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700 ring-1 ring-inset ring-emerald-100">
+                      <IconLock />
+                      SSO
+                    </span>
                   </div>
                   <div className="mt-0.5 text-[11px] text-content-muted">
-                    Jump into any backing tool — opens in a new tab.
+                    Opens in a new tab — you're signed in automatically via Keycloak SSO.
                   </div>
                 </div>
                 <div className="relative">
@@ -397,7 +480,10 @@ export function AppLauncher({ apps = DEFAULT_APP_LINKS }: AppLauncherProps) {
               )}
             </div>
             <div className="flex items-center justify-between gap-2 border-t border-edge-subtle bg-surface-sunken/60 px-4 py-2 text-[11px] text-content-muted">
-              <span>{DEFAULT_APP_LINKS.length} apps · {CATEGORY_ORDER.length} groups</span>
+              <span>
+                {resolved.filter((a) => a.configured).length} of {resolved.length} apps available ·
+                single sign-on
+              </span>
               <span className="font-mono text-content-subtle">esc to close</span>
             </div>
           </div>
@@ -407,38 +493,66 @@ export function AppLauncher({ apps = DEFAULT_APP_LINKS }: AppLauncherProps) {
   )
 }
 
-function AppGrid({ apps, onLaunch }: { apps: AppLink[]; onLaunch(): void }) {
+function AppGrid({ apps, onLaunch }: { apps: ResolvedApp[]; onLaunch(): void }) {
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
       {apps.map((a) => {
         const tone = CATEGORY_TONE[a.category]
+        const iconBox = (
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-edge-subtle transition-transform duration-150 group-hover:scale-105 [&>svg]:h-7 [&>svg]:w-7">
+            {a.icon}
+          </div>
+        )
+        const label = (
+          <div className="min-w-0 w-full">
+            <div className="truncate text-[13px] font-semibold text-content">{a.name}</div>
+            <div className="mt-0.5 line-clamp-1 text-[11px] text-content-muted">{a.description}</div>
+          </div>
+        )
+
+        // Not configured in this deployment → show it (so the full catalogue is
+        // visible) but disabled, rather than linking to a dead host.
+        if (!a.configured) {
+          return (
+            <div
+              key={a.id}
+              title={`${a.name} is not configured in this environment`}
+              aria-disabled
+              className={cn(
+                'relative flex cursor-not-allowed flex-col items-start gap-2.5 rounded-xl p-3 text-left opacity-55 ring-1 ring-edge-subtle',
+              )}
+            >
+              <div className="grayscale">{iconBox}</div>
+              {label}
+              <span className="absolute right-2.5 top-2.5 rounded-full bg-surface-sunken px-1.5 py-0.5 text-[9px] font-medium text-content-subtle">
+                not set up
+              </span>
+            </div>
+          )
+        }
+
         return (
           <a
             key={a.id}
             href={a.url}
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
             onClick={onLaunch}
+            title={`Open ${a.name} — ${a.url}`}
+            data-app-tile
             className={cn(
-              'group relative flex flex-col items-start gap-2.5 rounded-xl p-3 text-left transition-all duration-150',
+              'group relative flex flex-col items-start gap-2.5 rounded-xl p-3 text-left transition-all duration-150 outline-none',
               tone.tile,
               'ring-1',
               tone.ring,
-              'hover:-translate-y-0.5 hover:shadow-md',
+              'hover:-translate-y-0.5 hover:shadow-md focus-visible:-translate-y-0.5 focus-visible:shadow-md focus-visible:ring-2 focus-visible:ring-brand-400/40',
             )}
           >
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-edge-subtle transition-transform duration-150 group-hover:scale-105 [&>svg]:h-7 [&>svg]:w-7">
-              {a.icon}
-            </div>
-            <div className="min-w-0 w-full">
-              <div className="truncate text-[13px] font-semibold text-content">{a.name}</div>
-              <div className="mt-0.5 line-clamp-1 text-[11px] text-content-muted">
-                {a.description}
-              </div>
-            </div>
+            {iconBox}
+            {label}
             <span
               aria-hidden
-              className="absolute right-2.5 top-2.5 text-content-subtle opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+              className="absolute right-2.5 top-2.5 text-content-subtle opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
             >
               <IconArrowUpRight />
             </span>
@@ -492,6 +606,15 @@ function IconSparkle() {
   return (
     <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
       <path d="M12 2 13.6 8.4 20 10l-6.4 1.6L12 18l-1.6-6.4L4 10l6.4-1.6L12 2Z" />
+    </svg>
+  )
+}
+
+function IconLock() {
+  return (
+    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
     </svg>
   )
 }

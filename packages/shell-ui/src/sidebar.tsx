@@ -231,12 +231,8 @@ function Header({
         aria-label="Adhar Console — home"
         className="group flex min-w-0 items-center gap-2.5 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25"
       >
-        <div className="relative shrink-0 transition-transform duration-200 ease-out group-hover:scale-105">
+        <div className="shrink-0 transition-transform duration-200 ease-out group-hover:scale-105">
           <AdharSymbol size={36} />
-          <span
-            className="pointer-events-none absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white"
-            aria-hidden
-          />
         </div>
         <div
           className={cn(

@@ -61,11 +61,12 @@ export function ArgoRolloutsIcon(props: BrandProps) {
 }
 
 export function KargoIcon({ size = 40, className }: BrandProps) {
+  // Kargo = staged promotion of a shipping "cargo" box. Authentic blue.
   return (
     <svg {...base(size)} className={className} aria-hidden>
       <rect width="40" height="40" rx="9" fill="#0B5CFF" />
-      <path d="M11 26 20 11l9 15H11Z" fill="#fff" />
-      <path d="m20 17 4 6h-8l4-6Z" fill="#0B5CFF" />
+      <path d="M20 9 30 14v12l-10 5-10-5V14L20 9Z" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinejoin="round" />
+      <path d="M10 14l10 5 10-5M20 19v12" stroke="#fff" strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" fill="none" />
     </svg>
   )
 }
@@ -111,11 +112,15 @@ export function HarborIcon({ size = 40, className }: BrandProps) {
 }
 
 export function CrossplaneIcon({ size = 40, className }: BrandProps) {
+  // Crossplane's mark reads as interlocking rotated squares (a composition
+  // lattice). Authentic deep-blue on white.
   return (
     <svg {...base(size)} className={className} aria-hidden>
-      <rect width="40" height="40" rx="9" fill="#1D4ED8" />
-      <path d="M20 8v24M8 20h24" stroke="#fff" strokeWidth="3" strokeLinecap="round" />
-      <circle cx="20" cy="20" r="4" fill="#fff" />
+      <rect width="40" height="40" rx="9" fill="#1A0DAB" />
+      <g transform="rotate(45 20 20)">
+        <rect x="12" y="12" width="16" height="16" rx="3" fill="none" stroke="#fff" strokeWidth="2.4" />
+        <rect x="16.5" y="16.5" width="7" height="7" rx="1.5" fill="#fff" />
+      </g>
     </svg>
   )
 }

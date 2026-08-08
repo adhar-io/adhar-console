@@ -1064,16 +1064,24 @@ function ScaffoldWizard({
   }
   const launch = () => {
     setStage('run')
-    runScaffold(template, setRun, async () => {
+    runScaffoldReal(template, values, setRun, async (result) => {
+      // The scaffolder created the real repo + GitOps app; also add a catalog
+      // entry so it shows immediately (the live catalog will reconcile it too).
       const entity = entityFromTemplate(template, values)
+      if (result?.repoUrl) {
+        entity.metadata.annotations = {
+          ...(entity.metadata.annotations ?? {}),
+          'adhar.io/git-repo': result.repoUrl,
+          ...(result.appName ? { 'argocd/app-name': result.appName } : {}),
+        }
+      }
       try {
         const saved = await register.mutateAsync(entity)
         setRegistered(saved)
-        setStage('success')
       } catch {
         setRegistered(entity)
-        setStage('success')
       }
+      setStage('success')
     })
   }
 
@@ -1446,52 +1454,96 @@ function ReviewStep({
   )
 }
 
-function runScaffold(
-  template: CatalogTemplate,
-  setRun: (r: ScaffoldRun | ((prev: ScaffoldRun | null) => ScaffoldRun)) => void,
-  done: () => void,
-) {
-  const total = template.actions.reduce((acc, a) => acc + a.duration * 1000, 0) || 1
-  setRun({ step: 0, done: false, progress: 0, log: [], startedAt: Date.now() })
-  let elapsed = 0
-  let cancelled = false
+interface ScaffoldResult {
+  ok: boolean
+  repoUrl?: string
+  appName?: string
+  steps?: Array<{ name: string; ok: boolean; detail?: string }>
+  error?: string
+}
 
-  const runStep = (idx: number) => {
-    if (cancelled) return
-    if (idx >= template.actions.length) {
-      setRun((prev) => (prev ? { ...prev, done: true, progress: 1 } : prev))
-      done()
-      return
-    }
-    const a = template.actions[idx]
-    const ms = a.duration * 1000
-    setRun((prev) =>
-      prev
-        ? {
-            ...prev,
-            step: idx,
-            log: [...prev.log, `▶ ${a.title}${a.detail ? ` — ${a.detail}` : ''}`],
-          }
-        : prev,
-    )
-    setTimeout(() => {
-      elapsed += ms
+/**
+ * Execute a REAL scaffold via the BFF (`POST /api/scaffold`): it creates a Gitea
+ * repo (from the template's `scaffold.sourceRepo`), commits `catalog-info.yaml`,
+ * and — for GitOps templates — creates an Argo CD Application. Progress in the
+ * run log reflects the actual server step outcomes; nothing is simulated.
+ */
+function runScaffoldReal(
+  template: CatalogTemplate,
+  values: Record<string, unknown>,
+  setRun: (r: ScaffoldRun | ((prev: ScaffoldRun | null) => ScaffoldRun)) => void,
+  done: (result: ScaffoldResult | null) => void,
+) {
+  const str = (k: string) => (typeof values[k] === 'string' ? (values[k] as string) : undefined)
+  const body = {
+    templateId: template.id,
+    name: str('name'),
+    title: str('title'),
+    description: str('description'),
+    owner: str('owner'),
+    system: str('system'),
+    domain: str('domain'),
+    lifecycle: str('lifecycle') ?? 'experimental',
+    type: template.produces.type,
+    tags: template.tags,
+    scaffold: template.scaffold,
+    params: values,
+  }
+
+  setRun({ step: 0, done: false, progress: 0, log: ['▶ Scaffolding on the platform…'], startedAt: Date.now() })
+
+  fetch('/api/scaffold', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+    .then(async (res) => {
+      const data = (await res.json().catch(() => ({}))) as ScaffoldResult & { detail?: string }
+      if (!res.ok || data.ok === false) {
+        const steps = data.steps ?? []
+        setRun((prev) =>
+          prev
+            ? {
+                ...prev,
+                done: true,
+                progress: 1,
+                log: [
+                  ...prev.log,
+                  ...steps.map((s) => `${s.ok ? '✔' : '✗'} ${s.name}${s.detail ? ` — ${s.detail}` : ''}`),
+                  `✗ Scaffold failed: ${data.error ?? data.detail ?? `HTTP ${res.status}`}`,
+                ],
+              }
+            : prev,
+        )
+        done(null)
+        return
+      }
+      const steps = data.steps ?? []
       setRun((prev) =>
         prev
           ? {
               ...prev,
-              progress: Math.min(1, elapsed / total),
-              log: [...prev.log, `✔ ${a.title}`],
+              done: true,
+              progress: 1,
+              log: [
+                ...prev.log,
+                ...steps.map((s) => `${s.ok ? '✔' : '✗'} ${s.name}${s.detail ? ` — ${s.detail}` : ''}`),
+                `✔ Done — ${data.repoUrl ?? 'repository created'}`,
+              ],
             }
           : prev,
       )
-      runStep(idx + 1)
-    }, ms)
-  }
-  runStep(0)
-  return () => {
-    cancelled = true
-  }
+      done(data)
+    })
+    .catch((e) => {
+      setRun((prev) =>
+        prev
+          ? { ...prev, done: true, progress: 1, log: [...prev.log, `✗ ${e instanceof Error ? e.message : 'network error'}`] }
+          : prev,
+      )
+      done(null)
+    })
 }
 
 function RunStep({ template, run }: { template: CatalogTemplate; run: ScaffoldRun }) {

@@ -29,6 +29,7 @@ import {
 import { proxyToolRequest } from './app/server/proxy.ts'
 import { publicToolInfo } from './app/server/tool-registry.ts'
 import { handleDocuments, handleNotifications, handlePreferences } from './app/server/api-handlers.ts'
+import { handleScaffold } from './app/server/scaffolder.ts'
 import { handleK8s } from './app/server/k8s/gateway.ts'
 import { handleExec } from './app/server/k8s/exec.ts'
 import { handleAi } from './app/server/ai/handlers.ts'
@@ -180,6 +181,9 @@ async function route(req: Request): Promise<Response> {
   // Console-owned document store: /api/store/<kind>[/<id>]
   const store = path.match(/^\/api\/store\/([^/]+)(?:\/(.+))?$/)
   if (store) return handleDocuments(req, decodeURIComponent(store[1]), store[2] ? decodeURIComponent(store[2]) : undefined)
+
+  // Component scaffolder (Catalog → Create): real Gitea repo + GitOps.
+  if (path === '/api/scaffold') return handleScaffold(req)
 
   // Unknown API path → 404 JSON (don't fall through to the SPA).
   if (path.startsWith('/api/')) {

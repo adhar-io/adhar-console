@@ -16,21 +16,22 @@ import {
  *
  * Each module owns its own data layer (under `modules/<x>/src/data/<x>.ts`)
  * but those are sealed inside Module Federation bundles — the host can't
- * import them. We instead instantiate the same stubbed clients here and
- * read them via TanStack Query. Same data, no MF hop.
+ * import them. We instead instantiate the same clients here (same `tool`
+ * names, so they hit the same BFF proxies) and read them via TanStack Query.
+ * Same real data, no MF hop — no stubs.
  */
 
-/* ─────────── client singletons ─────────── */
+/* ─────────── client singletons (real, via the BFF tool proxies) ─────────── */
 
-const planeClient = plane.PlaneClient.stub()
-const giteaClient = gitea.GiteaClient.stub()
-const argocdClient = argocd.ArgoCDClient.stub()
-const trivyClient = trivy.TrivyClient.stub()
-const lgtmClient = lgtm.LgtmClient.stub()
-const phClient = posthog.PostHogClient.stub()
-const metabaseClient = metabase.MetabaseClient.stub()
-const airbyteClient = airbyte.AirbyteClient.stub()
-const falcoClient = falco.FalcoClient.stub()
+const planeClient = plane.PlaneClient.auto({ tool: 'plane' })
+const giteaClient = gitea.GiteaClient.auto({ tool: 'gitea' })
+const argocdClient = argocd.ArgoCDClient.auto({ tool: 'argocd' })
+const trivyClient = trivy.TrivyClient.auto({ tool: 'trivy' })
+const lgtmClient = lgtm.LgtmClient.auto({ tool: 'lgtm' })
+const phClient = posthog.PostHogClient.auto({ tool: 'posthog' })
+const metabaseClient = metabase.MetabaseClient.auto({ tool: 'metabase' })
+const airbyteClient = airbyte.AirbyteClient.auto({ tool: 'airbyte' })
+const falcoClient = falco.FalcoClient.auto({ tool: 'falco' })
 
 const PROJECT = 'acme'
 const ORG = 'acme'

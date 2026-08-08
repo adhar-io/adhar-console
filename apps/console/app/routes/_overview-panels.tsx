@@ -5,6 +5,7 @@ import {
   BarChart,
   HeatMap,
   Sparkline,
+  Spinner,
   StatusBadge,
 } from '@adhar-console/shell-ui'
 import { cn, formatRelative } from '@adhar-console/utils'
@@ -23,6 +24,33 @@ import {
   usePostHogActivity,
   useTrivyReports,
 } from '~/data/cross-module-signals.ts'
+import {
+  useAllPods,
+  useBudget,
+  useCiliumClusterPolicies,
+  useCiliumPolicies,
+  useClusterEvents,
+  useCnpgBackups,
+  useCnpgClusters,
+  useCnpgScheduledBackups,
+  useDoraApps,
+  useEndpoints,
+  useIngresses,
+  useIstioPeerAuth,
+  useKafkas,
+  useKafkaTopics,
+  useNodeMetrics,
+  useNodes,
+  usePvcs,
+  useResourceQuotas,
+  useServices,
+  useToolsConfig,
+  useVeleroBackups,
+  useWorkflows,
+  parseBytes,
+  parseCpu,
+} from '~/data/platform-signals.ts'
+import type { Generic } from '@adhar-console/api-clients/k8s'
 
 /**
  * Cross-module Overview panels. Each one pulls from its module's stub-backed
@@ -767,87 +795,106 @@ function PercentileMarker({
 /* ───── Service topology · mini graph ───── */
 
 export function ServiceTopologyPanel() {
-  // Hand-curated 8-node mesh that reads cleanly at the panel size.
-  const nodes: TopologyNode[] = [
-    { id: 'gw', label: 'gateway', x: 60, y: 60, health: 'healthy' },
-    { id: 'api', label: 'api', x: 180, y: 60, health: 'healthy' },
-    { id: 'auth', label: 'auth', x: 180, y: 130, health: 'healthy' },
-    { id: 'pay', label: 'payments', x: 300, y: 30, health: 'degraded' },
-    { id: 'orders', label: 'orders', x: 300, y: 100, health: 'healthy' },
-    { id: 'pg', label: 'postgres', x: 420, y: 60, health: 'healthy' },
-    { id: 'cache', label: 'redis', x: 420, y: 140, health: 'healthy' },
-    { id: 'feed', label: 'feed', x: 60, y: 130, health: 'failed' },
-  ]
-  const edges: [string, string][] = [
-    ['gw', 'api'],
-    ['gw', 'auth'],
-    ['api', 'pay'],
-    ['api', 'orders'],
-    ['orders', 'pg'],
-    ['pay', 'pg'],
-    ['orders', 'cache'],
-    ['feed', 'gw'],
-  ]
-  const byId = Object.fromEntries(nodes.map((n) => [n.id, n]))
+  const svc = useServices()
+  const eps = useEndpoints()
+
   const HEALTH_COLOR: Record<TopologyNode['health'], string> = {
     healthy: 'var(--color-brand-500)',
     degraded: '#f59e0b',
     failed: '#f43f5e',
   }
+
+  // Real service → health from its Endpoints (ready vs not-ready addresses).
+  // We deliberately draw no edges: a real service-to-service call graph needs a
+  // mesh (Hubble/Istio), and we never fabricate connections.
+  const nodes = useMemo<TopologyNode[]>(() => {
+    const services = (svc.data ?? []) as Array<{ metadata: { name: string; namespace?: string } }>
+    const endpoints = (eps.data ?? []) as Array<
+      Generic & {
+        subsets?: Array<{ addresses?: unknown[]; notReadyAddresses?: unknown[] }>
+      }
+    >
+    const epByKey = new Map<string, { ready: number; notReady: number }>()
+    for (const e of endpoints) {
+      const ready = (e.subsets ?? []).reduce((s, ss) => s + (ss.addresses?.length ?? 0), 0)
+      const notReady = (e.subsets ?? []).reduce((s, ss) => s + (ss.notReadyAddresses?.length ?? 0), 0)
+      epByKey.set(`${e.metadata.namespace ?? ''}/${e.metadata.name}`, { ready, notReady })
+    }
+    const list = services.slice(0, 8)
+    const cx = 240
+    const cy = 90
+    const rx = list.length > 1 ? 190 : 0
+    const ry = list.length > 1 ? 66 : 0
+    return list.map((s, i) => {
+      const ep = epByKey.get(`${s.metadata.namespace ?? ''}/${s.metadata.name}`)
+      const health: TopologyNode['health'] = !ep
+        ? 'healthy'
+        : ep.ready === 0
+          ? 'failed'
+          : ep.notReady > 0
+            ? 'degraded'
+            : 'healthy'
+      const angle = (-Math.PI / 2) + (i * (Math.PI * 2)) / Math.max(1, list.length)
+      return {
+        id: `${s.metadata.namespace ?? ''}/${s.metadata.name}`,
+        label: s.metadata.name,
+        x: list.length === 1 ? cx : cx + Math.cos(angle) * rx,
+        y: list.length === 1 ? cy : cy + Math.sin(angle) * ry,
+        health,
+      }
+    })
+  }, [svc.data, eps.data])
+
+  const loading = svc.isLoading || eps.isLoading
   return (
     <PanelCard>
-      <PanelHead title="Service topology" subtitle="8 services · live health" to="/discover?section=servicemap" />
-      <div className="overflow-hidden rounded-xl border border-edge-subtle bg-surface-sunken/40 p-2">
-        <svg viewBox="0 0 480 180" preserveAspectRatio="xMidYMid meet" className="h-full w-full">
-          <defs>
-            <pattern id="topo-grid" width="20" height="20" patternUnits="userSpaceOnUse">
-              <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(15,23,42,0.05)" strokeWidth="1" />
-            </pattern>
-            <marker id="topo-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
-              <path d="M0,0 L10,5 L0,10 z" fill="rgba(15,23,42,0.4)" />
-            </marker>
-          </defs>
-          <rect width="100%" height="100%" fill="url(#topo-grid)" />
-          {edges.map(([a, b], i) => {
-            const sa = byId[a]
-            const sb = byId[b]
-            return (
-              <line
-                key={i}
-                x1={sa.x}
-                y1={sa.y}
-                x2={sb.x}
-                y2={sb.y}
-                stroke="rgba(15,23,42,0.32)"
-                strokeWidth="1.5"
-                markerEnd="url(#topo-arrow)"
-              />
-            )
-          })}
-          {nodes.map((n) => (
-            <g key={n.id}>
-              <circle cx={n.x} cy={n.y} r="14" fill={HEALTH_COLOR[n.health]} fillOpacity="0.18" />
-              <circle cx={n.x} cy={n.y} r="7" fill={HEALTH_COLOR[n.health]} stroke="white" strokeWidth="2" />
-              <text
-                x={n.x}
-                y={n.y + 26}
-                textAnchor="middle"
-                fontFamily="ui-monospace, monospace"
-                fontSize="10"
-                fontWeight="600"
-                fill="rgb(15 23 42)"
-              >
-                {n.label}
-              </text>
-            </g>
-          ))}
-        </svg>
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px]">
-        <Legend dot="bg-brand-500" label={`${nodes.filter((n) => n.health === 'healthy').length} healthy`} />
-        <Legend dot="bg-amber-500" label={`${nodes.filter((n) => n.health === 'degraded').length} degraded`} />
-        <Legend dot="bg-rose-500" label={`${nodes.filter((n) => n.health === 'failed').length} failed`} />
-      </div>
+      <PanelHead
+        title="Service topology"
+        subtitle={`${nodes.length} services · live health`}
+        to="/discover?section=servicemap"
+      />
+      {loading ? (
+        <PanelLoading />
+      ) : svc.isError ? (
+        <PanelError message="Could not reach the cluster" />
+      ) : nodes.length === 0 ? (
+        <PanelEmpty message="No Services found in the cluster" />
+      ) : (
+        <>
+          <div className="overflow-hidden rounded-xl border border-edge-subtle bg-surface-sunken/40 p-2">
+            <svg viewBox="0 0 480 180" preserveAspectRatio="xMidYMid meet" className="h-full w-full">
+              <defs>
+                <pattern id="topo-grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                  <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(15,23,42,0.05)" strokeWidth="1" />
+                </pattern>
+              </defs>
+              <rect width="100%" height="100%" fill="url(#topo-grid)" />
+              {nodes.map((n) => (
+                <g key={n.id}>
+                  <circle cx={n.x} cy={n.y} r="14" fill={HEALTH_COLOR[n.health]} fillOpacity="0.18" />
+                  <circle cx={n.x} cy={n.y} r="7" fill={HEALTH_COLOR[n.health]} stroke="white" strokeWidth="2" />
+                  <text
+                    x={n.x}
+                    y={n.y + 26}
+                    textAnchor="middle"
+                    fontFamily="ui-monospace, monospace"
+                    fontSize="10"
+                    fontWeight="600"
+                    fill="rgb(15 23 42)"
+                  >
+                    {n.label}
+                  </text>
+                </g>
+              ))}
+            </svg>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px]">
+            <Legend dot="bg-brand-500" label={`${nodes.filter((n) => n.health === 'healthy').length} healthy`} />
+            <Legend dot="bg-amber-500" label={`${nodes.filter((n) => n.health === 'degraded').length} degraded`} />
+            <Legend dot="bg-rose-500" label={`${nodes.filter((n) => n.health === 'failed').length} failed`} />
+          </div>
+        </>
+      )}
     </PanelCard>
   )
 }
@@ -952,14 +999,69 @@ function ActivityHeatmap({ cells }: { cells: number[] }) {
 /* ───── Region spread · pods per region ───── */
 
 export function RegionSpreadPanel() {
-  const regions = [
-    { name: 'us-east-1', label: 'US East (Virginia)', cloud: 'AWS', pods: 184, percent: 38 },
-    { name: 'eu-west-1', label: 'EU West (Ireland)', cloud: 'AWS', pods: 122, percent: 25 },
-    { name: 'us-central1', label: 'US Central (Iowa)', cloud: 'GCP', pods: 86, percent: 18 },
-    { name: 'ap-south-1', label: 'AP South (Mumbai)', cloud: 'AWS', pods: 60, percent: 12 },
-    { name: 'fra-dc-2', label: 'On-prem (Frankfurt)', cloud: 'On-prem', pods: 32, percent: 7 },
-  ]
+  const nodesQ = useNodes()
+  const podsQ = useAllPods()
+
+  const regions = useMemo(() => {
+    const nodes = (nodesQ.data ?? []) as Array<{
+      metadata: { name: string; labels?: Record<string, string> }
+      spec?: { providerID?: string }
+    }>
+    const pods = (podsQ.data ?? []) as Array<{ spec?: { nodeName?: string } }>
+    // node name → { region, cloud }
+    const nodeInfo = new Map<string, { region: string; cloud: string }>()
+    for (const n of nodes) {
+      const region =
+        n.metadata.labels?.['topology.kubernetes.io/region'] ??
+        n.metadata.labels?.['failure-domain.beta.kubernetes.io/region'] ??
+        'unknown'
+      nodeInfo.set(n.metadata.name, { region, cloud: cloudOf(n.spec?.providerID) })
+    }
+    const byRegion = new Map<string, { name: string; cloud: string; pods: number; nodes: number }>()
+    for (const info of nodeInfo.values()) {
+      const cur = byRegion.get(info.region) ?? { name: info.region, cloud: info.cloud, pods: 0, nodes: 0 }
+      cur.nodes += 1
+      byRegion.set(info.region, cur)
+    }
+    for (const p of pods) {
+      const node = p.spec?.nodeName
+      if (!node) continue
+      const info = nodeInfo.get(node)
+      if (!info) continue
+      const cur = byRegion.get(info.region)
+      if (cur) cur.pods += 1
+    }
+    const list = Array.from(byRegion.values()).sort((a, b) => b.pods - a.pods)
+    const total = list.reduce((s, r) => s + r.pods, 0) || 1
+    return list.map((r) => ({
+      name: r.name,
+      label: `${r.nodes} node${r.nodes === 1 ? '' : 's'}`,
+      cloud: r.cloud,
+      pods: r.pods,
+      percent: Math.round((r.pods / total) * 100),
+    }))
+  }, [nodesQ.data, podsQ.data])
+
   const total = regions.reduce((s, r) => s + r.pods, 0)
+  const loading = nodesQ.isLoading || podsQ.isLoading
+  if (loading || nodesQ.isError || regions.length === 0) {
+    return (
+      <PanelCard>
+        <PanelHead
+          title="Geographic spread"
+          subtitle="Pods · live across all clusters"
+          to="/platform?section=clusters"
+        />
+        {loading ? (
+          <PanelLoading />
+        ) : nodesQ.isError ? (
+          <PanelError message="Could not reach the cluster" />
+        ) : (
+          <PanelEmpty message="No nodes found" />
+        )}
+      </PanelCard>
+    )
+  }
   return (
     <PanelCard>
       <PanelHead title="Geographic spread" subtitle="Pods · live across all clusters" to="/platform?section=clusters" />
@@ -1023,17 +1125,74 @@ function RegionDot({ cloud }: { cloud: string }) {
   return <span className={cn('h-2 w-2 shrink-0 rounded-full', cls)} title={cloud} />
 }
 
+/** Map a node `spec.providerID` to a cloud label. */
+function cloudOf(providerID?: string): string {
+  if (!providerID) return 'On-prem'
+  if (providerID.startsWith('aws:')) return 'AWS'
+  if (providerID.startsWith('gce:')) return 'GCP'
+  if (providerID.startsWith('azure:')) return 'Azure'
+  return 'On-prem'
+}
+
 /* ───── DORA radar · 4-axis maturity vs elite benchmark ───── */
 
 export function DoraRadarPanel() {
-  // Each metric normalised to 0..1 — higher always = better.
-  const metrics = [
-    { label: 'Deploy freq.', value: 0.78, raw: '12.4 / day', target: 1.0 },
-    { label: 'Lead time', value: 0.62, raw: '4h 30m', target: 1.0 },
-    { label: 'Change-fail rate', value: 0.55, raw: '4.2%', target: 1.0 },
-    { label: 'MTTR', value: 0.71, raw: '32m', target: 1.0 },
-  ]
-  const tier = elitTier(metrics)
+  const q = useDoraApps()
+
+  // Real DORA axes derived from ArgoCD deploy history + sync operations.
+  // Lead time & MTTR are NOT derivable from ArgoCD, so they are flagged as
+  // requiring a source rather than fabricated (see modules/decide dora.ts).
+  const { metrics, tier, avgAvailable } = useMemo(() => {
+    const apps = q.data ?? []
+    const now = Date.now()
+    const windowDays = 30
+    const windowMs = windowDays * 24 * 3600_000
+    let deploys = 0
+    for (const a of apps) {
+      for (const h of a.status?.history ?? []) {
+        if (!h.deployedAt) continue
+        const t = new Date(h.deployedAt).getTime()
+        if (Number.isFinite(t) && now - t < windowMs) deploys += 1
+      }
+    }
+    const perDay = deploys / windowDays
+    const withOps = apps.filter((a) => a.status?.operationState?.phase)
+    const failed = withOps.filter((a) => a.status?.operationState?.phase === 'Failed').length
+    const cfr = withOps.length ? failed / withOps.length : null
+
+    const list: Array<{ label: string; value: number; raw: string; target: number; available: boolean }> = [
+      {
+        label: 'Deploy freq.',
+        value: Math.max(0, Math.min(1, perDay / 1)),
+        raw: perDay >= 1 ? `${perDay.toFixed(1)} / day` : `${(perDay * 7).toFixed(1)} / wk`,
+        target: 1,
+        available: true,
+      },
+      { label: 'Lead time', value: 0, raw: 'needs Four Keys', target: 1, available: false },
+      {
+        label: 'Change-fail rate',
+        value: cfr == null ? 0 : Math.max(0, Math.min(1, 1 - cfr / 0.3)),
+        raw: cfr == null ? 'no operations' : `${(cfr * 100).toFixed(1)}%`,
+        target: 1,
+        available: cfr != null,
+      },
+      { label: 'MTTR', value: 0, raw: 'needs incident source', target: 1, available: false },
+    ]
+    const avail = list.filter((m) => m.available)
+    const avgAvailable = avail.length ? avail.reduce((s, m) => s + m.value, 0) / avail.length : 0
+    const tier: 'Elite' | 'High' | 'Medium' =
+      avgAvailable >= 0.85 ? 'Elite' : avgAvailable >= 0.6 ? 'High' : 'Medium'
+    return { metrics: list, tier, avgAvailable }
+  }, [q.data])
+
+  if (q.isLoading || q.isError) {
+    return (
+      <PanelCard>
+        <PanelHead title="DORA · maturity radar" subtitle="vs elite benchmark · trailing 30d" to="/decide?section=dora" />
+        {q.isLoading ? <PanelLoading /> : <PanelError message="ArgoCD unavailable" />}
+      </PanelCard>
+    )
+  }
   return (
     <PanelCard>
       <PanelHead title="DORA · maturity radar" subtitle="vs elite benchmark · trailing 30d" to="/decide?section=dora" />
@@ -1050,21 +1209,25 @@ export function DoraRadarPanel() {
               {tier}
             </span>
             <span className="text-[11px] text-content-muted">
-              avg {(metrics.reduce((s, m) => s + m.value, 0) / metrics.length * 100).toFixed(0)}% of elite
+              avg {(avgAvailable * 100).toFixed(0)}% of elite
             </span>
           </div>
           {metrics.map((m) => (
             <div key={m.label}>
               <div className="flex items-baseline justify-between text-[11px]">
-                <span className="text-content">{m.label}</span>
+                <span className={m.available ? 'text-content' : 'text-content-subtle'}>{m.label}</span>
                 <span className="font-mono tabular-nums text-content-muted">{m.raw}</span>
               </div>
-              <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-surface-sunken">
-                <div
-                  className="h-full bg-linear-to-r from-brand-500 to-brand-400"
-                  style={{ width: `${Math.min(100, m.value * 100)}%` }}
-                />
-              </div>
+              {m.available ? (
+                <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-surface-sunken">
+                  <div
+                    className="h-full bg-linear-to-r from-brand-500 to-brand-400"
+                    style={{ width: `${Math.min(100, m.value * 100)}%` }}
+                  />
+                </div>
+              ) : (
+                <div className="mt-0.5 h-1 w-full rounded-full bg-surface-sunken" />
+              )}
             </div>
           ))}
         </div>
@@ -1133,27 +1296,50 @@ function Radar({ metrics }: { metrics: RadarMetric[] }) {
   )
 }
 
-function elitTier(metrics: RadarMetric[]): 'Elite' | 'High' | 'Medium' {
-  const avg = metrics.reduce((s, m) => s + m.value, 0) / metrics.length
-  if (avg >= 0.85) return 'Elite'
-  if (avg >= 0.6) return 'High'
-  return 'Medium'
-}
-
 /* ───── Pipeline funnel · commits → builds → tests → deploys → prod ───── */
 
 export function PipelineFunnelPanel() {
-  const stages = [
-    { label: 'Commits', value: 482, color: 'oklch(0.71 0.13 262)' },
-    { label: 'Builds', value: 426, color: 'oklch(0.66 0.14 250)' },
-    { label: 'Tests passed', value: 392, color: 'oklch(0.62 0.16 230)' },
-    { label: 'Deploys', value: 311, color: 'oklch(0.58 0.18 215)' },
-    { label: 'Promoted to prod', value: 142, color: 'oklch(0.54 0.18 200)' },
-  ]
-  const max = stages[0].value
+  const q = useWorkflows()
+
+  const stages = useMemo(() => {
+    const wfs = (q.data ?? []) as Array<Generic & { status?: { phase?: string } }>
+    const now = Date.now()
+    const windowMs = 7 * 24 * 3600_000
+    const recent = wfs.filter((w) => {
+      const ts = w.metadata.creationTimestamp
+      return ts ? now - new Date(ts).getTime() < windowMs : true
+    })
+    const started = recent.filter((w) => (w.status?.phase ?? 'Pending') !== 'Pending')
+    const finished = started.filter((w) =>
+      ['Succeeded', 'Failed', 'Error'].includes(w.status?.phase ?? ''),
+    )
+    const succeeded = finished.filter((w) => w.status?.phase === 'Succeeded')
+    return [
+      { label: 'Triggered', value: recent.length, color: 'oklch(0.71 0.13 262)' },
+      { label: 'Started', value: started.length, color: 'oklch(0.64 0.15 240)' },
+      { label: 'Completed', value: finished.length, color: 'oklch(0.58 0.17 215)' },
+      { label: 'Succeeded', value: succeeded.length, color: 'oklch(0.54 0.18 200)' },
+    ]
+  }, [q.data])
+
+  const max = stages[0]?.value ?? 0
+  if (q.isLoading || q.isError || max === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="Delivery funnel · 7d" subtitle="Argo Workflows · phase funnel" to="/deliver?section=releases" />
+        {q.isLoading ? (
+          <PanelLoading />
+        ) : q.isError ? (
+          <PanelEmpty message="Requires Argo Workflows (argoproj.io)" />
+        ) : (
+          <PanelEmpty message="No workflow runs in the last 7 days" />
+        )}
+      </PanelCard>
+    )
+  }
   return (
     <PanelCard>
-      <PanelHead title="Delivery funnel · 7d" subtitle="Commits to production" to="/deliver?section=releases" />
+      <PanelHead title="Delivery funnel · 7d" subtitle="Argo Workflows · phase funnel" to="/deliver?section=releases" />
       <div className="flex flex-col gap-1.5">
         {stages.map((s, i) => {
           const pct = (s.value / max) * 100
@@ -1291,23 +1477,66 @@ function StackedAreaChart({ series, height }: { series: StackedSeries[]; height:
 
 /* ───── Storage treemap · namespace distribution ───── */
 
+const TREEMAP_PALETTE = [
+  'oklch(0.62 0.18 262)',
+  'oklch(0.66 0.14 230)',
+  'oklch(0.7 0.13 200)',
+  'oklch(0.74 0.11 170)',
+  'oklch(0.74 0.13 30)',
+  'oklch(0.72 0.14 350)',
+  'oklch(0.68 0.15 90)',
+  'oklch(0.7 0.02 260)',
+]
+
 export function StorageTreemapPanel() {
-  const items = [
-    { label: 'data', value: 1240, color: 'oklch(0.62 0.18 262)' },
-    { label: 'monitoring', value: 760, color: 'oklch(0.66 0.14 230)' },
-    { label: 'logs', value: 540, color: 'oklch(0.7 0.13 200)' },
-    { label: 'backups', value: 380, color: 'oklch(0.74 0.11 170)' },
-    { label: 'argocd', value: 220, color: 'oklch(0.74 0.13 30)' },
-    { label: 'kyverno', value: 140, color: 'oklch(0.72 0.14 350)' },
-    { label: 'misc', value: 90, color: 'oklch(0.7 0.02 260)' },
-  ]
+  const q = usePvcs()
+
+  const items = useMemo(() => {
+    const pvcs = (q.data ?? []) as Array<
+      Generic & {
+        spec?: { resources?: { requests?: { storage?: string } } }
+        status?: { capacity?: { storage?: string } }
+      }
+    >
+    const byNs = new Map<string, number>()
+    for (const p of pvcs) {
+      const bytes = parseBytes(
+        p.status?.capacity?.storage ?? p.spec?.resources?.requests?.storage,
+      )
+      const ns = p.metadata.namespace ?? 'default'
+      byNs.set(ns, (byNs.get(ns) ?? 0) + bytes)
+    }
+    const sorted = Array.from(byNs.entries())
+      .map(([label, bytes]) => ({ label, value: Math.round(bytes / 1024 ** 3) }))
+      .filter((x) => x.value > 0)
+      .sort((a, b) => b.value - a.value)
+    const top = sorted.slice(0, 7)
+    const restVal = sorted.slice(7).reduce((s, x) => s + x.value, 0)
+    if (restVal > 0) top.push({ label: 'other', value: restVal })
+    return top.map((x, i) => ({ ...x, color: TREEMAP_PALETTE[i % TREEMAP_PALETTE.length] }))
+  }, [q.data])
+
   const total = items.reduce((s, i) => s + i.value, 0)
   const W = 320
   const H = 180
   const rects = squarify(items, 0, 0, W, H)
+  if (q.isLoading || q.isError || items.length === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="Storage · by namespace" subtitle="PVC usage · GB" to="/platform?section=storage" />
+        {q.isLoading ? (
+          <PanelLoading />
+        ) : q.isError ? (
+          <PanelError message="Could not reach the cluster" />
+        ) : (
+          <PanelEmpty message="No PersistentVolumeClaims found" />
+        )}
+      </PanelCard>
+    )
+  }
   return (
     <PanelCard>
-      <PanelHead title="Storage · by namespace" subtitle="PVC + object usage · GB" to="/platform?section=storage" />
+      <PanelHead title="Storage · by namespace" subtitle="PVC usage · GB" to="/platform?section=storage" />
       <div className="flex items-baseline justify-between">
         <div className="text-2xl font-semibold tabular-nums tracking-tight text-content">
           {(total / 1024).toFixed(1)} TB
@@ -1469,18 +1698,47 @@ function buildServiceTiles(): ServiceTile[] {
 /* ───── Budget bullet · target vs actual per cost center ───── */
 
 export function BudgetBulletPanel() {
-  const items = [
-    { label: 'R&D Engineering', code: 'CC-100', actual: 8412, target: 12000, prior: 11920 },
-    { label: 'Data & Analytics', code: 'CC-200', actual: 4980, target: 6500, prior: 6210 },
-    { label: 'Customer Ops', code: 'CC-300', actual: 1430, target: 3200, prior: 2980 },
-    { label: 'Corporate IT', code: 'CC-900', actual: 1620, target: 1800, prior: 1740 },
-  ]
+  const q = useBudget()
+
+  const { items, subtitle } = useMemo(() => {
+    const data = q.data
+    if (!data) return { items: [] as BulletItem[], subtitle: '' }
+    const budgetConfigured = data.budget != null
+    const items: BulletItem[] = data.namespaces.slice(0, 4).map((n) => ({
+      label: n.namespace,
+      code: `${Math.round(n.share * 100)}%`,
+      actual: n.actual,
+      // Target: proportional slice of the configured budget (real share), or
+      // last-month spend as the baseline when no budget is configured.
+      target: budgetConfigured ? Math.max(1, data.budget! * n.share) : Math.max(1, n.prior),
+      prior: n.prior,
+    }))
+    const subtitle = budgetConfigured
+      ? 'Namespace spend vs budget · USD'
+      : 'Namespace spend vs last month · USD (budget not configured)'
+    return { items, subtitle }
+  }, [q.data])
+
+  if (q.isLoading || q.isError || items.length === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="Budget · MTD vs target" subtitle="Cost center performance · USD" to="/settings?section=budgets" />
+        {q.isLoading ? (
+          <PanelLoading />
+        ) : q.isError ? (
+          <PanelEmpty message="Requires an OpenCost metrics source" />
+        ) : (
+          <PanelEmpty message="No cost allocation data available" />
+        )}
+      </PanelCard>
+    )
+  }
   return (
     <PanelCard>
-      <PanelHead title="Budget · MTD vs target" subtitle="Cost center performance · USD" to="/settings?section=budgets" />
+      <PanelHead title="Budget · MTD vs target" subtitle={subtitle} to="/settings?section=budgets" />
       <div className="space-y-3">
         {items.map((it) => (
-          <Bullet key={it.code} item={it} />
+          <Bullet key={it.label} item={it} />
         ))}
       </div>
       <div className="mt-3 flex items-center gap-3 border-t border-edge-subtle pt-2 text-[10px] text-content-muted">
@@ -1640,6 +1898,36 @@ function SevTile({
       <div className="text-base font-semibold tabular-nums">{value}</div>
     </div>
   )
+}
+
+/* ─────────── shared panel state atoms (loading / error / empty) ─────────── */
+
+function PanelMessage({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex flex-1 items-center justify-center px-4 py-8 text-center text-[11px] leading-relaxed text-content-subtle">
+      {children}
+    </div>
+  )
+}
+
+function PanelLoading() {
+  return (
+    <div className="flex flex-1 items-center justify-center py-8 text-content-subtle">
+      <Spinner />
+    </div>
+  )
+}
+
+function PanelError({ message }: { message?: string }) {
+  return (
+    <PanelMessage>
+      <span className="text-rose-700">{message ?? 'Failed to load'}</span>
+    </PanelMessage>
+  )
+}
+
+function PanelEmpty({ message }: { message: string }) {
+  return <PanelMessage>{message}</PanelMessage>
 }
 
 function SignalTile({
@@ -2082,44 +2370,78 @@ function IconAlertSm() {
  * ─────────────────────────────────────────────────────────── */
 
 export function ResourceUtilizationPanel() {
-  // Synthesise plausible cluster-wide resource usage. Production swap:
-  //  - CPU: sum of pod CPU usage / sum of node allocatable
-  //  - Mem: sum of pod memory / sum of node allocatable
-  //  - Storage: sum of PVC `used` / sum of PVC `capacity`
-  const cpu = { used: 142, total: 256, unit: 'cores' }
-  const mem = { used: 612, total: 1024, unit: 'GiB' }
-  const storage = { used: 8.2, total: 24, unit: 'TiB' }
+  const nodesQ = useNodes()
+  const metricsQ = useNodeMetrics()
 
-  const cpuPct = pct(cpu.used, cpu.total)
-  const memPct = pct(mem.used, mem.total)
-  const storagePct = pct(storage.used, storage.total)
+  const gauges = useMemo(() => {
+    const nodes = (nodesQ.data ?? []) as Array<{
+      status?: { allocatable?: Record<string, string> }
+    }>
+    const nodeMetrics = (metricsQ.data ?? []) as Array<
+      Generic & { usage?: { cpu?: string; memory?: string } }
+    >
 
+    const out: Array<{
+      key: string
+      label: string
+      value: number
+      used: string
+      total: string
+      icon: React.ReactNode
+    }> = []
+
+    const cpuTotal = nodes.reduce((s, n) => s + parseCpu(n.status?.allocatable?.cpu), 0)
+    const memTotal = nodes.reduce((s, n) => s + parseBytes(n.status?.allocatable?.memory), 0)
+
+    if (nodeMetrics.length > 0 && cpuTotal > 0) {
+      const cpuUsed = nodeMetrics.reduce((s, m) => s + parseCpu(m.usage?.cpu), 0)
+      out.push({
+        key: 'cpu',
+        label: 'CPU',
+        value: pct(cpuUsed, cpuTotal),
+        used: `${cpuUsed.toFixed(1)} cores`,
+        total: `${cpuTotal.toFixed(0)} cores`,
+        icon: <IconCpu />,
+      })
+    }
+    if (nodeMetrics.length > 0 && memTotal > 0) {
+      const memUsed = nodeMetrics.reduce((s, m) => s + parseBytes(m.usage?.memory), 0)
+      out.push({
+        key: 'mem',
+        label: 'Memory',
+        value: pct(memUsed, memTotal),
+        used: `${(memUsed / 1024 ** 3).toFixed(0)} GiB`,
+        total: `${(memTotal / 1024 ** 3).toFixed(0)} GiB`,
+        icon: <IconMemory />,
+      })
+    }
+    return out
+  }, [nodesQ.data, metricsQ.data])
+
+  const loading = nodesQ.isLoading || metricsQ.isLoading
   return (
     <PanelCard>
       <PanelHead title="Resource utilization" subtitle="Cluster-wide live consumption" to="/platform" />
-      <div className="grid flex-1 grid-cols-1 gap-4 sm:grid-cols-3">
-        <ResourceGauge
-          label="CPU"
-          value={cpuPct}
-          used={`${cpu.used} ${cpu.unit}`}
-          total={`${cpu.total} ${cpu.unit}`}
-          icon={<IconCpu />}
-        />
-        <ResourceGauge
-          label="Memory"
-          value={memPct}
-          used={`${mem.used} ${mem.unit}`}
-          total={`${mem.total} ${mem.unit}`}
-          icon={<IconMemory />}
-        />
-        <ResourceGauge
-          label="Storage"
-          value={storagePct}
-          used={`${storage.used} ${storage.unit}`}
-          total={`${storage.total} ${storage.unit}`}
-          icon={<IconHardDrive />}
-        />
-      </div>
+      {loading ? (
+        <PanelLoading />
+      ) : nodesQ.isError ? (
+        <PanelError message="Could not reach the cluster" />
+      ) : gauges.length === 0 ? (
+        <PanelEmpty message="Requires metrics-server (metrics.k8s.io)" />
+      ) : (
+        <div className="grid flex-1 grid-cols-1 gap-4 sm:grid-cols-3">
+          {gauges.map((g) => (
+            <ResourceGauge
+              key={g.key}
+              label={g.label}
+              value={g.value}
+              used={g.used}
+              total={g.total}
+              icon={g.icon}
+            />
+          ))}
+        </div>
+      )}
     </PanelCard>
   )
 }
@@ -2521,90 +2843,20 @@ function IconMemory() {
   )
 }
 
-function IconHardDrive() {
-  return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <line x1="22" x2="2" y1="12" y2="12" />
-      <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z" />
-      <line x1="6" x2="6.01" y1="16" y2="16" />
-      <line x1="10" x2="10.01" y1="16" y2="16" />
-    </svg>
-  )
-}
 
 /* ───────────────────────────────────────────────────────────
  * Cache performance — donut hit ratio + miss/eviction stats
  * ─────────────────────────────────────────────────────────── */
 
 export function CachePerformancePanel() {
-  const hits = 8_614_223
-  const misses = 612_481
-  const evictions = 4_220
-  const ratio = hits / (hits + misses)
-  const r = 36
-  const stroke = 9
-  const c = 2 * Math.PI * r
-  const offset = c - ratio * c
+  // Redis hit-ratio / miss / eviction counters require a Redis metrics source
+  // (e.g. redis_exporter scraped by Prometheus). The k8s API can't supply them,
+  // so we surface a clear empty state rather than fabricate numbers.
   return (
     <PanelCard>
       <PanelHead title="Cache performance" subtitle="Redis cluster · last hour" to="/decide" />
-      <div className="grid flex-1 grid-cols-[auto_1fr] items-center gap-4">
-        <div className="relative h-24 w-24">
-          <svg width="96" height="96" viewBox="0 0 96 96" className="-rotate-90">
-            <circle cx="48" cy="48" r={r} fill="none" strokeWidth={stroke} className="stroke-edge-default" />
-            <circle
-              cx="48"
-              cy="48"
-              r={r}
-              fill="none"
-              strokeLinecap="round"
-              strokeWidth={stroke}
-              strokeDasharray={c}
-              strokeDashoffset={offset}
-              className="stroke-emerald-500"
-            />
-          </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <div className="font-mono text-xl font-semibold tabular-nums text-content">
-              {(ratio * 100).toFixed(1)}
-              <span className="text-xs font-normal text-content-subtle">%</span>
-            </div>
-            <div className="text-[9px] font-semibold uppercase tracking-wider text-content-subtle">hit rate</div>
-          </div>
-        </div>
-        <ul className="space-y-1.5 text-[12px]">
-          <KvLine label="Hits" value={fmtCount(hits)} tone="emerald" />
-          <KvLine label="Misses" value={fmtCount(misses)} tone="amber" />
-          <KvLine label="Evictions" value={fmtCount(evictions)} tone="rose" />
-        </ul>
-      </div>
+      <PanelEmpty message="Requires a Redis metrics source (redis_exporter / Prometheus)" />
     </PanelCard>
-  )
-}
-
-function KvLine({
-  label,
-  value,
-  tone,
-}: {
-  label: string
-  value: string
-  tone: 'emerald' | 'amber' | 'rose' | 'sky'
-}) {
-  const dot = {
-    emerald: 'bg-emerald-500',
-    amber: 'bg-amber-500',
-    rose: 'bg-rose-500',
-    sky: 'bg-sky-500',
-  }[tone]
-  return (
-    <li className="flex items-center justify-between gap-2">
-      <span className="inline-flex items-center gap-2 text-content-muted">
-        <span className={cn('h-1.5 w-1.5 rounded-full', dot)} />
-        {label}
-      </span>
-      <span className="font-mono tabular-nums text-content">{value}</span>
-    </li>
   )
 }
 
@@ -2829,60 +3081,66 @@ interface CnpgCluster {
   ready: number
   pgVersion: string
   sizeGb: number
-  lagMs: number
+  phase: string
   status: 'healthy' | 'syncing' | 'failover' | 'degraded'
 }
 
 export function CnpgClustersPanel() {
-  const clusters = useMemo<CnpgCluster[]>(
-    () => [
-      {
-        name: 'orders-db',
-        namespace: 'acme-console',
-        primary: 'orders-db-1',
-        instances: 3,
-        ready: 3,
-        pgVersion: '16.4',
-        sizeGb: 128,
-        lagMs: 12,
-        status: 'healthy',
-      },
-      {
-        name: 'payments-db',
-        namespace: 'acme-console',
-        primary: 'payments-db-2',
-        instances: 3,
-        ready: 3,
-        pgVersion: '16.4',
-        sizeGb: 84,
-        lagMs: 28,
-        status: 'healthy',
-      },
-      {
-        name: 'analytics-warehouse',
-        namespace: 'acme-data',
-        primary: 'analytics-warehouse-1',
-        instances: 5,
-        ready: 4,
-        pgVersion: '16.3',
-        sizeGb: 612,
-        lagMs: 1840,
-        status: 'syncing',
-      },
-      {
-        name: 'identity-db',
-        namespace: 'platform',
-        primary: 'identity-db-1',
-        instances: 3,
-        ready: 2,
-        pgVersion: '15.7',
-        sizeGb: 22,
-        lagMs: 64,
-        status: 'degraded',
-      },
-    ],
-    [],
-  )
+  const q = useCnpgClusters()
+  const pvcsQ = usePvcs()
+
+  const clusters = useMemo<CnpgCluster[]>(() => {
+    const raw = (q.data ?? []) as Array<
+      Generic & {
+        spec?: { instances?: number; imageName?: string }
+        status?: {
+          instances?: number
+          readyInstances?: number
+          currentPrimary?: string
+          targetPrimary?: string
+          phase?: string
+        }
+      }
+    >
+    const pvcs = (pvcsQ.data ?? []) as Array<
+      Generic & { status?: { capacity?: { storage?: string } } }
+    >
+    // Provisioned DB volume per cluster, via the cnpg.io/cluster PVC label.
+    const sizeByCluster = new Map<string, number>()
+    for (const p of pvcs) {
+      const cluster = p.metadata.labels?.['cnpg.io/cluster']
+      if (!cluster) continue
+      sizeByCluster.set(
+        cluster,
+        (sizeByCluster.get(cluster) ?? 0) + parseBytes(p.status?.capacity?.storage),
+      )
+    }
+    return raw.map((c) => {
+      const instances = c.spec?.instances ?? c.status?.instances ?? 0
+      const ready = c.status?.readyInstances ?? 0
+      const phase = c.status?.phase ?? ''
+      const status: CnpgCluster['status'] =
+        instances > 0 && ready >= instances
+          ? 'healthy'
+          : ready > 0
+            ? /switch|failover/i.test(phase)
+              ? 'failover'
+              : 'syncing'
+            : 'degraded'
+      const tag = c.spec?.imageName?.split(':').pop()
+      return {
+        name: c.metadata.name,
+        namespace: c.metadata.namespace ?? 'default',
+        primary: c.status?.currentPrimary ?? c.status?.targetPrimary ?? '—',
+        instances,
+        ready,
+        pgVersion: tag && /^\d/.test(tag) ? tag.replace(/-.*$/, '') : '—',
+        sizeGb: Math.round((sizeByCluster.get(c.metadata.name) ?? 0) / 1024 ** 3),
+        phase: phase || (ready >= instances ? 'Healthy' : 'Degraded'),
+        status,
+      }
+    })
+  }, [q.data, pvcsQ.data])
 
   const tones: Record<CnpgCluster['status'], string> = {
     healthy: 'border-emerald-200 bg-emerald-50 text-emerald-700',
@@ -2891,6 +3149,20 @@ export function CnpgClustersPanel() {
     degraded: 'border-rose-200 bg-rose-50 text-rose-700',
   }
 
+  if (q.isLoading || q.isError || clusters.length === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="Database clusters" subtitle="CloudNativePG · primary + replica health" to="/platform" />
+        {q.isLoading ? (
+          <PanelLoading />
+        ) : q.isError ? (
+          <PanelEmpty message="Requires CloudNativePG (postgresql.cnpg.io)" />
+        ) : (
+          <PanelEmpty message="No CloudNativePG clusters found" />
+        )}
+      </PanelCard>
+    )
+  }
   return (
     <PanelCard>
       <PanelHead
@@ -2946,10 +3218,8 @@ export function CnpgClustersPanel() {
                     />
                   </div>
                 </div>
-                <span className="tabular-nums">
-                  lag <span className={c.lagMs > 1000 ? 'text-amber-700' : 'text-content'}>
-                    {c.lagMs < 1000 ? `${c.lagMs} ms` : `${(c.lagMs / 1000).toFixed(1)} s`}
-                  </span>
+                <span className="truncate tabular-nums" title={c.phase}>
+                  {c.phase}
                 </span>
               </div>
             </li>
@@ -2965,86 +3235,85 @@ export function CnpgClustersPanel() {
 interface KafkaBroker {
   id: number
   host: string
-  status: 'online' | 'rebalancing' | 'offline'
-  partitions: number
-  leaderPartitions: number
-  underReplicated: number
-  bytesInPerSec: number
+  cluster: string
+  status: 'online' | 'offline'
 }
 
 export function KafkaBrokersPanel() {
-  const brokers = useMemo<KafkaBroker[]>(
-    () => [
-      { id: 0, host: 'kafka-0', status: 'online', partitions: 184, leaderPartitions: 62, underReplicated: 0, bytesInPerSec: 4_200_000 },
-      { id: 1, host: 'kafka-1', status: 'online', partitions: 184, leaderPartitions: 61, underReplicated: 0, bytesInPerSec: 3_900_000 },
-      { id: 2, host: 'kafka-2', status: 'rebalancing', partitions: 184, leaderPartitions: 58, underReplicated: 4, bytesInPerSec: 3_600_000 },
-      { id: 3, host: 'kafka-3', status: 'online', partitions: 184, leaderPartitions: 60, underReplicated: 0, bytesInPerSec: 4_050_000 },
-      { id: 4, host: 'kafka-4', status: 'online', partitions: 184, leaderPartitions: 59, underReplicated: 0, bytesInPerSec: 4_180_000 },
-    ],
-    [],
-  )
-  const totalUnderReplicated = brokers.reduce((s, b) => s + b.underReplicated, 0)
-  const totalLeaders = brokers.reduce((s, b) => s + b.leaderPartitions, 0)
-  const totalBytes = brokers.reduce((s, b) => s + b.bytesInPerSec, 0)
-  const onlineCount = brokers.filter((b) => b.status === 'online').length
+  const kafkasQ = useKafkas()
+  const topicsQ = useKafkaTopics()
 
+  const { brokers, topicCount, partitionCount } = useMemo(() => {
+    const kafkas = (kafkasQ.data ?? []) as Array<
+      Generic & {
+        spec?: { kafka?: { replicas?: number } }
+        status?: { conditions?: Array<{ type?: string; status?: string }> }
+      }
+    >
+    const topics = (topicsQ.data ?? []) as Array<Generic & { spec?: { partitions?: number } }>
+    const brokers: KafkaBroker[] = []
+    for (const k of kafkas) {
+      const ready = (k.status?.conditions ?? []).some(
+        (c) => c.type === 'Ready' && c.status === 'True',
+      )
+      const replicas = k.spec?.kafka?.replicas ?? 0
+      for (let i = 0; i < replicas; i++) {
+        brokers.push({
+          id: i,
+          host: `${k.metadata.name}-kafka-${i}`,
+          cluster: k.metadata.name,
+          status: ready ? 'online' : 'offline',
+        })
+      }
+    }
+    const partitionCount = topics.reduce((s, t) => s + (t.spec?.partitions ?? 0), 0)
+    return { brokers, topicCount: topics.length, partitionCount }
+  }, [kafkasQ.data, topicsQ.data])
+
+  const onlineCount = brokers.filter((b) => b.status === 'online').length
   const dotTone: Record<KafkaBroker['status'], string> = {
     online: 'bg-emerald-500',
-    rebalancing: 'bg-amber-500',
     offline: 'bg-rose-500',
   }
 
+  if (kafkasQ.isLoading || kafkasQ.isError || brokers.length === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="Kafka brokers" subtitle="Strimzi · broker liveness" to="/platform" />
+        {kafkasQ.isLoading ? (
+          <PanelLoading />
+        ) : kafkasQ.isError ? (
+          <PanelEmpty message="Requires Strimzi (kafka.strimzi.io)" />
+        ) : (
+          <PanelEmpty message="No Kafka clusters found" />
+        )}
+      </PanelCard>
+    )
+  }
   return (
     <PanelCard>
-      <PanelHead
-        title="Kafka brokers"
-        subtitle="Strimzi · broker liveness + ISR"
-        to="/platform"
-      />
+      <PanelHead title="Kafka brokers" subtitle="Strimzi · broker liveness" to="/platform" />
       <div className="mb-3 grid grid-cols-3 gap-2">
         <Stat
           label="Online"
           value={`${onlineCount}/${brokers.length}`}
           tone={onlineCount === brokers.length ? 'emerald' : 'amber'}
         />
-        <Stat
-          label="Under-rep."
-          value={totalUnderReplicated}
-          tone={totalUnderReplicated === 0 ? 'emerald' : 'rose'}
-        />
-        <Stat label="Throughput" value={`${(totalBytes / 1_000_000).toFixed(1)} MB/s`} tone="brand" />
+        <Stat label="Topics" value={topicCount} tone="brand" />
+        <Stat label="Partitions" value={partitionCount} tone="violet" />
       </div>
-      <ul className="flex-1 space-y-1.5">
-        {brokers.map((b) => {
-          const leaderPct = totalLeaders > 0 ? (b.leaderPartitions / totalLeaders) * 100 : 0
-          return (
-            <li key={b.id} className="rounded-md bg-surface-sunken/40 px-2.5 py-1.5">
-              <div className="flex items-center gap-2 text-[11px]">
-                <span className={cn('h-2 w-2 flex-none rounded-full', dotTone[b.status])} />
-                <span className="font-mono text-content">{b.host}</span>
-                <span className="text-content-subtle">·</span>
-                <span className="text-content-muted capitalize">{b.status}</span>
-                <span className="ml-auto tabular-nums text-content-muted">
-                  {(b.bytesInPerSec / 1_000_000).toFixed(1)} MB/s
-                </span>
-              </div>
-              <div className="mt-1 flex items-center gap-2 text-[10px] tabular-nums text-content-subtle">
-                <span>
-                  {b.leaderPartitions} leader · {b.partitions} total
-                </span>
-                {b.underReplicated > 0 ? (
-                  <span className="text-rose-700">· {b.underReplicated} under-rep</span>
-                ) : null}
-                <div className="ml-auto h-1 w-24 overflow-hidden rounded-full bg-white">
-                  <div
-                    className="h-full rounded-full bg-sky-500"
-                    style={{ width: `${leaderPct}%` }}
-                  />
-                </div>
-              </div>
-            </li>
-          )
-        })}
+      <ul className="flex-1 space-y-1.5 overflow-y-auto">
+        {brokers.map((b) => (
+          <li key={`${b.cluster}-${b.id}`} className="rounded-md bg-surface-sunken/40 px-2.5 py-1.5">
+            <div className="flex items-center gap-2 text-[11px]">
+              <span className={cn('h-2 w-2 flex-none rounded-full', dotTone[b.status])} />
+              <span className="font-mono text-content">{b.host}</span>
+              <span className="text-content-subtle">·</span>
+              <span className="text-content-muted capitalize">{b.status}</span>
+              <span className="ml-auto tabular-nums text-content-subtle">broker {b.id}</span>
+            </div>
+          </li>
+        ))}
       </ul>
     </PanelCard>
   )
@@ -3053,87 +3322,113 @@ export function KafkaBrokersPanel() {
 /* ───── Platform tools health ───── */
 
 interface ToolHealth {
+  key: string
   name: string
-  category: 'ci-cd' | 'observability' | 'security' | 'data' | 'identity' | 'registry'
-  status: 'healthy' | 'degraded' | 'down' | 'unknown'
-  version: string
-  latencyMs: number | null
+  configured: boolean
+  detail: string
   href: string
 }
 
+// Display metadata for the tools reported by /api/config (keys match the BFF
+// tool-registry). Anything not listed falls back to the raw key + /platform.
+const TOOL_META: Record<string, { name: string; href: string }> = {
+  k8s: { name: 'Kubernetes', href: '/platform' },
+  argocd: { name: 'ArgoCD', href: '/deliver' },
+  'argo-workflows': { name: 'Argo Workflows', href: '/develop' },
+  'argo-rollouts': { name: 'Argo Rollouts', href: '/deliver' },
+  kargo: { name: 'Kargo', href: '/deliver' },
+  crossplane: { name: 'Crossplane', href: '/platform' },
+  gitea: { name: 'Gitea', href: '/develop' },
+  harbor: { name: 'Harbor', href: '/deliver' },
+  kyverno: { name: 'Kyverno', href: '/deliver' },
+  falco: { name: 'Falco', href: '/deliver' },
+  trivy: { name: 'Trivy', href: '/deliver' },
+  grafana: { name: 'Grafana', href: '/discover' },
+  lgtm: { name: 'LGTM (Grafana)', href: '/discover' },
+  metabase: { name: 'Metabase', href: '/decide' },
+  opencost: { name: 'OpenCost', href: '/decide' },
+  airbyte: { name: 'Airbyte', href: '/develop' },
+  posthog: { name: 'PostHog', href: '/discover' },
+  plane: { name: 'Plane', href: '/define' },
+  coder: { name: 'Coder', href: '/develop' },
+}
+
 export function ToolsHealthPanel() {
-  const tools = useMemo<ToolHealth[]>(
-    () => [
-      { name: 'ArgoCD', category: 'ci-cd', status: 'healthy', version: '2.13.1', latencyMs: 42, href: '/deliver' },
-      { name: 'Argo Rollouts', category: 'ci-cd', status: 'healthy', version: '1.7.2', latencyMs: 38, href: '/deliver' },
-      { name: 'Argo Workflows', category: 'ci-cd', status: 'healthy', version: '3.5.10', latencyMs: 51, href: '/deliver' },
-      { name: 'Kargo', category: 'ci-cd', status: 'healthy', version: '1.0.4', latencyMs: 33, href: '/deliver' },
-      { name: 'Crossplane', category: 'ci-cd', status: 'healthy', version: '1.17.1', latencyMs: 48, href: '/platform' },
-      { name: 'Gitea', category: 'ci-cd', status: 'healthy', version: '1.22.3', latencyMs: 71, href: '/develop' },
-      { name: 'Harbor', category: 'registry', status: 'degraded', version: '2.11.1', latencyMs: 412, href: '/deliver' },
-      { name: 'Kyverno', category: 'security', status: 'healthy', version: '1.13.0', latencyMs: 28, href: '/deliver' },
-      { name: 'Falco', category: 'security', status: 'healthy', version: '0.39.0', latencyMs: 62, href: '/deliver' },
-      { name: 'Trivy Operator', category: 'security', status: 'healthy', version: '0.23.1', latencyMs: 84, href: '/deliver' },
-      { name: 'Keycloak', category: 'identity', status: 'healthy', version: '26.0', latencyMs: 96, href: '/settings' },
-      { name: 'Prometheus', category: 'observability', status: 'healthy', version: '2.55.0', latencyMs: 19, href: '/discover' },
-      { name: 'Grafana', category: 'observability', status: 'healthy', version: '11.4.0', latencyMs: 44, href: '/discover' },
-      { name: 'Loki', category: 'observability', status: 'healthy', version: '3.3.0', latencyMs: 58, href: '/discover' },
-      { name: 'Tempo', category: 'observability', status: 'healthy', version: '2.7.0', latencyMs: 67, href: '/discover' },
-      { name: 'Mimir', category: 'observability', status: 'healthy', version: '2.14.0', latencyMs: 73, href: '/discover' },
-      { name: 'CloudNativePG', category: 'data', status: 'healthy', version: '1.24.1', latencyMs: 31, href: '/platform' },
-      { name: 'Strimzi (Kafka)', category: 'data', status: 'degraded', version: '0.44.0', latencyMs: 188, href: '/platform' },
-      { name: 'Redis Operator', category: 'data', status: 'healthy', version: '0.18.0', latencyMs: 22, href: '/platform' },
-      { name: 'Plane', category: 'ci-cd', status: 'healthy', version: '0.23.1', latencyMs: 92, href: '/define' },
-    ],
-    [],
-  )
+  const q = useToolsConfig()
 
-  const healthy = tools.filter((t) => t.status === 'healthy').length
-  const degraded = tools.filter((t) => t.status === 'degraded').length
-  const down = tools.filter((t) => t.status === 'down').length
+  const tools = useMemo<ToolHealth[]>(() => {
+    const map: Record<string, { configured: boolean; url: string }> = q.data?.tools ?? {}
+    return Object.entries(map)
+      .map(([key, cfg]) => {
+        const meta = TOOL_META[key]
+        let detail = cfg.configured ? 'configured' : 'not configured'
+        if (cfg.url) {
+          try {
+            detail = new URL(cfg.url).host
+          } catch {
+            detail = cfg.url
+          }
+        }
+        return {
+          key,
+          name: meta?.name ?? key,
+          configured: cfg.configured,
+          detail,
+          href: meta?.href ?? '/platform',
+        }
+      })
+      .sort((a, b) => Number(b.configured) - Number(a.configured) || a.name.localeCompare(b.name))
+  }, [q.data])
 
-  const dotTone: Record<ToolHealth['status'], string> = {
-    healthy: 'bg-emerald-500',
-    degraded: 'bg-amber-500',
-    down: 'bg-rose-500',
-    unknown: 'bg-slate-300',
+  const configured = tools.filter((t) => t.configured).length
+  const unconfigured = tools.length - configured
+
+  if (q.isLoading || q.isError || tools.length === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="Platform tools" subtitle="Wiring across the stack" to="/platform" />
+        {q.isLoading ? (
+          <PanelLoading />
+        ) : q.isError ? (
+          <PanelError message="Could not load /api/config" />
+        ) : (
+          <PanelEmpty message="No tools reported by /api/config" />
+        )}
+      </PanelCard>
+    )
   }
-
-  const labelTone: Record<ToolHealth['status'], string> = {
-    healthy: 'text-emerald-700',
-    degraded: 'text-amber-700',
-    down: 'text-rose-700',
-    unknown: 'text-content-subtle',
-  }
-
   return (
     <PanelCard>
-      <PanelHead title="Platform tools" subtitle="Liveness probes across the stack" to="/platform" />
+      <PanelHead title="Platform tools" subtitle="Wiring across the stack" to="/platform" />
       <div className="mb-3 grid grid-cols-3 gap-2">
-        <Stat label="Healthy" value={healthy} tone="emerald" />
-        <Stat label="Degraded" value={degraded} tone={degraded > 0 ? 'amber' : 'slate'} />
-        <Stat label="Down" value={down} tone={down > 0 ? 'rose' : 'slate'} />
+        <Stat label="Configured" value={configured} tone="emerald" />
+        <Stat label="Unconfigured" value={unconfigured} tone={unconfigured > 0 ? 'amber' : 'slate'} />
+        <Stat label="Total" value={tools.length} tone="brand" />
       </div>
       <div className="grid flex-1 grid-cols-2 gap-1.5 overflow-y-auto md:grid-cols-3 xl:grid-cols-4">
         {tools.map((t) => (
           <Link
-            key={t.name}
+            key={t.key}
             to={t.href}
             className="group flex items-center gap-2 rounded-md border border-edge-subtle bg-white px-2 py-1.5 text-[11px] transition-colors hover:border-edge-strong hover:bg-surface-sunken"
           >
-            <span className={cn('h-1.5 w-1.5 flex-none rounded-full', dotTone[t.status])} />
+            <span
+              className={cn(
+                'h-1.5 w-1.5 flex-none rounded-full',
+                t.configured ? 'bg-emerald-500' : 'bg-slate-300',
+              )}
+            />
             <div className="min-w-0 flex-1">
               <div className="truncate font-medium text-content group-hover:text-brand-700">
                 {t.name}
               </div>
-              <div className="flex items-center gap-1 text-[10px] text-content-subtle">
-                <span>v{t.version}</span>
-                {t.latencyMs != null ? (
-                  <>
-                    <span>·</span>
-                    <span className={labelTone[t.status]}>{t.latencyMs} ms</span>
-                  </>
-                ) : null}
+              <div
+                className={cn(
+                  'truncate text-[10px]',
+                  t.configured ? 'text-content-subtle' : 'text-content-subtle/70',
+                )}
+              >
+                {t.detail}
               </div>
             </div>
           </Link>
@@ -3155,87 +3450,46 @@ interface K8sEvent {
 }
 
 export function K8sEventsPanel() {
+  const q = useClusterEvents()
+
   const events = useMemo<K8sEvent[]>(() => {
-    const now = Date.now()
-    const ago = (s: number) => new Date(now - s * 1000).toISOString()
-    return [
-      {
-        at: ago(8),
-        type: 'Warning',
-        reason: 'Unhealthy',
-        object: 'pod/payments-svc-4a2f',
-        namespace: 'acme-console',
-        message: 'Readiness probe failed: HTTP 503 from /healthz',
-      },
-      {
-        at: ago(34),
-        type: 'Normal',
-        reason: 'Scheduled',
-        object: 'pod/orders-svc-7c9b',
-        namespace: 'acme-console',
-        message: 'Successfully assigned to node prod-pool-3',
-      },
-      {
-        at: ago(52),
-        type: 'Normal',
-        reason: 'Pulled',
-        object: 'pod/orders-svc-7c9b',
-        namespace: 'acme-console',
-        message: 'Container image "registry.adhar.io/orders:v1.4.2" pulled in 4.1s',
-      },
-      {
-        at: ago(78),
-        type: 'Warning',
-        reason: 'BackOff',
-        object: 'pod/lake-ingest-5d8e',
-        namespace: 'acme-data',
-        message: 'Back-off restarting failed container — exit code 137 (OOMKilled)',
-      },
-      {
-        at: ago(112),
-        type: 'Normal',
-        reason: 'Synced',
-        object: 'application/orders-svc',
-        namespace: 'argocd',
-        message: 'Application synced to revision abf8c2e',
-      },
-      {
-        at: ago(184),
-        type: 'Warning',
-        reason: 'PolicyViolation',
-        object: 'deployment/billing-svc',
-        namespace: 'acme-console',
-        message: 'Kyverno blocked: container missing image digest pin',
-      },
-      {
-        at: ago(243),
-        type: 'Normal',
-        reason: 'ScalingReplicaSet',
-        object: 'deployment/web',
-        namespace: 'acme-console',
-        message: 'Scaled up replica set web-7d8f to 6',
-      },
-      {
-        at: ago(298),
-        type: 'Warning',
-        reason: 'FailedMount',
-        object: 'pod/identity-db-2',
-        namespace: 'platform',
-        message: 'MountVolume.SetUp failed for volume "data" — timed out',
-      },
-      {
-        at: ago(372),
-        type: 'Normal',
-        reason: 'Killing',
-        object: 'pod/web-3b1c',
-        namespace: 'acme-console',
-        message: 'Stopping container web — replaced by rollout step 3/5',
-      },
-    ]
-  }, [])
+    const raw = (q.data ?? []) as Array<{
+      metadata: { namespace?: string; creationTimestamp?: string }
+      type: 'Normal' | 'Warning'
+      reason: string
+      message: string
+      lastTimestamp?: string
+      involvedObject: { kind: string; name: string; namespace?: string }
+    }>
+    return raw
+      .map((e) => ({
+        at: e.lastTimestamp ?? e.metadata.creationTimestamp ?? new Date().toISOString(),
+        type: e.type,
+        reason: e.reason,
+        object: `${e.involvedObject.kind.toLowerCase()}/${e.involvedObject.name}`,
+        namespace: e.involvedObject.namespace ?? e.metadata.namespace ?? '—',
+        message: e.message,
+      }))
+      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+      .slice(0, 12)
+  }, [q.data])
 
   const warnings = events.filter((e) => e.type === 'Warning').length
 
+  if (q.isLoading || q.isError || events.length === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="Cluster events" subtitle="Recent Kubernetes events" to="/platform" />
+        {q.isLoading ? (
+          <PanelLoading />
+        ) : q.isError ? (
+          <PanelError message="Could not reach the cluster" />
+        ) : (
+          <PanelEmpty message="No recent events" />
+        )}
+      </PanelCard>
+    )
+  }
   return (
     <PanelCard>
       <PanelHead
@@ -4012,49 +4266,88 @@ export function IssueBacklogPanel() {
 
 interface TenantUsage {
   tenant: string
-  plan: 'free' | 'team' | 'business' | 'enterprise'
   cpu: number
   cpuLimit: number
   memGb: number
   memLimit: number
   storageGb: number
   storageLimit: number
-  monthlySpend: number
 }
 
 export function TenantUsagePanel() {
-  const tenants = useMemo<TenantUsage[]>(
-    () => [
-      { tenant: 'acme', plan: 'business', cpu: 124, cpuLimit: 200, memGb: 384, memLimit: 512, storageGb: 1240, storageLimit: 2000, monthlySpend: 4280 },
-      { tenant: 'globex', plan: 'enterprise', cpu: 218, cpuLimit: 400, memGb: 712, memLimit: 1024, storageGb: 4180, storageLimit: 6000, monthlySpend: 12_400 },
-      { tenant: 'initech', plan: 'team', cpu: 38, cpuLimit: 80, memGb: 122, memLimit: 256, storageGb: 320, storageLimit: 800, monthlySpend: 980 },
-      { tenant: 'umbrella', plan: 'business', cpu: 164, cpuLimit: 200, memGb: 442, memLimit: 512, storageGb: 1820, storageLimit: 2000, monthlySpend: 5320 },
-      { tenant: 'stark-ind', plan: 'enterprise', cpu: 312, cpuLimit: 400, memGb: 880, memLimit: 1024, storageGb: 5210, storageLimit: 6000, monthlySpend: 14_120 },
-      { tenant: 'wayne-tech', plan: 'team', cpu: 22, cpuLimit: 80, memGb: 64, memLimit: 256, storageGb: 110, storageLimit: 800, monthlySpend: 480 },
-    ],
-    [],
-  )
+  const q = useResourceQuotas()
 
-  const aggregateSpend = tenants.reduce((s, t) => s + t.monthlySpend, 0)
-  const aggregateCpu = tenants.reduce((s, t) => s + t.cpu, 0)
-  const aggregateMem = tenants.reduce((s, t) => s + t.memGb, 0)
+  const tenants = useMemo<TenantUsage[]>(() => {
+    const quotas = (q.data ?? []) as Array<
+      Generic & {
+        status?: { used?: Record<string, string>; hard?: Record<string, string> }
+      }
+    >
+    const pick = (m: Record<string, string> | undefined, keys: string[]): string | undefined => {
+      if (!m) return undefined
+      for (const k of keys) if (m[k] != null) return m[k]
+      return undefined
+    }
+    // Aggregate per namespace (a namespace may have >1 quota object).
+    const byNs = new Map<string, TenantUsage>()
+    for (const qta of quotas) {
+      const ns = qta.metadata.namespace ?? 'default'
+      const used = qta.status?.used
+      const hard = qta.status?.hard
+      const cpu = parseCpu(pick(used, ['requests.cpu', 'cpu', 'limits.cpu']))
+      const cpuLimit = parseCpu(pick(hard, ['requests.cpu', 'cpu', 'limits.cpu']))
+      const mem = parseBytes(pick(used, ['requests.memory', 'memory', 'limits.memory']))
+      const memLimit = parseBytes(pick(hard, ['requests.memory', 'memory', 'limits.memory']))
+      const storage = parseBytes(pick(used, ['requests.storage']))
+      const storageLimit = parseBytes(pick(hard, ['requests.storage']))
+      const cur = byNs.get(ns) ?? {
+        tenant: ns,
+        cpu: 0,
+        cpuLimit: 0,
+        memGb: 0,
+        memLimit: 0,
+        storageGb: 0,
+        storageLimit: 0,
+      }
+      cur.cpu += cpu
+      cur.cpuLimit += cpuLimit
+      cur.memGb += mem / 1024 ** 3
+      cur.memLimit += memLimit / 1024 ** 3
+      cur.storageGb += storage / 1024 ** 3
+      cur.storageLimit += storageLimit / 1024 ** 3
+      byNs.set(ns, cur)
+    }
+    return Array.from(byNs.values())
+      .filter((t) => t.cpuLimit > 0 || t.memLimit > 0 || t.storageLimit > 0)
+      .sort((a, b) => b.cpu - a.cpu)
+  }, [q.data])
 
-  const planTone: Record<TenantUsage['plan'], string> = {
-    free: 'border-edge-default bg-white text-content-muted',
-    team: 'border-sky-200 bg-sky-50 text-sky-700',
-    business: 'border-brand-200 bg-brand-50 text-brand-700',
-    enterprise: 'border-violet-200 bg-violet-50 text-violet-700',
+  const aggregateCpu = Math.round(tenants.reduce((s, t) => s + t.cpu, 0))
+  const aggregateMem = Math.round(tenants.reduce((s, t) => s + t.memGb, 0))
+
+  if (q.isLoading || q.isError || tenants.length === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="Tenant usage" subtitle="Per-namespace quota consumption" to="/settings" />
+        {q.isLoading ? (
+          <PanelLoading />
+        ) : q.isError ? (
+          <PanelError message="Could not reach the cluster" />
+        ) : (
+          <PanelEmpty message="Requires namespace ResourceQuotas" />
+        )}
+      </PanelCard>
+    )
   }
-
   return (
     <PanelCard>
       <PanelHead
         title="Tenant usage"
-        subtitle={`${tenants.length} active tenants · platform admin view`}
+        subtitle={`${tenants.length} namespaces · quota consumption`}
         to="/settings"
       />
       <div className="mb-3 grid grid-cols-3 gap-2">
-        <Stat label="MRR" value={`$${(aggregateSpend / 1000).toFixed(1)}k`} tone="emerald" />
+        <Stat label="Namespaces" value={tenants.length} tone="emerald" />
         <Stat label="CPU cores" value={aggregateCpu} tone="brand" />
         <Stat label="Memory" value={`${aggregateMem} GB`} tone="violet" />
       </div>
@@ -4076,17 +4369,9 @@ export function TenantUsagePanel() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     <span className="truncate font-mono text-[12px] text-content">{t.tenant}</span>
-                    <span
-                      className={cn(
-                        'rounded-md border px-1.5 py-0.5 text-[10px] font-medium capitalize',
-                        planTone[t.plan],
-                      )}
-                    >
-                      {t.plan}
-                    </span>
                   </div>
                   <div className="text-[10px] text-content-subtle">
-                    ${t.monthlySpend.toLocaleString()}/mo
+                    {t.cpu.toFixed(1)} / {t.cpuLimit.toFixed(0)} cores
                   </div>
                 </div>
                 <span
@@ -4137,69 +4422,59 @@ interface AuditEvent {
   severity: 'info' | 'warning' | 'critical'
 }
 
+// Kubernetes event reasons that represent mutations (create/update/delete/scale)
+// — used to derive an audit-style feed from the core event stream.
+const MUTATION_REASONS = new Set([
+  'Created',
+  'Started',
+  'Killing',
+  'Deleted',
+  'Scheduled',
+  'ScalingReplicaSet',
+  'SuccessfulCreate',
+  'SuccessfulDelete',
+  'SuccessfulUpdate',
+  'Updated',
+  'Provisioning',
+  'ProvisioningSucceeded',
+  'Preempting',
+  'Pulled',
+])
+
 export function AuditLogPanel() {
+  const q = useClusterEvents()
+
   const events = useMemo<AuditEvent[]>(() => {
-    const now = Date.now()
-    const ago = (s: number) => new Date(now - s * 60_000).toISOString()
-    return [
-      {
-        at: ago(2),
-        actor: 'maya@acme.io',
-        action: 'role.granted',
-        resource: 'role/platform-admin → leo@acme.io',
-        tenant: 'acme',
-        severity: 'warning',
-      },
-      {
-        at: ago(8),
-        actor: 'system:argocd',
-        action: 'secret.read',
-        resource: 'secret/payments-db-creds',
-        tenant: 'acme',
-        severity: 'info',
-      },
-      {
-        at: ago(24),
-        actor: 'tapas@acme.io',
-        action: 'tenant.created',
-        resource: 'tenant/wayne-tech',
-        tenant: 'platform',
-        severity: 'info',
-      },
-      {
-        at: ago(38),
-        actor: 'unknown',
-        action: 'login.failed',
-        resource: 'user/admin@globex.com',
-        tenant: 'globex',
-        severity: 'critical',
-      },
-      {
-        at: ago(52),
-        actor: 'priya@acme.io',
-        action: 'policy.modified',
-        resource: 'kyverno/require-image-digest',
-        tenant: 'platform',
-        severity: 'warning',
-      },
-      {
-        at: ago(94),
-        actor: 'system:keycloak',
-        action: 'token.revoked',
-        resource: 'session/sess-7c91d4a',
-        tenant: 'acme',
-        severity: 'info',
-      },
-      {
-        at: ago(140),
-        actor: 'leo@acme.io',
-        action: 'billing.plan_changed',
-        resource: 'tenant/acme → enterprise',
-        tenant: 'acme',
-        severity: 'info',
-      },
-    ]
-  }, [])
+    const raw = (q.data ?? []) as Array<{
+      metadata: { namespace?: string; creationTimestamp?: string }
+      type: 'Normal' | 'Warning'
+      reason: string
+      message: string
+      lastTimestamp?: string
+      involvedObject: { kind: string; name: string; namespace?: string }
+      source?: { component?: string }
+      reportingComponent?: string
+    }>
+    return raw
+      .filter((e) => e.type === 'Warning' || MUTATION_REASONS.has(e.reason))
+      .map((e) => {
+        const severity: AuditEvent['severity'] = /fail|error|forbidden|denied/i.test(e.reason)
+          ? 'critical'
+          : e.type === 'Warning'
+            ? 'warning'
+            : 'info'
+        return {
+          at: e.lastTimestamp ?? e.metadata.creationTimestamp ?? new Date().toISOString(),
+          actor: e.source?.component ?? e.reportingComponent ?? 'system',
+          action: e.reason,
+          resource: `${e.involvedObject.kind.toLowerCase()}/${e.involvedObject.name}`,
+          tenant: e.involvedObject.namespace ?? e.metadata.namespace ?? '—',
+          severity,
+        }
+      })
+      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+      .slice(0, 12)
+  }, [q.data])
 
   const tones: Record<AuditEvent['severity'], { dot: string; pill: string }> = {
     info: { dot: 'bg-slate-400', pill: 'bg-slate-100 text-slate-700' },
@@ -4210,6 +4485,20 @@ export function AuditLogPanel() {
   const critical = events.filter((e) => e.severity === 'critical').length
   const warnings = events.filter((e) => e.severity === 'warning').length
 
+  if (q.isLoading || q.isError || events.length === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="Audit log" subtitle="Mutating cluster events" to="/settings" />
+        {q.isLoading ? (
+          <PanelLoading />
+        ) : q.isError ? (
+          <PanelError message="Could not reach the cluster" />
+        ) : (
+          <PanelEmpty message="No audit events" />
+        )}
+      </PanelCard>
+    )
+  }
   return (
     <PanelCard>
       <PanelHead
@@ -4264,25 +4553,74 @@ interface BackupRow {
   type: 'velero' | 'cnpg'
   scope: string
   lastSuccess: string
-  size: string
-  durationMin: number
+  durationMin: number | null
   status: 'completed' | 'in-progress' | 'failed' | 'partial'
-  rpoMin: number
+}
+
+function durationMinutes(start?: string, end?: string): number | null {
+  if (!start || !end) return null
+  const d = (new Date(end).getTime() - new Date(start).getTime()) / 60_000
+  return Number.isFinite(d) && d >= 0 ? Math.round(d) : null
 }
 
 export function BackupStatusPanel() {
-  const backups = useMemo<BackupRow[]>(() => {
-    const now = Date.now()
-    const ago = (m: number) => new Date(now - m * 60_000).toISOString()
-    return [
-      { name: 'platform-daily', type: 'velero', scope: 'all-namespaces', lastSuccess: ago(48), size: '12.4 GB', durationMin: 14, status: 'completed', rpoMin: 60 },
-      { name: 'acme-db-pitr', type: 'cnpg', scope: 'orders-db', lastSuccess: ago(8), size: '128 GB', durationMin: 6, status: 'completed', rpoMin: 5 },
-      { name: 'globex-warehouse', type: 'cnpg', scope: 'analytics-warehouse', lastSuccess: ago(180), size: '612 GB', durationMin: 42, status: 'partial', rpoMin: 60 },
-      { name: 'identity-hourly', type: 'cnpg', scope: 'identity-db', lastSuccess: ago(28), size: '22 GB', durationMin: 4, status: 'completed', rpoMin: 15 },
-      { name: 'tenant-snapshots', type: 'velero', scope: 'acme-data', lastSuccess: ago(720), size: '38 GB', durationMin: 22, status: 'failed', rpoMin: 1440 },
-    ]
-  }, [])
+  const veleroQ = useVeleroBackups()
+  const cnpgSchedQ = useCnpgScheduledBackups()
+  const cnpgQ = useCnpgBackups()
 
+  const backups = useMemo<BackupRow[]>(() => {
+    const velero = (veleroQ.data ?? []) as Array<
+      Generic & {
+        spec?: { includedNamespaces?: string[] }
+        status?: { phase?: string; startTimestamp?: string; completionTimestamp?: string }
+      }
+    >
+    const cnpg = (cnpgQ.data ?? []) as Array<
+      Generic & {
+        spec?: { cluster?: { name?: string } }
+        status?: { phase?: string; startedAt?: string; stoppedAt?: string }
+      }
+    >
+    const veleroStatus = (p?: string): BackupRow['status'] =>
+      p === 'Completed'
+        ? 'completed'
+        : p === 'InProgress' || p === 'New'
+          ? 'in-progress'
+          : /partial/i.test(p ?? '')
+            ? 'partial'
+            : 'failed'
+    const cnpgStatus = (p?: string): BackupRow['status'] =>
+      p === 'completed'
+        ? 'completed'
+        : p === 'running' || p === 'started'
+          ? 'in-progress'
+          : p === 'failed'
+            ? 'failed'
+            : 'partial'
+    const rows: BackupRow[] = [
+      ...velero.map((b) => ({
+        name: b.metadata.name,
+        type: 'velero' as const,
+        scope: b.spec?.includedNamespaces?.join(', ') || 'all-namespaces',
+        lastSuccess: b.status?.completionTimestamp ?? b.metadata.creationTimestamp ?? '',
+        durationMin: durationMinutes(b.status?.startTimestamp, b.status?.completionTimestamp),
+        status: veleroStatus(b.status?.phase),
+      })),
+      ...cnpg.map((b) => ({
+        name: b.metadata.name,
+        type: 'cnpg' as const,
+        scope: b.spec?.cluster?.name ?? b.metadata.namespace ?? '—',
+        lastSuccess: b.status?.stoppedAt ?? b.metadata.creationTimestamp ?? '',
+        durationMin: durationMinutes(b.status?.startedAt, b.status?.stoppedAt),
+        status: cnpgStatus(b.status?.phase),
+      })),
+    ]
+    return rows
+      .sort((a, b) => new Date(b.lastSuccess).getTime() - new Date(a.lastSuccess).getTime())
+      .slice(0, 8)
+  }, [veleroQ.data, cnpgQ.data])
+
+  const scheduleCount = (cnpgSchedQ.data ?? []).length
   const completed = backups.filter((b) => b.status === 'completed').length
   const failed = backups.filter((b) => b.status === 'failed').length
   const partial = backups.filter((b) => b.status === 'partial').length
@@ -4294,9 +4632,26 @@ export function BackupStatusPanel() {
     partial: { dot: 'bg-amber-500', pill: 'border-amber-200 bg-amber-50 text-amber-700', label: 'Partial' },
   }
 
+  const loading = veleroQ.isLoading || cnpgQ.isLoading
+  if (loading || backups.length === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="Backup status" subtitle="Velero + CloudNativePG" to="/platform" />
+        {loading ? (
+          <PanelLoading />
+        ) : (
+          <PanelEmpty message="No backups found (requires Velero or CloudNativePG)" />
+        )}
+      </PanelCard>
+    )
+  }
   return (
     <PanelCard>
-      <PanelHead title="Backup status" subtitle="Velero + CloudNativePG · last 24h" to="/platform" />
+      <PanelHead
+        title="Backup status"
+        subtitle={`Velero + CloudNativePG · ${scheduleCount} schedule${scheduleCount === 1 ? '' : 's'}`}
+        to="/platform"
+      />
       <div className="mb-3 grid grid-cols-3 gap-2">
         <Stat label="OK" value={completed} tone="emerald" />
         <Stat label="Partial" value={partial} tone={partial > 0 ? 'amber' : 'slate'} />
@@ -4305,11 +4660,9 @@ export function BackupStatusPanel() {
       <ul className="flex-1 space-y-1.5 overflow-y-auto">
         {backups.map((b) => {
           const t = tones[b.status]
-          const rpoLabel =
-            b.rpoMin < 60 ? `${b.rpoMin}m` : b.rpoMin < 1440 ? `${Math.round(b.rpoMin / 60)}h` : `${Math.round(b.rpoMin / 1440)}d`
           return (
             <li
-              key={b.name}
+              key={`${b.type}-${b.name}`}
               className="rounded-xl border border-edge-subtle bg-surface-sunken/40 p-2.5"
             >
               <div className="flex items-center gap-2 text-[11px]">
@@ -4328,14 +4681,16 @@ export function BackupStatusPanel() {
                 </span>
               </div>
               <div className="mt-1 flex flex-wrap gap-x-3 text-[10px] text-content-muted tabular-nums">
-                <span>scope:{b.scope}</span>
-                <span>·</span>
-                <span>{b.size}</span>
-                <span>·</span>
-                <span>{b.durationMin}m</span>
-                <span>·</span>
-                <span>RPO {rpoLabel}</span>
-                <span className="ml-auto text-content-subtle">{formatRelative(b.lastSuccess)}</span>
+                <span className="truncate">scope:{b.scope}</span>
+                {b.durationMin != null ? (
+                  <>
+                    <span>·</span>
+                    <span>{b.durationMin}m</span>
+                  </>
+                ) : null}
+                <span className="ml-auto text-content-subtle">
+                  {b.lastSuccess ? formatRelative(b.lastSuccess) : '—'}
+                </span>
               </div>
             </li>
           )
@@ -4349,29 +4704,46 @@ export function BackupStatusPanel() {
 
 interface WorkflowRun {
   name: string
-  repo: string
+  namespace: string
   phase: 'Succeeded' | 'Running' | 'Failed' | 'Pending' | 'Error'
   startedAt: string
   durationSec: number | null
   progress: string
-  retries: number
-  trigger: 'commit' | 'manual' | 'schedule' | 'pr'
 }
 
 export function WorkflowRunsPanel() {
+  const q = useWorkflows()
+
   const runs = useMemo<WorkflowRun[]>(() => {
-    const now = Date.now()
-    const ago = (m: number) => new Date(now - m * 60_000).toISOString()
-    return [
-      { name: 'adhar-console-build-xyz12', repo: 'adhar/adhar-console', phase: 'Succeeded', startedAt: ago(8), durationSec: 277, progress: '4/4', retries: 0, trigger: 'commit' },
-      { name: 'billing-service-build-abc99', repo: 'acme/billing-service', phase: 'Running', startedAt: ago(2), durationSec: null, progress: '2/5', retries: 0, trigger: 'pr' },
-      { name: 'fraud-detection-train-9f0a', repo: 'acme/fraud-detection', phase: 'Running', startedAt: ago(14), durationSec: null, progress: '3/8', retries: 1, trigger: 'schedule' },
-      { name: 'orders-svc-build-7c91', repo: 'acme/orders-svc', phase: 'Succeeded', startedAt: ago(38), durationSec: 184, progress: '4/4', retries: 0, trigger: 'commit' },
-      { name: 'payments-svc-build-d402', repo: 'acme/payments-svc', phase: 'Failed', startedAt: ago(46), durationSec: 122, progress: '2/4', retries: 2, trigger: 'commit' },
-      { name: 'lake-ingest-nightly-b21f', repo: 'acme/data-platform', phase: 'Succeeded', startedAt: ago(72), durationSec: 1840, progress: '6/6', retries: 0, trigger: 'schedule' },
-      { name: 'identity-bff-deploy-9aa1', repo: 'platform/identity-bff', phase: 'Succeeded', startedAt: ago(118), durationSec: 96, progress: '3/3', retries: 0, trigger: 'manual' },
-    ]
-  }, [])
+    const wfs = (q.data ?? []) as Array<
+      Generic & {
+        status?: { phase?: string; startedAt?: string; finishedAt?: string; progress?: string }
+      }
+    >
+    const phaseOf = (p?: string): WorkflowRun['phase'] =>
+      p === 'Succeeded' || p === 'Running' || p === 'Failed' || p === 'Error' || p === 'Pending'
+        ? p
+        : 'Pending'
+    return wfs
+      .map((w) => {
+        const started = w.status?.startedAt ?? w.metadata.creationTimestamp ?? ''
+        const finished = w.status?.finishedAt
+        const durationSec =
+          started && finished
+            ? Math.max(0, Math.round((new Date(finished).getTime() - new Date(started).getTime()) / 1000))
+            : null
+        return {
+          name: w.metadata.name,
+          namespace: w.metadata.namespace ?? '—',
+          phase: phaseOf(w.status?.phase),
+          startedAt: started,
+          durationSec,
+          progress: w.status?.progress ?? '—',
+        }
+      })
+      .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
+      .slice(0, 8)
+  }, [q.data])
 
   const running = runs.filter((r) => r.phase === 'Running').length
   const failed24h = runs.filter((r) => r.phase === 'Failed' || r.phase === 'Error').length
@@ -4384,13 +4756,6 @@ export function WorkflowRunsPanel() {
     Failed: { dot: 'bg-rose-500', pill: 'border-rose-200 bg-rose-50 text-rose-700', bar: 'bg-rose-500' },
     Error: { dot: 'bg-rose-500', pill: 'border-rose-200 bg-rose-50 text-rose-700', bar: 'bg-rose-500' },
     Pending: { dot: 'bg-slate-400', pill: 'border-slate-200 bg-slate-50 text-slate-700', bar: 'bg-slate-400' },
-  }
-
-  const triggerLabel: Record<WorkflowRun['trigger'], string> = {
-    commit: 'push',
-    manual: 'manual',
-    schedule: 'cron',
-    pr: 'pr',
   }
 
   function fmtDuration(sec: number | null): string {
@@ -4406,6 +4771,20 @@ export function WorkflowRunsPanel() {
     return Math.round((d / t) * 100)
   }
 
+  if (q.isLoading || q.isError || runs.length === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="CI workflow runs" subtitle="Argo Workflows · live executions" to="/develop" />
+        {q.isLoading ? (
+          <PanelLoading />
+        ) : q.isError ? (
+          <PanelEmpty message="Requires Argo Workflows (argoproj.io)" />
+        ) : (
+          <PanelEmpty message="No workflow runs found" />
+        )}
+      </PanelCard>
+    )
+  }
   return (
     <PanelCard>
       <PanelHead
@@ -4424,7 +4803,7 @@ export function WorkflowRunsPanel() {
           const p = progressPct(r.progress)
           return (
             <li
-              key={r.name}
+              key={`${r.namespace}/${r.name}`}
               className="rounded-xl border border-edge-subtle bg-surface-sunken/40 p-2.5"
             >
               <div className="flex items-center gap-2 text-[11px]">
@@ -4438,15 +4817,11 @@ export function WorkflowRunsPanel() {
                 >
                   {r.phase}
                 </span>
-                <span className="ml-auto flex-none rounded-sm bg-white px-1 py-0.5 text-[10px] uppercase tracking-wide text-content-muted ring-1 ring-edge-subtle">
-                  {triggerLabel[r.trigger]}
-                </span>
               </div>
               <div className="mt-1 flex items-center gap-2 text-[10px] text-content-muted">
-                <span className="truncate">{r.repo}</span>
+                <span className="truncate">ns:{r.namespace}</span>
                 <span className="ml-auto flex-none tabular-nums">
                   {r.progress} · {fmtDuration(r.durationSec)}
-                  {r.retries > 0 ? <span className="text-amber-700"> · {r.retries} retry</span> : null}
                   <span className="text-content-subtle"> · {formatRelative(r.startedAt)}</span>
                 </span>
               </div>
@@ -4591,27 +4966,83 @@ interface StagePerf {
 }
 
 export function PipelineStagePerformancePanel() {
-  const stages = useMemo<StagePerf[]>(
-    () => [
-      { name: 'Checkout', avgSec: 8, p95Sec: 14, failRate: 0.1 },
-      { name: 'Build', avgSec: 124, p95Sec: 246, failRate: 1.8 },
-      { name: 'Test', avgSec: 96, p95Sec: 188, failRate: 4.2 },
-      { name: 'Scan', avgSec: 42, p95Sec: 78, failRate: 0.9 },
-      { name: 'Push image', avgSec: 28, p95Sec: 48, failRate: 0.4 },
-      { name: 'Deploy', avgSec: 36, p95Sec: 92, failRate: 1.2 },
-    ],
-    [],
-  )
+  const q = useWorkflows()
 
-  const max = Math.max(...stages.map((s) => s.p95Sec))
-  const totalAvg = stages.reduce((s, x) => s + x.avgSec, 0)
-  const slowest = stages.reduce((a, b) => (a.p95Sec > b.p95Sec ? a : b))
-  const flakiest = stages.reduce((a, b) => (a.failRate > b.failRate ? a : b))
+  const stages = useMemo<StagePerf[]>(() => {
+    const wfs = (q.data ?? []) as Array<
+      Generic & {
+        status?: {
+          nodes?: Record<
+            string,
+            {
+              templateName?: string
+              displayName?: string
+              type?: string
+              phase?: string
+              startedAt?: string
+              finishedAt?: string
+            }
+          >
+        }
+      }
+    >
+    // Aggregate real per-template step durations across all workflow Pod nodes.
+    const byStage = new Map<string, { durs: number[]; total: number; failed: number }>()
+    for (const w of wfs) {
+      for (const node of Object.values(w.status?.nodes ?? {})) {
+        if (node.type !== 'Pod') continue
+        const name = node.templateName ?? node.displayName
+        if (!name) continue
+        const agg = byStage.get(name) ?? { durs: [], total: 0, failed: 0 }
+        agg.total += 1
+        if (node.phase === 'Failed' || node.phase === 'Error') agg.failed += 1
+        if (node.startedAt && node.finishedAt) {
+          const d = (new Date(node.finishedAt).getTime() - new Date(node.startedAt).getTime()) / 1000
+          if (Number.isFinite(d) && d >= 0) agg.durs.push(d)
+        }
+        byStage.set(name, agg)
+      }
+    }
+    const p95 = (arr: number[]): number => {
+      if (arr.length === 0) return 0
+      const sorted = [...arr].sort((a, b) => a - b)
+      return sorted[Math.min(sorted.length - 1, Math.ceil(0.95 * sorted.length) - 1)]
+    }
+    return Array.from(byStage.entries())
+      .map(([name, agg]) => ({
+        name,
+        avgSec: agg.durs.length ? Math.round(agg.durs.reduce((s, d) => s + d, 0) / agg.durs.length) : 0,
+        p95Sec: Math.round(p95(agg.durs)),
+        failRate: agg.total ? Number(((agg.failed / agg.total) * 100).toFixed(1)) : 0,
+      }))
+      .sort((a, b) => b.avgSec - a.avgSec)
+      .slice(0, 6)
+  }, [q.data])
 
   function fmt(sec: number): string {
     if (sec < 60) return `${sec}s`
     return `${Math.floor(sec / 60)}m ${sec % 60}s`
   }
+
+  if (q.isLoading || q.isError || stages.length === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="Pipeline stages" subtitle="Per-stage duration · Argo Workflows" to="/develop" />
+        {q.isLoading ? (
+          <PanelLoading />
+        ) : q.isError ? (
+          <PanelEmpty message="Requires Argo Workflows (argoproj.io)" />
+        ) : (
+          <PanelEmpty message="No workflow step data available" />
+        )}
+      </PanelCard>
+    )
+  }
+
+  const max = Math.max(...stages.map((s) => s.p95Sec), 1)
+  const totalAvg = stages.reduce((s, x) => s + x.avgSec, 0)
+  const slowest = stages.reduce((a, b) => (a.p95Sec > b.p95Sec ? a : b))
+  const flakiest = stages.reduce((a, b) => (a.failRate > b.failRate ? a : b))
 
   return (
     <PanelCard>
@@ -4775,142 +5206,59 @@ export function WorkflowTriggersPanel() {
 
 /* ───── Cilium network flows ───── */
 
-interface FlowTalker {
-  source: string
-  destination: string
-  protocol: 'http' | 'grpc' | 'tcp' | 'dns'
-  flowsPerMin: number
-  dropped: number
-}
-
 export function CiliumNetworkFlowPanel() {
-  const flows = useMemo<FlowTalker[]>(
-    () => [
-      { source: 'web', destination: 'orders-svc', protocol: 'http', flowsPerMin: 12_400, dropped: 0 },
-      { source: 'web', destination: 'identity-bff', protocol: 'grpc', flowsPerMin: 9_800, dropped: 12 },
-      { source: 'orders-svc', destination: 'orders-db', protocol: 'tcp', flowsPerMin: 8_200, dropped: 0 },
-      { source: 'payments-svc', destination: 'payments-db', protocol: 'tcp', flowsPerMin: 6_400, dropped: 0 },
-      { source: 'fraud-detection', destination: 'analytics-warehouse', protocol: 'grpc', flowsPerMin: 4_100, dropped: 84 },
-      { source: 'lake-ingest', destination: 'kafka', protocol: 'tcp', flowsPerMin: 3_800, dropped: 0 },
-    ],
-    [],
-  )
+  const nsPolQ = useCiliumPolicies()
+  const cwPolQ = useCiliumClusterPolicies()
 
-  const totalFlows = flows.reduce((s, f) => s + f.flowsPerMin, 0)
-  const totalDropped = flows.reduce((s, f) => s + f.dropped, 0)
-  const max = Math.max(...flows.map((f) => f.flowsPerMin))
-  const dropRate = pct(totalDropped, totalFlows / 60)
+  const nsPolicies = (nsPolQ.data ?? []) as Generic[]
+  const cwPolicies = (cwPolQ.data ?? []) as Generic[]
+  const total = nsPolicies.length + cwPolicies.length
 
-  // Network policy posture
-  const policies = { allow: 184, deny: 22, audit: 8 }
-  const policyTotal = policies.allow + policies.deny + policies.audit
-
-  const protoTone: Record<FlowTalker['protocol'], string> = {
-    http: 'bg-sky-500',
-    grpc: 'bg-violet-500',
-    tcp: 'bg-emerald-500',
-    dns: 'bg-amber-500',
+  // Cilium exposes NetworkPolicy CRDs via the apiserver (real). Live flows /
+  // top-talkers / drop counts require Hubble, which isn't reachable through the
+  // k8s API — surfaced as a clear note rather than fabricated.
+  if (nsPolQ.isLoading || nsPolQ.isError) {
+    return (
+      <PanelCard>
+        <PanelHead title="Cilium network policies" subtitle="cilium.io · policy posture" to="/platform" />
+        {nsPolQ.isLoading ? <PanelLoading /> : <PanelEmpty message="Requires Cilium (cilium.io)" />}
+      </PanelCard>
+    )
   }
-
   return (
     <PanelCard>
       <PanelHead
-        title="Cilium network flows"
-        subtitle="Hubble · top talkers + policy posture"
+        title="Cilium network policies"
+        subtitle="cilium.io · policy posture"
         to="/platform"
       />
       <div className="mb-3 grid grid-cols-3 gap-2">
-        <Stat label="Flows/min" value={totalFlows.toLocaleString()} tone="brand" />
-        <Stat
-          label="Dropped"
-          value={totalDropped}
-          tone={totalDropped === 0 ? 'emerald' : totalDropped > 100 ? 'rose' : 'amber'}
-        />
-        <Stat label="Drop rate" value={`${dropRate}%`} tone={dropRate < 1 ? 'emerald' : 'amber'} />
+        <Stat label="Policies" value={total} tone="brand" />
+        <Stat label="Namespaced" value={nsPolicies.length} tone="violet" />
+        <Stat label="Cluster-wide" value={cwPolicies.length} tone="emerald" />
       </div>
 
-      <div className="mb-3">
-        <div className="mb-1 flex items-baseline justify-between text-[10px]">
-          <span className="font-semibold uppercase tracking-wider text-content-subtle">
-            Network policies
-          </span>
-          <span className="tabular-nums text-content-muted">{policyTotal} active</span>
-        </div>
-        <div className="flex h-2 w-full overflow-hidden rounded-full bg-surface-sunken">
-          <div
-            className="bg-emerald-500"
-            style={{ width: `${(policies.allow / policyTotal) * 100}%` }}
-            title={`Allow · ${policies.allow}`}
-          />
-          <div
-            className="bg-rose-500"
-            style={{ width: `${(policies.deny / policyTotal) * 100}%` }}
-            title={`Deny · ${policies.deny}`}
-          />
-          <div
-            className="bg-amber-500"
-            style={{ width: `${(policies.audit / policyTotal) * 100}%` }}
-            title={`Audit · ${policies.audit}`}
-          />
-        </div>
-        <div className="mt-1 flex justify-between text-[10px] text-content-muted">
-          <span>
-            <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 align-middle" />
-            Allow {policies.allow}
-          </span>
-          <span>
-            <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-rose-500 align-middle" />
-            Deny {policies.deny}
-          </span>
-          <span>
-            <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-amber-500 align-middle" />
-            Audit {policies.audit}
-          </span>
-        </div>
-      </div>
-
-      <div className="flex-1 space-y-1.5">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
-          Top talkers · last 5 min
-        </div>
-        <ul className="space-y-1">
-          {flows.map((f, i) => {
-            const w = (f.flowsPerMin / max) * 100
-            return (
-              <li key={i} className="text-[11px]">
-                <div className="flex items-center gap-1.5">
-                  <span className="truncate font-mono text-content">{f.source}</span>
-                  <span className="text-content-subtle">→</span>
-                  <span className="truncate font-mono text-content">{f.destination}</span>
-                  <span
-                    className={cn(
-                      'flex-none rounded-sm px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white',
-                      protoTone[f.protocol],
-                    )}
-                  >
-                    {f.protocol}
-                  </span>
-                  <span className="ml-auto flex-none tabular-nums text-content-muted">
-                    {(f.flowsPerMin / 1000).toFixed(1)}k/m
-                  </span>
-                </div>
-                <div className="mt-0.5 flex items-center gap-2">
-                  <div className="h-1 flex-1 overflow-hidden rounded-full bg-surface-sunken">
-                    <div
-                      className={cn('h-full rounded-full', protoTone[f.protocol])}
-                      style={{ width: `${w}%` }}
-                    />
-                  </div>
-                  {f.dropped > 0 ? (
-                    <span className="flex-none text-[10px] text-rose-700">
-                      {f.dropped} dropped
-                    </span>
-                  ) : null}
-                </div>
-              </li>
-            )
-          })}
+      {total > 0 ? (
+        <ul className="mb-3 max-h-32 flex-none space-y-1 overflow-y-auto">
+          {[...cwPolicies, ...nsPolicies].slice(0, 6).map((p) => (
+            <li
+              key={`${p.metadata.namespace ?? 'cluster'}/${p.metadata.name}`}
+              className="flex items-center gap-2 rounded-md bg-surface-sunken/40 px-2 py-1.5 text-[11px]"
+            >
+              <span className="h-1.5 w-1.5 flex-none rounded-full bg-emerald-500" />
+              <span className="truncate font-mono text-content">{p.metadata.name}</span>
+              <span className="ml-auto flex-none text-[10px] text-content-subtle">
+                {p.metadata.namespace ?? 'cluster-wide'}
+              </span>
+            </li>
+          ))}
         </ul>
+      ) : (
+        <PanelEmpty message="No CiliumNetworkPolicies defined" />
+      )}
+
+      <div className="mt-auto rounded-lg border border-edge-subtle bg-surface-sunken/40 px-3 py-2 text-[10px] leading-relaxed text-content-subtle">
+        Live flows &amp; top talkers require Hubble (not available via the Kubernetes API).
       </div>
     </PanelCard>
   )
@@ -4918,99 +5266,19 @@ export function CiliumNetworkFlowPanel() {
 
 /* ───── Service-mesh traffic ───── */
 
-interface MeshService {
-  name: string
-  rps: number
-  errorRate: number
-  p50ms: number
-  p95ms: number
-  p99ms: number
-  trend: number[]
-}
-
 export function ServiceMeshTrafficPanel() {
-  const services = useMemo<MeshService[]>(
-    () => [
-      { name: 'web', rps: 1240, errorRate: 0.4, p50ms: 18, p95ms: 96, p99ms: 184, trend: [120, 140, 132, 148, 156, 144, 162] },
-      { name: 'orders-svc', rps: 890, errorRate: 0.2, p50ms: 12, p95ms: 64, p99ms: 122, trend: [80, 88, 84, 92, 96, 88, 102] },
-      { name: 'payments-svc', rps: 642, errorRate: 1.8, p50ms: 28, p95ms: 142, p99ms: 312, trend: [62, 70, 68, 78, 84, 76, 88] },
-      { name: 'identity-bff', rps: 1820, errorRate: 0.1, p50ms: 8, p95ms: 32, p99ms: 64, trend: [180, 192, 188, 200, 208, 196, 212] },
-      { name: 'fraud-detection', rps: 184, errorRate: 0.6, p50ms: 88, p95ms: 412, p99ms: 880, trend: [16, 18, 20, 22, 24, 20, 18] },
-    ],
-    [],
-  )
-
-  const totalRps = services.reduce((s, x) => s + x.rps, 0)
-  const avgError =
-    services.reduce((s, x) => s + x.errorRate * x.rps, 0) / Math.max(totalRps, 1)
-  const max = Math.max(...services.map((s) => s.rps))
-
+  // Per-service request rate, error rate and tail latency come from a service
+  // mesh metrics source (Hubble L7 / Istio → Prometheus). Those aren't reachable
+  // through the Kubernetes API, so we show a clear empty state instead of faking
+  // traffic numbers.
   return (
     <PanelCard>
       <PanelHead
         title="Service mesh traffic"
-        subtitle="Cilium L7 · request rate + tail latency"
+        subtitle="L7 · request rate + tail latency"
         to="/discover"
       />
-      <div className="mb-3 grid grid-cols-3 gap-2">
-        <Stat label="Total RPS" value={totalRps.toLocaleString()} tone="brand" />
-        <Stat
-          label="Error rate"
-          value={`${avgError.toFixed(2)}%`}
-          tone={avgError < 1 ? 'emerald' : avgError < 3 ? 'amber' : 'rose'}
-        />
-        <Stat label="Services" value={services.length} tone="violet" />
-      </div>
-
-      <div className="flex-1 space-y-1.5 overflow-y-auto">
-        {services.map((s) => {
-          const w = (s.rps / max) * 100
-          const errTone =
-            s.errorRate < 1 ? 'text-emerald-700' : s.errorRate < 3 ? 'text-amber-700' : 'text-rose-700'
-          const latTone =
-            s.p95ms < 100 ? 'text-emerald-700' : s.p95ms < 300 ? 'text-amber-700' : 'text-rose-700'
-          const trendMax = Math.max(...s.trend)
-          return (
-            <div
-              key={s.name}
-              className="rounded-xl border border-edge-subtle bg-surface-sunken/40 p-2.5"
-            >
-              <div className="flex items-center gap-2 text-[11px]">
-                <span className="truncate font-mono text-content">{s.name}</span>
-                <span className="ml-auto tabular-nums text-content-muted">
-                  {s.rps.toLocaleString()} rps
-                </span>
-              </div>
-              <div className="mt-1 flex items-center gap-2">
-                <div className="h-1 flex-1 overflow-hidden rounded-full bg-white">
-                  <div className="h-full rounded-full bg-brand-500" style={{ width: `${w}%` }} />
-                </div>
-                <div className="flex h-4 flex-none items-end gap-0.5">
-                  {s.trend.map((v, i) => (
-                    <div
-                      key={i}
-                      className="w-1 rounded-sm bg-brand-400"
-                      style={{ height: `${(v / trendMax) * 100}%` }}
-                    />
-                  ))}
-                </div>
-              </div>
-              <div className="mt-1 flex flex-wrap gap-x-3 text-[10px] tabular-nums text-content-muted">
-                <span>p50 <span className="text-content">{s.p50ms}ms</span></span>
-                <span>·</span>
-                <span>
-                  p95 <span className={latTone}>{s.p95ms}ms</span>
-                </span>
-                <span>·</span>
-                <span>p99 <span className="text-content">{s.p99ms}ms</span></span>
-                <span className="ml-auto">
-                  err <span className={errTone}>{s.errorRate}%</span>
-                </span>
-              </div>
-            </div>
-          )
-        })}
-      </div>
+      <PanelEmpty message="Requires a service-mesh metrics source (Hubble L7 / Istio → Prometheus)" />
     </PanelCard>
   )
 }
@@ -5019,23 +5287,31 @@ export function ServiceMeshTrafficPanel() {
 
 interface MtlsService {
   name: string
+  namespace: string
   state: 'mtls' | 'plaintext' | 'mixed'
-  trafficRps: number
-  certExpiresIn: number // days
 }
 
 export function MtlsCoveragePanel() {
-  const services = useMemo<MtlsService[]>(
-    () => [
-      { name: 'web', state: 'mtls', trafficRps: 1240, certExpiresIn: 88 },
-      { name: 'orders-svc', state: 'mtls', trafficRps: 890, certExpiresIn: 88 },
-      { name: 'payments-svc', state: 'mtls', trafficRps: 642, certExpiresIn: 14 },
-      { name: 'identity-bff', state: 'mtls', trafficRps: 1820, certExpiresIn: 88 },
-      { name: 'fraud-detection', state: 'mixed', trafficRps: 184, certExpiresIn: 60 },
-      { name: 'lake-ingest', state: 'plaintext', trafficRps: 84, certExpiresIn: 0 },
-    ],
-    [],
-  )
+  const q = useIstioPeerAuth()
+
+  const services = useMemo<MtlsService[]>(() => {
+    const pas = (q.data ?? []) as Array<
+      Generic & {
+        spec?: { mtls?: { mode?: string }; selector?: { matchLabels?: Record<string, string> } }
+      }
+    >
+    return pas.map((p) => {
+      const mode = p.spec?.mtls?.mode ?? 'PERMISSIVE'
+      const state: MtlsService['state'] =
+        mode === 'STRICT' ? 'mtls' : mode === 'DISABLE' ? 'plaintext' : 'mixed'
+      const selectorApp = p.spec?.selector?.matchLabels?.app
+      return {
+        name: selectorApp ?? p.metadata.name,
+        namespace: p.metadata.namespace ?? 'mesh-wide',
+        state,
+      }
+    })
+  }, [q.data])
 
   const total = services.length
   const encrypted = services.filter((s) => s.state === 'mtls').length
@@ -5043,30 +5319,33 @@ export function MtlsCoveragePanel() {
   const plain = services.filter((s) => s.state === 'plaintext').length
   const coveragePct = pct(encrypted, total)
 
-  // Cert renewal urgency
-  const urgent = services.filter((s) => s.state !== 'plaintext' && s.certExpiresIn <= 30)
-  const trafficCovered =
-    services.filter((s) => s.state === 'mtls').reduce((sum, s) => sum + s.trafficRps, 0)
-  const trafficTotal = services.reduce((sum, s) => sum + s.trafficRps, 0)
-  const trafficPct = pct(trafficCovered, trafficTotal)
-
   const stateTone: Record<MtlsService['state'], { dot: string; pill: string; label: string }> = {
-    mtls: { dot: 'bg-emerald-500', pill: 'border-emerald-200 bg-emerald-50 text-emerald-700', label: 'mTLS' },
-    mixed: { dot: 'bg-amber-500', pill: 'border-amber-200 bg-amber-50 text-amber-700', label: 'Mixed' },
-    plaintext: { dot: 'bg-rose-500', pill: 'border-rose-200 bg-rose-50 text-rose-700', label: 'Plain' },
+    mtls: { dot: 'bg-emerald-500', pill: 'border-emerald-200 bg-emerald-50 text-emerald-700', label: 'Strict' },
+    mixed: { dot: 'bg-amber-500', pill: 'border-amber-200 bg-amber-50 text-amber-700', label: 'Permissive' },
+    plaintext: { dot: 'bg-rose-500', pill: 'border-rose-200 bg-rose-50 text-rose-700', label: 'Disabled' },
   }
 
+  if (q.isLoading || q.isError || total === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="mTLS coverage" subtitle="Istio PeerAuthentication" to="/platform" />
+        {q.isLoading ? (
+          <PanelLoading />
+        ) : q.isError ? (
+          <PanelEmpty message="Requires Istio (security.istio.io)" />
+        ) : (
+          <PanelEmpty message="No PeerAuthentication policies defined" />
+        )}
+      </PanelCard>
+    )
+  }
   return (
     <PanelCard>
-      <PanelHead title="mTLS coverage" subtitle="SPIFFE identity · service-to-service encryption" to="/platform" />
+      <PanelHead title="mTLS coverage" subtitle="Istio PeerAuthentication" to="/platform" />
       <div className="mb-3 grid grid-cols-3 gap-2">
-        <Stat label="Services" value={`${encrypted}/${total}`} tone={coveragePct >= 95 ? 'emerald' : 'amber'} />
-        <Stat label="Traffic" value={`${trafficPct}%`} tone={trafficPct >= 95 ? 'emerald' : 'amber'} />
-        <Stat
-          label="Renew ≤30d"
-          value={urgent.length}
-          tone={urgent.length === 0 ? 'emerald' : urgent.length > 2 ? 'rose' : 'amber'}
-        />
+        <Stat label="Strict" value={`${encrypted}/${total}`} tone={coveragePct >= 95 ? 'emerald' : 'amber'} />
+        <Stat label="Coverage" value={`${coveragePct}%`} tone={coveragePct >= 95 ? 'emerald' : 'amber'} />
+        <Stat label="Disabled" value={plain} tone={plain === 0 ? 'emerald' : 'rose'} />
       </div>
 
       <div className="mb-3">
@@ -5074,23 +5353,23 @@ export function MtlsCoveragePanel() {
           <span className="font-semibold uppercase tracking-wider text-content-subtle">
             Encryption posture
           </span>
-          <span className="tabular-nums text-content-muted">{coveragePct}% encrypted</span>
+          <span className="tabular-nums text-content-muted">{coveragePct}% strict</span>
         </div>
         <div className="flex h-2 w-full overflow-hidden rounded-full bg-surface-sunken">
           <div
             className="bg-emerald-500"
             style={{ width: `${(encrypted / total) * 100}%` }}
-            title={`mTLS · ${encrypted}`}
+            title={`Strict · ${encrypted}`}
           />
           <div
             className="bg-amber-500"
             style={{ width: `${(mixed / total) * 100}%` }}
-            title={`Mixed · ${mixed}`}
+            title={`Permissive · ${mixed}`}
           />
           <div
             className="bg-rose-500"
             style={{ width: `${(plain / total) * 100}%` }}
-            title={`Plaintext · ${plain}`}
+            title={`Disabled · ${plain}`}
           />
         </div>
       </div>
@@ -5098,17 +5377,9 @@ export function MtlsCoveragePanel() {
       <ul className="flex-1 space-y-1 overflow-y-auto">
         {services.map((s) => {
           const t = stateTone[s.state]
-          const certTone =
-            s.state === 'plaintext'
-              ? 'text-content-subtle'
-              : s.certExpiresIn <= 14
-                ? 'text-rose-700'
-                : s.certExpiresIn <= 30
-                  ? 'text-amber-700'
-                  : 'text-content-muted'
           return (
             <li
-              key={s.name}
+              key={`${s.namespace}/${s.name}`}
               className="flex items-center gap-2 rounded-md bg-surface-sunken/40 px-2 py-1.5 text-[11px]"
             >
               <span className={cn('h-1.5 w-1.5 flex-none rounded-full', t.dot)} />
@@ -5122,14 +5393,7 @@ export function MtlsCoveragePanel() {
                 {t.label}
               </span>
               <span className="ml-auto flex-none tabular-nums text-[10px] text-content-muted">
-                {s.trafficRps.toLocaleString()} rps
-              </span>
-              <span className={cn('flex-none text-[10px] tabular-nums', certTone)}>
-                {s.state === 'plaintext'
-                  ? 'no cert'
-                  : s.certExpiresIn === 0
-                    ? 'expired'
-                    : `${s.certExpiresIn}d`}
+                {s.namespace}
               </span>
             </li>
           )
@@ -5144,97 +5408,100 @@ export function MtlsCoveragePanel() {
 interface IngressRoute {
   host: string
   path: string
-  rps: number
-  p95ms: number
-  status2xx: number
-  status4xx: number
-  status5xx: number
+  backend: string
+  ingressClass: string
+  namespace: string
 }
 
 export function IngressTrafficPanel() {
-  const routes = useMemo<IngressRoute[]>(
-    () => [
-      { host: 'app.acme.io', path: '/api/orders', rps: 420, p95ms: 96, status2xx: 96.2, status4xx: 3.4, status5xx: 0.4 },
-      { host: 'app.acme.io', path: '/api/payments', rps: 248, p95ms: 142, status2xx: 94.8, status4xx: 3.6, status5xx: 1.6 },
-      { host: 'app.acme.io', path: '/auth', rps: 612, p95ms: 32, status2xx: 99.6, status4xx: 0.4, status5xx: 0 },
-      { host: 'admin.acme.io', path: '/api/*', rps: 88, p95ms: 188, status2xx: 92.4, status4xx: 7.2, status5xx: 0.4 },
-      { host: 'cdn.acme.io', path: '/static/*', rps: 3_240, p95ms: 18, status2xx: 99.8, status4xx: 0.2, status5xx: 0 },
-    ],
-    [],
-  )
+  const q = useIngresses()
 
-  const totalRps = routes.reduce((s, r) => s + r.rps, 0)
-  const overall5xx =
-    routes.reduce((s, r) => s + (r.status5xx * r.rps) / 100, 0) / Math.max(totalRps, 1)
-  const overall4xx =
-    routes.reduce((s, r) => s + (r.status4xx * r.rps) / 100, 0) / Math.max(totalRps, 1)
+  const routes = useMemo<IngressRoute[]>(() => {
+    const ings = (q.data ?? []) as Array<{
+      metadata: { namespace?: string }
+      spec?: {
+        ingressClassName?: string
+        rules?: Array<{
+          host?: string
+          http?: {
+            paths?: Array<{
+              path?: string
+              backend?: { service?: { name?: string; port?: { number?: number; name?: string } } }
+            }>
+          }
+        }>
+      }
+    }>
+    const out: IngressRoute[] = []
+    for (const ing of ings) {
+      const ingressClass = ing.spec?.ingressClassName ?? '—'
+      for (const rule of ing.spec?.rules ?? []) {
+        for (const p of rule.http?.paths ?? []) {
+          const svc = p.backend?.service
+          const port = svc?.port?.number ?? svc?.port?.name
+          out.push({
+            host: rule.host ?? '*',
+            path: p.path ?? '/',
+            backend: svc?.name ? `${svc.name}${port != null ? `:${port}` : ''}` : '—',
+            ingressClass,
+            namespace: ing.metadata.namespace ?? 'default',
+          })
+        }
+      }
+    }
+    return out
+  }, [q.data])
 
-  const max = Math.max(...routes.map((r) => r.rps))
+  const hosts = new Set(routes.map((r) => r.host)).size
+  const ingressCount = (q.data ?? []).length
 
+  if (q.isLoading || q.isError || routes.length === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="Ingress routes" subtitle="networking.k8s.io · edge routing" to="/discover" />
+        {q.isLoading ? (
+          <PanelLoading />
+        ) : q.isError ? (
+          <PanelError message="Could not reach the cluster" />
+        ) : (
+          <PanelEmpty message="No Ingresses found" />
+        )}
+      </PanelCard>
+    )
+  }
   return (
     <PanelCard>
       <PanelHead
-        title="Ingress traffic"
-        subtitle="Edge proxy · top routes by RPS"
+        title="Ingress routes"
+        subtitle="networking.k8s.io · edge routing"
         to="/discover"
       />
       <div className="mb-3 grid grid-cols-3 gap-2">
-        <Stat label="Total RPS" value={totalRps.toLocaleString()} tone="brand" />
-        <Stat
-          label="4xx"
-          value={`${overall4xx.toFixed(2)}%`}
-          tone={overall4xx < 2 ? 'emerald' : overall4xx < 5 ? 'amber' : 'rose'}
-        />
-        <Stat
-          label="5xx"
-          value={`${overall5xx.toFixed(2)}%`}
-          tone={overall5xx < 0.5 ? 'emerald' : overall5xx < 2 ? 'amber' : 'rose'}
-        />
+        <Stat label="Ingresses" value={ingressCount} tone="brand" />
+        <Stat label="Routes" value={routes.length} tone="violet" />
+        <Stat label="Hosts" value={hosts} tone="emerald" />
       </div>
 
       <ul className="flex-1 space-y-1.5 overflow-y-auto">
-        {routes.map((r, i) => {
-          const w = (r.rps / max) * 100
-          return (
-            <li
-              key={`${r.host}${r.path}-${i}`}
-              className="rounded-xl border border-edge-subtle bg-surface-sunken/40 p-2.5"
-            >
-              <div className="flex items-center gap-2 text-[11px]">
-                <span className="truncate font-mono text-content">{r.host}</span>
-                <span className="truncate font-mono text-content-muted">{r.path}</span>
-                <span className="ml-auto flex-none tabular-nums text-content">
-                  {r.rps.toLocaleString()} rps
-                </span>
-              </div>
-              <div className="mt-1.5 flex items-center gap-2">
-                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white">
-                  <div className="h-full rounded-full bg-brand-500" style={{ width: `${w}%` }} />
-                </div>
-                <span
-                  className={cn(
-                    'flex-none text-[10px] tabular-nums',
-                    r.p95ms < 100 ? 'text-emerald-700' : r.p95ms < 300 ? 'text-amber-700' : 'text-rose-700',
-                  )}
-                >
-                  p95 {r.p95ms}ms
-                </span>
-              </div>
-              <div className="mt-1.5">
-                <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-white">
-                  <div className="bg-emerald-500" style={{ width: `${r.status2xx}%` }} title={`2xx ${r.status2xx}%`} />
-                  <div className="bg-amber-500" style={{ width: `${r.status4xx}%` }} title={`4xx ${r.status4xx}%`} />
-                  <div className="bg-rose-500" style={{ width: `${r.status5xx}%` }} title={`5xx ${r.status5xx}%`} />
-                </div>
-                <div className="mt-0.5 flex justify-between text-[10px] text-content-muted tabular-nums">
-                  <span className="text-emerald-700">2xx {r.status2xx}%</span>
-                  <span className="text-amber-700">4xx {r.status4xx}%</span>
-                  <span className="text-rose-700">5xx {r.status5xx}%</span>
-                </div>
-              </div>
-            </li>
-          )
-        })}
+        {routes.slice(0, 12).map((r, i) => (
+          <li
+            key={`${r.host}${r.path}-${i}`}
+            className="rounded-xl border border-edge-subtle bg-surface-sunken/40 p-2.5"
+          >
+            <div className="flex items-center gap-2 text-[11px]">
+              <span className="truncate font-mono text-content">{r.host}</span>
+              <span className="truncate font-mono text-content-muted">{r.path}</span>
+              <span className="ml-auto flex-none rounded-sm bg-white px-1 py-0.5 text-[10px] text-content-muted ring-1 ring-edge-subtle">
+                {r.ingressClass}
+              </span>
+            </div>
+            <div className="mt-1 flex items-center gap-2 text-[10px] text-content-muted">
+              <span className="text-content-subtle">→</span>
+              <span className="truncate font-mono text-content">{r.backend}</span>
+              <span className="ml-auto flex-none">ns:{r.namespace}</span>
+            </div>
+          </li>
+        ))}
       </ul>
     </PanelCard>
   )

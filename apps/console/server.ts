@@ -114,15 +114,25 @@ async function readyz(): Promise<Response> {
   if (!cfg) {
     return Response.json({ status: 'ready', auth: 'stub', db }, { headers: { 'cache-control': 'no-store' } })
   }
+  // OIDC discovery is a REPORTED, non-fatal readiness signal — never a hard gate.
+  // It's fetched lazily and cached on first login, and the console serves the SPA
+  // + /healthz + BFF without it, so a transient Keycloak/gateway unavailability
+  // (or in-cluster split-horizon DNS at startup) must NOT keep the pod out of its
+  // Service — that would remove all endpoints and black-hole routing. We probe it
+  // with a short timeout and report reachability, but stay ready regardless.
+  let keycloak: 'ok' | 'unreachable' = 'ok'
   try {
-    await getDiscovery(cfg)
-    return Response.json({ status: 'ready', auth: 'keycloak', db }, { headers: { 'cache-control': 'no-store' } })
-  } catch (e) {
-    return Response.json(
-      { status: 'not-ready', reason: e instanceof Error ? e.message : 'oidc discovery failed', db },
-      { status: 503, headers: { 'cache-control': 'no-store' } },
-    )
+    await Promise.race([
+      getDiscovery(cfg),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('discovery timeout')), 3000)),
+    ])
+  } catch {
+    keycloak = 'unreachable'
   }
+  return Response.json(
+    { status: 'ready', auth: 'keycloak', db, keycloak },
+    { headers: { 'cache-control': 'no-store' } },
+  )
 }
 
 function apiConfig(): Response {

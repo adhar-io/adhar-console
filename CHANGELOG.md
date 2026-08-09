@@ -6,6 +6,18 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-08-09
+
+### Fixed
+
+- **Console pod stuck `0/1` (readiness).** `/readyz` returned `503` whenever the
+  server-side Keycloak OIDC discovery call didn't succeed at probe time, which
+  kept the pod out of its Service (no endpoints → the gateway couldn't route, so
+  the URL never loaded). Discovery is now a **reported, non-fatal, time-boxed**
+  readiness signal — `/readyz` reports `keycloak: ok|unreachable` but stays
+  `ready` once the process is up (discovery is still fetched lazily + cached on
+  first login). Matches the handler's documented "report, don't gate" contract.
+
 ## [0.1.1] - 2026-08-08
 
 Real backends across every module (no stubs in a running system), a

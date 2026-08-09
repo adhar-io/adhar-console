@@ -45,10 +45,10 @@ export function PlatformCatalog() {
 
   const anyLoading = queries.some((q) => q.isLoading)
   const families: Array<{ id: 'compute' | 'data' | 'connectivity' | 'governance'; label: string; description: string; tone: string }> = [
-    { id: 'compute', label: 'Compute', description: 'Where the work runs — services, functions, jobs.', tone: 'from-brand-50 to-brand-100/60' },
-    { id: 'data', label: 'Data', description: 'Stateful claims — databases, caches, buckets, topics, pipelines.', tone: 'from-emerald-50 to-emerald-100/60' },
-    { id: 'connectivity', label: 'Connectivity', description: 'How the world reaches your services — routes, domains, contracts.', tone: 'from-sky-50 to-sky-100/60' },
-    { id: 'governance', label: 'Governance', description: 'Guardrails — environments, quotas, access boundaries.', tone: 'from-amber-50 to-amber-100/60' },
+    { id: 'compute', label: 'Compute', description: 'Where the work runs — services, functions, jobs.', tone: 'from-brand-50 dark:from-brand-500/10 to-brand-100/60 dark:to-brand-500/15' },
+    { id: 'data', label: 'Data', description: 'Stateful claims — databases, caches, buckets, topics, pipelines.', tone: 'from-emerald-50 dark:from-emerald-500/10 to-emerald-100/60 dark:to-emerald-500/15' },
+    { id: 'connectivity', label: 'Connectivity', description: 'How the world reaches your services — routes, domains, contracts.', tone: 'from-sky-50 dark:from-sky-500/10 to-sky-100/60 dark:to-sky-500/15' },
+    { id: 'governance', label: 'Governance', description: 'Guardrails — environments, quotas, access boundaries.', tone: 'from-amber-50 dark:from-amber-500/10 to-amber-100/60 dark:to-amber-500/15' },
   ]
 
   const total = tiles.reduce((acc, t) => acc + t.items.length, 0)
@@ -111,11 +111,11 @@ function Hero({
   loading: boolean
 }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-edge-default bg-linear-to-br from-brand-50/70 via-white to-white p-5 shadow-sm">
+    <div className="overflow-hidden rounded-2xl border border-edge-default bg-linear-to-br from-brand-50/70 dark:from-brand-500/10 via-white to-white p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-edge-subtle">
-            <span className="text-brand-700">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface-raised shadow-sm ring-1 ring-edge-subtle">
+            <span className="text-brand-700 dark:text-brand-300">
               <IconSparkles />
             </span>
           </div>
@@ -189,7 +189,7 @@ function KindTile({
     <a
       href={href}
       className={cn(
-        'group block rounded-2xl border border-edge-default bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-500',
+        'group block rounded-2xl border border-edge-default bg-surface-raised p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-brand-200 dark:hover:border-brand-500/25 hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-500',
       )}
     >
       <Card className="border-0 bg-transparent p-0 shadow-none">
@@ -207,14 +207,14 @@ function KindTile({
                 {config.description}
               </p>
             </div>
-            <span className="font-mono text-[10px] uppercase tracking-wider text-content-subtle group-hover:text-brand-700">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-content-subtle group-hover:text-brand-700 dark:group-hover:text-brand-300">
               open →
             </span>
           </div>
         </CardHeader>
         <CardBody className="border-0 p-0 pt-3">
           {notInstalled ? (
-            <div className="rounded-md border border-amber-200 bg-amber-50/70 px-2 py-1.5 text-[11px] text-amber-900">
+            <div className="rounded-md border border-amber-200 dark:border-amber-500/25 bg-amber-50/70 dark:bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-900 dark:text-amber-200">
               XRD not installed on this cluster
             </div>
           ) : (
@@ -249,7 +249,7 @@ function Counter({
     <div className="rounded-lg border border-edge-default bg-surface-sunken px-2 py-1.5">
       <div className={cn(
         'font-mono text-base font-semibold tabular-nums',
-        tone === 'healthy' ? 'text-emerald-700' : tone === 'degraded' ? 'text-rose-700' : 'text-content',
+        tone === 'healthy' ? 'text-emerald-700 dark:text-emerald-300' : tone === 'degraded' ? 'text-rose-700 dark:text-rose-300' : 'text-content',
       )}>
         {value}
       </div>

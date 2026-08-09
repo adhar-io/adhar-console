@@ -267,7 +267,7 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               placeholder="Highlight lines…"
-              className="h-8 w-56 rounded-md border border-edge-default bg-white px-2.5 text-xs"
+              className="h-8 w-56 rounded-md border border-edge-default bg-surface-raised px-2.5 text-xs"
             />
           </div>
           <Button size="sm" variant={follow ? 'secondary' : 'primary'} onClick={() => setFollow((f) => !f)}>
@@ -385,7 +385,7 @@ function Toggle({
   onChange(v: boolean): void
 }) {
   return (
-    <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-edge-default bg-white px-2.5 py-1 text-[11px] text-content-muted">
+    <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-edge-default bg-surface-raised px-2.5 py-1 text-[11px] text-content-muted">
       <input
         type="checkbox"
         checked={checked}
@@ -399,13 +399,13 @@ function Toggle({
 
 function StatusPill({ status, follow }: { status: StreamStatus; follow: boolean }) {
   const map: Record<StreamStatus, { tone: string; label: string }> = {
-    idle: { tone: 'bg-slate-100 text-slate-500', label: 'idle' },
+    idle: { tone: 'bg-surface-sunken text-content-subtle', label: 'idle' },
     streaming: {
-      tone: 'bg-emerald-50 text-emerald-700',
+      tone: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300',
       label: follow ? 'streaming' : 'loading',
     },
-    ended: { tone: 'bg-slate-100 text-slate-600', label: 'ended' },
-    error: { tone: 'bg-rose-50 text-rose-700', label: 'error' },
+    ended: { tone: 'bg-surface-sunken text-content-muted', label: 'ended' },
+    error: { tone: 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300', label: 'error' },
   }
   const { tone, label } = map[status]
   return (

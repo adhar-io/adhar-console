@@ -119,7 +119,7 @@ export function NavItem({
               'shrink-0 rounded border px-1 py-0.5 font-mono text-[10px]',
               isActive
                 ? 'border-white/30 bg-white/10 text-white/80'
-                : 'border-edge-default bg-white text-content-muted',
+                : 'border-edge-default bg-surface-raised text-content-muted',
             )}
           >
             {item.shortcut}
@@ -186,7 +186,7 @@ function IconSlot({
         isActive
           ? 'text-white'
           : hasActiveDescendant
-            ? 'text-brand-700'
+            ? 'text-brand-700 dark:text-brand-300'
             : 'text-content-subtle group-hover:text-content',
       )}
     >
@@ -425,9 +425,9 @@ function FlyoutPanel({
   onNavigate(): void
 }) {
   return (
-    <div className="-translate-y-2 overflow-hidden rounded-xl border border-edge-default bg-white py-1.5 shadow-xl ring-1 ring-black/5 w-60">
+    <div className="-translate-y-2 overflow-hidden rounded-xl border border-edge-default bg-surface-raised py-1.5 shadow-xl ring-1 ring-edge-default w-60">
       <div className="flex items-center gap-2 border-b border-edge-subtle px-3 pb-2 pt-1">
-        <span className="flex h-5 w-5 items-center justify-center text-brand-700 [&>svg]:h-4 [&>svg]:w-4">
+        <span className="flex h-5 w-5 items-center justify-center text-brand-700 dark:text-brand-300 [&>svg]:h-4 [&>svg]:w-4">
           {item.icon}
         </span>
         <div className="min-w-0">
@@ -453,7 +453,7 @@ function FlyoutPanel({
                 className={cn(
                   'flex items-center gap-2 px-3 py-1.5 text-[13px] transition-colors',
                   childActive
-                    ? 'bg-brand-50 font-semibold text-brand-800'
+                    ? 'bg-brand-50 dark:bg-brand-500/10 font-semibold text-brand-800 dark:text-brand-300'
                     : 'text-content hover:bg-surface-sunken',
                 )}
               >
@@ -493,13 +493,13 @@ function Badge({ value, active }: { value: NavBadge; active: boolean }) {
     )
   }
   const toneMap: Record<typeof value.kind, string> = {
-    healthy: 'bg-emerald-100 text-emerald-800',
-    degraded: 'bg-rose-100 text-rose-800',
-    progressing: 'bg-indigo-100 text-indigo-800',
-    paused: 'bg-amber-100 text-amber-800',
-    failed: 'bg-rose-200 text-rose-900',
+    healthy: 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-300',
+    degraded: 'bg-rose-100 dark:bg-rose-500/15 text-rose-800 dark:text-rose-300',
+    progressing: 'bg-indigo-100 dark:bg-indigo-500/15 text-indigo-800 dark:text-indigo-300',
+    paused: 'bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300',
+    failed: 'bg-rose-200 dark:bg-rose-500/15 text-rose-900 dark:text-rose-200',
     unknown: 'bg-surface-sunken text-content-muted',
-    info: 'bg-sky-100 text-sky-800',
+    info: 'bg-sky-100 dark:bg-sky-500/15 text-sky-800 dark:text-sky-300',
   }
   return (
     <span className={cn(base, active ? 'bg-white/20 text-white' : toneMap[value.kind])}>

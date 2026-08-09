@@ -812,7 +812,7 @@ function HeroArrangeControls({
         <button
           type="button"
           onClick={onResetAuto}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-white px-2.5 text-[12px] font-semibold text-slate-900 ring-1 ring-inset ring-slate-900/10 transition-shadow hover:shadow-md"
+          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-surface-raised px-2.5 text-[12px] font-semibold text-content ring-1 ring-inset ring-slate-900/10 transition-shadow hover:shadow-md"
         >
           <IconReset />
           <span>Reset to auto</span>
@@ -845,7 +845,7 @@ function SpinnerDot() {
   return (
     <span className="relative flex h-1.5 w-1.5" aria-hidden>
       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white/70" />
-      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" />
+      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-surface-raised" />
     </span>
   )
 }
@@ -973,13 +973,13 @@ function HeroLink({
   // Three CTAs share one chip skeleton so the Hero row reads as a single
   // strip rather than three differently-shaped controls. The primary
   // variant uses the project's own `text-content` token (a near-black
-  // already used by every panel) instead of `text-slate-900`, which can be
+  // already used by every panel) instead of `text-content`, which can be
   // overridden by the parent <section>'s `text-white` in some browsers'
   // visited-link / nested-anchor cases. We also pin the color directly on
   // the inner <span> so nothing in the cascade can wash the label out.
   const isPrimary = variant === 'primary'
   const cls = isPrimary
-    ? 'bg-white shadow-sm ring-1 ring-inset ring-edge-default hover:bg-surface-sunken hover:shadow-md'
+    ? 'bg-surface-raised shadow-sm ring-1 ring-inset ring-edge-default hover:bg-surface-sunken hover:shadow-md'
     : variant === 'secondary'
       ? 'border border-white/60 bg-white/15 text-white backdrop-blur-sm hover:border-white hover:bg-white/25'
       : 'text-white hover:bg-white/15'
@@ -1479,7 +1479,7 @@ function ClusterSnapshotPanel() {
   const podPct = s.pods.total > 0 ? Math.round((s.pods.running / s.pods.total) * 100) : 0
 
   return (
-    <div className="flex h-full flex-col rounded-2xl border border-edge-default bg-white p-5 shadow-sm">
+    <div className="flex h-full flex-col rounded-2xl border border-edge-default bg-surface-raised p-5 shadow-sm">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-xs">
           <span
@@ -1500,7 +1500,7 @@ function ClusterSnapshotPanel() {
           </span>
           <span className="text-content-subtle">· updates every 15s</span>
         </div>
-        <Link to="/platform" className="text-xs font-medium text-brand-700 hover:text-brand-800">
+        <Link to="/platform" className="text-xs font-medium text-brand-700 dark:text-brand-300 hover:text-brand-800 dark:hover:text-brand-300">
           Open Platform →
         </Link>
       </div>
@@ -1674,7 +1674,7 @@ function DoraPanel() {
       {DORA_STATS.map((s) => (
         <div
           key={s.label}
-          className="group relative overflow-hidden rounded-xl border border-edge-default bg-white p-5 shadow-sm transition-all duration-150 ease-smooth hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md"
+          className="group relative overflow-hidden rounded-xl border border-edge-default bg-surface-raised p-5 shadow-sm transition-all duration-150 ease-smooth hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md"
         >
           <div className="relative z-10">
             <div className="flex items-center justify-between">
@@ -1800,7 +1800,7 @@ function ComplianceCard({
   description: string
 }) {
   return (
-    <div className="rounded-xl border border-edge-default bg-white p-5 shadow-sm">
+    <div className="rounded-xl border border-edge-default bg-surface-raised p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <div className="text-sm font-medium text-content">{title}</div>
         {badge}
@@ -1826,7 +1826,7 @@ function PinnedAppsPanel() {
     .map((id) => DEFAULT_APP_LINKS.find((a) => a.id === id))
     .filter((a): a is AppLink => !!a)
   return (
-    <div className="flex h-full flex-col rounded-2xl border border-edge-default bg-white p-5 shadow-sm">
+    <div className="flex h-full flex-col rounded-2xl border border-edge-default bg-surface-raised p-5 shadow-sm">
       <div className="mb-3 flex items-center justify-between">
         <div>
           <div className="text-sm font-semibold text-content">Pinned apps</div>
@@ -1836,7 +1836,7 @@ function PinnedAppsPanel() {
         </div>
         <Link
           to="/status"
-          className="text-[11px] font-medium text-brand-700 hover:text-brand-800 hover:underline"
+          className="text-[11px] font-medium text-brand-700 dark:text-brand-300 hover:text-brand-800 dark:hover:text-brand-300 hover:underline"
         >
           See all →
         </Link>
@@ -1850,7 +1850,7 @@ function PinnedAppsPanel() {
               href={a.url}
               target="_blank"
               rel="noreferrer"
-              className={`group relative flex flex-col items-center gap-2 overflow-hidden rounded-xl border border-edge-default bg-linear-to-br ${tint} p-4 text-center transition-all hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-md`}
+              className={`group relative flex flex-col items-center gap-2 overflow-hidden rounded-xl border border-edge-default bg-linear-to-br ${tint} p-4 text-center transition-all hover:-translate-y-0.5 hover:border-brand-200 dark:hover:border-brand-500/25 hover:shadow-md`}
             >
               <span
                 aria-hidden
@@ -1858,7 +1858,7 @@ function PinnedAppsPanel() {
               >
                 <IconArrowUpRight />
               </span>
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-edge-subtle [&>svg]:h-7 [&>svg]:w-7">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface-raised shadow-sm ring-1 ring-edge-subtle [&>svg]:h-7 [&>svg]:w-7">
                 {a.icon}
               </div>
               <div className="text-sm font-semibold text-content">{a.name}</div>
@@ -1885,13 +1885,13 @@ function RecentNotificationsPanel({ seed }: { seed: Notification[] }) {
   const recent = items.slice(0, 5)
   if (!recent.length) {
     return (
-      <div className="rounded-xl border border-edge-default bg-white p-6 text-center text-sm text-content-muted shadow-sm">
+      <div className="rounded-xl border border-edge-default bg-surface-raised p-6 text-center text-sm text-content-muted shadow-sm">
         You're all caught up.
       </div>
     )
   }
   return (
-    <ul className="divide-y divide-edge-subtle rounded-xl border border-edge-default bg-white shadow-sm">
+    <ul className="divide-y divide-edge-subtle rounded-xl border border-edge-default bg-surface-raised shadow-sm">
       {recent.map((n) => {
         const tone =
           n.kind === 'error'
@@ -2019,7 +2019,7 @@ function CustomizeSheet({
         role="dialog"
         aria-modal="true"
         aria-label="Customize overview"
-        className="relative flex h-full w-full max-w-md flex-col border-l border-edge-default bg-white shadow-2xl"
+        className="relative flex h-full w-full max-w-md flex-col border-l border-edge-default bg-surface-raised shadow-2xl"
       >
         <header className="flex items-start justify-between gap-4 border-b border-edge-default px-5 py-4">
           <div>
@@ -2033,7 +2033,7 @@ function CustomizeSheet({
               <button
                 type="button"
                 onClick={enableAll}
-                className="font-medium text-brand-700 hover:text-brand-800"
+                className="font-medium text-brand-700 dark:text-brand-300 hover:text-brand-800 dark:hover:text-brand-300"
               >
                 Enable all
               </button>
@@ -2085,7 +2085,7 @@ function CustomizeSheet({
                       <li
                         key={id}
                         className={`rounded-lg border px-3 py-2.5 transition-colors ${
-                          on ? 'border-brand-200 bg-brand-50/40' : 'border-edge-default bg-white'
+                          on ? 'border-brand-200 dark:border-brand-500/25 bg-brand-50/40 dark:bg-brand-500/10' : 'border-edge-default bg-surface-raised'
                         }`}
                       >
                         <div className="flex items-start gap-3">
@@ -2108,7 +2108,7 @@ function CustomizeSheet({
                               type="button"
                               disabled={!canMoveUp}
                               onClick={() => move(id, -1)}
-                              className="flex h-6 w-6 items-center justify-center rounded text-content-subtle transition-colors hover:bg-white hover:text-content disabled:cursor-not-allowed disabled:opacity-30"
+                              className="flex h-6 w-6 items-center justify-center rounded text-content-subtle transition-colors hover:bg-surface-raised hover:text-content disabled:cursor-not-allowed disabled:opacity-30"
                               aria-label="Move up"
                             >
                               <IconChevronUp />
@@ -2117,7 +2117,7 @@ function CustomizeSheet({
                               type="button"
                               disabled={!canMoveDown}
                               onClick={() => move(id, 1)}
-                              className="flex h-6 w-6 items-center justify-center rounded text-content-subtle transition-colors hover:bg-white hover:text-content disabled:cursor-not-allowed disabled:opacity-30"
+                              className="flex h-6 w-6 items-center justify-center rounded text-content-subtle transition-colors hover:bg-surface-raised hover:text-content disabled:cursor-not-allowed disabled:opacity-30"
                               aria-label="Move down"
                             >
                               <IconChevronDown />
@@ -2136,7 +2136,7 @@ function CustomizeSheet({
                                 onClick={() => setSize(id, s)}
                                 className={
                                   size === s
-                                    ? 'rounded-md bg-brand-100 px-2 py-0.5 text-[10px] font-semibold text-brand-700'
+                                    ? 'rounded-md bg-brand-100 dark:bg-brand-500/15 px-2 py-0.5 text-[10px] font-semibold text-brand-700 dark:text-brand-300'
                                     : 'rounded-md px-2 py-0.5 text-[10px] text-content-muted hover:bg-surface-sunken'
                                 }
                                 title={SIZE_LABEL[s]}
@@ -2185,7 +2185,7 @@ function toneText(tone: 'emerald' | 'amber' | 'rose' | 'slate') {
       ? 'text-amber-600'
       : tone === 'rose'
         ? 'text-rose-600'
-        : 'text-slate-500'
+        : 'text-content-subtle'
 }
 
 function safeRelative(at: string): string {

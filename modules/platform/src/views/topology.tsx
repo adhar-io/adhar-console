@@ -203,8 +203,8 @@ function NodeBox({ node }: { node: Node }) {
   return (
     <div
       className={cn(
-        'flex items-center gap-2 rounded-lg border bg-white px-3 py-2 shadow-sm',
-        node.focus ? 'border-sky-400 ring-2 ring-sky-200' : 'border-edge-default',
+        'flex items-center gap-2 rounded-lg border bg-surface-raised px-3 py-2 shadow-sm',
+        node.focus ? 'border-sky-400 ring-2 ring-sky-200 dark:ring-sky-500/25' : 'border-edge-default',
       )}
     >
       <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', HEALTH_BG[node.health])} aria-hidden />

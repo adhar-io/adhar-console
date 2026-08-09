@@ -118,7 +118,7 @@ export function DevelopPRsPanel() {
         <Stat label="Repos" value={repos.data?.length ?? 0} tone="brand" />
       </div>
       {list.length > 0 ? (
-        <ul className="mt-3 divide-y divide-edge-subtle rounded-lg border border-edge-subtle bg-white">
+        <ul className="mt-3 divide-y divide-edge-subtle rounded-lg border border-edge-subtle bg-surface-raised">
           {list.slice(0, 4).map((p) => (
             <li key={p.id} className="px-3 py-2 text-[11px]">
               <div className="flex items-center gap-2">
@@ -265,7 +265,7 @@ export function AlertsPanel() {
         {firing.slice(0, 3).map((a) => (
           <li
             key={a.fingerprint}
-            className="rounded-md border border-rose-200/70 bg-rose-50/40 px-2 py-1.5 text-[11px]"
+            className="rounded-md border border-rose-200/70 dark:border-rose-500/25 bg-rose-50/40 dark:bg-rose-500/10 px-2 py-1.5 text-[11px]"
           >
             <div className="flex items-center gap-2">
               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${a.severity === 'critical' ? 'bg-rose-500' : 'bg-amber-500'}`} />
@@ -311,7 +311,7 @@ export function SloPanel() {
             >
               <div className="flex items-center justify-between">
                 <span className="truncate font-medium text-content">{s.name}</span>
-                <span className={`font-mono tabular-nums ${meetingThis ? 'text-emerald-700' : 'text-rose-700'}`}>
+                <span className={`font-mono tabular-nums ${meetingThis ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'}`}>
                   {s.current.toFixed(2)}%
                 </span>
               </div>
@@ -479,7 +479,7 @@ function BusinessKpiTile({
         {q.scalar_delta != null ? (
           <span
             className={`font-mono text-[10px] tabular-nums ${
-              delta >= 0 ? 'text-emerald-700' : 'text-rose-700'
+              delta >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'
             }`}
           >
             {delta >= 0 ? '+' : ''}
@@ -535,7 +535,7 @@ export function CostTrendPanel() {
           <div className="text-2xl font-semibold tabular-nums tracking-tight text-content">
             ${(total / 1000).toFixed(1)}k
           </div>
-          <div className={cn('mt-0.5 text-[11px] font-medium', delta > 0 ? 'text-rose-700' : 'text-emerald-700')}>
+          <div className={cn('mt-0.5 text-[11px] font-medium', delta > 0 ? 'text-rose-700 dark:text-rose-300' : 'text-emerald-700 dark:text-emerald-300')}>
             {delta > 0 ? '▲' : '▼'} {Math.abs(delta * 100).toFixed(1)}% vs prior 15d
           </div>
         </div>
@@ -747,12 +747,12 @@ function PercentileTile({
 }) {
   const color =
     tone === 'emerald'
-      ? 'text-emerald-700'
+      ? 'text-emerald-700 dark:text-emerald-300'
       : tone === 'amber'
-        ? 'text-amber-700'
+        ? 'text-amber-700 dark:text-amber-300'
         : tone === 'rose'
-          ? 'text-rose-700'
-          : 'text-brand-700'
+          ? 'text-rose-700 dark:text-rose-300'
+          : 'text-brand-700 dark:text-brand-300'
   return (
     <div className="rounded-lg border border-edge-subtle bg-surface-sunken/60 px-3 py-2">
       <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
@@ -778,11 +778,11 @@ function PercentileMarker({
 }) {
   const left = ((idx + 0.5) / buckets.length) * 100
   const colorClass =
-    tone === 'emerald' ? 'border-emerald-500 text-emerald-700' : tone === 'amber' ? 'border-amber-500 text-amber-700' : 'border-rose-500 text-rose-700'
+    tone === 'emerald' ? 'border-emerald-500 text-emerald-700 dark:text-emerald-300' : tone === 'amber' ? 'border-amber-500 text-amber-700 dark:text-amber-300' : 'border-rose-500 text-rose-700 dark:text-rose-300'
   return (
     <div
       className={cn(
-        'pointer-events-none absolute -top-2 -translate-x-1/2 rounded-md border bg-white px-1 py-0.5 text-[9px] font-bold uppercase tracking-wider shadow-sm',
+        'pointer-events-none absolute -top-2 -translate-x-1/2 rounded-md border bg-surface-raised px-1 py-0.5 text-[9px] font-bold uppercase tracking-wider shadow-sm',
         colorClass,
       )}
       style={{ left: `${left}%` }}
@@ -1074,7 +1074,7 @@ export function RegionSpreadPanel() {
             pods · {regions.length} regions · {new Set(regions.map((r) => r.cloud)).size} clouds
           </div>
         </div>
-        <span className="rounded-md bg-brand-50 px-2 py-0.5 text-[10px] font-medium text-brand-700">
+        <span className="rounded-md bg-brand-50 dark:bg-brand-500/10 px-2 py-0.5 text-[10px] font-medium text-brand-700 dark:text-brand-300">
           multi-cloud
         </span>
       </div>
@@ -1203,7 +1203,7 @@ export function DoraRadarPanel() {
             <span
               className={cn(
                 'rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 ring-inset',
-                tier === 'Elite' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : tier === 'High' ? 'bg-sky-50 text-sky-700 ring-sky-200' : 'bg-amber-50 text-amber-700 ring-amber-200',
+                tier === 'Elite' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200' : tier === 'High' ? 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 ring-sky-200' : 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-200',
               )}
             >
               {tier}
@@ -1773,7 +1773,7 @@ function Bullet({ item }: { item: BulletItem }) {
   const target = (item.target / max) * 100
   const ratio = item.actual / item.target
   const tone =
-    ratio > 1 ? 'text-rose-700' : ratio > 0.9 ? 'text-amber-700' : 'text-content-muted'
+    ratio > 1 ? 'text-rose-700 dark:text-rose-300' : ratio > 0.9 ? 'text-amber-700 dark:text-amber-300' : 'text-content-muted'
   return (
     <div>
       <div className="flex items-baseline justify-between text-[11px]">
@@ -1787,9 +1787,9 @@ function Bullet({ item }: { item: BulletItem }) {
           <span className={cn('ml-1.5 font-semibold', tone)}>{Math.round(ratio * 100)}%</span>
         </span>
       </div>
-      <div className="relative mt-1 h-2.5 overflow-hidden rounded-full bg-rose-100">
+      <div className="relative mt-1 h-2.5 overflow-hidden rounded-full bg-rose-100 dark:bg-rose-500/15">
         {/* warn band */}
-        <div className="absolute inset-y-0 left-0 bg-amber-100" style={{ width: `${warn}%` }} />
+        <div className="absolute inset-y-0 left-0 bg-amber-100 dark:bg-amber-500/15" style={{ width: `${warn}%` }} />
         {/* safe band */}
         <div className="absolute inset-y-0 left-0 bg-edge-strong/40" style={{ width: `${safe}%` }} />
         {/* actual */}
@@ -1819,7 +1819,7 @@ function Bullet({ item }: { item: BulletItem }) {
 
 function PanelCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-full flex-col rounded-2xl border border-edge-default bg-white p-5 shadow-sm transition-shadow hover:shadow">
+    <div className="flex h-full flex-col rounded-2xl border border-edge-default bg-surface-raised p-5 shadow-sm transition-shadow hover:shadow">
       {children}
     </div>
   )
@@ -1842,7 +1842,7 @@ function PanelHead({
       </div>
       <Link
         to={to}
-        className="shrink-0 text-[11px] font-medium text-brand-700 hover:text-brand-800 hover:underline"
+        className="shrink-0 text-[11px] font-medium text-brand-700 dark:text-brand-300 hover:text-brand-800 dark:hover:text-brand-300 hover:underline"
       >
         Open →
       </Link>
@@ -1860,12 +1860,12 @@ function Stat({
   tone: 'emerald' | 'amber' | 'rose' | 'slate' | 'brand' | 'violet'
 }) {
   const toneText = {
-    emerald: 'text-emerald-700',
-    amber: 'text-amber-700',
-    rose: 'text-rose-700',
+    emerald: 'text-emerald-700 dark:text-emerald-300',
+    amber: 'text-amber-700 dark:text-amber-300',
+    rose: 'text-rose-700 dark:text-rose-300',
     slate: 'text-content',
-    brand: 'text-brand-700',
-    violet: 'text-violet-700',
+    brand: 'text-brand-700 dark:text-brand-300',
+    violet: 'text-violet-700 dark:text-violet-300',
   }[tone]
   return (
     <div className="rounded-lg border border-edge-subtle bg-surface-sunken/40 p-2.5">
@@ -1887,10 +1887,10 @@ function SevTile({
   tone: 'rose' | 'amber' | 'sky' | 'slate'
 }) {
   const cls = {
-    rose: 'bg-rose-50 text-rose-700',
-    amber: 'bg-amber-50 text-amber-700',
-    sky: 'bg-sky-50 text-sky-700',
-    slate: 'bg-slate-50 text-slate-700',
+    rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300',
+    amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300',
+    sky: 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300',
+    slate: 'bg-surface-sunken text-content-muted',
   }[tone]
   return (
     <div className={`rounded-md p-2 text-center ${cls}`}>
@@ -1921,7 +1921,7 @@ function PanelLoading() {
 function PanelError({ message }: { message?: string }) {
   return (
     <PanelMessage>
-      <span className="text-rose-700">{message ?? 'Failed to load'}</span>
+      <span className="text-rose-700 dark:text-rose-300">{message ?? 'Failed to load'}</span>
     </PanelMessage>
   )
 }
@@ -2070,10 +2070,10 @@ function RadialScore({
     rose: 'stroke-rose-500',
   }[tone]
   const text = {
-    emerald: 'text-emerald-700',
-    brand: 'text-brand-700',
-    amber: 'text-amber-700',
-    rose: 'text-rose-700',
+    emerald: 'text-emerald-700 dark:text-emerald-300',
+    brand: 'text-brand-700 dark:text-brand-300',
+    amber: 'text-amber-700 dark:text-amber-300',
+    rose: 'text-rose-700 dark:text-rose-300',
   }[tone]
   return (
     <div className="relative flex h-40 w-40 items-center justify-center">
@@ -2128,10 +2128,10 @@ function SubScore({
     rose: 'bg-rose-500',
   }[tone]
   const swatch = {
-    emerald: 'bg-emerald-50 text-emerald-700 ring-emerald-200/60',
-    brand: 'bg-brand-50 text-brand-700 ring-brand-200/60',
-    amber: 'bg-amber-50 text-amber-700 ring-amber-200/60',
-    rose: 'bg-rose-50 text-rose-700 ring-rose-200/60',
+    emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200/60',
+    brand: 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-brand-200/60',
+    amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-200/60',
+    rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 ring-rose-200/60',
   }[tone]
   return (
     <div className="rounded-lg border border-edge-subtle bg-surface-sunken/40 p-2.5">
@@ -2250,14 +2250,14 @@ function VelocityTile({
     amber: 'oklch(0.66 0.16 70)',
   }[tone]
   const swatch = {
-    brand: 'bg-brand-50 text-brand-700 ring-brand-200/60',
-    emerald: 'bg-emerald-50 text-emerald-700 ring-emerald-200/60',
-    sky: 'bg-sky-50 text-sky-700 ring-sky-200/60',
-    amber: 'bg-amber-50 text-amber-700 ring-amber-200/60',
+    brand: 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-brand-200/60',
+    emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200/60',
+    sky: 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 ring-sky-200/60',
+    amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-200/60',
   }[tone]
 
   return (
-    <div className="rounded-xl border border-edge-subtle bg-white p-3">
+    <div className="rounded-xl border border-edge-subtle bg-surface-raised p-3">
       <div className="flex items-start justify-between gap-2">
         <span className={cn('inline-flex h-7 w-7 items-center justify-center rounded-md ring-1', swatch)}>
           {icon}
@@ -2266,8 +2266,8 @@ function VelocityTile({
           className={cn(
             'inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
             positive
-              ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/60'
-              : 'bg-rose-50 text-rose-700 ring-1 ring-rose-200/60',
+              ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-200/60'
+              : 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 ring-1 ring-rose-200/60',
           )}
         >
           <span>{positive ? '↑' : '↓'}</span>
@@ -2466,9 +2466,9 @@ function ResourceGauge({
     rose: 'stroke-rose-500',
   }[tone]
   const swatch = {
-    emerald: 'bg-emerald-50 text-emerald-700 ring-emerald-200/60',
-    amber: 'bg-amber-50 text-amber-700 ring-amber-200/60',
-    rose: 'bg-rose-50 text-rose-700 ring-rose-200/60',
+    emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200/60',
+    amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-200/60',
+    rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 ring-rose-200/60',
   }[tone]
   const r = 44
   const stroke = 9
@@ -2625,10 +2625,10 @@ export function IncidentTimelinePanel() {
 
 function SeverityPill({ sev }: { sev: 'sev1' | 'sev2' | 'sev3' | 'info' }) {
   const cls = {
-    sev1: 'bg-rose-100 text-rose-800 ring-rose-200/60',
-    sev2: 'bg-amber-100 text-amber-800 ring-amber-200/60',
-    sev3: 'bg-sky-100 text-sky-800 ring-sky-200/60',
-    info: 'bg-emerald-100 text-emerald-800 ring-emerald-200/60',
+    sev1: 'bg-rose-100 dark:bg-rose-500/15 text-rose-800 dark:text-rose-300 ring-rose-200/60',
+    sev2: 'bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300 ring-amber-200/60',
+    sev3: 'bg-sky-100 dark:bg-sky-500/15 text-sky-800 dark:text-sky-300 ring-sky-200/60',
+    info: 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 ring-emerald-200/60',
   }[sev]
   return (
     <span
@@ -2782,9 +2782,9 @@ export function TopErrorSourcesPanel() {
             rose: 'bg-rose-500',
           }[tone]
           const text = {
-            emerald: 'text-emerald-700',
-            amber: 'text-amber-700',
-            rose: 'text-rose-700',
+            emerald: 'text-emerald-700 dark:text-emerald-300',
+            amber: 'text-amber-700 dark:text-amber-300',
+            rose: 'text-rose-700 dark:text-rose-300',
           }[tone]
           return (
             <li key={r.service}>
@@ -2901,7 +2901,7 @@ export function DatabasePoolPanel() {
                     {p.used}/{p.max}
                   </span>
                   {p.slow > 0 ? (
-                    <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-rose-700 ring-1 ring-rose-200">
+                    <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-rose-50 dark:bg-rose-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-300 ring-1 ring-rose-200">
                       {p.slow} slow
                     </span>
                   ) : null}
@@ -2994,9 +2994,9 @@ export function CertExpiryPanel() {
           const tone =
             c.daysLeft <= 7 ? 'rose' : c.daysLeft <= 30 ? 'amber' : 'emerald'
           const pillCls = {
-            emerald: 'bg-emerald-50 text-emerald-700 ring-emerald-200/60',
-            amber: 'bg-amber-50 text-amber-700 ring-amber-200/60',
-            rose: 'bg-rose-50 text-rose-700 ring-rose-200/60',
+            emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200/60',
+            amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-200/60',
+            rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 ring-rose-200/60',
           }[tone]
           return (
             <li key={c.host} className="flex items-center justify-between gap-3 py-2 first:pt-0 last:pb-0">
@@ -3143,10 +3143,10 @@ export function CnpgClustersPanel() {
   }, [q.data, pvcsQ.data])
 
   const tones: Record<CnpgCluster['status'], string> = {
-    healthy: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    syncing: 'border-sky-200 bg-sky-50 text-sky-700',
-    failover: 'border-amber-200 bg-amber-50 text-amber-700',
-    degraded: 'border-rose-200 bg-rose-50 text-rose-700',
+    healthy: 'border-emerald-200 dark:border-emerald-500/25 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+    syncing: 'border-sky-200 dark:border-sky-500/25 bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300',
+    failover: 'border-amber-200 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300',
+    degraded: 'border-rose-200 dark:border-rose-500/25 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300',
   }
 
   if (q.isLoading || q.isError || clusters.length === 0) {
@@ -3204,7 +3204,7 @@ export function CnpgClustersPanel() {
               </div>
               <div className="mt-2 flex items-center gap-3 text-[10px] text-content-muted">
                 <div className="flex-1">
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-raised">
                     <div
                       className={cn(
                         'h-full rounded-full',
@@ -3410,7 +3410,7 @@ export function ToolsHealthPanel() {
           <Link
             key={t.key}
             to={t.href}
-            className="group flex items-center gap-2 rounded-md border border-edge-subtle bg-white px-2 py-1.5 text-[11px] transition-colors hover:border-edge-strong hover:bg-surface-sunken"
+            className="group flex items-center gap-2 rounded-md border border-edge-subtle bg-surface-raised px-2 py-1.5 text-[11px] transition-colors hover:border-edge-strong hover:bg-surface-sunken"
           >
             <span
               className={cn(
@@ -3419,7 +3419,7 @@ export function ToolsHealthPanel() {
               )}
             />
             <div className="min-w-0 flex-1">
-              <div className="truncate font-medium text-content group-hover:text-brand-700">
+              <div className="truncate font-medium text-content group-hover:text-brand-700 dark:group-hover:text-brand-300">
                 {t.name}
               </div>
               <div
@@ -3514,8 +3514,8 @@ export function K8sEventsPanel() {
                     className={cn(
                       'inline-flex flex-none items-center rounded-sm px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide',
                       isWarn
-                        ? 'bg-amber-100 text-amber-800'
-                        : 'bg-emerald-100 text-emerald-800',
+                        ? 'bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300'
+                        : 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-300',
                     )}
                   >
                     {e.reason}
@@ -3780,9 +3780,9 @@ export function GitOpsSyncPanel() {
   }, [])
 
   const tones: Record<SyncEvent['result'], { dot: string; label: string }> = {
-    synced: { dot: 'bg-emerald-500', label: 'text-emerald-700' },
-    failed: { dot: 'bg-rose-500', label: 'text-rose-700' },
-    degraded: { dot: 'bg-amber-500', label: 'text-amber-700' },
+    synced: { dot: 'bg-emerald-500', label: 'text-emerald-700 dark:text-emerald-300' },
+    failed: { dot: 'bg-rose-500', label: 'text-rose-700 dark:text-rose-300' },
+    degraded: { dot: 'bg-amber-500', label: 'text-amber-700 dark:text-amber-300' },
   }
 
   return (
@@ -3848,7 +3848,7 @@ export function GitOpsSyncPanel() {
               <span className={cn('flex-none text-[10px] capitalize', tones[e.result].label)}>
                 {e.result}
               </span>
-              <code className="ml-auto flex-none rounded bg-white px-1 py-0.5 font-mono text-[10px] text-content-muted ring-1 ring-edge-subtle">
+              <code className="ml-auto flex-none rounded bg-surface-raised px-1 py-0.5 font-mono text-[10px] text-content-muted ring-1 ring-edge-subtle">
                 {e.revision.slice(0, 7)}
               </code>
               <span className="flex-none tabular-nums text-content-subtle">
@@ -3922,7 +3922,7 @@ export function TenantOverviewPanel() {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate text-sm font-semibold text-content">{tenant.name}</span>
-            <span className="rounded-md border border-brand-200 bg-brand-50 px-1.5 py-0.5 text-[10px] font-medium text-brand-700">
+            <span className="rounded-md border border-brand-200 dark:border-brand-500/25 bg-brand-50 dark:bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-medium text-brand-700 dark:text-brand-300">
               {tenant.plan}
             </span>
           </div>
@@ -3972,7 +3972,7 @@ export function TenantOverviewPanel() {
           return (
             <div
               key={q.label}
-              className="rounded-lg border border-edge-subtle bg-white p-2.5"
+              className="rounded-lg border border-edge-subtle bg-surface-raised p-2.5"
             >
               <div className="flex items-baseline justify-between">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
@@ -4010,7 +4010,7 @@ export function TenantOverviewPanel() {
               key={c.email}
               className="flex items-center gap-2 rounded-md bg-surface-sunken/40 px-2 py-1.5 text-[11px]"
             >
-              <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-white text-[10px] font-semibold text-content ring-1 ring-edge-subtle">
+              <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-surface-raised text-[10px] font-semibold text-content ring-1 ring-edge-subtle">
                 {c.name
                   .split(' ')
                   .map((p) => p[0])
@@ -4021,7 +4021,7 @@ export function TenantOverviewPanel() {
                 <div className="truncate font-medium text-content">{c.name}</div>
                 <div className="truncate text-[10px] text-content-subtle">{c.email}</div>
               </div>
-              <span className="flex-none rounded-md bg-white px-1.5 py-0.5 text-[10px] font-medium text-content-muted ring-1 ring-edge-subtle">
+              <span className="flex-none rounded-md bg-surface-raised px-1.5 py-0.5 text-[10px] font-medium text-content-muted ring-1 ring-edge-subtle">
                 {c.role}
               </span>
             </li>
@@ -4099,7 +4099,7 @@ export function SprintProgressPanel() {
           <span
             className={cn(
               'tabular-nums',
-              onTrack ? 'text-emerald-700' : 'text-amber-700',
+              onTrack ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300',
             )}
           >
             {onTrack ? 'On track' : 'Behind ideal'} · ends {endLabel}
@@ -4177,10 +4177,10 @@ export function IssueBacklogPanel() {
   const totalOpen = Object.values(safe).reduce((s, n) => s + n, 0)
 
   const priorityRows: { key: keyof typeof safe; label: string; tone: string; fill: string }[] = [
-    { key: 'urgent', label: 'Urgent', tone: 'text-rose-700', fill: 'bg-rose-500' },
-    { key: 'high', label: 'High', tone: 'text-amber-700', fill: 'bg-amber-500' },
-    { key: 'medium', label: 'Medium', tone: 'text-sky-700', fill: 'bg-sky-500' },
-    { key: 'low', label: 'Low', tone: 'text-emerald-700', fill: 'bg-emerald-500' },
+    { key: 'urgent', label: 'Urgent', tone: 'text-rose-700 dark:text-rose-300', fill: 'bg-rose-500' },
+    { key: 'high', label: 'High', tone: 'text-amber-700 dark:text-amber-300', fill: 'bg-amber-500' },
+    { key: 'medium', label: 'Medium', tone: 'text-sky-700 dark:text-sky-300', fill: 'bg-sky-500' },
+    { key: 'low', label: 'Low', tone: 'text-emerald-700 dark:text-emerald-300', fill: 'bg-emerald-500' },
     { key: 'none', label: 'Triage', tone: 'text-content-muted', fill: 'bg-slate-400' },
   ]
 
@@ -4189,9 +4189,9 @@ export function IssueBacklogPanel() {
   const triagePct = pct(safe.none, totalOpen)
   const groomingHealth = triagePct < 10 ? 'healthy' : triagePct < 25 ? 'fair' : 'stale'
   const groomingTone = {
-    healthy: 'text-emerald-700',
-    fair: 'text-amber-700',
-    stale: 'text-rose-700',
+    healthy: 'text-emerald-700 dark:text-emerald-300',
+    fair: 'text-amber-700 dark:text-amber-300',
+    stale: 'text-rose-700 dark:text-rose-300',
   }[groomingHealth]
 
   return (
@@ -4363,7 +4363,7 @@ export function TenantUsagePanel() {
               className="rounded-xl border border-edge-subtle bg-surface-sunken/40 p-2.5"
             >
               <div className="flex items-center gap-2">
-                <span className="flex h-7 w-7 flex-none items-center justify-center rounded-md bg-white text-[11px] font-semibold text-content ring-1 ring-edge-subtle">
+                <span className="flex h-7 w-7 flex-none items-center justify-center rounded-md bg-surface-raised text-[11px] font-semibold text-content ring-1 ring-edge-subtle">
                   {t.tenant.slice(0, 2).toUpperCase()}
                 </span>
                 <div className="min-w-0 flex-1">
@@ -4377,7 +4377,7 @@ export function TenantUsagePanel() {
                 <span
                   className={cn(
                     'flex-none text-[10px] font-medium tabular-nums',
-                    hot >= 90 ? 'text-rose-700' : hot >= 75 ? 'text-amber-700' : 'text-content-muted',
+                    hot >= 90 ? 'text-rose-700 dark:text-rose-300' : hot >= 75 ? 'text-amber-700 dark:text-amber-300' : 'text-content-muted',
                   )}
                 >
                   {hot}%
@@ -4404,7 +4404,7 @@ function UsageBar({ label, pct: p, fill }: { label: string; pct: number; fill: s
         <span className="text-content-subtle">{label}</span>
         <span className="tabular-nums text-content-muted">{p}%</span>
       </div>
-      <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-white">
+      <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-surface-raised">
         <div className={cn('h-full rounded-full', tone)} style={{ width: `${Math.min(100, p)}%` }} />
       </div>
     </div>
@@ -4477,9 +4477,9 @@ export function AuditLogPanel() {
   }, [q.data])
 
   const tones: Record<AuditEvent['severity'], { dot: string; pill: string }> = {
-    info: { dot: 'bg-slate-400', pill: 'bg-slate-100 text-slate-700' },
-    warning: { dot: 'bg-amber-500', pill: 'bg-amber-100 text-amber-800' },
-    critical: { dot: 'bg-rose-500', pill: 'bg-rose-100 text-rose-800' },
+    info: { dot: 'bg-slate-400', pill: 'bg-slate-100 text-content-muted' },
+    warning: { dot: 'bg-amber-500', pill: 'bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300' },
+    critical: { dot: 'bg-rose-500', pill: 'bg-rose-100 dark:bg-rose-500/15 text-rose-800 dark:text-rose-300' },
   }
 
   const critical = events.filter((e) => e.severity === 'critical').length
@@ -4626,10 +4626,10 @@ export function BackupStatusPanel() {
   const partial = backups.filter((b) => b.status === 'partial').length
 
   const tones: Record<BackupRow['status'], { dot: string; pill: string; label: string }> = {
-    completed: { dot: 'bg-emerald-500', pill: 'border-emerald-200 bg-emerald-50 text-emerald-700', label: 'OK' },
-    'in-progress': { dot: 'bg-sky-500', pill: 'border-sky-200 bg-sky-50 text-sky-700', label: 'Running' },
-    failed: { dot: 'bg-rose-500', pill: 'border-rose-200 bg-rose-50 text-rose-700', label: 'Failed' },
-    partial: { dot: 'bg-amber-500', pill: 'border-amber-200 bg-amber-50 text-amber-700', label: 'Partial' },
+    completed: { dot: 'bg-emerald-500', pill: 'border-emerald-200 dark:border-emerald-500/25 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300', label: 'OK' },
+    'in-progress': { dot: 'bg-sky-500', pill: 'border-sky-200 dark:border-sky-500/25 bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300', label: 'Running' },
+    failed: { dot: 'bg-rose-500', pill: 'border-rose-200 dark:border-rose-500/25 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300', label: 'Failed' },
+    partial: { dot: 'bg-amber-500', pill: 'border-amber-200 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300', label: 'Partial' },
   }
 
   const loading = veleroQ.isLoading || cnpgQ.isLoading
@@ -4676,7 +4676,7 @@ export function BackupStatusPanel() {
                 >
                   {t.label}
                 </span>
-                <span className="ml-auto flex-none rounded-sm bg-white px-1 py-0.5 text-[10px] uppercase tracking-wide text-content-muted ring-1 ring-edge-subtle">
+                <span className="ml-auto flex-none rounded-sm bg-surface-raised px-1 py-0.5 text-[10px] uppercase tracking-wide text-content-muted ring-1 ring-edge-subtle">
                   {b.type}
                 </span>
               </div>
@@ -4751,11 +4751,11 @@ export function WorkflowRunsPanel() {
   const successRate = pct(succeeded24h, succeeded24h + failed24h)
 
   const phaseTone: Record<WorkflowRun['phase'], { dot: string; pill: string; bar: string }> = {
-    Succeeded: { dot: 'bg-emerald-500', pill: 'border-emerald-200 bg-emerald-50 text-emerald-700', bar: 'bg-emerald-500' },
-    Running: { dot: 'bg-sky-500', pill: 'border-sky-200 bg-sky-50 text-sky-700', bar: 'bg-sky-500' },
-    Failed: { dot: 'bg-rose-500', pill: 'border-rose-200 bg-rose-50 text-rose-700', bar: 'bg-rose-500' },
-    Error: { dot: 'bg-rose-500', pill: 'border-rose-200 bg-rose-50 text-rose-700', bar: 'bg-rose-500' },
-    Pending: { dot: 'bg-slate-400', pill: 'border-slate-200 bg-slate-50 text-slate-700', bar: 'bg-slate-400' },
+    Succeeded: { dot: 'bg-emerald-500', pill: 'border-emerald-200 dark:border-emerald-500/25 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300', bar: 'bg-emerald-500' },
+    Running: { dot: 'bg-sky-500', pill: 'border-sky-200 dark:border-sky-500/25 bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300', bar: 'bg-sky-500' },
+    Failed: { dot: 'bg-rose-500', pill: 'border-rose-200 dark:border-rose-500/25 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300', bar: 'bg-rose-500' },
+    Error: { dot: 'bg-rose-500', pill: 'border-rose-200 dark:border-rose-500/25 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300', bar: 'bg-rose-500' },
+    Pending: { dot: 'bg-slate-400', pill: 'border-edge-default bg-surface-sunken text-content-muted', bar: 'bg-slate-400' },
   }
 
   function fmtDuration(sec: number | null): string {
@@ -4825,7 +4825,7 @@ export function WorkflowRunsPanel() {
                   <span className="text-content-subtle"> · {formatRelative(r.startedAt)}</span>
                 </span>
               </div>
-              <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-white">
+              <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-surface-raised">
                 <div
                   className={cn(
                     'h-full rounded-full transition-all',
@@ -4885,7 +4885,7 @@ export function PipelineSuccessTrendPanel() {
           <span className="font-semibold uppercase tracking-wider text-content-subtle">
             Daily run volume
           </span>
-          <span className={cn('tabular-nums', delta >= 0 ? 'text-emerald-700' : 'text-rose-700')}>
+          <span className={cn('tabular-nums', delta >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300')}>
             7d {trend7d}% ({delta >= 0 ? '+' : ''}
             {delta}pp)
           </span>
@@ -4929,16 +4929,16 @@ export function PipelineSuccessTrendPanel() {
               className={cn(
                 'font-medium tabular-nums',
                 flakyRate < 2
-                  ? 'text-emerald-700'
+                  ? 'text-emerald-700 dark:text-emerald-300'
                   : flakyRate < 5
-                    ? 'text-amber-700'
-                    : 'text-rose-700',
+                    ? 'text-amber-700 dark:text-amber-300'
+                    : 'text-rose-700 dark:text-rose-300',
               )}
             >
               {flakyRate}%
             </span>
           </div>
-          <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-white">
+          <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-surface-raised">
             <div
               className={cn(
                 'h-full rounded-full',
@@ -5067,7 +5067,7 @@ export function PipelineStagePerformancePanel() {
                 <span className="tabular-nums text-content-muted">
                   avg {fmt(s.avgSec)} · p95 {fmt(s.p95Sec)}
                   {s.failRate > 2 ? (
-                    <span className="text-rose-700"> · {s.failRate}% fail</span>
+                    <span className="text-rose-700 dark:text-rose-300"> · {s.failRate}% fail</span>
                   ) : null}
                 </span>
               </div>
@@ -5179,10 +5179,10 @@ export function WorkflowTriggersPanel() {
             const w = (t.uses7d / maxUses) * 100
             const okTone =
               t.successRate >= 95
-                ? 'text-emerald-700'
+                ? 'text-emerald-700 dark:text-emerald-300'
                 : t.successRate >= 90
-                  ? 'text-amber-700'
-                  : 'text-rose-700'
+                  ? 'text-amber-700 dark:text-amber-300'
+                  : 'text-rose-700 dark:text-rose-300'
             return (
               <li key={t.name} className="text-[11px]">
                 <div className="flex items-baseline justify-between gap-2">
@@ -5320,9 +5320,9 @@ export function MtlsCoveragePanel() {
   const coveragePct = pct(encrypted, total)
 
   const stateTone: Record<MtlsService['state'], { dot: string; pill: string; label: string }> = {
-    mtls: { dot: 'bg-emerald-500', pill: 'border-emerald-200 bg-emerald-50 text-emerald-700', label: 'Strict' },
-    mixed: { dot: 'bg-amber-500', pill: 'border-amber-200 bg-amber-50 text-amber-700', label: 'Permissive' },
-    plaintext: { dot: 'bg-rose-500', pill: 'border-rose-200 bg-rose-50 text-rose-700', label: 'Disabled' },
+    mtls: { dot: 'bg-emerald-500', pill: 'border-emerald-200 dark:border-emerald-500/25 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300', label: 'Strict' },
+    mixed: { dot: 'bg-amber-500', pill: 'border-amber-200 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300', label: 'Permissive' },
+    plaintext: { dot: 'bg-rose-500', pill: 'border-rose-200 dark:border-rose-500/25 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300', label: 'Disabled' },
   }
 
   if (q.isLoading || q.isError || total === 0) {
@@ -5491,7 +5491,7 @@ export function IngressTrafficPanel() {
             <div className="flex items-center gap-2 text-[11px]">
               <span className="truncate font-mono text-content">{r.host}</span>
               <span className="truncate font-mono text-content-muted">{r.path}</span>
-              <span className="ml-auto flex-none rounded-sm bg-white px-1 py-0.5 text-[10px] text-content-muted ring-1 ring-edge-subtle">
+              <span className="ml-auto flex-none rounded-sm bg-surface-raised px-1 py-0.5 text-[10px] text-content-muted ring-1 ring-edge-subtle">
                 {r.ingressClass}
               </span>
             </div>

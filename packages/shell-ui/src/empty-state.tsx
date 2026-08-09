@@ -23,7 +23,7 @@ export function EmptyState({ title, description, action, icon, compact = false, 
     >
       <div
         className={cn(
-          'mb-4 flex items-center justify-center rounded-full bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-200',
+          'mb-4 flex items-center justify-center rounded-full bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-1 ring-inset ring-brand-200',
           compact ? 'h-9 w-9 text-sm' : 'h-12 w-12 text-base',
         )}
       >

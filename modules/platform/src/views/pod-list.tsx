@@ -109,7 +109,7 @@ export function PodsView({ namespace }: { namespace?: string }) {
                   <span
                     className={cn(
                       'font-mono tabular-nums',
-                      total > 0 && ready < total && 'text-amber-700',
+                      total > 0 && ready < total && 'text-amber-700 dark:text-amber-300',
                     )}
                   >
                     {ready}/{total}
@@ -127,7 +127,7 @@ export function PodsView({ namespace }: { namespace?: string }) {
                   0,
                 )
                 return (
-                  <span className={cn('font-mono tabular-nums', r > 0 && 'text-amber-700')}>
+                  <span className={cn('font-mono tabular-nums', r > 0 && 'text-amber-700 dark:text-amber-300')}>
                     {r}
                   </span>
                 )

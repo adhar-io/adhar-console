@@ -110,7 +110,7 @@ export function ResourceBrowser({ namespace: initialNamespace }: Props = {}) {
             onChange={(e) => setRailSearch(e.target.value)}
             placeholder="Filter kinds…"
             className={cn(
-              'h-8 w-full rounded-lg border border-edge-default bg-white px-3 text-sm text-content placeholder:text-content-subtle',
+              'h-8 w-full rounded-lg border border-edge-default bg-surface-raised px-3 text-sm text-content placeholder:text-content-subtle',
               'focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20',
             )}
           />
@@ -121,7 +121,7 @@ export function ResourceBrowser({ namespace: initialNamespace }: Props = {}) {
               <Spinner size={14} /> Discovering resources…
             </div>
           ) : discovery.isError ? (
-            <div className="px-2 py-4 text-xs text-rose-700">{(discovery.error as Error)?.message ?? 'Discovery failed'}</div>
+            <div className="px-2 py-4 text-xs text-rose-700 dark:text-rose-300">{(discovery.error as Error)?.message ?? 'Discovery failed'}</div>
           ) : groups.length === 0 ? (
             <div className="px-2 py-4 text-xs text-content-subtle">No matching kinds.</div>
           ) : (
@@ -141,7 +141,7 @@ export function ResourceBrowser({ namespace: initialNamespace }: Props = {}) {
                       className={cn(
                         'block w-full truncate rounded-md px-3 py-1.5 text-left text-sm transition-colors',
                         selKey === key
-                          ? 'bg-brand-50 font-medium text-brand-700 ring-1 ring-inset ring-brand-200'
+                          ? 'bg-brand-50 dark:bg-brand-500/10 font-medium text-brand-700 dark:text-brand-300 ring-1 ring-inset ring-brand-200 dark:ring-brand-500/25'
                           : 'text-content-muted hover:bg-surface-sunken hover:text-content',
                       )}
                     >
@@ -185,7 +185,7 @@ export function ResourceBrowser({ namespace: initialNamespace }: Props = {}) {
                     onChange={(e) => setLabelSelector(e.target.value)}
                     placeholder="label selector, e.g. app=nginx"
                     className={cn(
-                      'h-8 w-56 rounded-lg border border-edge-default bg-white px-2.5 text-xs text-content placeholder:text-content-subtle',
+                      'h-8 w-56 rounded-lg border border-edge-default bg-surface-raised px-2.5 text-xs text-content placeholder:text-content-subtle',
                       'focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20',
                     )}
                   />
@@ -296,7 +296,7 @@ function RowActions({ gvr, obj, onYaml }: { gvr: GVR; obj: KubeObject; onYaml(o:
         type="button"
         onClick={() => onYaml(obj)}
         title="Edit manifest"
-        className="inline-flex h-7 items-center gap-1 rounded-md border border-edge-default bg-white px-2 text-[11px] font-medium text-content-muted transition-colors hover:border-brand-300 hover:text-brand-700"
+        className="inline-flex h-7 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-[11px] font-medium text-content-muted transition-colors hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300"
       >
         YAML
       </button>
@@ -306,7 +306,7 @@ function RowActions({ gvr, obj, onYaml }: { gvr: GVR; obj: KubeObject; onYaml(o:
           onClick={onDelete}
           disabled={deleting}
           title="Delete"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-edge-default bg-white text-content-muted transition-colors hover:border-rose-300 hover:text-rose-700 disabled:opacity-50"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-edge-default bg-surface-raised text-content-muted transition-colors hover:border-rose-300 hover:text-rose-700 dark:hover:text-rose-300 disabled:opacity-50"
         >
           {deleting ? <Spinner size={12} /> : <TrashGlyph />}
         </button>

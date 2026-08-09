@@ -134,8 +134,8 @@ export function PodYamlPanel({
             className={cn(
               'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition',
               showDiff
-                ? 'border-brand-300 bg-brand-50 text-brand-700'
-                : 'border-edge-default bg-white text-content-muted hover:text-content',
+                ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-500/25 dark:bg-brand-500/10 dark:text-brand-300'
+                : 'border-edge-default bg-surface-raised text-content-muted hover:text-content',
             )}
           >
             <span className="font-mono">±</span>
@@ -175,7 +175,7 @@ export function PodYamlPanel({
             </Button>
           ) : (
             <span
-              className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-white px-2 py-1 text-[11px] text-content-muted"
+              className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-[11px] text-content-muted"
               title="Editing requires the Tenant Admin or Platform Admin role"
             >
               Edit
@@ -186,12 +186,12 @@ export function PodYamlPanel({
       </div>
 
       {error ? (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300">
           <strong className="font-semibold">Apply failed:</strong> {error}
         </div>
       ) : null}
       {success && !editing ? (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300">
           <strong className="font-semibold">Applied.</strong> apiserver accepted the update.
         </div>
       ) : null}

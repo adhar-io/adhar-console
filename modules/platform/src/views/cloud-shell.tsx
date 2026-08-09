@@ -42,7 +42,7 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-edge-default bg-white p-3 shadow-sm">
+      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-edge-default bg-surface-raised p-3 shadow-sm">
         <Field label="Namespace">
           <NamespacePicker
             value={namespace}
@@ -60,7 +60,7 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
               setPod(e.target.value || undefined)
               setContainer(undefined)
             }}
-            className="h-9 min-w-56 rounded-md border border-edge-default bg-white px-2.5 text-sm text-content outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20"
+            className="h-9 min-w-56 rounded-md border border-edge-default bg-surface-raised px-2.5 text-sm text-content outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20"
           >
             <option value="">
               {pods.isLoading ? 'Loading pods…' : running.length ? 'Select a pod…' : 'No running pods'}
@@ -78,7 +78,7 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
             <select
               value={effectiveContainer ?? ''}
               onChange={(e) => setContainer(e.target.value || undefined)}
-              className="h-9 min-w-40 rounded-md border border-edge-default bg-white px-2.5 text-sm text-content outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20"
+              className="h-9 min-w-40 rounded-md border border-edge-default bg-surface-raised px-2.5 text-sm text-content outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20"
             >
               {containers.map((c) => (
                 <option key={c} value={c}>

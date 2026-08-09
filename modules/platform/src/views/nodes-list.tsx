@@ -74,7 +74,7 @@ export function NodesView() {
                   {roles.map((r) => (
                     <span
                       key={r}
-                      className="rounded-md bg-brand-50 px-1.5 py-0.5 text-[11px] font-medium text-brand-700 ring-1 ring-inset ring-brand-200"
+                      className="rounded-md bg-brand-50 dark:bg-brand-500/10 px-1.5 py-0.5 text-[11px] font-medium text-brand-700 dark:text-brand-300 ring-1 ring-inset ring-brand-200 dark:ring-brand-500/25"
                     >
                       {r}
                     </span>
@@ -194,7 +194,7 @@ function NodeDrawer({
         onClick={onClose}
         aria-hidden
       />
-      <aside className="relative flex h-full w-full max-w-2xl flex-col border-l border-edge-default bg-white shadow-2xl">
+      <aside className="relative flex h-full w-full max-w-2xl flex-col border-l border-edge-default bg-surface-raised shadow-2xl">
         <header className="flex items-start justify-between gap-4 border-b border-edge-default px-6 py-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">
@@ -246,9 +246,9 @@ function NodeDrawer({
           </div>
         </header>
         {confirmCordon ? (
-          <div className="flex flex-wrap items-center gap-3 border-b border-amber-200 bg-amber-50/70 px-6 py-3" role="alert">
+          <div className="flex flex-wrap items-center gap-3 border-b border-amber-200 dark:border-amber-500/25 bg-amber-50/70 dark:bg-amber-500/10 px-6 py-3" role="alert">
             <div className="min-w-0 flex-1 text-sm">
-              <div className="font-semibold text-amber-900">Cordon this node?</div>
+              <div className="font-semibold text-amber-900 dark:text-amber-300">Cordon this node?</div>
               <div className="text-[12px] text-content-muted">
                 New pods won't schedule onto <code className="font-mono">{node.metadata.name}</code>.
                 Existing pods keep running — this is reversible with Uncordon.
@@ -352,7 +352,7 @@ function NodeConditions({ node }: { node: N }) {
   const conditions = node.status.conditions ?? []
   if (!conditions.length) return <EmptyState compact title="No conditions reported" />
   return (
-    <div className="rounded-xl border border-edge-default bg-white">
+    <div className="rounded-xl border border-edge-default bg-surface-raised">
       <div className="divide-y divide-edge-subtle">
         {conditions.map((c) => (
           <div key={c.type} className="flex items-start gap-4 px-4 py-3">
@@ -389,7 +389,7 @@ function NodeAddresses({ node }: { node: N }) {
   const rows = node.status.addresses ?? []
   if (!rows.length) return <EmptyState compact title="No addresses" />
   return (
-    <div className="overflow-hidden rounded-xl border border-edge-default bg-white">
+    <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised">
       <table className="w-full text-sm">
         <tbody className="divide-y divide-edge-subtle">
           {rows.map((a, i) => (
@@ -415,7 +415,7 @@ function NodeTaints({ node }: { node: N }) {
       />
     )
   return (
-    <div className="overflow-hidden rounded-xl border border-edge-default bg-white">
+    <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-edge-default bg-surface-sunken text-left">

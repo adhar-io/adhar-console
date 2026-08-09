@@ -116,7 +116,7 @@ export function PodLogsPanel({
           <select
             value={container}
             onChange={(e) => setContainer(e.target.value)}
-            className="rounded border border-edge-default bg-white px-2 py-0.5 text-xs"
+            className="rounded border border-edge-default bg-surface-raised px-2 py-0.5 text-xs"
           >
             {containers.map((c) => (
               <option key={c} value={c}>
@@ -130,7 +130,7 @@ export function PodLogsPanel({
           <select
             value={tailLines}
             onChange={(e) => setTailLines(Number(e.target.value) as typeof tailLines)}
-            className="rounded border border-edge-default bg-white px-2 py-0.5 text-xs"
+            className="rounded border border-edge-default bg-surface-raised px-2 py-0.5 text-xs"
           >
             {TAIL_OPTIONS.map((n) => (
               <option key={n} value={n}>
@@ -144,7 +144,7 @@ export function PodLogsPanel({
           <select
             value={since}
             onChange={(e) => setSince(e.target.value as typeof since)}
-            className="rounded border border-edge-default bg-white px-2 py-0.5 text-xs"
+            className="rounded border border-edge-default bg-surface-raised px-2 py-0.5 text-xs"
           >
             {SINCE_OPTIONS.map((s) => (
               <option key={s.label} value={s.label}>
@@ -162,8 +162,8 @@ export function PodLogsPanel({
           className={cn(
             'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
             previous
-              ? 'border-amber-300 bg-amber-100 text-amber-900'
-              : 'border-edge-default bg-white text-content-muted hover:border-edge-strong',
+              ? 'border-amber-300 bg-amber-100 text-amber-900 dark:border-amber-500/25 dark:bg-amber-500/15 dark:text-amber-200'
+              : 'border-edge-default bg-surface-raised text-content-muted hover:border-edge-strong',
           )}
         >
           <IconHistory />
@@ -193,7 +193,7 @@ export function PodLogsPanel({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter lines…"
-            className="h-7 w-56 rounded-md border border-edge-default bg-white pl-7 pr-2 text-xs"
+            className="h-7 w-56 rounded-md border border-edge-default bg-surface-raised pl-7 pr-2 text-xs"
           />
           <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-content-subtle">
             <IconSearch />
@@ -208,7 +208,7 @@ export function PodLogsPanel({
       </div>
 
       {previous ? (
-        <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+        <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200">
           <IconHistory />
           <span>
             Showing logs from the <strong>previous terminated instance</strong> of{' '}
@@ -363,7 +363,7 @@ function LogLine({
 
 function Pill({ children }: { children: React.ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-edge-default bg-white px-2 py-1">
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-edge-default bg-surface-raised px-2 py-1">
       {children}
     </span>
   )
@@ -379,7 +379,7 @@ function ToggleChip({
   label: string
 }) {
   return (
-    <label className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-edge-default bg-white px-2 py-1 text-[11px] text-content-muted">
+    <label className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-edge-default bg-surface-raised px-2 py-1 text-[11px] text-content-muted">
       <input
         type="checkbox"
         checked={checked}

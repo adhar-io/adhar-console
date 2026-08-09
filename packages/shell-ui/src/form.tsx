@@ -23,11 +23,11 @@ export function Field({ label, hint, error, required, className, children }: Fie
   return (
     <div className={cn('space-y-1.5', className)}>
       {label ? (
-        <label className="flex items-baseline gap-2 text-sm font-medium text-slate-900">
+        <label className="flex items-baseline gap-2 text-sm font-medium text-content">
           <span>{label}</span>
           {required ? <span className="text-rose-600">*</span> : null}
           {hint && !error ? (
-            <span className="ml-auto text-xs font-normal text-slate-500">{hint}</span>
+            <span className="ml-auto text-xs font-normal text-content-subtle">{hint}</span>
           ) : null}
         </label>
       ) : null}
@@ -40,14 +40,14 @@ export function Field({ label, hint, error, required, className, children }: Fie
 /* ─────────────────────────────────────────────────────────────── Input ── */
 
 const FIELD_BASE =
-  'w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 shadow-sm ' +
-  'placeholder:text-slate-400 ' +
+  'w-full rounded-md border bg-surface-raised px-3 py-2 text-sm text-content shadow-sm ' +
+  'placeholder:text-content-subtle ' +
   'transition-colors duration-150 ' +
   'focus:outline-none focus-visible:ring-2 ' +
-  'disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500'
+  'disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:text-content-subtle'
 
 const FIELD_STATES = {
-  default: 'border-slate-200 focus-visible:border-slate-400 focus-visible:ring-slate-900/10',
+  default: 'border-edge-default focus-visible:border-slate-400 focus-visible:ring-slate-900/10',
   error: 'border-rose-300 focus-visible:border-rose-500 focus-visible:ring-rose-500/20',
 }
 
@@ -65,7 +65,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     return (
       <div className="relative">
         {leading ? (
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-content-subtle">
             {leading}
           </span>
         ) : null}
@@ -81,7 +81,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           {...rest}
         />
         {trailing ? (
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-content-subtle">
             {trailing}
           </span>
         ) : null}
@@ -138,7 +138,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
       </select>
       <span
         aria-hidden
-        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-content-subtle"
       >
         ▾
       </span>
@@ -185,14 +185,14 @@ export function Checkbox({ label, description, className, id: idProp, ...rest }:
       <input
         type="checkbox"
         id={id}
-        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-2 focus:ring-slate-900/20"
+        className="mt-0.5 h-4 w-4 rounded border-edge-default text-content focus:ring-2 focus:ring-slate-900/20"
         {...rest}
       />
       {label || description ? (
         <div className="min-w-0">
-          {label ? <div className="text-sm font-medium text-slate-900">{label}</div> : null}
+          {label ? <div className="text-sm font-medium text-content">{label}</div> : null}
           {description ? (
-            <div className="text-xs text-slate-500">{description}</div>
+            <div className="text-xs text-content-subtle">{description}</div>
           ) : null}
         </div>
       ) : null}

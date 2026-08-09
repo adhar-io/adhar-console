@@ -35,7 +35,7 @@ export function PodShell({
           value={container}
           onChange={(e) => setContainer(e.target.value)}
           disabled={connected}
-          className="rounded-md border border-edge-default bg-white px-2 py-1 text-xs disabled:opacity-60"
+          className="rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-xs disabled:opacity-60"
         >
           {containers.map((c) => (
             <option key={c} value={c}>
@@ -62,7 +62,7 @@ export function PodShell({
           </Button>
         ) : (
           <span
-            className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-white px-2 py-1 text-[11px] text-content-muted"
+            className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-[11px] text-content-muted"
             title="Pod exec requires the Developer or higher role"
           >
             Connect

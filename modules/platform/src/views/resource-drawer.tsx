@@ -93,7 +93,7 @@ export function ResourceDrawer<T extends Resource>({
         onClick={onClose}
       />
       <aside className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-white px-6 py-4">
+        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">
               {kindLabel}
@@ -236,7 +236,7 @@ export function DrawerStatusTile({
   sub?: string
 }) {
   return (
-    <div className="rounded-xl border border-edge-default bg-white p-4 shadow-sm">
+    <div className="rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm">
       <div className="flex items-center justify-between gap-2">
         <div className="text-xs font-medium uppercase tracking-wide text-content-subtle">
           {label}

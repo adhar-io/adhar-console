@@ -24,7 +24,7 @@ export function PolicyView() {
           <>
             No <code className="font-mono">wgpolicyk8s.io</code> CRDs found. Install{' '}
             <a
-              className="text-brand-700 underline"
+              className="text-brand-700 dark:text-brand-300 underline"
               href="https://kyverno.io/docs/installation/"
               target="_blank"
               rel="noreferrer"
@@ -133,10 +133,10 @@ function SummaryTile({
   value: number
 }) {
   const tones = {
-    emerald: 'text-emerald-700 bg-emerald-50 ring-emerald-200',
-    rose: 'text-rose-700 bg-rose-50 ring-rose-200',
-    amber: 'text-amber-800 bg-amber-50 ring-amber-200',
-    slate: 'text-slate-700 bg-slate-50 ring-slate-200',
+    emerald: 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-500/10 ring-emerald-200 dark:ring-emerald-500/25',
+    rose: 'text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-500/10 ring-rose-200 dark:ring-rose-500/25',
+    amber: 'text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 ring-amber-200 dark:ring-amber-500/25',
+    slate: 'text-content-muted bg-surface-sunken ring-edge-default',
   }
   return (
     <div className={`rounded-xl p-4 ring-1 ring-inset ${tones[tone]}`}>

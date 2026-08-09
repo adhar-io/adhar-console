@@ -52,7 +52,7 @@ export function PlatformDashboard() {
 
   if (version.isLoading || nodes.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading platform pulse…
       </div>
     )
@@ -382,7 +382,7 @@ function EventRow({ ev }: { ev: { type?: string; reason?: string; message?: stri
   const ts = ev.lastTimestamp ?? ev.eventTime
   const obj = ev.involvedObject
   return (
-    <li className="px-5 py-2.5 transition-colors hover:bg-brand-50/40">
+    <li className="px-5 py-2.5 transition-colors hover:bg-brand-50/40 dark:hover:bg-brand-500/10">
       <div className="flex items-center gap-2">
         <StatusBadge kind={tone}>{ev.type ?? 'Normal'}</StatusBadge>
         <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-content-muted">
@@ -406,7 +406,7 @@ function EventRow({ ev }: { ev: { type?: string; reason?: string; message?: stri
 
 function PhaseTile({ label, value, dot }: { label: string; value: number; dot: string }) {
   return (
-    <div className="rounded-md border border-edge-subtle bg-white p-2">
+    <div className="rounded-md border border-edge-subtle bg-surface-raised p-2">
       <div className="flex items-center justify-between">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
           {label}
@@ -491,18 +491,18 @@ function HeroStat({
   hint?: string
 }) {
   const cls = {
-    brand: 'from-brand-50 to-white text-brand-700',
-    amber: 'from-amber-50 to-white text-amber-700',
-    rose: 'from-rose-50 to-white text-rose-700',
-    violet: 'from-violet-50 to-white text-violet-700',
-    sky: 'from-sky-50 to-white text-sky-700',
-    emerald: 'from-emerald-50 to-white text-emerald-700',
+    brand: 'from-brand-50 dark:from-brand-500/10 to-white text-brand-700 dark:text-brand-300',
+    amber: 'from-amber-50 dark:from-amber-500/10 to-white text-amber-700 dark:text-amber-300',
+    rose: 'from-rose-50 dark:from-rose-500/10 to-white text-rose-700 dark:text-rose-300',
+    violet: 'from-violet-50 dark:from-violet-500/10 to-white text-violet-700 dark:text-violet-300',
+    sky: 'from-sky-50 dark:from-sky-500/10 to-white text-sky-700 dark:text-sky-300',
+    emerald: 'from-emerald-50 dark:from-emerald-500/10 to-white text-emerald-700 dark:text-emerald-300',
   }[tone]
   return (
     <Card className={`relative overflow-hidden bg-linear-to-br ${cls} ring-1 ring-inset ring-edge-subtle`}>
       <CardBody className="space-y-1 p-4">
         <div className="flex items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/80 shadow-sm">
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-raised/80 shadow-sm">
             {icon}
           </span>
           <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
@@ -530,10 +530,10 @@ function QuickStartCard({
   tone: 'brand' | 'amber' | 'emerald' | 'violet'
 }) {
   const accent = {
-    brand: 'border-brand-200/60 bg-brand-50/30',
-    amber: 'border-amber-200/60 bg-amber-50/30',
-    emerald: 'border-emerald-200/60 bg-emerald-50/30',
-    violet: 'border-violet-200/60 bg-violet-50/30',
+    brand: 'border-brand-200/60 dark:border-brand-500/25 bg-brand-50/30 dark:bg-brand-500/10',
+    amber: 'border-amber-200/60 dark:border-amber-500/25 bg-amber-50/30 dark:bg-amber-500/10',
+    emerald: 'border-emerald-200/60 dark:border-emerald-500/25 bg-emerald-50/30 dark:bg-emerald-500/10',
+    violet: 'border-violet-200/60 dark:border-violet-500/25 bg-violet-50/30 dark:bg-violet-500/10',
   }[tone]
   return (
     <Card className={`${accent} border`}>
@@ -547,7 +547,7 @@ function QuickStartCard({
             <li key={l.href}>
               <a
                 href={l.href}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-700 hover:text-brand-800 hover:underline"
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-700 dark:text-brand-300 hover:text-brand-800 hover:underline"
               >
                 <IconArrow /> {l.label}
               </a>
@@ -578,11 +578,11 @@ function ClusterSummary({
 }) {
   const sample = nodes[0]?.status?.nodeInfo
   return (
-    <div className="overflow-hidden rounded-2xl border border-edge-default bg-linear-to-br from-brand-50/70 via-white to-white p-5 shadow-sm">
+    <div className="overflow-hidden rounded-2xl border border-edge-default bg-linear-to-br from-brand-50/70 dark:from-brand-500/10 via-white to-white p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-edge-subtle">
-            <span className="text-brand-700">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface-raised shadow-sm ring-1 ring-edge-subtle">
+            <span className="text-brand-700 dark:text-brand-300">
               <IconK8s />
             </span>
           </div>
@@ -627,7 +627,7 @@ function CurrentRolesPill() {
       {roles.map((r) => (
         <span
           key={r}
-          className="rounded-full border border-brand-200/70 bg-brand-50/70 px-2 py-0.5 font-medium text-brand-700"
+          className="rounded-full border border-brand-200/70 dark:border-brand-500/25 bg-brand-50/70 dark:bg-brand-500/10 px-2 py-0.5 font-medium text-brand-700 dark:text-brand-300"
         >
           {K8S_ROLE_LABEL[r]}
         </span>

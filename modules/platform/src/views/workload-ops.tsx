@@ -148,7 +148,7 @@ export function WorkloadOpsPanel({
   const target = resolveQ.data
   if (!target) {
     return (
-      <div className="rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         Owner <code className="font-mono">{ctrl.kind}/{ctrl.name}</code> could not be resolved — it may
         have been deleted or you may lack read access.
       </div>
@@ -256,7 +256,7 @@ function WorkloadOps({
   const obj = q.data
   if (!obj) {
     return (
-      <div className="rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <code className="font-mono">{kind}/{name}</code> could not be loaded.
       </div>
     )
@@ -306,14 +306,14 @@ function OwnerCard({ resolved }: { resolved: Resolved }) {
   const image = obj.spec?.template?.spec?.containers?.[0]?.image
   const strategy = obj.spec?.strategy?.type ?? obj.spec?.updateStrategy?.type
   return (
-    <div className="rounded-xl border border-edge-default bg-white p-4 shadow-sm">
+    <div className="rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[11px] font-medium uppercase tracking-wider text-content-subtle">
             Managed by
           </div>
           <div className="mt-0.5 flex items-center gap-2">
-            <span className="rounded-md bg-brand-50 px-1.5 py-0.5 text-[11px] font-semibold text-brand-700 ring-1 ring-inset ring-brand-100">
+            <span className="rounded-md bg-brand-50 dark:bg-brand-500/10 px-1.5 py-0.5 text-[11px] font-semibold text-brand-700 dark:text-brand-300 ring-1 ring-inset ring-brand-100 dark:ring-brand-500/20">
               {kind}
             </span>
             <span className="truncate text-sm font-semibold text-content">{resolved.name}</span>
@@ -353,7 +353,7 @@ function RolloutStatus({ resolved }: { resolved: Resolved }) {
   const label = paused ? 'Paused' : desired === 0 ? 'Scaled to 0' : rolling ? 'Rolling out' : 'Complete'
 
   return (
-    <div className="rounded-xl border border-edge-default bg-white p-4 shadow-sm">
+    <div className="rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm">
       <div className="mb-3 flex items-center justify-between">
         <div className="text-sm font-semibold text-content">Rollout status</div>
         <StatusBadge kind={isHealthy ? 'healthy' : rolling && !paused ? 'progressing' : 'paused'}>
@@ -436,7 +436,7 @@ function ScaleWidget({
   const clamp = (n: number) => Math.max(0, Math.min(1000, n))
 
   return (
-    <div className="rounded-xl border border-edge-default bg-white p-4 shadow-sm">
+    <div className="rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm">
       <div className="mb-3 flex items-center justify-between">
         <div className="text-sm font-semibold text-content">Scale</div>
         <span className="text-[11px] text-content-subtle">
@@ -445,7 +445,7 @@ function ScaleWidget({
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex items-center rounded-lg border border-edge-default bg-white">
+        <div className="inline-flex items-center rounded-lg border border-edge-default bg-surface-raised">
           <button
             type="button"
             disabled={!canScale || pending || target <= 0}
@@ -512,7 +512,7 @@ function ScaleWidget({
           </span>
         )}
       </div>
-      {error ? <div className="mt-2 text-[11px] text-rose-700">Error: {error}</div> : null}
+      {error ? <div className="mt-2 text-[11px] text-rose-700 dark:text-rose-300">Error: {error}</div> : null}
     </div>
   )
 }
@@ -539,7 +539,7 @@ function RolloutActions({
   const [confirmRestart, setConfirmRestart] = useState(false)
 
   return (
-    <div className="rounded-xl border border-edge-default bg-white p-4 shadow-sm">
+    <div className="rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm">
       <div className="mb-3 text-sm font-semibold text-content">Rollout</div>
 
       {!canWrite ? (
@@ -549,8 +549,8 @@ function RolloutActions({
       ) : (
         <div className="flex flex-wrap items-center gap-2">
           {confirmRestart ? (
-            <div className="flex w-full flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2">
-              <span className="text-[12px] text-amber-900">
+            <div className="flex w-full flex-wrap items-center gap-2 rounded-lg border border-amber-200 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-500/10 p-2">
+              <span className="text-[12px] text-amber-900 dark:text-amber-200">
                 Restart the rollout? All pods of {resolved.kind.toLowerCase()}{' '}
                 <code className="font-mono">{resolved.name}</code> will be recreated (rolling).
               </span>

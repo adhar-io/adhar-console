@@ -6,6 +6,24 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-08-09
+
+### Fixed
+
+- **In-cluster login** ("Sign-in is temporarily unavailable"). Server-side OIDC
+  discovery was calling Keycloak at the public `KEYCLOAK_URL`, which isn't
+  routable from inside the cluster (split-horizon DNS behind the gateway). Added
+  an optional **`KEYCLOAK_INTERNAL_URL`** backchannel — discovery / token / JWKS
+  use the in-cluster Keycloak Service, while the token issuer + browser redirects
+  stay the public URL. Wired into `.env.example`, the configmap, and the platform
+  deployment.
+- **Dark mode.** Components using raw light-only colors (the non-inverted `gray`
+  ramp + colored accent soft-tints) stayed light-on-dark. Swept `apps/console`,
+  `shell-ui`, and the `platform` module: neutral colors → semantic surface/
+  content/edge tokens, accent tints → added `dark:` variants — preserving light
+  mode and leaving intentionally-dark surfaces (terminals, log/YAML/Monaco
+  viewers, the login brand panel) unchanged.
+
 ## [0.1.2] - 2026-08-09
 
 ### Fixed

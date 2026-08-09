@@ -16,6 +16,11 @@ data:
   # Secret). AUTH_PUBLIC_URL must match the console's external ingress host so
   # the OIDC redirect_uri registered in Keycloak lines up.
   KEYCLOAK_URL: "https://keycloak.adhar.localtest.me:8443"
+  # In-cluster backchannel for server-side OIDC (discovery/token/JWKS). The
+  # public KEYCLOAK_URL above isn't routable from inside the cluster
+  # (split-horizon DNS behind the gateway), so server-to-server calls use the
+  # Keycloak Service directly. Tokens' issuer + browser redirects stay public.
+  KEYCLOAK_INTERNAL_URL: "http://keycloak.adhar-system.svc.cluster.local:8080"
   KEYCLOAK_REALM: "adhar"
   KEYCLOAK_CLIENT_ID: "adhar-console"
   AUTH_PUBLIC_URL: "https://console.adhar.localtest.me:8443"

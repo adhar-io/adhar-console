@@ -699,14 +699,14 @@ function CoverageTile({
   icon: React.ReactNode
 }) {
   const tones: Record<typeof tone, { bg: string; text: string; bar: string }> = {
-    brand: { bg: 'bg-brand-50', text: 'text-brand-700', bar: 'bg-brand-500' },
-    emerald: { bg: 'bg-emerald-50', text: 'text-emerald-700', bar: 'bg-emerald-500' },
-    sky: { bg: 'bg-sky-50', text: 'text-sky-700', bar: 'bg-sky-500' },
-    amber: { bg: 'bg-amber-50', text: 'text-amber-800', bar: 'bg-amber-500' },
+    brand: { bg: 'bg-brand-50 dark:bg-brand-500/10', text: 'text-brand-700 dark:text-brand-300', bar: 'bg-brand-500' },
+    emerald: { bg: 'bg-emerald-50 dark:bg-emerald-500/10', text: 'text-emerald-700 dark:text-emerald-300', bar: 'bg-emerald-500' },
+    sky: { bg: 'bg-sky-50 dark:bg-sky-500/10', text: 'text-sky-700 dark:text-sky-300', bar: 'bg-sky-500' },
+    amber: { bg: 'bg-amber-50 dark:bg-amber-500/10', text: 'text-amber-800 dark:text-amber-300', bar: 'bg-amber-500' },
   }
   const T = tones[tone]
   return (
-    <div className="overflow-hidden rounded-2xl border border-edge-default bg-white shadow-sm">
+    <div className="overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm">
       <div className="flex items-start justify-between gap-2 px-4 py-3">
         <div className="min-w-0">
           <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
@@ -758,7 +758,7 @@ function SourceBanner({
     return (
       <div
         role="status"
-        className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-[12px] text-amber-800"
+        className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-500/10 px-4 py-2.5 text-[12px] text-amber-800 dark:text-amber-300"
       >
         <span className="mt-0.5 shrink-0">
           <IconAlert />
@@ -775,7 +775,7 @@ function SourceBanner({
   const notable = sources.some((s) => s.state === 'error' || s.state === 'empty')
   if (!notable && !live) return null
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-edge-default bg-white px-4 py-2 text-[11px] shadow-sm">
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-edge-default bg-surface-raised px-4 py-2 text-[11px] shadow-sm">
       <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
         Live sources
       </span>
@@ -882,7 +882,7 @@ function PinChip({ entity, onPick }: { entity: Entity; onPick(e: Entity): void }
     <button
       type="button"
       onClick={() => onPick(entity)}
-      className="group inline-flex items-center gap-2 rounded-full border border-edge-default bg-white py-1 pl-1 pr-3 text-left text-[12px] shadow-sm transition-all duration-200 hover:-translate-y-px hover:border-brand-300/70 hover:shadow-md"
+      className="group inline-flex items-center gap-2 rounded-full border border-edge-default bg-surface-raised py-1 pl-1 pr-3 text-left text-[12px] shadow-sm transition-all duration-200 hover:-translate-y-px hover:border-brand-300/70 hover:shadow-md"
     >
       <KindGlyph kind={entity.kind} type={entity.spec.type} />
       <span className="truncate font-medium text-content">
@@ -935,7 +935,7 @@ function SystemCard({ summary, onPick }: { summary: SystemSummary; onPick(e: Ent
     <button
       type="button"
       onClick={() => onPick(system)}
-      className="group relative flex h-full flex-col items-stretch overflow-hidden rounded-2xl border border-edge-default bg-white text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-300/70 hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-500"
+      className="group relative flex h-full flex-col items-stretch overflow-hidden rounded-2xl border border-edge-default bg-surface-raised text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-300/70 hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-500"
     >
       <div className="relative bg-linear-to-br from-violet-50/60 to-white px-5 py-5">
         <div className="flex items-start justify-between gap-2">
@@ -956,7 +956,7 @@ function SystemCard({ summary, onPick }: { summary: SystemSummary; onPick(e: Ent
           </p>
         ) : null}
       </div>
-      <div className="grid grid-cols-3 divide-x divide-edge-subtle border-t border-edge-subtle bg-white text-center">
+      <div className="grid grid-cols-3 divide-x divide-edge-subtle border-t border-edge-subtle bg-surface-raised text-center">
         <SystemStat label="Components" value={components.length} kind="Component" />
         <SystemStat label="APIs" value={apis.length} kind="API" />
         <SystemStat label="Resources" value={resources.length} kind="Resource" />
@@ -1024,16 +1024,16 @@ function DomainCard({
 }) {
   const ownerName = domain.spec.owner ? parseRef(domain.spec.owner).name : null
   return (
-    <article className="group flex h-full flex-col rounded-2xl border border-edge-default bg-white shadow-sm">
+    <article className="group flex h-full flex-col rounded-2xl border border-edge-default bg-surface-raised shadow-sm">
       <header className="flex items-start justify-between gap-3 border-b border-edge-subtle px-5 py-4">
         <button
           type="button"
           onClick={() => onPick(domain)}
-          className="flex min-w-0 items-start gap-3 text-left hover:text-brand-700"
+          className="flex min-w-0 items-start gap-3 text-left hover:text-brand-700 dark:hover:text-brand-300"
         >
           <KindGlyph kind="Domain" size="lg" />
           <div className="min-w-0">
-            <h3 className="truncate text-[15px] font-semibold tracking-tight text-content group-hover:text-brand-700">
+            <h3 className="truncate text-[15px] font-semibold tracking-tight text-content group-hover:text-brand-700 dark:group-hover:text-brand-300">
               {domain.metadata.title ?? domain.metadata.name}
             </h3>
             {domain.metadata.description ? (
@@ -1145,11 +1145,11 @@ function TeamCard({
     <button
       type="button"
       onClick={() => onPick(group)}
-      className="group flex flex-col items-stretch gap-3 rounded-2xl border border-edge-default bg-white p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-300/70 hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-500"
+      className="group flex flex-col items-stretch gap-3 rounded-2xl border border-edge-default bg-surface-raised p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-300/70 hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-500"
     >
       <div className="flex items-start justify-between gap-2">
         <KindGlyph kind="Group" size="lg" />
-        <span className="font-mono text-[10px] uppercase tracking-wider text-content-subtle opacity-0 transition-opacity group-hover:text-brand-700 group-hover:opacity-100">
+        <span className="font-mono text-[10px] uppercase tracking-wider text-content-subtle opacity-0 transition-opacity group-hover:text-brand-700 dark:group-hover:text-brand-300 group-hover:opacity-100">
           open →
         </span>
       </div>
@@ -1297,7 +1297,7 @@ function BrowseAll({
       />
 
       {loading ? (
-        <div className="rounded-xl border border-edge-default bg-white p-10 text-center text-sm text-content-muted shadow-sm">
+        <div className="rounded-xl border border-edge-default bg-surface-raised p-10 text-center text-sm text-content-muted shadow-sm">
           <Spinner /> Loading catalog…
         </div>
       ) : list.length === 0 ? (
@@ -1344,7 +1344,7 @@ function BrowseAll({
           role="listbox"
           aria-label="Catalog entities"
           onKeyDown={handleGridKeyNav}
-          className="overflow-hidden rounded-xl border border-edge-default bg-white shadow-sm"
+          className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm"
         >
           {shown.map((e, i) => (
             <CompactRow
@@ -1449,7 +1449,7 @@ function SavedViewsMenu({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className="inline-flex h-7 items-center gap-1 rounded-md border border-edge-default bg-white px-2 text-[11px] font-medium text-content-muted shadow-sm hover:border-edge-strong hover:text-content"
+        className="inline-flex h-7 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-[11px] font-medium text-content-muted shadow-sm hover:border-edge-strong hover:text-content"
       >
         Views
         {views.length ? (
@@ -1462,7 +1462,7 @@ function SavedViewsMenu({
       {open ? (
         <div
           role="menu"
-          className="pop-in absolute right-0 top-full z-30 mt-1.5 w-64 overflow-hidden rounded-xl border border-edge-default bg-white shadow-xl"
+          className="pop-in absolute right-0 top-full z-30 mt-1.5 w-64 overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-xl"
         >
           <div className="max-h-64 overflow-y-auto py-1">
             {views.length === 0 ? (
@@ -1481,7 +1481,7 @@ function SavedViewsMenu({
                       onApply(v)
                       setOpen(false)
                     }}
-                    className="flex-1 truncate text-left text-content hover:text-brand-700"
+                    className="flex-1 truncate text-left text-content hover:text-brand-700 dark:hover:text-brand-300"
                   >
                     {v.name}
                   </button>
@@ -1505,7 +1505,7 @@ function SavedViewsMenu({
               if (name && name.trim()) onSave(name.trim())
               setOpen(false)
             }}
-            className="flex w-full items-center gap-1.5 border-t border-edge-subtle px-3 py-2 text-left text-[12px] font-medium text-brand-700 hover:bg-brand-50"
+            className="flex w-full items-center gap-1.5 border-t border-edge-subtle px-3 py-2 text-left text-[12px] font-medium text-brand-700 dark:text-brand-300 hover:bg-brand-50 dark:hover:bg-brand-500/10"
           >
             <IconPlus />
             Save current view
@@ -1535,7 +1535,7 @@ function ExportMenu({ list }: { list: Entity[] }) {
         aria-expanded={open}
         aria-haspopup="menu"
         disabled={list.length === 0}
-        className="inline-flex h-7 items-center gap-1 rounded-md border border-edge-default bg-white px-2 text-[11px] font-medium text-content-muted shadow-sm hover:border-edge-strong hover:text-content disabled:opacity-50"
+        className="inline-flex h-7 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-[11px] font-medium text-content-muted shadow-sm hover:border-edge-strong hover:text-content disabled:opacity-50"
       >
         Export
         <span className="text-[9px] opacity-70">▾</span>
@@ -1543,7 +1543,7 @@ function ExportMenu({ list }: { list: Entity[] }) {
       {open ? (
         <div
           role="menu"
-          className="pop-in absolute right-0 top-full z-30 mt-1.5 w-40 overflow-hidden rounded-xl border border-edge-default bg-white py-1 shadow-xl"
+          className="pop-in absolute right-0 top-full z-30 mt-1.5 w-40 overflow-hidden rounded-xl border border-edge-default bg-surface-raised py-1 shadow-xl"
         >
           <button
             type="button"
@@ -1704,7 +1704,7 @@ function Toolbar({
   }, [open])
 
   return (
-    <div className="overflow-hidden rounded-xl border border-edge-default bg-white shadow-sm">
+    <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm">
       <div className="flex flex-wrap items-center gap-2 px-3 py-2">
         <div className="relative h-9 min-w-72 flex-1">
           <input
@@ -1719,7 +1719,7 @@ function Toolbar({
             }}
             placeholder="Search services, APIs, resources, teams…"
             aria-label="Search catalog"
-            className="h-full w-full rounded-lg border border-edge-default bg-white pl-9 pr-10 text-sm text-content placeholder:text-content-subtle transition-shadow focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+            className="h-full w-full rounded-lg border border-edge-default bg-surface-raised pl-9 pr-10 text-sm text-content placeholder:text-content-subtle transition-shadow focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
           />
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-content-subtle">
             <IconSearchLg />
@@ -1766,7 +1766,7 @@ function Toolbar({
               'inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-[12px] font-medium transition-colors',
               filterCount > 0
                 ? 'border-brand-700 bg-brand-600 text-white shadow-sm hover:bg-brand-700'
-                : 'border-edge-default bg-white text-content hover:border-edge-strong hover:bg-surface-sunken',
+                : 'border-edge-default bg-surface-raised text-content hover:border-edge-strong hover:bg-surface-sunken',
             )}
           >
             <IconFilter />
@@ -1817,7 +1817,7 @@ function ViewSwitch({ value, onChange }: { value: ViewMode; onChange(v: ViewMode
     <div
       role="group"
       aria-label="View mode"
-      className="inline-flex h-9 items-center rounded-lg border border-edge-default bg-white p-0.5 shadow-sm"
+      className="inline-flex h-9 items-center rounded-lg border border-edge-default bg-surface-raised p-0.5 shadow-sm"
     >
       <ViewBtn active={value === 'grid'} onClick={() => onChange('grid')} title="Grid view">
         <IconGrid />
@@ -1868,7 +1868,7 @@ function ViewBtn({
 
 function SortMenu({ value, onChange }: { value: SortKey; onChange(v: SortKey): void }) {
   return (
-    <label className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-edge-default bg-white px-3 text-[12px] shadow-sm">
+    <label className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-3 text-[12px] shadow-sm">
       <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
         Sort
       </span>
@@ -1951,7 +1951,7 @@ function FilterPopover({
     <div
       role="dialog"
       aria-label="Filters"
-      className="pop-in absolute left-0 top-full z-30 mt-2 w-[24rem] overflow-hidden rounded-2xl border border-edge-default bg-white shadow-xl"
+      className="pop-in absolute left-0 top-full z-30 mt-2 w-[24rem] overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-xl"
     >
       <header className="flex items-center justify-between border-b border-edge-subtle bg-surface-sunken/40 px-4 py-2.5">
         <div className="flex items-center gap-2 text-[12px]">
@@ -2054,7 +2054,7 @@ function FilterPopover({
           <select
             value={filter.owner}
             onChange={(e) => setOwner(e.target.value)}
-            className="w-full rounded-md border border-edge-default bg-white px-2 py-1.5 text-[12px]"
+            className="w-full rounded-md border border-edge-default bg-surface-raised px-2 py-1.5 text-[12px]"
           >
             <option value="all">Any owner</option>
             {owners.map((o) => (
@@ -2069,7 +2069,7 @@ function FilterPopover({
           <select
             value={filter.system}
             onChange={(e) => setSystem(e.target.value)}
-            className="w-full rounded-md border border-edge-default bg-white px-2 py-1.5 text-[12px]"
+            className="w-full rounded-md border border-edge-default bg-surface-raised px-2 py-1.5 text-[12px]"
           >
             <option value="all">Any system</option>
             {systems.map((s) => (
@@ -2148,7 +2148,7 @@ function CheckRow({
     <label
       className={cn(
         'flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-[12px] transition',
-        checked ? 'bg-brand-50 text-brand-700' : 'text-content-muted hover:bg-surface-sunken',
+        checked ? 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'text-content-muted hover:bg-surface-sunken',
       )}
     >
       <input
@@ -2192,10 +2192,10 @@ function QuickPill({
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-50',
         isAmber
-          ? 'border-amber-400 bg-amber-50 text-amber-800 shadow-sm'
+          ? 'border-amber-400 bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 shadow-sm'
           : active
             ? 'border-content bg-content text-white shadow-sm'
-            : 'border-edge-default bg-white text-content-muted hover:border-content hover:text-content',
+            : 'border-edge-default bg-surface-raised text-content-muted hover:border-content hover:text-content',
       )}
     >
       {icon}
@@ -2205,7 +2205,7 @@ function QuickPill({
           className={cn(
             'rounded-full px-1.5 text-[10px] tabular-nums',
             isAmber
-              ? 'bg-amber-100 text-amber-800'
+              ? 'bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300'
               : active
                 ? 'bg-white/20 text-white'
                 : 'bg-surface-sunken text-content-subtle',
@@ -2231,13 +2231,13 @@ function LifecyclePill({
 }) {
   const cls = active
     ? tone === 'healthy'
-      ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+      ? 'border-emerald-300 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
       : tone === 'progressing'
-        ? 'border-brand-300 bg-brand-50 text-brand-700'
+        ? 'border-brand-300 bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300'
         : tone === 'info'
-          ? 'border-sky-300 bg-sky-50 text-sky-700'
-          : 'border-amber-300 bg-amber-50 text-amber-800'
-    : 'border-edge-default bg-white text-content-muted hover:border-content hover:text-content'
+          ? 'border-sky-300 bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300'
+          : 'border-amber-300 bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300'
+    : 'border-edge-default bg-surface-raised text-content-muted hover:border-content hover:text-content'
   return (
     <button
       type="button"
@@ -2270,7 +2270,7 @@ function TagPill({
       className={cn(
         'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium transition',
         active
-          ? 'bg-brand-100 text-brand-700 ring-1 ring-brand-300'
+          ? 'bg-brand-100 dark:bg-brand-500/15 text-brand-700 dark:text-brand-300 ring-1 ring-brand-300'
           : 'bg-surface-sunken text-content-muted hover:text-content',
       )}
     >
@@ -2292,7 +2292,7 @@ function TristateRow({
   return (
     <div className="flex items-center justify-between gap-2 rounded-md px-2 py-1 text-[12px]">
       <span className="text-content">{label}</span>
-      <div className="inline-flex rounded-md border border-edge-default bg-white p-0.5">
+      <div className="inline-flex rounded-md border border-edge-default bg-surface-raised p-0.5">
         <TristateBtn active={value === null} onClick={() => onChange(null)}>
           Any
         </TristateBtn>
@@ -2320,9 +2320,9 @@ function TristateBtn({
 }) {
   const cls = active
     ? tone === 'emerald'
-      ? 'bg-emerald-100 text-emerald-700'
+      ? 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
       : tone === 'amber'
-        ? 'bg-amber-100 text-amber-800'
+        ? 'bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300'
         : 'bg-surface-sunken text-content'
     : 'text-content-subtle hover:bg-surface-sunken hover:text-content'
   return (
@@ -2438,7 +2438,7 @@ function ActiveFilterChips({
           key={c.key}
           type="button"
           onClick={c.clear}
-          className="inline-flex items-center gap-1 rounded-full border border-edge-default bg-white px-2 py-0.5 font-medium text-content-muted shadow-sm transition hover:border-brand-200 hover:text-brand-700"
+          className="inline-flex items-center gap-1 rounded-full border border-edge-default bg-surface-raised px-2 py-0.5 font-medium text-content-muted shadow-sm transition hover:border-brand-200 dark:hover:border-brand-500/25 hover:text-brand-700 dark:hover:text-brand-300"
         >
           {c.label}
           <span className="text-content-subtle">×</span>
@@ -2528,7 +2528,7 @@ function CompactRow({
         className={cn(
           'flex h-7 w-7 items-center justify-center rounded-full transition',
           starred
-            ? 'bg-amber-50 text-amber-500 ring-1 ring-amber-200'
+            ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-500 ring-1 ring-amber-200'
             : 'text-content-subtle opacity-0 hover:bg-surface-sunken hover:text-amber-500 group-hover:opacity-100',
         )}
       >
@@ -2548,7 +2548,7 @@ function TableView({
   onPick(e: Entity): void
 }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-edge-default bg-white shadow-sm">
+    <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm">
       <div className="overflow-x-auto">
         <table className="w-full text-[12px]">
           <thead className="bg-surface-sunken/40 text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
@@ -2704,7 +2704,7 @@ function EntityCard({
           onClick()
         }
       }}
-      className="group relative flex h-full flex-col items-stretch overflow-hidden rounded-xl border border-edge-default bg-white text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-300/70 hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-500"
+      className="group relative flex h-full flex-col items-stretch overflow-hidden rounded-xl border border-edge-default bg-surface-raised text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-300/70 hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-500"
     >
       <button
         type="button"
@@ -2717,7 +2717,7 @@ function EntityCard({
         className={cn(
           'absolute right-2.5 top-2.5 z-10 inline-flex h-7 w-7 items-center justify-center rounded-full transition',
           starred
-            ? 'bg-amber-50 text-amber-500 shadow-sm ring-1 ring-amber-200'
+            ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-500 shadow-sm ring-1 ring-amber-200'
             : 'text-content-subtle opacity-0 hover:bg-surface-sunken hover:text-amber-500 group-hover:opacity-100',
         )}
       >
@@ -2775,7 +2775,7 @@ function EntityCard({
             <span className="font-medium text-content">{parseRef(entity.spec.owner).name}</span>
           </span>
         ) : (
-          <span className="inline-flex items-center gap-1 text-amber-700">
+          <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
             <IconAlert />
             no owner
           </span>
@@ -2797,7 +2797,7 @@ function EntityCard({
         <QuickLinks links={links} />
         <div className="flex shrink-0 items-center gap-2">
           <ScoreBadge score={score} />
-          <span className="font-mono text-[10px] uppercase tracking-wider text-content-subtle opacity-0 transition-opacity group-hover:text-brand-700 group-hover:opacity-100">
+          <span className="font-mono text-[10px] uppercase tracking-wider text-content-subtle opacity-0 transition-opacity group-hover:text-brand-700 dark:group-hover:text-brand-300 group-hover:opacity-100">
             open →
           </span>
         </div>
@@ -2819,7 +2819,7 @@ function QuickLinks({ links }: { links: Entity['metadata']['links'] }) {
           target="_blank"
           rel="noreferrer"
           onClick={(e) => e.stopPropagation()}
-          className="inline-flex items-center gap-1 rounded-md bg-white px-1.5 py-1 text-[10px] font-medium text-content-muted ring-1 ring-edge-default hover:bg-brand-50 hover:text-brand-700 hover:ring-brand-200"
+          className="inline-flex items-center gap-1 rounded-md bg-surface-raised px-1.5 py-1 text-[10px] font-medium text-content-muted ring-1 ring-edge-default hover:bg-brand-50 dark:hover:bg-brand-500/10 hover:text-brand-700 dark:hover:text-brand-300 hover:ring-brand-200"
           title={l.title}
         >
           <LinkGlyph icon={l.icon} />
@@ -2848,10 +2848,10 @@ function entityScore(e: Entity): EntityScore {
 
 function scoreTone(pct: number): { dot: string; text: string; ring: string } {
   if (pct >= 80) {
-    return { dot: 'bg-emerald-500', text: 'text-emerald-700', ring: 'ring-emerald-200' }
+    return { dot: 'bg-emerald-500', text: 'text-emerald-700 dark:text-emerald-300', ring: 'ring-emerald-200' }
   }
-  if (pct >= 50) return { dot: 'bg-amber-500', text: 'text-amber-800', ring: 'ring-amber-200' }
-  return { dot: 'bg-rose-500', text: 'text-rose-700', ring: 'ring-rose-200' }
+  if (pct >= 50) return { dot: 'bg-amber-500', text: 'text-amber-800 dark:text-amber-300', ring: 'ring-amber-200' }
+  return { dot: 'bg-rose-500', text: 'text-rose-700 dark:text-rose-300', ring: 'ring-rose-200' }
 }
 
 function ScoreBadge({ score }: { score: EntityScore }) {
@@ -2861,7 +2861,7 @@ function ScoreBadge({ score }: { score: EntityScore }) {
       title={`Scorecard: ${score.ok}/${score.total} health checks passing`}
       aria-label={`Health score ${score.pct} percent`}
       className={cn(
-        'inline-flex items-center gap-1 rounded-full bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums ring-1',
+        'inline-flex items-center gap-1 rounded-full bg-surface-raised px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums ring-1',
         t.text,
         t.ring,
       )}
@@ -2882,8 +2882,8 @@ function OriginTag({ origin }: { origin?: EntityOrigin }) {
   if (!origin || origin === 'seed') return null
   const cls =
     origin === 'live'
-      ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-      : 'bg-brand-50 text-brand-700 ring-brand-200'
+      ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200'
+      : 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-brand-200'
   return (
     <span
       className={cn(
@@ -3022,7 +3022,7 @@ function EntityDrawer({
         onClick={onClose}
       />
       <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-white px-6 py-4">
+        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-content-subtle">
               <KindGlyph kind={entity.kind} type={entity.spec.type} />
@@ -3052,7 +3052,7 @@ function EntityDrawer({
               className={cn(
                 'flex h-8 w-8 items-center justify-center rounded-md transition',
                 starred
-                  ? 'bg-amber-50 text-amber-500 ring-1 ring-amber-200'
+                  ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-500 ring-1 ring-amber-200'
                   : 'text-content-subtle hover:bg-surface-sunken hover:text-amber-500',
               )}
             >
@@ -3079,7 +3079,7 @@ function EntityDrawer({
                   href={l.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-white px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm hover:border-brand-200 hover:text-brand-700"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm hover:border-brand-200 dark:hover:border-brand-500/25 hover:text-brand-700 dark:hover:text-brand-300"
                 >
                   <LinkGlyph icon={l.icon} />
                   {l.title}
@@ -3271,7 +3271,7 @@ function RefChip({ ent, onPick }: { ent: Entity; onPick(e: Entity): void }) {
     <button
       type="button"
       onClick={() => onPick(ent)}
-      className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-white px-2 py-1 text-[11px] text-content-muted shadow-sm hover:border-brand-200 hover:text-brand-700"
+      className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-[11px] text-content-muted shadow-sm hover:border-brand-200 dark:hover:border-brand-500/25 hover:text-brand-700 dark:hover:text-brand-300"
     >
       <KindGlyph kind={ent.kind} type={ent.spec.type} />
       <span className="font-medium text-content">{ent.metadata.title ?? ent.metadata.name}</span>
@@ -3381,9 +3381,9 @@ function SignalsCard({ signals, score }: { signals: SignalRow[]; score: EntitySc
               className={cn(
                 'mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full ring-1',
                 s.state === 'ok'
-                  ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+                  ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200'
                   : s.state === 'warn'
-                    ? 'bg-amber-50 text-amber-700 ring-amber-200'
+                    ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-200'
                     : 'bg-surface-sunken text-content-subtle ring-edge-subtle',
               )}
             >
@@ -3403,11 +3403,11 @@ function SignalsCard({ signals, score }: { signals: SignalRow[]; score: EntitySc
 /* ─────────── API definition (compact OpenAPI view) ─────────── */
 
 const METHOD_TONE: Record<string, string> = {
-  GET: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-  POST: 'bg-brand-50 text-brand-700 ring-brand-200',
-  PUT: 'bg-amber-50 text-amber-800 ring-amber-200',
-  PATCH: 'bg-violet-50 text-violet-700 ring-violet-200',
-  DELETE: 'bg-rose-50 text-rose-700 ring-rose-200',
+  GET: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200',
+  POST: 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-brand-200',
+  PUT: 'bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 ring-amber-200',
+  PATCH: 'bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300 ring-violet-200',
+  DELETE: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 ring-rose-200',
 }
 
 function ApiDefinitionCard({ api }: { api: ParsedApi }) {
@@ -3612,13 +3612,13 @@ function KindGlyph({
 }
 
 const KIND_TONES: Record<EntityKind, string> = {
-  Component: 'bg-brand-100 text-brand-700 ring-1 ring-brand-200/60',
-  API: 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200/60',
-  Resource: 'bg-sky-100 text-sky-700 ring-1 ring-sky-200/60',
-  System: 'bg-violet-100 text-violet-700 ring-1 ring-violet-200/60',
-  Domain: 'bg-amber-100 text-amber-800 ring-1 ring-amber-200/60',
-  Group: 'bg-rose-100 text-rose-700 ring-1 ring-rose-200/60',
-  User: 'bg-slate-200 text-slate-700 ring-1 ring-slate-300/60',
+  Component: 'bg-brand-100 dark:bg-brand-500/15 text-brand-700 dark:text-brand-300 ring-1 ring-brand-200/60',
+  API: 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-200/60',
+  Resource: 'bg-sky-100 dark:bg-sky-500/15 text-sky-700 dark:text-sky-300 ring-1 ring-sky-200/60',
+  System: 'bg-violet-100 dark:bg-violet-500/15 text-violet-700 dark:text-violet-300 ring-1 ring-violet-200/60',
+  Domain: 'bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300 ring-1 ring-amber-200/60',
+  Group: 'bg-rose-100 dark:bg-rose-500/15 text-rose-700 dark:text-rose-300 ring-1 ring-rose-200/60',
+  User: 'bg-slate-200 text-content-muted ring-1 ring-slate-300/60',
 }
 
 const LETTER_FOR: Record<EntityKind, Record<string, string>> = {
@@ -4342,7 +4342,7 @@ function RegisterExistingModal({
         ) : null}
 
         {error ? (
-          <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] font-medium text-rose-700">
+          <div className="rounded-md border border-rose-200 dark:border-rose-500/25 bg-rose-50 dark:bg-rose-500/10 px-3 py-2 text-[12px] font-medium text-rose-700 dark:text-rose-300">
             {error}
           </div>
         ) : null}

@@ -402,7 +402,7 @@ function EndpointsTable({ namespace }: { namespace?: string }) {
                     <span className="text-[10px] text-content-subtle">+{addrs.length - 4} more</span>
                   ) : null}
                   {not.length ? (
-                    <span className="text-[10px] text-amber-700">{not.length} not ready</span>
+                    <span className="text-[10px] text-amber-700 dark:text-amber-300">{not.length} not ready</span>
                   ) : null}
                 </div>
               )

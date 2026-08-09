@@ -478,7 +478,7 @@ function PhaseTile({
 }) {
   const pct = total > 0 ? Math.round((count / total) * 100) : 0
   return (
-    <div className="rounded-lg border border-edge-subtle bg-white p-3">
+    <div className="rounded-lg border border-edge-subtle bg-surface-raised p-3">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-content-subtle">
           {label}

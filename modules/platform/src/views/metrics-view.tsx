@@ -49,7 +49,7 @@ export function MetricsView() {
 
   if (nodes.isLoading && nodeList.length === 0) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading cluster metrics…
       </div>
     )
@@ -83,7 +83,7 @@ export function MetricsView() {
   return (
     <div className="space-y-6">
       {!hasNodeMetrics ? (
-        <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-xs leading-relaxed text-amber-800">
+        <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 dark:border-amber-500/25 bg-amber-50/60 dark:bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-800 dark:text-amber-300">
           <IconWarn />
           <span>
             <span className="font-semibold">metrics-server is not installed.</span> Live CPU and
@@ -94,7 +94,7 @@ export function MetricsView() {
               href="https://github.com/kubernetes-sigs/metrics-server"
               target="_blank"
               rel="noreferrer"
-              className="font-medium text-amber-900 underline hover:text-amber-950"
+              className="font-medium text-amber-900 dark:text-amber-200 underline hover:text-amber-950"
             >
               metrics-server
             </a>{' '}
@@ -336,7 +336,7 @@ function TopPods({
                 className={cn(
                   'rounded-md px-3 py-1 text-xs font-medium transition-colors',
                   tab === t
-                    ? 'bg-white text-content shadow-sm'
+                    ? 'bg-surface-raised text-content shadow-sm'
                     : 'text-content-muted hover:text-content',
                 )}
               >

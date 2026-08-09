@@ -121,7 +121,7 @@ function OperatorCard({
               <>
                 Install the operator to enable this view.{' '}
                 <a
-                  className="text-brand-700 underline"
+                  className="text-brand-700 dark:text-brand-300 underline"
                   target="_blank"
                   rel="noreferrer"
                   href={docsHref}
@@ -135,7 +135,7 @@ function OperatorCard({
         ) : rows.length === 0 ? (
           <div className="text-xs text-content-subtle">No instances.</div>
         ) : (
-          <ul className="divide-y divide-edge-subtle rounded-lg border border-edge-default bg-white">
+          <ul className="divide-y divide-edge-subtle rounded-lg border border-edge-default bg-surface-raised">
             {rows.map((r, i) => (
               <li key={i} className="flex items-center justify-between px-3 py-2">
                 <div className="min-w-0">

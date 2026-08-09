@@ -130,7 +130,7 @@ export function PodMetricsPanel({
       </div>
 
       {Object.keys(series).length > 1 ? (
-        <div className="rounded-xl border border-edge-default bg-white p-4 shadow-sm">
+        <div className="rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <div className="text-sm font-semibold text-content">Per-container</div>
             <span className="text-[11px] text-content-subtle">
@@ -177,7 +177,7 @@ function MetricsMissing() {
             href="https://github.com/kubernetes-sigs/metrics-server"
             target="_blank"
             rel="noreferrer"
-            className="text-brand-700 underline hover:text-brand-800"
+            className="text-brand-700 dark:text-brand-300 underline hover:text-brand-800"
           >
             metrics-server
           </a>
@@ -264,7 +264,7 @@ function TrafficPanel({
 
   if (q.isLoading) {
     return (
-      <div className="rounded-xl border border-edge-default bg-white p-6 text-center text-xs text-content-muted shadow-sm">
+      <div className="rounded-xl border border-edge-default bg-surface-raised p-6 text-center text-xs text-content-muted shadow-sm">
         Polling pod network traffic via kubelet summary…
       </div>
     )
@@ -272,7 +272,7 @@ function TrafficPanel({
 
   if (!q.data) {
     return (
-      <div className="rounded-xl border border-edge-default bg-white p-6 text-xs text-content-muted shadow-sm">
+      <div className="rounded-xl border border-edge-default bg-surface-raised p-6 text-xs text-content-muted shadow-sm">
         <div className="text-sm font-medium text-content">Network traffic unavailable</div>
         <p className="mt-1">
           The pod's node doesn't expose <code className="font-mono">/stats/summary</code> through the
@@ -336,7 +336,7 @@ function MetricCard({
     pctOfLimit == null ? 'healthy' : pctOfLimit >= 90 ? 'failed' : pctOfLimit >= 75 ? 'degraded' : 'healthy'
 
   return (
-    <div className="rounded-xl border border-edge-default bg-white p-4 shadow-sm">
+    <div className="rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm">
       <div className="mb-2 flex items-baseline justify-between gap-2">
         <div>
           <div className="text-[11px] font-medium uppercase tracking-wider text-content-subtle">

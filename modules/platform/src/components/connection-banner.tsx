@@ -5,7 +5,7 @@ export function ConnectionGate({ children }: { children: React.ReactNode }) {
   const q = useConnection()
   if (q.isPending) {
     return (
-      <div className="flex items-center gap-3 rounded-xl border border-edge-default bg-white px-5 py-4 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-3 rounded-xl border border-edge-default bg-surface-raised px-5 py-4 text-sm text-content-muted shadow-sm">
         <Spinner />
         Connecting to the cluster…
       </div>
@@ -23,16 +23,16 @@ function NotConnected({ error }: { error: unknown }) {
   const message =
     error instanceof Error ? error.message : typeof error === 'string' ? error : 'unknown error'
   return (
-    <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-6 shadow-sm">
+    <div className="rounded-xl border border-amber-200 dark:border-amber-500/25 bg-amber-50/60 dark:bg-amber-500/10 p-6 shadow-sm">
       <div className="flex items-start gap-3">
         <StatusBadge kind={isUnauth ? 'failed' : 'degraded'}>
           {isUnauth ? 'Not authorized' : 'Cluster unreachable'}
         </StatusBadge>
-        <div className="min-w-0 flex-1 text-sm text-amber-900">
+        <div className="min-w-0 flex-1 text-sm text-amber-900 dark:text-amber-200">
           <div className="font-medium">Can't reach the Kubernetes API.</div>
-          <p className="mt-1 text-amber-800/90">
+          <p className="mt-1 text-amber-800/90 dark:text-amber-300">
             The console talks to your cluster via{' '}
-            <code className="rounded bg-amber-100 px-1 font-mono text-[12px]">kubectl proxy</code>.
+            <code className="rounded bg-amber-100 dark:bg-amber-500/15 px-1 font-mono text-[12px]">kubectl proxy</code>.
             {isUnauth
               ? ' Your kubeconfig user was rejected — check RBAC.'
               : ' Start the proxy in a separate terminal:'}
@@ -41,15 +41,15 @@ function NotConnected({ error }: { error: unknown }) {
             <span className="text-slate-500">$ </span>
             kubectl proxy --port=8001
           </pre>
-          <p className="mt-3 text-xs text-amber-700">
+          <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
             The console proxies <code className="font-mono">/kube-api/*</code> to
             <code className="font-mono"> http://127.0.0.1:8001</code>. Override with{' '}
             <code className="font-mono">ADHAR_K8S_PROXY</code> before running{' '}
             <code className="font-mono">pnpm dev</code>.
           </p>
-          <details className="mt-3 text-xs text-amber-700">
+          <details className="mt-3 text-xs text-amber-700 dark:text-amber-300">
             <summary className="cursor-pointer font-medium">Raw error</summary>
-            <pre className="mt-2 overflow-x-auto rounded bg-amber-100/80 p-2 font-mono text-[11px] text-amber-900">
+            <pre className="mt-2 overflow-x-auto rounded bg-amber-100/80 dark:bg-amber-500/15 p-2 font-mono text-[11px] text-amber-900 dark:text-amber-200">
               {status ? `HTTP ${status} · ` : ''}
               {message}
             </pre>

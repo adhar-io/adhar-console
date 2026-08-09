@@ -33,13 +33,13 @@ export function PhaseNav() {
             className={cn(
               'group flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
               active
-                ? 'bg-slate-100 text-slate-900 font-medium'
-                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900',
+                ? 'bg-surface-sunken text-content font-medium'
+                : 'text-content-muted hover:bg-surface-sunken hover:text-content',
             )}
           >
             <span className={cn('h-2 w-2 rounded-full', p.accent)} aria-hidden />
             <span className="flex-1">{p.label}</span>
-            <span className="text-xs text-slate-400 group-hover:text-slate-500">
+            <span className="text-xs text-content-subtle group-hover:text-content-muted">
               {p.description}
             </span>
           </Link>

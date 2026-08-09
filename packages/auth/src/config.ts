@@ -37,6 +37,15 @@ export interface ServerAuthConfig {
   sessionTtlSeconds: number
   /** Hard ceiling on total session age regardless of refreshes (forces re-login). */
   sessionAbsoluteTtlSeconds: number
+  /**
+   * Optional in-cluster base URL for Keycloak's SERVER-SIDE backchannel
+   * (discovery, token exchange, JWKS) — e.g.
+   * `http://keycloak.adhar-system.svc.cluster.local:8080`. Set this when the
+   * public `KEYCLOAK_URL` isn't routable from inside the cluster (split-horizon
+   * DNS behind a gateway). The `issuer` + browser-facing endpoints stay the
+   * public URL; only server-to-server calls use this origin.
+   */
+  internalUrl?: string
 }
 
 const DEFAULT_REALM = 'adhar'
@@ -106,6 +115,7 @@ export function getServerAuthConfig(): ServerAuthConfig | null {
     sessionAbsoluteTtlSeconds: Number(
       env('AUTH_SESSION_ABSOLUTE_TTL_SECONDS') ?? DEFAULT_SESSION_ABSOLUTE_TTL,
     ),
+    internalUrl: env('KEYCLOAK_INTERNAL_URL')?.replace(/\/$/, ''),
   }
 }
 

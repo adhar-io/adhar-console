@@ -67,7 +67,7 @@ export function CrdBrowser({ namespace }: Props) {
             className={cn(
               'block w-full rounded-md px-3 py-2 text-left text-sm transition-colors',
               selected === k.id
-                ? 'bg-brand-50 font-medium text-brand-700 ring-1 ring-inset ring-brand-200'
+                ? 'bg-brand-50 dark:bg-brand-500/10 font-medium text-brand-700 dark:text-brand-300 ring-1 ring-inset ring-brand-200 dark:ring-brand-500/25'
                 : 'text-content-muted hover:bg-surface-sunken hover:text-content',
             )}
           >

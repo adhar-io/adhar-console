@@ -71,14 +71,14 @@ export function Tabs<T extends string>({
                 className={cn(
                   'block w-full rounded-md px-3 py-2 text-left text-sm transition-colors',
                   isActive
-                    ? 'bg-slate-100 font-medium text-slate-900'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900',
+                    ? 'bg-surface-sunken font-medium text-content'
+                    : 'text-content-muted hover:bg-surface-sunken hover:text-content',
                   t.disabled && 'cursor-not-allowed opacity-50',
                 )}
               >
                 <div>{t.label}</div>
                 {t.description ? (
-                  <div className="text-[11px] text-slate-500">{t.description}</div>
+                  <div className="text-[11px] text-content-subtle">{t.description}</div>
                 ) : null}
               </button>
             )
@@ -98,7 +98,7 @@ export function Tabs<T extends string>({
 
   return (
     <div className={cn('space-y-5', className)}>
-      <div className="flex items-end justify-between gap-4 border-b border-slate-200">
+      <div className="flex items-end justify-between gap-4 border-b border-edge-default">
         <nav
           role="tablist"
           aria-label={ariaLabel}
@@ -120,8 +120,8 @@ export function Tabs<T extends string>({
                 className={cn(
                   'flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm transition-all',
                   isActive
-                    ? 'border-slate-900 font-medium text-slate-900'
-                    : 'border-transparent text-slate-500 hover:border-slate-200 hover:text-slate-800',
+                    ? 'border-slate-900 font-medium text-content'
+                    : 'border-transparent text-content-subtle hover:border-edge-default hover:text-content',
                   t.disabled && 'cursor-not-allowed opacity-50',
                 )}
               >
@@ -144,13 +144,13 @@ function renderBadge(badge?: TabDef['badge']) {
   if (!badge) return null
   if (typeof badge === 'object' && 'kind' in badge) {
     const tone: Record<StatusKind, string> = {
-      healthy: 'bg-emerald-100 text-emerald-800',
-      degraded: 'bg-rose-100 text-rose-800',
-      progressing: 'bg-indigo-100 text-indigo-800',
-      paused: 'bg-amber-100 text-amber-800',
+      healthy: 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-300',
+      degraded: 'bg-rose-100 dark:bg-rose-500/15 text-rose-800 dark:text-rose-300',
+      progressing: 'bg-indigo-100 dark:bg-indigo-500/15 text-indigo-800 dark:text-indigo-300',
+      paused: 'bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300',
       failed: 'bg-rose-200 text-rose-900',
-      unknown: 'bg-slate-100 text-slate-700',
-      info: 'bg-sky-100 text-sky-800',
+      unknown: 'bg-surface-sunken text-content-muted',
+      info: 'bg-sky-100 dark:bg-sky-500/15 text-sky-800 dark:text-sky-300',
     }
     return (
       <span
@@ -163,5 +163,5 @@ function renderBadge(badge?: TabDef['badge']) {
       </span>
     )
   }
-  return <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-700">{badge}</span>
+  return <span className="rounded-full bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium text-content-muted">{badge}</span>
 }

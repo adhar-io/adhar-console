@@ -191,7 +191,7 @@ function FeaturedStrip({
   onPick(c: MarketplaceChart): void
 }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-edge-default bg-linear-to-br from-brand-50/70 via-white to-white p-5 shadow-sm">
+    <div className="overflow-hidden rounded-2xl border border-edge-default bg-linear-to-br from-brand-50/70 dark:from-brand-500/10 via-white to-white p-5 shadow-sm">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
@@ -214,7 +214,7 @@ function FeaturedStrip({
             key={c.id}
             type="button"
             onClick={() => onPick(c)}
-            className="group flex items-center gap-3 rounded-xl border border-edge-default bg-white p-3 text-left transition-all hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-md"
+            className="group flex items-center gap-3 rounded-xl border border-edge-default bg-surface-raised p-3 text-left transition-all hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-md"
           >
             <ChartIcon chart={c} size={40} />
             <div className="min-w-0 flex-1">
@@ -229,7 +229,7 @@ function FeaturedStrip({
                 {c.description}
               </div>
             </div>
-            <span className="text-content-subtle group-hover:text-brand-700">
+            <span className="text-content-subtle group-hover:text-brand-700 dark:group-hover:text-brand-300">
               <IconArrow />
             </span>
           </button>
@@ -251,7 +251,7 @@ function CategoryFilter({
   total: number
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-white p-0.5">
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-0.5">
       {CATEGORIES.map((c) => {
         const on = value === c.value
         const n = c.value === 'all' ? total : counts[c.value] ?? 0
@@ -264,7 +264,7 @@ function CategoryFilter({
             className={cn(
               'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
               on
-                ? 'bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-200'
+                ? 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-1 ring-inset ring-brand-200 dark:ring-brand-500/25'
                 : 'text-content-muted hover:bg-surface-sunken hover:text-content',
             )}
           >
@@ -290,7 +290,7 @@ function ChartCard({
     <button
       type="button"
       onClick={onClick}
-      className="group relative flex h-full flex-col rounded-xl border border-edge-default bg-white p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-md"
+      className="group relative flex h-full flex-col rounded-xl border border-edge-default bg-surface-raised p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-md"
     >
       <div className="flex items-start gap-3">
         <ChartIcon chart={chart} size={44} />
@@ -304,7 +304,7 @@ function ChartCard({
           <div className="truncate text-[11px] text-content-muted">{chart.publisher}</div>
         </div>
         {installedCount > 0 ? (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200">
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-200 dark:ring-emerald-500/25">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
             {installedCount}
           </span>
@@ -349,25 +349,25 @@ function CategoryChip({
 }
 
 const TONE_CHIP: Record<MarketplaceChart['tone'], string> = {
-  sky: 'bg-sky-50 text-sky-700',
-  emerald: 'bg-emerald-50 text-emerald-700',
-  amber: 'bg-amber-50 text-amber-700',
-  violet: 'bg-violet-50 text-violet-700',
-  rose: 'bg-rose-50 text-rose-700',
-  fuchsia: 'bg-fuchsia-50 text-fuchsia-700',
-  brand: 'bg-brand-50 text-brand-700',
-  slate: 'bg-slate-100 text-slate-700',
+  sky: 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300',
+  emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+  amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300',
+  violet: 'bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300',
+  rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300',
+  fuchsia: 'bg-fuchsia-50 dark:bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-300',
+  brand: 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300',
+  slate: 'bg-slate-100 text-content-muted',
 }
 
 const TONE_TILE: Record<MarketplaceChart['tone'], string> = {
-  sky: 'bg-linear-to-br from-sky-100 to-sky-50 text-sky-700',
-  emerald: 'bg-linear-to-br from-emerald-100 to-emerald-50 text-emerald-700',
-  amber: 'bg-linear-to-br from-amber-100 to-amber-50 text-amber-700',
-  violet: 'bg-linear-to-br from-violet-100 to-violet-50 text-violet-700',
-  rose: 'bg-linear-to-br from-rose-100 to-rose-50 text-rose-700',
-  fuchsia: 'bg-linear-to-br from-fuchsia-100 to-fuchsia-50 text-fuchsia-700',
-  brand: 'bg-linear-to-br from-brand-100 to-brand-50 text-brand-700',
-  slate: 'bg-linear-to-br from-slate-200 to-slate-100 text-slate-700',
+  sky: 'bg-linear-to-br from-sky-100 dark:from-sky-500/15 to-sky-50 dark:to-sky-500/10 text-sky-700 dark:text-sky-300',
+  emerald: 'bg-linear-to-br from-emerald-100 dark:from-emerald-500/15 to-emerald-50 dark:to-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+  amber: 'bg-linear-to-br from-amber-100 dark:from-amber-500/15 to-amber-50 dark:to-amber-500/10 text-amber-700 dark:text-amber-300',
+  violet: 'bg-linear-to-br from-violet-100 dark:from-violet-500/15 to-violet-50 dark:to-violet-500/10 text-violet-700 dark:text-violet-300',
+  rose: 'bg-linear-to-br from-rose-100 dark:from-rose-500/15 to-rose-50 dark:to-rose-500/10 text-rose-700 dark:text-rose-300',
+  fuchsia: 'bg-linear-to-br from-fuchsia-100 dark:from-fuchsia-500/15 to-fuchsia-50 dark:to-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-300',
+  brand: 'bg-linear-to-br from-brand-100 dark:from-brand-500/15 to-brand-50 dark:to-brand-500/10 text-brand-700 dark:text-brand-300',
+  slate: 'bg-linear-to-br from-slate-200 to-slate-100 text-content-muted',
 }
 
 const ICON_BY_ID: Record<string, (props: { size?: number }) => ReactNode> = {
@@ -398,7 +398,7 @@ export function ChartIcon({ chart, size = 40 }: { chart: MarketplaceChart; size?
   if (Component) {
     return (
       <span
-        className="flex shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-edge-subtle"
+        className="flex shrink-0 items-center justify-center rounded-xl bg-surface-raised shadow-sm ring-1 ring-edge-subtle"
         style={{ width: size + 8, height: size + 8 }}
       >
         <Component size={size} />
@@ -477,7 +477,7 @@ function ChartDetail({
         onClick={onClose}
       />
       <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
-        <header className="border-b border-edge-default bg-white px-6 py-5">
+        <header className="border-b border-edge-default bg-surface-raised px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 items-start gap-3">
               <ChartIcon chart={chart} size={56} />
@@ -487,7 +487,7 @@ function ChartDetail({
                     {chart.title ?? chart.name}
                   </h2>
                   {chart.verified ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700 ring-1 ring-sky-200">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 dark:bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold text-sky-700 dark:text-sky-300 ring-1 ring-sky-200 dark:ring-sky-500/25">
                       <VerifiedDot /> Verified
                     </span>
                   ) : null}
@@ -561,7 +561,7 @@ function ChartDetail({
                     href={chart.docsUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-brand-700 hover:underline"
+                    className="text-brand-700 dark:text-brand-300 hover:underline"
                   >
                     {chart.docsUrl}
                   </a>
@@ -617,7 +617,7 @@ function ChartDetail({
 
 function DetailCard({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="rounded-xl border border-edge-default bg-white p-4 shadow-sm">
+    <section className="rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm">
       <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
         {title}
       </h3>
@@ -722,8 +722,8 @@ function InstallDialog({
         className="absolute inset-0 bg-slate-900/45 backdrop-blur-[2px]"
         onClick={() => !isPending && onClose()}
       />
-      <div className="relative w-full max-w-xl overflow-hidden rounded-2xl border border-edge-default bg-white shadow-2xl ring-1 ring-black/5">
-        <header className="flex items-start gap-3 border-b border-edge-subtle bg-linear-to-br from-brand-50/60 via-white to-white px-5 py-4">
+      <div className="relative w-full max-w-xl overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-2xl ring-1 ring-edge-default">
+        <header className="flex items-start gap-3 border-b border-edge-subtle bg-linear-to-br from-brand-50/60 dark:from-brand-500/10 via-white to-white px-5 py-4">
           <ChartIcon chart={chart} size={36} />
           <div className="min-w-0 flex-1">
             <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
@@ -762,7 +762,7 @@ function InstallDialog({
                   onChange={(e) => setReleaseName(e.target.value)}
                   disabled={isUpgrade}
                   className={cn(
-                    'h-9 w-full rounded-lg border bg-white px-2.5 font-mono text-[13px] text-content',
+                    'h-9 w-full rounded-lg border bg-surface-raised px-2.5 font-mono text-[13px] text-content',
                     'focus:outline-none focus:ring-2 focus:ring-brand-400/20',
                     !releaseValid
                       ? 'border-rose-300 focus:border-rose-400'
@@ -779,7 +779,7 @@ function InstallDialog({
                   onChange={(e) => setNamespace(e.target.value)}
                   disabled={isUpgrade}
                   className={cn(
-                    'h-9 w-full rounded-lg border bg-white px-2.5 font-mono text-[13px] text-content',
+                    'h-9 w-full rounded-lg border bg-surface-raised px-2.5 font-mono text-[13px] text-content',
                     'focus:outline-none focus:ring-2 focus:ring-brand-400/20',
                     !namespaceValid
                       ? 'border-rose-300 focus:border-rose-400'
@@ -796,7 +796,7 @@ function InstallDialog({
             </div>
 
             {collision ? (
-              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-800">
+              <div className="rounded-lg border border-rose-200 dark:border-rose-500/25 bg-rose-50 dark:bg-rose-500/10 px-3 py-2 text-[12px] text-rose-800 dark:text-rose-300">
                 A release named <code className="font-mono">{releaseName}</code> already exists in
                 namespace <code className="font-mono">{namespace}</code>.
               </div>
@@ -828,13 +828,13 @@ function InstallDialog({
             ) : null}
 
             {error ? (
-              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-800">
+              <div className="rounded-lg border border-rose-200 dark:border-rose-500/25 bg-rose-50 dark:bg-rose-500/10 px-3 py-2 text-[12px] text-rose-800 dark:text-rose-300">
                 {error.message}
               </div>
             ) : null}
 
             {isPending ? (
-              <div className="flex items-center gap-2 rounded-lg bg-brand-50 px-3 py-2 text-[12px] text-brand-800">
+              <div className="flex items-center gap-2 rounded-lg bg-brand-50 dark:bg-brand-500/10 px-3 py-2 text-[12px] text-brand-800 dark:text-brand-300">
                 <Spinner size={12} /> {isUpgrade ? 'Upgrading…' : 'Installing…'}
               </div>
             ) : null}
@@ -896,7 +896,7 @@ function FieldRenderer({
 }) {
   if (field.type === 'boolean') {
     return (
-      <label className="flex items-start gap-2.5 rounded-lg border border-edge-default bg-white p-2.5">
+      <label className="flex items-start gap-2.5 rounded-lg border border-edge-default bg-surface-raised p-2.5">
         <input
           type="checkbox"
           checked={Boolean(value)}
@@ -916,7 +916,7 @@ function FieldRenderer({
         <select
           value={String(value ?? field.default ?? '')}
           onChange={(e) => onChange(e.target.value)}
-          className="h-9 w-full rounded-lg border border-edge-default bg-white px-2.5 text-[13px] text-content focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+          className="h-9 w-full rounded-lg border border-edge-default bg-surface-raised px-2.5 text-[13px] text-content focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
         >
           {field.options?.map((opt) => (
             <option key={opt} value={opt}>
@@ -937,7 +937,7 @@ function FieldRenderer({
           onChange={(e) =>
             onChange(e.target.value === '' ? undefined : Number(e.target.value))
           }
-          className="h-9 w-full rounded-lg border border-edge-default bg-white px-2.5 font-mono text-[13px] text-content focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+          className="h-9 w-full rounded-lg border border-edge-default bg-surface-raised px-2.5 font-mono text-[13px] text-content focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
         />
       </FieldShell>
     )
@@ -949,7 +949,7 @@ function FieldRenderer({
         value={value === undefined ? '' : String(value)}
         placeholder={field.placeholder}
         onChange={(e) => onChange(e.target.value)}
-        className="h-9 w-full rounded-lg border border-edge-default bg-white px-2.5 font-mono text-[13px] text-content focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+        className="h-9 w-full rounded-lg border border-edge-default bg-surface-raised px-2.5 font-mono text-[13px] text-content focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
       />
     </FieldShell>
   )
@@ -1005,7 +1005,7 @@ function InstalledPanel() {
             return (
               <li
                 key={r.id}
-                className="flex flex-wrap items-center gap-3 rounded-xl border border-edge-default bg-white p-3 shadow-sm transition-colors hover:border-brand-300"
+                className="flex flex-wrap items-center gap-3 rounded-xl border border-edge-default bg-surface-raised p-3 shadow-sm transition-colors hover:border-brand-300"
               >
                 {chart ? <ChartIcon chart={chart} size={36} /> : <FallbackTile />}
                 <div className="min-w-0 flex-1">
@@ -1058,7 +1058,7 @@ function InstalledPanel() {
                     variant="ghost"
                     size="sm"
                     onClick={() => setConfirm(r)}
-                    className="text-rose-700 hover:text-rose-800"
+                    className="text-rose-700 hover:text-rose-800 dark:text-rose-300"
                   >
                     <IconTrash />
                   </Button>
@@ -1128,7 +1128,7 @@ function ReleaseSheet({
         onClick={onClose}
       />
       <aside className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-white px-6 py-4">
+        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="flex min-w-0 items-start gap-3">
             {chart ? <ChartIcon chart={chart} size={44} /> : <FallbackTile />}
             <div className="min-w-0">
@@ -1228,13 +1228,13 @@ function UninstallConfirm({
         className="absolute inset-0 bg-slate-900/45 backdrop-blur-[2px]"
         onClick={() => !isPending && onClose()}
       />
-      <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-edge-default bg-white shadow-2xl">
-        <div className="flex items-start gap-3 border-b border-rose-200 bg-rose-50/70 px-5 py-4">
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-rose-100 text-rose-700">
+      <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-2xl">
+        <div className="flex items-start gap-3 border-b border-rose-200 dark:border-rose-500/25 bg-rose-50/70 dark:bg-rose-500/10 px-5 py-4">
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-rose-100 dark:bg-rose-500/15 text-rose-700 dark:text-rose-300">
             <IconTrash />
           </span>
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-rose-900">Uninstall release?</h3>
+            <h3 className="text-sm font-semibold text-rose-900 dark:text-rose-200">Uninstall release?</h3>
             <p className="mt-0.5 text-[12px] text-content-muted">
               <code className="font-mono">{release.namespace}/{release.releaseName}</code>{' '}
               and every Kubernetes resource it owns will be deleted. The Helm history is removed.
@@ -1299,11 +1299,11 @@ function RepositoriesPanel() {
         {rows.map((r) => (
           <li
             key={r.name}
-            className="flex flex-col gap-2 rounded-xl border border-edge-default bg-white p-4 shadow-sm"
+            className="flex flex-col gap-2 rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm"
           >
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300">
                   <IconBookmark />
                 </span>
                 <div>
@@ -1316,7 +1316,7 @@ function RepositoriesPanel() {
                   </code>
                 </div>
               </div>
-              <span className="text-[10px] font-medium text-emerald-700">enabled</span>
+              <span className="text-[10px] font-medium text-emerald-700 dark:text-emerald-300">enabled</span>
             </div>
             <p className="text-[12px] text-content-muted">{r.description}</p>
             <code className="break-all font-mono text-[11px] text-content-subtle">{r.url}</code>

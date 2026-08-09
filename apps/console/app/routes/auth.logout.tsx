@@ -30,8 +30,8 @@ function LogoutPage() {
   }, [signout, configured, nav])
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50">
-      <div className="flex items-center gap-3 rounded-xl border border-edge-default bg-white px-4 py-3 text-sm text-content-muted shadow-sm">
+    <div className="flex min-h-screen items-center justify-center bg-surface-sunken">
+      <div className="flex items-center gap-3 rounded-xl border border-edge-default bg-surface-raised px-4 py-3 text-sm text-content-muted shadow-sm">
         <Spinner size={14} />
         <span>Signing you out…</span>
       </div>

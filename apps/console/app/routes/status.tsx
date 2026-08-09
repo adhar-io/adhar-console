@@ -41,14 +41,14 @@ function StatusPage() {
         description="Every component of the Adhar platform — with real versions, source links, and live health. No black boxes."
       />
 
-      <section className="mb-8 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="mb-8 rounded-lg border border-edge-default bg-surface-raised p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <div className="text-xs uppercase tracking-wide text-slate-500">Adhar Console</div>
-            <div className="mt-1 text-2xl font-semibold text-slate-900">
+            <div className="text-xs uppercase tracking-wide text-content-subtle">Adhar Console</div>
+            <div className="mt-1 text-2xl font-semibold text-content">
               v{PLATFORM_VERSION.console}
             </div>
-            <div className="mt-1 text-xs text-slate-500">
+            <div className="mt-1 text-xs text-content-subtle">
               API v{PLATFORM_VERSION.api} · commit{' '}
               <code>{PLATFORM_VERSION.commit}</code> · built {PLATFORM_VERSION.built}
             </div>
@@ -60,7 +60,7 @@ function StatusPage() {
       </section>
 
       <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-content-subtle">
           Backing open-source components
         </h2>
         <DataTable
@@ -74,11 +74,11 @@ function StatusPage() {
                     href={t.homepage}
                     target="_blank"
                     rel="noreferrer"
-                    className="font-medium text-slate-900 hover:underline"
+                    className="font-medium text-content hover:underline"
                   >
                     {t.name}
                   </a>
-                  <div className="text-xs text-slate-500">{t.purpose}</div>
+                  <div className="text-xs text-content-subtle">{t.purpose}</div>
                 </div>
               ),
             },
@@ -92,7 +92,7 @@ function StatusPage() {
                   href={t.sourceRepo}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-xs text-slate-600 hover:underline"
+                  className="text-xs text-content-muted hover:underline"
                 >
                   {t.sourceRepo.replace(/^https?:\/\//, '')}
                 </a>
@@ -111,7 +111,7 @@ function StatusPage() {
         />
       </section>
 
-      <p className="mt-8 text-xs text-slate-500">
+      <p className="mt-8 text-xs text-content-subtle">
         This page is served from the console itself — no third-party status vendor. Health is
         derived from live probes against each component. Your admin can scope what is shown here
         per tenant.

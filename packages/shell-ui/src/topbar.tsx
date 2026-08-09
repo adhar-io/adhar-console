@@ -29,7 +29,7 @@ export function Topbar({
   onOpenSidebar,
 }: Props) {
   return (
-    <header className="sticky top-0 z-40 border-b border-edge-default bg-white/70 backdrop-blur-xl supports-[backdrop-filter]:bg-white/60">
+    <header className="sticky top-0 z-40 border-b border-edge-default bg-surface-raised/70 backdrop-blur-xl supports-[backdrop-filter]:bg-surface-raised/60">
       <div
         className="pointer-events-none absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-brand-400/40 to-transparent"
         aria-hidden
@@ -53,8 +53,8 @@ export function Topbar({
               type="button"
               onClick={onOpenCommandPalette}
               className={cn(
-                'group hidden h-9 items-center gap-2 rounded-lg border border-edge-default bg-white/80 px-3 text-xs text-content-muted shadow-sm transition-all duration-150',
-                'hover:border-brand-300 hover:bg-white hover:text-content hover:shadow-md',
+                'group hidden h-9 items-center gap-2 rounded-lg border border-edge-default bg-surface-raised/80 px-3 text-xs text-content-muted shadow-sm transition-all duration-150',
+                'hover:border-brand-300 hover:bg-surface-raised hover:text-content hover:shadow-md',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25 sm:flex',
               )}
             >
@@ -101,7 +101,7 @@ const IconButton = ({
     className={cn(
       'relative flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-150',
       active
-        ? 'bg-brand-50 text-brand-700 ring-1 ring-brand-200'
+        ? 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-1 ring-brand-200'
         : 'text-content-muted hover:bg-surface-sunken hover:text-content',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25',
     )}
@@ -194,7 +194,7 @@ function NotificationsMenu({ seed }: { seed: Notification[] }) {
 
           {visible.length === 0 ? (
             <div className="px-3 py-10 text-center">
-              <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+              <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600">
                 <IconCheck />
               </div>
               <div className="text-sm font-medium text-content">
@@ -233,7 +233,7 @@ function NotificationsMenu({ seed }: { seed: Notification[] }) {
                   'rounded px-2 py-1 font-medium transition-colors',
                   unreadCount === 0
                     ? 'cursor-not-allowed text-content-subtle'
-                    : 'text-content-muted hover:bg-white hover:text-content',
+                    : 'text-content-muted hover:bg-surface-raised hover:text-content',
                 )}
               >
                 Mark all as read
@@ -241,7 +241,7 @@ function NotificationsMenu({ seed }: { seed: Notification[] }) {
               <button
                 type="button"
                 onClick={dismissAll}
-                className="rounded px-2 py-1 font-medium text-content-muted transition-colors hover:bg-white hover:text-content"
+                className="rounded px-2 py-1 font-medium text-content-muted transition-colors hover:bg-surface-raised hover:text-content"
               >
                 Clear all
               </button>
@@ -268,7 +268,7 @@ function FilterTab({
       onClick={onClick}
       className={cn(
         'rounded px-2 py-1 transition-colors',
-        active ? 'bg-white text-content shadow-sm' : 'text-content-muted hover:text-content',
+        active ? 'bg-surface-raised text-content shadow-sm' : 'text-content-muted hover:text-content',
       )}
     >
       {children}
@@ -363,7 +363,7 @@ function NotificationRow({
           onDismiss()
         }}
         aria-label="Dismiss"
-        className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded text-content-subtle opacity-0 transition-opacity hover:bg-white hover:text-content-muted group-hover:opacity-100"
+        className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded text-content-subtle opacity-0 transition-opacity hover:bg-surface-raised hover:text-content-muted group-hover:opacity-100"
       >
         <IconX />
       </button>
@@ -398,9 +398,9 @@ function UserMenu({ user, onSignOut }: { user: User; onSignOut?(): void }) {
       </button>
       {open ? (
         <Dropdown onClose={() => setOpen(false)} anchorRef={ref} widthClass="w-72">
-          <div className="relative overflow-hidden border-b border-edge-subtle bg-linear-to-br from-brand-50/70 via-white to-white px-3.5 py-3">
+          <div className="relative overflow-hidden border-b border-edge-subtle bg-linear-to-br from-brand-50/70 dark:from-brand-500/10 via-surface-raised to-surface-raised px-3.5 py-3">
             <div
-              className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-brand-100/40 blur-2xl"
+              className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-brand-100/40 dark:bg-brand-500/15 blur-2xl"
               aria-hidden
             />
             <div className="relative flex items-center gap-3">
@@ -413,7 +413,7 @@ function UserMenu({ user, onSignOut }: { user: User; onSignOut?(): void }) {
                     {user.roles.slice(0, 2).map((r) => (
                       <span
                         key={r}
-                        className="rounded-md bg-white px-1.5 py-0.5 text-[10px] font-medium capitalize text-content-muted ring-1 ring-edge-subtle"
+                        className="rounded-md bg-surface-raised px-1.5 py-0.5 text-[10px] font-medium capitalize text-content-muted ring-1 ring-edge-subtle"
                       >
                         {r.replace(/-/g, ' ')}
                       </span>
@@ -443,7 +443,7 @@ function UserMenu({ user, onSignOut }: { user: User; onSignOut?(): void }) {
                   setOpen(false)
                   onSignOut()
                 }}
-                className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm font-medium text-rose-700 transition-colors hover:bg-rose-50"
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm font-medium text-rose-700 dark:text-rose-300 transition-colors hover:bg-rose-50 dark:hover:bg-rose-500/10"
               >
                 <span className="text-rose-500">
                   <IconSignOut />
@@ -454,7 +454,7 @@ function UserMenu({ user, onSignOut }: { user: User; onSignOut?(): void }) {
               <Link
                 to="/auth/logout"
                 onClick={() => setOpen(false)}
-                className="flex items-center gap-2.5 px-3 py-2 text-sm font-medium text-rose-700 transition-colors hover:bg-rose-50"
+                className="flex items-center gap-2.5 px-3 py-2 text-sm font-medium text-rose-700 dark:text-rose-300 transition-colors hover:bg-rose-50 dark:hover:bg-rose-500/10"
               >
                 <span className="text-rose-500">
                   <IconSignOut />
@@ -556,7 +556,7 @@ function Dropdown({
       role="menu"
       style={style}
       className={cn(
-        'fixed z-[60] overflow-hidden rounded-xl border border-edge-default bg-white py-1 shadow-xl ring-1 ring-black/5',
+        'fixed z-[60] overflow-hidden rounded-xl border border-edge-default bg-surface-raised py-1 shadow-xl ring-1 ring-edge-default',
         widthClass,
       )}
     >

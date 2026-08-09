@@ -41,7 +41,7 @@ export function Card({
   return (
     <As
       className={cn(
-        'rounded-xl border border-edge-default bg-white',
+        'rounded-xl border border-edge-default bg-surface-raised',
         ELEVATION[elevation],
         interactive &&
           'transition-[transform,box-shadow,border-color] duration-150 ease-smooth hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md',
@@ -170,13 +170,13 @@ type BadgeTone =
 
 const BADGE_TONE: Record<BadgeTone, string> = {
   slate: 'bg-surface-sunken text-content-muted ring-edge-default',
-  brand: 'bg-brand-50 text-brand-700 ring-brand-200',
-  emerald: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
-  rose: 'bg-rose-50 text-rose-700 ring-rose-600/20',
-  amber: 'bg-amber-50 text-amber-800 ring-amber-600/20',
-  indigo: 'bg-indigo-50 text-indigo-700 ring-indigo-600/20',
-  sky: 'bg-sky-50 text-sky-700 ring-sky-600/20',
-  violet: 'bg-violet-50 text-violet-700 ring-violet-600/20',
+  brand: 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-brand-200',
+  emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-600/20',
+  rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 ring-rose-600/20',
+  amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 ring-amber-600/20',
+  indigo: 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 ring-indigo-600/20',
+  sky: 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 ring-sky-600/20',
+  violet: 'bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300 ring-violet-600/20',
 }
 
 export function Badge({

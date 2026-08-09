@@ -164,7 +164,7 @@ function OnboardingWizard() {
                 <span className="text-xs font-semibold text-content">{session.user.name}</span>
                 <span className="text-[10px] text-content-subtle">{session.user.email}</span>
               </span>
-              <span className="ml-0.5 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700 ring-1 ring-inset ring-emerald-200">
+              <span className="ml-0.5 inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300 ring-1 ring-inset ring-emerald-200">
                 <IconShieldMini /> SSO
               </span>
             </div>
@@ -203,7 +203,7 @@ function OnboardingWizard() {
                     <div
                       className={cn(
                         'truncate text-[10px] font-semibold uppercase tracking-widest',
-                        active ? 'text-brand-700' : 'text-content-subtle',
+                        active ? 'text-brand-700 dark:text-brand-300' : 'text-content-subtle',
                       )}
                     >
                       {s.eyebrow}
@@ -231,15 +231,15 @@ function OnboardingWizard() {
             <span>
               Step {step + 1} of {STEPS.length}
             </span>
-            <span className="font-medium text-brand-700">{current.eyebrow}</span>
+            <span className="font-medium text-brand-700 dark:text-brand-300">{current.eyebrow}</span>
           </div>
         </nav>
 
         {/* Main card */}
         <main className="flex-1">
-          <div className="overflow-hidden rounded-2xl border border-edge-default bg-white shadow-lg">
+          <div className="overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-lg">
             <div className="border-b border-edge-subtle bg-linear-to-br from-brand-50 to-white px-6 py-6 sm:px-10 sm:py-8">
-              <div className="text-[11px] font-semibold uppercase tracking-widest text-brand-700">
+              <div className="text-[11px] font-semibold uppercase tracking-widest text-brand-700 dark:text-brand-300">
                 Step {step + 1} · {current.eyebrow}
               </div>
               <h1 className="mt-1.5 text-2xl font-semibold tracking-tight text-content sm:text-3xl">
@@ -328,27 +328,27 @@ function StepWelcome({ session }: { session: Session | null }) {
             {initials(session.user.name)}
           </span>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-emerald-700">
+            <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
               <IconShieldMini /> Signed in via single sign-on
             </div>
             <div className="mt-0.5 truncate text-lg font-semibold text-content">
               Welcome, {firstName(session.user.name)} 👋
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              <span className="truncate rounded-full bg-white px-2 py-0.5 text-[11px] text-content-muted ring-1 ring-inset ring-edge-default">
+              <span className="truncate rounded-full bg-surface-raised px-2 py-0.5 text-[11px] text-content-muted ring-1 ring-inset ring-edge-default">
                 {session.user.email}
               </span>
               {session.user.roles.map((r) => (
                 <span
                   key={r}
-                  className="rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-medium text-brand-700 ring-1 ring-inset ring-brand-200"
+                  className="rounded-full bg-brand-50 dark:bg-brand-500/10 px-2 py-0.5 text-[10px] font-medium text-brand-700 dark:text-brand-300 ring-1 ring-inset ring-brand-200"
                 >
                   {r}
                 </span>
               ))}
             </div>
           </div>
-          <span className="hidden shrink-0 items-center gap-1.5 self-start rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-content-muted shadow-sm ring-1 ring-inset ring-edge-default sm:inline-flex">
+          <span className="hidden shrink-0 items-center gap-1.5 self-start rounded-full bg-surface-raised px-2.5 py-1 text-[10px] font-semibold text-content-muted shadow-sm ring-1 ring-inset ring-edge-default sm:inline-flex">
             <AdharMark /> Keycloak
           </span>
         </div>
@@ -361,7 +361,7 @@ function StepWelcome({ session }: { session: Session | null }) {
           className="rounded-xl border border-edge-subtle bg-surface-sunken/60 p-4"
         >
           <div className="flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-700 ring-1 ring-inset ring-brand-200">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-50 dark:bg-brand-500/10 text-xs font-semibold text-brand-700 dark:text-brand-300 ring-1 ring-inset ring-brand-200">
               {i + 1}
             </span>
             <div className="text-sm font-semibold text-content">{h.title}</div>
@@ -415,14 +415,14 @@ function StepOrg({
               }))
             }
             placeholder="Acme Corp"
-            className="mt-1.5 w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm shadow-sm"
+            className="mt-1.5 w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm shadow-sm"
           />
         </label>
         <label className="block">
           <span className="block text-xs font-semibold uppercase tracking-[0.06em] text-content-subtle">
             Slug
           </span>
-          <div className="mt-1.5 flex overflow-hidden rounded-lg border border-edge-default bg-white shadow-sm focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-400/20">
+          <div className="mt-1.5 flex overflow-hidden rounded-lg border border-edge-default bg-surface-raised shadow-sm focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-400/20">
             <span className="border-r border-edge-subtle bg-surface-sunken px-3 py-2 font-mono text-xs text-content-subtle">
               adhar.io/
             </span>
@@ -451,7 +451,7 @@ function StepOrg({
           <select
             value={state.region}
             onChange={(e) => setState((s) => ({ ...s, region: e.target.value as State['region'] }))}
-            className="mt-1.5 w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm shadow-sm"
+            className="mt-1.5 w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm shadow-sm"
           >
             <option value="us-east-1">us-east-1 · N. Virginia</option>
             <option value="eu-west-1">eu-west-1 · Ireland</option>
@@ -478,8 +478,8 @@ function StepOrg({
                 className={cn(
                   'relative rounded-xl border p-4 text-left transition-all duration-150 ease-smooth',
                   on
-                    ? 'border-brand-500 bg-brand-50/40 ring-2 ring-brand-500/20'
-                    : 'border-edge-default bg-white hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md',
+                    ? 'border-brand-500 bg-brand-50/40 dark:bg-brand-500/10 ring-2 ring-brand-500/20'
+                    : 'border-edge-default bg-surface-raised hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md',
                 )}
               >
                 {p.id === 'team' ? (
@@ -533,7 +533,7 @@ function StepInvites({
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="teammate@example.com"
-            className="w-full rounded-lg border border-edge-default bg-white px-3 py-2 pr-10 text-sm shadow-sm"
+            className="w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 pr-10 text-sm shadow-sm"
           />
           <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-content-subtle">
             <IconMail />
@@ -542,7 +542,7 @@ function StepInvites({
         <select
           value={role}
           onChange={(e) => setRole(e.target.value as typeof role)}
-          className="rounded-lg border border-edge-default bg-white px-3 py-2 text-sm shadow-sm sm:w-32"
+          className="rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm shadow-sm sm:w-32"
         >
           <option value="admin">admin</option>
           <option value="member">member</option>
@@ -568,7 +568,7 @@ function StepInvites({
               className="flex items-center justify-between rounded-lg border border-edge-subtle bg-surface-sunken/60 px-3 py-2 text-sm"
             >
               <span className="flex items-center gap-2 text-content">
-                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-50 text-[11px] font-semibold text-brand-700 ring-1 ring-inset ring-brand-200">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-50 dark:bg-brand-500/10 text-[11px] font-semibold text-brand-700 dark:text-brand-300 ring-1 ring-inset ring-brand-200">
                   {i.email.slice(0, 2).toUpperCase()}
                 </span>
                 {i.email}
@@ -584,7 +584,7 @@ function StepInvites({
                       ),
                     }))
                   }
-                  className="rounded-md border border-edge-default bg-white px-2 py-1 text-xs"
+                  className="rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-xs"
                 >
                   <option value="admin">admin</option>
                   <option value="member">member</option>
@@ -599,7 +599,7 @@ function StepInvites({
                     }))
                   }
                   aria-label="Remove invite"
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-content-subtle hover:bg-white hover:text-rose-600"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-content-subtle hover:bg-surface-raised hover:text-rose-600"
                 >
                   <IconTrash />
                 </button>
@@ -650,7 +650,7 @@ function StepConnect({
               connectedTools: new Set(BACKING_TOOLS.map((t) => t.id)),
             }))
           }
-          className="font-medium text-brand-700 hover:text-brand-800"
+          className="font-medium text-brand-700 dark:text-brand-300 hover:text-brand-800 dark:hover:text-brand-300"
         >
           Select all
         </button>
@@ -668,8 +668,8 @@ function StepConnect({
               className={cn(
                 'flex items-start gap-3 rounded-xl border p-3 text-left transition-all duration-150 ease-smooth',
                 on
-                  ? 'border-brand-500 bg-brand-50/40 ring-2 ring-brand-500/20'
-                  : 'border-edge-default bg-white hover:border-edge-strong hover:shadow-md',
+                  ? 'border-brand-500 bg-brand-50/40 dark:bg-brand-500/10 ring-2 ring-brand-500/20'
+                  : 'border-edge-default bg-surface-raised hover:border-edge-strong hover:shadow-md',
               )}
             >
               {app?.icon ? (
@@ -759,7 +759,7 @@ function StepStarter({
               'group relative overflow-hidden rounded-xl border p-4 text-left transition-all duration-150 ease-smooth',
               on
                 ? 'border-brand-500 ring-2 ring-brand-500/20'
-                : 'border-edge-default bg-white hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md',
+                : 'border-edge-default bg-surface-raised hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md',
             )}
           >
             <div

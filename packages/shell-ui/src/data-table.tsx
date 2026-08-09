@@ -57,7 +57,7 @@ export function DataTable<T>({
   return (
     <div
       className={cn(
-        'overflow-hidden rounded-xl border border-edge-default bg-white shadow-sm',
+        'overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm',
         className,
       )}
     >
@@ -109,7 +109,7 @@ export function DataTable<T>({
                     className={cn(
                       'border-b border-edge-subtle transition-colors duration-100 last:border-0',
                       striped && idx % 2 === 1 && 'bg-surface-sunken/40',
-                      onRowClick && 'cursor-pointer hover:bg-brand-50/40',
+                      onRowClick && 'cursor-pointer hover:bg-brand-50/40 dark:hover:bg-brand-500/10',
                     )}
                   >
                     {columns.map((c) => {

@@ -184,7 +184,7 @@ export function AiProvider({ children, onApplyProposal }: AiProviderProps) {
       {configured && !isOpen ? (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-5 right-5 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-linear-to-br from-brand-500 to-accent-500 text-white shadow-lg ring-1 ring-black/5 transition-transform hover:scale-105"
+          className="fixed bottom-5 right-5 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-linear-to-br from-brand-500 to-accent-500 text-white shadow-lg ring-1 ring-edge-default transition-transform hover:scale-105"
           aria-label="Ask the AI assistant"
           title="Ask AI"
         >
@@ -283,10 +283,10 @@ function AiPanel(props: {
               rows={1}
               placeholder={props.configured ? 'Ask about your cluster…' : 'AI is not configured'}
               disabled={!props.configured}
-              className="max-h-32 min-h-9 flex-1 resize-none rounded-lg border border-edge-default bg-white px-3 py-2 text-sm text-content outline-none placeholder:text-content-subtle focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20 disabled:opacity-60"
+              className="max-h-32 min-h-9 flex-1 resize-none rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm text-content outline-none placeholder:text-content-subtle focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20 disabled:opacity-60"
             />
             {props.busy ? (
-              <button onClick={props.onStop} className="h-9 rounded-lg bg-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-300">
+              <button onClick={props.onStop} className="h-9 rounded-lg bg-slate-200 px-3 text-sm font-medium text-content-muted hover:bg-slate-300">
                 Stop
               </button>
             ) : (
@@ -323,7 +323,7 @@ function TurnView({ turn, onApplyProposal }: { turn: Turn; onApplyProposal?(m: u
         </div>
       ) : null}
       {turn.content ? (
-        <div className="whitespace-pre-wrap rounded-2xl rounded-tl-sm bg-white px-3.5 py-2.5 text-sm leading-relaxed text-content ring-1 ring-edge-subtle">
+        <div className="whitespace-pre-wrap rounded-2xl rounded-tl-sm bg-surface-raised px-3.5 py-2.5 text-sm leading-relaxed text-content ring-1 ring-edge-subtle">
           {turn.content}
           {turn.streaming ? <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-brand-400 align-middle" /> : null}
         </div>
@@ -336,7 +336,7 @@ function TurnView({ turn, onApplyProposal }: { turn: Turn; onApplyProposal?(m: u
         <ProposalCard key={i} proposal={p} onApply={onApplyProposal} />
       ))}
       {turn.error ? (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{turn.error}</div>
+        <div className="rounded-lg border border-rose-200 dark:border-rose-500/25 bg-rose-50 dark:bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">{turn.error}</div>
       ) : null}
     </div>
   )
@@ -347,15 +347,15 @@ function ProposalCard({ proposal, onApply }: { proposal: AiProposal; onApply?(m:
   const [msg, setMsg] = useState('')
   const [showYaml, setShowYaml] = useState(false)
   return (
-    <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+    <div className="rounded-xl border border-amber-200 dark:border-amber-500/25 bg-amber-50/70 dark:bg-amber-500/10 p-3">
       <div className="flex items-start gap-2">
         <span className="mt-0.5 text-amber-600"><WrenchIcon /></span>
         <div className="min-w-0 flex-1">
-          <div className="text-xs font-semibold text-amber-900">Proposed change · review before applying</div>
+          <div className="text-xs font-semibold text-amber-900 dark:text-amber-200">Proposed change · review before applying</div>
           <div className="mt-0.5 text-sm text-content">{proposal.summary}</div>
         </div>
       </div>
-      <button onClick={() => setShowYaml((s) => !s)} className="mt-2 text-[11px] font-medium text-amber-800 underline-offset-2 hover:underline">
+      <button onClick={() => setShowYaml((s) => !s)} className="mt-2 text-[11px] font-medium text-amber-800 dark:text-amber-300 underline-offset-2 hover:underline">
         {showYaml ? 'Hide' : 'View'} manifest
       </button>
       {showYaml ? (
@@ -382,7 +382,7 @@ function ProposalCard({ proposal, onApply }: { proposal: AiProposal; onApply?(m:
         >
           {state === 'applying' ? 'Applying…' : state === 'done' ? 'Applied ✓' : 'Apply'}
         </button>
-        {msg ? <span className={`text-[11px] ${state === 'error' ? 'text-rose-700' : 'text-emerald-700'}`}>{msg}</span> : null}
+        {msg ? <span className={`text-[11px] ${state === 'error' ? 'text-rose-700 dark:text-rose-300' : 'text-emerald-700 dark:text-emerald-300'}`}>{msg}</span> : null}
       </div>
     </div>
   )
@@ -450,7 +450,7 @@ export function AiButton({
       onClick={() => ai.ask({ mode, context, prompt, title })}
       className={
         className ??
-        'inline-flex items-center gap-1.5 rounded-md border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 transition-colors hover:border-brand-300 hover:bg-brand-100'
+        'inline-flex items-center gap-1.5 rounded-md border border-brand-200 dark:border-brand-500/25 bg-brand-50 dark:bg-brand-500/10 px-2.5 py-1 text-xs font-medium text-brand-700 dark:text-brand-300 transition-colors hover:border-brand-300 hover:bg-brand-100 dark:hover:bg-brand-500/15'
       }
     >
       <SparkIcon /> {label}

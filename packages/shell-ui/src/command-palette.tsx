@@ -188,16 +188,16 @@ export function CommandPalette({
       />
       <div
         className={cn(
-          'pop-in relative w-full max-w-xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_30px_60px_-15px_rgba(15,23,42,0.35)]',
-          'ring-1 ring-slate-900/5 transition-shadow duration-150',
+          'pop-in relative w-full max-w-xl overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-[0_30px_60px_-15px_rgba(15,23,42,0.35)]',
+          'ring-1 ring-edge-default transition-shadow duration-150',
           'focus-within:ring-2 focus-within:ring-brand-500/30 focus-within:ring-offset-2 focus-within:ring-offset-slate-950/30',
         )}
         onMouseMove={() => {
           lastInput.current = 'mouse'
         }}
       >
-        <div className="flex items-center gap-3 border-b border-slate-100 px-4">
-          <span className={cn('shrink-0 transition-colors', aiSession ? 'text-brand-600' : 'text-slate-400')}>
+        <div className="flex items-center gap-3 border-b border-edge-subtle px-4">
+          <span className={cn('shrink-0 transition-colors', aiSession ? 'text-brand-600' : 'text-content-subtle')}>
             {aiSession ? <AiSparkIcon /> : <SearchIcon />}
           </span>
           <input
@@ -218,9 +218,9 @@ export function CommandPalette({
               lastInput.current = 'keyboard'
             }}
             className={cn(
-              'h-12 w-full border-0 bg-transparent text-[15px] text-slate-900 placeholder:text-slate-400',
+              'h-12 w-full border-0 bg-transparent text-[15px] text-content placeholder:text-content-subtle',
               'outline-none focus:outline-none focus:ring-0',
-              'disabled:cursor-not-allowed disabled:text-slate-500',
+              'disabled:cursor-not-allowed disabled:text-content-subtle',
             )}
           />
           {!aiSession && query ? (
@@ -230,7 +230,7 @@ export function CommandPalette({
                 setQuery('')
                 inputRef.current?.focus()
               }}
-              className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30"
+              className="rounded-md p-1 text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30"
               aria-label="Clear search"
             >
               <ClearIcon />
@@ -244,12 +244,12 @@ export function CommandPalette({
                 aiHandleRef.current = null
                 setAiSession(null)
               }}
-              className="rounded-md border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+              className="rounded-md border border-edge-default px-2 py-0.5 text-[11px] font-medium text-content-muted hover:bg-surface-sunken hover:text-content"
             >
               Back to search
             </button>
           ) : (
-            <kbd className="hidden h-5 items-center rounded border border-slate-200 bg-slate-50 px-1.5 font-mono text-[10px] font-medium text-slate-500 sm:inline-flex">
+            <kbd className="hidden h-5 items-center rounded border border-edge-default bg-surface-sunken px-1.5 font-mono text-[10px] font-medium text-content-subtle sm:inline-flex">
               esc
             </kbd>
           )}
@@ -264,13 +264,13 @@ export function CommandPalette({
             />
           ) : rows.length === 0 ? (
             <div className="px-6 py-12 text-center">
-              <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+              <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-surface-sunken text-content-subtle">
                 <SearchIcon />
               </div>
-              <div className="text-sm font-medium text-slate-900">Type to search or ask AI</div>
-              <div className="mt-1 text-xs text-slate-500">
+              <div className="text-sm font-medium text-content">Type to search or ask AI</div>
+              <div className="mt-1 text-xs text-content-subtle">
                 Pages, projects, settings — or natural language like
-                <span className="ml-1 inline-block rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-600">
+                <span className="ml-1 inline-block rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-content-muted">
                   show failing pods in production
                 </span>
               </div>
@@ -291,14 +291,14 @@ export function CommandPalette({
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/80 px-4 py-2 text-[11px] text-slate-500">
+        <div className="flex items-center justify-between gap-3 border-t border-edge-subtle bg-surface-sunken/80 px-4 py-2 text-[11px] text-content-subtle">
           <div className="flex items-center gap-3">
             <KbdHint keys={['↑', '↓']}>navigate</KbdHint>
             <KbdHint keys={['↵']}>{aiSession ? 'select' : 'open'}</KbdHint>
             <KbdHint keys={['esc']}>{aiSession ? 'back' : 'close'}</KbdHint>
             {!aiSession ? (
               <span className="hidden items-center gap-1 sm:flex">
-                <span className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-1.5 py-0.5 text-[10px] font-medium text-brand-700">
+                <span className="inline-flex items-center gap-1 rounded-md bg-brand-50 dark:bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-medium text-brand-700 dark:text-brand-300">
                   <AiSparkIcon /> AI
                 </span>
                 <span>on top result</span>
@@ -340,7 +340,7 @@ function ResultList({
     out.push(
       <div
         key="__intro"
-        className="px-4 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400"
+        className="px-4 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle"
       >
         Suggested
       </div>,
@@ -360,8 +360,8 @@ function ResultList({
           className={cn(
             'group relative mx-2 flex w-[calc(100%-1rem)] items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors',
             isActive
-              ? 'bg-brand-50 text-brand-900 ring-1 ring-inset ring-brand-200'
-              : 'text-slate-700 hover:bg-slate-50',
+              ? 'bg-brand-50 dark:bg-brand-500/10 text-brand-900 dark:text-brand-200 ring-1 ring-inset ring-brand-200'
+              : 'text-content-muted hover:bg-surface-sunken',
           )}
         >
           <span
@@ -376,9 +376,9 @@ function ResultList({
           </span>
           <div className="min-w-0 flex-1">
             <div className="text-[13px] font-semibold">Ask AI</div>
-            <div className="truncate text-[11px] text-slate-500">"{row.query}"</div>
+            <div className="truncate text-[11px] text-content-subtle">"{row.query}"</div>
           </div>
-          <span className="hidden shrink-0 text-[10px] font-medium uppercase tracking-wider text-brand-700 sm:inline">
+          <span className="hidden shrink-0 text-[10px] font-medium uppercase tracking-wider text-brand-700 dark:text-brand-300 sm:inline">
             beta
           </span>
           <span
@@ -400,7 +400,7 @@ function ResultList({
       out.push(
         <div
           key={`__h_${groupLabel}_${i}`}
-          className="px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400 first:pt-1"
+          className="px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle first:pt-1"
         >
           {groupLabel}
         </div>,
@@ -418,7 +418,7 @@ function ResultList({
         onClick={() => onPick(row)}
         className={cn(
           'group relative mx-2 flex w-[calc(100%-1rem)] items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors',
-          isActive ? 'bg-slate-100 text-slate-900' : 'text-slate-700 hover:bg-slate-50',
+          isActive ? 'bg-surface-sunken text-content' : 'text-content-muted hover:bg-surface-sunken',
         )}
       >
         <span
@@ -430,8 +430,8 @@ function ResultList({
         />
         <span
           className={cn(
-            'flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-500 transition-colors',
-            isActive ? 'text-slate-900' : 'group-hover:text-slate-700',
+            'flex h-6 w-6 shrink-0 items-center justify-center rounded text-content-subtle transition-colors',
+            isActive ? 'text-content' : 'group-hover:text-content-muted',
             '[&>svg]:h-4 [&>svg]:w-4',
           )}
         >
@@ -442,17 +442,17 @@ function ResultList({
             {row.item.label}
           </div>
           {row.item.description ? (
-            <div className="truncate text-[11px] text-slate-500">{row.item.description}</div>
+            <div className="truncate text-[11px] text-content-subtle">{row.item.description}</div>
           ) : null}
         </div>
         {row.item.group && showHeader ? (
-          <span className="hidden shrink-0 text-[10px] font-medium uppercase tracking-wider text-slate-400 sm:inline">
+          <span className="hidden shrink-0 text-[10px] font-medium uppercase tracking-wider text-content-subtle sm:inline">
             {row.item.group}
           </span>
         ) : null}
         <span
           className={cn(
-            'shrink-0 text-slate-400 transition-opacity',
+            'shrink-0 text-content-subtle transition-opacity',
             isActive ? 'opacity-100' : 'opacity-0',
           )}
         >
@@ -487,30 +487,30 @@ function AiPanel({
   const text = session.chunks.join('')
   return (
     <div className="space-y-4 px-4 py-3">
-      <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2 text-[12px] text-slate-700">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+      <div className="rounded-xl border border-edge-subtle bg-surface-sunken/80 px-3 py-2 text-[12px] text-content-muted">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
           You
         </span>
-        <div className="mt-0.5 text-[13px] text-slate-900">{session.prompt}</div>
+        <div className="mt-0.5 text-[13px] text-content">{session.prompt}</div>
       </div>
 
-      <div className="rounded-xl border border-brand-100 bg-brand-50/40 p-3">
-        <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-brand-700">
+      <div className="rounded-xl border border-brand-100 bg-brand-50/40 dark:bg-brand-500/10 p-3">
+        <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-brand-300">
           <AiSparkIcon />
           AI
           {session.status === 'thinking' ? (
-            <span className="flex items-center gap-1 text-slate-500">
+            <span className="flex items-center gap-1 text-content-subtle">
               <ThinkingDots /> thinking
             </span>
           ) : null}
         </div>
-        <div className="mt-2 whitespace-pre-wrap text-[13px] leading-relaxed text-slate-800">
+        <div className="mt-2 whitespace-pre-wrap text-[13px] leading-relaxed text-content">
           {text || '\u00a0'}
           {session.status !== 'done' && text ? <span className="ml-0.5 inline-block h-3.5 w-1.5 -translate-y-px animate-pulse bg-brand-500/80 align-middle" /> : null}
         </div>
         {session.suggestions.length ? (
-          <div className="mt-3 border-t border-brand-200/60 pt-3">
-            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+          <div className="mt-3 border-t border-brand-200/60 dark:border-brand-500/25 pt-3">
+            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
               Suggested actions
             </div>
             <div className="space-y-1">
@@ -519,7 +519,7 @@ function AiPanel({
                   key={i}
                   type="button"
                   onClick={() => onPick(s)}
-                  className="flex w-full items-center gap-2.5 rounded-md border border-transparent bg-white px-2.5 py-1.5 text-left text-[12px] text-slate-800 transition-colors hover:border-brand-300 hover:bg-brand-50"
+                  className="flex w-full items-center gap-2.5 rounded-md border border-transparent bg-surface-raised px-2.5 py-1.5 text-left text-[12px] text-content transition-colors hover:border-brand-300 hover:bg-brand-50 dark:hover:bg-brand-500/10"
                 >
                   <span className="flex h-5 w-5 items-center justify-center text-brand-600 [&>svg]:h-4 [&>svg]:w-4">
                     {s.icon ?? <DotIcon />}
@@ -527,10 +527,10 @@ function AiPanel({
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium">{s.label}</div>
                     {s.description ? (
-                      <div className="truncate text-[11px] text-slate-500">{s.description}</div>
+                      <div className="truncate text-[11px] text-content-subtle">{s.description}</div>
                     ) : null}
                   </div>
-                  <span className="text-slate-400">
+                  <span className="text-content-subtle">
                     <ReturnIcon />
                   </span>
                 </button>
@@ -686,7 +686,7 @@ function KbdHint({ keys, children }: { keys: string[]; children: React.ReactNode
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="inline-flex h-4 min-w-4 items-center justify-center rounded border border-slate-200 bg-white px-1 font-sans text-[10px] font-medium leading-none text-slate-600 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
+    <kbd className="inline-flex h-4 min-w-4 items-center justify-center rounded border border-edge-default bg-surface-raised px-1 font-sans text-[10px] font-medium leading-none text-content-muted shadow-[0_1px_0_rgba(15,23,42,0.04)]">
       {children}
     </kbd>
   )

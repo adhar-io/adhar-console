@@ -31,13 +31,13 @@ function ChangelogPage() {
         {CHANGELOG.map((entry) => (
           <article
             key={entry.version}
-            className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"
+            className="rounded-lg border border-edge-default bg-surface-raised p-5 shadow-sm"
           >
             <header className="flex items-baseline justify-between">
-              <h2 className="text-lg font-semibold text-slate-900">v{entry.version}</h2>
-              <div className="text-xs text-slate-500">{entry.date}</div>
+              <h2 className="text-lg font-semibold text-content">v{entry.version}</h2>
+              <div className="text-xs text-content-subtle">{entry.date}</div>
             </header>
-            <ul className="mt-3 space-y-2 text-sm text-slate-700">
+            <ul className="mt-3 space-y-2 text-sm text-content-muted">
               {entry.highlights.map((h, i) => (
                 <li key={i} className="flex items-start gap-2">
                   <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-slate-400" />
@@ -50,17 +50,17 @@ function ChangelogPage() {
       </section>
 
       <section className="mt-10">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-content-subtle">
           What's next
         </h2>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           {ROADMAP_HIGHLIGHTS.map((r) => (
             <div
               key={r.title}
-              className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+              className="rounded-lg border border-edge-default bg-surface-raised p-4 shadow-sm"
             >
-              <div className="text-sm font-medium text-slate-900">{r.title}</div>
-              <div className="mt-1 text-xs text-slate-500">
+              <div className="text-sm font-medium text-content">{r.title}</div>
+              <div className="mt-1 text-xs text-content-subtle">
                 Target: v{r.target} ·{' '}
                 <span
                   className={
@@ -68,7 +68,7 @@ function ChangelogPage() {
                       ? 'text-emerald-600'
                       : r.status === 'in-progress'
                         ? 'text-indigo-600'
-                        : 'text-slate-500'
+                        : 'text-content-subtle'
                   }
                 >
                   {r.status}

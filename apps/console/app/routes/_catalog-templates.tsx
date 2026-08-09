@@ -230,14 +230,14 @@ function Header({ onRegister }: { onRegister(): void }) {
       <div className="flex flex-wrap items-center gap-2">
         <Link
           to="/catalog"
-          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-edge-default bg-white px-3 text-[12px] font-medium text-content-muted shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken hover:text-content"
+          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 text-[12px] font-medium text-content-muted shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken hover:text-content"
         >
           ← Back to Catalog
         </Link>
         <button
           type="button"
           onClick={onRegister}
-          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-edge-default bg-white px-3 text-[12px] font-semibold text-content shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken"
+          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 text-[12px] font-semibold text-content shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken"
         >
           <IconUpload />
           <span>Register template</span>
@@ -288,7 +288,7 @@ function TemplateList({
 }) {
   const hasFilters = filterCount > 0 || text.length > 0
   return (
-    <aside className="flex max-h-[calc(100vh-9rem)] flex-col overflow-hidden rounded-2xl border border-edge-default bg-white shadow-sm">
+    <aside className="flex max-h-[calc(100vh-9rem)] flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm">
       <div className="flex items-center gap-2 border-b border-edge-subtle p-3">
         <div className="relative h-9 flex-1">
           <input
@@ -302,7 +302,7 @@ function TemplateList({
             }}
             placeholder="Search templates…"
             aria-label="Search templates"
-            className="h-full w-full rounded-lg border border-edge-default bg-white pl-9 pr-9 text-sm text-content placeholder:text-content-subtle transition-shadow focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+            className="h-full w-full rounded-lg border border-edge-default bg-surface-raised pl-9 pr-9 text-sm text-content placeholder:text-content-subtle transition-shadow focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
           />
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-content-subtle">
             <IconSearch />
@@ -353,7 +353,7 @@ function TemplateList({
             <button
               type="button"
               onClick={onClearFilters}
-              className="text-[11px] text-brand-700 underline-offset-2 hover:underline"
+              className="text-[11px] text-brand-700 dark:text-brand-300 underline-offset-2 hover:underline"
             >
               Clear filters
             </button>
@@ -410,7 +410,7 @@ function TemplateRow({
       className={cn(
         'group relative flex w-full items-center gap-3 px-3 py-2 text-left transition',
         active
-          ? 'bg-brand-50/60'
+          ? 'bg-brand-50/60 dark:bg-brand-500/10'
           : 'hover:bg-surface-sunken/60',
       )}
     >
@@ -433,18 +433,18 @@ function TemplateRow({
           <span
             className={cn(
               'truncate text-[13px] font-semibold leading-tight',
-              active ? 'text-brand-800' : 'text-content',
+              active ? 'text-brand-800 dark:text-brand-300' : 'text-content',
             )}
           >
             {template.title}
           </span>
           {template.isNew ? (
-            <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-emerald-800">
+            <span className="rounded-full bg-emerald-100 dark:bg-emerald-500/15 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
               new
             </span>
           ) : null}
           {isUserTemplate(template.id) ? (
-            <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-violet-800">
+            <span className="rounded-full bg-violet-100 dark:bg-violet-500/15 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-violet-800 dark:text-violet-300">
               custom
             </span>
           ) : null}
@@ -527,7 +527,7 @@ function FilterButton({
           'inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-medium transition',
           filterCount > 0
             ? 'border-content bg-content text-white shadow-sm'
-            : 'border-edge-default bg-white text-content hover:border-content',
+            : 'border-edge-default bg-surface-raised text-content hover:border-content',
         )}
       >
         <IconFilter />
@@ -543,7 +543,7 @@ function FilterButton({
         <div
           role="dialog"
           aria-label="Filters"
-          className="pop-in absolute right-0 top-full z-30 mt-2 w-80 overflow-hidden rounded-xl border border-edge-default bg-white shadow-xl"
+          className="pop-in absolute right-0 top-full z-30 mt-2 w-80 overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-xl"
         >
           <div className="flex items-center justify-between border-b border-edge-subtle bg-surface-sunken/40 px-4 py-2.5">
             <div className="flex items-center gap-2 text-[12px]">
@@ -650,7 +650,7 @@ function PopoverChip({
       <span
         className={cn(
           'rounded-full px-1 text-[9px] tabular-nums',
-          active ? 'bg-white/20 text-white' : 'bg-white text-content-subtle',
+          active ? 'bg-white/20 text-white' : 'bg-surface-raised text-content-subtle',
         )}
       >
         {count}
@@ -670,7 +670,7 @@ function RecentChip({
     <button
       type="button"
       onClick={onPick}
-      className="group inline-flex items-center gap-1.5 rounded-full border border-edge-default bg-white py-0.5 pl-0.5 pr-2.5 text-left text-[11px] shadow-sm transition-all duration-200 hover:-translate-y-px hover:border-brand-300/70 hover:shadow-md"
+      className="group inline-flex items-center gap-1.5 rounded-full border border-edge-default bg-surface-raised py-0.5 pl-0.5 pr-2.5 text-left text-[11px] shadow-sm transition-all duration-200 hover:-translate-y-px hover:border-brand-300/70 hover:shadow-md"
     >
       <span
         className={cn(
@@ -699,7 +699,7 @@ function TemplateDetail({
   const tone = TONES[template.tone]
   const custom = isUserTemplate(template.id)
   return (
-    <article className="flex h-full flex-col overflow-hidden rounded-2xl border border-edge-default bg-white shadow-sm">
+    <article className="flex h-full flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm">
       <header className={cn('relative overflow-hidden bg-linear-to-br px-7 py-7', tone.card)}>
         <div className="flex items-start gap-5">
           <span
@@ -719,7 +719,7 @@ function TemplateDetail({
                   </h2>
                   <Badges template={template} />
                   {custom ? (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-violet-800">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 dark:border-violet-500/25 bg-violet-50 dark:bg-violet-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-violet-800 dark:text-violet-300">
                       Custom
                     </span>
                   ) : null}
@@ -733,7 +733,7 @@ function TemplateDetail({
                   <button
                     type="button"
                     onClick={onRemove}
-                    className="inline-flex h-9 items-center gap-1 rounded-md border border-edge-default bg-white px-2.5 text-[12px] font-medium text-content-muted shadow-sm transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"
+                    className="inline-flex h-9 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2.5 text-[12px] font-medium text-content-muted shadow-sm transition-colors hover:border-rose-300 hover:bg-rose-50 dark:hover:bg-rose-500/10 hover:text-rose-700 dark:hover:text-rose-300"
                     title="Remove this custom template"
                   >
                     <IconTrash />
@@ -857,12 +857,12 @@ function Badges({ template }: { template: CatalogTemplate }) {
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
       {template.popular ? (
-        <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-800 ring-1 ring-amber-200">
+        <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 dark:bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-800 dark:text-amber-300 ring-1 ring-amber-200">
           <IconStar /> popular
         </span>
       ) : null}
       {template.isNew ? (
-        <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-800 ring-1 ring-emerald-200">
+        <span className="rounded-full bg-emerald-100 dark:bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300 ring-1 ring-emerald-200">
           new
         </span>
       ) : null}
@@ -872,7 +872,7 @@ function Badges({ template }: { template: CatalogTemplate }) {
 
 function NoSelection() {
   return (
-    <div className="flex items-center justify-center rounded-2xl border border-dashed border-edge-default bg-white p-12 text-center text-sm text-content-muted shadow-sm">
+    <div className="flex items-center justify-center rounded-2xl border border-dashed border-edge-default bg-surface-raised p-12 text-center text-sm text-content-muted shadow-sm">
       Pick a template from the left to preview it here.
     </div>
   )
@@ -1207,10 +1207,10 @@ function Stepper({
             className={cn(
               'inline-flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-semibold',
               l.complete
-                ? 'border-emerald-300 bg-emerald-100 text-emerald-700'
+                ? 'border-emerald-300 bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
                 : l.current
-                  ? 'border-brand-400 bg-brand-50 text-brand-700'
-                  : 'border-edge-default bg-white text-content-subtle',
+                  ? 'border-brand-400 bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300'
+                  : 'border-edge-default bg-surface-raised text-content-subtle',
             )}
           >
             {l.complete ? <IconCheck /> : i + 1}
@@ -1318,7 +1318,7 @@ function renderInput(
           value={(value as string) ?? ''}
           onChange={(e) => onChange(e.target.value)}
           placeholder={field.placeholder}
-          className="rounded-md border border-edge-default bg-white px-3 py-2 text-sm focus:outline-none"
+          className="rounded-md border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:outline-none"
         />
       )
     case 'select':
@@ -1327,7 +1327,7 @@ function renderInput(
           id={id}
           value={(value as string) ?? ''}
           onChange={(e) => onChange(e.target.value)}
-          className="rounded-md border border-edge-default bg-white px-3 py-2 text-sm focus:outline-none"
+          className="rounded-md border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:outline-none"
         >
           {field.options.map((o) => (
             <option key={o.value} value={o.value}>
@@ -1355,8 +1355,8 @@ function renderInput(
                 className={cn(
                   'rounded-full border px-2 py-0.5 text-[11px] font-medium transition',
                   active
-                    ? 'border-brand-300 bg-brand-50 text-brand-700'
-                    : 'border-edge-default bg-white text-content-muted hover:text-content',
+                    ? 'border-brand-300 bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300'
+                    : 'border-edge-default bg-surface-raised text-content-muted hover:text-content',
                 )}
               >
                 {o.label}
@@ -1368,7 +1368,7 @@ function renderInput(
     }
     case 'boolean':
       return (
-        <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-edge-default bg-white px-3 py-2 text-sm">
+        <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-edge-default bg-surface-raised px-3 py-2 text-sm">
           <input
             id={id}
             type="checkbox"
@@ -1385,7 +1385,7 @@ function renderInput(
           id={id}
           value={(value as string) ?? ''}
           onChange={(e) => onChange(e.target.value)}
-          className="rounded-md border border-edge-default bg-white px-3 py-2 text-sm focus:outline-none"
+          className="rounded-md border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:outline-none"
         >
           <option value="">— pick a group —</option>
           {groups.map((g) => (
@@ -1572,7 +1572,7 @@ function RunStep({ template, run }: { template: CatalogTemplate; run: ScaffoldRu
           {template.actions.map((a, i) => (
             <li key={i} className="flex items-start gap-2">
               {i < run.step ? (
-                <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
                   <IconCheck />
                 </span>
               ) : i === run.step ? (
@@ -1615,13 +1615,13 @@ function SuccessStep({
 }) {
   return (
     <div className="space-y-4">
-      <div className="flex items-start gap-4 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
-        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+      <div className="flex items-start gap-4 rounded-xl border border-emerald-200 dark:border-emerald-500/25 bg-emerald-50/70 dark:bg-emerald-500/10 p-4">
+        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
           <IconCheck />
         </span>
         <div className="min-w-0">
           <h3 className="text-base font-semibold text-emerald-900">Scaffolded successfully</h3>
-          <p className="mt-1 text-sm text-emerald-800">
+          <p className="mt-1 text-sm text-emerald-800 dark:text-emerald-300">
             <code className="font-mono">{entity.kind.toLowerCase()}:{entity.metadata.name}</code> is
             registered in the catalog and the golden-path actions completed.
           </p>
@@ -1720,7 +1720,7 @@ function Footer({
         {stage === 'review' ? (
           <>
             {alreadyExists ? (
-              <span className="text-[11px] text-amber-700">An entity with this name already exists — it will be overwritten.</span>
+              <span className="text-[11px] text-amber-700 dark:text-amber-300">An entity with this name already exists — it will be overwritten.</span>
             ) : null}
             <Button onClick={onLaunch} disabled={running}>
               {running ? 'Working…' : 'Scaffold'}
@@ -2156,7 +2156,7 @@ function RegisterTemplateModal({
         </FormField>
 
         {error ? (
-          <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] font-medium text-rose-700">
+          <div className="rounded-md border border-rose-200 dark:border-rose-500/25 bg-rose-50 dark:bg-rose-500/10 px-3 py-2 text-[12px] font-medium text-rose-700 dark:text-rose-300">
             {error}
           </div>
         ) : null}
@@ -2185,7 +2185,7 @@ function ModeTab({
       className={cn(
         'inline-flex h-8 items-center gap-2 rounded-full px-3 transition-all',
         active
-          ? 'bg-white text-content shadow-sm ring-1 ring-edge-default'
+          ? 'bg-surface-raised text-content shadow-sm ring-1 ring-edge-default'
           : 'text-content-muted hover:text-content',
       )}
     >

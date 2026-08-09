@@ -73,7 +73,7 @@ function SignupPage() {
         </div>
 
         {/* Right — signup card */}
-        <div className="rounded-2xl border border-edge-default bg-white p-7 shadow-sm">
+        <div className="rounded-2xl border border-edge-default bg-surface-raised p-7 shadow-sm">
           <div className="space-y-1">
             <h2 className="text-xl font-semibold tracking-tight text-content">
               Create your workspace
@@ -86,7 +86,7 @@ function SignupPage() {
           </div>
 
           {error ? (
-            <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
+            <div className="mt-4 rounded-lg border border-rose-200 dark:border-rose-500/25 bg-rose-50 dark:bg-rose-500/10 px-3 py-2 text-xs font-medium text-rose-700 dark:text-rose-300">
               {error}
             </div>
           ) : null}
@@ -121,7 +121,7 @@ function SignupPage() {
             </Button>
             <Link
               to="/login"
-              className="inline-flex h-10 w-full items-center justify-center rounded-md border border-edge-default bg-white px-4 text-sm font-medium text-content shadow-sm hover:border-edge-strong hover:bg-surface-sunken"
+              className="inline-flex h-10 w-full items-center justify-center rounded-md border border-edge-default bg-surface-raised px-4 text-sm font-medium text-content shadow-sm hover:border-edge-strong hover:bg-surface-sunken"
             >
               I already have an account
             </Link>
@@ -147,7 +147,7 @@ function SignupPage() {
 function FeatureRow({ children }: { children: React.ReactNode }) {
   return (
     <li className="flex items-start gap-2.5">
-      <span className="mt-1 inline-flex h-4 w-4 flex-none items-center justify-center rounded-full bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200">
+      <span className="mt-1 inline-flex h-4 w-4 flex-none items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-200">
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <path d="M5 12l5 5 9-11" />
         </svg>

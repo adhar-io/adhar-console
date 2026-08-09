@@ -31,7 +31,7 @@ export function TenantSwitcher({
           onClick={() => setOpen((o) => !o)}
           title={active.name}
           aria-label={`Active organization: ${active.name}. Click to switch.`}
-          className="block rounded-lg p-0.5 ring-1 ring-slate-200 transition-all hover:ring-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20"
+          className="block rounded-lg p-0.5 ring-1 ring-edge-default transition-all hover:ring-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20"
         >
           <OrgAvatar name={active.name} />
         </button>
@@ -61,14 +61,14 @@ export function TenantSwitcher({
         aria-expanded={open}
         className={cn(
           'flex w-full items-center gap-2.5 rounded-lg border px-2 py-1.5 text-left transition-all',
-          'border-slate-200 bg-white shadow-sm hover:border-slate-300 hover:bg-slate-50',
+          'border-edge-default bg-surface-raised shadow-sm hover:border-slate-300 hover:bg-surface-sunken',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10',
         )}
       >
         <OrgAvatar name={active.name} />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-slate-900">{active.name}</div>
-          <div className="truncate text-[11px] text-slate-500">
+          <div className="truncate text-sm font-medium text-content">{active.name}</div>
+          <div className="truncate text-[11px] text-content-subtle">
             {active.description ?? `${active.namespacePrefix}.*`}
           </div>
         </div>
@@ -111,12 +111,12 @@ function Menu({
       <div
         role="listbox"
         className={cn(
-          'absolute z-50 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg ring-1 ring-black/5',
+          'absolute z-50 overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-lg ring-1 ring-edge-default',
           collapsed ? 'left-full ml-2 w-64' : 'left-0 right-0',
           placement === 'top' ? 'bottom-full mb-2' : 'top-full mt-2',
         )}
       >
-        <div className="border-b border-slate-100 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <div className="border-b border-edge-subtle px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
           Switch organization
         </div>
         <ul className="max-h-72 overflow-y-auto py-1">
@@ -131,18 +131,18 @@ function Menu({
                   onClick={() => onSelect(t.id)}
                   className={cn(
                     'flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors',
-                    isActive ? 'bg-slate-50' : 'hover:bg-slate-50',
+                    isActive ? 'bg-surface-sunken' : 'hover:bg-surface-sunken',
                   )}
                 >
                   <OrgAvatar name={t.name} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="truncate text-sm font-medium text-slate-900">
+                      <span className="truncate text-sm font-medium text-content">
                         {t.name}
                       </span>
                       {isActive ? <IconCheck /> : null}
                     </div>
-                    <div className="truncate text-[11px] text-slate-500">
+                    <div className="truncate text-[11px] text-content-subtle">
                       {t.description ?? `${t.namespacePrefix}.*`}
                     </div>
                   </div>
@@ -151,10 +151,10 @@ function Menu({
             )
           })}
         </ul>
-        <div className="border-t border-slate-100 p-1">
+        <div className="border-t border-edge-subtle p-1">
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-content-muted transition-colors hover:bg-surface-sunken hover:text-content"
           >
             <IconPlus />
             New organization
@@ -174,7 +174,7 @@ function OrgAvatar({ name }: { name: string }) {
       style={{
         backgroundImage: `linear-gradient(135deg, hsl(${hue} 60% 42%), hsl(${(hue + 30) % 360} 60% 28%))`,
       }}
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold text-white shadow-sm ring-1 ring-black/5"
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold text-white shadow-sm ring-1 ring-edge-default"
     >
       {initials}
     </div>
@@ -202,7 +202,7 @@ function IconChevronUpDown() {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
-      className="shrink-0 text-slate-400"
+      className="shrink-0 text-content-subtle"
     >
       <path d="m7 15 5 5 5-5" />
       <path d="m7 9 5-5 5 5" />
@@ -222,7 +222,7 @@ function IconCheck() {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
-      className="ml-auto shrink-0 text-slate-900"
+      className="ml-auto shrink-0 text-content"
     >
       <path d="M20 6 9 17l-5-5" />
     </svg>

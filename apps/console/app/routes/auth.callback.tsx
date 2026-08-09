@@ -19,8 +19,8 @@ function AuthCallback() {
     nav({ to: '/', replace: true })
   }, [nav])
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-12">
-      <div className="w-full max-w-md rounded-2xl border border-edge-default bg-white p-8 text-center shadow-sm">
+    <div className="flex min-h-screen items-center justify-center bg-surface-sunken px-4 py-12">
+      <div className="w-full max-w-md rounded-2xl border border-edge-default bg-surface-raised p-8 text-center shadow-sm">
         <Spinner size={20} />
         <h1 className="mt-4 text-base font-semibold text-content">Completing sign-in…</h1>
       </div>

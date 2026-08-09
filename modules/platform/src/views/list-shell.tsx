@@ -60,7 +60,7 @@ export function ListShell({
   const isFiltered = visible !== undefined && visible !== total
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-edge-default bg-white px-3 py-2 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-edge-default bg-surface-raised px-3 py-2 shadow-sm">
         {title ? (
           <div className="mr-2 flex min-w-0 items-baseline gap-2">
             <span className="text-sm font-semibold text-content">{title}</span>
@@ -81,7 +81,7 @@ export function ListShell({
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder={searchPlaceholder}
             className={cn(
-              'h-8 w-full rounded-lg border border-edge-default bg-white pl-8 pr-7 text-sm text-content placeholder:text-content-subtle',
+              'h-8 w-full rounded-lg border border-edge-default bg-surface-raised pl-8 pr-7 text-sm text-content placeholder:text-content-subtle',
               'focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20',
             )}
           />
@@ -108,8 +108,8 @@ export function ListShell({
               aria-label="Refresh"
               disabled={loading}
               className={cn(
-                'flex h-8 w-8 items-center justify-center rounded-lg border border-edge-default bg-white text-content-muted transition-colors',
-                'hover:border-brand-300 hover:text-brand-700',
+                'flex h-8 w-8 items-center justify-center rounded-lg border border-edge-default bg-surface-raised text-content-muted transition-colors',
+                'hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300',
                 'disabled:cursor-not-allowed disabled:opacity-60',
               )}
             >
@@ -134,12 +134,12 @@ export interface FilterPill<T extends string> {
 }
 
 const PILL_TONE: Record<NonNullable<FilterPill<string>['tone']>, string> = {
-  emerald: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-  amber: 'bg-amber-50 text-amber-700 ring-amber-200',
-  rose: 'bg-rose-50 text-rose-700 ring-rose-200',
-  sky: 'bg-sky-50 text-sky-700 ring-sky-200',
-  violet: 'bg-violet-50 text-violet-700 ring-violet-200',
-  slate: 'bg-slate-100 text-slate-700 ring-slate-200',
+  emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200 dark:ring-emerald-500/25',
+  amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-200 dark:ring-amber-500/25',
+  rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 ring-rose-200 dark:ring-rose-500/25',
+  sky: 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 ring-sky-200 dark:ring-sky-500/25',
+  violet: 'bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300 ring-violet-200 dark:ring-violet-500/25',
+  slate: 'bg-slate-100 text-content-muted ring-edge-default',
 }
 
 export function StatusFilterPills<T extends string>({
@@ -158,7 +158,7 @@ export function StatusFilterPills<T extends string>({
       ? [{ value: 'all', label: 'All', count: pills.reduce((s, p) => s + (p.count ?? 0), 0) }, ...pills]
       : pills
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-white p-0.5">
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-0.5">
       {items.map((p) => {
         const on = value === p.value
         const tone = on && p.tone ? PILL_TONE[p.tone] : ''
@@ -172,7 +172,7 @@ export function StatusFilterPills<T extends string>({
               on
                 ? p.tone
                   ? `ring-1 ring-inset ${tone}`
-                  : 'bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-200'
+                  : 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-1 ring-inset ring-brand-200 dark:ring-brand-500/25'
                 : 'text-content-muted hover:bg-surface-sunken hover:text-content',
             )}
           >

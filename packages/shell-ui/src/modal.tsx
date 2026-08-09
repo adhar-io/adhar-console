@@ -76,7 +76,7 @@ export function Modal({
       />
       <div
         className={cn(
-          'relative w-full overflow-hidden rounded-2xl border border-edge-default bg-white shadow-2xl ring-1 ring-black/5',
+          'relative w-full overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-2xl ring-1 ring-edge-default',
           WIDTH[width],
         )}
       >
@@ -84,8 +84,8 @@ export function Modal({
           className={cn(
             'flex items-start justify-between gap-3 border-b border-edge-subtle px-6 py-4',
             branded
-              ? 'bg-linear-to-br from-brand-50 to-white'
-              : 'bg-white',
+              ? 'bg-linear-to-br from-brand-50 dark:from-brand-500/10 to-white'
+              : 'bg-surface-raised',
           )}
         >
           <div>

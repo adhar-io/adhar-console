@@ -145,7 +145,7 @@ export function ManifestEditor({ gvr, namespace, name, onClose }: Props) {
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-edge-default bg-white shadow-sm">
+    <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm">
       <div className="flex flex-wrap items-center gap-2 border-b border-edge-default px-3 py-2">
         <div className="mr-2 flex min-w-0 items-baseline gap-2">
           <span className="text-sm font-semibold text-content">Manifest (JSON)</span>
@@ -162,8 +162,8 @@ export function ManifestEditor({ gvr, namespace, name, onClose }: Props) {
               className={cn(
                 'max-w-[22rem] truncate rounded-md px-2 py-1 text-[11px] font-medium',
                 note.tone === 'ok'
-                  ? 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200'
-                  : 'bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200',
+                  ? 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/25'
+                  : 'bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/25',
               )}
               title={note.text}
             >
@@ -200,11 +200,11 @@ export function ManifestEditor({ gvr, namespace, name, onClose }: Props) {
 
       <div className="relative">
         {loadError ? (
-          <div className="px-4 py-6 text-sm text-rose-700">Couldn't load manifest — {loadError}</div>
+          <div className="px-4 py-6 text-sm text-rose-700 dark:text-rose-300">Couldn't load manifest — {loadError}</div>
         ) : (
           <>
             {loading || !ready ? (
-              <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-white/70 text-sm text-content-muted">
+              <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-surface-raised/70 text-sm text-content-muted">
                 <Spinner size={16} /> Loading editor…
               </div>
             ) : null}

@@ -320,7 +320,7 @@ function DropZonePlaceholder() {
     <div
       aria-hidden
       className={cn(
-        'pointer-events-none absolute inset-0 flex items-center justify-center rounded-2xl border-2 border-dashed border-brand-400/80 bg-brand-50/60 backdrop-blur-[1px]',
+        'pointer-events-none absolute inset-0 flex items-center justify-center rounded-2xl border-2 border-dashed border-brand-400/80 bg-brand-50/60 dark:bg-brand-500/10 backdrop-blur-[1px]',
         'animate-[dropzone-pulse_1.4s_ease-in-out_infinite]',
       )}
       style={{
@@ -328,7 +328,7 @@ function DropZonePlaceholder() {
         animationName: 'adhar-dropzone-pulse',
       }}
     >
-      <span className="flex items-center gap-1.5 rounded-md bg-white/85 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-brand-700 shadow-sm ring-1 ring-brand-200">
+      <span className="flex items-center gap-1.5 rounded-md bg-white/85 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-brand-700 dark:text-brand-300 shadow-sm ring-1 ring-brand-200">
         <DropArrowGlyph /> Drop here
       </span>
       <style>{`

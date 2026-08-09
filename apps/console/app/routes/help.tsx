@@ -74,11 +74,11 @@ function HelpPage() {
               href={c.href}
               target="_blank"
               rel="noreferrer"
-              className="group rounded-lg border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow"
+              className="group rounded-lg border border-edge-default bg-surface-raised p-5 shadow-sm transition hover:border-slate-300 hover:shadow"
             >
-              <div className="text-sm font-semibold text-slate-900">{c.title}</div>
-              <p className="mt-1 text-sm text-slate-500">{c.description}</p>
-              <div className="mt-4 text-xs font-medium text-slate-700 group-hover:underline">
+              <div className="text-sm font-semibold text-content">{c.title}</div>
+              <p className="mt-1 text-sm text-content-subtle">{c.description}</p>
+              <div className="mt-4 text-xs font-medium text-content-muted group-hover:underline">
                 {c.linkLabel}
               </div>
             </a>
@@ -86,11 +86,11 @@ function HelpPage() {
             <Link
               key={c.title}
               to={c.href}
-              className="group rounded-lg border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow"
+              className="group rounded-lg border border-edge-default bg-surface-raised p-5 shadow-sm transition hover:border-slate-300 hover:shadow"
             >
-              <div className="text-sm font-semibold text-slate-900">{c.title}</div>
-              <p className="mt-1 text-sm text-slate-500">{c.description}</p>
-              <div className="mt-4 text-xs font-medium text-slate-700 group-hover:underline">
+              <div className="text-sm font-semibold text-content">{c.title}</div>
+              <p className="mt-1 text-sm text-content-subtle">{c.description}</p>
+              <div className="mt-4 text-xs font-medium text-content-muted group-hover:underline">
                 {c.linkLabel}
               </div>
             </Link>

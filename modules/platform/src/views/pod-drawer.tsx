@@ -82,7 +82,7 @@ export function PodDrawer({ namespace, name, onClose }: Props) {
         onClick={onClose}
         aria-hidden
       />
-      <aside className="relative flex h-full w-full max-w-4xl flex-col border-l border-edge-default bg-white shadow-2xl">
+      <aside className="relative flex h-full w-full max-w-4xl flex-col border-l border-edge-default bg-surface-raised shadow-2xl">
         <header className="flex items-start justify-between gap-4 border-b border-edge-default px-6 py-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">
@@ -135,7 +135,7 @@ export function PodDrawer({ namespace, name, onClose }: Props) {
               size="sm"
               disabled={deleteMutation.isPending || !pod.data || !canDelete}
               onClick={() => setConfirm('delete')}
-              className={canDelete ? 'text-rose-700 hover:text-rose-800' : ''}
+              className={canDelete ? 'text-rose-700 hover:text-rose-800 dark:text-rose-300' : ''}
               title={
                 canDelete
                   ? 'Permanently remove this pod'
@@ -373,13 +373,13 @@ function ContainerCard({
   const envCount = container.env?.length ?? 0
   const mountCount = container.volumeMounts?.length ?? 0
   return (
-    <div className="rounded-lg border border-edge-default bg-white p-3 shadow-sm">
+    <div className="rounded-lg border border-edge-default bg-surface-raised p-3 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <span className="truncate text-sm font-medium text-content">{container.name}</span>
             {status?.restartCount && status.restartCount > 0 ? (
-              <span className="rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-inset ring-amber-200">
+              <span className="rounded-md bg-amber-50 dark:bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-300 ring-1 ring-inset ring-amber-200 dark:ring-amber-500/25">
                 {status.restartCount} restarts
               </span>
             ) : null}
@@ -490,7 +490,7 @@ function Events({ namespace, name }: { namespace: string; name: string }) {
       {filtered.map((e) => (
         <li
           key={e.metadata.name}
-          className="rounded-lg border border-edge-default bg-white p-3 shadow-sm"
+          className="rounded-lg border border-edge-default bg-surface-raised p-3 shadow-sm"
         >
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -517,7 +517,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-content-subtle">
         {title}
       </h3>
-      <div className="rounded-lg border border-edge-default bg-white">
+      <div className="rounded-lg border border-edge-default bg-surface-raised">
         <div className="divide-y divide-edge-subtle">{children}</div>
       </div>
     </section>
@@ -579,8 +579,8 @@ function ConfirmBar({
       className={cn(
         'border-b px-6 py-3',
         isRestart
-          ? 'border-amber-200 bg-amber-50/70'
-          : 'border-rose-200 bg-rose-50/70',
+          ? 'border-amber-200 dark:border-amber-500/25 bg-amber-50/70 dark:bg-amber-500/10'
+          : 'border-rose-200 dark:border-rose-500/25 bg-rose-50/70 dark:bg-rose-500/10',
       )}
       role="alert"
     >
@@ -588,13 +588,13 @@ function ConfirmBar({
         <span
           className={cn(
             'flex h-7 w-7 shrink-0 items-center justify-center rounded-full',
-            isRestart ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700',
+            isRestart ? 'bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300' : 'bg-rose-100 dark:bg-rose-500/15 text-rose-700 dark:text-rose-300',
           )}
         >
           {isRestart ? <IconRefresh /> : <IconTrash />}
         </span>
         <div className="min-w-0 flex-1 text-sm">
-          <div className={cn('font-semibold', isRestart ? 'text-amber-900' : 'text-rose-900')}>
+          <div className={cn('font-semibold', isRestart ? 'text-amber-900 dark:text-amber-200' : 'text-rose-900 dark:text-rose-200')}>
             {isRestart ? 'Restart this pod?' : 'Delete this pod?'}
           </div>
           <div className="text-[12px] text-content-muted">
@@ -606,7 +606,7 @@ function ConfirmBar({
             </code>
           </div>
           {error ? (
-            <div className="mt-1 text-[11px] text-rose-700">Error: {error}</div>
+            <div className="mt-1 text-[11px] text-rose-700 dark:text-rose-300">Error: {error}</div>
           ) : null}
         </div>
         <div className="flex items-center gap-2">

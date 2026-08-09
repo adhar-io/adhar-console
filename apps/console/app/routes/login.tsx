@@ -103,7 +103,7 @@ function LoginPage() {
             {localError ? (
               <div
                 role="alert"
-                className="mt-5 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs font-medium text-rose-700"
+                className="mt-5 flex items-start gap-2 rounded-lg border border-rose-200 dark:border-rose-500/25 bg-rose-50 dark:bg-rose-500/10 px-3 py-2.5 text-xs font-medium text-rose-700 dark:text-rose-300"
               >
                 <IconAlert />
                 <span>{localError}</span>
@@ -151,7 +151,7 @@ function LoginPage() {
                   </Button>
                   <Link
                     to="/signup"
-                    className="inline-flex h-11 w-full items-center justify-center rounded-md border border-edge-default bg-white px-4 text-sm font-medium text-content shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken"
+                    className="inline-flex h-11 w-full items-center justify-center rounded-md border border-edge-default bg-surface-raised px-4 text-sm font-medium text-content shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken"
                   >
                     Walk through onboarding
                   </Link>
@@ -171,7 +171,7 @@ function LoginPage() {
                 </span>
               ) : (
                 <span>
-                  Demo mode — Keycloak isn’t configured. Set <code className="rounded bg-white px-1 font-mono">KEYCLOAK_URL</code> to enable SSO.
+                  Demo mode — Keycloak isn’t configured. Set <code className="rounded bg-surface-raised px-1 font-mono">KEYCLOAK_URL</code> to enable SSO.
                 </span>
               )}
             </div>

@@ -226,46 +226,46 @@ const CATEGORY_ORDER: AppCategory[] = [
 
 const CATEGORY_TONE: Record<AppCategory, { tile: string; ring: string; dot: string; chip: string }> = {
   Develop: {
-    tile: 'bg-linear-to-br from-emerald-50/80 via-white to-white',
-    ring: 'ring-emerald-100 group-hover:ring-emerald-200',
+    tile: 'bg-linear-to-br from-emerald-50/80 dark:from-emerald-500/10 via-surface-raised to-surface-raised',
+    ring: 'ring-emerald-100 dark:ring-emerald-500/20 group-hover:ring-emerald-200',
     dot: 'bg-emerald-400',
-    chip: 'bg-emerald-50 text-emerald-700',
+    chip: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
   },
   Deliver: {
-    tile: 'bg-linear-to-br from-sky-50/80 via-white to-white',
-    ring: 'ring-sky-100 group-hover:ring-sky-200',
+    tile: 'bg-linear-to-br from-sky-50/80 dark:from-sky-500/10 via-surface-raised to-surface-raised',
+    ring: 'ring-sky-100 dark:ring-sky-500/20 group-hover:ring-sky-200',
     dot: 'bg-sky-400',
-    chip: 'bg-sky-50 text-sky-700',
+    chip: 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300',
   },
   Observe: {
-    tile: 'bg-linear-to-br from-amber-50/80 via-white to-white',
-    ring: 'ring-amber-100 group-hover:ring-amber-200',
+    tile: 'bg-linear-to-br from-amber-50/80 dark:from-amber-500/10 via-surface-raised to-surface-raised',
+    ring: 'ring-amber-100 dark:ring-amber-500/20 group-hover:ring-amber-200',
     dot: 'bg-amber-400',
-    chip: 'bg-amber-50 text-amber-700',
+    chip: 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300',
   },
   Data: {
-    tile: 'bg-linear-to-br from-violet-50/80 via-white to-white',
-    ring: 'ring-violet-100 group-hover:ring-violet-200',
+    tile: 'bg-linear-to-br from-violet-50/80 dark:from-violet-500/10 via-surface-raised to-surface-raised',
+    ring: 'ring-violet-100 dark:ring-violet-500/20 group-hover:ring-violet-200',
     dot: 'bg-violet-400',
-    chip: 'bg-violet-50 text-violet-700',
+    chip: 'bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300',
   },
   Identity: {
-    tile: 'bg-linear-to-br from-rose-50/80 via-white to-white',
-    ring: 'ring-rose-100 group-hover:ring-rose-200',
+    tile: 'bg-linear-to-br from-rose-50/80 dark:from-rose-500/10 via-surface-raised to-surface-raised',
+    ring: 'ring-rose-100 dark:ring-rose-500/20 group-hover:ring-rose-200',
     dot: 'bg-rose-400',
-    chip: 'bg-rose-50 text-rose-700',
+    chip: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300',
   },
   Policy: {
-    tile: 'bg-linear-to-br from-fuchsia-50/80 via-white to-white',
-    ring: 'ring-fuchsia-100 group-hover:ring-fuchsia-200',
+    tile: 'bg-linear-to-br from-fuchsia-50/80 dark:from-fuchsia-500/10 via-surface-raised to-surface-raised',
+    ring: 'ring-fuchsia-100 dark:ring-fuchsia-500/20 group-hover:ring-fuchsia-200',
     dot: 'bg-fuchsia-400',
-    chip: 'bg-fuchsia-50 text-fuchsia-700',
+    chip: 'bg-fuchsia-50 dark:bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-300',
   },
   Platform: {
-    tile: 'bg-linear-to-br from-brand-50/80 via-white to-white',
-    ring: 'ring-brand-100 group-hover:ring-brand-200',
+    tile: 'bg-linear-to-br from-brand-50/80 dark:from-brand-500/10 via-surface-raised to-surface-raised',
+    ring: 'ring-brand-100 dark:ring-brand-500/20 group-hover:ring-brand-200',
     dot: 'bg-brand-400',
-    chip: 'bg-brand-50 text-brand-700',
+    chip: 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300',
   },
 }
 
@@ -399,7 +399,7 @@ export function AppLauncher({ apps = DEFAULT_APP_LINKS }: AppLauncherProps) {
         className={cn(
           'relative flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-150',
           open
-            ? 'bg-brand-50 text-brand-700 shadow-sm ring-1 ring-brand-200'
+            ? 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 shadow-sm ring-1 ring-brand-200'
             : 'text-content-muted hover:bg-surface-sunken hover:text-content',
         )}
       >
@@ -411,10 +411,10 @@ export function AppLauncher({ apps = DEFAULT_APP_LINKS }: AppLauncherProps) {
           <div
             role="dialog"
             aria-label="Application launcher"
-            className="absolute right-0 top-full z-50 mt-2 w-160 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-edge-default bg-white shadow-2xl ring-1 ring-black/5"
+            className="absolute right-0 top-full z-50 mt-2 w-160 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-2xl ring-1 ring-edge-default"
           >
-            <div className="relative overflow-hidden border-b border-edge-subtle bg-linear-to-br from-brand-50/60 via-white to-white px-4 py-3.5">
-              <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-brand-100/40 blur-3xl" aria-hidden />
+            <div className="relative overflow-hidden border-b border-edge-subtle bg-linear-to-br from-brand-50/60 dark:from-brand-500/10 via-surface-raised to-surface-raised px-4 py-3.5">
+              <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-brand-100/40 dark:bg-brand-500/15 blur-3xl" aria-hidden />
               <div className="relative flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 text-sm font-semibold text-content">
@@ -422,7 +422,7 @@ export function AppLauncher({ apps = DEFAULT_APP_LINKS }: AppLauncherProps) {
                       <IconSparkle />
                     </span>
                     Adhar apps
-                    <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700 ring-1 ring-inset ring-emerald-100">
+                    <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300 ring-1 ring-inset ring-emerald-100 dark:ring-emerald-500/20">
                       <IconLock />
                       SSO
                     </span>
@@ -437,7 +437,7 @@ export function AppLauncher({ apps = DEFAULT_APP_LINKS }: AppLauncherProps) {
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder="Filter apps…"
-                    className="h-8 w-44 rounded-lg border border-edge-default bg-white/80 pl-7 pr-2 text-sm text-content shadow-sm backdrop-blur-sm transition-all focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+                    className="h-8 w-44 rounded-lg border border-edge-default bg-surface-raised/80 pl-7 pr-2 text-sm text-content shadow-sm backdrop-blur-sm transition-all focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
                   />
                   <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-content-subtle">
                     <IconSearch />
@@ -499,7 +499,7 @@ function AppGrid({ apps, onLaunch }: { apps: ResolvedApp[]; onLaunch(): void }) 
       {apps.map((a) => {
         const tone = CATEGORY_TONE[a.category]
         const iconBox = (
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-edge-subtle transition-transform duration-150 group-hover:scale-105 [&>svg]:h-7 [&>svg]:w-7">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-surface-raised shadow-sm ring-1 ring-edge-subtle transition-transform duration-150 group-hover:scale-105 [&>svg]:h-7 [&>svg]:w-7">
             {a.icon}
           </div>
         )

@@ -64,22 +64,22 @@ export function K8sPermissionDenied({
   return (
     <div
       className={cn(
-        'rounded-2xl border border-amber-200 bg-amber-50/70 text-sm text-amber-900',
+        'rounded-2xl border border-amber-200 dark:border-amber-500/25 bg-amber-50/70 dark:bg-amber-500/10 text-sm text-amber-900 dark:text-amber-200',
         compact ? 'p-3' : 'p-6',
       )}
       role="alert"
     >
       <div className="flex items-start gap-3">
-        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-100 text-amber-700">
+        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300">
           <IconLock />
         </span>
         <div className="min-w-0">
           <div className="font-semibold">{K8S_PERMISSION_LABEL[perm]} requires elevated access</div>
-          <p className="mt-1 text-[12px] leading-relaxed text-amber-800">
+          <p className="mt-1 text-[12px] leading-relaxed text-amber-800 dark:text-amber-300">
             Your current role doesn't include{' '}
-            <code className="font-mono text-amber-900">{perm}</code>. Ask an administrator to grant
+            <code className="font-mono text-amber-900 dark:text-amber-200">{perm}</code>. Ask an administrator to grant
             the role{' '}
-            <code className="font-mono text-amber-900">
+            <code className="font-mono text-amber-900 dark:text-amber-200">
               {required.map((r) => K8S_ROLE_LABEL[r]).join(' or ')}
             </code>
             , or use the "View as" switcher in the cluster header to preview that experience.
@@ -103,7 +103,7 @@ export function K8sRolePill({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 rounded-full border bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-content-muted shadow-sm',
+        'inline-flex items-center gap-1 rounded-full border bg-surface-raised px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-content-muted shadow-sm',
         'border-edge-default',
         className,
       )}
@@ -133,7 +133,7 @@ export function ViewAsRoleSwitcher({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border border-edge-default bg-white/70 px-1.5 py-1 shadow-sm backdrop-blur',
+        'inline-flex items-center gap-1.5 rounded-full border border-edge-default bg-surface-raised/70 px-1.5 py-1 shadow-sm backdrop-blur',
         className,
       )}
       title="Preview the dashboard as a different role — affects RBAC gating in real time."
@@ -148,7 +148,7 @@ export function ViewAsRoleSwitcher({ className }: { className?: string }) {
           const v = e.target.value as K8sRole
           setViewAsRole(v)
         }}
-        className="rounded-full border border-edge-default bg-white px-2 py-0.5 text-[11px] font-medium text-content focus:outline-none"
+        className="rounded-full border border-edge-default bg-surface-raised px-2 py-0.5 text-[11px] font-medium text-content focus:outline-none"
         aria-label="View as role"
       >
         {ALL_K8S_ROLES.map((r) => (

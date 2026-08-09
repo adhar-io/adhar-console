@@ -220,7 +220,7 @@ function Header({
   return (
     <div
       className={cn(
-        'relative shrink-0 border-b border-edge-default bg-white/70 backdrop-blur-sm',
+        'relative shrink-0 border-b border-edge-default bg-surface-raised/70 backdrop-blur-sm',
         collapsed
           ? 'flex h-14 items-center justify-center px-2'
           : 'flex h-14 items-center justify-between pl-4 pr-2',
@@ -254,8 +254,8 @@ function Header({
           title="Expand sidebar"
           className={cn(
             'absolute top-1/2 -right-3.5 z-30 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full',
-            'border border-edge-default bg-white text-content-muted shadow-md transition-all duration-200',
-            'hover:scale-105 hover:border-brand-300 hover:text-brand-700 hover:shadow-lg',
+            'border border-edge-default bg-surface-raised text-content-muted shadow-md transition-all duration-200',
+            'hover:scale-105 hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300 hover:shadow-lg',
           )}
         >
           <IconChevronsRight />
@@ -346,7 +346,7 @@ function Footer({
 }) {
   if (collapsed) {
     return (
-      <div className="flex shrink-0 flex-col items-center gap-2 border-t border-edge-default bg-white/80 px-2 py-2.5 backdrop-blur-sm">
+      <div className="flex shrink-0 flex-col items-center gap-2 border-t border-edge-default bg-surface-raised/80 px-2 py-2.5 backdrop-blur-sm">
         <TenantSwitcher
           tenants={tenants}
           activeId={activeTenantId}
@@ -358,7 +358,7 @@ function Footer({
     )
   }
   return (
-    <div className="shrink-0 space-y-2 border-t border-edge-default bg-white/80 p-3 backdrop-blur-sm">
+    <div className="shrink-0 space-y-2 border-t border-edge-default bg-surface-raised/80 p-3 backdrop-blur-sm">
       <TenantSwitcher
         tenants={tenants}
         activeId={activeTenantId}

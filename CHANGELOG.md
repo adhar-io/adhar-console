@@ -6,6 +6,19 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-08-10
+
+### Fixed
+
+- **In-cluster login redirect** (follow-up to 0.1.3). With `KEYCLOAK_INTERNAL_URL`
+  set, discovery is fetched over the internal http backchannel, and Keycloak
+  reflected that scheme into the URLs it returned — so the browser-facing
+  `authorization_endpoint` came back as `http://…:8443/…/auth` (http on the HTTPS
+  gateway port), breaking the redirect to the login page. `discovery.ts` now pins
+  each endpoint to the correct origin: browser-facing (issuer / authorization /
+  end-session) → the public HTTPS issuer; server-to-server (token / JWKS /
+  userinfo) → the internal Service. Completes the in-cluster sign-in round-trip.
+
 ## [0.1.3] - 2026-08-09
 
 ### Fixed

@@ -21,13 +21,13 @@ export interface OidcEndpoints {
 const discoveryCache = new Map<string, Promise<OidcEndpoints>>()
 const jwksCache = new Map<string, JWTVerifyGetKey>()
 
-/** Swap an endpoint's origin (protocol+host) for the internal one, keep its path. */
-function toInternalOrigin(endpoint: string, internalUrl: string): string {
+/** Replace an endpoint's origin (protocol+host) with `originUrl`'s, keep its path. */
+function withOrigin(endpoint: string, originUrl: string): string {
   try {
     const u = new URL(endpoint)
-    const i = new URL(internalUrl)
-    u.protocol = i.protocol
-    u.host = i.host
+    const o = new URL(originUrl)
+    u.protocol = o.protocol
+    u.host = o.host
     return u.toString()
   } catch {
     return endpoint
@@ -48,15 +48,24 @@ export function getDiscovery(cfg: ServerAuthConfig): Promise<OidcEndpoints> {
       throw new Error(`OIDC discovery failed (${res.status}) at ${url}`)
     }
     const doc = (await res.json()) as OidcEndpoints
-    // Keycloak returns PUBLIC endpoints (based on its frontend hostname). Keep
-    // `issuer` + the browser-facing authorization/end-session endpoints public,
-    // but point the SERVER-TO-SERVER endpoints (token, JWKS, userinfo) at the
-    // internal origin so they're reachable from inside the cluster.
     if (cfg.internalUrl) {
-      doc.token_endpoint = toInternalOrigin(doc.token_endpoint, cfg.internalUrl)
-      doc.jwks_uri = toInternalOrigin(doc.jwks_uri, cfg.internalUrl)
+      // When we fetch discovery over the internal HTTP backchannel, Keycloak
+      // reflects that request's scheme/host into the URLs it computes — so the
+      // doc comes back with the WRONG scheme (e.g. `http://…:8443`). Pin each
+      // endpoint to the correct origin ourselves:
+      //   - browser-facing (issuer, authorization, end-session) → PUBLIC issuer
+      //     origin (the user's browser must reach these over the gateway/HTTPS),
+      //   - server-to-server (token, JWKS, userinfo) → INTERNAL Service origin
+      //     (the console reaches these from inside the cluster).
+      doc.issuer = cfg.issuer
+      doc.authorization_endpoint = withOrigin(doc.authorization_endpoint, cfg.issuer)
+      if (doc.end_session_endpoint) {
+        doc.end_session_endpoint = withOrigin(doc.end_session_endpoint, cfg.issuer)
+      }
+      doc.token_endpoint = withOrigin(doc.token_endpoint, cfg.internalUrl)
+      doc.jwks_uri = withOrigin(doc.jwks_uri, cfg.internalUrl)
       if (doc.userinfo_endpoint) {
-        doc.userinfo_endpoint = toInternalOrigin(doc.userinfo_endpoint, cfg.internalUrl)
+        doc.userinfo_endpoint = withOrigin(doc.userinfo_endpoint, cfg.internalUrl)
       }
     }
     return doc

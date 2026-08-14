@@ -200,7 +200,7 @@ function Toolbar({
   repoSshUrl?: string
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-edge-default bg-white px-3 py-2 shadow-sm">
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-edge-default bg-surface-raised px-3 py-2 shadow-sm">
       <div className="flex flex-wrap items-center gap-2">
         <span className="flex h-7 w-7 items-center justify-center rounded-md bg-[#0078d4] text-white shadow-sm">
           <VsCodeGlyph />
@@ -210,7 +210,7 @@ function Toolbar({
           <select
             value={branch ?? ''}
             onChange={(e) => onBranchChange(e.target.value)}
-            className="h-8 rounded-lg border border-edge-default bg-white px-2 font-mono text-[12px] text-content shadow-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="h-8 rounded-lg border border-edge-default bg-surface-raised px-2 font-mono text-[12px] text-content shadow-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           >
             {branches.length === 0 ? <option value="">main</option> : null}
             {branches.map((b) => (
@@ -242,7 +242,7 @@ function Toolbar({
             href={url}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-edge-default bg-white px-2.5 text-xs font-medium text-content shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-2.5 text-xs font-medium text-content shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken"
           >
             <ExternalGlyph /> Open in tab
           </a>
@@ -307,13 +307,13 @@ function SettingsBanner({ host, onClose }: { host: string; onClose(): void }) {
           <div className="font-semibold text-content">VS Code source</div>
           <p className="mt-1 text-content-muted">
             The IDE iframe loads from{' '}
-            <code className="rounded bg-white px-1.5 py-0.5 font-mono text-[11px]">{host}</code>.
+            <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[11px]">{host}</code>.
             Set{' '}
-            <code className="rounded bg-white px-1.5 py-0.5 font-mono text-[11px]">
+            <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[11px]">
               ADHAR_VSCODE_URL
             </code>{' '}
             in the BFF env to point at your self-hosted{' '}
-            <code className="rounded bg-white px-1.5 py-0.5 font-mono text-[11px]">code-server</code>{' '}
+            <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[11px]">code-server</code>{' '}
             deployment, e.g. <code className="font-mono">https://vscode.adhar.local</code>.
           </p>
           <p className="mt-2 text-content-muted">
@@ -327,7 +327,7 @@ function SettingsBanner({ host, onClose }: { host: string; onClose(): void }) {
           type="button"
           onClick={onClose}
           aria-label="Dismiss"
-          className="rounded-md p-1 text-content-subtle hover:bg-white hover:text-content"
+          className="rounded-md p-1 text-content-subtle hover:bg-surface-raised hover:text-content"
         >
           <XGlyph />
         </button>
@@ -339,7 +339,7 @@ function SettingsBanner({ host, onClose }: { host: string; onClose(): void }) {
 function UnreachableOverlay({ host, onRetry }: { host: string; onRetry(): void }) {
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-slate-950/85 px-6">
-      <div className="max-w-md rounded-2xl border border-rose-300 bg-white p-5 text-sm shadow-2xl">
+      <div className="max-w-md rounded-2xl border border-rose-300 bg-surface-raised p-5 text-sm shadow-2xl">
         <div className="flex items-start gap-3">
           <span className="flex h-9 w-9 items-center justify-center rounded-md bg-rose-100 text-rose-700">
             <ErrorGlyph />

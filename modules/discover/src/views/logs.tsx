@@ -83,7 +83,7 @@ export function Logs() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-white p-2 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-surface-raised p-2 shadow-sm">
         <RangeSelect sel={sel} onPreset={(id) => setSel(presetSelection(id))} />
         <CustomRange
           sel={sel}
@@ -98,7 +98,7 @@ export function Logs() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder='{namespace="acme-billing"} |~ "error"'
-            className="block min-w-0 flex-1 rounded-md border border-edge-default bg-white px-2 py-1 font-mono text-[12px] focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block min-w-0 flex-1 rounded-md border border-edge-default bg-surface-raised px-2 py-1 font-mono text-[12px] focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </div>
         {q.isFetching ? (
@@ -164,7 +164,7 @@ function RangeSelect({
   onPreset(v: TimeRangeId): void
 }) {
   return (
-    <div className="flex items-center gap-1 rounded-md border border-edge-default bg-white p-1">
+    <div className="flex items-center gap-1 rounded-md border border-edge-default bg-surface-raised p-1">
       {TIME_RANGES.map((r) => {
         const active = sel.kind === 'preset' && sel.id === r.id
         return (
@@ -213,7 +213,7 @@ function CustomRange({
         type="button"
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          'inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-white px-2 py-1 text-[11px]',
+          'inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-[11px]',
           active ? 'font-semibold text-brand-700' : 'text-content-muted hover:bg-surface-sunken',
         )}
       >
@@ -221,7 +221,7 @@ function CustomRange({
         {active ? selectionLabel(sel) : 'custom'}
       </button>
       {open ? (
-        <div className="absolute left-0 top-full z-20 mt-1 w-72 rounded-lg border border-edge-default bg-white p-3 shadow-lg">
+        <div className="absolute left-0 top-full z-20 mt-1 w-72 rounded-lg border border-edge-default bg-surface-raised p-3 shadow-lg">
           <div className="space-y-2">
             <label className="block text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
               From
@@ -229,7 +229,7 @@ function CustomRange({
                 type="datetime-local"
                 value={from}
                 onChange={(e) => setFrom(e.target.value)}
-                className="mt-1 block w-full rounded border border-edge-default bg-white px-2 py-1 font-mono text-[11px] focus:border-brand-400 focus:outline-none"
+                className="mt-1 block w-full rounded border border-edge-default bg-surface-raised px-2 py-1 font-mono text-[11px] focus:border-brand-400 focus:outline-none"
               />
             </label>
             <label className="block text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
@@ -238,7 +238,7 @@ function CustomRange({
                 type="datetime-local"
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
-                className="mt-1 block w-full rounded border border-edge-default bg-white px-2 py-1 font-mono text-[11px] focus:border-brand-400 focus:outline-none"
+                className="mt-1 block w-full rounded border border-edge-default bg-surface-raised px-2 py-1 font-mono text-[11px] focus:border-brand-400 focus:outline-none"
               />
             </label>
           </div>
@@ -343,7 +343,7 @@ function LevelFilter({
   counts: Record<string, number>
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-md border border-edge-default bg-white p-1">
+    <div className="flex flex-wrap items-center gap-1 rounded-md border border-edge-default bg-surface-raised p-1">
       {LEVELS.map((lvl) => {
         const on = lvl ? levels.has(lvl) : false
         const c = counts[lvl ?? ''] ?? 0

@@ -84,7 +84,7 @@ export function Plan() {
                 className={
                   active
                     ? 'rounded-xl border-2 border-brand-500 bg-brand-50/40 p-4 shadow-md'
-                    : 'rounded-xl border border-edge-default bg-white p-4 shadow-sm'
+                    : 'rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm'
                 }
               >
                 <div className="flex items-center justify-between">

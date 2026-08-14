@@ -72,7 +72,7 @@ function StackedComponents({ components, total }: { components: CostComponents; 
           const v = components[c.key]
           const pct = total > 0 ? Math.round((v / total) * 100) : 0
           return (
-            <div key={c.key} className="rounded-lg border border-edge-subtle bg-white px-3 py-2">
+            <div key={c.key} className="rounded-lg border border-edge-subtle bg-surface-raised px-3 py-2">
               <LegendDot color={c.color}>{c.label}</LegendDot>
               <div className="mt-1 font-mono text-sm font-semibold tabular-nums text-content">
                 {formatUsd(v)}
@@ -145,7 +145,7 @@ export function SpendSummary() {
 
   if (query.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading OpenCost allocation…
       </div>
     )

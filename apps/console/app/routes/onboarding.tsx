@@ -150,13 +150,13 @@ function OnboardingWizard() {
         <header className="mb-8 flex items-center justify-between gap-3">
           <Link
             to="/"
-            className="inline-flex h-9 items-center gap-2 rounded-lg border border-edge-default bg-white/80 px-3 text-sm text-content-muted shadow-sm backdrop-blur transition-colors hover:border-edge-strong hover:text-content"
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-edge-default bg-surface-raised/80 px-3 text-sm text-content-muted shadow-sm backdrop-blur transition-colors hover:border-edge-strong hover:text-content"
           >
             <IconArrowLeft />
             Skip for now
           </Link>
           {session ? (
-            <div className="inline-flex h-10 items-center gap-2.5 rounded-full border border-edge-default bg-white/80 py-1 pl-1.5 pr-3.5 shadow-sm backdrop-blur">
+            <div className="inline-flex h-10 items-center gap-2.5 rounded-full border border-edge-default bg-surface-raised/80 py-1 pl-1.5 pr-3.5 shadow-sm backdrop-blur">
               <span className="flex h-7 w-7 items-center justify-center rounded-full bg-linear-to-br from-brand-500 to-accent-500 text-[11px] font-semibold text-white">
                 {initials(session.user.name)}
               </span>
@@ -169,7 +169,7 @@ function OnboardingWizard() {
               </span>
             </div>
           ) : (
-            <span className="inline-flex h-8 items-center gap-2 rounded-full border border-edge-default bg-white/80 px-3 text-xs shadow-sm backdrop-blur">
+            <span className="inline-flex h-8 items-center gap-2 rounded-full border border-edge-default bg-surface-raised/80 px-3 text-xs shadow-sm backdrop-blur">
               <AdharMark />
               <span className="font-semibold text-content">Adhar</span>
               <span className="text-content-subtle">Console</span>
@@ -238,7 +238,7 @@ function OnboardingWizard() {
         {/* Main card */}
         <main className="flex-1">
           <div className="overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-lg">
-            <div className="border-b border-edge-subtle bg-linear-to-br from-brand-50 to-white px-6 py-6 sm:px-10 sm:py-8">
+            <div className="border-b border-edge-subtle bg-linear-to-br from-brand-50 dark:from-brand-500/10 to-surface-raised px-6 py-6 sm:px-10 sm:py-8">
               <div className="text-[11px] font-semibold uppercase tracking-widest text-brand-700 dark:text-brand-300">
                 Step {step + 1} · {current.eyebrow}
               </div>
@@ -323,7 +323,7 @@ function StepWelcome({ session }: { session: Session | null }) {
   return (
     <div className="space-y-6">
       {session ? (
-        <div className="flex items-center gap-4 rounded-2xl border border-edge-subtle bg-linear-to-br from-brand-50 via-white to-accent-50/40 p-4 sm:p-5">
+        <div className="flex items-center gap-4 rounded-2xl border border-edge-subtle bg-linear-to-br from-brand-50 dark:from-brand-500/10 via-surface-raised to-accent-50/40 dark:to-accent-500/5 p-4 sm:p-5">
           <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br from-brand-500 to-accent-500 text-lg font-semibold text-white shadow-sm">
             {initials(session.user.name)}
           </span>

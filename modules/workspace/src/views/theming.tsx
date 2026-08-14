@@ -90,7 +90,7 @@ function ThemeCard({
       onClick={onSelect}
       aria-pressed={active}
       className={cn(
-        'group relative flex flex-col rounded-xl border bg-white p-4 text-left shadow-sm transition',
+        'group relative flex flex-col rounded-xl border bg-surface-raised p-4 text-left shadow-sm transition',
         active
           ? 'border-brand-500 ring-2 ring-brand-500/25'
           : 'border-edge-default hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md',
@@ -130,7 +130,7 @@ function ThemeCard({
 
 function Preview() {
   return (
-    <div className="rounded-xl border border-edge-default bg-white p-6 shadow-sm">
+    <div className="rounded-xl border border-edge-default bg-surface-raised p-6 shadow-sm">
       <div className="flex flex-wrap items-center gap-2">
         <button className="h-9 rounded-md bg-brand-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-brand-700">
           Primary
@@ -138,7 +138,7 @@ function Preview() {
         <button className="h-9 rounded-md border border-brand-200 bg-brand-50 px-4 text-sm font-medium text-brand-700 transition-colors hover:bg-brand-100">
           Soft
         </button>
-        <button className="h-9 rounded-md border border-edge-strong bg-white px-4 text-sm font-medium text-content transition-colors hover:bg-surface-sunken">
+        <button className="h-9 rounded-md border border-edge-strong bg-surface-raised px-4 text-sm font-medium text-content transition-colors hover:bg-surface-sunken">
           Secondary
         </button>
         <button className="h-9 rounded-md bg-accent-500 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-accent-600">

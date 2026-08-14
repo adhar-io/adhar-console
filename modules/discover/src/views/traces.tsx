@@ -39,7 +39,7 @@ export function Traces() {
 
   if (q.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Searching Tempo…
       </div>
     )
@@ -50,11 +50,11 @@ export function Traces() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-white p-2 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-surface-raised p-2 shadow-sm">
         <select
           value={service}
           onChange={(e) => setService(e.target.value)}
-          className="rounded-md border border-edge-default bg-white px-2 py-1 text-xs"
+          className="rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-xs"
         >
           <option value="">all services</option>
           {(services.data ?? []).map((s) => (
@@ -64,7 +64,7 @@ export function Traces() {
           ))}
         </select>
 
-        <label className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-white px-2 py-1 text-xs">
+        <label className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-xs">
           <input
             type="checkbox"
             checked={errorsOnly}
@@ -74,7 +74,7 @@ export function Traces() {
           errors only
         </label>
 
-        <label className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-white px-2 py-1 text-xs">
+        <label className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-xs">
           <span className="text-content-subtle">min duration</span>
           <input
             type="number"
@@ -82,7 +82,7 @@ export function Traces() {
             min={0}
             step={50}
             onChange={(e) => setMinMs(Math.max(0, Number(e.target.value)))}
-            className="w-20 rounded border border-edge-default bg-white px-1 py-0.5 font-mono text-[11px] focus:border-brand-400 focus:outline-none"
+            className="w-20 rounded border border-edge-default bg-surface-raised px-1 py-0.5 font-mono text-[11px] focus:border-brand-400 focus:outline-none"
           />
           <span className="text-content-subtle">ms</span>
         </label>
@@ -191,7 +191,7 @@ function TraceDetail({
         onClick={onClose}
       />
       <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-white px-6 py-4">
+        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <code className="font-mono text-[10px] text-content-muted">{traceID}</code>

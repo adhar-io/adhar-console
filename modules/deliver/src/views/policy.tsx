@@ -12,6 +12,17 @@ import {
 } from '@adhar-console/shell-ui'
 import { formatRelative } from '@adhar-console/utils'
 import { kyverno } from '@adhar-console/api-clients'
+import {
+  packCoverage,
+  POLICY_PACKS,
+  useEnabledPacks,
+  useTogglePack,
+  type ControlCoverage,
+  type ControlStatus,
+  type PackCoverage,
+  type PackFramework,
+  type PolicyPack as CompliancePack,
+} from '../data/policy-packs.ts'
 
 const client = kyverno.KyvernoClient.stub()
 
@@ -38,7 +49,7 @@ const ACTION_COLOR: Record<kyverno.PolicyAction, string> = {
 }
 
 /**
- * Full-fledged Kyverno dashboard. Three tabs:
+ * Full-fledged Kyverno dashboard. Four tabs:
  *
  *   1. **Library** — every Policy / ClusterPolicy with action chips,
  *      enforcement mode toggle (Audit ↔ Enforce), and a detail drawer.
@@ -46,9 +57,14 @@ const ACTION_COLOR: Record<kyverno.PolicyAction, string> = {
  *      result, resource, and message; filter by severity / result.
  *   3. **Exceptions** — PolicyException resources with match scopes and
  *      expiry.
+ *   4. **Compliance packs** — opt-in CIS / SOC 2 profiles delivered as
+ *      Kyverno ClusterPolicy bundles; per-control coverage is derived
+ *      from the live findings via `packCoverage`.
  */
+type TabId = 'library' | 'findings' | 'exceptions' | 'packs'
+
 export function Policy() {
-  const [tab, setTab] = useState<'library' | 'findings' | 'exceptions'>('library')
+  const [tab, setTab] = useState<TabId>('library')
 
   const policies = useQuery({
     queryKey: ['kyverno', 'policies'],
@@ -81,14 +97,29 @@ export function Policy() {
         <Tile label="Exceptions" value={exceptions.data?.length ?? 0} accent="violet" />
       </div>
 
-      <Tabs tab={tab} setTab={setTab} counts={{ library: policies.data?.length ?? 0, findings: countFindings(reportList), exceptions: exceptions.data?.length ?? 0 }} />
+      <Tabs
+        tab={tab}
+        setTab={setTab}
+        counts={{
+          library: policies.data?.length ?? 0,
+          findings: countFindings(reportList),
+          exceptions: exceptions.data?.length ?? 0,
+          packs: POLICY_PACKS.length,
+        }}
+      />
 
       {tab === 'library' ? (
         <Library policies={policies.data ?? []} loading={policies.isLoading} />
       ) : tab === 'findings' ? (
         <Findings reports={reportList} loading={reports.isLoading} />
-      ) : (
+      ) : tab === 'exceptions' ? (
         <Exceptions list={exceptions.data ?? []} loading={exceptions.isLoading} />
+      ) : (
+        <Packs
+          reports={reportList}
+          exceptions={exceptions.data ?? []}
+          loading={reports.isLoading || exceptions.isLoading}
+        />
       )}
     </div>
   )
@@ -99,17 +130,18 @@ function Tabs({
   setTab,
   counts,
 }: {
-  tab: 'library' | 'findings' | 'exceptions'
-  setTab(t: 'library' | 'findings' | 'exceptions'): void
-  counts: { library: number; findings: number; exceptions: number }
+  tab: TabId
+  setTab(t: TabId): void
+  counts: Record<TabId, number>
 }) {
-  const items: { id: 'library' | 'findings' | 'exceptions'; label: string }[] = [
+  const items: { id: TabId; label: string }[] = [
     { id: 'library', label: 'Policy library' },
     { id: 'findings', label: 'Findings' },
     { id: 'exceptions', label: 'Exceptions' },
+    { id: 'packs', label: 'Compliance packs' },
   ]
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-white p-1 shadow-sm">
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-sm">
       {items.map((i) => {
         const on = tab === i.id
         return (
@@ -257,7 +289,7 @@ function PolicyCard({
           </div>
         ) : null}
       </button>
-      <div className="border-t border-edge-subtle bg-white/80 px-4 py-2">
+      <div className="border-t border-edge-subtle bg-surface-raised/80 px-4 py-2">
         <div className="flex items-center gap-2">
           <span className="text-[11px] text-content-muted">enforcement</span>
           <button
@@ -296,7 +328,7 @@ function ActionFilter({
 }) {
   const items: ('all' | kyverno.PolicyAction)[] = ['all', 'validate', 'mutate', 'generate', 'verifyImages']
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-white p-1 shadow-sm">
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-sm">
       {items.map((i) => {
         const on = value === i
         return (
@@ -375,7 +407,7 @@ function ResultFilter({
 }) {
   const items: ('all' | kyverno.PolicyResult)[] = ['fail', 'warn', 'pass', 'skip', 'all']
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-white p-1 shadow-sm">
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-sm">
       {items.map((i) => {
         const on = value === i
         return (
@@ -406,7 +438,7 @@ function SeverityFilter({
 }) {
   const items: ('all' | kyverno.PolicySeverity)[] = ['all', 'critical', 'high', 'medium', 'low']
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-white p-1 shadow-sm">
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-sm">
       {items.map((i) => {
         const on = value === i
         return (
@@ -524,6 +556,485 @@ function Exceptions({ list, loading }: { list: kyverno.PolicyException[]; loadin
   )
 }
 
+/* ─────────── Compliance packs ─────────── */
+
+const CONTROL_TONE: Record<ControlStatus, StatusKind> = {
+  pass: 'healthy',
+  fail: 'failed',
+  exempt: 'info',
+  unknown: 'unknown',
+}
+
+const CONTROL_LABEL: Record<ControlStatus, string> = {
+  pass: 'pass',
+  fail: 'fail',
+  exempt: 'exempt',
+  unknown: 'no data',
+}
+
+const FRAMEWORK_TONE: Record<PackFramework, string> = {
+  CIS: 'bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/25',
+  SOC2: 'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-500/10 dark:text-violet-300 dark:ring-violet-500/25',
+  PSS: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/25',
+  'NSA-CISA': 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/25',
+}
+
+function Packs({
+  reports,
+  exceptions,
+  loading,
+}: {
+  reports: kyverno.PolicyReport[]
+  exceptions: kyverno.PolicyException[]
+  loading: boolean
+}) {
+  const enabled = useEnabledPacks()
+  const toggle = useTogglePack()
+  const [openId, setOpenId] = useState<string | null>(null)
+
+  const coverages = useMemo(() => {
+    const out = new Map<string, PackCoverage>()
+    for (const pack of POLICY_PACKS) out.set(pack.id, packCoverage(pack, reports, exceptions))
+    return out
+  }, [reports, exceptions])
+
+  if (loading) return <Loading label="Loading compliance packs…" />
+
+  const enabledIds = enabled.data ?? []
+  const open = POLICY_PACKS.find((p) => p.id === openId) ?? null
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border border-edge-default bg-surface-raised px-4 py-3 text-[12px] leading-relaxed text-content-muted shadow-sm">
+        Compliance packs are <span className="font-semibold text-content">opt-in</span> Kyverno
+        ClusterPolicy bundles that ship in audit mode. Enabling a pack tracks it in this console —
+        nothing changes on the cluster until you download the bundle and{' '}
+        <code className="rounded bg-surface-sunken px-1 py-0.5 font-mono text-[10px]">kubectl apply</code>{' '}
+        it. Coverage below is computed from the live PolicyReport findings.
+      </div>
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        {POLICY_PACKS.map((pack) => (
+          <PackCard
+            key={pack.id}
+            pack={pack}
+            coverage={coverages.get(pack.id)!}
+            enabled={enabledIds.includes(pack.id)}
+            busy={toggle.isPending && toggle.variables?.packId === pack.id}
+            onToggle={(next) => toggle.mutate({ packId: pack.id, enabled: next })}
+            onOpen={() => setOpenId(pack.id)}
+          />
+        ))}
+      </div>
+
+      {open ? (
+        <PackDetail
+          pack={open}
+          coverage={coverages.get(open.id)!}
+          enabled={enabledIds.includes(open.id)}
+          onToggle={(next) => toggle.mutate({ packId: open.id, enabled: next })}
+          onClose={() => setOpenId(null)}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+function PackCard({
+  pack,
+  coverage,
+  enabled,
+  busy,
+  onToggle,
+  onOpen,
+}: {
+  pack: CompliancePack
+  coverage: PackCoverage
+  enabled: boolean
+  busy: boolean
+  onToggle(next: boolean): void
+  onOpen(): void
+}) {
+  return (
+    <Card interactive>
+      <button type="button" onClick={onOpen} className="block w-full p-4 text-left">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <FrameworkBadge framework={pack.framework} />
+              <span className="rounded-md bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-content-muted">
+                {pack.version}
+              </span>
+            </div>
+            <div className="mt-1.5 truncate text-sm font-semibold text-content">{pack.name}</div>
+            <p className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-content-muted">
+              {pack.description}
+            </p>
+          </div>
+          <ComplianceRing pct={coverage.compliancePct} />
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-content-muted">
+          <span>
+            <span className="font-semibold tabular-nums text-content">{pack.controls.length}</span>{' '}
+            controls
+          </span>
+          <span className="text-emerald-600 dark:text-emerald-400">✓ {coverage.passed}</span>
+          <span className="text-rose-600 dark:text-rose-400">✗ {coverage.failed}</span>
+          {coverage.exempt > 0 ? (
+            <span className="text-violet-600 dark:text-violet-400">◌ {coverage.exempt} exempt</span>
+          ) : null}
+          <span className="text-content-subtle">{coverage.unknown} no data</span>
+        </div>
+      </button>
+      <div className="border-t border-edge-subtle bg-surface-sunken/40 px-4 py-2">
+        <div className="flex items-center gap-2">
+          <PackToggle enabled={enabled} busy={busy} onToggle={onToggle} />
+          <span className="text-[11px] text-content-muted">
+            {enabled ? 'enabled — tracked in this console' : 'disabled'}
+          </span>
+          <span className="ml-auto font-mono text-[10px] text-content-subtle">
+            {pack.kyvernoPolicies.length} policies · audit mode
+          </span>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+function PackToggle({
+  enabled,
+  busy,
+  onToggle,
+}: {
+  enabled: boolean
+  busy: boolean
+  onToggle(next: boolean): void
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label={enabled ? 'Disable pack' : 'Enable pack'}
+      disabled={busy}
+      onClick={(e) => {
+        e.stopPropagation()
+        onToggle(!enabled)
+      }}
+      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${
+        enabled
+          ? 'bg-emerald-500 dark:bg-emerald-600'
+          : 'bg-surface-sunken ring-1 ring-inset ring-edge-default'
+      }`}
+    >
+      <span
+        className={`h-3.5 w-3.5 transform rounded-full bg-surface-raised shadow transition-transform ${
+          enabled ? 'translate-x-[18px]' : 'translate-x-1'
+        }`}
+      />
+    </button>
+  )
+}
+
+function FrameworkBadge({ framework }: { framework: PackFramework }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 ring-inset ${FRAMEWORK_TONE[framework]}`}
+    >
+      {framework}
+    </span>
+  )
+}
+
+function ComplianceRing({ pct }: { pct: number | null }) {
+  const r = 15.5
+  const c = 2 * Math.PI * r
+  const arc =
+    pct === null
+      ? 'text-slate-300 dark:text-slate-600'
+      : pct >= 90
+        ? 'text-emerald-500 dark:text-emerald-400'
+        : pct >= 60
+          ? 'text-amber-500 dark:text-amber-400'
+          : 'text-rose-500 dark:text-rose-400'
+  return (
+    <div
+      className="relative h-12 w-12 shrink-0"
+      role="img"
+      aria-label={pct === null ? 'Compliance: no data yet' : `Compliance: ${pct}%`}
+    >
+      <svg viewBox="0 0 40 40" className="h-12 w-12 -rotate-90">
+        <circle
+          cx="20"
+          cy="20"
+          r={r}
+          fill="none"
+          strokeWidth="4.5"
+          stroke="currentColor"
+          className="text-surface-sunken"
+        />
+        {pct !== null ? (
+          <circle
+            cx="20"
+            cy="20"
+            r={r}
+            fill="none"
+            strokeWidth="4.5"
+            strokeLinecap="round"
+            stroke="currentColor"
+            strokeDasharray={`${(pct / 100) * c} ${c}`}
+            className={arc}
+          />
+        ) : null}
+      </svg>
+      <span className="absolute inset-0 flex items-center justify-center text-[10px] font-semibold tabular-nums text-content">
+        {pct === null ? '—' : `${pct}%`}
+      </span>
+    </div>
+  )
+}
+
+/* ─────────── pack detail drawer ─────────── */
+
+function PackDetail({
+  pack,
+  coverage,
+  enabled,
+  onToggle,
+  onClose,
+}: {
+  pack: CompliancePack
+  coverage: PackCoverage
+  enabled: boolean
+  onToggle(next: boolean): void
+  onClose(): void
+}) {
+  const [showYaml, setShowYaml] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+  if (typeof document === 'undefined') return null
+
+  const copyYaml = async () => {
+    try {
+      await navigator.clipboard.writeText(pack.bundleYaml)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1_500)
+    } catch {
+      /* clipboard unavailable — the YAML stays visible for manual copy */
+    }
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+      <button
+        type="button"
+        aria-label="Close"
+        className="absolute inset-0 bg-slate-900/35 backdrop-blur-[2px]"
+        onClick={onClose}
+      />
+      <aside className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
+        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-[11px] text-content-subtle">
+              <FrameworkBadge framework={pack.framework} />
+              <span className="rounded-md bg-surface-sunken px-1.5 py-0.5 font-mono">{pack.version}</span>
+              <span>{pack.controls.length} controls</span>
+              <span>{pack.kyvernoPolicies.length} policies</span>
+            </div>
+            <h2 className="mt-1 truncate text-lg font-semibold tracking-tight text-content">
+              {pack.name}
+            </h2>
+            <p className="mt-1 max-w-2xl text-xs text-content-muted">{pack.description}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+          >
+            <IconClose />
+          </button>
+        </header>
+
+        <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
+          <Card>
+            <CardBody className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <DetailTile
+                label="Compliance"
+                value={coverage.compliancePct === null ? 'no data' : `${coverage.compliancePct}%`}
+              />
+              <DetailTile label="Passing" value={`${coverage.passed}`} />
+              <DetailTile label="Failing" value={`${coverage.failed}`} />
+              <DetailTile label="No data" value={`${coverage.unknown}`} />
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700 dark:text-brand-300">
+                Apply this pack
+              </div>
+            </CardHeader>
+            <CardBody className="space-y-3 text-[12px] leading-relaxed text-content-muted">
+              <p>
+                Packs are opt-in and <span className="font-semibold text-content">audit-first</span>:
+                every bundled ClusterPolicy ships with{' '}
+                <code className="rounded bg-surface-sunken px-1 py-0.5 font-mono text-[10px]">
+                  validationFailureAction: Audit
+                </code>
+                , so applying it only surfaces findings — nothing is blocked at admission. The
+                toggle here tracks the pack in this console; the cluster is changed only when you
+                apply the bundle yourself. Promote individual policies to Enforce from the Policy
+                library once their findings are clean.
+              </p>
+              <pre className="overflow-x-auto rounded-lg bg-surface-sunken px-3 py-2 font-mono text-[11px] text-content">
+                {`kubectl apply -f ${pack.bundleFile}`}
+              </pre>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => downloadBundle(pack)}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-brand-700 dark:bg-brand-500 dark:hover:bg-brand-600"
+                >
+                  Download {pack.bundleFile}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowYaml((v) => !v)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-2.5 py-1.5 text-[11px] font-semibold text-content hover:bg-surface-sunken"
+                >
+                  {showYaml ? 'Hide bundle YAML' : 'View bundle YAML'}
+                </button>
+                <div className="ml-auto flex items-center gap-2">
+                  <PackToggle enabled={enabled} busy={false} onToggle={onToggle} />
+                  <span className="text-[11px] text-content-muted">
+                    {enabled ? 'enabled' : 'disabled'}
+                  </span>
+                </div>
+              </div>
+            </CardBody>
+          </Card>
+
+          {showYaml ? (
+            <Card>
+              <CardHeader className="flex items-center justify-between">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700 dark:text-brand-300">
+                  {pack.bundleFile}
+                </div>
+                <button
+                  type="button"
+                  onClick={copyYaml}
+                  className="rounded-md border border-edge-default bg-surface-raised px-2 py-0.5 text-[10px] font-semibold text-content-muted hover:bg-surface-sunken hover:text-content"
+                >
+                  {copied ? 'Copied ✓' : 'Copy'}
+                </button>
+              </CardHeader>
+              <CardBody className="p-0!">
+                <pre className="max-h-96 overflow-auto px-5 py-4 font-mono text-[10px] leading-relaxed text-content">
+                  {pack.bundleYaml}
+                </pre>
+              </CardBody>
+            </Card>
+          ) : null}
+
+          <Card>
+            <CardHeader>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700 dark:text-brand-300">
+                Controls
+              </div>
+            </CardHeader>
+            <CardBody className="p-0!">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[560px] text-left text-[12px]">
+                  <thead>
+                    <tr className="border-b border-edge-subtle text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+                      <th className="px-5 py-2.5">Control</th>
+                      <th className="px-3 py-2.5">Title</th>
+                      <th className="px-3 py-2.5">Severity</th>
+                      <th className="px-3 py-2.5">Kyverno policy</th>
+                      <th className="px-5 py-2.5 text-right">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-edge-subtle">
+                    {coverage.controls.map((c) => (
+                      <ControlRow key={`${c.control.id}-${c.control.kyvernoPolicy}`} coverage={c} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardBody>
+          </Card>
+        </div>
+      </aside>
+    </div>,
+    document.body,
+  )
+}
+
+function ControlRow({ coverage: c }: { coverage: ControlCoverage }) {
+  return (
+    <tr className="align-top transition-colors hover:bg-brand-50/40 dark:hover:bg-brand-500/5">
+      <td className="px-5 py-3">
+        <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-content">
+          {c.control.id}
+        </code>
+      </td>
+      <td className="px-3 py-3">
+        <div className="font-medium text-content">{c.control.title}</div>
+        <div className="mt-0.5 text-[10px] text-content-subtle">{c.control.category}</div>
+        {c.failingResources.length > 0 ? (
+          <div className="mt-1.5 flex flex-wrap gap-1 font-mono text-[10px] text-content-subtle">
+            {c.failingResources.map((r, i) => (
+              <span key={i} className="rounded bg-rose-50 px-1.5 py-0.5 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+                {r.kind}/{r.name}
+                {r.namespace ? ` @ ${r.namespace}` : ''}
+              </span>
+            ))}
+          </div>
+        ) : null}
+        {c.exceptionNames.length > 0 ? (
+          <div className="mt-1 text-[10px] text-violet-600 dark:text-violet-400">
+            waived by {c.exceptionNames.join(', ')}
+          </div>
+        ) : null}
+      </td>
+      <td className="px-3 py-3">
+        <StatusBadge kind={SEVERITY_TONE[c.control.severity]}>{c.control.severity}</StatusBadge>
+      </td>
+      <td className="px-3 py-3">
+        <code className="font-mono text-[11px] text-content-muted">{c.control.kyvernoPolicy}</code>
+      </td>
+      <td className="px-5 py-3 text-right">
+        <StatusBadge kind={CONTROL_TONE[c.status]}>{CONTROL_LABEL[c.status]}</StatusBadge>
+        {c.status === 'fail' ? (
+          <div className="mt-1 font-mono text-[10px] tabular-nums text-content-subtle">
+            {c.fail} fail{c.warn > 0 ? ` · ${c.warn} warn` : ''}
+          </div>
+        ) : null}
+      </td>
+    </tr>
+  )
+}
+
+function downloadBundle(pack: CompliancePack) {
+  const blob = new Blob([pack.bundleYaml], { type: 'application/yaml' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = pack.bundleFile
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 /* ─────────── policy detail drawer ─────────── */
 
 function PolicyDetail({ policy: p, onClose }: { policy: kyverno.Policy; onClose(): void }) {
@@ -545,7 +1056,7 @@ function PolicyDetail({ policy: p, onClose }: { policy: kyverno.Policy; onClose(
         onClick={onClose}
       />
       <aside className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-white px-6 py-4">
+        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-[11px] text-content-subtle">
               <span className="rounded-md bg-surface-sunken px-1.5 py-0.5 font-mono">{p.kind}</span>
@@ -671,11 +1182,11 @@ function Tile({
   accent?: 'slate' | 'emerald' | 'rose' | 'amber' | 'violet'
 }) {
   const cls = {
-    slate: 'from-slate-50 to-white text-content',
-    emerald: 'from-emerald-50 to-white text-emerald-700',
-    rose: 'from-rose-50 to-white text-rose-700',
-    amber: 'from-amber-50 to-white text-amber-700',
-    violet: 'from-violet-50 to-white text-violet-700',
+    slate: 'from-slate-50 to-surface-raised text-content',
+    emerald: 'from-emerald-50 dark:from-emerald-500/10 to-surface-raised text-emerald-700 dark:text-emerald-300',
+    rose: 'from-rose-50 dark:from-rose-500/10 to-surface-raised text-rose-700 dark:text-rose-300',
+    amber: 'from-amber-50 dark:from-amber-500/10 to-surface-raised text-amber-700 dark:text-amber-300',
+    violet: 'from-violet-50 dark:from-violet-500/10 to-surface-raised text-violet-700 dark:text-violet-300',
   }[accent]
   return (
     <Card className={`bg-linear-to-br ${cls} ring-1 ring-inset ring-edge-subtle`}>
@@ -718,14 +1229,14 @@ function SearchInput({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="block h-9 w-44 rounded-lg border border-edge-default bg-white px-3 py-1 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-56"
+      className="block h-9 w-44 rounded-lg border border-edge-default bg-surface-raised px-3 py-1 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-56"
     />
   )
 }
 
 function Loading({ label }: { label: string }) {
   return (
-    <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+    <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
       <Spinner size={14} /> {label}
     </div>
   )

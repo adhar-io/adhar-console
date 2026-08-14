@@ -212,7 +212,7 @@ function CloudTile({
   return (
     <div
       className={cn(
-        'group flex h-full flex-col gap-3 rounded-xl border border-edge-default bg-white p-4 shadow-sm transition-colors hover:border-brand-300',
+        'group flex h-full flex-col gap-3 rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm transition-colors hover:border-brand-300',
       )}
     >
       <div className="flex items-start justify-between gap-3">

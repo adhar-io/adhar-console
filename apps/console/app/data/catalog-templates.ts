@@ -140,6 +140,14 @@ export interface CatalogTemplate {
     manifestPath?: string
     /** Path for the catalog descriptor. Default "catalog-info.yaml". */
     catalogInfoPath?: string
+    /**
+     * Golden-path family. When set, `/api/scaffold` commits a complete,
+     * production-shaped starter into the new repo: Dockerfile, CI workflow
+     * (`.gitea/workflows/ci.yaml`), a `deploy/` Kustomize folder (probes +
+     * resource requests/limits) and observability wiring (ServiceMonitor,
+     * OTLP endpoint). Combine with `gitops: true` so Argo CD syncs `deploy/`.
+     */
+    goldenPath?: 'microservice' | 'frontend' | 'data-pipeline' | 'ml'
   }
 }
 
@@ -214,6 +222,21 @@ const SYSTEM_FIELD: TemplateField = {
   ],
 }
 
+/** Short numeric port field used by the golden-path templates. */
+function portField(defaultPort: string): TemplateField {
+  return {
+    kind: 'string',
+    key: 'port',
+    label: 'HTTP port',
+    default: defaultPort,
+    help: 'Container port the workload listens on.',
+    pattern: {
+      regex: /^\d{2,5}$/,
+      message: 'Numeric port, e.g. 8080.',
+    },
+  }
+}
+
 const LIFECYCLE_FIELD: TemplateField = {
   kind: 'select',
   key: 'lifecycle',
@@ -230,6 +253,153 @@ const LIFECYCLE_FIELD: TemplateField = {
 /* ─────────── templates ─────────── */
 
 const TEMPLATES: CatalogTemplate[] = [
+  /* ─────── Golden paths — real scaffolds via /api/scaffold ─────── */
+
+  {
+    id: 'golden-microservice',
+    title: 'Golden Path · Microservice',
+    description:
+      'Production-shaped Go or Node microservice — Dockerfile, CI (build/test/containerize/push), Kustomize deploy with probes + resource limits, ServiceMonitor and OTLP wiring, synced by Argo CD from day one.',
+    produces: { kind: 'Component', type: 'service' },
+    family: 'service',
+    language: 'go',
+    tags: ['golden-path', 'docker', 'kustomize', 'prometheus', 'otel'],
+    owner: 'team-platform',
+    estimateMinutes: 1,
+    popular: true,
+    isNew: true,
+    glyph: 'GP',
+    tone: 'brand',
+    scaffold: { gitops: true, goldenPath: 'microservice' },
+    steps: [
+      {
+        key: 'identity',
+        title: 'Identity',
+        description: 'Name, purpose and owner of the new service.',
+        fields: [NAME_FIELD, DESCRIPTION_FIELD, OWNER_FIELD],
+      },
+      {
+        key: 'runtime',
+        title: 'Runtime',
+        description: 'Language and listen port.',
+        fields: [
+          {
+            kind: 'select',
+            key: 'language',
+            label: 'Language',
+            options: [
+              { value: 'go', label: 'Go 1.23', description: 'net/http, distroless image.' },
+              { value: 'node', label: 'Node 22', description: 'node:http, alpine image.' },
+            ],
+            default: 'go',
+          },
+          portField('8080'),
+        ],
+      },
+    ],
+    actions: [
+      { title: 'Create repository', duration: 0.8 },
+      { title: 'Commit catalog-info.yaml', duration: 0.4 },
+      { title: 'Commit service + Dockerfile + CI', duration: 0.9, detail: '.gitea/workflows/ci.yaml' },
+      { title: 'Commit deploy/ Kustomize + ServiceMonitor', duration: 0.7 },
+      { title: 'Create Argo CD Application', duration: 0.6, detail: 'syncs deploy/' },
+    ],
+  },
+  {
+    id: 'golden-frontend',
+    title: 'Golden Path · Frontend',
+    description:
+      'Vite + React static frontend served by nginx — Dockerfile, CI, Kustomize deploy with Deployment, Service and TLS Ingress, synced by Argo CD.',
+    produces: { kind: 'Component', type: 'website' },
+    family: 'website',
+    language: 'typescript',
+    tags: ['golden-path', 'react', 'vite', 'nginx', 'kustomize'],
+    owner: 'team-frontend',
+    estimateMinutes: 1,
+    popular: true,
+    isNew: true,
+    glyph: 'GF',
+    tone: 'sky',
+    scaffold: { gitops: true, goldenPath: 'frontend' },
+    steps: [
+      {
+        key: 'identity',
+        title: 'Identity',
+        description: 'Name, purpose and owner of the new frontend.',
+        fields: [NAME_FIELD, DESCRIPTION_FIELD, OWNER_FIELD, portField('8080')],
+      },
+    ],
+    actions: [
+      { title: 'Create repository', duration: 0.8 },
+      { title: 'Commit catalog-info.yaml', duration: 0.4 },
+      { title: 'Commit Vite + React starter + nginx Dockerfile + CI', duration: 0.9 },
+      { title: 'Commit deploy/ Deployment + Service + Ingress', duration: 0.7 },
+      { title: 'Create Argo CD Application', duration: 0.6, detail: 'syncs deploy/' },
+    ],
+  },
+  {
+    id: 'golden-data-pipeline',
+    title: 'Golden Path · Data Pipeline',
+    description:
+      'Python batch job with an Argo CronWorkflow — extract/transform/load skeleton, Dockerfile, CI, and a 6-hourly schedule Argo CD keeps in sync.',
+    produces: { kind: 'Component', type: 'service' },
+    family: 'data',
+    language: 'python',
+    tags: ['golden-path', 'python', 'argo-workflows', 'batch'],
+    owner: 'team-data',
+    estimateMinutes: 1,
+    isNew: true,
+    glyph: 'GD',
+    tone: 'amber',
+    scaffold: { gitops: true, goldenPath: 'data-pipeline' },
+    steps: [
+      {
+        key: 'identity',
+        title: 'Identity',
+        description: 'Name, purpose and owner of the new pipeline.',
+        fields: [NAME_FIELD, DESCRIPTION_FIELD, OWNER_FIELD],
+      },
+    ],
+    actions: [
+      { title: 'Create repository', duration: 0.8 },
+      { title: 'Commit catalog-info.yaml', duration: 0.4 },
+      { title: 'Commit job skeleton + Dockerfile + CI', duration: 0.9 },
+      { title: 'Commit deploy/cronworkflow.yaml', duration: 0.5, detail: 'Argo CronWorkflow · every 6h' },
+      { title: 'Create Argo CD Application', duration: 0.6, detail: 'syncs deploy/' },
+    ],
+  },
+  {
+    id: 'golden-ml-service',
+    title: 'Golden Path · ML Service',
+    description:
+      'FastAPI model-serving skeleton with /predict, a weekly training CronWorkflow, Dockerfile, CI, and a deploy/ with resource requests, GPU notes and a ServiceMonitor.',
+    produces: { kind: 'Component', type: 'service' },
+    family: 'data',
+    language: 'python',
+    tags: ['golden-path', 'ml', 'fastapi', 'model-serving', 'argo-workflows'],
+    owner: 'team-data',
+    estimateMinutes: 1,
+    isNew: true,
+    glyph: 'GM',
+    tone: 'violet',
+    scaffold: { gitops: true, goldenPath: 'ml' },
+    steps: [
+      {
+        key: 'identity',
+        title: 'Identity',
+        description: 'Name, purpose and owner of the new model service.',
+        fields: [NAME_FIELD, DESCRIPTION_FIELD, OWNER_FIELD, portField('8000')],
+      },
+    ],
+    actions: [
+      { title: 'Create repository', duration: 0.8 },
+      { title: 'Commit catalog-info.yaml', duration: 0.4 },
+      { title: 'Commit FastAPI serving + training skeleton + CI', duration: 0.9 },
+      { title: 'Commit deploy/ Deployment + ServiceMonitor + training CronWorkflow', duration: 0.7 },
+      { title: 'Create Argo CD Application', duration: 0.6, detail: 'syncs deploy/' },
+    ],
+  },
+
   {
     id: 'go-rest-service',
     title: 'Go REST Service',

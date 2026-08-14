@@ -90,7 +90,7 @@ export function IssueDrawer({ projectId, issueId, onClose, onPick }: Props) {
         onClick={onClose}
       />
       <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
-        <header className="flex items-start justify-between gap-3 border-b border-edge-default bg-white px-6 py-4">
+        <header className="flex items-start justify-between gap-3 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
               {i?.sequence_id ? `#${i.sequence_id}` : 'issue'}
@@ -173,7 +173,7 @@ export function IssueDrawer({ projectId, issueId, onClose, onPick }: Props) {
             <ActivityBlock projectId={projectId} issueId={issueId} memberMap={memberMap} />
           </div>
 
-          <aside className="border-t border-edge-subtle bg-white px-5 py-5 md:border-l md:border-t-0 md:overflow-y-auto">
+          <aside className="border-t border-edge-subtle bg-surface-raised px-5 py-5 md:border-l md:border-t-0 md:overflow-y-auto">
             {!i ? (
               <div className="space-y-4">
                 {Array.from({ length: 8 }).map((_, idx) => (
@@ -234,7 +234,7 @@ function TitleField({ value, onSave }: { value: string; onSave(v: string): void 
           setEditing(false)
         }
       }}
-      className="mt-0.5 -ml-1 w-full rounded border border-brand-400 bg-white px-1 py-0.5 text-lg font-semibold tracking-tight text-content focus:outline-none focus:ring-2 focus:ring-brand-400/25"
+      className="mt-0.5 -ml-1 w-full rounded border border-brand-400 bg-surface-raised px-1 py-0.5 text-lg font-semibold tracking-tight text-content focus:outline-none focus:ring-2 focus:ring-brand-400/25"
     />
   )
 }
@@ -292,7 +292,7 @@ function DescriptionBlock({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           rows={6}
-          className="block w-full resize-y rounded-lg border border-edge-default bg-white px-3 py-2 font-mono text-xs text-content focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+          className="block w-full resize-y rounded-lg border border-edge-default bg-surface-raised px-3 py-2 font-mono text-xs text-content focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           placeholder="Plane stores HTML — paste rich text or write Markdown-flavoured prose."
         />
       ) : issue.description_stripped || issue.description_html ? (
@@ -342,7 +342,7 @@ function SubIssuesBlock({
         </span>
       }
     >
-      <ul className="divide-y divide-edge-subtle rounded-lg border border-edge-default bg-white">
+      <ul className="divide-y divide-edge-subtle rounded-lg border border-edge-default bg-surface-raised">
         {issues.map((s) => {
           const st = stateMap.get(s.state)
           return (
@@ -411,7 +411,7 @@ function CommentsBlock({
             return (
               <li
                 key={c.id}
-                className="flex items-start gap-2.5 rounded-lg border border-edge-subtle bg-white p-3"
+                className="flex items-start gap-2.5 rounded-lg border border-edge-subtle bg-surface-raised p-3"
               >
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-50 text-[10px] font-semibold text-brand-700 ring-1 ring-inset ring-brand-200">
                   {memberInitials(m)}
@@ -450,7 +450,7 @@ function CommentsBlock({
             create.mutate({ comment_html: html })
             setDraft('')
           }}
-          className="flex flex-col gap-2 rounded-lg border border-edge-default bg-white p-2"
+          className="flex flex-col gap-2 rounded-lg border border-edge-default bg-surface-raised p-2"
         >
           <textarea
             value={draft}
@@ -512,7 +512,7 @@ function ActivityBlock({
               } as plane.Member)
             return (
               <li key={act.id} className="relative">
-                <span className="absolute -left-[26px] top-1.5 h-2.5 w-2.5 rounded-full bg-brand-500 ring-4 ring-white" />
+                <span className="absolute -left-[26px] top-1.5 h-2.5 w-2.5 rounded-full bg-brand-500 ring-4 ring-surface-raised" />
                 <div className="text-xs text-content-muted">
                   <span className="font-medium text-content">{memberDisplayName(actor)}</span>{' '}
                   {act.verb}
@@ -579,7 +579,7 @@ function PropertiesPanel({
           <select
             value={issue.state}
             onChange={(e) => onPatch({ state: e.target.value })}
-            className="h-7 rounded-md border border-edge-default bg-white px-2 text-xs"
+            className="h-7 rounded-md border border-edge-default bg-surface-raised px-2 text-xs"
           >
             {states.map((s) => (
               <option key={s.id} value={s.id}>
@@ -595,7 +595,7 @@ function PropertiesPanel({
           <select
             value={issue.priority}
             onChange={(e) => onPatch({ priority: e.target.value as plane.Priority })}
-            className="h-7 rounded-md border border-edge-default bg-white px-2 text-xs"
+            className="h-7 rounded-md border border-edge-default bg-surface-raised px-2 text-xs"
           >
             {PRIORITIES.map((p) => (
               <option key={p} value={p}>
@@ -641,7 +641,7 @@ function PropertiesPanel({
               onPatch({ estimate_point: e.target.value === '' ? null : Number(e.target.value) })
             }
             placeholder="—"
-            className="h-7 w-20 rounded-md border border-edge-default bg-white px-2 text-xs"
+            className="h-7 w-20 rounded-md border border-edge-default bg-surface-raised px-2 text-xs"
           />
         }
       />
@@ -652,7 +652,7 @@ function PropertiesPanel({
             type="date"
             value={iso(issue.start_date)}
             onChange={(e) => onPatch({ start_date: e.target.value || null })}
-            className="h-7 rounded-md border border-edge-default bg-white px-2 text-xs"
+            className="h-7 rounded-md border border-edge-default bg-surface-raised px-2 text-xs"
           />
         }
       />
@@ -663,7 +663,7 @@ function PropertiesPanel({
             type="date"
             value={iso(issue.target_date)}
             onChange={(e) => onPatch({ target_date: e.target.value || null })}
-            className="h-7 rounded-md border border-edge-default bg-white px-2 text-xs"
+            className="h-7 rounded-md border border-edge-default bg-surface-raised px-2 text-xs"
           />
         }
       />
@@ -673,7 +673,7 @@ function PropertiesPanel({
           <select
             value={issue.cycle ?? ''}
             onChange={(e) => onPatch({ cycle: e.target.value || null })}
-            className="h-7 max-w-full rounded-md border border-edge-default bg-white px-2 text-xs"
+            className="h-7 max-w-full rounded-md border border-edge-default bg-surface-raised px-2 text-xs"
           >
             <option value="">None</option>
             {cycles.map((c) => (
@@ -690,7 +690,7 @@ function PropertiesPanel({
           <select
             value={issue.module ?? ''}
             onChange={(e) => onPatch({ module: e.target.value || null })}
-            className="h-7 max-w-full rounded-md border border-edge-default bg-white px-2 text-xs"
+            className="h-7 max-w-full rounded-md border border-edge-default bg-surface-raised px-2 text-xs"
           >
             <option value="">None</option>
             {modules.map((m) => (
@@ -737,7 +737,7 @@ function MultiPicker({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex h-auto min-h-7 w-full flex-wrap items-center gap-1 rounded-md border border-edge-default bg-white px-2 py-0.5 text-left text-xs"
+        className="flex h-auto min-h-7 w-full flex-wrap items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 py-0.5 text-left text-xs"
       >
         {selected.length === 0 ? (
           <span className="text-content-subtle">{placeholder}</span>
@@ -763,7 +763,7 @@ function MultiPicker({
       {open ? (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <ul className="absolute right-0 top-full z-20 mt-1 max-h-60 w-56 overflow-y-auto rounded-lg border border-edge-default bg-white py-1 shadow-xl ring-1 ring-black/5">
+          <ul className="absolute right-0 top-full z-20 mt-1 max-h-60 w-56 overflow-y-auto rounded-lg border border-edge-default bg-surface-raised py-1 shadow-xl ring-1 ring-black/5">
             {items.length === 0 ? (
               <li className="px-3 py-2 text-xs text-content-subtle">No options</li>
             ) : (
@@ -928,7 +928,7 @@ function IssueActionsMenu({
         </svg>
       </button>
       {open ? (
-        <div className="absolute right-0 top-full z-30 mt-1 w-52 overflow-hidden rounded-lg border border-edge-default bg-white py-1 shadow-xl ring-1 ring-black/5">
+        <div className="absolute right-0 top-full z-30 mt-1 w-52 overflow-hidden rounded-lg border border-edge-default bg-surface-raised py-1 shadow-xl ring-1 ring-black/5">
           <ActionItem
             onClick={() => {
               onCopyLink()

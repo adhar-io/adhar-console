@@ -371,12 +371,14 @@ a {
   --color-edge-strong: oklch(0.42 0.012 260);
 
   /*
-   * `bg-white` lives on most cards/panels — flip the underlying token so
-   * card surfaces become dark slate rather than blinding white. Same for
-   * `bg-black` (used as a watermark in a few places).
+   * NOTE: we deliberately do NOT override `--color-white` / `--color-black`
+   * here. Doing so was a leaky shortcut for flipping `bg-white` cards, but it
+   * also turned genuine white utilities — `text-white` labels on colored
+   * buttons/badges, `ring-white` frost, `to-white` gradient stops — DARK in
+   * dark mode (the reported "fonts wrong in dark mode" bug). Surfaces now use
+   * the semantic `surface-*` tokens (which flip correctly), so white can stay
+   * white and black can stay black. `bg-black/NN` scrims darken correctly too.
    */
-  --color-white: oklch(0.21 0.006 260);
-  --color-black: oklch(0.98 0.003 260);
 
   /*
    * Slate utility ramp — used pervasively for borders, muted text, and

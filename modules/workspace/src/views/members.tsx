@@ -123,7 +123,7 @@ export function Members() {
               header: 'Person',
               cell: (m) => (
                 <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-linear-to-br from-brand-500 via-brand-600 to-brand-800 text-[11px] font-semibold text-white shadow-sm ring-2 ring-white">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-linear-to-br from-brand-500 via-brand-600 to-brand-800 text-[11px] font-semibold text-white shadow-sm ring-2 ring-surface-raised">
                     {m.name.split(/\s+/).slice(0, 2).map((p) => p[0]).join('').toUpperCase()}
                   </div>
                   <div>

@@ -48,7 +48,7 @@ export function Integrations() {
             {all.map((i) => (
               <div
                 key={i.id}
-                className="rounded-xl border border-edge-default bg-white p-4 shadow-sm transition-colors hover:border-brand-300"
+                className="rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm transition-colors hover:border-brand-300"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">

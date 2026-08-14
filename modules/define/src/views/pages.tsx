@@ -38,7 +38,7 @@ export function Pages({ projectId }: { projectId?: string }) {
   if (!projectId) return <EmptyState title="Pick a project" />
   if (q.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading pages…
       </div>
     )
@@ -207,7 +207,7 @@ function PagePreview({
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full rounded-md border border-edge-default bg-white px-2 py-1 text-lg font-semibold tracking-tight text-content focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+                className="w-full rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-lg font-semibold tracking-tight text-content focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
               />
             ) : (
               <h2 className="truncate text-lg font-semibold tracking-tight text-content">
@@ -234,7 +234,7 @@ function PagePreview({
                 <select
                   value={access}
                   onChange={(e) => setAccess(e.target.value as plane.Page['access'])}
-                  className="h-8 rounded-md border border-edge-default bg-white px-2 text-xs"
+                  className="h-8 rounded-md border border-edge-default bg-surface-raised px-2 text-xs"
                 >
                   <option value="public">public</option>
                   <option value="private">private</option>
@@ -284,7 +284,7 @@ function PagePreview({
               rows={20}
               spellCheck={false}
               placeholder="Write something… HTML or Markdown-flavoured plain text."
-              className="block w-full resize-y rounded-lg border border-edge-default bg-white px-3 py-2 font-mono text-xs text-content focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+              className="block w-full resize-y rounded-lg border border-edge-default bg-surface-raised px-3 py-2 font-mono text-xs text-content focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
             />
             <div className="flex items-center justify-between text-[11px] text-content-subtle">
               <span>Plane stores HTML — paste rich text or write prose.</span>

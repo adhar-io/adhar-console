@@ -50,7 +50,7 @@ export function Modules({ projectId }: { projectId?: string }) {
   if (!projectId) return <EmptyState title="Pick a project" />
   if (q.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading modules…
       </div>
     )
@@ -196,13 +196,13 @@ function ModuleCard({
                   <span
                     key={mem.id}
                     title={memberDisplayName(mem)}
-                    className="flex h-5 w-5 items-center justify-center rounded-full bg-surface-sunken text-[10px] font-semibold text-content-muted ring-2 ring-white"
+                    className="flex h-5 w-5 items-center justify-center rounded-full bg-surface-sunken text-[10px] font-semibold text-content-muted ring-2 ring-surface-raised"
                   >
                     {memberInitials(mem)}
                   </span>
                 ))}
                 {members.length > 4 ? (
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-surface-sunken text-[10px] font-semibold text-content-muted ring-2 ring-white">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-surface-sunken text-[10px] font-semibold text-content-muted ring-2 ring-surface-raised">
                     +{members.length - 4}
                   </span>
                 ) : null}
@@ -330,7 +330,7 @@ function ModuleDetail({
         onClick={onClose}
       />
       <aside className="relative flex h-full w-full max-w-5xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-white px-6 py-4">
+        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
               Module
@@ -476,7 +476,7 @@ function ModuleDetail({
                             <span
                               key={mem.id}
                               title={memberDisplayName(mem)}
-                              className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-50 text-[10px] font-semibold text-brand-700 ring-2 ring-white"
+                              className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-50 text-[10px] font-semibold text-brand-700 ring-2 ring-surface-raised"
                             >
                               {memberInitials(mem)}
                             </span>

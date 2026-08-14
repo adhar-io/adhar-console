@@ -64,11 +64,11 @@ export function SqlEditor() {
 
   return (
     <div className="space-y-3">
-      <header className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-white p-2 shadow-sm">
+      <header className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-surface-raised p-2 shadow-sm">
         <select
           value={databaseId ?? ''}
           onChange={(e) => setDatabaseId(Number(e.target.value))}
-          className="rounded-md border border-edge-default bg-white px-2 py-1 text-xs"
+          className="rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-xs"
           aria-label="Database"
         >
           {(databases.data ?? []).map((d) => (
@@ -82,7 +82,7 @@ export function SqlEditor() {
             const sample = SAMPLE_QUERIES.find((s) => s.label === e.target.value)
             if (sample) setSql(sample.sql)
           }}
-          className="rounded-md border border-edge-default bg-white px-2 py-1 text-xs"
+          className="rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-xs"
           aria-label="Sample query"
           defaultValue=""
         >
@@ -189,7 +189,7 @@ function ResultPane({ result }: { result: metabase.QueryResult }) {
           {result.rows.map((row, i) => (
             <tr
               key={i}
-              className={`border-t border-edge-subtle ${i % 2 === 0 ? 'bg-white' : 'bg-surface-sunken/20'}`}
+              className={`border-t border-edge-subtle ${i % 2 === 0 ? 'bg-surface-raised' : 'bg-surface-sunken/20'}`}
             >
               {row.map((cell, j) => (
                 <td key={j} className="px-3 py-1.5 font-mono text-content">

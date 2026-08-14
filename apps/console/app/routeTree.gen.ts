@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as StatusRouteImport } from './routes/status'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as ScorecardsRouteImport } from './routes/scorecards'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as LoginRouteImport } from './routes/login'
@@ -53,6 +54,11 @@ const AuthLogoutRoute = AuthLogoutRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ScorecardsRoute = ScorecardsRouteImport.update({
+  id: '/scorecards',
+  path: '/scorecards',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProfileRoute = ProfileRouteImport.update({
@@ -113,6 +119,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
   '/profile': typeof ProfileRoute
+  '/scorecards': typeof ScorecardsRoute
   '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
   '/status': typeof StatusRoute
@@ -129,6 +136,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
   '/profile': typeof ProfileRoute
+  '/scorecards': typeof ScorecardsRoute
   '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
   '/status': typeof StatusRoute
@@ -147,6 +155,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
   '/profile': typeof ProfileRoute
+  '/scorecards': typeof ScorecardsRoute
   '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
   '/status': typeof StatusRoute
@@ -166,6 +175,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/onboarding'
     | '/profile'
+    | '/scorecards'
     | '/settings'
     | '/signup'
     | '/status'
@@ -182,6 +192,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/onboarding'
     | '/profile'
+    | '/scorecards'
     | '/settings'
     | '/signup'
     | '/status'
@@ -199,6 +210,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/onboarding'
     | '/profile'
+    | '/scorecards'
     | '/settings'
     | '/signup'
     | '/status'
@@ -217,6 +229,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   OnboardingRoute: typeof OnboardingRoute
   ProfileRoute: typeof ProfileRoute
+  ScorecardsRoute: typeof ScorecardsRoute
   SettingsRoute: typeof SettingsRoute
   SignupRoute: typeof SignupRoute
   StatusRoute: typeof StatusRoute
@@ -264,6 +277,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/scorecards': {
+      id: '/scorecards'
+      path: '/scorecards'
+      fullPath: '/scorecards'
+      preLoaderRoute: typeof ScorecardsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/profile': {
@@ -354,6 +374,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   OnboardingRoute: OnboardingRoute,
   ProfileRoute: ProfileRoute,
+  ScorecardsRoute: ScorecardsRoute,
   SettingsRoute: SettingsRoute,
   SignupRoute: SignupRoute,
   StatusRoute: StatusRoute,

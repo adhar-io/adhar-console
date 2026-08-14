@@ -33,7 +33,7 @@ export function Dashboard({
 
   if (projectsQ.isLoading || membersQ.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading workspace…
       </div>
     )
@@ -256,16 +256,16 @@ function HeroStat({
   hint?: string
 }) {
   const toneClass = {
-    brand: 'from-brand-50 to-white text-brand-700',
-    amber: 'from-amber-50 to-white text-amber-700',
-    emerald: 'from-emerald-50 to-white text-emerald-700',
-    violet: 'from-violet-50 to-white text-violet-700',
+    brand: 'from-brand-50 to-surface-raised text-brand-700',
+    amber: 'from-amber-50 to-surface-raised text-amber-700',
+    emerald: 'from-emerald-50 to-surface-raised text-emerald-700',
+    violet: 'from-violet-50 to-surface-raised text-violet-700',
   }[tone]
   return (
     <Card className={`relative overflow-hidden bg-linear-to-br ${toneClass} ring-1 ring-inset ring-edge-subtle`}>
       <CardBody className="space-y-1 p-4">
         <div className="flex items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/80 shadow-sm">
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-raised/80 shadow-sm">
             {icon}
           </span>
           <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">

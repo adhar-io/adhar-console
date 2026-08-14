@@ -135,7 +135,7 @@ function WindowToggle({
           onClick={() => onChange(w)}
           className={cn(
             'rounded-md px-2.5 py-1 transition-colors',
-            value === w ? 'bg-white text-content shadow-sm' : 'text-content-subtle hover:text-content',
+            value === w ? 'bg-surface-raised text-content shadow-sm' : 'text-content-subtle hover:text-content',
           )}
         >
           {w}d
@@ -151,7 +151,7 @@ export function DoraSummary() {
 
   if (query.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading ArgoCD deploy history…
       </div>
     )

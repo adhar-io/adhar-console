@@ -20,7 +20,7 @@ export const TOPBAR_H = 26
 export function FrameCanvas({ blocks }: { blocks: WireframeBlock[] }) {
   return (
     <div
-      className="relative overflow-hidden rounded-md border border-edge-default bg-linear-to-br from-surface-sunken/50 to-white"
+      className="relative overflow-hidden rounded-md border border-edge-default bg-linear-to-br from-surface-sunken/50 to-surface-raised"
       style={{ paddingBottom: `${(VIEW_H / VIEW_W) * 100}%` }}
     >
       <svg
@@ -40,7 +40,7 @@ export function FrameCanvas({ blocks }: { blocks: WireframeBlock[] }) {
 export function Viewport() {
   return (
     <g>
-      <rect x="6" y="6" width={VIEW_W - 12} height={VIEW_H - 12} rx="6" fill="white" stroke="var(--color-edge-subtle)" />
+      <rect x="6" y="6" width={VIEW_W - 12} height={VIEW_H - 12} rx="6" fill="var(--color-surface-raised)" stroke="var(--color-edge-subtle)" />
       <rect x="6" y="6" width={VIEW_W - 12} height={TOPBAR_H - 6} fill="var(--color-surface-sunken)" />
       <circle cx="14" cy="13" r="2" fill="#f43f5e" />
       <circle cx="22" cy="13" r="2" fill="#f59e0b" />
@@ -86,7 +86,7 @@ export function BlockShape({ block: b }: { block: WireframeBlock }) {
     case 'input':
       return (
         <g>
-          <rect x={x} y={y} width={b.w} height={b.h} rx={radius} fill="white" stroke={stroke} />
+          <rect x={x} y={y} width={b.w} height={b.h} rx={radius} fill="var(--color-surface-raised)" stroke={stroke} />
           <text x={x + 10} y={y + b.h / 2 + 4} fontSize="11" fill="var(--color-content-subtle)">
             {label || 'Field…'}
           </text>
@@ -104,7 +104,7 @@ export function BlockShape({ block: b }: { block: WireframeBlock }) {
     case 'card':
       return (
         <g>
-          <rect x={x} y={y} width={b.w} height={b.h} rx={radius} fill="white" stroke={stroke} />
+          <rect x={x} y={y} width={b.w} height={b.h} rx={radius} fill="var(--color-surface-raised)" stroke={stroke} />
           {label ? (
             <text x={x + b.w / 2} y={y + b.h / 2 + 4} fontSize="12" fill="var(--color-content-subtle)" textAnchor="middle">
               {label}
@@ -144,7 +144,7 @@ export function BlockShape({ block: b }: { block: WireframeBlock }) {
       const itemW = Math.max(40, (b.w - 120) / itemCount)
       return (
         <g>
-          <rect x={x} y={y} width={b.w} height={b.h} rx="6" fill="white" stroke={stroke} />
+          <rect x={x} y={y} width={b.w} height={b.h} rx="6" fill="var(--color-surface-raised)" stroke={stroke} />
           <circle cx={x + 18} cy={y + b.h / 2} r="6" fill="var(--color-brand-500)" />
           <rect x={x + 32} y={y + b.h / 2 - 4} width="64" height="8" rx="2" fill="var(--color-content)" opacity="0.7" />
           {Array.from({ length: itemCount }).map((_, i) => (
@@ -171,7 +171,7 @@ export function BlockShape({ block: b }: { block: WireframeBlock }) {
     case 'search':
       return (
         <g>
-          <rect x={x} y={y} width={b.w} height={b.h} rx={Math.min(radius, b.h / 2)} fill="white" stroke={stroke} />
+          <rect x={x} y={y} width={b.w} height={b.h} rx={Math.min(radius, b.h / 2)} fill="var(--color-surface-raised)" stroke={stroke} />
           <circle cx={x + 14} cy={y + b.h / 2} r="4" fill="none" stroke="var(--color-content-subtle)" strokeWidth="1.5" />
           <line x1={x + 17} y1={y + b.h / 2 + 3} x2={x + 21} y2={y + b.h / 2 + 7} stroke="var(--color-content-subtle)" strokeWidth="1.5" strokeLinecap="round" />
           <text x={x + 30} y={y + b.h / 2 + 4} fontSize="11" fill="var(--color-content-subtle)">
@@ -194,7 +194,7 @@ export function BlockShape({ block: b }: { block: WireframeBlock }) {
       const size = Math.min(b.w, b.h, 18)
       return (
         <g>
-          <rect x={x} y={y + (b.h - size) / 2} width={size} height={size} rx="3" fill={checked ? 'var(--color-brand-500)' : 'white'} stroke={checked ? 'var(--color-brand-500)' : stroke} />
+          <rect x={x} y={y + (b.h - size) / 2} width={size} height={size} rx="3" fill={checked ? 'var(--color-brand-500)' : 'var(--color-surface-raised)'} stroke={checked ? 'var(--color-brand-500)' : stroke} />
           {checked ? (
             <path d={`M ${x + 4} ${y + (b.h - size) / 2 + size / 2} l ${size / 4} ${size / 4} l ${size / 2} -${size / 2}`} fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           ) : null}
@@ -211,7 +211,7 @@ export function BlockShape({ block: b }: { block: WireframeBlock }) {
       const r = Math.min(b.w, b.h, 18) / 2
       return (
         <g>
-          <circle cx={x + r} cy={y + b.h / 2} r={r} fill="white" stroke={sel ? 'var(--color-brand-500)' : stroke} />
+          <circle cx={x + r} cy={y + b.h / 2} r={r} fill="var(--color-surface-raised)" stroke={sel ? 'var(--color-brand-500)' : stroke} />
           {sel ? <circle cx={x + r} cy={y + b.h / 2} r={r * 0.5} fill="var(--color-brand-500)" /> : null}
           {b.w > r * 2 + 6 ? (
             <text x={x + r * 2 + 6} y={y + b.h / 2 + 4} fontSize="11" fill="var(--color-content)">
@@ -224,7 +224,7 @@ export function BlockShape({ block: b }: { block: WireframeBlock }) {
     case 'dropdown':
       return (
         <g>
-          <rect x={x} y={y} width={b.w} height={b.h} rx={radius} fill="white" stroke={stroke} />
+          <rect x={x} y={y} width={b.w} height={b.h} rx={radius} fill="var(--color-surface-raised)" stroke={stroke} />
           <text x={x + 10} y={y + b.h / 2 + 4} fontSize="11" fill="var(--color-content)">
             {label || 'Select…'}
           </text>
@@ -241,7 +241,7 @@ export function BlockShape({ block: b }: { block: WireframeBlock }) {
       const rows = Math.max(2, Math.floor(b.h / 24))
       return (
         <g>
-          <rect x={x} y={y} width={b.w} height={b.h} rx="4" fill="white" stroke={stroke} />
+          <rect x={x} y={y} width={b.w} height={b.h} rx="4" fill="var(--color-surface-raised)" stroke={stroke} />
           {Array.from({ length: rows }).map((_, i) => (
             <g key={i}>
               <circle cx={x + 12} cy={y + 14 + i * 24} r="2" fill="var(--color-content-subtle)" />
@@ -259,7 +259,7 @@ export function BlockShape({ block: b }: { block: WireframeBlock }) {
       const rowH = (b.h - headerH) / rows
       return (
         <g>
-          <rect x={x} y={y} width={b.w} height={b.h} rx="4" fill="white" stroke={stroke} />
+          <rect x={x} y={y} width={b.w} height={b.h} rx="4" fill="var(--color-surface-raised)" stroke={stroke} />
           <rect x={x} y={y} width={b.w} height={headerH} fill="var(--color-surface-sunken)" />
           {Array.from({ length: cols }).map((_, c) => (
             <rect key={`h-${c}`} x={x + c * colW + 8} y={y + headerH / 2 - 3} width={Math.max(0, colW - 16)} height="6" rx="2" fill="var(--color-content)" opacity="0.6" />
@@ -282,7 +282,7 @@ export function BlockShape({ block: b }: { block: WireframeBlock }) {
       return (
         <g>
           <rect x={x} y={y} width={b.w} height={b.h} rx={b.h / 2} fill="var(--color-surface-sunken)" />
-          <rect x={x + 2} y={y + 2} width={tabW - 4} height={b.h - 4} rx={(b.h - 4) / 2} fill="white" stroke="var(--color-edge-subtle)" />
+          <rect x={x + 2} y={y + 2} width={tabW - 4} height={b.h - 4} rx={(b.h - 4) / 2} fill="var(--color-surface-raised)" stroke="var(--color-edge-subtle)" />
           {tabs.map((t, i) => (
             <text
               key={i}
@@ -303,7 +303,7 @@ export function BlockShape({ block: b }: { block: WireframeBlock }) {
       const [num, lab] = (label || '128|Active users').split('|')
       return (
         <g>
-          <rect x={x} y={y} width={b.w} height={b.h} rx={radius} fill="white" stroke={stroke} />
+          <rect x={x} y={y} width={b.w} height={b.h} rx={radius} fill="var(--color-surface-raised)" stroke={stroke} />
           <text x={x + b.w / 2} y={y + b.h / 2 + 2} fontSize="22" fontWeight="700" textAnchor="middle" fill="var(--color-content)">
             {num}
           </text>
@@ -319,7 +319,7 @@ export function BlockShape({ block: b }: { block: WireframeBlock }) {
       const heights = [0.4, 0.7, 0.55, 0.85, 0.5, 0.95]
       return (
         <g>
-          <rect x={x} y={y} width={b.w} height={b.h} rx={radius} fill="white" stroke={stroke} />
+          <rect x={x} y={y} width={b.w} height={b.h} rx={radius} fill="var(--color-surface-raised)" stroke={stroke} />
           {heights.slice(0, bars).map((h, i) => {
             const barH = (b.h - 16) * h
             return (
@@ -406,6 +406,6 @@ export function BlockShape({ block: b }: { block: WireframeBlock }) {
 
 function blockFill(t: WireframeBlockType): string {
   if (t === 'image') return 'var(--color-surface-sunken)'
-  if (t === 'card' || t === 'input' || t === 'navbar' || t === 'list' || t === 'table' || t === 'stat' || t === 'icon' || t === 'chart' || t === 'dropdown' || t === 'search') return 'white'
+  if (t === 'card' || t === 'input' || t === 'navbar' || t === 'list' || t === 'table' || t === 'stat' || t === 'icon' || t === 'chart' || t === 'dropdown' || t === 'search') return 'var(--color-surface-raised)'
   return 'var(--color-surface-sunken)'
 }

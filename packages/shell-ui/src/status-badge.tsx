@@ -10,13 +10,19 @@ export type StatusKind =
   | 'info'
 
 const PILL: Record<StatusKind, string> = {
-  healthy: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
-  degraded: 'bg-rose-50 text-rose-700 ring-rose-600/20',
-  progressing: 'bg-indigo-50 text-indigo-700 ring-indigo-600/20',
-  paused: 'bg-amber-50 text-amber-800 ring-amber-600/20',
-  failed: 'bg-rose-100 text-rose-800 ring-rose-600/30',
-  unknown: 'bg-slate-100 text-slate-700 ring-slate-600/20',
-  info: 'bg-sky-50 text-sky-700 ring-sky-600/20',
+  healthy:
+    'bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/25',
+  degraded:
+    'bg-rose-50 text-rose-700 ring-rose-600/20 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-400/25',
+  progressing:
+    'bg-indigo-50 text-indigo-700 ring-indigo-600/20 dark:bg-indigo-500/10 dark:text-indigo-300 dark:ring-indigo-400/25',
+  paused:
+    'bg-amber-50 text-amber-800 ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/25',
+  failed:
+    'bg-rose-100 text-rose-800 ring-rose-600/30 dark:bg-rose-500/15 dark:text-rose-200 dark:ring-rose-400/30',
+  unknown:
+    'bg-slate-100 text-slate-700 ring-slate-600/20 dark:bg-slate-400/10 dark:text-slate-300 dark:ring-slate-400/25',
+  info: 'bg-sky-50 text-sky-700 ring-sky-600/20 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-400/25',
 }
 
 const DOT: Record<StatusKind, string> = {

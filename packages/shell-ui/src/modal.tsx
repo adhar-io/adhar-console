@@ -84,7 +84,7 @@ export function Modal({
           className={cn(
             'flex items-start justify-between gap-3 border-b border-edge-subtle px-6 py-4',
             branded
-              ? 'bg-linear-to-br from-brand-50 dark:from-brand-500/10 to-white'
+              ? 'bg-linear-to-br from-brand-50 dark:from-brand-500/10 to-surface-raised'
               : 'bg-surface-raised',
           )}
         >

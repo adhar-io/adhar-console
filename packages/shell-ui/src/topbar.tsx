@@ -108,7 +108,7 @@ const IconButton = ({
   >
     {children}
     {indicator ? (
-      <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white" />
+      <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-surface-raised" />
     ) : null}
   </button>
 )
@@ -480,7 +480,7 @@ function Avatar({ name, size = 'sm' }: { name: string; size?: 'sm' | 'md' }) {
   return (
     <div
       className={cn(
-        'flex items-center justify-center rounded-full bg-linear-to-br from-brand-500 via-brand-600 to-brand-800 text-xs font-semibold text-white ring-2 ring-white shadow-sm',
+        'flex items-center justify-center rounded-full bg-linear-to-br from-brand-500 via-brand-600 to-brand-800 text-xs font-semibold text-white ring-2 ring-surface-raised shadow-sm',
         size === 'sm' ? 'h-7 w-7' : 'h-10 w-10 text-sm',
       )}
     >

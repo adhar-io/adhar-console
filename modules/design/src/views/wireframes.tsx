@@ -255,7 +255,7 @@ function FrameCard({
           </div>
         </CardBody>
       </button>
-      <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-lg border border-edge-default bg-white/95 p-0.5 opacity-0 shadow-sm backdrop-blur transition-opacity group-hover:opacity-100">
+      <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-lg border border-edge-default bg-surface-raised/95 p-0.5 opacity-0 shadow-sm backdrop-blur transition-opacity group-hover:opacity-100">
         {onMoveLeft ? (
           <ActionBtn onClick={onMoveLeft} label="Move left">
             <IconArrowLeft />
@@ -484,7 +484,7 @@ function CreateFrameModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Sign up"
-              className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+              className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
             />
           </Field>
           <Field label="Flow">
@@ -492,7 +492,7 @@ function CreateFrameModal({
               value={flow}
               onChange={(e) => setFlow(e.target.value.toLowerCase().replace(/\s+/g, '-'))}
               list="flow-options"
-              className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+              className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
             />
             <datalist id="flow-options">
               {existingFlows.map((f) => (
@@ -516,7 +516,7 @@ function CreateFrameModal({
                   className={
                     on
                       ? 'rounded-lg border border-brand-400 bg-brand-50 p-3 text-left ring-2 ring-brand-400/20'
-                      : 'rounded-lg border border-edge-default bg-white p-3 text-left hover:border-edge-strong'
+                      : 'rounded-lg border border-edge-default bg-surface-raised p-3 text-left hover:border-edge-strong'
                   }
                 >
                   <div className="text-sm font-semibold text-content">{t.label}</div>
@@ -534,7 +534,7 @@ function CreateFrameModal({
             onChange={(e) => setNotes(e.target.value)}
             rows={2}
             placeholder="What does this screen need to communicate?"
-            className="block w-full resize-y rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full resize-y rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </Field>
       </div>

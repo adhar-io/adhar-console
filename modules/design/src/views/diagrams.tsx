@@ -182,7 +182,7 @@ function TypeTabs({
     ...(Object.keys(TYPE_LABEL) as DiagramType[]).map((id) => ({ id, label: TYPE_LABEL[id] })),
   ]
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-white p-1 shadow-sm">
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-sm">
       {types.map((t) => {
         const on = filter === t.id
         return (
@@ -216,8 +216,10 @@ function DiagramCard({ d, onOpen }: { d: Diagram; onOpen(): void }) {
         className="block w-full text-left"
         aria-label={`Open ${d.title}`}
       >
+        {/* Literal #fff on purpose (not bg-white): Mermaid renders a fixed
+            light theme, so this canvas stays white paper in dark mode too. */}
         <div
-          className="relative h-52 overflow-hidden bg-linear-to-br from-brand-50/40 via-white to-violet-50/30"
+          className="relative h-52 overflow-hidden bg-[#fff] bg-linear-to-br from-brand-50/40 via-[#fff] to-violet-50/30"
           style={{ backgroundImage: PREVIEW_GRID, backgroundSize: '24px 24px' }}
         >
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
@@ -368,7 +370,7 @@ function DiagramEditor({
 
   return (
     <div className="space-y-3">
-      <header className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-white p-2 shadow-sm">
+      <header className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-surface-raised p-2 shadow-sm">
         <Button size="sm" variant="ghost" onClick={onBack} leading={<IconBack />}>
           Library
         </Button>
@@ -383,7 +385,7 @@ function DiagramEditor({
         <select
           value={type}
           onChange={(e) => onChangeType(e.target.value as DiagramType)}
-          className="rounded-md border border-edge-default bg-white px-2 py-1 text-xs"
+          className="rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-xs"
           aria-label="Diagram type"
         >
           {(Object.keys(TYPE_LABEL) as DiagramType[]).map((t) => (
@@ -448,8 +450,10 @@ function DiagramEditor({
             </div>
           </CardHeader>
           <CardBody className="!p-3">
+            {/* Literal #fff on purpose (not bg-white): Mermaid renders a fixed
+                light theme, so this canvas stays white paper in dark mode too. */}
             <div
-              className="h-[60vh] overflow-auto rounded-lg border border-edge-subtle bg-linear-to-br from-brand-50/30 via-white to-violet-50/20 p-6 ring-1 ring-inset ring-edge-subtle"
+              className="h-[60vh] overflow-auto rounded-lg border border-edge-subtle bg-[#fff] bg-linear-to-br from-brand-50/30 via-[#fff] to-violet-50/20 p-6 ring-1 ring-inset ring-edge-subtle"
               style={{ backgroundImage: PREVIEW_GRID, backgroundSize: '24px 24px' }}
             >
               <MermaidPreview source={source} className="flex w-full justify-center" />
@@ -471,7 +475,7 @@ function DiagramEditor({
                 setDirty(true)
               }}
               placeholder="architecture, c4, security"
-              className="mt-1.5 block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+              className="mt-1.5 block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
             />
           </label>
         </CardBody>
@@ -533,7 +537,7 @@ function TemplateMenu({
       </Button>
       {open ? (
         <div
-          className="absolute right-0 z-10 mt-1 w-64 overflow-hidden rounded-lg border border-edge-default bg-white py-1 shadow-xl ring-1 ring-black/5"
+          className="absolute right-0 z-10 mt-1 w-64 overflow-hidden rounded-lg border border-edge-default bg-surface-raised py-1 shadow-xl ring-1 ring-black/5"
           onMouseLeave={() => setOpen(false)}
         >
           {templates.map((t) => (
@@ -626,7 +630,7 @@ function CreateDiagramModal({
                   className={
                     on
                       ? 'rounded-lg border border-brand-400 bg-brand-50 p-3 text-left ring-2 ring-brand-400/20'
-                      : 'rounded-lg border border-edge-default bg-white p-3 text-left hover:border-edge-strong'
+                      : 'rounded-lg border border-edge-default bg-surface-raised p-3 text-left hover:border-edge-strong'
                   }
                 >
                   <div className="flex items-center justify-between">
@@ -650,7 +654,7 @@ function CreateDiagramModal({
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder={`Untitled ${TYPE_LABEL[type].toLowerCase()}`}
-            className="mt-1.5 block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="mt-1.5 block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </label>
         <div>
@@ -668,7 +672,7 @@ function CreateDiagramModal({
                   className={
                     on
                       ? 'rounded-lg border border-brand-400 bg-brand-50 p-3 text-left ring-2 ring-brand-400/20'
-                      : 'rounded-lg border border-edge-default bg-white p-3 text-left hover:border-edge-strong'
+                      : 'rounded-lg border border-edge-default bg-surface-raised p-3 text-left hover:border-edge-strong'
                   }
                 >
                   <div className="text-sm font-semibold text-content">{t.label}</div>
@@ -698,7 +702,7 @@ function SearchInput({ value, onChange }: { value: string; onChange(v: string): 
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="Search diagrams…"
-        className="block h-9 w-44 rounded-lg border border-edge-default bg-white pl-7 pr-2 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-56"
+        className="block h-9 w-44 rounded-lg border border-edge-default bg-surface-raised pl-7 pr-2 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-56"
       />
     </div>
   )

@@ -19,7 +19,7 @@ export function Slos() {
 
   if (q.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading SLOs…
       </div>
     )
@@ -148,10 +148,10 @@ function Tile({
   accent?: 'slate' | 'emerald' | 'rose' | 'amber'
 }) {
   const cls = {
-    slate: 'from-slate-50 to-white text-content',
-    emerald: 'from-emerald-50 to-white text-emerald-700',
-    rose: 'from-rose-50 to-white text-rose-700',
-    amber: 'from-amber-50 to-white text-amber-700',
+    slate: 'from-slate-50 to-surface-raised text-content',
+    emerald: 'from-emerald-50 dark:from-emerald-500/10 to-surface-raised text-emerald-700 dark:text-emerald-300',
+    rose: 'from-rose-50 dark:from-rose-500/10 to-surface-raised text-rose-700 dark:text-rose-300',
+    amber: 'from-amber-50 dark:from-amber-500/10 to-surface-raised text-amber-700 dark:text-amber-300',
   }[accent]
   return (
     <Card className={`bg-linear-to-br ${cls} ring-1 ring-inset ring-edge-subtle`}>

@@ -30,7 +30,7 @@ export function Dashboard() {
 
   if (apps.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading delivery feed…
       </div>
     )
@@ -294,7 +294,7 @@ function StageNode({ stage: s, terminal }: { stage: kargo.Stage; terminal: boole
     <div>
       <div className="flex items-center justify-between gap-2 rounded-lg border border-edge-subtle bg-surface-sunken/40 p-2.5">
         <div className="flex items-center gap-2">
-          <span className="rounded-md bg-white px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content">
+          <span className="rounded-md bg-surface-raised px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content">
             {s.name}
           </span>
           <StatusBadge kind={tone}>{s.phase}</StatusBadge>
@@ -413,18 +413,18 @@ function HeroStat({
   hint?: string
 }) {
   const cls = {
-    brand: 'from-brand-50 to-white text-brand-700',
-    amber: 'from-amber-50 to-white text-amber-700',
-    rose: 'from-rose-50 to-white text-rose-700',
-    violet: 'from-violet-50 to-white text-violet-700',
-    sky: 'from-sky-50 to-white text-sky-700',
-    emerald: 'from-emerald-50 to-white text-emerald-700',
+    brand: 'from-brand-50 dark:from-brand-500/10 to-surface-raised text-brand-700 dark:text-brand-300',
+    amber: 'from-amber-50 dark:from-amber-500/10 to-surface-raised text-amber-700 dark:text-amber-300',
+    rose: 'from-rose-50 dark:from-rose-500/10 to-surface-raised text-rose-700 dark:text-rose-300',
+    violet: 'from-violet-50 dark:from-violet-500/10 to-surface-raised text-violet-700 dark:text-violet-300',
+    sky: 'from-sky-50 dark:from-sky-500/10 to-surface-raised text-sky-700 dark:text-sky-300',
+    emerald: 'from-emerald-50 dark:from-emerald-500/10 to-surface-raised text-emerald-700 dark:text-emerald-300',
   }[tone]
   return (
     <Card className={`relative overflow-hidden bg-linear-to-br ${cls} ring-1 ring-inset ring-edge-subtle`}>
       <CardBody className="space-y-1 p-4">
         <div className="flex items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/80 shadow-sm">
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-raised/80 shadow-sm">
             {icon}
           </span>
           <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">

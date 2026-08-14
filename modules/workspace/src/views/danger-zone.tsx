@@ -78,7 +78,7 @@ function TransferOwnership({
           type="button"
           disabled={!target || transfer.isPending}
           onClick={() => transfer.mutate(selectedEmail)}
-          className="inline-flex h-9 items-center rounded-lg border border-rose-300 bg-white px-4 text-sm font-medium text-rose-900 shadow-sm transition-colors hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-9 items-center rounded-lg border border-rose-300 bg-surface-raised px-4 text-sm font-medium text-rose-900 shadow-sm transition-colors hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {transfer.isPending ? 'Transferring…' : 'Transfer'}
         </button>
@@ -141,7 +141,7 @@ function DeleteOrganization({ orgName, loading }: { orgName: string; loading: bo
               }}
               placeholder={orgName}
               disabled={loading}
-              className="mt-1 w-full rounded-lg border border-rose-300 bg-white px-3 py-2 font-mono text-sm text-content shadow-sm focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-400/20 disabled:opacity-60"
+              className="mt-1 w-full rounded-lg border border-rose-300 bg-surface-raised px-3 py-2 font-mono text-sm text-content shadow-sm focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-400/20 disabled:opacity-60"
             />
           </label>
           <button

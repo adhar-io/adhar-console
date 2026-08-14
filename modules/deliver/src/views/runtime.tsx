@@ -56,7 +56,7 @@ export function Runtime() {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-1 rounded-lg border border-edge-default bg-white p-1 shadow-sm">
+      <div className="flex items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-sm">
         <TabBtn on={tab === 'events'} onClick={() => setTab('events')}>
           Events
         </TabBtn>
@@ -99,7 +99,7 @@ function Events() {
 
   if (q.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Tailing Falco feed…
       </div>
     )
@@ -155,7 +155,7 @@ function PriorityFilter({
   total: number
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-white p-1 shadow-sm">
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-sm">
       <PriBtn on={value === 'all'} onClick={() => onChange('all')}>
         All
         <span className="ml-1 font-mono text-[10px] tabular-nums opacity-60">{total}</span>
@@ -188,7 +188,7 @@ function PriBtn({ on, onClick, children }: { on: boolean; onClick(): void; child
 
 function WindowSelect({ value, onChange }: { value: number; onChange(v: number): void }) {
   return (
-    <div className="flex items-center gap-1 rounded-lg border border-edge-default bg-white p-1 shadow-sm">
+    <div className="flex items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-sm">
       {WINDOWS.map((w) => (
         <button
           key={w.label}
@@ -260,7 +260,7 @@ function EventDetail({ event: e, onClose }: { event: falco.FalcoEvent; onClose()
         onClick={onClose}
       />
       <aside className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-white px-6 py-4">
+        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <StatusBadge kind={PRIORITY_TONE[e.priority]}>{e.priority.toLowerCase()}</StatusBadge>
@@ -356,7 +356,7 @@ function Rules() {
 
   if (q.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading rules…
       </div>
     )
@@ -425,7 +425,7 @@ function Toggle({ enabled, onChange }: { enabled: boolean; onChange(v: boolean):
       aria-checked={enabled}
     >
       <span
-        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
+        className={`absolute top-0.5 h-4 w-4 rounded-full bg-surface-raised shadow transition-all ${
           enabled ? 'left-[18px]' : 'left-0.5'
         }`}
       />

@@ -77,7 +77,7 @@ export function HealthSummary() {
       {signals.map((sig) => (
         <div
           key={sig.name}
-          className="rounded-xl border border-edge-default bg-white p-4 shadow-sm"
+          className="rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm"
         >
           <div className="text-xs text-content-subtle">{sig.name}</div>
           <div className="mt-2 flex items-center justify-between gap-2">

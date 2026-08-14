@@ -71,7 +71,7 @@ function Toolbar({
   onQuery(q: string): void
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-white p-2 shadow-sm">
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-surface-raised p-2 shadow-sm">
       <RangeSelect value={range} onChange={onRange} />
       <div className="ml-2 flex flex-1 min-w-0 items-center gap-2">
         <span className="hidden font-mono text-[10px] uppercase tracking-wider text-content-subtle sm:inline">
@@ -81,7 +81,7 @@ function Toolbar({
           value={query}
           onChange={(e) => onQuery(e.target.value)}
           placeholder='sum by (service) (rate(http_requests_total{service=~".+"}[5m]))'
-          className="block min-w-0 flex-1 rounded-md border border-edge-default bg-white px-2 py-1 font-mono text-[12px] focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+          className="block min-w-0 flex-1 rounded-md border border-edge-default bg-surface-raised px-2 py-1 font-mono text-[12px] focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
         />
         {query ? (
           <button
@@ -105,7 +105,7 @@ function RangeSelect({
   onChange(v: TimeRangeId): void
 }) {
   return (
-    <div className="flex items-center gap-1 rounded-md border border-edge-default bg-white p-1">
+    <div className="flex items-center gap-1 rounded-md border border-edge-default bg-surface-raised p-1">
       {TIME_RANGES.map((r) => (
         <button
           key={r.id}

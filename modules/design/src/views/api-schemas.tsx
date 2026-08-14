@@ -236,7 +236,7 @@ function SpecEditor({
 
   return (
     <div className="space-y-3">
-      <header className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-white p-2 shadow-sm">
+      <header className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-surface-raised p-2 shadow-sm">
         <Button size="sm" variant="ghost" onClick={onBack} leading={<IconBack />}>
           Library
         </Button>
@@ -245,7 +245,7 @@ function SpecEditor({
           onChange={(e) => touch(setName)(e.target.value)}
           className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 text-base font-semibold tracking-tight text-content focus:border-edge-default focus:outline-none focus:ring-2 focus:ring-brand-400/20"
         />
-        <div className="flex items-center gap-1 rounded-md border border-edge-default bg-white px-2 py-1">
+        <div className="flex items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 py-1">
           <span className="font-mono text-[10px] text-content-subtle">v</span>
           <input
             value={version}
@@ -285,7 +285,7 @@ function SpecEditor({
               value={description}
               onChange={(e) => touch(setDescription)(e.target.value)}
               placeholder="What does this API do?"
-              className="mt-1.5 block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+              className="mt-1.5 block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
             />
           </label>
         </CardBody>
@@ -379,7 +379,7 @@ function EndpointGroups({ groups }: { groups: Record<string, Endpoint[]> }) {
             {groups[tag].map((ep, idx) => (
               <div
                 key={`${ep.method}-${ep.path}-${idx}`}
-                className="flex items-center gap-2 border-b border-edge-subtle bg-white px-2.5 py-2 last:border-0"
+                className="flex items-center gap-2 border-b border-edge-subtle bg-surface-raised px-2.5 py-2 last:border-0"
               >
                 <span
                   className={`inline-flex w-16 shrink-0 justify-center rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ring-inset ${
@@ -422,7 +422,7 @@ function SchemaList({
               <span className="font-mono text-[10px] text-content-subtle">{s.type}</span>
             </div>
             {s.fields.length ? (
-              <div className="bg-white">
+              <div className="bg-surface-raised">
                 {s.fields.map((f) => (
                   <div
                     key={f.name}
@@ -439,7 +439,7 @@ function SchemaList({
                 ))}
               </div>
             ) : (
-              <div className="bg-white px-3 py-2 text-[11px] text-content-subtle">No fields.</div>
+              <div className="bg-surface-raised px-3 py-2 text-[11px] text-content-subtle">No fields.</div>
             )}
           </div>
         ))}
@@ -575,7 +575,7 @@ function CreateSpecModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Payments API"
-              className="mt-1.5 block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+              className="mt-1.5 block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
             />
           </label>
           <label className="block">
@@ -586,7 +586,7 @@ function CreateSpecModal({
               value={version}
               onChange={(e) => setVersion(e.target.value)}
               placeholder="0.1.0"
-              className="mt-1.5 block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+              className="mt-1.5 block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
             />
           </label>
         </div>
@@ -599,7 +599,7 @@ function CreateSpecModal({
             onChange={(e) => setDescription(e.target.value)}
             rows={2}
             placeholder="What does this API do?"
-            className="mt-1.5 block w-full resize-y rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="mt-1.5 block w-full resize-y rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </label>
       </div>
@@ -620,7 +620,7 @@ function SearchInput({ value, onChange }: { value: string; onChange(v: string): 
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="Search specs…"
-        className="block h-9 w-44 rounded-lg border border-edge-default bg-white pl-7 pr-2 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-56"
+        className="block h-9 w-44 rounded-lg border border-edge-default bg-surface-raised pl-7 pr-2 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-56"
       />
     </div>
   )

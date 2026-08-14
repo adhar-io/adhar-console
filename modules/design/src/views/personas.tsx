@@ -205,7 +205,7 @@ function PersonaDetail({
         onClick={onClose}
       />
       <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-white px-6 py-4">
+        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="flex min-w-0 items-center gap-3">
             <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-linear-to-br from-brand-50 to-violet-50 text-2xl ring-1 ring-inset ring-edge-subtle">
               {p.avatar}
@@ -410,7 +410,7 @@ function PersonaEditorModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Priya — Platform Engineer"
-              className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+              className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
             />
           </Field>
           <Field label="Avatar">
@@ -437,7 +437,7 @@ function PersonaEditorModal({
             value={role}
             onChange={(e) => setRole(e.target.value)}
             placeholder="Platform engineer"
-            className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </Field>
         <Field label="Bio">
@@ -446,7 +446,7 @@ function PersonaEditorModal({
             onChange={(e) => setBio(e.target.value)}
             rows={2}
             placeholder="Owns the dev platform for a 200-person fintech."
-            className="block w-full resize-y rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full resize-y rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </Field>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -460,7 +460,7 @@ function PersonaEditorModal({
             value={tech}
             onChange={(e) => setTech(e.target.value)}
             placeholder="Kubernetes, Terraform, Go"
-            className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </Field>
       </div>
@@ -494,7 +494,7 @@ function ListField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         rows={3}
-        className="block w-full resize-y rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+        className="block w-full resize-y rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
       />
     </Field>
   )
@@ -540,7 +540,7 @@ function Quadrant({
     rose: 'text-rose-700',
   }[tone]
   return (
-    <div className="bg-white p-3">
+    <div className="bg-surface-raised p-3">
       <div className={`text-[11px] font-semibold uppercase tracking-[0.06em] ${accent}`}>
         {label}
       </div>

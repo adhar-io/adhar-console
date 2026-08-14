@@ -51,7 +51,7 @@ export function ArgoApps() {
 
   if (q.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading applications…
       </div>
     )
@@ -149,7 +149,7 @@ function AppCard({
           </div>
         </div>
 
-        <div className="mt-3 rounded-md border border-edge-subtle bg-white p-2 text-[11px]">
+        <div className="mt-3 rounded-md border border-edge-subtle bg-surface-raised p-2 text-[11px]">
           <div className="truncate font-mono text-content-muted">
             {a.spec.source.repoURL.replace(/^https?:\/\//, '')}
           </div>
@@ -164,7 +164,7 @@ function AppCard({
           </div>
         ) : null}
       </button>
-      <div className="border-t border-edge-subtle bg-white/80 px-4 py-2">
+      <div className="border-t border-edge-subtle bg-surface-raised/80 px-4 py-2">
         <Button
           size="sm"
           onClick={(e) => {
@@ -221,7 +221,7 @@ function AppDetail({ app: a, onClose }: { app: argocd.Application; onClose(): vo
         onClick={onClose}
       />
       <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-white px-6 py-4">
+        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
               ArgoCD application · {a.spec.project}
@@ -478,7 +478,7 @@ function HistoryRow({
   return (
     <li
       className={`flex items-center gap-3 rounded-md border p-2.5 ${
-        h.current ? 'border-brand-300 bg-brand-50/40' : 'border-edge-subtle bg-white'
+        h.current ? 'border-brand-300 bg-brand-50/40' : 'border-edge-subtle bg-surface-raised'
       }`}
     >
       <div className="min-w-0 flex-1">
@@ -561,7 +561,7 @@ function SearchInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="block h-9 w-44 rounded-lg border border-edge-default bg-white pl-7 pr-2 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-56"
+        className="block h-9 w-44 rounded-lg border border-edge-default bg-surface-raised pl-7 pr-2 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-56"
       />
     </div>
   )

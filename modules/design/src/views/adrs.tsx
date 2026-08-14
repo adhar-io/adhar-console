@@ -155,7 +155,7 @@ function FilterTabs({
     { id: 'rejected', label: 'Rejected' },
   ]
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-white p-1 shadow-sm">
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-sm">
       {tabs.map((t) => {
         const on = filter === t.id
         return (
@@ -248,7 +248,7 @@ function AdrDetail({
         onClick={onClose}
       />
       <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-white px-6 py-4">
+        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2 font-mono text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
               <span className="rounded-md bg-surface-sunken px-1.5 py-0.5">
@@ -267,7 +267,7 @@ function AdrDetail({
             <select
               value={adr.status}
               onChange={(e) => onChangeStatus(e.target.value as AdrStatus)}
-              className="rounded-md border border-edge-default bg-white px-2 py-1 text-xs"
+              className="rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-xs"
               aria-label="Change status"
             >
               {STATUS_ORDER.map((s) => (
@@ -406,7 +406,7 @@ function CreateAdrModal({
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Adopt XYZ for A and B"
-            className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </Field>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -414,7 +414,7 @@ function CreateAdrModal({
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value as AdrStatus)}
-              className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm"
+              className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm"
             >
               {STATUS_ORDER.map((s) => (
                 <option key={s} value={s}>
@@ -428,7 +428,7 @@ function CreateAdrModal({
               value={authors}
               onChange={(e) => setAuthors(e.target.value)}
               placeholder="tapas, maya"
-              className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+              className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
             />
           </Field>
           <Field label="Tags (comma-sep)">
@@ -436,7 +436,7 @@ function CreateAdrModal({
               value={tags}
               onChange={(e) => setTags(e.target.value)}
               placeholder="api, plane"
-              className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+              className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
             />
           </Field>
         </div>
@@ -446,7 +446,7 @@ function CreateAdrModal({
             onChange={(e) => setContext(e.target.value)}
             rows={3}
             placeholder="What problem are we solving?"
-            className="block w-full resize-y rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full resize-y rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </Field>
         <Field label="Decision">
@@ -455,7 +455,7 @@ function CreateAdrModal({
             onChange={(e) => setDecision(e.target.value)}
             rows={3}
             placeholder="What did we choose, and why?"
-            className="block w-full resize-y rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full resize-y rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </Field>
         <Field label="Consequences">
@@ -464,7 +464,7 @@ function CreateAdrModal({
             onChange={(e) => setConsequences(e.target.value)}
             rows={3}
             placeholder="What does this make easier? Harder?"
-            className="block w-full resize-y rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full resize-y rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </Field>
       </div>
@@ -494,7 +494,7 @@ function SearchInput({ value, onChange }: { value: string; onChange(v: string): 
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="Search ADRs…"
-        className="block h-9 w-44 rounded-lg border border-edge-default bg-white pl-7 pr-2 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-56"
+        className="block h-9 w-44 rounded-lg border border-edge-default bg-surface-raised pl-7 pr-2 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-56"
       />
     </div>
   )

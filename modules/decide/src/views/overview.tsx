@@ -219,7 +219,7 @@ function BiScalarCard({ q }: { q: metabase.Question }) {
   const tone = delta >= 0 ? 'emerald' : 'rose'
   const formatted = formatScalar(q.scalar ?? 0, q.scalar_unit)
   return (
-    <Card className="bg-linear-to-br from-brand-50 to-white ring-1 ring-inset ring-edge-subtle">
+    <Card className="bg-linear-to-br from-brand-50 to-surface-raised ring-1 ring-inset ring-edge-subtle">
       <CardBody className="space-y-1 p-4">
         <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
           {q.name}

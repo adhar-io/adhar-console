@@ -96,7 +96,7 @@ export function Invoices() {
                     href={i.pdfUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex h-8 items-center gap-1 rounded-md border border-edge-default bg-white px-2.5 text-[12px] font-medium text-content shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken"
+                    className="inline-flex h-8 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2.5 text-[12px] font-medium text-content shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken"
                   >
                     <IconDownload /> PDF
                   </a>

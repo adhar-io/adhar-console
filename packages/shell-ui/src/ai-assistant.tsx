@@ -178,6 +178,12 @@ export function AiProvider({ children, onApplyProposal }: AiProviderProps) {
     run('chat', { prompt: p, userLabel: p })
   }
 
+  const quickAsk = (prompt: string) => {
+    if (busy) return
+    setTitle('Assistant')
+    run('chat', { prompt, userLabel: prompt })
+  }
+
   return (
     <>
       {children}
@@ -204,6 +210,7 @@ export function AiProvider({ children, onApplyProposal }: AiProviderProps) {
         onSubmit={submit}
         onStop={() => abortRef.current?.abort()}
         onClear={() => setTurns([])}
+        onQuickAsk={quickAsk}
         onApplyProposal={onApplyProposal}
       />
     </>
@@ -229,6 +236,7 @@ function AiPanel(props: {
   onSubmit(): void
   onStop(): void
   onClear(): void
+  onQuickAsk(prompt: string): void
   onApplyProposal?(manifest: unknown): Promise<{ ok: boolean; message: string }>
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -261,7 +269,7 @@ function AiPanel(props: {
 
         <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
           {props.turns.length === 0 ? (
-            <EmptyPrompt configured={props.configured} />
+            <EmptyPrompt configured={props.configured} onQuickAsk={props.onQuickAsk} />
           ) : (
             props.turns.map((t) => (
               <TurnView key={t.id} turn={t} onApplyProposal={props.onApplyProposal} />
@@ -351,7 +359,7 @@ function ProposalCard({ proposal, onApply }: { proposal: AiProposal; onApply?(m:
       <div className="flex items-start gap-2">
         <span className="mt-0.5 text-amber-600"><WrenchIcon /></span>
         <div className="min-w-0 flex-1">
-          <div className="text-xs font-semibold text-amber-900 dark:text-amber-200">Proposed change · review before applying</div>
+          <div className="text-xs font-semibold text-amber-900 dark:text-amber-200">Suggested change (review &amp; apply)</div>
           <div className="mt-0.5 text-sm text-content">{proposal.summary}</div>
         </div>
       </div>
@@ -384,6 +392,10 @@ function ProposalCard({ proposal, onApply }: { proposal: AiProposal; onApply?(m:
         </button>
         {msg ? <span className={`text-[11px] ${state === 'error' ? 'text-rose-700 dark:text-rose-300' : 'text-emerald-700 dark:text-emerald-300'}`}>{msg}</span> : null}
       </div>
+      <div className="mt-2 flex items-center gap-1 text-[11px] text-amber-800/80 dark:text-amber-300/80">
+        <ShieldIcon />
+        Adhar never applies changes automatically — nothing happens until you review and apply.
+      </div>
     </div>
   )
 }
@@ -401,6 +413,16 @@ function toolLabel(name: string, args: unknown): string {
       return 'events'
     case 'k8s_discovery':
       return 'discover API'
+    case 'k8s_describe':
+      return `describe ${a.resource ?? ''}/${a.name ?? ''}${a.namespace ? ` · ${a.namespace}` : ''}`
+    case 'k8s_pod_diagnostics':
+      return `pod diagnostics ${a.pod ?? ''}${a.namespace ? ` · ${a.namespace}` : ''}`
+    case 'k8s_workload_health':
+      return `${a.kind ?? 'workload'} health ${a.name ?? ''}${a.namespace ? ` · ${a.namespace}` : ''}`
+    case 'k8s_events_scan':
+      return `warning scan · ${a.namespace ?? 'cluster'}`
+    case 'argocd_app_status':
+      return `argocd app ${a.name ?? ''}`
     case 'propose_change':
       return 'propose change'
     default:
@@ -408,7 +430,14 @@ function toolLabel(name: string, args: unknown): string {
   }
 }
 
-function EmptyPrompt({ configured }: { configured: boolean }) {
+const QUICK_PROMPTS: Array<{ label: string; prompt: string }> = [
+  { label: 'Why is this pod failing?', prompt: 'Why is this pod failing? Run pod diagnostics, check its events and previous logs, and explain the root cause.' },
+  { label: 'Diagnose this deployment’s rollout', prompt: 'Diagnose this deployment’s rollout: compare desired vs ready/updated/available replicas, inspect its pods, and explain what is blocking it.' },
+  { label: 'Scan namespace for warnings', prompt: 'Scan the current namespace for Warning events, group them by reason, and summarize what needs attention.' },
+  { label: 'Check ArgoCD app health', prompt: 'Check the ArgoCD application for this workload: report sync and health status and flag any out-of-sync or degraded resources.' },
+]
+
+function EmptyPrompt({ configured, onQuickAsk }: { configured: boolean; onQuickAsk(prompt: string): void }) {
   return (
     <div className="mt-6 text-center text-sm text-content-subtle">
       {configured ? (
@@ -416,7 +445,19 @@ function EmptyPrompt({ configured }: { configured: boolean }) {
           <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-br from-brand-500 to-accent-500 text-white">
             <SparkIcon />
           </div>
-          Ask about workloads, diagnose failures, or generate manifests. I read your cluster with your permissions.
+          Ask about workloads, diagnose failures, or generate manifests. I read your cluster with your permissions — and never change anything without your approval.
+          <div className="mt-4 flex flex-wrap justify-center gap-1.5">
+            {QUICK_PROMPTS.map((q) => (
+              <button
+                key={q.label}
+                type="button"
+                onClick={() => onQuickAsk(q.prompt)}
+                className="rounded-full border border-edge-default bg-surface-raised px-3 py-1.5 text-xs text-content-muted transition-colors hover:border-brand-300 dark:hover:border-brand-500/40 hover:bg-brand-50 dark:hover:bg-brand-500/10 hover:text-brand-700 dark:hover:text-brand-300"
+              >
+                {q.label}
+              </button>
+            ))}
+          </div>
         </>
       ) : (
         <>AI isn’t configured on this cluster. Set <code className="rounded bg-surface-sunken px-1">AI_BASE_URL</code> / <code className="rounded bg-surface-sunken px-1">AI_MODEL</code> to enable it.</>
@@ -477,6 +518,13 @@ function ToolIcon() {
   return (
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
       <path d="M4 6h16M4 12h16M4 18h10" strokeLinecap="round" />
+    </svg>
+  )
+}
+function ShieldIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 2l8 3v6c0 5-3.4 9.4-8 11-4.6-1.6-8-6-8-11V5l8-3z" />
     </svg>
   )
 }

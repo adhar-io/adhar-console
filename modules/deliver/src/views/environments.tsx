@@ -23,7 +23,7 @@ export function Environments() {
 
   if (apps.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading environments…
       </div>
     )
@@ -91,10 +91,10 @@ function envClass(namespace: string): string {
 
 function envTone(namespace: string): { bg: string; tone: 'healthy' | 'progressing' | 'paused' | 'unknown' } {
   const cls = envClass(namespace)
-  if (cls === 'prod') return { bg: 'from-rose-50 to-white', tone: 'unknown' }
-  if (cls === 'staging') return { bg: 'from-amber-50 to-white', tone: 'paused' }
-  if (cls === 'dev') return { bg: 'from-emerald-50 to-white', tone: 'healthy' }
-  return { bg: 'from-slate-50 to-white', tone: 'progressing' }
+  if (cls === 'prod') return { bg: 'from-rose-50 dark:from-rose-500/10 to-surface-raised', tone: 'unknown' }
+  if (cls === 'staging') return { bg: 'from-amber-50 dark:from-amber-500/10 to-surface-raised', tone: 'paused' }
+  if (cls === 'dev') return { bg: 'from-emerald-50 dark:from-emerald-500/10 to-surface-raised', tone: 'healthy' }
+  return { bg: 'from-slate-50 to-surface-raised', tone: 'progressing' }
 }
 
 function EnvCard({ env, kargoStage }: { env: EnvBucket; kargoStage?: { name: string; phase: string; lastPromoted?: string } }) {
@@ -135,7 +135,7 @@ function EnvCard({ env, kargoStage }: { env: EnvBucket; kargoStage?: { name: str
           <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-content-subtle">
             Applications
           </div>
-          <ul className="divide-y divide-edge-subtle rounded-lg border border-edge-subtle bg-white">
+          <ul className="divide-y divide-edge-subtle rounded-lg border border-edge-subtle bg-surface-raised">
             {env.apps.map((a) => (
               <li key={a.metadata.name} className="flex items-center gap-2 px-3 py-2 text-sm">
                 <span className="truncate font-medium text-content">{a.metadata.name}</span>
@@ -161,7 +161,7 @@ function EnvCard({ env, kargoStage }: { env: EnvBucket; kargoStage?: { name: str
         </div>
 
         {kargoStage ? (
-          <div className="rounded-lg border border-edge-subtle bg-white/70 p-2.5 text-[11px]">
+          <div className="rounded-lg border border-edge-subtle bg-surface-raised/70 p-2.5 text-[11px]">
             <div className="flex items-center gap-2">
               <span className="font-semibold text-content">Kargo stage:</span>
               <span className="font-mono text-content-muted">{kargoStage.name}</span>
@@ -213,7 +213,7 @@ function Tile({
     amber: 'text-amber-700',
   }[accent]
   return (
-    <div className="rounded-md border border-edge-subtle bg-white p-2">
+    <div className="rounded-md border border-edge-subtle bg-surface-raised p-2">
       <div className={`text-base font-semibold tabular-nums ${tone}`}>{value}</div>
       <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
         {label}

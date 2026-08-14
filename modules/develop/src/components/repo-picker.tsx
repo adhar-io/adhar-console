@@ -57,8 +57,8 @@ export function RepoPicker({
         title={active ? `Switch repo — currently ${active.full_name}` : 'Pick a repo'}
         className={cn(
           'group inline-flex max-w-[16rem] items-center gap-2 rounded-lg border border-transparent bg-surface-sunken/60 px-2 py-1 text-left transition-colors',
-          'hover:border-edge-default hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25',
-          open && 'border-brand-400 bg-white ring-2 ring-brand-400/20',
+          'hover:border-edge-default hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25',
+          open && 'border-brand-400 bg-surface-raised ring-2 ring-brand-400/20',
         )}
     >
         <RepoMark name={active?.name} />
@@ -66,7 +66,7 @@ export function RepoPicker({
           {active ? active.name : 'Pick a repo'}
         </span>
         {active ? (
-          <span className="hidden rounded-md bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-content-muted ring-1 ring-edge-subtle sm:inline">
+          <span className="hidden rounded-md bg-surface-raised px-1.5 py-0.5 font-mono text-[10px] font-semibold text-content-muted ring-1 ring-edge-subtle sm:inline">
             {active.default_branch}
           </span>
         ) : null}
@@ -76,7 +76,7 @@ export function RepoPicker({
         <div
           role="listbox"
           className={cn(
-            'absolute top-full z-40 mt-2 w-[min(22rem,calc(100vw-1rem))] overflow-hidden rounded-xl border border-edge-default bg-white shadow-xl ring-1 ring-black/5',
+            'absolute top-full z-40 mt-2 w-[min(22rem,calc(100vw-1rem))] overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-xl ring-1 ring-black/5',
             align === 'right' ? 'right-0' : 'left-0',
           )}
         >
@@ -90,7 +90,7 @@ export function RepoPicker({
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
                 placeholder="Search repos…"
-                className="block w-full rounded-md border border-edge-default bg-white py-1.5 pl-7 pr-2 text-xs text-content placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+                className="block w-full rounded-md border border-edge-default bg-surface-raised py-1.5 pl-7 pr-2 text-xs text-content placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
               />
             </div>
           </div>

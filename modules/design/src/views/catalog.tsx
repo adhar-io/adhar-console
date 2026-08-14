@@ -7,8 +7,8 @@ export function Catalog() {
     (globalThis as { __ADHAR_STORYBOOK_URL__?: string }).__ADHAR_STORYBOOK_URL__ ??
     'http://localhost:6006'
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-      <div className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-500">
+    <div className="overflow-hidden rounded-lg border border-edge-default bg-surface-raised">
+      <div className="border-b border-edge-default bg-surface-sunken px-4 py-2 text-xs text-content-muted">
         Embedded adhar-ui Storybook — <code>{storybookUrl}</code>
       </div>
       <iframe

@@ -88,7 +88,7 @@ export function Compliance() {
                       href={c.reportUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-edge-default bg-white px-3 text-[12px] font-medium text-content shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken"
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-3 text-[12px] font-medium text-content shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken"
                     >
                       <IconExternal /> Download report
                     </a>

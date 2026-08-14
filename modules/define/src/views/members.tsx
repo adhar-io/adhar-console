@@ -36,7 +36,7 @@ export function Members() {
 
   if (q.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading members…
       </div>
     )
@@ -120,7 +120,7 @@ export function Members() {
                               role: Number(e.target.value),
                             })
                           }
-                          className="rounded-md border border-edge-default bg-white px-2 py-1 text-[11px] focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+                          className="rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-[11px] focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
                           aria-label={`Change role for ${memberDisplayName(m)}`}
                         >
                           <option value={5}>Admin</option>

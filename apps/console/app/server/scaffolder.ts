@@ -2,6 +2,8 @@ import { env } from '@adhar-console/utils'
 import { getRequestUser, unauthorized } from './request-user.ts'
 import { getTool } from './tool-registry.ts'
 import { apiServerFetch, resolveIdentity } from './k8s/gateway.ts'
+import { generateGoldenPathFiles, isGoldenPathFamily } from './golden-paths.ts'
+import type { GoldenPathFamily } from './golden-paths.ts'
 
 /**
  * Component scaffolder — the real GitOps engine behind Catalog → Create.
@@ -9,6 +11,8 @@ import { apiServerFetch, resolveIdentity } from './k8s/gateway.ts'
  * `POST /api/scaffold` runs as the signed-in user and performs, in order:
  *   1. create a Gitea repo (generated from a template repo, or auto-init'd),
  *   2. commit a Backstage `catalog-info.yaml` descriptor,
+ *   2b. (optional) golden path: commit the full starter file set — Dockerfile,
+ *       CI workflow, `deploy/` Kustomize, observability (see golden-paths.ts),
  *   3. (optional) commit a `deploy/` starter + create an Argo CD `Application`
  *      via the per-user Kubernetes gateway so GitOps takes over.
  *
@@ -36,6 +40,8 @@ interface ScaffoldRequest {
     gitops?: boolean
     manifestPath?: string
     catalogInfoPath?: string
+    /** Golden-path family — commit a full starter (Dockerfile, CI, deploy/, observability). */
+    goldenPath?: GoldenPathFamily | string
   }
   params?: Record<string, unknown>
 }
@@ -178,17 +184,52 @@ export async function handleScaffold(req: Request): Promise<Response> {
     steps.push({ name: 'catalog-info', ok: false, detail: e instanceof Error ? e.message : '' })
   }
 
+  /* ── 2b. golden path: commit the full starter file set ── */
+  const goldenPath = isGoldenPathFamily(sc.goldenPath) ? sc.goldenPath : undefined
+  if (goldenPath) {
+    const p = body.params ?? {}
+    const files = generateGoldenPathFiles(goldenPath, {
+      name,
+      description: body.description,
+      owner: body.owner,
+      port: Number(p.port) || undefined,
+      language: typeof p.language === 'string' ? p.language : undefined,
+    })
+    for (const file of files) {
+      // The catalog descriptor was already committed above with richer metadata.
+      if (file.path === catalogInfoPath || file.path === 'catalog-info.yaml') continue
+      try {
+        const r = await putFile(
+          file.path,
+          file.content,
+          `feat: add ${goldenPath} golden-path starter (adhar scaffolder)`,
+        )
+        steps.push({
+          name: `commit:${file.path}`,
+          ok: r.ok,
+          detail: r.ok ? undefined : `gitea ${r.status}: ${(await r.text().catch(() => '')).slice(0, 160)}`,
+        })
+      } catch (e) {
+        steps.push({ name: `commit:${file.path}`, ok: false, detail: e instanceof Error ? e.message : '' })
+      }
+    }
+  }
+
   /* ── 3. GitOps: deploy starter + Argo CD Application (as the user) ── */
   let appName: string | undefined
   if (sc.gitops) {
-    try {
-      await putFile(
-        `${manifestPath}/kustomization.yaml`,
-        'apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n',
-        'chore: add deploy starter (adhar scaffolder)',
-      )
-    } catch {
-      /* non-fatal */
+    // Golden paths ship their own populated deploy/ — only seed the empty
+    // Kustomization stub when no golden path filled it in.
+    if (!goldenPath) {
+      try {
+        await putFile(
+          `${manifestPath}/kustomization.yaml`,
+          'apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n',
+          'chore: add deploy starter (adhar scaffolder)',
+        )
+      } catch {
+        /* non-fatal */
+      }
     }
     const id = await resolveIdentity(req)
     if (!id) {

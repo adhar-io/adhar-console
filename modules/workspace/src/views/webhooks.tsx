@@ -210,7 +210,7 @@ function RecentDeliveries({ webhooks }: { webhooks: Webhook[] }) {
           <select
             value={active ?? ''}
             onChange={(e) => setSelected(e.target.value)}
-            className="h-8 rounded-lg border border-edge-default bg-white px-2 text-[12px] text-content shadow-sm focus:border-brand-400 focus:outline-none"
+            className="h-8 rounded-lg border border-edge-default bg-surface-raised px-2 text-[12px] text-content shadow-sm focus:border-brand-400 focus:outline-none"
           >
             {webhooks.map((w) => (
               <option key={w.id} value={w.id}>
@@ -343,13 +343,13 @@ function WebhookEditor({
                     'flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-[12px] transition-colors',
                     on
                       ? 'border-brand-300 bg-brand-50 text-brand-900'
-                      : 'border-edge-default bg-white text-content-muted hover:bg-surface-sunken',
+                      : 'border-edge-default bg-surface-raised text-content-muted hover:bg-surface-sunken',
                   )}
                 >
                   <span
                     className={cn(
                       'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
-                      on ? 'border-brand-500 bg-brand-600 text-white' : 'border-edge-strong bg-white',
+                      on ? 'border-brand-500 bg-brand-600 text-white' : 'border-edge-strong bg-surface-raised',
                     )}
                   >
                     {on ? (

@@ -24,7 +24,7 @@ export function PullRequestList() {
 
   if (q.isLoading) {
     return (
-      <div className='flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm'>
+      <div className='flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm'>
         <Spinner size={14} /> Loading PRs…
       </div>
     );
@@ -154,7 +154,7 @@ function PrDetail({
         onClick={onClose}
       />
       <aside className='relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl'>
-        <header className='flex items-start justify-between gap-4 border-b border-edge-default bg-white px-6 py-4'>
+        <header className='flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4'>
           <div className='min-w-0'>
             <div className='flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-content-subtle'>
               <code className='font-mono'>#{pr.number}</code>
@@ -179,7 +179,7 @@ function PrDetail({
               href={pr.html_url}
               target='_blank'
               rel='noopener'
-              className='inline-flex h-8 items-center rounded-md border border-edge-default bg-white px-2 text-xs font-medium text-content hover:border-brand-400 hover:text-brand-700'
+              className='inline-flex h-8 items-center rounded-md border border-edge-default bg-surface-raised px-2 text-xs font-medium text-content hover:border-brand-400 hover:text-brand-700'
             >
               Open in Gitea
             </a>
@@ -475,7 +475,7 @@ function SearchInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className='block h-9 w-44 rounded-lg border border-edge-default bg-white pl-7 pr-2 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-56'
+        className='block h-9 w-44 rounded-lg border border-edge-default bg-surface-raised pl-7 pr-2 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-56'
       />
     </div>
   );

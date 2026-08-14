@@ -300,7 +300,7 @@ export function Whiteboard() {
       />
       {!active || (active.notes.length === 0 && active.connections.length === 0) ? (
         <div
-          className="flex h-[60vh] items-center justify-center rounded-xl border border-dashed border-edge-default bg-white"
+          className="flex h-[60vh] items-center justify-center rounded-xl border border-dashed border-edge-default bg-surface-raised"
           style={{ backgroundImage: GRID_BG, backgroundSize: '20px 20px' }}
         >
           <EmptyState
@@ -312,7 +312,7 @@ export function Whiteboard() {
       ) : (
         <div
           ref={boardRef}
-          className="relative h-[70vh] overflow-auto rounded-xl border border-edge-default bg-white shadow-sm"
+          className="relative h-[70vh] overflow-auto rounded-xl border border-edge-default bg-surface-raised shadow-sm"
           style={{ backgroundImage: GRID_BG, backgroundSize: '20px 20px' }}
         >
           <div className="relative" style={{ width: BOARD_W, height: BOARD_H }}>
@@ -372,7 +372,7 @@ function BoardTabs({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-white p-1 shadow-sm">
+      <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-sm">
         {boards.map((b) => {
           const on = b.id === activeId
           return (
@@ -426,7 +426,7 @@ function Toolbar({
   onClear(): void
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-white p-2 shadow-sm">
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-surface-raised p-2 shadow-sm">
       <div className="text-[11px] text-content-muted">
         {count} note{count === 1 ? '' : 's'}
       </div>
@@ -736,7 +736,7 @@ function NewBoardModal({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Sprint retro"
-            className="mt-1.5 block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="mt-1.5 block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </label>
         <div>
@@ -754,7 +754,7 @@ function NewBoardModal({
                   className={
                     on
                       ? 'rounded-lg border border-brand-400 bg-brand-50 p-3 text-left ring-2 ring-brand-400/20'
-                      : 'rounded-lg border border-edge-default bg-white p-3 text-left hover:border-edge-strong'
+                      : 'rounded-lg border border-edge-default bg-surface-raised p-3 text-left hover:border-edge-strong'
                   }
                 >
                   <div className="text-sm font-semibold text-content">{t.name}</div>
@@ -811,7 +811,7 @@ function RenameBoardModal({
         autoFocus
         value={name}
         onChange={(e) => setName(e.target.value)}
-        className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+        className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
       />
     </Modal>
   )

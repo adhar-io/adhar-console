@@ -199,7 +199,7 @@ function CustomRolesCard({
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {roles.map((r) => (
-            <div key={r.id} className="rounded-2xl border border-edge-default bg-white p-4 shadow-sm">
+            <div key={r.id} className="rounded-2xl border border-edge-default bg-surface-raised p-4 shadow-sm">
               <div className="flex items-center justify-between gap-2">
                 <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-800 ring-1 ring-inset ring-brand-200">
                   {r.name}
@@ -359,7 +359,7 @@ function RoleEditor({
                             'flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-[12px] transition-colors',
                             on
                               ? 'border-brand-300 bg-brand-50 text-brand-900'
-                              : 'border-edge-default bg-white text-content-muted hover:bg-surface-sunken',
+                              : 'border-edge-default bg-surface-raised text-content-muted hover:bg-surface-sunken',
                           )}
                         >
                           <span
@@ -367,7 +367,7 @@ function RoleEditor({
                               'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
                               on
                                 ? 'border-brand-500 bg-brand-600 text-white'
-                                : 'border-edge-strong bg-white',
+                                : 'border-edge-strong bg-surface-raised',
                             )}
                           >
                             {on ? (
@@ -408,7 +408,7 @@ function ToggleTab({ on, onClick, children }: { on: boolean; onClick(): void; ch
       className={cn(
         'inline-flex h-7 items-center rounded-md px-2.5 text-[12px] font-medium transition-all',
         on
-          ? 'bg-white text-content shadow-sm ring-1 ring-edge-default'
+          ? 'bg-surface-raised text-content shadow-sm ring-1 ring-edge-default'
           : 'text-content-muted hover:text-content',
       )}
     >
@@ -493,7 +493,7 @@ function RoleDetailGrid() {
       {ALL_ROLES.map((r) => {
         const perms = ROLE_PERMISSIONS[r]
         return (
-          <div key={r} className="rounded-2xl border border-edge-default bg-white p-4 shadow-sm">
+          <div key={r} className="rounded-2xl border border-edge-default bg-surface-raised p-4 shadow-sm">
             <div className="flex items-center justify-between gap-2">
               <RoleBadge role={r as Role} />
               <span className="font-mono text-[11px] tabular-nums text-content-subtle">

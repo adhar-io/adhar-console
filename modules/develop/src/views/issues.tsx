@@ -18,7 +18,7 @@ function IssueList({ repo }: { repo: string }) {
 
   if (q.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading issues…
       </div>
     )
@@ -30,7 +30,7 @@ function IssueList({ repo }: { repo: string }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-1 rounded-lg border border-edge-default bg-white p-1 shadow-sm">
+      <div className="flex items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-sm">
         {(['open', 'closed', 'all'] as const).map((s) => {
           const on = state === s
           return (

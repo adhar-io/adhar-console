@@ -31,6 +31,7 @@ import {
   useRegisterEntity,
 } from '~/data/catalog.ts'
 import { parseApiDefinition, type ParsedApi, type SourceStatus } from '~/data/catalog-live.ts'
+import { type Scorecard, scoreEntity } from '~/data/scorecard.ts'
 import type { CatalogSearch } from './catalog.tsx'
 import {
   deleteView,
@@ -445,8 +446,6 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
     <div className="space-y-8">
       <CatalogHeader onRegister={() => setRegisterOpen(true)} />
 
-      <SourceBanner sources={q.sources} offline={q.offline} live={q.live} loading={q.isLoading} />
-
       <CoveragePanel coverage={coverage} stars={stars.length} attention={attentionCount} />
 
       {!isFiltering && starredEntities.length > 0 ? (
@@ -741,80 +740,6 @@ function pct(part: number, total: number): number {
   return Math.round((part / total) * 100)
 }
 
-/* ─────────── source banner (live k8s / gitea health) ─────────── */
-
-function SourceBanner({
-  sources,
-  offline,
-  live,
-  loading,
-}: {
-  sources: SourceStatus[]
-  offline: boolean
-  live: boolean
-  loading: boolean
-}) {
-  if (offline) {
-    return (
-      <div
-        role="status"
-        className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-500/10 px-4 py-2.5 text-[12px] text-amber-800 dark:text-amber-300"
-      >
-        <span className="mt-0.5 shrink-0">
-          <IconAlert />
-        </span>
-        <div>
-          <span className="font-semibold">Showing the bundled sample catalog.</span> No live cluster
-          or registered entities are reachable — the data below is illustrative, not from your
-          environment.
-        </div>
-      </div>
-    )
-  }
-  if (loading && sources.every((s) => s.state === 'loading')) return null
-  const notable = sources.some((s) => s.state === 'error' || s.state === 'empty')
-  if (!notable && !live) return null
-  return (
-    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-edge-default bg-surface-raised px-4 py-2 text-[11px] shadow-sm">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
-        Live sources
-      </span>
-      {sources.map((s) => (
-        <SourceChip key={s.id} status={s} />
-      ))}
-    </div>
-  )
-}
-
-function SourceChip({ status }: { status: SourceStatus }) {
-  const dot =
-    status.state === 'ok'
-      ? 'bg-emerald-500'
-      : status.state === 'error'
-        ? 'bg-rose-500'
-        : status.state === 'loading'
-          ? 'bg-slate-400'
-          : 'bg-amber-500'
-  const detail =
-    status.state === 'ok'
-      ? `${status.count} ${status.count === 1 ? 'entity' : 'entities'}`
-      : status.state === 'empty'
-        ? 'no entities'
-        : status.state === 'loading'
-          ? 'checking…'
-          : (status.error ?? 'unavailable')
-  return (
-    <span
-      title={detail}
-      className="inline-flex items-center gap-1.5 rounded-full border border-edge-default bg-surface-sunken/60 px-2 py-0.5 text-content-muted"
-    >
-      <span className={cn('h-1.5 w-1.5 rounded-full', dot)} />
-      <span className="font-medium text-content">{status.label}</span>
-      <span className="text-content-subtle">· {detail}</span>
-    </span>
-  )
-}
-
 /* ─────────── starred + recent rows ─────────── */
 
 function PinRow({
@@ -937,11 +862,11 @@ function SystemCard({ summary, onPick }: { summary: SystemSummary; onPick(e: Ent
       onClick={() => onPick(system)}
       className="group relative flex h-full flex-col items-stretch overflow-hidden rounded-2xl border border-edge-default bg-surface-raised text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-300/70 hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-500"
     >
-      <div className="relative bg-linear-to-br from-violet-50/60 to-white px-5 py-5">
+      <div className="relative bg-linear-to-br from-violet-50/60 dark:from-violet-500/10 to-surface-raised px-5 py-5">
         <div className="flex items-start justify-between gap-2">
           <KindGlyph kind="System" size="lg" />
           {ownerName ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-medium text-content-muted ring-1 ring-edge-subtle">
+            <span className="inline-flex items-center gap-1 rounded-full bg-surface-raised/80 px-2 py-0.5 text-[10px] font-medium text-content-muted ring-1 ring-edge-subtle">
               <IconUsers />
               {ownerName}
             </span>
@@ -2194,7 +2119,7 @@ function QuickPill({
         isAmber
           ? 'border-amber-400 bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 shadow-sm'
           : active
-            ? 'border-content bg-content text-white shadow-sm'
+            ? 'border-content bg-content text-surface-raised shadow-sm'
             : 'border-edge-default bg-surface-raised text-content-muted hover:border-content hover:text-content',
       )}
     >
@@ -2207,7 +2132,7 @@ function QuickPill({
             isAmber
               ? 'bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300'
               : active
-                ? 'bg-white/20 text-white'
+                ? 'bg-surface-raised/20 text-surface-raised'
                 : 'bg-surface-sunken text-content-subtle',
           )}
         >
@@ -2690,7 +2615,7 @@ function EntityCard({
   const links = entity.metadata.links ?? []
   const attention = needsAttention(entity)
   const ageLabel = relativeTime(entity.metadata.updatedAt ?? entity.metadata.createdAt)
-  const score = entityScore(entity)
+  const score = scoreEntity(entity)
   return (
     <div
       role="button"
@@ -2832,19 +2757,8 @@ function QuickLinks({ links }: { links: Entity['metadata']['links'] }) {
 
 /* ─────────── scorecard + origin ─────────── */
 
-interface EntityScore {
-  ok: number
-  total: number
-  pct: number
-}
-
-/** Derive an entity health score from its applicable signals (0–100). */
-function entityScore(e: Entity): EntityScore {
-  const applicable = computeSignals(e).filter((s) => s.state !== 'na')
-  const ok = applicable.filter((s) => s.state === 'ok').length
-  const total = applicable.length
-  return { ok, total, pct: total ? Math.round((ok / total) * 100) : 100 }
-}
+/* Scoring now lives in the shared engine (`~/data/scorecard.ts`) so the
+ * catalog badge, the drawer, and the /scorecards dashboard all agree. */
 
 function scoreTone(pct: number): { dot: string; text: string; ring: string } {
   if (pct >= 80) {
@@ -2854,12 +2768,13 @@ function scoreTone(pct: number): { dot: string; text: string; ring: string } {
   return { dot: 'bg-rose-500', text: 'text-rose-700 dark:text-rose-300', ring: 'ring-rose-200' }
 }
 
-function ScoreBadge({ score }: { score: EntityScore }) {
-  const t = scoreTone(score.pct)
+function ScoreBadge({ score }: { score: Scorecard }) {
+  const t = scoreTone(score.score)
+  const ok = score.checks.filter((c) => c.pass).length
   return (
     <span
-      title={`Scorecard: ${score.ok}/${score.total} health checks passing`}
-      aria-label={`Health score ${score.pct} percent`}
+      title={`Scorecard ${score.grade}: ${ok}/${score.checks.length} readiness checks passing`}
+      aria-label={`Readiness score ${score.score} percent, grade ${score.grade}`}
       className={cn(
         'inline-flex items-center gap-1 rounded-full bg-surface-raised px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums ring-1',
         t.text,
@@ -2867,7 +2782,7 @@ function ScoreBadge({ score }: { score: EntityScore }) {
       )}
     >
       <span className={cn('h-1.5 w-1.5 rounded-full', t.dot)} />
-      {score.pct}
+      {score.score}
     </span>
   )
 }
@@ -2958,7 +2873,7 @@ function EntityDrawer({
   const ref = entityRef(entity)
   const starred = isStarred(stars, ref)
   const signals = computeSignals(entity)
-  const score = entityScore(entity)
+  const score = scoreEntity(entity)
   const activity = buildActivity(entity)
   const apiDef = entity.kind === 'API' ? parseApiDefinition(entity.spec.definition) : null
   const closeBtnRef = useRef<HTMLButtonElement>(null)
@@ -3354,8 +3269,9 @@ function computeSignals(e: Entity): SignalRow[] {
   ]
 }
 
-function SignalsCard({ signals, score }: { signals: SignalRow[]; score: EntityScore }) {
+function SignalsCard({ signals, score }: { signals: SignalRow[]; score: Scorecard }) {
   const warn = signals.filter((s) => s.state === 'warn').length
+  const ok = score.checks.filter((c) => c.pass).length
   return (
     <Card>
       <CardHeader>
@@ -3369,7 +3285,7 @@ function SignalsCard({ signals, score }: { signals: SignalRow[]; score: EntitySc
               {warn > 0 ? `${warn} attention` : 'all good'}
             </StatusBadge>
             <span className="font-mono tabular-nums text-content-muted">
-              {score.ok}/{score.total}
+              {ok}/{score.checks.length}
             </span>
           </div>
         </div>
@@ -3558,7 +3474,7 @@ function ActivityCard({ events }: { events: Activity[] }) {
             <li key={i} className="relative">
               <span
                 className={cn(
-                  'absolute -left-[19px] top-1 inline-flex h-2.5 w-2.5 rounded-full ring-2 ring-white',
+                  'absolute -left-[19px] top-1 inline-flex h-2.5 w-2.5 rounded-full ring-2 ring-surface-raised',
                   ev.kind === 'created'
                     ? 'bg-brand-500'
                     : ev.kind === 'deployed'

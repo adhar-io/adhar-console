@@ -30,7 +30,7 @@ import { proxyToolRequest } from './app/server/proxy.ts'
 import { publicToolInfo } from './app/server/tool-registry.ts'
 import { handleDocuments, handleNotifications, handlePreferences } from './app/server/api-handlers.ts'
 import { handleScaffold } from './app/server/scaffolder.ts'
-import { handleK8s } from './app/server/k8s/gateway.ts'
+import { apiServerFetch, handleK8s, resolveIdentity } from './app/server/k8s/gateway.ts'
 import { handleExec } from './app/server/k8s/exec.ts'
 import { handleAi } from './app/server/ai/handlers.ts'
 
@@ -147,6 +147,123 @@ function apiConfig(): Response {
   )
 }
 
+/**
+ * Live connectivity diagnostics — a single endpoint that reports the real state
+ * of every dependency the console needs, with the ACTUAL resolved values and
+ * upstream errors (not a generic "unavailable"). Purpose-built to answer
+ * "why won't login / the cluster connect?":
+ *
+ *   - keycloak: discovery reachability + the resolved issuer / token / jwks
+ *     ORIGINS, so an issuer-scheme mismatch (e.g. an http:// issuer the
+ *     apiserver rejects) is visible at a glance.
+ *   - kubernetes: a real call to K8S_API_URL with the signed-in user's token,
+ *     surfacing 401 (token rejected → iss/aud mismatch), TLS failures (missing
+ *     DENO_CERT), and unreachable hosts.
+ *   - db: configured + ping.
+ *
+ * Read-only; contains no secrets (only public OIDC metadata + status). The
+ * kubernetes probe is included only when a session is present.
+ */
+async function diagnostics(req: Request): Promise<Response> {
+  const out: Record<string, unknown> = { ts: new Date().toISOString() }
+
+  const cfg = getServerAuthConfig()
+  out.auth = { configured: Boolean(cfg), publicUrl: cfg?.publicUrl ?? null }
+
+  // ── Keycloak (OIDC discovery + resolved endpoint origins) ──
+  if (cfg) {
+    try {
+      const disc = await Promise.race([
+        getDiscovery(cfg),
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('discovery timeout after 5s')), 5000)),
+      ])
+      const origin = (u?: string) => {
+        try {
+          return u ? new URL(u).origin : null
+        } catch {
+          return u ?? null
+        }
+      }
+      const issuerScheme = origin(disc.issuer)?.startsWith('https') ?? false
+      out.keycloak = {
+        status: 'ok',
+        issuer: disc.issuer,
+        issuerIsHttps: issuerScheme,
+        // These are the origins the SERVER uses; browser-facing auth stays public.
+        tokenEndpointOrigin: origin(disc.token_endpoint),
+        jwksOrigin: origin(disc.jwks_uri),
+        authorizeEndpointOrigin: origin(disc.authorization_endpoint),
+        internalBackchannel: cfg.internalUrl ?? null,
+        // The kube-apiserver validates the token `iss` strictly against its
+        // --oidc-issuer-url (https). If this is false, apiserver token
+        // acceptance AND console id-token verification will fail.
+        hint: issuerScheme
+          ? undefined
+          : 'Issuer is not https — Keycloak is emitting a non-https issuer over the backchannel. Set hostname-strict-backchannel=true on Keycloak.',
+      }
+    } catch (e) {
+      out.keycloak = { status: 'unreachable', error: e instanceof Error ? e.message : String(e) }
+    }
+  } else {
+    out.keycloak = { status: 'not_configured' }
+  }
+
+  // ── Database ──
+  try {
+    const { isDbConfigured, pingDb } = await import('@adhar-console/db')
+    out.db = isDbConfigured()
+      ? { status: (await pingDb()) ? 'ok' : 'down', configured: true }
+      : { status: 'unconfigured', configured: false }
+  } catch (e) {
+    out.db = { status: 'error', error: e instanceof Error ? e.message : String(e) }
+  }
+
+  // ── Kubernetes apiserver (real call as the signed-in user) ──
+  const apiUrl = env('K8S_API_URL') ?? 'https://kubernetes.default.svc'
+  const k8s: Record<string, unknown> = { apiUrl }
+  const id = cfg ? await resolveIdentity(req) : null
+  if (!id) {
+    k8s.status = 'no_session'
+    k8s.hint = 'Sign in first — the cluster is reached with your Keycloak token (per-user impersonation).'
+  } else {
+    try {
+      const res = await Promise.race([
+        apiServerFetch(id.token, '/version'),
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('apiserver timeout after 8s')), 8000)),
+      ])
+      if (res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { gitVersion?: string }
+        k8s.status = 'ok'
+        k8s.serverVersion = body.gitVersion ?? null
+        k8s.user = id.user.name
+      } else {
+        const detail = (await res.text().catch(() => '')).slice(0, 300)
+        k8s.status = 'rejected'
+        k8s.httpStatus = res.status
+        k8s.detail = detail
+        if (res.status === 401) {
+          k8s.hint =
+            'Token rejected (401). The apiserver --oidc-issuer-url / --oidc-client-id must match the token iss (https Keycloak issuer) + aud (kubernetes). Usually the Keycloak backchannel issuer scheme.'
+        } else if (res.status === 403) {
+          k8s.hint = 'Authenticated but not authorized (403) — your Keycloak groups need RBAC bindings (oidc: prefix).'
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      k8s.status = 'unreachable'
+      k8s.error = msg
+      if (/certificate|self.signed|tls|ssl/i.test(msg)) {
+        k8s.hint = 'TLS failure — set DENO_CERT to a bundle trusting the apiserver CA (and Keycloak CA).'
+      } else if (/refused|dns|resolve|network/i.test(msg)) {
+        k8s.hint = `Cannot reach ${apiUrl}. In local dev set K8S_API_URL to your kube context server (e.g. https://127.0.0.1:6443).`
+      }
+    }
+  }
+  out.kubernetes = k8s
+
+  return Response.json(out, { headers: { 'cache-control': 'no-store' } })
+}
+
 /* ─────────────── request router ─────────────── */
 
 async function route(req: Request): Promise<Response> {
@@ -158,6 +275,7 @@ async function route(req: Request): Promise<Response> {
   if (path === '/healthz') return healthz()
   if (path === '/readyz') return readyz()
   if (path === '/api/config') return apiConfig()
+  if (path === '/api/diagnostics') return diagnostics(req)
 
   // Auth (OIDC) — all GET, full-page navigations + the session probe.
   if (path === '/api/auth/login') return handleLogin(req)

@@ -470,7 +470,7 @@ function BusinessKpiTile({
   const delta = q.scalar_delta ?? 0
   const formatted = formatScalar(q.scalar ?? 0, q.scalar_unit)
   return (
-    <div className="rounded-lg border border-edge-subtle bg-linear-to-br from-brand-50/40 to-white p-3 ring-1 ring-inset ring-edge-subtle">
+    <div className="rounded-lg border border-edge-subtle bg-linear-to-br from-brand-50/40 dark:from-brand-500/10 to-surface-raised p-3 ring-1 ring-inset ring-edge-subtle">
       <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
         {q.name}
       </div>
@@ -2595,7 +2595,7 @@ export function IncidentTimelinePanel() {
           <li key={it.id} className="relative">
             <span
               className={cn(
-                'absolute -left-[19px] top-1 inline-flex h-2.5 w-2.5 rounded-full ring-2 ring-white',
+                'absolute -left-[19px] top-1 inline-flex h-2.5 w-2.5 rounded-full ring-2 ring-surface-raised',
                 {
                   sev1: 'bg-rose-500',
                   sev2: 'bg-amber-500',

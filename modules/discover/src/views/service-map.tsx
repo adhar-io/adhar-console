@@ -22,7 +22,7 @@ export function ServiceMap() {
 
   if (q.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Building service map…
       </div>
     )
@@ -56,7 +56,7 @@ export function ServiceMap() {
         </CardHeader>
         <CardBody className="p-3!">
           <div
-            className="relative overflow-hidden rounded-md border border-edge-default bg-linear-to-br from-surface-sunken/40 to-white"
+            className="relative overflow-hidden rounded-md border border-edge-default bg-linear-to-br from-surface-sunken/40 to-surface-raised"
             style={{ aspectRatio: '16 / 9' }}
           >
             <svg viewBox="0 0 1000 560" preserveAspectRatio="xMidYMid meet" className="absolute inset-0 h-full w-full">

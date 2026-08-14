@@ -752,7 +752,7 @@ function LandingPage() {
           onCustomize={() => setCustomizeOpen(true)}
         />
         {visiblePanels.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-edge-default bg-white/40 px-6 py-12 text-center">
+          <div className="rounded-2xl border border-dashed border-edge-default bg-surface-raised/40 px-6 py-12 text-center">
             <div className="text-sm font-medium text-content">Your overview is empty</div>
             <p className="mt-1 text-xs text-content-muted">
               Click "Customize" to pick panels.
@@ -845,7 +845,7 @@ function SpinnerDot() {
   return (
     <span className="relative flex h-1.5 w-1.5" aria-hidden>
       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white/70" />
-      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-surface-raised" />
+      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" />
     </span>
   )
 }
@@ -1813,12 +1813,12 @@ function ComplianceCard({
 const PINNED_APP_IDS = ['argocd', 'gitea', 'harbor', 'grafana', 'keycloak', 'kargo']
 
 const APP_TINT: Record<string, string> = {
-  argocd: 'from-sky-50 to-white',
-  gitea: 'from-emerald-50 to-white',
-  harbor: 'from-violet-50 to-white',
-  grafana: 'from-amber-50 to-white',
-  keycloak: 'from-rose-50 to-white',
-  kargo: 'from-brand-50 to-white',
+  argocd: 'from-sky-50 dark:from-sky-500/10 to-surface-raised',
+  gitea: 'from-emerald-50 dark:from-emerald-500/10 to-surface-raised',
+  harbor: 'from-violet-50 dark:from-violet-500/10 to-surface-raised',
+  grafana: 'from-amber-50 dark:from-amber-500/10 to-surface-raised',
+  keycloak: 'from-rose-50 dark:from-rose-500/10 to-surface-raised',
+  kargo: 'from-brand-50 dark:from-brand-500/10 to-surface-raised',
 }
 
 function PinnedAppsPanel() {
@@ -1843,7 +1843,7 @@ function PinnedAppsPanel() {
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         {pinned.map((a) => {
-          const tint = APP_TINT[a.id] ?? 'from-surface-sunken to-white'
+          const tint = APP_TINT[a.id] ?? 'from-surface-sunken to-surface-raised'
           return (
             <a
               key={a.id}

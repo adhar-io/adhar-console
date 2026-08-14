@@ -42,7 +42,7 @@ const ACCENT: Record<NonNullable<Props['accent']>, { text: string; color: string
 export function KpiCard({ label, value, delta, trend, accent = 'slate', series }: Props) {
   const a = ACCENT[accent]
   return (
-    <div className="group relative overflow-hidden rounded-xl border border-edge-default bg-white p-5 shadow-sm transition-all duration-150 ease-smooth hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md">
+    <div className="group relative overflow-hidden rounded-xl border border-edge-default bg-surface-raised p-5 shadow-sm transition-all duration-150 ease-smooth hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md">
       <div className="relative z-10">
         <div className="flex items-center justify-between">
           <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">

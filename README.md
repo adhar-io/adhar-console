@@ -31,12 +31,6 @@ Plus a dedicated **Workspace** area for SaaS primitives: onboarding, org & proje
 management, members & teams, environments, API tokens, audit log, plans, quotas,
 and webhooks.
 
-**Status — `0.2.x`:** real backends wired (each tool client runs live in a
-production build, stub fixtures in dev), **real Keycloak SSO** (server-side
-confidential-client flow), and Postgres persistence for console-owned state.
-Published as a container image and deployable on the Adhar platform via
-`adhar up`.
-
 ---
 
 ## Why another console?

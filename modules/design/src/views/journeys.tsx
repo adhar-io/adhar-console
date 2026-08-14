@@ -53,7 +53,7 @@ export function Journeys() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex flex-wrap gap-1 rounded-lg border border-edge-default bg-white p-1 shadow-sm">
+        <div className="flex flex-wrap gap-1 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-sm">
           {list.map((j) => {
             const on = j.id === openId
             return (
@@ -250,7 +250,7 @@ function JourneyMap({
           <select
             value={journey.persona ?? ''}
             onChange={(e) => onUpdate({ persona: e.target.value })}
-            className="rounded-md border border-edge-default bg-white px-2 py-1 text-xs"
+            className="rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-xs"
           >
             <option value="">— pick persona —</option>
             {personas.map((p) => (
@@ -276,7 +276,7 @@ function JourneyMap({
             value={journey.summary}
             onChange={(e) => onUpdate({ summary: e.target.value })}
             placeholder="One-line summary of the journey"
-            className="block w-full rounded-md border border-transparent bg-surface-sunken/40 px-3 py-2 text-sm text-content focus:border-edge-default focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full rounded-md border border-transparent bg-surface-sunken/40 px-3 py-2 text-sm text-content focus:border-edge-default focus:bg-surface-raised focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </CardBody>
       </Card>
@@ -313,7 +313,7 @@ function JourneyMap({
                   <input
                     value={s.name}
                     onChange={(e) => updateStage(s.id, { name: e.target.value })}
-                    className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-sm font-semibold tracking-tight text-brand-800 focus:border-brand-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+                    className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-sm font-semibold tracking-tight text-brand-800 focus:border-brand-400 focus:bg-surface-raised focus:outline-none focus:ring-2 focus:ring-brand-400/20"
                   />
                   <span className="text-base" title={s.emotion}>
                     {EMOTION_EMOJI[s.emotion]}
@@ -324,7 +324,7 @@ function JourneyMap({
                   onChange={(e) =>
                     updateStage(s.id, { emotion: e.target.value as JourneyEmotion })
                   }
-                  className="block w-full rounded-md border border-edge-subtle bg-white/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-content-muted focus:border-brand-400 focus:outline-none"
+                  className="block w-full rounded-md border border-edge-subtle bg-surface-raised/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-content-muted focus:border-brand-400 focus:outline-none"
                 >
                   {EMOTIONS.map((e) => (
                     <option key={e} value={e}>
@@ -337,7 +337,7 @@ function JourneyMap({
                     type="button"
                     onClick={() => moveStage(s.id, -1)}
                     disabled={i === 0}
-                    className="rounded p-0.5 hover:bg-white/60 disabled:opacity-30"
+                    className="rounded p-0.5 hover:bg-surface-raised/60 disabled:opacity-30"
                     aria-label="Move left"
                   >
                     <IconArrowLeft />
@@ -346,7 +346,7 @@ function JourneyMap({
                     type="button"
                     onClick={() => moveStage(s.id, 1)}
                     disabled={i === stages.length - 1}
-                    className="rounded p-0.5 hover:bg-white/60 disabled:opacity-30"
+                    className="rounded p-0.5 hover:bg-surface-raised/60 disabled:opacity-30"
                     aria-label="Move right"
                   >
                     <IconArrowRight />
@@ -368,7 +368,7 @@ function JourneyMap({
               type="button"
               onClick={addStage}
               aria-label="Add stage"
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-dashed border-edge-default bg-white text-content-subtle shadow-sm transition hover:border-brand-400 hover:text-brand-700"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-dashed border-edge-default bg-surface-raised text-content-subtle shadow-sm transition hover:border-brand-400 hover:text-brand-700"
             >
               <IconPlus />
             </button>
@@ -512,7 +512,7 @@ function ListCell({
               }
             }}
             placeholder="Add item…"
-            className="block w-full rounded-md border border-transparent bg-surface-sunken/40 px-1.5 py-0.5 text-[11px] text-content placeholder:text-content-subtle focus:border-edge-default focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full rounded-md border border-transparent bg-surface-sunken/40 px-1.5 py-0.5 text-[11px] text-content placeholder:text-content-subtle focus:border-edge-default focus:bg-surface-raised focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </div>
       </CardBody>
@@ -650,14 +650,14 @@ function CreateJourneyModal({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Operator first-run onboarding"
-            className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </Field>
         <Field label="Persona">
           <select
             value={persona}
             onChange={(e) => setPersona(e.target.value)}
-            className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm"
+            className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm"
           >
             <option value="">— none —</option>
             {personas.map((p) => (
@@ -672,7 +672,7 @@ function CreateJourneyModal({
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
             placeholder="A new operator signs up, connects a cluster, and ships a workload — under 15 minutes."
-            className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </Field>
       </div>

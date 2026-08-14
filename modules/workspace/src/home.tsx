@@ -209,7 +209,7 @@ export default function WorkspaceHome({ section: urlSection }: { section?: strin
                         className={cn(
                           'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md',
                           active
-                            ? 'bg-white text-brand-700 ring-1 ring-brand-200'
+                            ? 'bg-surface-raised text-brand-700 ring-1 ring-brand-200'
                             : 'text-content-subtle group-hover:text-content',
                         )}
                       >

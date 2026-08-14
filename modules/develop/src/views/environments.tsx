@@ -64,7 +64,7 @@ export function Environments() {
 
   if (q.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading environments…
       </div>
     )
@@ -185,7 +185,7 @@ function FilterTabs({
     { id: 'failed' as const, label: 'Failed' },
   ]
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-white p-1 shadow-sm">
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-sm">
       {tabs.map((t) => {
         const on = filter === t.id
         return (
@@ -268,7 +268,7 @@ function WorkspaceCard({
             {apps.map((a) => (
               <span
                 key={a.slug}
-                className="inline-flex items-center gap-1 rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-content ring-1 ring-edge-subtle"
+                className="inline-flex items-center gap-1 rounded-full bg-surface-raised/70 px-2 py-0.5 text-[10px] font-medium text-content ring-1 ring-edge-subtle"
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                 {a.display_name}
@@ -284,7 +284,7 @@ function WorkspaceCard({
         ) : null}
       </button>
 
-      <div className="border-t border-edge-subtle bg-white/80 px-4 py-2">
+      <div className="border-t border-edge-subtle bg-surface-raised/80 px-4 py-2">
         <div className="flex flex-wrap items-center gap-2">
           {isRunning ? (
             <Button
@@ -382,7 +382,7 @@ function WorkspaceDetail({
         onClick={onClose}
       />
       <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-white px-6 py-4">
+        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
               Cloud env · {w.template_name}
@@ -477,7 +477,7 @@ function WorkspaceDetail({
                                       href={app.url ?? '#'}
                                       target="_blank"
                                       rel="noopener"
-                                      className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 text-[11px] font-medium text-brand-700 ring-1 ring-edge-subtle hover:bg-brand-50"
+                                      className="inline-flex items-center gap-1 rounded-md bg-surface-raised px-2 py-1 text-[11px] font-medium text-brand-700 ring-1 ring-edge-subtle hover:bg-brand-50"
                                     >
                                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                                       {app.display_name}
@@ -585,7 +585,7 @@ function CreateWorkspaceModal({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="my-feature-branch"
-            className="mt-1.5 block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="mt-1.5 block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </label>
         <div>
@@ -603,7 +603,7 @@ function CreateWorkspaceModal({
                   className={
                     on
                       ? 'rounded-lg border border-brand-400 bg-brand-50 p-3 text-left ring-2 ring-brand-400/20'
-                      : 'rounded-lg border border-edge-default bg-white p-3 text-left hover:border-edge-strong'
+                      : 'rounded-lg border border-edge-default bg-surface-raised p-3 text-left hover:border-edge-strong'
                   }
                 >
                   <div className="text-sm font-semibold text-content">
@@ -639,7 +639,7 @@ function SearchInput({ value, onChange }: { value: string; onChange(v: string): 
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="Search envs…"
-        className="block h-9 w-44 rounded-lg border border-edge-default bg-white pl-7 pr-2 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-56"
+        className="block h-9 w-44 rounded-lg border border-edge-default bg-surface-raised pl-7 pr-2 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-56"
       />
     </div>
   )

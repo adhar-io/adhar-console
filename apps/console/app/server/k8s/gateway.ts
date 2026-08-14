@@ -250,10 +250,27 @@ export async function handleK8s(req: Request, subpath: string): Promise<Response
       return new Response(null, { status: 499 })
     }
     // Log internal detail server-side, return a generic message to the browser.
-    console.error(`[k8s] upstream error ${method} /${subpath}:`, e instanceof Error ? e.message : e)
-    return Response.json({ error: aborted ? 'apiserver_timeout' : 'apiserver_unreachable' }, {
-      status: aborted ? 504 : 502,
-    })
+    // In dev, include the detail + a hint so `pnpm dev` shows WHY the cluster
+    // call failed (wrong K8S_API_URL, missing DENO_CERT, apiserver down) instead
+    // of a bare "unreachable". Never leak internals in production.
+    const detailMsg = e instanceof Error ? e.message : String(e)
+    console.error(`[k8s] upstream error ${method} /${subpath}:`, detailMsg)
+    const dev = (env('NODE_ENV') ?? env('DENO_ENV')) !== 'production'
+    return Response.json(
+      {
+        error: aborted ? 'apiserver_timeout' : 'apiserver_unreachable',
+        ...(dev && !aborted
+          ? {
+              detail: detailMsg,
+              apiUrl: apiServerBaseUrl(),
+              hint: /certificate|self.signed|tls|ssl/i.test(detailMsg)
+                ? 'TLS failure — set DENO_CERT to a bundle trusting the apiserver CA. See /api/diagnostics.'
+                : 'Check K8S_API_URL points at your kube context server. See /api/diagnostics.',
+            }
+          : {}),
+      },
+      { status: aborted ? 504 : 502 },
+    )
   }
   if (mutating) {
     audit({ user: id.user.id, method, path: subpath, status: upstream.status, ms: Date.now() - started })

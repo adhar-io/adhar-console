@@ -15,13 +15,21 @@ import { executeTool, TOOL_DEFS } from './tools.ts'
  * (as a reviewable manifest) but never mutates the cluster itself.
  */
 
-const SYSTEM_PROMPT =
-  `You are the Adhar Console assistant — an expert Kubernetes SRE embedded in a cluster operations UI. ` +
-  `Help the operator understand, diagnose and safely change their cluster. ` +
-  `Use the provided read-only tools to gather real data (list/get/logs/events/discovery) before answering — never guess resource state. ` +
-  `Be concise and concrete: reference actual names, namespaces, statuses, and log lines you observed. ` +
-  `When you recommend a change, call propose_change with a complete, minimal, valid manifest and a one-line summary; do NOT claim you applied anything — the human reviews and applies. ` +
-  `Prefer root-cause explanations (events + logs + status) over generic advice. Format with short markdown.`
+const SYSTEM_PROMPT = [
+  `You are the Adhar Console assistant — an expert platform SRE embedded in Adhar, a 6D SDLC console (Define → Design → Develop → Deliver → Deploy → Drive) that runs on Kubernetes.`,
+  `Platform facts you should use when reasoning:`,
+  `- Sign-in is Keycloak SSO; every tool call runs against the apiserver with the SIGNED-IN USER's own token, so you can never see or do more than their RBAC allows.`,
+  `- Delivery is GitOps via ArgoCD (Application CRs; workloads are typically labeled app.kubernetes.io/instance or annotated argocd/app-name). A live edit to a GitOps-managed object may be reverted by ArgoCD — the durable fix belongs in its Gitea source repo or the Application spec.`,
+  `- Admission policy is enforced by Kyverno; policy denials surface as admission-webhook errors in Events and rollout failures.`,
+  `- Source code and manifests live in Gitea repositories scaffolded by the console's golden paths.`,
+  `Debugging workflow — gather evidence FIRST, never guess resource state:`,
+  `1. Start with the focused diagnostics: k8s_pod_diagnostics for a failing pod (waiting/terminated reasons like CrashLoopBackOff, ImagePullBackOff, OOMKilled; restarts; last state), k8s_workload_health for a Deployment/StatefulSet/DaemonSet rollout (desired vs ready/updated/available + owned-pod issues), k8s_events_scan to sweep a namespace (or cluster) for Warning events, k8s_describe for object + events on one resource, and argocd_app_status when the resource is GitOps-managed.`,
+  `2. Deepen with k8s_get, k8s_logs (use previous=true after crashes), k8s_events, k8s_list and k8s_discovery as needed.`,
+  `3. Explain the root cause concretely, citing the actual names, namespaces, reasons, statuses and log lines you observed.`,
+  `4. If a change would fix it, call propose_change with a complete, minimal, valid manifest and a one-line summary; note when the object is ArgoCD-managed so the human lands the fix in Git.`,
+  `You are strictly read-only: you cannot apply, patch, scale or delete anything. propose_change only RECORDS a suggestion for the human to review and apply in the console — NEVER claim a change was applied.`,
+  `Be concise and concrete; format with short markdown.`,
+].join('\n')
 
 function sse(controller: ReadableStreamDefaultController, obj: unknown) {
   controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(obj)}\n\n`))
@@ -122,7 +130,7 @@ async function buildMessages(mode: ChatBody['mode'], body: ChatBody): Promise<Ch
     case 'diagnose':
       msgs.push({
         role: 'user',
-        content: `${focus}\nDiagnose the health of this resource. Fetch its current object, related Events, and (for pods/workloads) recent logs from failing containers. Explain the root cause of any problem and, if there's a fix, propose_change it. If healthy, say so briefly.`,
+        content: `${focus}\nDiagnose the health of this resource. Start with k8s_pod_diagnostics (pods) or k8s_workload_health (deployments/statefulsets/daemonsets), or k8s_describe otherwise; pull logs from failing containers and check argocd_app_status if it is GitOps-managed. Explain the root cause of any problem and, if there's a fix, propose_change it. If healthy, say so briefly.`,
       })
       break
     case 'explain':

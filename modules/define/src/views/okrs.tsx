@@ -57,7 +57,7 @@ export function Okrs({ projectId }: { projectId?: string }) {
   if (!projectId) return <EmptyState title="Pick a project" />
   if (q.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading objectives…
       </div>
     )
@@ -241,7 +241,7 @@ function ObjectiveCard({
         <div className="flex items-center justify-between pt-1 text-[11px] text-content-subtle">
           <span className="inline-flex items-center gap-1.5">
             <span
-              className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-50 text-[10px] font-semibold text-brand-700 ring-2 ring-white"
+              className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-50 text-[10px] font-semibold text-brand-700 ring-2 ring-surface-raised"
               title={memberDisplayName(owner)}
             >
               {memberInitials(owner)}
@@ -379,7 +379,7 @@ function QuarterTab({
       onClick={onClick}
       className={cn(
         'inline-flex h-7 items-center rounded-md px-2.5 text-[11px] font-medium transition-colors',
-        active ? 'bg-white text-content shadow-sm' : 'text-content-muted hover:text-content',
+        active ? 'bg-surface-raised text-content shadow-sm' : 'text-content-muted hover:text-content',
       )}
     >
       {children}
@@ -547,7 +547,7 @@ function ObjectiveModal({
                     value={k.title}
                     onChange={(e) => setKr(i, { title: e.target.value })}
                     placeholder={`Key result ${i + 1}`}
-                    className="block h-8 flex-1 rounded-md border border-edge-default bg-white px-2 text-xs focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+                    className="block h-8 flex-1 rounded-md border border-edge-default bg-surface-raised px-2 text-xs focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
                   />
                   {krs.length > 1 ? (
                     <button
@@ -580,7 +580,7 @@ function ObjectiveModal({
                       value={k.unit}
                       onChange={(e) => setKr(i, { unit: e.target.value })}
                       placeholder="%"
-                      className="mt-0.5 block h-7 w-full rounded-md border border-edge-default bg-white px-2 text-xs focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+                      className="mt-0.5 block h-7 w-full rounded-md border border-edge-default bg-surface-raised px-2 text-xs focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
                     />
                   </label>
                 </div>
@@ -615,7 +615,7 @@ function NumField({
         type="number"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-0.5 block h-7 w-full rounded-md border border-edge-default bg-white px-2 text-xs tabular-nums focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+        className="mt-0.5 block h-7 w-full rounded-md border border-edge-default bg-surface-raised px-2 text-xs tabular-nums focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
       />
     </label>
   )
@@ -633,7 +633,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 const INPUT =
-  'block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20'
+  'block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20'
 
 /* ───── helpers ───── */
 

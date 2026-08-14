@@ -36,7 +36,7 @@ export function Questions() {
 
   if (questions.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading questions…
       </div>
     )
@@ -68,7 +68,7 @@ export function Questions() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search questions…"
-            className="block h-9 w-44 rounded-lg border border-edge-default bg-white px-3 py-1 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-56"
+            className="block h-9 w-44 rounded-lg border border-edge-default bg-surface-raised px-3 py-1 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-56"
           />
         </div>
       </div>
@@ -98,7 +98,7 @@ function CollectionTabs({
   counts: Record<string, number>
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-white p-1 shadow-sm">
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-sm">
       <button
         type="button"
         onClick={() => onChange('all')}
@@ -143,7 +143,7 @@ function DisplayFilter({
 }) {
   const items: ('all' | metabase.ChartType)[] = ['all', 'scalar', 'line', 'area', 'bar', 'pie', 'table', 'progress', 'gauge']
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-white p-1 shadow-sm">
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-sm">
       {items.map((i) => {
         const on = value === i
         return (

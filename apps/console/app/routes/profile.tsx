@@ -149,7 +149,7 @@ function ProfilePage() {
                 <h2 className="text-lg font-semibold text-content">Personal access tokens</h2>
                 <button
                   type="button"
-                  className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                  className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-surface-raised hover:bg-slate-800"
                 >
                   New token
                 </button>

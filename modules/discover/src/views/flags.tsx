@@ -8,7 +8,7 @@ export function Flags() {
 
   if (q.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading flags…
       </div>
     )
@@ -88,7 +88,7 @@ function Toggle({ enabled, onChange }: { enabled: boolean; onChange(v: boolean):
       aria-checked={enabled}
     >
       <span
-        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
+        className={`absolute top-0.5 h-4 w-4 rounded-full bg-surface-raised shadow transition-all ${
           enabled ? 'left-[18px]' : 'left-0.5'
         }`}
       />

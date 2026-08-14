@@ -38,7 +38,7 @@ export function Projects({ activeId, onPick, onOpenDetails }: Props) {
 
   if (projects.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading projects…
       </div>
     )
@@ -185,7 +185,7 @@ function ProjectCard({
         </div>
 
         {/* progress hero — ring + breakdown bar */}
-        <div className="mt-4 flex items-center gap-4 rounded-xl border border-edge-subtle bg-gradient-to-br from-brand-50/50 via-white to-white p-4">
+        <div className="mt-4 flex items-center gap-4 rounded-xl border border-edge-subtle bg-gradient-to-br from-brand-50/50 via-surface-raised to-surface-raised p-4">
           <ProgressRing pct={closedPct} loading={issues.isLoading} />
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-1.5">
@@ -248,7 +248,7 @@ function ProjectCard({
               onPick()
             }}
             aria-label={`Set ${project.name} as active`}
-            className="rounded-md border border-edge-default bg-white/90 px-2 py-1 text-[11px] font-medium text-content opacity-0 shadow-sm transition-all hover:border-brand-400 hover:text-brand-700 group-hover:opacity-100 focus-visible:opacity-100"
+            className="rounded-md border border-edge-default bg-surface-raised/90 px-2 py-1 text-[11px] font-medium text-content opacity-0 shadow-sm transition-all hover:border-brand-400 hover:text-brand-700 group-hover:opacity-100 focus-visible:opacity-100"
           >
             Set active
           </button>
@@ -311,7 +311,7 @@ function ProgressRing({ pct, loading }: { pct: number; loading: boolean }) {
       }}
       aria-label={loading ? 'Loading progress' : `${pct}% complete`}
     >
-      <div className="absolute inset-1.5 flex items-center justify-center rounded-full bg-white shadow-inner">
+      <div className="absolute inset-1.5 flex items-center justify-center rounded-full bg-surface-raised shadow-inner">
         {loading ? (
           <Spinner size={12} />
         ) : (

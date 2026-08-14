@@ -526,14 +526,14 @@ function FilterButton({
         className={cn(
           'inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-medium transition',
           filterCount > 0
-            ? 'border-content bg-content text-white shadow-sm'
+            ? 'border-content bg-content text-surface-raised shadow-sm'
             : 'border-edge-default bg-surface-raised text-content hover:border-content',
         )}
       >
         <IconFilter />
         <span className="hidden sm:inline">Filter</span>
         {filterCount > 0 ? (
-          <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[10px] font-bold tabular-nums">
+          <span className="rounded-full bg-surface-raised/20 px-1.5 py-0.5 text-[10px] font-bold tabular-nums">
             {filterCount}
           </span>
         ) : null}
@@ -641,7 +641,7 @@ function PopoverChip({
       className={cn(
         'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition',
         active
-          ? 'bg-content text-white shadow-sm'
+          ? 'bg-content text-surface-raised shadow-sm'
           : 'bg-surface-sunken text-content-muted hover:bg-surface-sunken/80 hover:text-content',
       )}
     >
@@ -650,7 +650,7 @@ function PopoverChip({
       <span
         className={cn(
           'rounded-full px-1 text-[9px] tabular-nums',
-          active ? 'bg-white/20 text-white' : 'bg-surface-raised text-content-subtle',
+          active ? 'bg-surface-raised/20 text-surface-raised' : 'bg-surface-raised text-content-subtle',
         )}
       >
         {count}
@@ -882,38 +882,38 @@ function NoSelection() {
 
 const TONES: Record<CatalogTemplate['tone'], { card: string; glyph: string; ring: string }> = {
   brand: {
-    card: 'from-brand-50/70 to-white',
+    card: 'from-brand-50/70 dark:from-brand-500/10 to-surface-raised',
     glyph: 'from-brand-500 to-brand-700 text-white shadow-brand-500/20',
     ring: 'ring-brand-200/70',
   },
   emerald: {
-    card: 'from-emerald-50/70 to-white',
+    card: 'from-emerald-50/70 dark:from-emerald-500/10 to-surface-raised',
     glyph: 'from-emerald-500 to-emerald-700 text-white shadow-emerald-500/20',
     ring: 'ring-emerald-200/70',
   },
   sky: {
-    card: 'from-sky-50/70 to-white',
+    card: 'from-sky-50/70 dark:from-sky-500/10 to-surface-raised',
     glyph: 'from-sky-500 to-sky-700 text-white shadow-sky-500/20',
     ring: 'ring-sky-200/70',
   },
   amber: {
-    card: 'from-amber-50/70 to-white',
+    card: 'from-amber-50/70 dark:from-amber-500/10 to-surface-raised',
     glyph: 'from-amber-500 to-amber-700 text-white shadow-amber-500/20',
     ring: 'ring-amber-200/70',
   },
   violet: {
-    card: 'from-violet-50/70 to-white',
+    card: 'from-violet-50/70 dark:from-violet-500/10 to-surface-raised',
     glyph: 'from-violet-500 to-violet-700 text-white shadow-violet-500/20',
     ring: 'ring-violet-200/70',
   },
   rose: {
-    card: 'from-rose-50/70 to-white',
+    card: 'from-rose-50/70 dark:from-rose-500/10 to-surface-raised',
     glyph: 'from-rose-500 to-rose-700 text-white shadow-rose-500/20',
     ring: 'ring-rose-200/70',
   },
   slate: {
-    card: 'from-slate-100/70 to-white',
-    glyph: 'from-slate-600 to-slate-800 text-white shadow-slate-600/20',
+    card: 'from-slate-100/70 to-surface-raised',
+    glyph: 'from-slate-600 to-slate-800 text-white dark:text-surface-raised shadow-slate-600/20',
     ring: 'ring-slate-300/70',
   },
 }

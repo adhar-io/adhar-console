@@ -26,7 +26,7 @@ export function Pulses() {
 
   if (q.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading pulses…
       </div>
     )
@@ -195,10 +195,10 @@ function Tile({
   accent?: 'slate' | 'emerald' | 'amber' | 'rose'
 }) {
   const cls = {
-    slate: 'from-slate-50 to-white text-content',
-    emerald: 'from-emerald-50 to-white text-emerald-700',
-    amber: 'from-amber-50 to-white text-amber-700',
-    rose: 'from-rose-50 to-white text-rose-700',
+    slate: 'from-slate-50 to-surface-raised text-content',
+    emerald: 'from-emerald-50 to-surface-raised text-emerald-700',
+    amber: 'from-amber-50 to-surface-raised text-amber-700',
+    rose: 'from-rose-50 to-surface-raised text-rose-700',
   }[accent]
   return (
     <Card className={`bg-linear-to-br ${cls} ring-1 ring-inset ring-edge-subtle`}>

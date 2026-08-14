@@ -41,7 +41,7 @@ export function CostAllocation() {
         <StatTile label="Dimension" value={DIMS.find((d) => d.value === dim)?.label ?? '—'} />
       </div>
 
-      <div className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-white p-0.5">
+      <div className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-0.5">
         {DIMS.map((d) => {
           const on = dim === d.value
           return (

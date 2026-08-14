@@ -33,12 +33,56 @@ export interface ChartValueField {
   placeholder?: string
 }
 
+/** Where a package comes from. `community` = community-contributed. */
+export type ChartSource = 'core' | 'partner' | 'community'
+
+/** Supply-chain provenance — signing + vulnerability scanning. */
+export interface ChartProvenance {
+  /** Chart + images carry a verifiable signature. */
+  signed: boolean
+  signer?: string
+  signature?: 'cosign' | 'notation' | 'none'
+  /** Images were vulnerability-scanned at publish time. */
+  scanned: boolean
+  scanner?: 'trivy'
+  grade?: 'A' | 'B' | 'C' | 'D' | 'F'
+  criticalCves?: number
+  highCves?: number
+  /** An SBOM is attached to the OCI artifact. */
+  sbom?: boolean
+  scannedAt?: string
+}
+
+/** Compatibility contract with the cluster and the Adhar platform. */
+export interface ChartCompatibility {
+  minKubeVersion?: string
+  maxKubeVersion?: string
+  requiredCrds?: string[]
+  requiredCapabilities?: string[]
+  /** Chart ids this package expects to be installed first. */
+  dependsOn?: string[]
+  /** Adhar platform versions the package is tested against. */
+  testedOn?: string[]
+}
+
+export interface ChartPublisher {
+  name: string
+  url?: string
+  verifiedPublisher?: boolean
+}
+
 export interface MarketplaceChart {
   id: string
   name: string
   /** Friendly title shown in cards. Defaults to `name` if absent. */
   title?: string
-  publisher: string
+  publisher: ChartPublisher
+  /** Where the package comes from — Adhar core, partner, or community. */
+  source: ChartSource
+  /** Supply-chain provenance: signing + scanning. */
+  provenance: ChartProvenance
+  /** Compatibility contract with the cluster + platform. */
+  compatibility: ChartCompatibility
   /** Helm repository (e.g. "bitnami"). */
   repository: string
   /** Repository URL. */
@@ -104,7 +148,77 @@ export const CATEGORY_LABEL: Record<ChartCategory, string> = {
   developer: 'Developer',
 }
 
-export const CATALOG: MarketplaceChart[] = [
+export const SOURCE_LABEL: Record<ChartSource, string> = {
+  core: 'Core',
+  partner: 'Partner',
+  community: 'Community',
+}
+
+/** Signed + scanned — the bar for the trust shield in the UI. */
+export function hasFullTrust(chart: MarketplaceChart): boolean {
+  return chart.provenance.signed && chart.provenance.scanned
+}
+
+/**
+ * Seed authoring type. `publisher` is shorthand (just the name) and the
+ * trust metadata is optional — `withTrustDefaults` fills in the core-chart
+ * baseline (Adhar-signed via cosign, Trivy-scanned grade A, SBOM attached)
+ * so only packages with a weaker or richer story spell it out.
+ */
+type SeedChart = Omit<MarketplaceChart, 'publisher' | 'source' | 'provenance' | 'compatibility'> & {
+  publisher: string
+  publisherUrl?: string
+  verifiedPublisher?: boolean
+  source?: ChartSource
+  provenance?: Partial<ChartProvenance>
+  compatibility?: ChartCompatibility
+}
+
+const CORE_SCANNED_AT = '2026-08-11T04:30:00Z'
+
+const CORE_PROVENANCE: ChartProvenance = {
+  signed: true,
+  signer: 'Adhar Release Engineering',
+  signature: 'cosign',
+  scanned: true,
+  scanner: 'trivy',
+  grade: 'A',
+  criticalCves: 0,
+  highCves: 0,
+  sbom: true,
+  scannedAt: CORE_SCANNED_AT,
+}
+
+/** Honest default for anything not vouched for: unsigned, unscanned. */
+const UNVERIFIED_PROVENANCE: ChartProvenance = {
+  signed: false,
+  signature: 'none',
+  scanned: false,
+}
+
+const CORE_COMPATIBILITY: ChartCompatibility = {
+  minKubeVersion: '1.27',
+  testedOn: ['adhar-1.4', 'adhar-1.5'],
+}
+
+function withTrustDefaults(seed: SeedChart): MarketplaceChart {
+  const { publisher, publisherUrl, verifiedPublisher, source, provenance, compatibility, ...rest } = seed
+  const resolvedSource = source ?? (seed.verified ? 'core' : 'partner')
+  const baseline = resolvedSource === 'core' ? CORE_PROVENANCE : UNVERIFIED_PROVENANCE
+  return {
+    ...rest,
+    source: resolvedSource,
+    publisher: {
+      name: publisher,
+      url: publisherUrl,
+      verifiedPublisher: verifiedPublisher ?? resolvedSource === 'core',
+    },
+    provenance: { ...baseline, ...provenance },
+    compatibility: compatibility ?? (resolvedSource === 'core' ? { ...CORE_COMPATIBILITY } : {}),
+  }
+}
+
+const SEED_CATALOG: SeedChart[] = [
   /* ──── Observability ──── */
   {
     id: 'grafana',
@@ -158,6 +272,11 @@ export const CATALOG: MarketplaceChart[] = [
     ],
     featured: true,
     verified: true,
+    compatibility: {
+      minKubeVersion: '1.28',
+      requiredCapabilities: ['crd-install'],
+      testedOn: ['adhar-1.4', 'adhar-1.5'],
+    },
   },
   {
     id: 'loki',
@@ -336,6 +455,22 @@ export const CATALOG: MarketplaceChart[] = [
       { key: 'cluster.replicaCount', label: 'Replicas', type: 'number', default: 3 },
       { key: 'persistence.size', label: 'Storage size', type: 'string', default: '8Gi' },
     ],
+    source: 'partner',
+    publisherUrl: 'https://bitnami.com',
+    verifiedPublisher: true,
+    provenance: {
+      signed: true,
+      signer: 'Bitnami (Broadcom)',
+      signature: 'cosign',
+      scanned: true,
+      scanner: 'trivy',
+      grade: 'B',
+      criticalCves: 0,
+      highCves: 3,
+      sbom: true,
+      scannedAt: '2026-08-06T09:12:00Z',
+    },
+    compatibility: { minKubeVersion: '1.25', testedOn: ['adhar-1.4'] },
   },
 
   /* ──── Messaging ──── */
@@ -497,6 +632,12 @@ export const CATALOG: MarketplaceChart[] = [
       { key: 'controller.replicas', label: 'Controller replicas', type: 'number', default: 1 },
     ],
     verified: true,
+    compatibility: {
+      minKubeVersion: '1.29',
+      requiredCrds: ['applications.argoproj.io'],
+      dependsOn: ['argo-cd', 'cert-manager'],
+      testedOn: ['adhar-1.5'],
+    },
   },
   {
     id: 'flux',
@@ -518,6 +659,26 @@ export const CATALOG: MarketplaceChart[] = [
       { key: 'kustomizeController.create', label: 'Kustomize controller', type: 'boolean', default: true },
       { key: 'helmController.create', label: 'Helm controller', type: 'boolean', default: true },
     ],
+    source: 'partner',
+    publisherUrl: 'https://fluxcd.io',
+    verifiedPublisher: true,
+    provenance: {
+      signed: true,
+      signer: 'Flux CD maintainers',
+      signature: 'cosign',
+      scanned: true,
+      scanner: 'trivy',
+      grade: 'A',
+      criticalCves: 0,
+      highCves: 1,
+      sbom: true,
+      scannedAt: '2026-08-04T22:41:00Z',
+    },
+    compatibility: {
+      minKubeVersion: '1.28',
+      requiredCapabilities: ['crd-install'],
+      testedOn: ['adhar-1.5'],
+    },
   },
 
   /* ──── Security ──── */
@@ -543,6 +704,11 @@ export const CATALOG: MarketplaceChart[] = [
     ],
     featured: true,
     verified: true,
+    compatibility: {
+      minKubeVersion: '1.27',
+      requiredCapabilities: ['crd-install'],
+      testedOn: ['adhar-1.4', 'adhar-1.5'],
+    },
   },
   {
     id: 'kyverno',
@@ -587,6 +753,11 @@ export const CATALOG: MarketplaceChart[] = [
       { key: 'falco.json_output', label: 'JSON output', type: 'boolean', default: true },
     ],
     verified: true,
+    compatibility: {
+      minKubeVersion: '1.26',
+      requiredCapabilities: ['ebpf', 'privileged-daemonset'],
+      testedOn: ['adhar-1.4', 'adhar-1.5'],
+    },
   },
   {
     id: 'vault',
@@ -697,6 +868,12 @@ export const CATALOG: MarketplaceChart[] = [
       { key: 'hubble.enabled', label: 'Enable Hubble', type: 'boolean', default: true },
     ],
     verified: true,
+    compatibility: {
+      minKubeVersion: '1.26',
+      maxKubeVersion: '1.31',
+      requiredCapabilities: ['ebpf', 'privileged-daemonset'],
+      testedOn: ['adhar-1.4', 'adhar-1.5'],
+    },
   },
 
   /* ──── Storage ──── */
@@ -744,6 +921,12 @@ export const CATALOG: MarketplaceChart[] = [
       { key: 'persistence.defaultClassReplicaCount', label: 'Default replicas', type: 'number', default: 3 },
     ],
     verified: true,
+    compatibility: {
+      minKubeVersion: '1.25',
+      maxKubeVersion: '1.31',
+      requiredCapabilities: ['privileged-daemonset', 'iscsi'],
+      testedOn: ['adhar-1.4', 'adhar-1.5'],
+    },
   },
 
   /* ──── Identity ──── */
@@ -790,6 +973,20 @@ export const CATALOG: MarketplaceChart[] = [
     fields: [
       { key: 'replicaCount', label: 'Replicas', type: 'number', default: 2 },
     ],
+    source: 'community',
+    publisherUrl: 'https://dexidp.io',
+    provenance: {
+      signed: false,
+      signature: 'none',
+      scanned: true,
+      scanner: 'trivy',
+      grade: 'C',
+      criticalCves: 1,
+      highCves: 4,
+      sbom: false,
+      scannedAt: '2026-07-19T13:05:00Z',
+    },
+    compatibility: { minKubeVersion: '1.24' },
   },
 
   /* ──── Data ──── */
@@ -835,6 +1032,9 @@ export const CATALOG: MarketplaceChart[] = [
       { key: 'replicaCount', label: 'Replicas', type: 'number', default: 1 },
       { key: 'database.type', label: 'Backing DB', type: 'select', options: ['h2', 'postgres', 'mysql'], default: 'postgres' },
     ],
+    source: 'community',
+    provenance: { signed: false, signature: 'none', scanned: false },
+    compatibility: { dependsOn: ['postgresql'] },
   },
 
   /* ──── AI/ML ──── */
@@ -878,6 +1078,24 @@ export const CATALOG: MarketplaceChart[] = [
     fields: [
       { key: 'platform', label: 'Platform', type: 'select', options: ['standalone', 'multi-user'], default: 'standalone' },
     ],
+    source: 'community',
+    provenance: {
+      signed: false,
+      signature: 'none',
+      scanned: true,
+      scanner: 'trivy',
+      grade: 'B',
+      criticalCves: 0,
+      highCves: 5,
+      sbom: false,
+      scannedAt: '2026-07-28T02:10:00Z',
+    },
+    compatibility: {
+      minKubeVersion: '1.29',
+      maxKubeVersion: '1.31',
+      requiredCapabilities: ['crd-install'],
+      dependsOn: ['argo-workflows', 'minio'],
+    },
   },
 
   /* ──── Developer ──── */
@@ -949,7 +1167,121 @@ export const CATALOG: MarketplaceChart[] = [
     ],
     verified: true,
   },
+
+  /* ──── Partner & community packages ──── */
+  {
+    id: 'temporal',
+    name: 'temporal',
+    title: 'Temporal',
+    publisher: 'Temporal Technologies',
+    repository: 'temporalio',
+    repoUrl: 'https://go.temporal.io/helm-charts',
+    version: '0.50.0',
+    appVersion: '1.25.2',
+    description: 'Durable execution platform — workflows that survive any failure.',
+    longDescription:
+      'Temporal is a durable execution system for writing long-running, fault-tolerant workflows as ordinary code. The chart deploys the server, frontend, matching and history services.',
+    category: 'developer',
+    tone: 'violet',
+    popularity: 890_000,
+    tags: ['workflows', 'durable-execution', 'orchestration', 'saga'],
+    defaultNamespace: 'temporal',
+    fields: [
+      { key: 'server.replicaCount', label: 'Server replicas', type: 'number', default: 1 },
+      { key: 'prometheus.enabled', label: 'Prometheus metrics', type: 'boolean', default: true },
+      { key: 'web.enabled', label: 'Web UI', type: 'boolean', default: true },
+    ],
+    docsUrl: 'https://docs.temporal.io/',
+    source: 'partner',
+    publisherUrl: 'https://temporal.io',
+    verifiedPublisher: true,
+    provenance: {
+      signed: true,
+      signer: 'Temporal Technologies',
+      signature: 'notation',
+      scanned: true,
+      scanner: 'trivy',
+      grade: 'B',
+      criticalCves: 0,
+      highCves: 2,
+      sbom: true,
+      scannedAt: '2026-08-08T16:20:00Z',
+    },
+    compatibility: {
+      minKubeVersion: '1.27',
+      dependsOn: ['postgresql'],
+      testedOn: ['adhar-1.5'],
+    },
+  },
+  {
+    id: 'n8n',
+    name: 'n8n',
+    title: 'n8n',
+    publisher: '8gears (community)',
+    repository: 'open-8gears',
+    repoUrl: 'https://8gears.container-registry.com/chartrepo/library',
+    version: '0.25.2',
+    appVersion: '1.64.0',
+    description: 'Fair-code workflow automation — 400+ integrations, visual editor.',
+    longDescription:
+      'n8n is a workflow automation tool that connects APIs and services with a node-based visual editor. This community-maintained chart deploys the editor, webhook and worker processes.',
+    category: 'developer',
+    tone: 'rose',
+    popularity: 310_000,
+    tags: ['automation', 'workflows', 'integrations', 'low-code'],
+    defaultNamespace: 'automation',
+    fields: [
+      { key: 'replicaCount', label: 'Replicas', type: 'number', default: 1 },
+      { key: 'persistence.enabled', label: 'Persistent storage', type: 'boolean', default: true },
+      { key: 'webhook.enabled', label: 'Separate webhook process', type: 'boolean', default: false },
+    ],
+    source: 'community',
+    publisherUrl: 'https://github.com/8gears/n8n-helm-chart',
+    provenance: {
+      signed: false,
+      signature: 'none',
+      scanned: true,
+      scanner: 'trivy',
+      grade: 'C',
+      criticalCves: 1,
+      highCves: 6,
+      sbom: false,
+      scannedAt: '2026-07-31T11:47:00Z',
+    },
+    compatibility: {
+      minKubeVersion: '1.26',
+      dependsOn: ['postgresql'],
+    },
+  },
+  {
+    id: 'uptime-kuma',
+    name: 'uptime-kuma',
+    title: 'Uptime Kuma',
+    publisher: 'dirsigler (community)',
+    repository: 'uptime-kuma',
+    repoUrl: 'https://helm.irsigler.cloud',
+    version: '2.21.0',
+    appVersion: '1.23.16',
+    description: 'Self-hosted uptime monitoring with a slick status page.',
+    longDescription:
+      'Uptime Kuma is a self-hosted monitoring tool — HTTP(s), TCP, DNS and ping monitors, notifications to 90+ services, and shareable status pages. Community-maintained chart.',
+    category: 'observability',
+    tone: 'emerald',
+    popularity: 145_000,
+    tags: ['uptime', 'monitoring', 'status-page', 'alerts'],
+    defaultNamespace: 'monitoring',
+    fields: [
+      { key: 'volume.storage', label: 'Storage size', type: 'string', default: '4Gi' },
+      { key: 'ingress.enabled', label: 'Enable ingress', type: 'boolean', default: false },
+    ],
+    source: 'community',
+    publisherUrl: 'https://github.com/dirsigler/uptime-kuma-helm',
+    provenance: { signed: false, signature: 'none', scanned: false },
+    compatibility: { minKubeVersion: '1.24' },
+  },
 ]
+
+export const CATALOG: MarketplaceChart[] = SEED_CATALOG.map(withTrustDefaults)
 
 /* ─────────── installed releases (in-memory + localStorage) ─────────── */
 
@@ -1019,6 +1351,9 @@ export const REPOSITORIES: HelmRepository[] = [
   { name: 'ingress-nginx', url: 'https://kubernetes.github.io/ingress-nginx', chartCount: 1, verified: true, description: 'Official NGINX ingress controller.' },
   { name: 'hashicorp', url: 'https://helm.releases.hashicorp.com', chartCount: 6, verified: true, description: 'Vault, Consul, Boundary, Waypoint.' },
   { name: 'adhar', url: 'https://charts.adhar.io', chartCount: 12, verified: true, description: 'Adhar-curated platform extensions.' },
+  { name: 'temporalio', url: 'https://go.temporal.io/helm-charts', chartCount: 2, verified: true, description: 'Temporal server and tooling (partner).' },
+  { name: 'open-8gears', url: 'https://8gears.container-registry.com/chartrepo/library', chartCount: 3, verified: false, description: 'Community charts — n8n and friends.' },
+  { name: 'uptime-kuma', url: 'https://helm.irsigler.cloud', chartCount: 1, verified: false, description: 'Community Uptime Kuma chart.' },
 ]
 
 /* ─────────── hooks ─────────── */

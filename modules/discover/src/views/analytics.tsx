@@ -36,7 +36,7 @@ export function Analytics() {
 
   if (events.isLoading || trends.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading analytics…
       </div>
     )
@@ -74,7 +74,7 @@ export function Analytics() {
                   Switch insight to overlay alternate metrics
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-1 rounded-md border border-edge-default bg-white p-1">
+              <div className="flex flex-wrap items-center gap-1 rounded-md border border-edge-default bg-surface-raised p-1">
                 {(trends.data ?? []).map((t) => (
                   <button
                     key={t.id}
@@ -248,10 +248,10 @@ function Hero({
   small?: boolean
 }) {
   const cls = {
-    brand: 'from-brand-50 to-white text-brand-700',
-    amber: 'from-amber-50 to-white text-amber-700',
-    emerald: 'from-emerald-50 to-white text-emerald-700',
-    violet: 'from-violet-50 to-white text-violet-700',
+    brand: 'from-brand-50 dark:from-brand-500/10 to-surface-raised text-brand-700 dark:text-brand-300',
+    amber: 'from-amber-50 dark:from-amber-500/10 to-surface-raised text-amber-700 dark:text-amber-300',
+    emerald: 'from-emerald-50 dark:from-emerald-500/10 to-surface-raised text-emerald-700 dark:text-emerald-300',
+    violet: 'from-violet-50 dark:from-violet-500/10 to-surface-raised text-violet-700 dark:text-violet-300',
   }[tone]
   return (
     <Card className={`bg-linear-to-br ${cls} ring-1 ring-inset ring-edge-subtle`}>

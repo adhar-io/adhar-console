@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { createFileRoute, Link, useNavigate, useSearch } from '@tanstack/react-router'
-import { AdharSymbol, AdharWordmark, Button } from '@adhar-console/shell-ui'
+import { AdharSymbol, AdharWordmark, Button, ModeToggle } from '@adhar-console/shell-ui'
 import { getStubSession, useAuth } from '@adhar-console/auth'
 import { z } from 'zod'
 
@@ -29,6 +29,41 @@ const PHASES = [
   { k: 'Discover', d: 'Logs, metrics, traces' },
   { k: 'Decide', d: 'DORA, health, spend' },
 ]
+
+/**
+ * Map the raw `?error=` string the OIDC handlers redirect back with to a
+ * calmer title + guidance. Unknown errors pass through verbatim so we never
+ * hide a real message. `retryable` decides whether we offer a one-click retry
+ * (transient / recoverable failures) versus just an explanation.
+ */
+function friendlyError(raw: string): { title: string; hint?: string; retryable: boolean } {
+  const r = raw.toLowerCase()
+  if (r.includes('temporarily unavailable') || r.includes('discovery')) {
+    return {
+      title: 'Sign-in is temporarily unavailable.',
+      hint: 'The identity provider (Keycloak) could not be reached. This is usually transient — try again in a moment.',
+      retryable: true,
+    }
+  }
+  if (r.includes('state mismatch') || r.includes('invalid sign-in state') || r.includes('session state')) {
+    return {
+      title: 'Your sign-in link expired.',
+      hint: 'This can happen if the tab sat idle or cookies were cleared mid-flow. Start a fresh sign-in.',
+      retryable: true,
+    }
+  }
+  if (r.includes('could not be completed')) {
+    return {
+      title: 'Sign-in could not be completed.',
+      hint: 'The token exchange with Keycloak failed. Try again; if it persists, contact your platform admin.',
+      retryable: true,
+    }
+  }
+  if (r.includes('access_denied') || r.includes('consent')) {
+    return { title: 'Sign-in was cancelled.', hint: 'You can try again when ready.', retryable: true }
+  }
+  return { title: raw, retryable: true }
+}
 
 function LoginPage() {
   const { configured, signin, signup, setSession } = useAuth()
@@ -73,6 +108,12 @@ function LoginPage() {
 
       {/* Sign-in column */}
       <div className="relative flex flex-1 items-center justify-center px-4 py-10 sm:px-8">
+        {/* Color-mode toggle — available before sign-in so the login screen
+            itself respects the user's light/dark preference. */}
+        <div className="absolute right-4 top-4 sm:right-6 sm:top-6">
+          <ModeToggle variant="icon" />
+        </div>
+
         {/* Ambient tint (mobile / narrow) */}
         <div
           aria-hidden
@@ -92,7 +133,7 @@ function LoginPage() {
             </span>
           </div>
 
-          <div className="rounded-2xl border border-edge-default bg-white/95 p-7 shadow-xl shadow-black/[0.04] backdrop-blur sm:p-8">
+          <div className="rounded-2xl border border-edge-default bg-surface-raised/95 p-7 shadow-xl shadow-black/6 backdrop-blur dark:shadow-black/40 sm:p-8">
             <div className="space-y-1.5">
               <h1 className="text-2xl font-semibold tracking-tight text-content">Welcome back</h1>
               <p className="text-sm text-content-muted">
@@ -101,13 +142,36 @@ function LoginPage() {
             </div>
 
             {localError ? (
-              <div
-                role="alert"
-                className="mt-5 flex items-start gap-2 rounded-lg border border-rose-200 dark:border-rose-500/25 bg-rose-50 dark:bg-rose-500/10 px-3 py-2.5 text-xs font-medium text-rose-700 dark:text-rose-300"
-              >
-                <IconAlert />
-                <span>{localError}</span>
-              </div>
+              (() => {
+                const fe = friendlyError(localError)
+                return (
+                  <div
+                    role="alert"
+                    className="mt-5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300"
+                  >
+                    <div className="flex items-start gap-2 text-xs font-semibold">
+                      <IconAlert />
+                      <span>{fe.title}</span>
+                    </div>
+                    {fe.hint ? (
+                      <p className="mt-1 pl-6 text-[11px] font-normal leading-snug text-rose-600/90 dark:text-rose-300/80">
+                        {fe.hint}
+                      </p>
+                    ) : null}
+                    {fe.retryable && configured ? (
+                      <button
+                        type="button"
+                        onClick={handleSignin}
+                        disabled={redirecting}
+                        className="mt-2 ml-6 inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] font-semibold text-rose-700 underline-offset-2 hover:underline disabled:opacity-60 dark:text-rose-200"
+                      >
+                        {busy === 'login' ? <Spinner /> : null}
+                        Try again
+                      </button>
+                    ) : null}
+                  </div>
+                )
+              })()
             ) : null}
 
             <div className="mt-6 space-y-3">
@@ -121,7 +185,7 @@ function LoginPage() {
                   >
                     <span
                       aria-hidden
-                      className="absolute inset-0 -translate-x-full bg-linear-to-r from-transparent via-white/20 to-transparent transition-transform duration-700 group-hover:translate-x-full"
+                      className="absolute inset-0 -translate-x-full bg-linear-to-r from-transparent via-surface-raised/20 to-transparent transition-transform duration-700 group-hover:translate-x-full"
                     />
                     {busy === 'login' ? <Spinner /> : <IconShield />}
                     {busy === 'login' ? 'Redirecting to Keycloak…' : 'Continue with Single Sign-On'}

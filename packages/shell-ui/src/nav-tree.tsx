@@ -85,6 +85,14 @@ export const DEFAULT_NAV: NavSection[] = [
         shortcut: 'g c',
       },
       {
+        id: 'scorecards',
+        label: 'Score Cards',
+        to: '/scorecards',
+        icon: <IconGauge />,
+        description: 'Production-readiness scoring per service',
+        shortcut: 'g s',
+      },
+      {
         id: 'catalog.create',
         label: 'Create New',
         to: '/catalog',

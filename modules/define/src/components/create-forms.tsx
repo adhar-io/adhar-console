@@ -98,7 +98,7 @@ export function CreateProjectModal({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Adhar Console"
-            className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </Field>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -107,7 +107,7 @@ export function CreateProjectModal({
               value={identifier}
               onChange={(e) => setIdentifier(e.target.value.toUpperCase().slice(0, 6))}
               placeholder="CON"
-              className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 font-mono text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+              className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 font-mono text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
             />
           </Field>
           <Field label="Emoji">
@@ -115,7 +115,7 @@ export function CreateProjectModal({
               value={emoji}
               onChange={(e) => setEmoji(e.target.value)}
               placeholder="🛰️"
-              className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+              className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
             />
           </Field>
         </div>
@@ -125,7 +125,7 @@ export function CreateProjectModal({
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
             placeholder="Optional — what this project ships."
-            className="block w-full resize-y rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full resize-y rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </Field>
       </div>
@@ -205,7 +205,7 @@ export function CreateCycleModal({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Sprint 12 — Auth & Platform polish"
-            className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </Field>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -214,7 +214,7 @@ export function CreateCycleModal({
               type="date"
               value={start}
               onChange={(e) => setStart(e.target.value)}
-              className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm"
+              className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm"
             />
           </Field>
           <Field label="End date">
@@ -222,7 +222,7 @@ export function CreateCycleModal({
               type="date"
               value={end}
               onChange={(e) => setEnd(e.target.value)}
-              className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm"
+              className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm"
             />
           </Field>
         </div>
@@ -232,7 +232,7 @@ export function CreateCycleModal({
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
             placeholder="Goal of this cycle — what ships?"
-            className="block w-full resize-y rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full resize-y rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </Field>
       </div>
@@ -317,7 +317,7 @@ export function CreateModuleModal({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Identity & Auth"
-            className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </Field>
         <Field label="Description">
@@ -325,7 +325,7 @@ export function CreateModuleModal({
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
-            className="block w-full resize-y rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full resize-y rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </Field>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -334,7 +334,7 @@ export function CreateModuleModal({
               type="date"
               value={start}
               onChange={(e) => setStart(e.target.value)}
-              className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm"
+              className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm"
             />
           </Field>
           <Field label="Target date">
@@ -342,7 +342,7 @@ export function CreateModuleModal({
               type="date"
               value={target}
               onChange={(e) => setTarget(e.target.value)}
-              className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm"
+              className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm"
             />
           </Field>
         </div>
@@ -350,7 +350,7 @@ export function CreateModuleModal({
           <select
             value={lead}
             onChange={(e) => setLead(e.target.value)}
-            className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm"
+            className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm"
           >
             <option value="">No lead</option>
             {(members.data ?? []).map((m) => (
@@ -462,7 +462,7 @@ export function CreateViewModal({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="My open issues"
-            className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </Field>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_140px]">
@@ -471,14 +471,14 @@ export function CreateViewModal({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="What this view shows"
-              className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+              className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
             />
           </Field>
           <Field label="Access">
             <select
               value={access}
               onChange={(e) => setAccess(e.target.value as plane.View['access'])}
-              className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm"
+              className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm"
             >
               <option value="private">private</option>
               <option value="public">public</option>
@@ -603,7 +603,7 @@ export function CreateViewModal({
 }
 
 const VIEW_SELECT =
-  'block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm capitalize focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20'
+  'block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm capitalize focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20'
 
 /* ───── Invite member ───── */
 
@@ -664,14 +664,14 @@ export function InviteMemberModal({
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="teammate@example.com"
-            className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </Field>
         <Field label="Role">
           <select
             value={role}
             onChange={(e) => setRole(Number(e.target.value))}
-            className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-sm"
+            className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm"
           >
             <option value={5}>Admin · full workspace access</option>
             <option value={15}>Member · default contributor</option>

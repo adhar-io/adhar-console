@@ -226,18 +226,18 @@ function HeroStat({
   hint?: string
 }) {
   const cls = {
-    brand: 'from-brand-50 to-white text-brand-700',
-    amber: 'from-amber-50 to-white text-amber-700',
-    sky: 'from-sky-50 to-white text-sky-700',
-    emerald: 'from-emerald-50 to-white text-emerald-700',
-    violet: 'from-violet-50 to-white text-violet-700',
-    rose: 'from-rose-50 to-white text-rose-700',
+    brand: 'from-brand-500/10 to-surface-raised text-brand-700',
+    amber: 'from-amber-500/10 to-surface-raised text-amber-700',
+    sky: 'from-sky-500/10 to-surface-raised text-sky-700',
+    emerald: 'from-emerald-500/10 to-surface-raised text-emerald-700',
+    violet: 'from-violet-500/10 to-surface-raised text-violet-700',
+    rose: 'from-rose-500/10 to-surface-raised text-rose-700',
   }[tone]
   return (
     <Card className={`relative overflow-hidden bg-linear-to-br ${cls} ring-1 ring-inset ring-edge-subtle`}>
       <CardBody className="space-y-1 p-4">
         <div className="flex items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/80 shadow-sm">
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-raised/80 shadow-sm">
             {icon}
           </span>
           <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">

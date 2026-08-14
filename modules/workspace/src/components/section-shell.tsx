@@ -60,7 +60,7 @@ export function SettingsCard({
   return (
     <section
       className={cn(
-        'overflow-hidden rounded-2xl border border-edge-default bg-white shadow-sm',
+        'overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm',
         className,
       )}
     >
@@ -137,7 +137,7 @@ export function TextField({
       readOnly={readOnly}
       placeholder={placeholder}
       className={cn(
-        'h-9 rounded-lg border border-edge-default bg-white px-3 text-sm text-content shadow-sm placeholder:text-content-subtle',
+        'h-9 rounded-lg border border-edge-default bg-surface-raised px-3 text-sm text-content shadow-sm placeholder:text-content-subtle',
         'focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20',
         'disabled:cursor-not-allowed disabled:opacity-60',
         readOnly && 'bg-surface-sunken',
@@ -161,7 +161,7 @@ export function SelectField<T extends string>({
     <select
       value={value}
       onChange={(e) => onChange?.(e.target.value as T)}
-      className="h-9 w-full rounded-lg border border-edge-default bg-white px-2.5 text-sm text-content shadow-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+      className="h-9 w-full rounded-lg border border-edge-default bg-surface-raised px-2.5 text-sm text-content shadow-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
     >
       {options.map((o) => (
         <option key={o.value} value={o.value}>
@@ -188,7 +188,7 @@ export function ToggleField({
   return (
     <label
       className={cn(
-        'flex items-center justify-between gap-3 rounded-lg border border-edge-default bg-white px-3 py-2.5 shadow-sm',
+        'flex items-center justify-between gap-3 rounded-lg border border-edge-default bg-surface-raised px-3 py-2.5 shadow-sm',
         disabled && 'cursor-not-allowed opacity-60',
       )}
     >
@@ -262,7 +262,7 @@ export function SecondaryButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'inline-flex h-9 items-center gap-1.5 rounded-lg border bg-white px-3 text-sm font-medium shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+        'inline-flex h-9 items-center gap-1.5 rounded-lg border bg-surface-raised px-3 text-sm font-medium shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50',
         tone === 'rose'
           ? 'border-rose-200 text-rose-700 hover:border-rose-300 hover:bg-rose-50'
           : 'border-edge-default text-content hover:border-edge-strong hover:bg-surface-sunken',
@@ -293,7 +293,7 @@ export function StatTile({
           ? 'text-rose-700'
           : 'text-content'
   return (
-    <div className="rounded-xl border border-edge-default bg-white p-4 shadow-sm">
+    <div className="rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm">
       <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
         {label}
       </div>

@@ -310,7 +310,7 @@ function Ghost<T extends { id: string }>({
       style={style}
       className="overflow-hidden rounded-2xl shadow-2xl ring-2 ring-brand-400/60 ring-offset-2 ring-offset-transparent"
     >
-      <div className="bg-white/95 backdrop-blur-sm">{render(item, true)}</div>
+      <div className="bg-surface-raised/95 backdrop-blur-sm">{render(item, true)}</div>
     </div>
   )
 }
@@ -328,7 +328,7 @@ function DropZonePlaceholder() {
         animationName: 'adhar-dropzone-pulse',
       }}
     >
-      <span className="flex items-center gap-1.5 rounded-md bg-white/85 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-brand-700 dark:text-brand-300 shadow-sm ring-1 ring-brand-200">
+      <span className="flex items-center gap-1.5 rounded-md bg-surface-raised/85 px-2 py-1 text-[11px] font-semibold uppercase tracking-wider text-brand-700 dark:text-brand-300 shadow-sm ring-1 ring-brand-200">
         <DropArrowGlyph /> Drop here
       </span>
       <style>{`

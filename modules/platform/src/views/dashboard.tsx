@@ -491,12 +491,12 @@ function HeroStat({
   hint?: string
 }) {
   const cls = {
-    brand: 'from-brand-50 dark:from-brand-500/10 to-white text-brand-700 dark:text-brand-300',
-    amber: 'from-amber-50 dark:from-amber-500/10 to-white text-amber-700 dark:text-amber-300',
-    rose: 'from-rose-50 dark:from-rose-500/10 to-white text-rose-700 dark:text-rose-300',
-    violet: 'from-violet-50 dark:from-violet-500/10 to-white text-violet-700 dark:text-violet-300',
-    sky: 'from-sky-50 dark:from-sky-500/10 to-white text-sky-700 dark:text-sky-300',
-    emerald: 'from-emerald-50 dark:from-emerald-500/10 to-white text-emerald-700 dark:text-emerald-300',
+    brand: 'from-brand-50 dark:from-brand-500/10 to-surface-raised text-brand-700 dark:text-brand-300',
+    amber: 'from-amber-50 dark:from-amber-500/10 to-surface-raised text-amber-700 dark:text-amber-300',
+    rose: 'from-rose-50 dark:from-rose-500/10 to-surface-raised text-rose-700 dark:text-rose-300',
+    violet: 'from-violet-50 dark:from-violet-500/10 to-surface-raised text-violet-700 dark:text-violet-300',
+    sky: 'from-sky-50 dark:from-sky-500/10 to-surface-raised text-sky-700 dark:text-sky-300',
+    emerald: 'from-emerald-50 dark:from-emerald-500/10 to-surface-raised text-emerald-700 dark:text-emerald-300',
   }[tone]
   return (
     <Card className={`relative overflow-hidden bg-linear-to-br ${cls} ring-1 ring-inset ring-edge-subtle`}>
@@ -578,7 +578,7 @@ function ClusterSummary({
 }) {
   const sample = nodes[0]?.status?.nodeInfo
   return (
-    <div className="overflow-hidden rounded-2xl border border-edge-default bg-linear-to-br from-brand-50/70 dark:from-brand-500/10 via-white to-white p-5 shadow-sm">
+    <div className="overflow-hidden rounded-2xl border border-edge-default bg-linear-to-br from-brand-50/70 dark:from-brand-500/10 via-surface-raised to-surface-raised p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface-raised shadow-sm ring-1 ring-edge-subtle">

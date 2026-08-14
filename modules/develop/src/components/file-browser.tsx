@@ -28,13 +28,13 @@ export function FileBrowser({ repo }: { repo: gitea.Repo }) {
 
   return (
     <div className='grid grid-cols-1 gap-3 lg:grid-cols-[260px_1fr]'>
-      <div className='rounded-lg border border-edge-default bg-white'>
+      <div className='rounded-lg border border-edge-default bg-surface-raised'>
         <div className='flex items-center gap-2 border-b border-edge-subtle px-3 py-2'>
           <IconBranch />
           <select
             value={branch}
             onChange={(e) => onBranchChange(e.target.value)}
-            className='h-7 min-w-0 flex-1 rounded-md border border-edge-default bg-white px-1.5 font-mono text-[11px] text-content focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20'
+            className='h-7 min-w-0 flex-1 rounded-md border border-edge-default bg-surface-raised px-1.5 font-mono text-[11px] text-content focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20'
           >
             {(branches.data?.length ? branches.data.map((b) => b.name) : [repo.default_branch]).map(
               (name) => (
@@ -193,7 +193,7 @@ function FileView({
 
   if (!path) {
     return (
-      <div className='rounded-lg border border-edge-default bg-white'>
+      <div className='rounded-lg border border-edge-default bg-surface-raised'>
         <EmptyState
           compact
           title='Select a file'
@@ -204,14 +204,14 @@ function FileView({
   }
   if (f.isLoading) {
     return (
-      <div className='flex items-center gap-2 rounded-lg border border-edge-default bg-white p-4 text-sm text-content-muted'>
+      <div className='flex items-center gap-2 rounded-lg border border-edge-default bg-surface-raised p-4 text-sm text-content-muted'>
         <Spinner size={12} /> Loading {path}…
       </div>
     );
   }
   if (f.isError || !f.data) {
     return (
-      <div className='rounded-lg border border-edge-default bg-white'>
+      <div className='rounded-lg border border-edge-default bg-surface-raised'>
         <EmptyState compact title="Couldn't load file" description={path} />
       </div>
     );
@@ -221,7 +221,7 @@ function FileView({
   const lines = decoded.replace(/\n$/, '').split('\n');
 
   return (
-    <div className='flex min-w-0 flex-col overflow-hidden rounded-lg border border-edge-default bg-white'>
+    <div className='flex min-w-0 flex-col overflow-hidden rounded-lg border border-edge-default bg-surface-raised'>
       <div className='flex items-center justify-between gap-2 border-b border-edge-subtle bg-surface-sunken/40 px-3 py-2'>
         <code className='truncate font-mono text-[11px] text-content'>{path}</code>
         <span className='shrink-0 text-[10px] text-content-subtle'>

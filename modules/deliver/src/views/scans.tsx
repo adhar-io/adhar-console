@@ -46,7 +46,7 @@ export function Scans() {
 
   if (q.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading scan reports…
       </div>
     )
@@ -161,7 +161,7 @@ function TargetTabs({
 }) {
   const tabs: ('all' | trivy.ScanTarget)[] = ['all', 'image', 'config', 'secret', 'rbac', 'compliance']
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-white p-1 shadow-sm">
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-sm">
       {tabs.map((t) => {
         const on = target === t
         const label = t === 'all' ? 'All' : TARGET_LABEL[t]
@@ -200,7 +200,7 @@ function SeverityTabs({
     { id: 'high', label: 'High+' },
   ]
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-white p-1 shadow-sm">
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-sm">
       {tabs.map((t) => {
         const on = severity === t.id
         return (
@@ -241,7 +241,7 @@ function SearchInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="block h-9 w-44 rounded-lg border border-edge-default bg-white pl-7 pr-2 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-64"
+        className="block h-9 w-44 rounded-lg border border-edge-default bg-surface-raised pl-7 pr-2 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-64"
       />
     </div>
   )
@@ -319,7 +319,7 @@ function SevPill({
         rose: 'bg-rose-100 text-rose-700',
         amber: 'bg-amber-100 text-amber-700',
         sky: 'bg-sky-100 text-sky-700',
-        slate: 'bg-slate-100 text-slate-700',
+        slate: 'bg-surface-sunken text-content-muted',
       }[tone]
   return (
     <span className={`inline-flex min-w-[34px] items-center justify-center rounded-md px-1.5 py-0.5 text-[11px] font-mono font-semibold ${cls}`}>
@@ -341,10 +341,10 @@ function SevTile({
   tone: 'rose' | 'amber' | 'sky' | 'slate'
 }) {
   const cls = {
-    rose: 'from-rose-50 to-white text-rose-700',
-    amber: 'from-amber-50 to-white text-amber-700',
-    sky: 'from-sky-50 to-white text-sky-700',
-    slate: 'from-slate-50 to-white text-slate-700',
+    rose: 'from-rose-50 dark:from-rose-500/10 to-surface-raised text-rose-700 dark:text-rose-300',
+    amber: 'from-amber-50 dark:from-amber-500/10 to-surface-raised text-amber-700 dark:text-amber-300',
+    sky: 'from-sky-50 dark:from-sky-500/10 to-surface-raised text-sky-700 dark:text-sky-300',
+    slate: 'from-slate-50 to-surface-raised text-content-muted',
   }[tone]
   return (
     <Card className={`bg-linear-to-br ${cls} ring-1 ring-inset ring-edge-subtle`}>
@@ -393,7 +393,7 @@ function ReportDetail({
         onClick={onClose}
       />
       <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-white px-6 py-4">
+        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <TargetChip target={r.target} />

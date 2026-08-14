@@ -48,7 +48,7 @@ export function Pipelines() {
 
   if (conns.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading pipelines…
       </div>
     )
@@ -70,7 +70,7 @@ export function Pipelines() {
         />
       </div>
 
-      <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-white p-1 shadow-sm">
+      <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-sm">
         <Tab on={tab === 'connections'} onClick={() => setTab('connections')}>
           Connections <Count>{list.length}</Count>
         </Tab>
@@ -197,7 +197,7 @@ function ConnectionCard({
         </div>
       </button>
 
-      <div className="border-t border-edge-subtle bg-white/80 px-4 py-2">
+      <div className="border-t border-edge-subtle bg-surface-raised/80 px-4 py-2">
         <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
@@ -273,7 +273,7 @@ function ConnectionDetail({ conn, onClose }: { conn: airbyte.Connection; onClose
         onClick={onClose}
       />
       <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-white px-6 py-4">
+        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
               Pipeline
@@ -433,10 +433,10 @@ function Tile({
   accent?: 'slate' | 'brand' | 'emerald' | 'rose'
 }) {
   const cls = {
-    slate: 'from-slate-50 to-white text-content',
-    brand: 'from-brand-50 to-white text-brand-700',
-    emerald: 'from-emerald-50 to-white text-emerald-700',
-    rose: 'from-rose-50 to-white text-rose-700',
+    slate: 'from-slate-50 to-surface-raised text-content',
+    brand: 'from-brand-50 to-surface-raised text-brand-700',
+    emerald: 'from-emerald-50 to-surface-raised text-emerald-700',
+    rose: 'from-rose-50 to-surface-raised text-rose-700',
   }[accent]
   return (
     <Card className={`bg-linear-to-br ${cls} ring-1 ring-inset ring-edge-subtle`}>

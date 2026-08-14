@@ -109,9 +109,9 @@ export function NewIssueModal({
           e.preventDefault()
           submit()
         }}
-        className="relative w-full max-w-2xl overflow-hidden rounded-2xl border border-edge-default bg-white shadow-2xl"
+        className="relative w-full max-w-2xl overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-2xl"
       >
-        <header className="flex items-start justify-between gap-3 border-b border-edge-subtle bg-linear-to-br from-brand-50 to-white px-6 py-4">
+        <header className="flex items-start justify-between gap-3 border-b border-edge-subtle bg-linear-to-br from-brand-50 to-surface-raised px-6 py-4">
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-widest text-brand-700">
               New issue
@@ -139,14 +139,14 @@ export function NewIssueModal({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Issue title"
-            className="block w-full rounded-lg border border-edge-default bg-white px-3 py-2 text-base font-medium text-content focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-base font-medium text-content focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Add a description… (Markdown-flavoured plain text)"
             rows={4}
-            className="block w-full resize-y rounded-lg border border-edge-default bg-white px-3 py-2 text-sm text-content focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="block w-full resize-y rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm text-content focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -154,7 +154,7 @@ export function NewIssueModal({
               <select
                 value={state}
                 onChange={(e) => setState(e.target.value)}
-                className="h-9 w-full rounded-md border border-edge-default bg-white px-2 text-sm"
+                className="h-9 w-full rounded-md border border-edge-default bg-surface-raised px-2 text-sm"
               >
                 {(states.data ?? []).map((s) => (
                   <option key={s.id} value={s.id}>
@@ -215,14 +215,14 @@ export function NewIssueModal({
                 value={estimate}
                 onChange={(e) => setEstimate(e.target.value)}
                 placeholder="0"
-                className="h-9 w-full rounded-md border border-edge-default bg-white px-2 text-sm"
+                className="h-9 w-full rounded-md border border-edge-default bg-surface-raised px-2 text-sm"
               />
             </Field>
             <Field label="Cycle">
               <select
                 value={cycle}
                 onChange={(e) => setCycle(e.target.value)}
-                className="h-9 w-full rounded-md border border-edge-default bg-white px-2 text-sm"
+                className="h-9 w-full rounded-md border border-edge-default bg-surface-raised px-2 text-sm"
               >
                 <option value="">None</option>
                 {(cycles.data ?? []).map((c) => (
@@ -236,7 +236,7 @@ export function NewIssueModal({
               <select
                 value={module}
                 onChange={(e) => setModule(e.target.value)}
-                className="h-9 w-full rounded-md border border-edge-default bg-white px-2 text-sm"
+                className="h-9 w-full rounded-md border border-edge-default bg-surface-raised px-2 text-sm"
               >
                 <option value="">None</option>
                 {(modules.data ?? []).map((m) => (
@@ -251,7 +251,7 @@ export function NewIssueModal({
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="h-9 w-full rounded-md border border-edge-default bg-white px-2 text-sm"
+                className="h-9 w-full rounded-md border border-edge-default bg-surface-raised px-2 text-sm"
               />
             </Field>
             <Field label="Target date">
@@ -259,7 +259,7 @@ export function NewIssueModal({
                 type="date"
                 value={targetDate}
                 onChange={(e) => setTargetDate(e.target.value)}
-                className="h-9 w-full rounded-md border border-edge-default bg-white px-2 text-sm"
+                className="h-9 w-full rounded-md border border-edge-default bg-surface-raised px-2 text-sm"
               />
             </Field>
           </div>
@@ -316,7 +316,7 @@ function ChipPicker({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex min-h-9 w-full flex-wrap items-center gap-1 rounded-md border border-edge-default bg-white px-2 py-1 text-left text-sm"
+        className="flex min-h-9 w-full flex-wrap items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-left text-sm"
       >
         {selected.length === 0 ? (
           <span className="text-content-subtle">{placeholder}</span>
@@ -346,7 +346,7 @@ function ChipPicker({
       {open ? (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <ul className="absolute left-0 top-full z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-edge-default bg-white py-1 shadow-xl ring-1 ring-black/5">
+          <ul className="absolute left-0 top-full z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-edge-default bg-surface-raised py-1 shadow-xl ring-1 ring-black/5">
             {items.length === 0 ? (
               <li className="px-3 py-2 text-xs text-content-subtle">No options</li>
             ) : (

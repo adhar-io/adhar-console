@@ -8,7 +8,7 @@ import { Spinner } from '@adhar-console/shell-ui'
 
 export function LoadingBlock({ label = 'Loading…' }: { label?: string }) {
   return (
-    <div className="flex items-center justify-center gap-2 rounded-xl border border-edge-default bg-white py-16 text-sm text-content-muted shadow-sm">
+    <div className="flex items-center justify-center gap-2 rounded-xl border border-edge-default bg-surface-raised py-16 text-sm text-content-muted shadow-sm">
       <Spinner size={16} />
       {label}
     </div>
@@ -26,7 +26,7 @@ export function ErrorBlock({ error, onRetry }: { error: Error; onRetry?: () => v
         <button
           type="button"
           onClick={onRetry}
-          className="mt-3 rounded-md border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 shadow-sm hover:bg-rose-100"
+          className="mt-3 rounded-md border border-rose-300 bg-surface-raised px-3 py-1.5 text-xs font-semibold text-rose-700 shadow-sm hover:bg-rose-100"
         >
           Retry
         </button>

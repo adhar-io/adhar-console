@@ -87,7 +87,7 @@ export function RequiredRolePill({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 rounded-full border bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider shadow-sm',
+        'inline-flex items-center gap-1 rounded-full border bg-surface-raised px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider shadow-sm',
         'border-edge-default text-content-muted',
         className,
       )}

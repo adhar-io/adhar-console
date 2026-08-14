@@ -32,7 +32,9 @@ import {
 import { cn } from '@adhar-console/utils'
 import {
   CATEGORY_LABEL,
+  SOURCE_LABEL,
   chartByIdMap,
+  hasFullTrust,
   suggestReleaseName,
   useCatalog,
   useInstallChart,
@@ -41,6 +43,7 @@ import {
   useUninstallChart,
   useUpgradeChart,
   type ChartCategory,
+  type ChartSource,
   type HelmRelease,
   type MarketplaceChart,
 } from '../data/marketplace.ts'
@@ -90,6 +93,7 @@ function CatalogPanel() {
   const releases = useReleases()
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState<ChartCategory | 'all'>('all')
+  const [trust, setTrust] = useState<TrustFilterState>(DEFAULT_TRUST_FILTER)
   const [selected, setSelected] = useState<MarketplaceChart | null>(null)
 
   const all = catalog.data ?? []
@@ -103,17 +107,21 @@ function CatalogPanel() {
   const visible = useMemo(() => {
     return all
       .filter((c) => category === 'all' || c.category === category)
+      .filter((c) => !trust.signed || c.provenance.signed)
+      .filter((c) => !trust.scanned || c.provenance.scanned)
+      .filter((c) => !trust.verifiedPublisher || Boolean(c.publisher.verifiedPublisher))
+      .filter((c) => trust.source === 'all' || c.source === trust.source)
       .filter((c) => {
         if (!search) return true
         return (
           matchesSearch(c.name, search) ||
           matchesSearch(c.title, search) ||
           matchesSearch(c.description, search) ||
-          matchesSearch(c.publisher, search) ||
+          matchesSearch(c.publisher.name, search) ||
           c.tags.some((t) => matchesSearch(t, search))
         )
       })
-  }, [all, category, search])
+  }, [all, category, trust, search])
 
   const installedByChart = useMemo(() => {
     const m = new Map<string, HelmRelease[]>()
@@ -141,12 +149,15 @@ function CatalogPanel() {
         searchPlaceholder="Search charts, publishers, tags…"
         caption={`${Object.keys(categoryCounts).length} categories`}
         filters={
-          <CategoryFilter
-            value={category}
-            onChange={setCategory}
-            counts={categoryCounts}
-            total={all.length}
-          />
+          <div className="flex flex-col gap-1.5">
+            <CategoryFilter
+              value={category}
+              onChange={setCategory}
+              counts={categoryCounts}
+              total={all.length}
+            />
+            <TrustFilter value={trust} onChange={setTrust} charts={all} />
+          </div>
         }
       >
         {visible.length === 0 ? (
@@ -155,7 +166,7 @@ function CatalogPanel() {
             description={
               search
                 ? `Nothing matches "${search}". Try fewer keywords or another category.`
-                : 'Pick another category to see more charts.'
+                : 'Pick another category or relax the trust filters to see more charts.'
             }
           />
         ) : (
@@ -191,7 +202,7 @@ function FeaturedStrip({
   onPick(c: MarketplaceChart): void
 }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-edge-default bg-linear-to-br from-brand-50/70 dark:from-brand-500/10 via-white to-white p-5 shadow-sm">
+    <div className="overflow-hidden rounded-2xl border border-edge-default bg-linear-to-br from-brand-50/70 dark:from-brand-500/10 via-surface-raised to-surface-raised p-5 shadow-sm">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
@@ -216,7 +227,10 @@ function FeaturedStrip({
             onClick={() => onPick(c)}
             className="group flex items-center gap-3 rounded-xl border border-edge-default bg-surface-raised p-3 text-left transition-all hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-md"
           >
-            <ChartIcon chart={c} size={40} />
+            <span className="relative shrink-0">
+              <ChartIcon chart={c} size={40} />
+              {hasFullTrust(c) ? <TrustShield /> : null}
+            </span>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
                 <div className="truncate text-[13px] font-semibold text-content">
@@ -224,7 +238,7 @@ function FeaturedStrip({
                 </div>
                 {c.verified ? <VerifiedDot /> : null}
               </div>
-              <div className="truncate text-[11px] text-content-muted">{c.publisher}</div>
+              <div className="truncate text-[11px] text-content-muted">{c.publisher.name}</div>
               <div className="mt-1 line-clamp-1 text-[11px] text-content-subtle">
                 {c.description}
               </div>
@@ -277,6 +291,109 @@ function CategoryFilter({
   )
 }
 
+interface TrustFilterState {
+  signed: boolean
+  scanned: boolean
+  verifiedPublisher: boolean
+  source: ChartSource | 'all'
+}
+
+const DEFAULT_TRUST_FILTER: TrustFilterState = {
+  signed: false,
+  scanned: false,
+  verifiedPublisher: false,
+  source: 'all',
+}
+
+const SOURCES: Array<ChartSource | 'all'> = ['all', 'core', 'partner', 'community']
+
+function TrustFilter({
+  value,
+  onChange,
+  charts,
+}: {
+  value: TrustFilterState
+  onChange(v: TrustFilterState): void
+  charts: MarketplaceChart[]
+}) {
+  const counts = useMemo(() => {
+    const bySource: Record<string, number> = {}
+    let signed = 0
+    let scanned = 0
+    let verifiedPublisher = 0
+    for (const c of charts) {
+      bySource[c.source] = (bySource[c.source] ?? 0) + 1
+      if (c.provenance.signed) signed++
+      if (c.provenance.scanned) scanned++
+      if (c.publisher.verifiedPublisher) verifiedPublisher++
+    }
+    return { bySource, signed, scanned, verifiedPublisher }
+  }, [charts])
+
+  const toggleCls = (on: boolean) =>
+    cn(
+      'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+      on
+        ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-1 ring-inset ring-emerald-200 dark:ring-emerald-500/25'
+        : 'text-content-muted hover:bg-surface-sunken hover:text-content',
+    )
+
+  return (
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-0.5">
+      <button
+        type="button"
+        aria-pressed={value.signed}
+        onClick={() => onChange({ ...value, signed: !value.signed })}
+        className={toggleCls(value.signed)}
+      >
+        <IconShield size={11} />
+        <span>Signed</span>
+        <span className="font-mono tabular-nums opacity-70">{counts.signed}</span>
+      </button>
+      <button
+        type="button"
+        aria-pressed={value.scanned}
+        onClick={() => onChange({ ...value, scanned: !value.scanned })}
+        className={toggleCls(value.scanned)}
+      >
+        <span>Scanned</span>
+        <span className="font-mono tabular-nums opacity-70">{counts.scanned}</span>
+      </button>
+      <button
+        type="button"
+        aria-pressed={value.verifiedPublisher}
+        onClick={() => onChange({ ...value, verifiedPublisher: !value.verifiedPublisher })}
+        className={toggleCls(value.verifiedPublisher)}
+      >
+        <span>Verified publisher</span>
+        <span className="font-mono tabular-nums opacity-70">{counts.verifiedPublisher}</span>
+      </button>
+      <span aria-hidden className="mx-1 h-4 w-px bg-edge-subtle" />
+      {SOURCES.map((s) => {
+        const on = value.source === s
+        const n = s === 'all' ? charts.length : counts.bySource[s] ?? 0
+        return (
+          <button
+            key={s}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onChange({ ...value, source: s })}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+              on
+                ? 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-1 ring-inset ring-brand-200 dark:ring-brand-500/25'
+                : 'text-content-muted hover:bg-surface-sunken hover:text-content',
+            )}
+          >
+            <span>{s === 'all' ? 'All sources' : SOURCE_LABEL[s]}</span>
+            <span className="font-mono tabular-nums opacity-70">{n}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 function ChartCard({
   chart,
   installedCount,
@@ -293,7 +410,10 @@ function ChartCard({
       className="group relative flex h-full flex-col rounded-xl border border-edge-default bg-surface-raised p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-md"
     >
       <div className="flex items-start gap-3">
-        <ChartIcon chart={chart} size={44} />
+        <span className="relative shrink-0">
+          <ChartIcon chart={chart} size={44} />
+          {hasFullTrust(chart) ? <TrustShield /> : null}
+        </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <div className="truncate text-[13px] font-semibold text-content">
@@ -301,7 +421,7 @@ function ChartCard({
             </div>
             {chart.verified ? <VerifiedDot /> : null}
           </div>
-          <div className="truncate text-[11px] text-content-muted">{chart.publisher}</div>
+          <div className="truncate text-[11px] text-content-muted">{chart.publisher.name}</div>
         </div>
         {installedCount > 0 ? (
           <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-200 dark:ring-emerald-500/25">
@@ -425,6 +545,60 @@ export function ChartIcon({ chart, size = 40 }: { chart: MarketplaceChart; size?
   )
 }
 
+function TrustShield() {
+  return (
+    <span
+      title="Signed and vulnerability-scanned"
+      className="absolute -right-1 -bottom-1 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-white shadow-sm ring-2 ring-surface-raised"
+    >
+      <IconShield size={9} />
+    </span>
+  )
+}
+
+const SOURCE_CHIP: Record<ChartSource, string> = {
+  core: 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-brand-200 dark:ring-brand-500/25',
+  partner: 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 ring-sky-200 dark:ring-sky-500/25',
+  community: 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-200 dark:ring-amber-500/25',
+}
+
+function SourceChip({ source }: { source: ChartSource }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1',
+        SOURCE_CHIP[source],
+      )}
+    >
+      {SOURCE_LABEL[source]}
+    </span>
+  )
+}
+
+type PillTone = 'emerald' | 'amber' | 'rose' | 'sky' | 'brand' | 'slate'
+
+const PILL_TONE: Record<PillTone, string> = {
+  emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200 dark:ring-emerald-500/25',
+  amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-200 dark:ring-amber-500/25',
+  rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 ring-rose-200 dark:ring-rose-500/25',
+  sky: 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 ring-sky-200 dark:ring-sky-500/25',
+  brand: 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-brand-200 dark:ring-brand-500/25',
+  slate: 'bg-surface-sunken text-content-muted ring-edge-subtle',
+}
+
+function Pill({ tone, children }: { tone: PillTone; children: ReactNode }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1',
+        PILL_TONE[tone],
+      )}
+    >
+      {children}
+    </span>
+  )
+}
+
 function VerifiedDot() {
   return (
     <span
@@ -486,6 +660,7 @@ function ChartDetail({
                   <h2 className="truncate text-xl font-semibold text-content">
                     {chart.title ?? chart.name}
                   </h2>
+                  <SourceChip source={chart.source} />
                   {chart.verified ? (
                     <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 dark:bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold text-sky-700 dark:text-sky-300 ring-1 ring-sky-200 dark:ring-sky-500/25">
                       <VerifiedDot /> Verified
@@ -497,8 +672,19 @@ function ChartDetail({
                 </div>
                 <div className="mt-0.5 text-[12px] text-content-muted">
                   by{' '}
-                  <span className="font-medium text-content">{chart.publisher}</span> · published in{' '}
-                  <code className="font-mono">{chart.repository}</code>
+                  {chart.publisher.url ? (
+                    <a
+                      href={chart.publisher.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium text-content hover:text-brand-700 dark:hover:text-brand-300 hover:underline"
+                    >
+                      {chart.publisher.name}
+                    </a>
+                  ) : (
+                    <span className="font-medium text-content">{chart.publisher.name}</span>
+                  )}{' '}
+                  · published in <code className="font-mono">{chart.repository}</code>
                 </div>
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-content-subtle">
                   <span>
@@ -515,6 +701,11 @@ function ChartDetail({
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
+              {!hasFullTrust(chart) ? (
+                <Pill tone="amber">
+                  <IconWarn size={11} /> unverified
+                </Pill>
+              ) : null}
               <Button variant="primary" size="sm" onClick={() => setShowInstall(true)}>
                 <IconDownload /> Install
               </Button>
@@ -548,6 +739,10 @@ function ChartDetail({
               </div>
             ) : null}
           </section>
+
+          <ProvenanceCard chart={chart} />
+
+          <CompatibilityCard chart={chart} />
 
           <DetailCard title="Repository">
             <KV label="Name" value={<code className="font-mono">{chart.repository}</code>} />
@@ -637,6 +832,203 @@ function KV({ label, value }: { label: string; value: ReactNode }) {
   )
 }
 
+/* ─────────────────────────── Provenance & compatibility ─────────────────────────── */
+
+const GRADE_TONE: Record<'A' | 'B' | 'C' | 'D' | 'F', PillTone> = {
+  A: 'emerald',
+  B: 'emerald',
+  C: 'amber',
+  D: 'amber',
+  F: 'rose',
+}
+
+function CautionNote({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-500/10 px-3 py-2 text-[12px] text-amber-800 dark:text-amber-300">
+      <span className="mt-0.5 shrink-0">
+        <IconWarn />
+      </span>
+      <span>{children}</span>
+    </div>
+  )
+}
+
+function CveCount({ count, kind }: { count?: number; kind: 'critical' | 'high' }) {
+  if (count === undefined) return <span className="text-content-subtle">unknown</span>
+  const cls =
+    count === 0
+      ? 'text-emerald-700 dark:text-emerald-300'
+      : kind === 'critical'
+        ? 'text-rose-700 dark:text-rose-300'
+        : 'text-amber-700 dark:text-amber-300'
+  return <span className={cn('font-mono font-semibold tabular-nums', cls)}>{count}</span>
+}
+
+function ProvenanceCard({ chart }: { chart: MarketplaceChart }) {
+  const p = chart.provenance
+  const caution = !p.signed || !p.scanned
+  return (
+    <DetailCard title="Provenance">
+      <div className="flex flex-wrap gap-1.5">
+        {p.signed ? (
+          <Pill tone="emerald">
+            <IconShield size={11} /> Signed · {p.signature ?? 'unknown'}
+          </Pill>
+        ) : (
+          <Pill tone="amber">
+            <IconWarn size={11} /> Unsigned
+          </Pill>
+        )}
+        {p.scanned ? (
+          <Pill tone={p.grade ? GRADE_TONE[p.grade] : 'sky'}>
+            Scan grade {p.grade ?? '—'}
+          </Pill>
+        ) : (
+          <Pill tone="amber">
+            <IconWarn size={11} /> Not scanned
+          </Pill>
+        )}
+        {p.scanned ? (
+          p.sbom ? <Pill tone="sky">SBOM attached</Pill> : <Pill tone="slate">No SBOM</Pill>
+        ) : null}
+        {chart.publisher.verifiedPublisher ? (
+          <Pill tone="sky">
+            <VerifiedDot /> Verified publisher
+          </Pill>
+        ) : null}
+      </div>
+
+      {p.signed || p.scanned ? (
+        <div className="mt-3 border-t border-edge-subtle pt-2">
+          {p.signed ? (
+            <>
+              <KV label="Signature" value={<code className="font-mono">{p.signature ?? 'unknown'}</code>} />
+              {p.signer ? <KV label="Signer" value={p.signer} /> : null}
+            </>
+          ) : null}
+          {p.scanned ? (
+            <>
+              <KV label="Scanner" value={<code className="font-mono">{p.scanner ?? 'unknown'}</code>} />
+              <KV label="Critical CVEs" value={<CveCount count={p.criticalCves} kind="critical" />} />
+              <KV label="High CVEs" value={<CveCount count={p.highCves} kind="high" />} />
+              {p.scannedAt ? (
+                <KV
+                  label="Last scanned"
+                  value={<span title={p.scannedAt}>{age(p.scannedAt)} ago</span>}
+                />
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
+      {caution ? (
+        <div className="mt-3">
+          <CautionNote>
+            {!p.signed && !p.scanned
+              ? 'This package is neither signed nor vulnerability-scanned. Its integrity and CVE exposure are unknown.'
+              : !p.signed
+                ? 'This package is not signed — its integrity cannot be verified against the publisher.'
+                : 'This package has not been vulnerability-scanned — its CVE exposure is unknown.'}
+          </CautionNote>
+        </div>
+      ) : null}
+    </DetailCard>
+  )
+}
+
+function ChipList({ items, mono }: { items: string[]; mono?: boolean }) {
+  return (
+    <span className="flex flex-wrap justify-end gap-1">
+      {items.map((it) => (
+        <span
+          key={it}
+          className={cn(
+            'rounded-md bg-surface-sunken px-1.5 py-0.5 text-[10px] text-content-muted',
+            mono && 'font-mono',
+          )}
+        >
+          {it}
+        </span>
+      ))}
+    </span>
+  )
+}
+
+function CompatibilityCard({ chart }: { chart: MarketplaceChart }) {
+  const c = chart.compatibility
+  const byId = useMemo(() => chartByIdMap(), [])
+  const kubeRange =
+    c.minKubeVersion && c.maxKubeVersion
+      ? `${c.minKubeVersion} – ${c.maxKubeVersion}`
+      : c.minKubeVersion
+        ? `≥ ${c.minKubeVersion}`
+        : c.maxKubeVersion
+          ? `≤ ${c.maxKubeVersion}`
+          : null
+  const empty =
+    !kubeRange &&
+    !c.requiredCrds?.length &&
+    !c.requiredCapabilities?.length &&
+    !c.dependsOn?.length &&
+    !c.testedOn?.length
+
+  return (
+    <DetailCard title="Compatibility">
+      {empty ? (
+        <CautionNote>
+          The publisher has not declared a compatibility contract. Verify cluster requirements
+          manually before installing.
+        </CautionNote>
+      ) : (
+        <>
+          <KV
+            label="Kubernetes"
+            value={
+              kubeRange ? (
+                <code className="font-mono">{kubeRange}</code>
+              ) : (
+                <span className="text-content-subtle">not declared</span>
+              )
+            }
+          />
+          {c.requiredCrds?.length ? (
+            <KV label="Required CRDs" value={<ChipList items={c.requiredCrds} mono />} />
+          ) : null}
+          {c.requiredCapabilities?.length ? (
+            <KV label="Capabilities" value={<ChipList items={c.requiredCapabilities} mono />} />
+          ) : null}
+          {c.dependsOn?.length ? (
+            <KV
+              label="Depends on"
+              value={
+                <ChipList
+                  items={c.dependsOn.map((id) => {
+                    const dep = byId.get(id)
+                    return dep ? dep.title ?? dep.name : id
+                  })}
+                />
+              }
+            />
+          ) : null}
+          {c.testedOn?.length ? (
+            <KV
+              label="Tested on"
+              value={
+                <span className="flex flex-wrap justify-end gap-1">
+                  {c.testedOn.map((v) => (
+                    <Pill key={v} tone="brand">{v}</Pill>
+                  ))}
+                </span>
+              }
+            />
+          ) : null}
+        </>
+      )}
+    </DetailCard>
+  )
+}
+
 /* ─────────────────────────── Install dialog ─────────────────────────── */
 
 function InstallDialog({
@@ -723,7 +1115,7 @@ function InstallDialog({
         onClick={() => !isPending && onClose()}
       />
       <div className="relative w-full max-w-xl overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-2xl ring-1 ring-edge-default">
-        <header className="flex items-start gap-3 border-b border-edge-subtle bg-linear-to-br from-brand-50/60 dark:from-brand-500/10 via-white to-white px-5 py-4">
+        <header className="flex items-start gap-3 border-b border-edge-subtle bg-linear-to-br from-brand-50/60 dark:from-brand-500/10 via-surface-raised to-surface-raised px-5 py-4">
           <ChartIcon chart={chart} size={36} />
           <div className="min-w-0 flex-1">
             <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
@@ -754,6 +1146,20 @@ function InstallDialog({
           }}
         >
           <div className="max-h-[60vh] space-y-4 overflow-y-auto px-5 py-4">
+            {!isUpgrade && (!chart.provenance.signed || !chart.provenance.scanned) ? (
+              <CautionNote>
+                <span className="font-semibold">Proceed with caution — unverified.</span>{' '}
+                This package is{' '}
+                {!chart.provenance.signed && !chart.provenance.scanned
+                  ? 'not signed and has not been vulnerability-scanned'
+                  : !chart.provenance.signed
+                    ? 'not signed'
+                    : 'not vulnerability-scanned'}
+                . Install it only if you trust{' '}
+                <span className="font-medium">{chart.publisher.name}</span>.
+              </CautionNote>
+            ) : null}
+
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <FieldShell label="Release name" hint="Lowercase, alphanumeric + hyphens">
                 <input
@@ -1381,6 +1787,25 @@ function IconTrash() {
       <path d="M3 6h18" />
       <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
       <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+    </svg>
+  )
+}
+
+function IconShield({ size = 12 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0">
+      <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+      <path d="m9 12 2 2 4-4" />
+    </svg>
+  )
+}
+
+function IconWarn({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0">
+      <path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
     </svg>
   )
 }

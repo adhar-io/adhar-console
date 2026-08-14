@@ -130,7 +130,7 @@ export function Issues({ projectId, appliedQuery }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-edge-default bg-white p-2 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-2 shadow-sm">
         <div className="inline-flex items-center gap-1 rounded-lg bg-surface-sunken p-0.5">
           <ModeTab active={mode === 'kanban'} onClick={() => setMode('kanban')}>
             <IconKanban /> Board
@@ -165,7 +165,7 @@ export function Issues({ projectId, appliedQuery }: Props) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search issues…"
-            className="h-8 w-56 rounded-md border border-edge-default bg-white pl-7 pr-2 text-xs"
+            className="h-8 w-56 rounded-md border border-edge-default bg-surface-raised pl-7 pr-2 text-xs"
           />
           <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-content-subtle">
             <IconSearch />
@@ -355,7 +355,7 @@ function ToolbarSelect({
   children: React.ReactNode
 }) {
   return (
-    <label className="inline-flex h-8 items-center gap-1.5 rounded-md border border-edge-default bg-white pl-2 pr-1 text-[11px] font-medium text-content-muted">
+    <label className="inline-flex h-8 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised pl-2 pr-1 text-[11px] font-medium text-content-muted">
       <span className="uppercase tracking-wider text-content-subtle">{label}</span>
       <select
         value={value}
@@ -383,7 +383,7 @@ function ModeTab({
       onClick={onClick}
       className={cn(
         'inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium transition-colors',
-        active ? 'bg-white text-content shadow-sm' : 'text-content-muted hover:text-content',
+        active ? 'bg-surface-raised text-content shadow-sm' : 'text-content-muted hover:text-content',
       )}
     >
       {children}
@@ -527,13 +527,13 @@ function KanbanColumn({
             {group.label}
           </span>
         </div>
-        <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] font-medium text-content-muted ring-1 ring-inset ring-edge-default">
+        <span className="rounded-full bg-surface-raised px-1.5 py-0.5 text-[10px] font-medium text-content-muted ring-1 ring-inset ring-edge-default">
           {issues.length}
         </span>
       </div>
       <ul className="space-y-2">
         {issues.length === 0 ? (
-          <li className="rounded-lg border border-dashed border-edge-default bg-white/50 p-4 text-center text-[11px] text-content-subtle">
+          <li className="rounded-lg border border-dashed border-edge-default bg-surface-raised/50 p-4 text-center text-[11px] text-content-subtle">
             Nothing here
           </li>
         ) : (
@@ -589,7 +589,7 @@ function KanbanCard({
           e.dataTransfer.effectAllowed = 'move'
         }}
         onClick={onClick}
-        className="block w-full cursor-grab rounded-lg border border-edge-subtle bg-white p-3 text-left shadow-sm transition-all duration-150 ease-smooth hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md active:cursor-grabbing"
+        className="block w-full cursor-grab rounded-lg border border-edge-subtle bg-surface-raised p-3 text-left shadow-sm transition-all duration-150 ease-smooth hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md active:cursor-grabbing"
       >
         <div className="flex items-start justify-between gap-2">
           <span className="font-mono text-[10px] uppercase tracking-wider text-content-subtle">
@@ -712,7 +712,7 @@ function InlineAddIssue({
         e.preventDefault()
         submit()
       }}
-      className="mt-2 rounded-md border border-edge-default bg-white p-2 shadow-sm"
+      className="mt-2 rounded-md border border-edge-default bg-surface-raised p-2 shadow-sm"
     >
       <textarea
         autoFocus
@@ -777,7 +777,7 @@ function CalendarView({
     byDay.set(k, list)
   }
   return (
-    <div className="rounded-xl border border-edge-default bg-white p-3 shadow-sm">
+    <div className="rounded-xl border border-edge-default bg-surface-raised p-3 shadow-sm">
       <div className="mb-3 flex items-center justify-between">
         <div className="text-sm font-semibold text-content">{monthLabel}</div>
         <div className="flex items-center gap-1">
@@ -824,7 +824,7 @@ function CalendarView({
             <div
               key={k}
               className={cn(
-                'min-h-24 bg-white p-1.5 text-[11px]',
+                'min-h-24 bg-surface-raised p-1.5 text-[11px]',
                 !day.inMonth && 'bg-surface-sunken/40 text-content-subtle',
               )}
             >
@@ -1161,13 +1161,13 @@ function AvatarStack({
         <span
           key={m.id}
           title={memberDisplayName(m)}
-          className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-50 text-[10px] font-semibold text-brand-700 ring-2 ring-white"
+          className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-50 text-[10px] font-semibold text-brand-700 ring-2 ring-surface-raised"
         >
           {memberInitials(m)}
         </span>
       ))}
       {extra && extra > 0 ? (
-        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-surface-sunken text-[10px] font-semibold text-content-muted ring-2 ring-white">
+        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-surface-sunken text-[10px] font-semibold text-content-muted ring-2 ring-surface-raised">
           +{extra}
         </span>
       ) : null}

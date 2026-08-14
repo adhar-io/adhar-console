@@ -29,7 +29,7 @@ export function Registry() {
 
   if (repos.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading registry…
       </div>
     )
@@ -55,7 +55,7 @@ export function Registry() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search…"
-            className="mt-2 block w-full rounded-md border border-edge-default bg-white px-2 py-1 text-xs focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            className="mt-2 block w-full rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-xs focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </CardHeader>
         <CardBody className="p-0!">

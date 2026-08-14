@@ -102,7 +102,7 @@ export function Tokens() {
           {tokens.color.map((t, i) => (
             <div
               key={t.name}
-              className="flex items-center gap-3 rounded-lg border border-edge-default bg-white p-3 shadow-sm"
+              className="flex items-center gap-3 rounded-lg border border-edge-default bg-surface-raised p-3 shadow-sm"
             >
               <label className="relative h-12 w-12 shrink-0 cursor-pointer">
                 <span
@@ -124,7 +124,7 @@ export function Tokens() {
                   value={t.value}
                   onChange={(e) => setValue('color', i, e.target.value)}
                   spellCheck={false}
-                  className="mt-0.5 w-full rounded border border-transparent bg-transparent font-mono text-[10px] text-content-muted hover:border-edge-subtle focus:border-brand-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-brand-400/30"
+                  className="mt-0.5 w-full rounded border border-transparent bg-transparent font-mono text-[10px] text-content-muted hover:border-edge-subtle focus:border-brand-400 focus:bg-surface-raised focus:outline-none focus:ring-1 focus:ring-brand-400/30"
                 />
               </div>
             </div>
@@ -200,7 +200,7 @@ export function Tokens() {
             <Card key={t.name}>
               <CardBody className="space-y-3 p-4">
                 <div
-                  className="flex h-16 items-center justify-center rounded-lg bg-white"
+                  className="flex h-16 items-center justify-center rounded-lg bg-surface-raised"
                   style={{ boxShadow: t.value }}
                 >
                   <span className="font-mono text-[10px] text-content-subtle">{t.name}</span>
@@ -314,7 +314,7 @@ function ValueInput({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       spellCheck={false}
-      className={`rounded border border-transparent bg-transparent px-1 py-0.5 font-mono text-xs text-content hover:border-edge-subtle focus:border-brand-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-brand-400/30 ${className}`}
+      className={`rounded border border-transparent bg-transparent px-1 py-0.5 font-mono text-xs text-content hover:border-edge-subtle focus:border-brand-400 focus:bg-surface-raised focus:outline-none focus:ring-1 focus:ring-brand-400/30 ${className}`}
     />
   )
 }
@@ -353,7 +353,7 @@ function ExportPanel({ css, json }: { css: string; json: string }) {
               Reflects your edits — copy the snippet into your codebase or design tool.
             </div>
           </div>
-          <div className="flex items-center gap-1 rounded-md border border-edge-default bg-white p-1 shadow-sm">
+          <div className="flex items-center gap-1 rounded-md border border-edge-default bg-surface-raised p-1 shadow-sm">
             {(['css', 'json'] as Format[]).map((f) => (
               <button
                 key={f}
@@ -376,7 +376,7 @@ function ExportPanel({ css, json }: { css: string; json: string }) {
           <button
             type="button"
             onClick={() => navigator.clipboard?.writeText(value)}
-            className="absolute right-2 top-2 rounded-md bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-content-muted ring-1 ring-edge-default hover:text-content"
+            className="absolute right-2 top-2 rounded-md bg-surface-raised px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-content-muted ring-1 ring-edge-default hover:text-content"
           >
             Copy
           </button>

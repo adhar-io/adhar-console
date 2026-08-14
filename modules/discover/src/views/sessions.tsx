@@ -9,7 +9,7 @@ export function Sessions() {
 
   if (q.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading sessions…
       </div>
     )
@@ -19,7 +19,7 @@ export function Sessions() {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[11px] text-content-muted">{list.length} sessions</span>
-        <label className="ml-2 inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-white px-2 py-1 text-xs">
+        <label className="ml-2 inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-xs">
           <input
             type="checkbox"
             checked={errorsOnly}

@@ -39,7 +39,7 @@ export function KargoStages() {
 
   if (stages.isLoading || freight.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading Kargo…
       </div>
     )
@@ -273,10 +273,10 @@ function PromoteModal({
               className={
                 on
                   ? 'flex w-full items-start gap-3 rounded-lg border border-brand-400 bg-brand-50 p-3 text-left ring-2 ring-brand-400/20'
-                  : 'flex w-full items-start gap-3 rounded-lg border border-edge-default bg-white p-3 text-left hover:border-edge-strong'
+                  : 'flex w-full items-start gap-3 rounded-lg border border-edge-default bg-surface-raised p-3 text-left hover:border-edge-strong'
               }
             >
-              <code className="rounded bg-white px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content ring-1 ring-edge-subtle">
+              <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content ring-1 ring-edge-subtle">
                 {f.id}
               </code>
               <div className="min-w-0 flex-1">

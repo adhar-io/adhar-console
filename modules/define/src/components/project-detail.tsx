@@ -97,7 +97,7 @@ export function ProjectDetail({
         onClick={onClose}
       />
       <aside className="relative flex h-full w-full max-w-5xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-white px-6 py-4">
+        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="flex min-w-0 items-start gap-3">
             {p ? <ProjectMark project={p} /> : null}
             <div className="min-w-0">
@@ -134,7 +134,7 @@ export function ProjectDetail({
 
         <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
           {project.isLoading ? (
-            <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+            <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
               <Spinner size={14} /> Loading project…
             </div>
           ) : project.isError ? (

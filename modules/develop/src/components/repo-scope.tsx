@@ -30,7 +30,7 @@ export function RepoScope({ children }: { children(repo: string): React.ReactNod
 
   if (repos.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-white p-6 text-sm text-content-muted shadow-sm">
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
         <Spinner size={14} /> Loading repos…
       </div>
     )
@@ -41,7 +41,7 @@ export function RepoScope({ children }: { children(repo: string): React.ReactNod
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-white p-2 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-surface-raised p-2 shadow-sm">
         <RepoPicker value={repo} onChange={onPick} />
         <span className="text-[11px] text-content-muted">scope</span>
       </div>

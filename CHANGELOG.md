@@ -6,6 +6,65 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-08-15
+
+### Added
+
+- **Platform feature set** (Golden Paths, Score Cards, Package provenance, Policy
+  Packs, AI-assisted operations):
+  - **Golden paths** — production-quality scaffolding templates (microservice,
+    frontend, data pipeline, ML) whose new repos ship pre-wired with a CI
+    workflow, Dockerfile, Kustomize deploy manifests (resource limits + probes),
+    and observability (Prometheus ServiceMonitor + OTEL env). The scaffolder
+    commits the full generated file set to the new Gitea repo.
+  - **Score cards** — a weighted production-readiness engine (ownership,
+    delivery, reliability, security, observability) scoring every catalog entity
+    0–100 → A–F, with a dashboard at `/scorecards` and a per-service check
+    breakdown. Signals are derived from real entity metadata (no fabricated
+    passes). New "Score Cards" sidebar entry.
+  - **Package marketplace** — charts now carry **provenance** (cosign/notation
+    signature + signer, Trivy scan grade + CVE counts + SBOM) and a
+    **compatibility contract** (kube-version range, required CRDs/capabilities,
+    dependsOn, tested-on). Trust filters + a caution-gated install for
+    unsigned/unscanned packages.
+  - **Policy packs** — opt-in compliance profiles (CIS Kubernetes Benchmark,
+    SOC 2 baseline) shipped as audit-mode Kyverno `ClusterPolicy` bundles, with a
+    "Compliance packs" tab whose coverage ring is computed from live findings.
+  - **AI-assisted operations** — five read-only diagnostic tools (`k8s_describe`,
+    `k8s_pod_diagnostics`, `k8s_workload_health`, `k8s_events_scan`,
+    `argocd_app_status`) and a platform-aware, evidence-first debugging prompt.
+    Strictly read + propose-only — the assistant never mutates the cluster.
+- **`/api/diagnostics`** — a live connectivity endpoint reporting the actual
+  resolved Keycloak issuer/endpoints, DB status, and a real apiserver call with
+  the user's token, so login / cluster failures (issuer scheme, aud, RBAC, TLS,
+  unreachable API) are diagnosable at a glance. The `/api/k8s` gateway also
+  surfaces the upstream error detail in dev.
+- **Login screen** gains a light/dark/system toggle and friendly, retryable
+  error messages.
+
+### Fixed
+
+- **Dark mode "wrong font colors"**. The `.dark` theme globally overrode
+  `--color-white` / `--color-black` to flip `bg-white` cards — but that also
+  turned genuine white utilities (`text-white` labels on colored buttons/badges,
+  `ring-white` frost, `to-white` gradient stops) **dark**. White surfaces across
+  the host, shell-ui, and all six lifecycle modules were moved onto semantic
+  `surface-*` tokens (pixel-identical in light mode), tinted `*-50` gradient
+  tiles got `dark:` stops, cutout rings became `ring-surface-raised`, and the
+  leaky `--color-white` / `--color-black` overrides were removed. `status-badge`
+  gained proper `dark:` variants.
+- **Score Cards page margins** — it rendered at the default `standard`
+  (max-w-7xl, centered) content width while the other dashboards use `full`; now
+  full-width to match, plus a fleet "readiness by category" strip.
+
+### Notes
+
+- The companion in-cluster login / kube-apiserver auth fix lives in the platform
+  repo: Keycloak's `hostname-strict-backchannel` is set to `true` so it emits a
+  stable **https** issuer over the in-cluster http backchannel (the http issuer
+  was being rejected by both the console's id-token check and the apiserver's
+  strict `--oidc-issuer-url`). Requires a Keycloak pod restart to take effect.
+
 ## [0.1.4] - 2026-08-10
 
 ### Fixed

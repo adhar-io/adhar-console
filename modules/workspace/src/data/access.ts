@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import type { workspace } from '@adhar-console/api-clients'
+import { useWorkspaceMe } from './client.ts'
 
 /**
  * RBAC primitives — roles, permissions, and the segregation-of-duty matrix
@@ -185,16 +186,31 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
 /* ─────────── current-user / role hooks ─────────── */
 
 /**
- * In v1 the current user roles are read from the seeded auth stub; the SPA
- * doesn't yet have a session bootstrap that exposes the live session. The
- * default below mirrors `STUB_USER` in `@adhar-console/auth`.
+ * Map the caller's REAL org role (their `workspace.member` document, served by
+ * `/api/workspace/me`) onto the access-matrix roles used across Settings.
+ * `security` / `finance` are enterprise refinements not yet assignable as org
+ * roles, so they never appear here — only via the permission matrix display.
  */
-const STUB_CURRENT_ROLES: Role[] = ['admin', 'security', 'billing']
+const ORG_ROLE_TO_ACCESS: Record<workspace.OrgRole, Role[]> = {
+  owner: ['owner'],
+  admin: ['admin'],
+  billing: ['billing'],
+  member: ['member'],
+  viewer: ['viewer'],
+}
 
+const NO_ROLES: Role[] = []
+
+/**
+ * The current user's roles, derived from their real workspace membership.
+ * Returns an empty (fully restricted) set while membership is loading or when
+ * the console database is unavailable — views surface those states explicitly
+ * rather than granting stubbed access.
+ */
 export function useCurrentRoles(): Role[] {
-  // Returning a stable array satisfies React Compiler / hook rules and lets
-  // callers safely use the result inside `useMemo`.
-  return STUB_CURRENT_ROLES
+  const me = useWorkspaceMe()
+  const role = me.data?.role
+  return useMemo(() => (role ? ORG_ROLE_TO_ACCESS[role] ?? NO_ROLES : NO_ROLES), [role])
 }
 
 export function useHasPermission(perm: Permission): boolean {

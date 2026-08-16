@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { EmptyState, StatusBadge } from '@adhar-console/shell-ui'
-import { client, isDevK8s, LOCAL_CLUSTER } from '../data/client.ts'
+import { client, LOCAL_CLUSTER } from '../data/client.ts'
 import { formatBytes, formatCpu, parseQuantity } from '../data/format.ts'
 
 /**
@@ -214,9 +214,6 @@ function TrafficPanel({
       // Try the node-summary shortcut first — only works when the apiserver
       // has the stats/summary subresource enabled. We route through the
       // pod's node; for simplicity we fetch the pod and grab spec.nodeName.
-      // Dev runs against stub fixtures with no cluster — skip the live
-      // node-summary probe so we don't flood the console with proxy errors.
-      if (isDevK8s) return null
       const pod = await client.getPod(LOCAL_CLUSTER, namespace, podName)
       const node = pod.spec.nodeName
       if (!node) return null

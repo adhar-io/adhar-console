@@ -1,4 +1,6 @@
-import { HttpClient, HttpError, isProdBuild, type HttpClientOptions } from '../base/index.ts'
+import { HttpClient, HttpError, type HttpClientOptions } from '../base/index.ts'
+import { NetworkError, TimeoutError } from '../base/http.ts'
+import { K8sError, retryTransient } from './gateway.ts'
 import type {
   Cluster,
   Deployment,
@@ -25,10 +27,10 @@ import {
 } from './stub.ts'
 
 /**
- * Local cluster identifier — the K8s client is single-cluster (talks to whatever
- * `kubectl` context the user has active, via `kubectl proxy`). The `cluster`
- * arg on every method is vestigial to keep the stub + real impls interchangeable
- * for views that already pass a string through.
+ * Local cluster identifier — the gateway's default cluster. The `cluster`
+ * arg on every method selects a named gateway cluster; `local` / `default` /
+ * empty all mean the default apiserver, keeping the stub + real impls
+ * interchangeable for views that already pass a string through.
  */
 export const LOCAL_CLUSTER = 'local'
 
@@ -46,11 +48,25 @@ export interface ApiSurface {
   apiGroups: Array<{ name: string; versions: string[]; preferredVersion: string }>
 }
 
+/** Result of the lightweight cluster health probe — never throws. */
+export interface ClusterHealth {
+  healthy: boolean
+  version?: VersionInfo
+  /** Human-readable failure (typed via K8sError internally — TLS/network/auth). */
+  error?: string
+}
+
 export interface K8sClient {
   /** `/version` — cluster server version. */
-  getVersion(): Promise<VersionInfo>
+  getVersion(cluster?: string): Promise<VersionInfo>
   /** `/api` + `/apis` surface — used for connection checks and CRD discovery. */
-  getApiSurface(): Promise<ApiSurface>
+  getApiSurface(cluster?: string): Promise<ApiSurface>
+  /**
+   * Lightweight liveness probe (`/version` through the gateway). Never throws —
+   * returns a typed verdict so dashboards can render degraded states.
+   * Optional so hand-rolled `K8sClient` implementations elsewhere keep compiling.
+   */
+  probeHealth?(cluster?: string): Promise<ClusterHealth>
 
   listClusters(): Promise<Cluster[]>
   listNamespaces(cluster?: string): Promise<Namespace[]>
@@ -142,27 +158,84 @@ function itemsOf<T>(r: unknown): T[] {
 }
 
 /**
- * Real client — talks to `kubectl proxy` (via Vite dev-server proxy at
- * `/kube-api` in dev, or a same-origin BFF in prod).
- *
- * Every `cluster` arg is ignored — reserved for the future multi-cluster BFF.
+ * Append the gateway's `?cluster=` selector for named clusters. `local` /
+ * `default` / empty all mean "the gateway's default apiserver" and are omitted
+ * entirely, so existing single-cluster behaviour is byte-identical.
+ */
+function withCluster(path: string, cluster?: string): string {
+  if (!cluster || cluster === LOCAL_CLUSTER || cluster === 'default') return path
+  return `${path}${path.includes('?') ? '&' : '?'}cluster=${encodeURIComponent(cluster)}`
+}
+
+/**
+ * Normalize transport-layer failures into a typed `K8sError`:
+ *   - `HttpError` → parses the apiserver `Status` body (reason/code/retryAfterSeconds).
+ *   - `NetworkError` → status 0, retryable; TLS trust failures are singled out
+ *     (reason `TLSError`, NOT retryable) with a hint pointing at `DENO_CERT`.
+ *   - `TimeoutError` → status 0, reason `Timeout`, not retryable (30 s already spent).
+ */
+export function toK8sError(err: unknown): K8sError {
+  if (err instanceof K8sError) return err
+  if (err instanceof HttpError) return K8sError.fromStatus(err.status, err.body, err.message)
+  if (err instanceof TimeoutError) {
+    return new K8sError(0, err.message, undefined, { reason: 'Timeout', retryable: false })
+  }
+  if (err instanceof NetworkError) {
+    const causeMsg = err.cause instanceof Error ? err.cause.message : ''
+    const tls = /certificate|self.signed|tls|ssl|unable to verify/i.test(`${err.message} ${causeMsg}`)
+    return new K8sError(
+      0,
+      tls
+        ? `${err.message} — TLS trust failure: point DENO_CERT at a CA bundle that trusts the apiserver`
+        : err.message,
+      undefined,
+      { reason: tls ? 'TLSError' : 'NetworkError', retryable: !tls },
+    )
+  }
+  return new K8sError(0, err instanceof Error ? err.message : String(err), undefined, {
+    reason: 'Unknown',
+    retryable: false,
+  })
+}
+
+/**
+ * Real client — talks to the console's authenticated Kubernetes gateway
+ * (same-origin BFF at `/api/k8s`, per-user RBAC). Named clusters are selected
+ * via the gateway's `?cluster=` param (see `withCluster`).
  */
 function build(http: HttpClient): K8sClient {
-  const list = <T>(path: string): Promise<T[]> =>
-    http.get<{ items?: T[] }>(path).then(itemsOf)
+  /**
+   * Idempotent read — bounded retry with full jitter on transient failures
+   * (429 honouring Retry-After via the Status body, 500/502/503/504, network
+   * errors). Mutations NEVER take this path.
+   */
+  const read = <T>(path: string, cluster?: string): Promise<T> =>
+    retryTransient(() => http.get<T>(withCluster(path, cluster)), toK8sError)
+  const readText = (path: string, cluster?: string): Promise<string> =>
+    retryTransient(() => http.get<string>(withCluster(path, cluster), { response: 'text' }), toK8sError)
+  const list = <T>(path: string, cluster?: string): Promise<T[]> =>
+    read<{ items?: T[] }>(path, cluster).then((r) => itemsOf<T>(r))
+  /** Single-shot mutation — no retry ever, but errors become typed K8sError. */
+  const mutate = async <T>(fn: () => Promise<T>): Promise<T> => {
+    try {
+      return await fn()
+    } catch (e) {
+      throw toK8sError(e)
+    }
+  }
 
   return {
-    getVersion: () => http.get<VersionInfo>('/version'),
-    getApiSurface: async () => {
+    getVersion: (cluster) => read<VersionInfo>('/version', cluster),
+    getApiSurface: async (cluster) => {
       const [core, apis] = await Promise.all([
-        http.get<{ versions: string[] }>('/api'),
-        http.get<{
+        read<{ versions: string[] }>('/api', cluster),
+        read<{
           groups: Array<{
             name: string
             versions: Array<{ version: string }>
             preferredVersion: { version: string }
           }>
-        }>('/apis'),
+        }>('/apis', cluster),
       ])
       return {
         coreVersions: core.versions,
@@ -174,11 +247,20 @@ function build(http: HttpClient): K8sClient {
       }
     },
 
+    probeHealth: async (cluster) => {
+      try {
+        const version = await read<VersionInfo>('/version', cluster)
+        return { healthy: true, version }
+      } catch (e) {
+        return { healthy: false, error: toK8sError(e).message }
+      }
+    },
+
     listClusters: async () => {
       try {
         const [version, nodes] = await Promise.all([
-          http.get<VersionInfo>('/version'),
-          http.get<{ items: unknown[] }>('/api/v1/nodes'),
+          read<VersionInfo>('/version'),
+          read<{ items: unknown[] }>('/api/v1/nodes'),
         ])
         return [
           {
@@ -196,26 +278,29 @@ function build(http: HttpClient): K8sClient {
       }
     },
 
-    listNamespaces: async () => list<Namespace>('/api/v1/namespaces'),
-    listNodes: async () => list<Node>('/api/v1/nodes'),
+    listNamespaces: async (c) => list<Namespace>('/api/v1/namespaces', c),
+    listNodes: async (c) => list<Node>('/api/v1/nodes', c),
 
-    listPods: async (_c, ns, selector) => {
+    listPods: async (c, ns, selector) => {
       const path = ns
         ? `/api/v1/namespaces/${encodeURIComponent(ns)}/pods`
         : '/api/v1/pods'
       const q = selector ? `?labelSelector=${encodeURIComponent(selector)}` : ''
-      return list<Pod>(path + q)
+      return list<Pod>(path + q, c)
     },
-    getPod: (_c, ns, name) =>
-      http.get<Pod>(
+    getPod: (c, ns, name) =>
+      read<Pod>(
         `/api/v1/namespaces/${encodeURIComponent(ns)}/pods/${encodeURIComponent(name)}`,
+        c,
       ),
-    deletePod: async (_c, ns, name) => {
-      await http.delete<void>(
-        `/api/v1/namespaces/${encodeURIComponent(ns)}/pods/${encodeURIComponent(name)}`,
+    deletePod: async (c, ns, name) => {
+      await mutate(() =>
+        http.delete<void>(
+          withCluster(`/api/v1/namespaces/${encodeURIComponent(ns)}/pods/${encodeURIComponent(name)}`, c),
+        ),
       )
     },
-    podLogs: async (_c, ns, name, params = {}) => {
+    podLogs: async (c, ns, name, params = {}) => {
       const qs = new URLSearchParams()
       if (params.container) qs.set('container', params.container)
       if (params.tailLines) qs.set('tailLines', String(params.tailLines))
@@ -228,14 +313,15 @@ function build(http: HttpClient): K8sClient {
       }`
       // Logs endpoint returns text/plain — use response:'text' to force that
       // path instead of relying on content-type sniffing.
-      return await http.get<string>(url, { response: 'text' })
+      return await readText(url, c)
     },
-    podMetrics: async (_c, ns, name) => {
+    podMetrics: async (c, ns, name) => {
       try {
-        return await http.get<PodMetrics>(
+        return await read<PodMetrics>(
           `/apis/metrics.k8s.io/v1beta1/namespaces/${encodeURIComponent(
             ns,
           )}/pods/${encodeURIComponent(name)}`,
+          c,
         )
       } catch (err) {
         // metrics-server not installed — return undefined so UI can fall back.
@@ -244,113 +330,134 @@ function build(http: HttpClient): K8sClient {
       }
     },
 
-    listDeployments: async (_c, ns) =>
+    listDeployments: async (c, ns) =>
       list<Deployment>(
         ns
           ? `/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/deployments`
           : '/apis/apps/v1/deployments',
+        c,
       ),
-    listStatefulSets: async (_c, ns) =>
+    listStatefulSets: async (c, ns) =>
       list<Generic>(
         ns
           ? `/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/statefulsets`
           : '/apis/apps/v1/statefulsets',
+        c,
       ),
-    listDaemonSets: async (_c, ns) =>
+    listDaemonSets: async (c, ns) =>
       list<Generic>(
         ns
           ? `/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/daemonsets`
           : '/apis/apps/v1/daemonsets',
+        c,
       ),
-    listJobs: async (_c, ns) =>
+    listJobs: async (c, ns) =>
       list<Generic>(
         ns
           ? `/apis/batch/v1/namespaces/${encodeURIComponent(ns)}/jobs`
           : '/apis/batch/v1/jobs',
+        c,
       ),
-    listCronJobs: async (_c, ns) =>
+    listCronJobs: async (c, ns) =>
       list<Generic>(
         ns
           ? `/apis/batch/v1/namespaces/${encodeURIComponent(ns)}/cronjobs`
           : '/apis/batch/v1/cronjobs',
+        c,
       ),
-    scaleDeployment: async (_c, ns, name, replicas) => {
-      await http.patch<void>(
-        `/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/deployments/${encodeURIComponent(name)}/scale`,
-        { spec: { replicas } },
+    scaleDeployment: async (c, ns, name, replicas) => {
+      await mutate(() =>
+        http.patch<void>(
+          withCluster(
+            `/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/deployments/${encodeURIComponent(name)}/scale`,
+            c,
+          ),
+          { spec: { replicas } },
+        ),
       )
     },
 
-    listServices: async (_c, ns) =>
+    listServices: async (c, ns) =>
       list<Service>(
         ns
           ? `/api/v1/namespaces/${encodeURIComponent(ns)}/services`
           : '/api/v1/services',
+        c,
       ),
-    listIngresses: async (_c, ns) =>
+    listIngresses: async (c, ns) =>
       list<Ingress>(
         ns
           ? `/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/ingresses`
           : '/apis/networking.k8s.io/v1/ingresses',
+        c,
       ),
 
-    listConfigMaps: async (_c, ns) =>
+    listConfigMaps: async (c, ns) =>
       list<Generic>(
         ns
           ? `/api/v1/namespaces/${encodeURIComponent(ns)}/configmaps`
           : '/api/v1/configmaps',
+        c,
       ),
-    listSecrets: async (_c, ns) =>
+    listSecrets: async (c, ns) =>
       list<Generic>(
         ns
           ? `/api/v1/namespaces/${encodeURIComponent(ns)}/secrets`
           : '/api/v1/secrets',
+        c,
       ),
 
-    listPersistentVolumes: async () => list<Generic>('/api/v1/persistentvolumes'),
-    listPersistentVolumeClaims: async (_c, ns) =>
+    listPersistentVolumes: async (c) => list<Generic>('/api/v1/persistentvolumes', c),
+    listPersistentVolumeClaims: async (c, ns) =>
       list<Generic>(
         ns
           ? `/api/v1/namespaces/${encodeURIComponent(ns)}/persistentvolumeclaims`
           : '/api/v1/persistentvolumeclaims',
+        c,
       ),
-    listStorageClasses: async () => list<Generic>('/apis/storage.k8s.io/v1/storageclasses'),
+    listStorageClasses: async (c) => list<Generic>('/apis/storage.k8s.io/v1/storageclasses', c),
 
-    listServiceAccounts: async (_c, ns) =>
+    listServiceAccounts: async (c, ns) =>
       list<Generic>(
         ns
           ? `/api/v1/namespaces/${encodeURIComponent(ns)}/serviceaccounts`
           : '/api/v1/serviceaccounts',
+        c,
       ),
-    listRoles: async (_c, ns) =>
+    listRoles: async (c, ns) =>
       list<Generic>(
         ns
           ? `/apis/rbac.authorization.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/roles`
           : '/apis/rbac.authorization.k8s.io/v1/roles',
+        c,
       ),
-    listRoleBindings: async (_c, ns) =>
+    listRoleBindings: async (c, ns) =>
       list<Generic>(
         ns
           ? `/apis/rbac.authorization.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/rolebindings`
           : '/apis/rbac.authorization.k8s.io/v1/rolebindings',
+        c,
       ),
-    listClusterRoles: async () =>
-      list<Generic>('/apis/rbac.authorization.k8s.io/v1/clusterroles'),
-    listClusterRoleBindings: async () =>
-      list<Generic>('/apis/rbac.authorization.k8s.io/v1/clusterrolebindings'),
+    listClusterRoles: async (c) =>
+      list<Generic>('/apis/rbac.authorization.k8s.io/v1/clusterroles', c),
+    listClusterRoleBindings: async (c) =>
+      list<Generic>('/apis/rbac.authorization.k8s.io/v1/clusterrolebindings', c),
 
-    listEvents: async (_c, ns) =>
+    listEvents: async (c, ns) =>
       list<Event>(
         ns
           ? `/api/v1/namespaces/${encodeURIComponent(ns)}/events`
           : '/api/v1/events',
+        c,
       ),
 
-    listGeneric: async (_c, gvr, ns) => list<Generic>(apiPath(gvr, ns)),
-    getGeneric: (_c, gvr, ns, name) =>
-      http.get<Generic>(`${apiPath(gvr, ns)}/${encodeURIComponent(name)}`),
-    replaceGeneric: (_c, gvr, ns, name, obj) =>
-      http.put<Generic>(`${apiPath(gvr, ns)}/${encodeURIComponent(name)}`, obj),
+    listGeneric: async (c, gvr, ns) => list<Generic>(apiPath(gvr, ns), c),
+    getGeneric: (c, gvr, ns, name) =>
+      read<Generic>(`${apiPath(gvr, ns)}/${encodeURIComponent(name)}`, c),
+    replaceGeneric: (c, gvr, ns, name, obj) =>
+      mutate(() =>
+        http.put<Generic>(withCluster(`${apiPath(gvr, ns)}/${encodeURIComponent(name)}`, c), obj),
+      ),
   }
 }
 
@@ -424,6 +531,7 @@ function stub(): K8sClient {
       coreVersions: ['v1'],
       apiGroups: [{ name: 'apps', versions: ['v1'], preferredVersion: 'v1' }],
     }),
+    probeHealth: async () => ({ healthy: true, version: stubVersion }),
     listClusters: async () => STUB_CLUSTERS,
     listNamespaces: async () => STUB_NAMESPACES,
     listNodes: async () => STUB_NODES,
@@ -474,34 +582,14 @@ function stub(): K8sClient {
 
 export const K8sClient = {
   /**
-   * Build a client against `kubectl proxy` (default `/kube-api` in dev, which
-   * Vite forwards to `http://127.0.0.1:8001`). In production point at a
-   * same-origin BFF path that forwards after auth.
-   */
-  create(opts: Partial<HttpClientOptions> = {}): K8sClient {
-    return build(
-      new HttpClient({
-        baseUrl: opts.baseUrl ?? '/kube-api',
-        token: opts.token,
-        headers: opts.headers,
-        fetchImpl: opts.fetchImpl,
-        credentials: opts.credentials,
-      }),
-    )
-  },
-  /**
-   * Environment-aware client.
-   *   - Production build → the kube-apiserver through the console's **Kubernetes
-   *     gateway** at `/api/k8s` (cookie-authenticated; forwards the signed-in
-   *     user's token for per-user RBAC).
-   *   - Dev (or `mode: 'stub'`) → in-memory **stub fixtures**, so the UI runs
-   *     with no cluster and no `kubectl proxy` (that flood of ECONNREFUSED
-   *     proxy errors is gone). Force live dev with `mode: 'real'`.
+   * Build a client.
+   *   - Default (`mode: 'real'`) → the cluster's apiserver through the console's
+   *     **Kubernetes gateway** at `/api/k8s` (cookie-authenticated; forwards
+   *     the signed-in user's token for per-user RBAC). Same path in dev (via
+   *     the dev BFF + Vite proxy) and prod.
+   *   - `mode: 'stub'` → in-memory **stub fixtures**, for tests / offline only.
    */
   auto(opts: { mode?: 'real' | 'stub' } & Partial<HttpClientOptions> = {}): K8sClient {
-    // Real by default — the console connects to the cluster's apiserver through
-    // the BFF gateway (`/api/k8s`), in dev (via the dev BFF + Vite proxy) and
-    // prod alike. Pass `mode: 'stub'` for tests / offline only.
     const real = opts.mode !== 'stub'
     if (!real) return stub()
     return build(
@@ -517,4 +605,6 @@ export const K8sClient = {
   stub,
   /** Re-export so callers can `catch (e) { if (e instanceof K8sClient.HttpError) … }`. */
   HttpError,
+  /** Typed Kubernetes error every client method throws (status/reason/code/retryable). */
+  K8sError,
 }

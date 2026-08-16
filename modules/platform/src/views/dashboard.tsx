@@ -25,6 +25,7 @@ import {
   useStatefulSets,
 } from '../data/hooks.ts'
 import { age, formatBytes, formatCpu, parseQuantity } from '../data/format.ts'
+import { LOCAL_CLUSTER, useActiveCluster } from '../data/client.ts'
 import { ViewAsRoleSwitcher } from '../components/role-gate.tsx'
 import { K8S_ROLE_LABEL, useK8sCurrentRoles } from '../data/access.ts'
 
@@ -36,6 +37,7 @@ import { K8S_ROLE_LABEL, useK8sCurrentRoles } from '../data/access.ts'
  * sub-views.
  */
 export function PlatformDashboard() {
+  const { cluster } = useActiveCluster()
   const version = useConnection()
   const surface = useApiSurface()
   const nodes = useNodes()
@@ -50,11 +52,32 @@ export function PlatformDashboard() {
   const events = useEvents()
   const podMetrics = usePodMetrics()
 
+  const clusterLabel = cluster === LOCAL_CLUSTER ? 'Local cluster' : cluster
+
   if (version.isLoading || nodes.isLoading) {
     return (
       <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Loading platform pulse…
+        <Spinner size={14} /> Loading platform pulse for {clusterLabel}…
       </div>
+    )
+  }
+
+  // Honest failure state: the cheap `/version` probe failed → the active
+  // cluster is unreachable (or the gateway rejected it). No fabricated zeros.
+  if (version.isError) {
+    return (
+      <Card>
+        <CardBody>
+          <EmptyState
+            title={`Not connected to ${clusterLabel}`}
+            description={
+              version.error instanceof Error
+                ? version.error.message
+                : 'The Kubernetes gateway could not reach this cluster. Check the K8S_CLUSTERS configuration or pick another cluster.'
+            }
+          />
+        </CardBody>
+      </Card>
     )
   }
 
@@ -81,9 +104,21 @@ export function PlatformDashboard() {
   const warns = (events.data ?? []).filter((e) => e.type === 'Warning').length
   const topPods = topPodsByUsage(podMetrics.data as PodMetric[] | undefined, 6)
 
+  // Control-plane / component health, derived from node conditions + pod
+  // phases — the closest honest signal available through the apiserver alone.
+  const notReadyNodes = (nodes.data ?? []).filter((n) => !isNodeReady(n))
+  const pressure = countNodePressure(nodes.data ?? [])
+  const pendingPods = (pods.data ?? []).filter((p) => p.status?.phase === 'Pending')
+  const failedPods = (pods.data ?? []).filter((p) => p.status?.phase === 'Failed')
+  const recentWarnings = (events.data ?? [])
+    .filter((e) => e.type === 'Warning')
+    .sort(byNewest)
+    .slice(0, 5)
+
   return (
     <div className="space-y-6">
       <ClusterSummary
+        clusterLabel={clusterLabel}
         version={version.data}
         nodes={nodes.data ?? []}
         readyNodes={readyNodes}
@@ -134,6 +169,106 @@ export function PlatformDashboard() {
           icon={<IconBell />}
           hint={`${events.data?.length ?? 0} total this hour`}
         />
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-semibold text-content">Cluster health signals</div>
+                <div className="text-[11px] text-content-subtle">
+                  Node conditions + pod phases, live from the apiserver
+                </div>
+              </div>
+              <StatusBadge
+                kind={
+                  notReadyNodes.length + failedPods.length > 0
+                    ? 'failed'
+                    : pressure.memory + pressure.disk + pressure.pid + pendingPods.length > 0
+                      ? 'degraded'
+                      : 'healthy'
+                }
+              >
+                {notReadyNodes.length + failedPods.length > 0
+                  ? 'attention'
+                  : pressure.memory + pressure.disk + pressure.pid + pendingPods.length > 0
+                    ? 'degraded'
+                    : 'healthy'}
+              </StatusBadge>
+            </div>
+          </CardHeader>
+          <CardBody className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <SignalTile
+              label="Not-ready nodes"
+              count={notReadyNodes.length}
+              names={notReadyNodes.map((n) => n.metadata.name)}
+              severity="rose"
+            />
+            <SignalTile label="Memory pressure" count={pressure.memory} names={pressure.memoryNames} severity="amber" />
+            <SignalTile label="Disk pressure" count={pressure.disk} names={pressure.diskNames} severity="amber" />
+            <SignalTile label="PID pressure" count={pressure.pid} names={pressure.pidNames} severity="amber" />
+            <SignalTile
+              label="Pending pods"
+              count={pendingPods.length}
+              names={pendingPods.map((p) => p.metadata.name)}
+              severity="amber"
+            />
+            <SignalTile
+              label="Failed pods"
+              count={failedPods.length}
+              names={failedPods.map((p) => p.metadata.name)}
+              severity="rose"
+            />
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-semibold text-content">Recent warnings</div>
+                <div className="text-[11px] text-content-subtle">Warning events, newest first</div>
+              </div>
+              <StatusBadge kind={recentWarnings.length > 0 ? 'failed' : 'healthy'}>
+                {recentWarnings.length > 0 ? `${warns} active` : 'none'}
+              </StatusBadge>
+            </div>
+          </CardHeader>
+          <CardBody className="p-0!">
+            {events.isLoading ? (
+              <div className="flex items-center gap-2 p-5 text-sm text-content-muted">
+                <Spinner size={14} /> Loading…
+              </div>
+            ) : recentWarnings.length === 0 ? (
+              <EmptyState compact title="No recent warnings" />
+            ) : (
+              <ul className="divide-y divide-edge-subtle">
+                {recentWarnings.map((e, i) => (
+                  <li key={i} className="px-5 py-2">
+                    <div className="flex items-baseline gap-2">
+                      <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-rose-700 dark:text-rose-300">
+                        {e.reason ?? '—'}
+                      </code>
+                      <span className="ml-auto shrink-0 text-[10px] text-content-subtle">
+                        {age(e.lastTimestamp ?? (e as { eventTime?: string }).eventTime) ?? '—'}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-content">
+                      {e.message ?? '—'}
+                    </div>
+                    {e.involvedObject ? (
+                      <div className="mt-0.5 truncate font-mono text-[10px] text-content-subtle">
+                        {e.involvedObject.kind}/{e.involvedObject.name}
+                        {e.involvedObject.namespace ? ` @ ${e.involvedObject.namespace}` : ''}
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardBody>
+        </Card>
       </div>
 
       <Card>
@@ -418,6 +553,49 @@ function PhaseTile({ label, value, dot }: { label: string; value: number; dot: s
   )
 }
 
+function SignalTile({
+  label,
+  count,
+  names,
+  severity,
+}: {
+  label: string
+  count: number
+  names: string[]
+  severity: 'amber' | 'rose'
+}) {
+  const ok = count === 0
+  const countCls = ok
+    ? 'text-content'
+    : severity === 'rose'
+      ? 'text-rose-700 dark:text-rose-300'
+      : 'text-amber-700 dark:text-amber-300'
+  return (
+    <div className="rounded-md border border-edge-subtle bg-surface-sunken/40 p-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+          {label}
+        </span>
+        <span
+          className={cn(
+            'h-1.5 w-1.5 shrink-0 rounded-full',
+            ok ? 'bg-emerald-500' : severity === 'rose' ? 'bg-rose-500' : 'bg-amber-500',
+          )}
+        />
+      </div>
+      <div className={cn('mt-1 text-base font-semibold tabular-nums', countCls)}>{count}</div>
+      {ok ? (
+        <div className="text-[10px] text-content-subtle">none</div>
+      ) : (
+        <div className="truncate font-mono text-[10px] text-content-muted" title={names.join(', ')}>
+          {names.slice(0, 2).join(', ')}
+          {names.length > 2 ? ` +${names.length - 2}` : ''}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function MicroBar({ pct, label, color }: { pct: number; label: string; color: string }) {
   return (
     <div title={`${label} ${Math.round(pct)}%`}>
@@ -562,6 +740,7 @@ function QuickStartCard({
 /* ─────────── cluster summary ─────────── */
 
 function ClusterSummary({
+  clusterLabel,
   version,
   nodes,
   readyNodes,
@@ -569,6 +748,7 @@ function ClusterSummary({
   namespaces,
   apiGroups,
 }: {
+  clusterLabel: string
   version?: { gitVersion?: string; platform?: string; gitCommit?: string }
   nodes: Array<{ status?: { nodeInfo?: { kubeletVersion?: string; containerRuntimeVersion?: string; osImage?: string; architecture?: string } } }>
   readyNodes: number
@@ -588,7 +768,7 @@ function ClusterSummary({
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h2 className="text-base font-semibold text-content">Local cluster</h2>
+              <h2 className="truncate text-base font-semibold text-content">{clusterLabel}</h2>
               <StatusBadge kind={readyNodes === totalNodes && totalNodes > 0 ? 'healthy' : 'degraded'}>
                 {readyNodes === totalNodes && totalNodes > 0 ? 'healthy' : 'attention'}
               </StatusBadge>
@@ -862,6 +1042,30 @@ function isNodeReady(node: {
   status?: { conditions?: Array<{ type: string; status: string }> }
 }): boolean {
   return (node.status?.conditions ?? []).some((c) => c.type === 'Ready' && c.status === 'True')
+}
+
+/** Nodes reporting kubelet pressure conditions (`status: True`), per condition. */
+function countNodePressure(
+  nodes: Array<{
+    metadata: { name: string }
+    status?: { conditions?: Array<{ type: string; status: string }> }
+  }>,
+) {
+  const withCondition = (type: string) =>
+    nodes
+      .filter((n) => (n.status?.conditions ?? []).some((c) => c.type === type && c.status === 'True'))
+      .map((n) => n.metadata.name)
+  const memoryNames = withCondition('MemoryPressure')
+  const diskNames = withCondition('DiskPressure')
+  const pidNames = withCondition('PIDPressure')
+  return {
+    memory: memoryNames.length,
+    disk: diskNames.length,
+    pid: pidNames.length,
+    memoryNames,
+    diskNames,
+    pidNames,
+  }
 }
 
 function byNewest(

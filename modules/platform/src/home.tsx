@@ -26,24 +26,35 @@ import {
   ApplicationsView,
   BucketsView,
   CachesView,
+  CertificatesView,
   DatabasesView,
   DataPipelinesView,
   DomainsView,
   EnvironmentsView,
   FunctionsView,
+  LoadBalancersView,
   PipelinesView,
+  QueuesView,
   RoutesView,
+  SecretStoresView,
   TopicsView,
   WorkflowsView,
 } from './views/xr-kinds.tsx'
 import { PlatformCatalog } from './views/catalog.tsx'
+import { NamespacesView } from './views/namespaces-list.tsx'
+import { AutoscalingView } from './views/autoscaling-list.tsx'
+import { ReleasesView } from './views/releases-list.tsx'
+import { ClusterPicker, ClusterProvider } from './components/cluster-picker.tsx'
 
 type Section =
   | 'dashboard'
   | 'catalog'
   | 'clusters'
+  | 'namespaces'
   | 'nodes'
   | 'workloads'
+  | 'autoscaling'
+  | 'releases'
   | 'pods'
   | 'networking'
   | 'storage'
@@ -72,6 +83,10 @@ type Section =
   | 'environments'
   | 'domains'
   | 'api-contracts'
+  | 'queues'
+  | 'certificates'
+  | 'secret-stores'
+  | 'load-balancers'
 
 interface SectionDef {
   id: Section
@@ -93,16 +108,34 @@ const SECTIONS: Record<Section, SectionDef> = {
     description: 'Cluster capacity, version, and API surface.',
     kind: 'k8s',
   },
+  namespaces: {
+    id: 'namespaces',
+    label: 'Namespaces',
+    description: 'Namespaces with quota usage, limit ranges, labels — create, inspect, delete.',
+    kind: 'k8s',
+  },
   nodes: {
     id: 'nodes',
     label: 'Nodes',
-    description: 'Every worker — capacity, conditions, taints, system info.',
+    description: 'Every worker — capacity, conditions, taints, drain, system info.',
     kind: 'k8s',
   },
   workloads: {
     id: 'workloads',
     label: 'Workloads',
     description: 'Deployments, StatefulSets, DaemonSets, Jobs, CronJobs.',
+    kind: 'k8s',
+  },
+  autoscaling: {
+    id: 'autoscaling',
+    label: 'Autoscaling',
+    description: 'HorizontalPodAutoscalers — current vs target metrics, min/max, scaling activity.',
+    kind: 'k8s',
+  },
+  releases: {
+    id: 'releases',
+    label: 'Helm Releases',
+    description: 'Installed Helm releases — revisions, status, values, uninstall.',
     kind: 'k8s',
   },
   pods: {
@@ -276,6 +309,30 @@ const SECTIONS: Record<Section, SectionDef> = {
     description: 'Published OpenAPI / AsyncAPI / GraphQL surfaces with version, owner, and consumer SLOs.',
     kind: 'xr',
   },
+  queues: {
+    id: 'queues',
+    label: 'Queues',
+    description: 'Message queue claims — durability, dead-letter, retries — provisioned via Crossplane.',
+    kind: 'xr',
+  },
+  certificates: {
+    id: 'certificates',
+    label: 'Certificates',
+    description: 'TLS certificate claims — DNS names, issuer, duration, auto-renewal.',
+    kind: 'xr',
+  },
+  'secret-stores': {
+    id: 'secret-stores',
+    label: 'Secret Stores',
+    description: 'External secret store claims — Vault / ESO backends, auth, and sync paths.',
+    kind: 'xr',
+  },
+  'load-balancers': {
+    id: 'load-balancers',
+    label: 'Load Balancers',
+    description: 'Load balancer claims — internal/external, protocol, ports, health checks.',
+    kind: 'xr',
+  },
   catalog: {
     id: 'catalog',
     label: 'Platform Catalog',
@@ -295,26 +352,32 @@ export default function PlatformHome({ section }: { section?: string } = {}) {
     active !== 'dashboard' &&
     active !== 'catalog' &&
     active !== 'clusters' &&
+    active !== 'namespaces' &&
     active !== 'environments' &&
     active !== 'explore' &&
     active !== 'metrics' &&
     !ownNamespacePicker
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title={def.label}
-        description={def.description}
-        actions={
-          showNamespacePicker ? (
-            <NamespacePicker value={namespace} onChange={setNamespace} />
-          ) : null
-        }
-      />
-      <ConnectionGate>
-        <SectionBody active={active} namespace={namespace} />
-      </ConnectionGate>
-    </div>
+    <ClusterProvider>
+      <div className="space-y-6">
+        <PageHeader
+          title={def.label}
+          description={def.description}
+          actions={
+            <div className="flex items-center gap-2">
+              <ClusterPicker />
+              {showNamespacePicker ? (
+                <NamespacePicker value={namespace} onChange={setNamespace} />
+              ) : null}
+            </div>
+          }
+        />
+        <ConnectionGate>
+          <SectionBody active={active} namespace={namespace} />
+        </ConnectionGate>
+      </div>
+    </ClusterProvider>
   )
 }
 
@@ -330,10 +393,16 @@ function SectionBody({
       return <PlatformDashboard />
     case 'clusters':
       return <ClusterView />
+    case 'namespaces':
+      return <NamespacesView />
     case 'nodes':
       return <NodesView />
     case 'workloads':
       return <WorkloadView namespace={namespace} />
+    case 'autoscaling':
+      return <AutoscalingView namespace={namespace} />
+    case 'releases':
+      return <ReleasesView namespace={namespace} />
     case 'pods':
       return <PodsView namespace={namespace} />
     case 'networking':
@@ -390,6 +459,14 @@ function SectionBody({
       return <DomainsView namespace={namespace} />
     case 'api-contracts':
       return <ApiContractsView namespace={namespace} />
+    case 'queues':
+      return <QueuesView namespace={namespace} />
+    case 'certificates':
+      return <CertificatesView namespace={namespace} />
+    case 'secret-stores':
+      return <SecretStoresView namespace={namespace} />
+    case 'load-balancers':
+      return <LoadBalancersView namespace={namespace} />
     case 'catalog':
       return <PlatformCatalog />
   }

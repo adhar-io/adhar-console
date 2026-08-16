@@ -4,8 +4,11 @@ export * from './stub.ts'
 export {
   kube,
   K8sError,
+  retryTransient,
   resourcePath,
   execPod,
+  type K8sStatusBody,
+  type RetryPolicy,
   type GVR as GatewayGVR,
   type KubeObject,
   type KubeList,

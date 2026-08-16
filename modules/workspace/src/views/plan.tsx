@@ -1,7 +1,14 @@
-import { useQuery } from '@tanstack/react-query'
-import { StatusBadge } from '@adhar-console/shell-ui'
+import type { ReactNode } from 'react'
+import { EmptyState, Spinner, StatusBadge } from '@adhar-console/shell-ui'
 import { formatRelative } from '@adhar-console/utils'
-import { CURRENT_ORG_SLUG, wsClient } from '../data/client.ts'
+import {
+  fmtMoney,
+  isStoreUnavailable,
+  usePlans,
+  useSubscription,
+  useUpdateSubscription,
+  type PlanDef,
+} from '../data/billing.ts'
 import {
   PrimaryButton,
   SecondaryButton,
@@ -9,75 +16,98 @@ import {
   StatTile,
   ViewShell,
 } from '../components/section-shell.tsx'
-import { fmtMoney } from '../data/enterprise.ts'
 
-const TIERS: { id: 'free' | 'team' | 'business' | 'enterprise'; price: string; summary: string; includes: string[] }[] = [
-  {
-    id: 'free',
-    price: '$0',
-    summary: 'Solo devs and side projects.',
-    includes: ['1 project', '2 environments', 'Public status page', 'Community support'],
-  },
-  {
-    id: 'team',
-    price: '$29 / user / mo',
-    summary: 'Small teams standardizing on the Adhar stack.',
-    includes: ['10 projects', '30 environments', 'SSO via Keycloak', 'Email support'],
-  },
-  {
-    id: 'business',
-    price: '$79 / user / mo',
-    summary: 'Multi-team orgs with compliance needs.',
-    includes: ['50 projects', '200 environments', 'Audit log (365d)', 'SAML/OIDC federation', 'Priority support'],
-  },
-  {
-    id: 'enterprise',
-    price: 'Contact sales',
-    summary: 'Large orgs, air-gapped, or custom SLAs.',
-    includes: [
-      'Unlimited projects',
-      'Unlimited environments',
-      'Dedicated support + SLA',
-      'On-prem / air-gapped install',
-      'Source-available + commercial terms',
-    ],
-  },
-]
+function priceLabel(p: PlanDef): string {
+  if (p.contactSales) return 'Contact sales'
+  if (p.pricePerSeatMonthly === 0) return '$0'
+  return `$${p.pricePerSeatMonthly} / seat / mo`
+}
 
 export function Plan() {
-  const q = useQuery({
-    queryKey: ['ws', 'plan', CURRENT_ORG_SLUG],
-    queryFn: () => wsClient.getPlan(CURRENT_ORG_SLUG),
-  })
-  const p = q.data
-  return (
+  const plansQ = usePlans()
+  const subQ = useSubscription()
+  const update = useUpdateSubscription()
+
+  const summary = subQ.data
+  const sub = summary?.item
+  const limits = summary?.plan.limits
+
+  const shell = (children: ReactNode) => (
     <ViewShell
       title="Plan & subscription"
       description="Pricing is public and versioned. The plan covers managed operations, SLAs, and support — every capability is also available in the open-source stack."
       required={['billing', 'owner']}
     >
+      {children}
+    </ViewShell>
+  )
+
+  if (subQ.isLoading || plansQ.isLoading) {
+    return shell(
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
+        <Spinner size={14} /> Loading subscription…
+      </div>,
+    )
+  }
+  if (subQ.isError && isStoreUnavailable(subQ.error)) {
+    return shell(
+      <EmptyState
+        title="Connect a database"
+        description="Subscriptions are persisted in Postgres. Set DATABASE_URL for the console server to manage billing."
+      />,
+    )
+  }
+  if (subQ.isError || plansQ.isError) {
+    return shell(
+      <EmptyState
+        title="Billing unavailable"
+        description={(subQ.error ?? plansQ.error) instanceof Error ? ((subQ.error ?? plansQ.error) as Error).message : 'The billing API did not respond.'}
+      />,
+    )
+  }
+
+  const manageSeats = () => {
+    if (!sub) return
+    const raw = window.prompt('Seats to purchase:', String(sub.seatsPurchased))
+    if (!raw) return
+    const seats = Number(raw)
+    if (!Number.isInteger(seats) || seats < 1) return
+    update.mutate({ seatsPurchased: seats })
+  }
+
+  return shell(
+    <>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile label="Tier" value={p?.tier ?? '—'} hint={p ? 'active' : ''} tone="good" />
-        <StatTile label="Seats" value={p ? `${p.seatsUsed} / ${p.seats}` : '—'} hint="used / total" />
+        <StatTile
+          label="Tier"
+          value={sub?.tier ?? '—'}
+          hint={sub ? sub.status : ''}
+          tone={sub?.status === 'active' ? 'good' : 'warn'}
+        />
+        <StatTile
+          label="Seats"
+          value={summary ? `${summary.seatsUsed} / ${sub?.seatsPurchased}` : '—'}
+          hint="used / purchased"
+        />
         <StatTile
           label="Monthly"
-          value={p ? fmtMoney(p.priceMonthly, p.currency) : '—'}
-          hint="line-item billing"
+          value={summary ? fmtMoney(summary.priceMonthly, summary.currency) : '—'}
+          hint={summary?.plan.contactSales ? 'contractual pricing' : 'seat-based billing'}
         />
         <StatTile
           label="Renews"
-          value={p ? formatRelative(p.renewsAt) : '—'}
-          hint={p?.paymentMethod ?? 'no payment method'}
+          value={sub ? formatRelative(sub.renewsAt) : '—'}
+          hint={summary?.paymentMethod ?? 'no payment method'}
         />
       </div>
 
       <SettingsCard
         title="Pricing tiers"
-        description="Upgrade unlocks higher quotas and additional security features."
+        description="Upgrade unlocks higher quotas and additional security features. Switching updates the persisted subscription immediately."
       >
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {TIERS.map((t) => {
-            const active = p && t.id === p.tier
+          {(plansQ.data ?? []).map((t) => {
+            const active = sub && t.id === sub.tier
             return (
               <div
                 key={t.id}
@@ -88,11 +118,11 @@ export function Plan() {
                 }
               >
                 <div className="flex items-center justify-between">
-                  <div className="text-sm font-semibold capitalize text-content">{t.id}</div>
+                  <div className="text-sm font-semibold capitalize text-content">{t.name}</div>
                   {active ? <StatusBadge kind="info">current</StatusBadge> : null}
                 </div>
                 <div className="mt-2 text-xl font-semibold tabular-nums tracking-tight text-content">
-                  {t.price}
+                  {priceLabel(t)}
                 </div>
                 <p className="mt-1 text-[12px] text-content-muted">{t.summary}</p>
                 <ul className="mt-4 space-y-1.5 text-[12px] text-content">
@@ -106,28 +136,57 @@ export function Plan() {
                   ))}
                 </ul>
                 {!active ? (
-                  <PrimaryButton onClick={() => alert(`Switch to ${t.id} — wizard pending.`)}>
-                    {t.id === 'enterprise' ? 'Contact sales' : `Switch to ${t.id}`}
-                  </PrimaryButton>
+                  t.contactSales ? (
+                    <PrimaryButton
+                      onClick={() => {
+                        window.location.href = 'mailto:sales@adhar.io?subject=Enterprise plan'
+                      }}
+                    >
+                      Contact sales
+                    </PrimaryButton>
+                  ) : (
+                    <PrimaryButton
+                      disabled={update.isPending}
+                      onClick={() => update.mutate({ tier: t.id })}
+                    >
+                      {update.isPending ? 'Switching…' : `Switch to ${t.name}`}
+                    </PrimaryButton>
+                  )
                 ) : (
-                  <SecondaryButton>Manage seats</SecondaryButton>
+                  <SecondaryButton onClick={manageSeats} disabled={update.isPending}>
+                    Manage seats
+                  </SecondaryButton>
                 )}
               </div>
             )
           })}
         </div>
+        {update.isError ? (
+          <p className="mt-3 text-[12px] text-rose-600">
+            {update.error instanceof Error ? update.error.message : 'Update failed.'}
+          </p>
+        ) : null}
       </SettingsCard>
 
       <SettingsCard title="Plan limits">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatTile label="Projects" value={p?.limits.projects ?? '—'} />
-          <StatTile label="Environments" value={p?.limits.environments ?? '—'} />
-          <StatTile label="Clusters" value={p?.limits.clusters ?? '—'} />
-          <StatTile label="Storage" value={p ? `${p.limits.storageGb} GB` : '—'} />
+          <StatTile label="Projects" value={limitValue(limits?.projects)} />
+          <StatTile label="Environments" value={limitValue(limits?.environments)} />
+          <StatTile label="Clusters" value={limitValue(limits?.clusters)} />
+          <StatTile
+            label="Storage"
+            value={limits?.storageGb === null ? 'Unlimited' : limits ? `${limits.storageGb} GB` : '—'}
+          />
         </div>
       </SettingsCard>
-    </ViewShell>
+    </>,
   )
+}
+
+function limitValue(n: number | null | undefined): string {
+  if (n === undefined) return '—'
+  if (n === null) return 'Unlimited'
+  return String(n)
 }
 
 function CheckGlyph() {

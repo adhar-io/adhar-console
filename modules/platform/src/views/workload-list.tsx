@@ -1,5 +1,10 @@
 import { useMemo, useState } from 'react'
-import { DataTable, EmptyState, StatusBadge, Tabs, type TabDef } from '@adhar-console/shell-ui'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Button, DataTable, EmptyState, StatusBadge, Tabs, type TabDef } from '@adhar-console/shell-ui'
+import { kube, type KubeObject } from '@adhar-console/api-clients/k8s'
+import { GVRS } from '../data/gvr.ts'
+import { useHasK8sPermission } from '../data/access.ts'
+import { K8sRolePill } from '../components/role-gate.tsx'
 import {
   useCronJobs,
   useDaemonSets,
@@ -482,6 +487,11 @@ function JobTable({ namespace }: { namespace?: string }) {
             },
           },
           { key: 'age', header: 'Age', cell: (j) => age(j.metadata.creationTimestamp) },
+          {
+            key: 'actions',
+            header: '',
+            cell: (j) => <JobActions job={j as unknown as JobObj} />,
+          },
         ]}
         rows={rows}
         rowKey={(j) => `${j.metadata.namespace}/${j.metadata.name}`}
@@ -553,6 +563,11 @@ function CronJobTable({ namespace }: { namespace?: string }) {
             cell: (cj) => age((cj.status as { lastScheduleTime?: string })?.lastScheduleTime),
           },
           { key: 'age', header: 'Age', cell: (cj) => age(cj.metadata.creationTimestamp) },
+          {
+            key: 'actions',
+            header: '',
+            cell: (cj) => <CronJobActions cronJob={cj as unknown as CronJobObj} />,
+          },
         ]}
         rows={rows}
         rowKey={(cj) => `${cj.metadata.namespace}/${cj.metadata.name}`}
@@ -733,6 +748,234 @@ function GenericWorkloadList({
         empty={<EmptyState title={empty} />}
       />
     </ListShell>
+  )
+}
+
+/* ── CronJob / Job actions ─────────────────────────────────────────────── */
+
+interface CronJobObj {
+  metadata: { name: string; namespace?: string; uid?: string }
+  spec?: {
+    suspend?: boolean
+    jobTemplate?: {
+      metadata?: { labels?: Record<string, string>; annotations?: Record<string, string> }
+      spec?: Record<string, unknown>
+    }
+  }
+}
+
+interface JobObj {
+  metadata: {
+    name: string
+    namespace?: string
+    labels?: Record<string, string>
+    ownerReferences?: Array<{ kind: string }>
+  }
+  spec?: Record<string, unknown> & {
+    selector?: unknown
+    template?: { metadata?: { labels?: Record<string, string> } }
+  }
+}
+
+/** DNS-1123-safe generated name: `<base>-<suffix>-<ts>`, trimmed to 63 chars. */
+function generatedName(base: string, suffix: string): string {
+  const tail = `-${suffix}-${Date.now().toString(36)}`
+  return `${base.slice(0, Math.max(1, 63 - tail.length))}${tail}`.toLowerCase()
+}
+
+function CronJobActions({ cronJob }: { cronJob: CronJobObj }) {
+  const canWrite = useHasK8sPermission('workloads.write')
+  const qc = useQueryClient()
+  const ns = cronJob.metadata.namespace ?? 'default'
+  const suspended = Boolean(cronJob.spec?.suspend)
+
+  const suspendMut = useMutation({
+    mutationFn: () =>
+      kube.patch(GVRS.cronjobs, ns, cronJob.metadata.name, { spec: { suspend: !suspended } }, 'merge'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['k8s', 'cronjobs'] }),
+  })
+
+  // "Trigger now" = create a Job from the CronJob's jobTemplate, exactly like
+  // `kubectl create job --from=cronjob/<name>` — owner-ref'd for cleanup.
+  const triggerMut = useMutation({
+    mutationFn: async () => {
+      const jt = cronJob.spec?.jobTemplate ?? {}
+      const manifest = {
+        apiVersion: 'batch/v1',
+        kind: 'Job',
+        metadata: {
+          name: generatedName(cronJob.metadata.name, 'manual'),
+          namespace: ns,
+          annotations: { 'cronjob.kubernetes.io/instantiate': 'manual' },
+          ...(jt.metadata?.labels ? { labels: jt.metadata.labels } : {}),
+          ...(cronJob.metadata.uid
+            ? {
+                ownerReferences: [
+                  {
+                    apiVersion: 'batch/v1',
+                    kind: 'CronJob',
+                    name: cronJob.metadata.name,
+                    uid: cronJob.metadata.uid,
+                  },
+                ],
+              }
+            : {}),
+        },
+        spec: jt.spec ?? {},
+      } as unknown as KubeObject
+      await kube.apply(manifest)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['k8s', 'jobs'] }),
+  })
+
+  if (!canWrite) return <K8sRolePill perm="workloads.write" />
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex justify-end gap-1.5">
+        <Button
+          size="xs"
+          variant="secondary"
+          disabled={suspendMut.isPending}
+          onClick={() => suspendMut.mutate()}
+          title={
+            suspended
+              ? 'Resume scheduling (spec.suspend = false)'
+              : 'Stop new runs from being scheduled (spec.suspend = true)'
+          }
+        >
+          {suspendMut.isPending ? 'Working…' : suspended ? 'Resume' : 'Suspend'}
+        </Button>
+        <Button
+          size="xs"
+          variant="secondary"
+          disabled={triggerMut.isPending}
+          onClick={() => triggerMut.mutate()}
+          title="Create a Job right now from this CronJob's template"
+        >
+          {triggerMut.isPending ? 'Triggering…' : 'Trigger now'}
+        </Button>
+      </div>
+      {triggerMut.isSuccess ? (
+        <span className="text-[10px] text-emerald-600 dark:text-emerald-400">Job created</span>
+      ) : null}
+      {suspendMut.isError || triggerMut.isError ? (
+        <span className="max-w-[16rem] truncate text-[10px] text-rose-700 dark:text-rose-300">
+          {((suspendMut.error ?? triggerMut.error) as Error).message}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
+function JobActions({ job }: { job: JobObj }) {
+  const canWrite = useHasK8sPermission('workloads.write')
+  const canDelete = useHasK8sPermission('workloads.delete')
+  const qc = useQueryClient()
+  const ns = job.metadata.namespace ?? 'default'
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  // "Rerun" = recreate the Job from its own pod template, with the
+  // controller-injected selector/labels stripped so the apiserver generates
+  // fresh ones for the new Job.
+  const rerunMut = useMutation({
+    mutationFn: async () => {
+      const spec = JSON.parse(JSON.stringify(job.spec ?? {})) as JobObj['spec'] & {
+        template?: { metadata?: { labels?: Record<string, string> } }
+      }
+      delete spec.selector
+      const labels = spec.template?.metadata?.labels
+      if (labels) {
+        for (const k of [
+          'controller-uid',
+          'job-name',
+          'batch.kubernetes.io/controller-uid',
+          'batch.kubernetes.io/job-name',
+        ]) {
+          delete labels[k]
+        }
+      }
+      const manifest = {
+        apiVersion: 'batch/v1',
+        kind: 'Job',
+        metadata: {
+          name: generatedName(job.metadata.name, 'rerun'),
+          namespace: ns,
+          annotations: { 'adhar.io/rerun-of': job.metadata.name },
+        },
+        spec,
+      } as unknown as KubeObject
+      await kube.apply(manifest)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['k8s', 'jobs'] }),
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: () =>
+      kube.delete(GVRS.jobs, ns, job.metadata.name, { propagationPolicy: 'Background' }),
+    onSuccess: () => {
+      setConfirmDelete(false)
+      qc.invalidateQueries({ queryKey: ['k8s', 'jobs'] })
+      qc.invalidateQueries({ queryKey: ['k8s', 'pods'] })
+    },
+  })
+
+  if (!canWrite && !canDelete) return <K8sRolePill perm="workloads.write" />
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex justify-end gap-1.5">
+        {canWrite ? (
+          <Button
+            size="xs"
+            variant="secondary"
+            disabled={rerunMut.isPending}
+            onClick={() => rerunMut.mutate()}
+            title="Create a new Job from this Job's pod template"
+          >
+            {rerunMut.isPending ? 'Creating…' : 'Rerun'}
+          </Button>
+        ) : null}
+        {canDelete ? (
+          confirmDelete ? (
+            <>
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() => setConfirmDelete(false)}
+                disabled={deleteMut.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="xs"
+                variant="danger"
+                disabled={deleteMut.isPending}
+                onClick={() => deleteMut.mutate()}
+                title={`Delete Job ${job.metadata.name} and its pods`}
+              >
+                {deleteMut.isPending ? 'Deleting…' : 'Confirm delete'}
+              </Button>
+            </>
+          ) : (
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => setConfirmDelete(true)}
+              title="Delete this Job (asks to confirm)"
+            >
+              Delete
+            </Button>
+          )
+        ) : null}
+      </div>
+      {rerunMut.isSuccess ? (
+        <span className="text-[10px] text-emerald-600 dark:text-emerald-400">Job created</span>
+      ) : null}
+      {rerunMut.isError || deleteMut.isError ? (
+        <span className="max-w-[16rem] truncate text-[10px] text-rose-700 dark:text-rose-300">
+          {((rerunMut.error ?? deleteMut.error) as Error).message}
+        </span>
+      ) : null}
+    </div>
   )
 }
 

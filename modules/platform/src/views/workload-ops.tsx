@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Spinner, StatusBadge } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
 import { kube } from '@adhar-console/api-clients/k8s'
-import { client, isDevK8s, LOCAL_CLUSTER } from '../data/client.ts'
+import { client, LOCAL_CLUSTER } from '../data/client.ts'
 import { GVRS } from '../data/gvr.ts'
 import { age } from '../data/format.ts'
 import { useHasK8sPermission } from '../data/access.ts'
@@ -203,9 +203,6 @@ function WorkloadOps({
   })
 
   const patchWorkload = async (patch: unknown) => {
-    // Dev runs on read-only stub fixtures — simulate success (the optimistic
-    // cache update reflects the change) instead of hitting the gateway.
-    if (isDevK8s) return
     await kube.patch(gvr, namespace, name, patch, 'merge')
   }
 
@@ -289,10 +286,8 @@ function WorkloadOps({
         />
       ) : null}
 
-      {isDevK8s ? (
-        <p className="text-center text-[11px] text-content-subtle">
-          Dev mode — operations are simulated against stub fixtures (no cluster).
-        </p>
+      {kind === 'Deployment' ? (
+        <RollbackPanel namespace={namespace} name={name} obj={obj} canWrite={canWrite} />
       ) : null}
     </div>
   )
@@ -598,6 +593,194 @@ function RolloutActions({
         Restart sets <code className="font-mono">kubectl.kubernetes.io/restartedAt</code> to trigger a
         rolling restart — the same as <code className="font-mono">kubectl rollout restart</code>.
       </p>
+    </div>
+  )
+}
+
+/* ── rollback (Deployments) ─────────────────────────────────────────────── */
+
+interface RevisionRs {
+  metadata: {
+    name: string
+    creationTimestamp?: string
+    annotations?: Record<string, string>
+    ownerReferences?: OwnerRef[]
+  }
+  spec?: {
+    replicas?: number
+    template?: {
+      metadata?: { labels?: Record<string, string> }
+      spec?: { containers?: Array<{ name?: string; image?: string }> }
+    }
+  }
+  status?: { replicas?: number }
+}
+
+function revisionOf(rs: RevisionRs): number {
+  return Number(rs.metadata.annotations?.['deployment.kubernetes.io/revision'] ?? 0)
+}
+
+/**
+ * Revision history + rollback — the console equivalent of
+ * `kubectl rollout history` / `kubectl rollout undo`. Lists the ReplicaSets
+ * owned by the Deployment (each one is a retained revision), and rolls back
+ * by replacing `spec.template` with the selected revision's pod template
+ * (minus the RS-injected `pod-template-hash` label) via a JSON patch, so the
+ * old template fully replaces the current one.
+ */
+function RollbackPanel({
+  namespace,
+  name,
+  obj,
+  canWrite,
+}: {
+  namespace: string
+  name: string
+  obj: WorkloadObj
+  canWrite: boolean
+}) {
+  const qc = useQueryClient()
+  const [confirmRs, setConfirmRs] = useState<string | null>(null)
+  const currentRevision = Number(
+    obj.metadata.annotations?.['deployment.kubernetes.io/revision'] ?? 0,
+  )
+
+  const rsQ = useQuery<RevisionRs[]>({
+    queryKey: ['k8s', 'rollout-history', namespace, name],
+    refetchInterval: 15_000,
+    queryFn: async () => {
+      const list = await kube.list<RevisionRs>(GVRS.replicasets, { namespace })
+      return list.items
+        .filter((rs) => {
+          const owner = controllerRef(rs.metadata.ownerReferences)
+          return owner?.kind === 'Deployment' && owner.name === name
+        })
+        .sort((a, b) => revisionOf(b) - revisionOf(a))
+    },
+  })
+
+  const rollbackMut = useMutation({
+    mutationFn: async (rs: RevisionRs) => {
+      const template = JSON.parse(JSON.stringify(rs.spec?.template ?? {})) as {
+        metadata?: { labels?: Record<string, string> }
+      }
+      // The RS carries the controller-injected hash label — it must not leak
+      // back into the Deployment's template (same strip kubectl undo does).
+      if (template.metadata?.labels) delete template.metadata.labels['pod-template-hash']
+      await kube.patch(
+        GVRS.deployments,
+        namespace,
+        name,
+        [{ op: 'replace', path: '/spec/template', value: template }],
+        'json',
+      )
+    },
+    onSuccess: () => {
+      setConfirmRs(null)
+      qc.invalidateQueries({ queryKey: ['k8s'] })
+    },
+  })
+
+  const revisions = rsQ.data ?? []
+  if (rsQ.isLoading || revisions.length <= 1) return null
+
+  const selected = confirmRs ? revisions.find((r) => r.metadata.name === confirmRs) : undefined
+
+  return (
+    <div className="rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="text-sm font-semibold text-content">Revision history</div>
+        <span className="text-[11px] text-content-subtle">
+          current revision <span className="font-semibold text-content">{currentRevision}</span>
+        </span>
+      </div>
+
+      <ul className="divide-y divide-edge-subtle">
+        {revisions.map((rs) => {
+          const rev = revisionOf(rs)
+          const isCurrent = rev === currentRevision
+          const images = (rs.spec?.template?.spec?.containers ?? [])
+            .map((c) => c.image)
+            .filter(Boolean) as string[]
+          return (
+            <li key={rs.metadata.name} className="flex items-center gap-3 py-2">
+              <span
+                className={cn(
+                  'w-14 shrink-0 font-mono text-xs tabular-nums',
+                  isCurrent ? 'font-semibold text-content' : 'text-content-muted',
+                )}
+              >
+                rev {rev}
+              </span>
+              <div className="min-w-0 flex-1">
+                {images.length ? (
+                  <code className="block truncate text-[11px] text-content-muted" title={images.join(', ')}>
+                    {images.join(', ')}
+                  </code>
+                ) : (
+                  <span className="text-[11px] text-content-subtle">no images recorded</span>
+                )}
+                <div className="text-[10px] text-content-subtle">
+                  created {age(rs.metadata.creationTimestamp)} ago · {rs.status?.replicas ?? 0}{' '}
+                  replica{(rs.status?.replicas ?? 0) === 1 ? '' : 's'}
+                </div>
+              </div>
+              {isCurrent ? (
+                <StatusBadge kind="healthy">Current</StatusBadge>
+              ) : canWrite ? (
+                <Button
+                  size="xs"
+                  variant="secondary"
+                  disabled={rollbackMut.isPending}
+                  onClick={() => setConfirmRs(rs.metadata.name)}
+                  title={`Roll back to revision ${rev}`}
+                >
+                  Roll back
+                </Button>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
+
+      {selected ? (
+        <div className="mt-3 rounded-lg border border-amber-200 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-500/10 p-3">
+          <div className="text-[12px] text-amber-900 dark:text-amber-200">
+            Roll back <code className="font-mono">{name}</code> from revision{' '}
+            <span className="font-semibold">{currentRevision}</span> to revision{' '}
+            <span className="font-semibold">{revisionOf(selected)}</span>? The pod template will be
+            replaced with the older revision's and a new rollout starts immediately.
+          </div>
+          <div className="mt-2 flex justify-end gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setConfirmRs(null)}
+              disabled={rollbackMut.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={rollbackMut.isPending}
+              onClick={() => rollbackMut.mutate(selected)}
+            >
+              {rollbackMut.isPending ? 'Rolling back…' : `Roll back to rev ${revisionOf(selected)}`}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {!canWrite ? (
+        <p className="mt-2 flex items-center gap-1.5 text-[11px] text-content-muted">
+          Rollback requires <K8sRolePill perm="workloads.write" />
+        </p>
+      ) : null}
+      {rollbackMut.isError ? (
+        <p className="mt-2 text-[11px] text-rose-700 dark:text-rose-300">
+          Error: {(rollbackMut.error as Error).message}
+        </p>
+      ) : null}
     </div>
   )
 }

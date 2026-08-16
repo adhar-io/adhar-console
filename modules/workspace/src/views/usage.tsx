@@ -1,158 +1,108 @@
-import { useQuery } from '@tanstack/react-query'
 import {
-  AreaChart,
   Card,
   CardBody,
   CardHeader,
   DonutGauge,
-  LegendDot,
-  Sparkline,
+  EmptyState,
   Spinner,
 } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
-import { CURRENT_ORG_SLUG, wsClient } from '../data/client.ts'
+import { fmtMoney, useSubscription, useUsage } from '../data/billing.ts'
+
+/**
+ * Usage & metering — every number on this page is measured: seats from the
+ * tenant's member records, namespaces/pods/nodes from the live kube-apiserver
+ * (the caller's RBAC applies), and $ cost from OpenCost. Sources that aren't
+ * connected render as "not connected" — never as a fabricated figure.
+ */
 
 function pct(used: number, quota: number): number {
   if (quota <= 0) return 0
   return Math.min(100, Math.round((used / quota) * 100))
 }
 
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`
-  const units = ['KB', 'MB', 'GB', 'TB', 'PB']
-  let v = n / 1024
-  let u = 0
-  while (v >= 1024 && u < units.length - 1) {
-    v /= 1024
-    u++
-  }
-  return `${v.toFixed(1)} ${units[u]}`
-}
-
-/** Synthetic 14-day series built from current + quota so the chart has shape. */
-function seed(current: number, noise = 0.15, len = 14): number[] {
-  const out: number[] = []
-  let v = Math.max(0, current * 0.6)
-  for (let i = 0; i < len; i++) {
-    const delta = (Math.sin(i / 2) * 0.4 + (Math.random() - 0.5) * noise) * current * 0.1
-    v = Math.max(0, v + Math.abs(delta) + current * 0.02)
-    out.push(Math.round(v))
-  }
-  out[len - 1] = current
-  return out
-}
-
 export function UsageView() {
-  const q = useQuery({
-    queryKey: ['ws', 'usage', CURRENT_ORG_SLUG],
-    queryFn: () => wsClient.getUsage(CURRENT_ORG_SLUG),
-  })
+  const q = useUsage()
+  const subQ = useSubscription()
+
   if (q.isLoading) {
     return (
       <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Loading usage…
+        <Spinner size={14} /> Metering usage…
       </div>
     )
   }
-  if (!q.data) return null
+  if (q.isError || !q.data) {
+    return (
+      <EmptyState
+        title="Usage unavailable"
+        description={q.error instanceof Error ? q.error.message : 'The usage meter did not respond.'}
+      />
+    )
+  }
   const u = q.data
+  const plan = subQ.data?.plan
+  const seatsPurchased = subQ.data?.item.seatsPurchased ?? null
 
-  const highlightRows = [
+  const seatPct = u.seats !== null && seatsPurchased ? pct(u.seats, seatsPurchased) : null
+  const donutPct = seatPct ?? 0
+  const donutColor =
+    donutPct > 85 ? '#f43f5e' : donutPct > 60 ? '#f59e0b' : 'var(--color-brand-500)'
+
+  const liveTiles: { label: string; value: string; hint: string }[] = [
     {
-      label: 'Deployments',
-      used: u.metrics.deployments,
-      quota: u.quotas.deployments,
-      color: 'var(--color-brand-500)',
-      format: (n: number) => n.toLocaleString(),
+      label: 'Namespaces',
+      value: u.namespaces !== null ? String(u.namespaces) : '—',
+      hint:
+        u.clusterSource === 'kubernetes'
+          ? u.clusterScope === 'cluster'
+            ? 'cluster-wide'
+            : `scoped by ${u.clusterScope === 'tenant-label' ? 'tenant label' : 'tenant prefix'}`
+          : 'cluster not reachable',
     },
     {
-      label: 'API calls',
-      used: u.metrics.apiCalls,
-      quota: u.quotas.apiCalls,
-      color: 'var(--color-accent-500)',
-      format: (n: number) => n.toLocaleString(),
+      label: 'Pods',
+      value: u.pods !== null ? u.pods.toLocaleString() : '—',
+      hint: u.clusterSource === 'kubernetes' ? 'running now' : 'cluster not reachable',
     },
     {
-      label: 'Log bytes ingested',
-      used: u.metrics.logBytesIngested,
-      quota: u.quotas.logBytesIngested,
-      color: '#6366f1',
-      format: formatBytes,
+      label: 'Nodes',
+      value: u.nodes !== null ? String(u.nodes) : '—',
+      hint: u.clusterSource === 'kubernetes' ? 'cluster capacity' : 'cluster not reachable',
     },
   ]
 
-  const rows: {
-    label: string
-    used: string
-    quota: string
-    pct: number
-    raw: number
-  }[] = [
+  const quotaRows: { label: string; used: string; quota: string; pct: number | null }[] = [
     {
-      label: 'Projects',
-      used: String(u.metrics.projects),
-      quota: String(u.quotas.projects),
-      pct: pct(u.metrics.projects, u.quotas.projects),
-      raw: u.metrics.projects,
+      label: 'Seats',
+      used: u.seats !== null ? String(u.seats) : 'n/a',
+      quota: seatsPurchased !== null ? String(seatsPurchased) : 'n/a',
+      pct: seatPct,
     },
     {
-      label: 'Environments',
-      used: String(u.metrics.environments),
-      quota: String(u.quotas.environments),
-      pct: pct(u.metrics.environments, u.quotas.environments),
-      raw: u.metrics.environments,
-    },
-    {
-      label: 'Active users',
-      used: String(u.metrics.activeUsers),
-      quota: String(u.quotas.activeUsers),
-      pct: pct(u.metrics.activeUsers, u.quotas.activeUsers),
-      raw: u.metrics.activeUsers,
-    },
-    {
-      label: 'Deployments (month)',
-      used: u.metrics.deployments.toLocaleString(),
-      quota: u.quotas.deployments.toLocaleString(),
-      pct: pct(u.metrics.deployments, u.quotas.deployments),
-      raw: u.metrics.deployments,
-    },
-    {
-      label: 'API calls (month)',
-      used: u.metrics.apiCalls.toLocaleString(),
-      quota: u.quotas.apiCalls.toLocaleString(),
-      pct: pct(u.metrics.apiCalls, u.quotas.apiCalls),
-      raw: u.metrics.apiCalls,
-    },
-    {
-      label: 'Log bytes ingested',
-      used: formatBytes(u.metrics.logBytesIngested),
-      quota: formatBytes(u.quotas.logBytesIngested),
-      pct: pct(u.metrics.logBytesIngested, u.quotas.logBytesIngested),
-      raw: u.metrics.logBytesIngested,
-    },
-    {
-      label: 'Storage',
-      used: `${u.metrics.storageUsedGb} GB`,
-      quota: `${u.quotas.storageUsedGb} GB`,
-      pct: pct(u.metrics.storageUsedGb, u.quotas.storageUsedGb),
-      raw: u.metrics.storageUsedGb,
+      label: 'Namespaces',
+      used: u.namespaces !== null ? String(u.namespaces) : 'n/a',
+      quota:
+        plan?.limits.namespaces === null
+          ? 'unlimited'
+          : plan
+            ? String(plan.limits.namespaces)
+            : 'n/a',
+      pct:
+        u.namespaces !== null && plan?.limits.namespaces != null
+          ? pct(u.namespaces, plan.limits.namespaces)
+          : null,
     },
   ]
-
-  // Overall monthly spend health — weighted average of percentages.
-  const overallPct = Math.round(
-    rows.reduce((a, r) => a + r.pct, 0) / rows.length,
-  )
-  const overallColor =
-    overallPct > 85 ? '#f43f5e' : overallPct > 60 ? '#f59e0b' : 'var(--color-brand-500)'
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-content">Usage & quotas</h2>
+        <h2 className="text-lg font-semibold text-content">Usage & metering</h2>
         <p className="mt-1 text-sm text-content-muted">
-          Live counters — billing is based on the max observed during the period, not the running
-          total. All metrics derive from Prometheus; the exact queries are public.
+          Period {u.period} · every figure is metered live — seats from workspace members,
+          resource counts from the Kubernetes API, cost from OpenCost. Nothing here is estimated
+          except the labeled forecast.
         </p>
       </div>
 
@@ -160,111 +110,194 @@ export function UsageView() {
         <Card>
           <CardBody className="flex items-center justify-center px-6 py-6">
             <DonutGauge
-              value={overallPct}
+              value={donutPct}
               max={100}
               size={156}
               thickness={14}
-              color={overallColor}
+              color={donutColor}
               label={
-                <span>
-                  {overallPct}
-                  <span className="text-sm font-normal text-content-muted">%</span>
-                </span>
+                seatPct !== null ? (
+                  <span>
+                    {seatPct}
+                    <span className="text-sm font-normal text-content-muted">%</span>
+                  </span>
+                ) : (
+                  <span className="text-sm font-normal text-content-muted">n/a</span>
+                )
               }
-              caption="of plan"
+              caption="seats in use"
             />
           </CardBody>
         </Card>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {highlightRows.map((r) => {
-            const series = seed(r.used)
-            return (
-              <Card key={r.label}>
-                <CardBody className="space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">
-                        {r.label}
-                      </div>
-                      <div className="mt-1 text-xl font-semibold tabular-nums tracking-tight text-content">
-                        {r.format(r.used)}
-                      </div>
-                      <div className="text-[11px] text-content-muted">
-                        of {r.format(r.quota)} quota
-                      </div>
-                    </div>
-                  </div>
-                  <AreaChart
-                    points={series}
-                    color={r.color}
-                    height={64}
-                    showAxis={false}
-                    emptyLabel=""
-                  />
-                </CardBody>
-              </Card>
-            )
-          })}
+          {liveTiles.map((t) => (
+            <Card key={t.label}>
+              <CardBody className="space-y-1">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">
+                  {t.label}
+                </div>
+                <div className="text-xl font-semibold tabular-nums tracking-tight text-content">
+                  {t.value}
+                </div>
+                <div className="text-[11px] text-content-muted">{t.hint}</div>
+              </CardBody>
+            </Card>
+          ))}
         </div>
       </div>
 
+      {/* Metered cost */}
       <Card>
         <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-sm font-semibold text-content">Quota breakdown</div>
-            <div className="flex items-center gap-3">
-              <LegendDot color="var(--color-brand-500)">healthy</LegendDot>
-              <LegendDot color="#f59e0b">warning</LegendDot>
-              <LegendDot color="#f43f5e">critical</LegendDot>
+          <div className="text-sm font-semibold text-content">Metered cost — {u.period}</div>
+        </CardHeader>
+        <CardBody>
+          {u.costSource === 'opencost' ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <MeterStat label="Cost (period)" value={fmtMoney(u.cost ?? 0)} strong />
+              <MeterStat
+                label="CPU core-hours"
+                value={u.cpuCoreHours !== null ? u.cpuCoreHours.toLocaleString() : '—'}
+              />
+              <MeterStat
+                label="Memory GB-hours"
+                value={u.memGbHours !== null ? u.memGbHours.toLocaleString() : '—'}
+              />
             </div>
-          </div>
+          ) : (
+            <EmptyState
+              compact
+              title="Cost data not connected"
+              description="Point OPENCOST_URL at your OpenCost allocation API to meter real $ cost. No figure is shown until the meter is live."
+            />
+          )}
+        </CardBody>
+      </Card>
+
+      {/* Quota bars — only where both sides are real */}
+      <Card>
+        <CardHeader>
+          <div className="text-sm font-semibold text-content">Plan quota</div>
         </CardHeader>
         <CardBody className="space-y-3">
-          {rows.map((r) => {
-            const series = seed(r.raw, 0.2, 14)
-            const color = r.pct > 85 ? '#f43f5e' : r.pct > 60 ? '#f59e0b' : 'var(--color-brand-500)'
+          {quotaRows.map((r) => {
+            const color =
+              r.pct === null
+                ? 'var(--color-brand-500)'
+                : r.pct > 85
+                  ? '#f43f5e'
+                  : r.pct > 60
+                    ? '#f59e0b'
+                    : 'var(--color-brand-500)'
             return (
               <div
                 key={r.label}
-                className="grid grid-cols-[1fr_120px_auto] items-center gap-4 rounded-lg border border-edge-subtle bg-surface-sunken/60 px-4 py-3"
+                className="rounded-lg border border-edge-subtle bg-surface-sunken/60 px-4 py-3"
               >
-                <div>
-                  <div className="flex items-baseline justify-between gap-2">
-                    <div className="text-sm font-medium text-content">{r.label}</div>
-                    <div
-                      className={cn(
-                        'text-xs font-semibold tabular-nums',
-                        r.pct > 85
+                <div className="flex items-baseline justify-between gap-2">
+                  <div className="text-sm font-medium text-content">{r.label}</div>
+                  <div
+                    className={cn(
+                      'text-xs font-semibold tabular-nums',
+                      r.pct === null
+                        ? 'text-content-subtle'
+                        : r.pct > 85
                           ? 'text-rose-600'
                           : r.pct > 60
                             ? 'text-amber-600'
                             : 'text-content-muted',
-                      )}
-                    >
-                      {r.pct}%
-                    </div>
-                  </div>
-                  <div className="mt-1 text-[11px] text-content-subtle">
-                    {r.used} used · {r.quota} quota
-                  </div>
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-app">
-                    <div
-                      className="h-full rounded-full transition-[width] duration-500 ease-smooth"
-                      style={{ width: `${r.pct}%`, backgroundColor: color }}
-                    />
+                    )}
+                  >
+                    {r.pct !== null ? `${r.pct}%` : 'no data'}
                   </div>
                 </div>
-                <div>
-                  <Sparkline points={series} color={color} height={32} />
+                <div className="mt-1 text-[11px] text-content-subtle">
+                  {r.used} used · {r.quota} quota
                 </div>
-                <div className="text-right text-[11px] font-medium uppercase tracking-wider text-content-subtle">
-                  14d
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-app">
+                  <div
+                    className="h-full rounded-full transition-[width] duration-500 ease-smooth"
+                    style={{ width: `${r.pct ?? 0}%`, backgroundColor: color }}
+                  />
                 </div>
               </div>
             )
           })}
         </CardBody>
       </Card>
+
+      {/* Per-namespace breakdown */}
+      <Card>
+        <CardHeader>
+          <div className="text-sm font-semibold text-content">Breakdown by namespace</div>
+        </CardHeader>
+        <CardBody>
+          {u.breakdownByNamespace.length === 0 ? (
+            <EmptyState
+              compact
+              title="No namespace data"
+              description={
+                u.clusterSource === 'unavailable'
+                  ? 'The cluster is not reachable and cost metering is not connected.'
+                  : 'No namespaces matched this workspace.'
+              }
+            />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-[11px] uppercase tracking-wider text-content-subtle">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-medium">Namespace</th>
+                    <th className="px-3 py-2 text-right font-medium">Pods</th>
+                    <th className="px-3 py-2 text-right font-medium">CPU core-h</th>
+                    <th className="px-3 py-2 text-right font-medium">Mem GB-h</th>
+                    <th className="px-3 py-2 text-right font-medium">Cost</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-edge-subtle">
+                  {u.breakdownByNamespace.map((b) => (
+                    <tr key={b.namespace}>
+                      <td className="px-3 py-2">
+                        <code className="font-mono text-[12px] text-content">{b.namespace}</code>
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono tabular-nums text-content">
+                        {b.pods !== null ? b.pods : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono tabular-nums text-content">
+                        {b.cpuCoreHours !== null ? b.cpuCoreHours.toLocaleString() : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono tabular-nums text-content">
+                        {b.memGbHours !== null ? b.memGbHours.toLocaleString() : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono tabular-nums text-content">
+                        {b.cost !== null ? fmtMoney(b.cost) : 'not connected'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardBody>
+      </Card>
+    </div>
+  )
+}
+
+function MeterStat({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className="rounded-lg border border-edge-subtle bg-surface-sunken/40 p-3">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+        {label}
+      </div>
+      <div
+        className={cn(
+          'mt-0.5 tabular-nums text-content',
+          strong ? 'text-xl font-semibold tracking-tight' : 'text-sm font-medium',
+        )}
+      >
+        {value}
+      </div>
     </div>
   )
 }

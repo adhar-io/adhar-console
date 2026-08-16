@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Button,
   Card,
@@ -14,7 +14,6 @@ import {
 } from '@adhar-console/shell-ui'
 import { kube } from '@adhar-console/api-clients/k8s'
 import { useNodes } from '../data/hooks.ts'
-import { isDevK8s } from '../data/client.ts'
 import { GVRS } from '../data/gvr.ts'
 import { useHasK8sPermission } from '../data/access.ts'
 import { K8sRolePill } from '../components/role-gate.tsx'
@@ -27,15 +26,81 @@ import {
   parseQuantity,
 } from '../data/format.ts'
 
-type Sub = 'overview' | 'conditions' | 'addresses' | 'taints' | 'system'
+type Sub = 'overview' | 'conditions' | 'addresses' | 'taints' | 'labels' | 'system'
 
 const SUB_TABS: readonly TabDef<Sub>[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'conditions', label: 'Conditions' },
   { id: 'addresses', label: 'Addresses' },
   { id: 'taints', label: 'Taints' },
+  { id: 'labels', label: 'Labels' },
   { id: 'system', label: 'System info' },
 ]
+
+/* ── drain support ─────────────────────────────────────────────────────── */
+
+interface DrainPod {
+  metadata: {
+    name: string
+    namespace?: string
+    annotations?: Record<string, string>
+    ownerReferences?: Array<{ kind: string; name: string; controller?: boolean }>
+  }
+  status?: { phase?: string }
+}
+
+interface DrainSummary {
+  evicted: number
+  skipped: number
+  failed: Array<{ pod: string; error: string }>
+}
+
+/**
+ * True when a pod should be evicted during a drain — mirrors `kubectl drain`
+ * defaults: skip completed pods, DaemonSet-managed pods (the DS controller
+ * would immediately reschedule them) and static/mirror pods (kubelet-owned,
+ * not evictable through the API).
+ */
+function isEvictable(p: DrainPod): boolean {
+  const phase = p.status?.phase
+  if (phase === 'Succeeded' || phase === 'Failed') return false
+  if (p.metadata.annotations?.['kubernetes.io/config.mirror']) return false
+  const owner =
+    p.metadata.ownerReferences?.find((r) => r.controller) ?? p.metadata.ownerReferences?.[0]
+  if (owner?.kind === 'DaemonSet') return false
+  return true
+}
+
+/**
+ * Evict a single pod via the apiserver's eviction subresource
+ * (`POST /api/v1/namespaces/<ns>/pods/<pod>/eviction`) through the per-user
+ * gateway — respects PodDisruptionBudgets, unlike a plain delete.
+ */
+async function evictPod(namespace: string, name: string): Promise<void> {
+  const res = await fetch(
+    `/api/k8s/api/v1/namespaces/${encodeURIComponent(namespace)}/pods/${encodeURIComponent(name)}/eviction`,
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({
+        apiVersion: 'policy/v1',
+        kind: 'Eviction',
+        metadata: { name, namespace },
+      }),
+    },
+  )
+  if (!res.ok) {
+    let message = `${res.status} ${res.statusText}`
+    try {
+      const body = (await res.json()) as { message?: string }
+      if (body?.message) message = body.message
+    } catch {
+      /* keep the HTTP status message */
+    }
+    throw new Error(message)
+  }
+}
 
 export function NodesView() {
   const q = useNodes()
@@ -166,18 +231,22 @@ function NodeDrawer({
   onClose(): void
 }) {
   const canCordon = useHasK8sPermission('nodes.cordon')
+  const canEvict = useHasK8sPermission('pods.delete')
+  const canDrain = canCordon && canEvict
   const qc = useQueryClient()
-  // Local override reflects the new state immediately (and is the only feedback
-  // in dev, where the stub node list won't actually change).
+  // Local override reflects the new state immediately, before the node list
+  // refetch catches up.
   const [override, setOverride] = useState<boolean | null>(null)
   const [confirmCordon, setConfirmCordon] = useState(false)
+  const [confirmDrain, setConfirmDrain] = useState(false)
+  const [drainTyped, setDrainTyped] = useState('')
+  const [drainProgress, setDrainProgress] = useState<{ total: number; done: number } | null>(null)
+  const [drainSummary, setDrainSummary] = useState<DrainSummary | null>(null)
   const unschedulable = override ?? Boolean(node.spec.unschedulable)
 
   const cordonMut = useMutation({
     mutationFn: async (next: boolean) => {
-      if (!isDevK8s) {
-        await kube.patch(GVRS.nodes, undefined, node.metadata.name, { spec: { unschedulable: next } }, 'merge')
-      }
+      await kube.patch(GVRS.nodes, undefined, node.metadata.name, { spec: { unschedulable: next } }, 'merge')
       return next
     },
     onSuccess: (next) => {
@@ -185,6 +254,65 @@ function NodeDrawer({
       qc.invalidateQueries({ queryKey: ['k8s'] })
     },
   })
+
+  // Blast-radius preview for the drain confirm — what's actually on the node.
+  const drainPodsQ = useQuery<DrainPod[]>({
+    queryKey: ['k8s', 'node-pods', node.metadata.name],
+    enabled: confirmDrain,
+    queryFn: async () =>
+      (
+        await kube.list<DrainPod>(GVRS.pods, {
+          fieldSelector: `spec.nodeName=${node.metadata.name}`,
+        })
+      ).items,
+  })
+
+  const drainMut = useMutation({
+    mutationFn: async (): Promise<DrainSummary> => {
+      // 1. Cordon first so evicted pods can't land back on this node.
+      await kube.patch(
+        GVRS.nodes,
+        undefined,
+        node.metadata.name,
+        { spec: { unschedulable: true } },
+        'merge',
+      )
+      setOverride(true)
+      // 2. Re-list the node's pods, then evict the evictable ones one by one
+      //    through the eviction subresource (honours PodDisruptionBudgets).
+      const pods = (
+        await kube.list<DrainPod>(GVRS.pods, {
+          fieldSelector: `spec.nodeName=${node.metadata.name}`,
+        })
+      ).items
+      const targets = pods.filter(isEvictable)
+      const skipped = pods.length - targets.length
+      setDrainProgress({ total: targets.length, done: 0 })
+      const failed: DrainSummary['failed'] = []
+      let evicted = 0
+      for (const p of targets) {
+        try {
+          await evictPod(p.metadata.namespace ?? 'default', p.metadata.name)
+          evicted++
+        } catch (e) {
+          failed.push({
+            pod: `${p.metadata.namespace ?? 'default'}/${p.metadata.name}`,
+            error: e instanceof Error ? e.message : String(e),
+          })
+        }
+        setDrainProgress((prev) => (prev ? { ...prev, done: prev.done + 1 } : prev))
+      }
+      return { evicted, skipped, failed }
+    },
+    onSuccess: (summary) => {
+      setDrainSummary(summary)
+      qc.invalidateQueries({ queryKey: ['k8s'] })
+    },
+    onSettled: () => setDrainProgress(null),
+  })
+
+  const drainEvictable = (drainPodsQ.data ?? []).filter(isEvictable).length
+  const drainSkipped = (drainPodsQ.data?.length ?? 0) - drainEvictable
 
   if (typeof document === 'undefined') return null
   return createPortal(
@@ -235,6 +363,24 @@ function NodeDrawer({
                 Cordon <K8sRolePill perm="nodes.cordon" />
               </span>
             )}
+            {canDrain ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={drainMut.isPending}
+                onClick={() => {
+                  setDrainSummary(null)
+                  setConfirmDrain(true)
+                }}
+                title="Cordon the node, then evict every pod on it (DaemonSet and mirror pods are skipped)"
+              >
+                {drainMut.isPending ? 'Draining…' : 'Drain'}
+              </Button>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-edge-default px-2 py-1 text-[11px] text-content-muted">
+                Drain <K8sRolePill perm={canCordon ? 'pods.delete' : 'nodes.cordon'} />
+              </span>
+            )}
             <button
               type="button"
               onClick={onClose}
@@ -271,6 +417,119 @@ function NodeDrawer({
             </div>
           </div>
         ) : null}
+        {confirmDrain ? (
+          <div
+            className="border-b border-rose-200 dark:border-rose-500/25 bg-rose-50/70 dark:bg-rose-500/10 px-6 py-3"
+            role="alertdialog"
+            aria-label="Confirm drain"
+          >
+            <div className="text-sm font-semibold text-rose-900 dark:text-rose-300">
+              Drain this node?
+            </div>
+            <p className="mt-0.5 text-[12px] leading-relaxed text-content-muted">
+              Draining cordons <code className="font-mono">{node.metadata.name}</code> and evicts
+              every pod scheduled on it — DaemonSet-managed and mirror pods are skipped, and
+              evictions honour PodDisruptionBudgets. Workloads without spare replicas elsewhere
+              <span className="font-semibold text-rose-800 dark:text-rose-300"> will incur downtime</span>.
+              {drainPodsQ.isLoading ? (
+                <span> Counting pods…</span>
+              ) : drainPodsQ.data ? (
+                <span>
+                  {' '}
+                  Blast radius: <span className="font-semibold text-content">{drainEvictable}</span>{' '}
+                  pod{drainEvictable === 1 ? '' : 's'} will be evicted
+                  {drainSkipped > 0 ? `, ${drainSkipped} skipped (DaemonSet/mirror/completed)` : ''}.
+                </span>
+              ) : null}
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <input
+                value={drainTyped}
+                onChange={(e) => setDrainTyped(e.target.value)}
+                placeholder={`Type "${node.metadata.name}" to confirm`}
+                className="h-8 w-full max-w-xs rounded-md border border-edge-default bg-surface-raised px-2 font-mono text-xs text-content outline-none placeholder:text-content-subtle focus:ring-2 focus:ring-rose-500/30"
+                aria-label="Type the node name to confirm drain"
+              />
+              <div className="ml-auto flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setConfirmDrain(false)
+                    setDrainTyped('')
+                  }}
+                  disabled={drainMut.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  disabled={drainTyped !== node.metadata.name || drainMut.isPending}
+                  onClick={() => {
+                    setConfirmDrain(false)
+                    setDrainTyped('')
+                    drainMut.mutate()
+                  }}
+                >
+                  Drain node
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {drainProgress ? (
+          <div className="border-b border-edge-default bg-surface-sunken px-6 py-3" role="status">
+            <div className="flex items-center justify-between text-[12px] text-content-muted">
+              <span>
+                Draining — evicting pod {Math.min(drainProgress.done + 1, drainProgress.total)} of{' '}
+                {drainProgress.total}…
+              </span>
+              <span className="font-mono tabular-nums">
+                {drainProgress.done}/{drainProgress.total}
+              </span>
+            </div>
+            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-raised">
+              <div
+                className="h-full rounded-full bg-rose-500 transition-all"
+                style={{
+                  width: `${drainProgress.total ? Math.round((drainProgress.done / drainProgress.total) * 100) : 100}%`,
+                }}
+              />
+            </div>
+          </div>
+        ) : null}
+        {drainMut.isError ? (
+          <div className="border-b border-rose-200 dark:border-rose-500/25 bg-rose-50/70 dark:bg-rose-500/10 px-6 py-2 text-[12px] text-rose-800 dark:text-rose-300" role="alert">
+            Drain failed: {(drainMut.error as Error).message}
+          </div>
+        ) : null}
+        {drainSummary ? (
+          <div
+            className="flex flex-wrap items-start gap-3 border-b border-edge-default bg-surface-sunken px-6 py-3"
+            role="status"
+          >
+            <div className="min-w-0 flex-1 text-[12px] text-content-muted">
+              <div className="font-semibold text-content">Drain complete</div>
+              <div>
+                {drainSummary.evicted} evicted · {drainSummary.skipped} skipped
+                {drainSummary.failed.length ? ` · ${drainSummary.failed.length} failed` : ''}
+              </div>
+              {drainSummary.failed.length ? (
+                <ul className="mt-1 space-y-0.5">
+                  {drainSummary.failed.map((f) => (
+                    <li key={f.pod} className="text-rose-700 dark:text-rose-300">
+                      <code className="font-mono">{f.pod}</code> — {f.error}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => setDrainSummary(null)}>
+              Dismiss
+            </Button>
+          </div>
+        ) : null}
         <div className="flex-1 overflow-y-auto px-6 py-5">
           <Tabs<Sub> tabs={SUB_TABS} defaultValue="overview" ariaLabel="Node sections">
             {(active) => (
@@ -279,6 +538,7 @@ function NodeDrawer({
                 {active === 'conditions' && <NodeConditions node={node} />}
                 {active === 'addresses' && <NodeAddresses node={node} />}
                 {active === 'taints' && <NodeTaints node={node} />}
+                {active === 'labels' && <NodeLabels node={node} />}
                 {active === 'system' && <NodeSystem node={node} />}
               </>
             )}
@@ -404,46 +664,276 @@ function NodeAddresses({ node }: { node: N }) {
   )
 }
 
+interface NodeTaint {
+  key: string
+  value?: string
+  effect: string
+  timeAdded?: string
+}
+
+const TAINT_EFFECTS = ['NoSchedule', 'PreferNoSchedule', 'NoExecute'] as const
+
 function NodeTaints({ node }: { node: N }) {
-  const rows = node.spec.taints ?? []
-  if (!rows.length)
-    return (
-      <EmptyState
-        compact
-        title="No taints"
-        description="Any pod tolerating default schedule-ability can land here."
-      />
-    )
+  const canEdit = useHasK8sPermission('nodes.cordon')
+  const qc = useQueryClient()
+  // Local override reflects the patched taint set immediately, before the
+  // node list refetch lands.
+  const [override, setOverride] = useState<NodeTaint[] | null>(null)
+  const rows = override ?? ((node.spec.taints ?? []) as NodeTaint[])
+
+  const [newKey, setNewKey] = useState('')
+  const [newValue, setNewValue] = useState('')
+  const [newEffect, setNewEffect] = useState<(typeof TAINT_EFFECTS)[number]>('NoSchedule')
+
+  const taintMut = useMutation({
+    mutationFn: async (next: NodeTaint[]) => {
+      // JSON-merge patch replaces the whole array — exactly what we want.
+      await kube.patch(GVRS.nodes, undefined, node.metadata.name, { spec: { taints: next } }, 'merge')
+      return next
+    },
+    onSuccess: (next) => {
+      setOverride(next)
+      qc.invalidateQueries({ queryKey: ['k8s'] })
+    },
+  })
+
+  const addTaint = () => {
+    const key = newKey.trim()
+    if (!key) return
+    const next = [
+      ...rows.filter((t) => !(t.key === key && t.effect === newEffect)),
+      { key, ...(newValue.trim() ? { value: newValue.trim() } : {}), effect: newEffect },
+    ]
+    taintMut.mutate(next)
+    setNewKey('')
+    setNewValue('')
+  }
+
   return (
-    <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-edge-default bg-surface-sunken text-left">
-            <th className="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-content-muted">
-              Key
-            </th>
-            <th className="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-content-muted">
-              Value
-            </th>
-            <th className="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-content-muted">
-              Effect
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-edge-subtle">
-          {rows.map((t, i) => (
-            <tr key={i}>
-              <td className="px-4 py-2 font-mono text-xs">{t.key}</td>
-              <td className="px-4 py-2 font-mono text-xs">{t.value ?? ''}</td>
-              <td className="px-4 py-2">
-                <StatusBadge kind={t.effect === 'NoExecute' ? 'failed' : 'paused'}>
-                  {t.effect}
-                </StatusBadge>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="space-y-3">
+      {rows.length ? (
+        <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-edge-default bg-surface-sunken text-left">
+                <th className="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-content-muted">
+                  Key
+                </th>
+                <th className="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-content-muted">
+                  Value
+                </th>
+                <th className="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-content-muted">
+                  Effect
+                </th>
+                {canEdit ? <th className="w-16 px-4 py-2" /> : null}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-edge-subtle">
+              {rows.map((t, i) => (
+                <tr key={`${t.key}:${t.effect}:${i}`}>
+                  <td className="px-4 py-2 font-mono text-xs">{t.key}</td>
+                  <td className="px-4 py-2 font-mono text-xs">{t.value ?? ''}</td>
+                  <td className="px-4 py-2">
+                    <StatusBadge kind={t.effect === 'NoExecute' ? 'failed' : 'paused'}>
+                      {t.effect}
+                    </StatusBadge>
+                  </td>
+                  {canEdit ? (
+                    <td className="px-4 py-2 text-right">
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        disabled={taintMut.isPending}
+                        onClick={() =>
+                          taintMut.mutate(
+                            rows.filter(
+                              (r) => !(r.key === t.key && r.effect === t.effect && r.value === t.value),
+                            ),
+                          )
+                        }
+                        title={`Remove taint ${t.key}:${t.effect}`}
+                      >
+                        Remove
+                      </Button>
+                    </td>
+                  ) : null}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <EmptyState
+          compact
+          title="No taints"
+          description="Any pod tolerating default schedule-ability can land here."
+        />
+      )}
+
+      {canEdit ? (
+        <div className="rounded-xl border border-edge-default bg-surface-raised p-3">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
+            Add taint
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={newKey}
+              onChange={(e) => setNewKey(e.target.value)}
+              placeholder="key"
+              className="h-8 w-44 rounded-md border border-edge-default bg-surface-raised px-2 font-mono text-xs text-content outline-none placeholder:text-content-subtle focus:ring-2 focus:ring-brand-500/30"
+              aria-label="Taint key"
+            />
+            <input
+              value={newValue}
+              onChange={(e) => setNewValue(e.target.value)}
+              placeholder="value (optional)"
+              className="h-8 w-40 rounded-md border border-edge-default bg-surface-raised px-2 font-mono text-xs text-content outline-none placeholder:text-content-subtle focus:ring-2 focus:ring-brand-500/30"
+              aria-label="Taint value"
+            />
+            <select
+              value={newEffect}
+              onChange={(e) => setNewEffect(e.target.value as (typeof TAINT_EFFECTS)[number])}
+              className="h-8 rounded-md border border-edge-default bg-surface-raised px-2 text-xs text-content outline-none focus:ring-2 focus:ring-brand-500/30"
+              aria-label="Taint effect"
+            >
+              {TAINT_EFFECTS.map((e) => (
+                <option key={e} value={e}>
+                  {e}
+                </option>
+              ))}
+            </select>
+            <Button size="sm" disabled={!newKey.trim() || taintMut.isPending} onClick={addTaint}>
+              {taintMut.isPending ? 'Applying…' : 'Add taint'}
+            </Button>
+          </div>
+          {newEffect === 'NoExecute' ? (
+            <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300">
+              NoExecute evicts running pods that don't tolerate the taint — apply with care.
+            </p>
+          ) : null}
+          {taintMut.isError ? (
+            <p className="mt-2 text-[11px] text-rose-700 dark:text-rose-300">
+              Error: {(taintMut.error as Error).message}
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <p className="flex items-center gap-1.5 text-[11px] text-content-muted">
+          Editing taints requires <K8sRolePill perm="nodes.cordon" />
+        </p>
+      )}
+    </div>
+  )
+}
+
+function NodeLabels({ node }: { node: N }) {
+  const canEdit = useHasK8sPermission('nodes.cordon')
+  const qc = useQueryClient()
+  const [override, setOverride] = useState<Record<string, string> | null>(null)
+  const labels = override ?? node.metadata.labels ?? {}
+  const entries = Object.entries(labels).sort(([a], [b]) => a.localeCompare(b))
+
+  const [newKey, setNewKey] = useState('')
+  const [newValue, setNewValue] = useState('')
+
+  const labelMut = useMutation({
+    // Merge-patch semantics: `null` deletes a key, a string sets it.
+    mutationFn: async (change: Record<string, string | null>) => {
+      await kube.patch(
+        GVRS.nodes,
+        undefined,
+        node.metadata.name,
+        { metadata: { labels: change } },
+        'merge',
+      )
+      return change
+    },
+    onSuccess: (change) => {
+      const next = { ...labels }
+      for (const [k, v] of Object.entries(change)) {
+        if (v === null) delete next[k]
+        else next[k] = v
+      }
+      setOverride(next)
+      qc.invalidateQueries({ queryKey: ['k8s'] })
+    },
+  })
+
+  return (
+    <div className="space-y-3">
+      {entries.length ? (
+        <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised">
+          <table className="w-full text-sm">
+            <tbody className="divide-y divide-edge-subtle">
+              {entries.map(([k, v]) => (
+                <tr key={k}>
+                  <td className="px-4 py-2 font-mono text-xs text-content-muted">{k}</td>
+                  <td className="px-4 py-2 font-mono text-xs">{v}</td>
+                  {canEdit ? (
+                    <td className="w-16 px-4 py-2 text-right">
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        disabled={labelMut.isPending}
+                        onClick={() => labelMut.mutate({ [k]: null })}
+                        title={`Remove label ${k}`}
+                      >
+                        Remove
+                      </Button>
+                    </td>
+                  ) : null}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <EmptyState compact title="No labels" />
+      )}
+
+      {canEdit ? (
+        <div className="rounded-xl border border-edge-default bg-surface-raised p-3">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
+            Add / update label
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={newKey}
+              onChange={(e) => setNewKey(e.target.value)}
+              placeholder="key"
+              className="h-8 w-52 rounded-md border border-edge-default bg-surface-raised px-2 font-mono text-xs text-content outline-none placeholder:text-content-subtle focus:ring-2 focus:ring-brand-500/30"
+              aria-label="Label key"
+            />
+            <input
+              value={newValue}
+              onChange={(e) => setNewValue(e.target.value)}
+              placeholder="value"
+              className="h-8 w-44 rounded-md border border-edge-default bg-surface-raised px-2 font-mono text-xs text-content outline-none placeholder:text-content-subtle focus:ring-2 focus:ring-brand-500/30"
+              aria-label="Label value"
+            />
+            <Button
+              size="sm"
+              disabled={!newKey.trim() || labelMut.isPending}
+              onClick={() => {
+                labelMut.mutate({ [newKey.trim()]: newValue.trim() })
+                setNewKey('')
+                setNewValue('')
+              }}
+            >
+              {labelMut.isPending ? 'Applying…' : 'Apply'}
+            </Button>
+          </div>
+          {labelMut.isError ? (
+            <p className="mt-2 text-[11px] text-rose-700 dark:text-rose-300">
+              Error: {(labelMut.error as Error).message}
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <p className="flex items-center gap-1.5 text-[11px] text-content-muted">
+          Editing labels requires <K8sRolePill perm="nodes.cordon" />
+        </p>
+      )}
     </div>
   )
 }

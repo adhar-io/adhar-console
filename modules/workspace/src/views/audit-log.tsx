@@ -1,8 +1,7 @@
-import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { DataTable, EmptyState, StatusBadge } from '@adhar-console/shell-ui'
 import { formatAbsolute, formatRelative } from '@adhar-console/utils'
-import { CURRENT_ORG_SLUG, wsClient } from '../data/client.ts'
+import { isDbUnavailable, useAuditEvents } from '../data/client.ts'
 import {
   SecondaryButton,
   SelectField,
@@ -13,142 +12,214 @@ import {
 } from '../components/section-shell.tsx'
 import { RequirePermission } from '../components/role-gate.tsx'
 
-export function AuditLog() {
-  const q = useQuery({
-    queryKey: ['ws', 'audit', CURRENT_ORG_SLUG],
-    queryFn: () => wsClient.listAuditEvents(CURRENT_ORG_SLUG, { limit: 200 }),
-  })
+const PAGE_SIZE = 50
 
+export function AuditLog() {
   const [search, setSearch] = useState('')
   const [outcome, setOutcome] = useState<'all' | 'success' | 'failure'>('all')
+  const [page, setPage] = useState(0)
 
-  const filtered = useMemo(() => {
-    const all = q.data ?? []
-    const needle = search.trim().toLowerCase()
-    return all.filter((e) => {
-      if (outcome !== 'all' && e.outcome !== outcome) return false
-      if (!needle) return true
-      return (
-        e.action.toLowerCase().includes(needle) ||
-        e.actor.label.toLowerCase().includes(needle) ||
-        e.target.label.toLowerCase().includes(needle) ||
-        (e.ip ?? '').includes(needle)
-      )
-    })
-  }, [q.data, outcome, search])
+  const q = useAuditEvents({
+    limit: PAGE_SIZE,
+    offset: page * PAGE_SIZE,
+    q: search.trim() || undefined,
+    outcome: outcome === 'all' ? undefined : outcome,
+  })
 
-  const total = q.data?.length ?? 0
-  const failed = (q.data ?? []).filter((e) => e.outcome !== 'success').length
+  const data = q.data
+  const events = data?.items ?? []
+  const total = data?.total ?? 0
+  const failed = events.filter((e) => e.outcome !== 'success').length
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+  const onFilterChange = <T,>(setter: (v: T) => void) => (v: T) => {
+    setter(v)
+    setPage(0)
+  }
+
+  const exportCsv = () => {
+    const rows = [
+      ['at', 'actor', 'actorType', 'action', 'targetType', 'target', 'outcome', 'ip'],
+      ...events.map((e) => [
+        e.at,
+        e.actor.label,
+        e.actor.type,
+        e.action,
+        e.target.type,
+        e.target.label,
+        e.outcome,
+        e.ip ?? '',
+      ]),
+    ]
+    const csv = rows
+      .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `audit-log-page-${page + 1}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <ViewShell
       title="Audit log"
-      description="Every privileged action in the org. Retention follows the security policy (currently 365 days)."
+      description="Every privileged workspace mutation, persisted as workspace.audit documents and served newest-first."
       required={['admin', 'security', 'owner']}
       actions={
         <RequirePermission perm="audit.export" required={['security', 'owner']} readOnly>
-          <SecondaryButton>
+          <SecondaryButton onClick={exportCsv} disabled={events.length === 0}>
             <IconDownload /> Export CSV
           </SecondaryButton>
         </RequirePermission>
       }
     >
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile label="Events" value={total} />
-        <StatTile label="Failures" value={failed} tone={failed > 0 ? 'warn' : 'good'} />
-        <StatTile label="Visible" value={filtered.length} hint="after filters" />
-        <StatTile label="Retention" value="365d" hint="Business plan" />
-      </div>
+      {q.isError ? (
+        <StoreErrorState error={q.error} retry={() => q.refetch()} />
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatTile label="Total events" value={q.isLoading ? '…' : total} />
+            <StatTile label="Failures (page)" value={failed} tone={failed > 0 ? 'warn' : 'good'} />
+            <StatTile label="On this page" value={events.length} />
+            <StatTile label="Page" value={`${page + 1} / ${pageCount}`} />
+          </div>
 
-      <SettingsCard
-        title="Events"
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <TextField
-              value={search}
-              onChange={setSearch}
-              placeholder="Search action, actor, target, IP…"
-            />
-            <SelectField<typeof outcome>
-              value={outcome}
-              onChange={setOutcome}
-              options={[
-                { value: 'all', label: 'Any outcome' },
-                { value: 'success', label: 'Success' },
-                { value: 'failure', label: 'Failure' },
+          <SettingsCard
+            title="Events"
+            actions={
+              <div className="flex flex-wrap items-center gap-2">
+                <TextField
+                  value={search}
+                  onChange={onFilterChange(setSearch)}
+                  placeholder="Search action, actor, target, IP…"
+                />
+                <SelectField<typeof outcome>
+                  value={outcome}
+                  onChange={onFilterChange(setOutcome)}
+                  options={[
+                    { value: 'all', label: 'Any outcome' },
+                    { value: 'success', label: 'Success' },
+                    { value: 'failure', label: 'Failure' },
+                  ]}
+                />
+              </div>
+            }
+          >
+            <DataTable
+              loading={q.isLoading}
+              rows={events}
+              rowKey={(e) => e.id}
+              empty={
+                <EmptyState
+                  title="No audit events"
+                  description="Privileged actions (invites, role changes, team edits, token mints, deletes) show up here as they happen."
+                />
+              }
+              columns={[
+                {
+                  key: 'when',
+                  header: 'When',
+                  cell: (e) => (
+                    <div>
+                      <div className="font-medium text-content">{formatRelative(e.at)}</div>
+                      <div className="font-mono text-[11px] text-content-subtle">{formatAbsolute(e.at)}</div>
+                    </div>
+                  ),
+                },
+                {
+                  key: 'actor',
+                  header: 'Actor',
+                  cell: (e) => (
+                    <div>
+                      <div className="text-sm font-medium text-content">{e.actor.label}</div>
+                      <div className="text-[11px] text-content-muted">{e.actor.type}</div>
+                    </div>
+                  ),
+                },
+                {
+                  key: 'action',
+                  header: 'Action',
+                  cell: (e) => (
+                    <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] text-content-muted">
+                      {e.action}
+                    </code>
+                  ),
+                },
+                {
+                  key: 'target',
+                  header: 'Target',
+                  cell: (e) => (
+                    <div>
+                      <div className="text-sm text-content">{e.target.label}</div>
+                      <div className="text-[11px] text-content-muted">{e.target.type}</div>
+                    </div>
+                  ),
+                },
+                {
+                  key: 'outcome',
+                  header: 'Outcome',
+                  cell: (e) => (
+                    <StatusBadge kind={e.outcome === 'success' ? 'healthy' : 'failed'}>
+                      {e.outcome}
+                    </StatusBadge>
+                  ),
+                },
+                {
+                  key: 'ip',
+                  header: 'Context',
+                  cell: (e) => (
+                    <div className="font-mono text-[11px] text-content-muted">
+                      {e.ip ? <div>{e.ip}</div> : null}
+                      {e.userAgent ? <div className="max-w-xs truncate">{e.userAgent}</div> : null}
+                    </div>
+                  ),
+                },
               ]}
             />
-          </div>
-        }
-      >
-        <DataTable
-          loading={q.isLoading}
-          rows={filtered}
-          rowKey={(e) => e.id}
-          empty={<EmptyState title="No audit events match" />}
-          columns={[
-            {
-              key: 'when',
-              header: 'When',
-              cell: (e) => (
-                <div>
-                  <div className="font-medium text-content">{formatRelative(e.at)}</div>
-                  <div className="font-mono text-[11px] text-content-subtle">{formatAbsolute(e.at)}</div>
+
+            {total > PAGE_SIZE ? (
+              <div className="mt-4 flex items-center justify-between">
+                <span className="text-[12px] text-content-muted">
+                  Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
+                </span>
+                <div className="flex gap-2">
+                  <SecondaryButton disabled={page === 0 || q.isFetching} onClick={() => setPage((p) => p - 1)}>
+                    Previous
+                  </SecondaryButton>
+                  <SecondaryButton
+                    disabled={page + 1 >= pageCount || q.isFetching}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    Next
+                  </SecondaryButton>
                 </div>
-              ),
-            },
-            {
-              key: 'actor',
-              header: 'Actor',
-              cell: (e) => (
-                <div>
-                  <div className="text-sm font-medium text-content">{e.actor.label}</div>
-                  <div className="text-[11px] text-content-muted">{e.actor.type}</div>
-                </div>
-              ),
-            },
-            {
-              key: 'action',
-              header: 'Action',
-              cell: (e) => (
-                <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] text-content-muted">
-                  {e.action}
-                </code>
-              ),
-            },
-            {
-              key: 'target',
-              header: 'Target',
-              cell: (e) => (
-                <div>
-                  <div className="text-sm text-content">{e.target.label}</div>
-                  <div className="text-[11px] text-content-muted">{e.target.type}</div>
-                </div>
-              ),
-            },
-            {
-              key: 'outcome',
-              header: 'Outcome',
-              cell: (e) => (
-                <StatusBadge kind={e.outcome === 'success' ? 'healthy' : 'failed'}>
-                  {e.outcome}
-                </StatusBadge>
-              ),
-            },
-            {
-              key: 'ip',
-              header: 'Context',
-              cell: (e) => (
-                <div className="font-mono text-[11px] text-content-muted">
-                  {e.ip ? <div>{e.ip}</div> : null}
-                  {e.userAgent ? <div className="max-w-xs truncate">{e.userAgent}</div> : null}
-                </div>
-              ),
-            },
-          ]}
-        />
-      </SettingsCard>
+              </div>
+            ) : null}
+          </SettingsCard>
+        </>
+      )}
     </ViewShell>
+  )
+}
+
+/** DB-unavailable / fetch-error state — no fake data, ever. */
+function StoreErrorState({ error, retry }: { error: unknown; retry(): void }) {
+  if (isDbUnavailable(error)) {
+    return (
+      <EmptyState
+        title="Connect a database"
+        description="The audit log persists to Postgres. Set DATABASE_URL for the console server to enable it — no stubbed data is shown."
+      />
+    )
+  }
+  return (
+    <EmptyState
+      title="Couldn't load the audit log"
+      description={(error as Error)?.message ?? 'Unexpected error.'}
+      action={<SecondaryButton onClick={retry}>Retry</SecondaryButton>}
+    />
   )
 }
 

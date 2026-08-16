@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { docStore, type StoredDoc } from '@adhar-console/shell-ui'
 
 /**
  * Multi-cloud catalog + workspace cloud configuration.
@@ -9,6 +10,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
  * non-prod (cheap, fast spin-up), or run the entire estate on a single
  * cloud — the per-environment mapping captured here is the source of
  * truth that downstream Crossplane compositions read.
+ *
+ * The CATALOG below is static reference data. Connections and environment
+ * mappings are REAL tenant configuration persisted in the Postgres document
+ * store (`workspace.cloud-connection`, `workspace.cloud-mapping`) — there
+ * are no fabricated "connected" clouds. A new connection is recorded as
+ * `pending` until the platform actually verifies credentials; a missing
+ * database surfaces as a `DocStoreError` the views must render.
  */
 
 export type CloudProviderId = 'aws' | 'gcp' | 'azure' | 'civo' | 'digitalocean' | 'onprem'
@@ -118,7 +126,7 @@ export const CLOUD_BY_ID: Record<CloudProviderId, CloudProvider> = Object.fromEn
   CLOUD_CATALOG.map((c) => [c.id, c]),
 ) as Record<CloudProviderId, CloudProvider>
 
-/* ─────────── connections ─────────── */
+/* ─────────── connections (docStore-backed) ─────────── */
 
 export interface CloudConnection {
   id: string
@@ -129,79 +137,34 @@ export interface CloudConnection {
   region: string
   /** Account / project / subscription identifier. */
   accountId: string
+  /**
+   * `pending` = recorded config awaiting a real credential check by the
+   * platform. The console never marks a connection `connected` on its own.
+   */
   status: 'connected' | 'pending' | 'error' | 'paused'
-  /** ISO timestamp; bumped on every successful credential check. */
-  lastCheckedAt: string
+  /** ISO timestamp of the last successful credential check — unset until one ran. */
+  lastCheckedAt?: string
   /** Connection owner (the person or role responsible). */
   ownerEmail: string
-  /** Cluster names provisioned via this connection. */
+  /** Cluster names provisioned via this connection (filled by the platform). */
   clusters: string[]
-  /** Estimated monthly spend on this connection (USD). */
+  /** Monthly spend reported by cost ingestion (USD); 0 until reported. */
   monthlySpend: number
 }
 
-const CONNECTIONS: CloudConnection[] = [
-  {
-    id: 'conn-aws-prod',
-    providerId: 'aws',
-    label: 'AWS · Production',
-    region: 'us-east-1',
-    accountId: '432198765432',
-    status: 'connected',
-    lastCheckedAt: new Date(Date.now() - 90_000).toISOString(),
-    ownerEmail: 'priya@acme.com',
-    clusters: ['prod-us-1', 'prod-eu-1'],
-    monthlySpend: 14820,
-  },
-  {
-    id: 'conn-gcp-data',
-    providerId: 'gcp',
-    label: 'GCP · Data plane',
-    region: 'us-central1',
-    accountId: 'acme-data-prod',
-    status: 'connected',
-    lastCheckedAt: new Date(Date.now() - 6 * 60_000).toISOString(),
-    ownerEmail: 'mira@acme.com',
-    clusters: ['data-us-1'],
-    monthlySpend: 6840,
-  },
-  {
-    id: 'conn-civo-nonprod',
-    providerId: 'civo',
-    label: 'Civo · Non-prod',
-    region: 'LON1',
-    accountId: 'acme-nonprod',
-    status: 'connected',
-    lastCheckedAt: new Date(Date.now() - 30_000).toISOString(),
-    ownerEmail: 'jordan@acme.com',
-    clusters: ['staging-eu-1', 'preview-eu-1'],
-    monthlySpend: 980,
-  },
-  {
-    id: 'conn-onprem-dr',
-    providerId: 'onprem',
-    label: 'Datacenter · DR',
-    region: 'fra-dc-2',
-    accountId: 'acme-dc',
-    status: 'connected',
-    lastCheckedAt: new Date(Date.now() - 12 * 60_000).toISOString(),
-    ownerEmail: 'sam@acme.com',
-    clusters: ['dr-fra-1'],
-    monthlySpend: 0,
-  },
-  {
-    id: 'conn-azure-pending',
-    providerId: 'azure',
-    label: 'Azure · Trial subscription',
-    region: 'westeurope',
-    accountId: 'sub-de1234ab-...',
-    status: 'pending',
-    lastCheckedAt: new Date(Date.now() - 2 * 24 * 3600_000).toISOString(),
-    ownerEmail: 'priya@acme.com',
-    clusters: [],
-    monthlySpend: 0,
-  },
-]
+type CloudConnectionData = Omit<CloudConnection, 'id'>
+
+const CONN_KIND = 'workspace.cloud-connection'
+const MAP_KIND = 'workspace.cloud-mapping'
+
+function toConnection(doc: StoredDoc<CloudConnectionData>): CloudConnection {
+  return {
+    id: doc.id,
+    ...doc.data,
+    clusters: [...(doc.data.clusters ?? [])],
+    monthlySpend: doc.data.monthlySpend ?? 0,
+  }
+}
 
 /* ─────────── environment / cloud mapping (dual-mode) ─────────── */
 
@@ -224,76 +187,43 @@ export interface EnvironmentMapping {
   }
 }
 
-const MAPPINGS: EnvironmentMapping[] = [
-  {
-    env: 'production',
-    connectionId: 'conn-aws-prod',
-    failoverConnectionId: 'conn-onprem-dr',
-    capacity: 'large',
-    flags: { blockProdSecrets: false, directKubectl: false },
-  },
-  {
-    env: 'staging',
-    connectionId: 'conn-civo-nonprod',
-    capacity: 'medium',
-    flags: { blockProdSecrets: true, directKubectl: true },
-  },
-  {
-    env: 'preview',
-    connectionId: 'conn-civo-nonprod',
-    capacity: 'small',
-    flags: { blockProdSecrets: true, directKubectl: true },
-  },
-  {
-    env: 'dev',
-    connectionId: 'conn-civo-nonprod',
-    capacity: 'small',
-    flags: { blockProdSecrets: true, directKubectl: true },
-  },
-]
-
-/* ─────────── React Query layer (faux BFF) ─────────── */
+/* ─────────── React Query layer (document-store persistence) ─────────── */
 
 const KEY_CONNS = ['ws', 'cloud-connections'] as const
 const KEY_MAPS = ['ws', 'cloud-mappings'] as const
 
-let _conns = [...CONNECTIONS]
-let _maps = [...MAPPINGS]
-
-function delay<T>(value: T, ms = 90): Promise<T> {
-  return new Promise((resolve) => setTimeout(() => resolve(value), ms))
-}
-
 export function useCloudConnections() {
   return useQuery<CloudConnection[]>({
     queryKey: KEY_CONNS,
-    queryFn: () => delay(_conns),
-    staleTime: 60_000,
+    queryFn: async () => (await docStore.list<CloudConnectionData>(CONN_KIND)).map(toConnection),
   })
 }
 
 export function useCloudMappings() {
   return useQuery<EnvironmentMapping[]>({
     queryKey: KEY_MAPS,
-    queryFn: () => delay(_maps),
-    staleTime: 60_000,
+    queryFn: async () => (await docStore.list<EnvironmentMapping>(MAP_KIND)).map((d) => d.data),
   })
 }
 
+/** Upserts the per-environment mapping (doc id = env name). */
 export function useUpdateMapping() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: EnvironmentMapping) => {
-      _maps = _maps.map((m) => (m.env === input.env ? input : m))
-      return delay(input, 140)
+    mutationFn: async (input: EnvironmentMapping) => {
+      const doc = await docStore.put<EnvironmentMapping>(MAP_KIND, input.env, input)
+      return doc.data
     },
     onMutate: async (next) => {
       await qc.cancelQueries({ queryKey: KEY_MAPS })
-      const prev = qc.getQueryData<EnvironmentMapping[]>(KEY_MAPS) ?? _maps
-      qc.setQueryData<EnvironmentMapping[]>(
-        KEY_MAPS,
-        prev.map((m) => (m.env === next.env ? next : m)),
-      )
+      const prev = qc.getQueryData<EnvironmentMapping[]>(KEY_MAPS)
+      if (prev) {
+        const exists = prev.some((m) => m.env === next.env)
+        qc.setQueryData<EnvironmentMapping[]>(
+          KEY_MAPS,
+          exists ? prev.map((m) => (m.env === next.env ? next : m)) : [...prev, next],
+        )
+      }
       return { prev }
     },
     onError: (_e, _v, ctx) => {
@@ -303,20 +233,32 @@ export function useUpdateMapping() {
   })
 }
 
+/**
+ * Records a new connection as `pending` — the honest state until the
+ * platform runs a real credential check against the account.
+ */
 export function useAddConnection() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: Omit<CloudConnection, 'id' | 'lastCheckedAt' | 'clusters' | 'monthlySpend'>) => {
-      const conn: CloudConnection = {
+    mutationFn: async (
+      input: Omit<CloudConnection, 'id' | 'lastCheckedAt' | 'clusters' | 'monthlySpend' | 'status'>,
+    ) => {
+      const doc = await docStore.create<CloudConnectionData>(CONN_KIND, {
         ...input,
-        id: `conn-${input.providerId}-${Math.random().toString(36).slice(2, 7)}`,
-        lastCheckedAt: new Date().toISOString(),
+        status: 'pending',
         clusters: [],
         monthlySpend: 0,
-      }
-      _conns = [..._conns, conn]
-      return delay(conn)
+      })
+      return toConnection(doc)
     },
+    onSettled: () => qc.invalidateQueries({ queryKey: KEY_CONNS }),
+  })
+}
+
+export function useRemoveConnection() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => docStore.remove(CONN_KIND, id),
     onSettled: () => qc.invalidateQueries({ queryKey: KEY_CONNS }),
   })
 }
@@ -324,19 +266,23 @@ export function useAddConnection() {
 /* ─────────── tone helpers (mirrors marketplace) ─────────── */
 
 export const CLOUD_TONE_TILE: Record<CloudProvider['tone'], string> = {
-  amber: 'bg-linear-to-br from-amber-100 to-amber-50 text-amber-700 ring-amber-200',
-  sky: 'bg-linear-to-br from-sky-100 to-sky-50 text-sky-700 ring-sky-200',
-  violet: 'bg-linear-to-br from-violet-100 to-violet-50 text-violet-700 ring-violet-200',
-  emerald: 'bg-linear-to-br from-emerald-100 to-emerald-50 text-emerald-700 ring-emerald-200',
-  rose: 'bg-linear-to-br from-rose-100 to-rose-50 text-rose-700 ring-rose-200',
+  amber:
+    'bg-linear-to-br from-amber-100 to-amber-50 text-amber-700 ring-amber-200 dark:from-amber-500/20 dark:to-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30',
+  sky: 'bg-linear-to-br from-sky-100 to-sky-50 text-sky-700 ring-sky-200 dark:from-sky-500/20 dark:to-sky-500/10 dark:text-sky-300 dark:ring-sky-500/30',
+  violet:
+    'bg-linear-to-br from-violet-100 to-violet-50 text-violet-700 ring-violet-200 dark:from-violet-500/20 dark:to-violet-500/10 dark:text-violet-300 dark:ring-violet-500/30',
+  emerald:
+    'bg-linear-to-br from-emerald-100 to-emerald-50 text-emerald-700 ring-emerald-200 dark:from-emerald-500/20 dark:to-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30',
+  rose: 'bg-linear-to-br from-rose-100 to-rose-50 text-rose-700 ring-rose-200 dark:from-rose-500/20 dark:to-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30',
   slate: 'bg-linear-to-br from-slate-200 to-slate-100 text-slate-700 ring-slate-300',
 }
 
 export const CLOUD_TONE_CHIP: Record<CloudProvider['tone'], string> = {
-  amber: 'bg-amber-50 text-amber-700 ring-amber-200',
-  sky: 'bg-sky-50 text-sky-700 ring-sky-200',
-  violet: 'bg-violet-50 text-violet-700 ring-violet-200',
-  emerald: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-  rose: 'bg-rose-50 text-rose-700 ring-rose-200',
+  amber: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30',
+  sky: 'bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/30',
+  violet: 'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-500/10 dark:text-violet-300 dark:ring-violet-500/30',
+  emerald:
+    'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30',
+  rose: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30',
   slate: 'bg-slate-100 text-slate-700 ring-slate-300',
 }

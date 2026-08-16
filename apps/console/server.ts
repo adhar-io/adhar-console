@@ -30,6 +30,8 @@ import { proxyToolRequest } from './app/server/proxy.ts'
 import { publicToolInfo } from './app/server/tool-registry.ts'
 import { handleDocuments, handleNotifications, handlePreferences } from './app/server/api-handlers.ts'
 import { handleScaffold } from './app/server/scaffolder.ts'
+import { handleWorkspace } from './app/server/workspace/handlers.ts'
+import { handleBilling } from './app/server/billing/handlers.ts'
 import { apiServerFetch, handleK8s, resolveIdentity } from './app/server/k8s/gateway.ts'
 import { handleExec } from './app/server/k8s/exec.ts'
 import { handleAi } from './app/server/ai/handlers.ts'
@@ -312,6 +314,16 @@ async function route(req: Request): Promise<Response> {
 
   // Component scaffolder (Catalog → Create): real Gitea repo + GitOps.
   if (path === '/api/scaffold') return handleScaffold(req)
+
+  // Workspace / Organization management (orgs, members, teams, roles,
+  // invitations, projects, api-tokens, audit) — tenant-scoped, Postgres-backed,
+  // with optional Keycloak group reflection.
+  const ws = path.match(/^\/api\/workspace\/(.*)$/)
+  if (ws) return handleWorkspace(req, ws[1])
+
+  // Billing (plans, subscription, seats, usage metering, invoices, budgets).
+  const billing = path.match(/^\/api\/billing\/(.*)$/)
+  if (billing) return handleBilling(req, billing[1])
 
   // Unknown API path → 404 JSON (don't fall through to the SPA).
   if (path.startsWith('/api/')) {

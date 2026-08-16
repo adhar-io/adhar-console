@@ -17,6 +17,8 @@ export const GVRS = {
   serviceaccounts: { group: '', version: 'v1', resource: 'serviceaccounts', namespaced: true },
   persistentvolumes: { group: '', version: 'v1', resource: 'persistentvolumes', namespaced: false },
   persistentvolumeclaims: { group: '', version: 'v1', resource: 'persistentvolumeclaims', namespaced: true },
+  resourcequotas: { group: '', version: 'v1', resource: 'resourcequotas', namespaced: true },
+  limitranges: { group: '', version: 'v1', resource: 'limitranges', namespaced: true },
 
   deployments: { group: 'apps', version: 'v1', resource: 'deployments', namespaced: true },
   statefulsets: { group: 'apps', version: 'v1', resource: 'statefulsets', namespaced: true },

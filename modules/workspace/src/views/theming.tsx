@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { cn } from '@adhar-console/utils'
+import { cn, formatRelative } from '@adhar-console/utils'
 import {
   applyTheme,
   DEFAULT_THEME_ID,
@@ -9,10 +9,13 @@ import {
   THEMES,
   type ThemePreset,
 } from '@adhar-console/shell-ui'
-import { SecondaryButton, ViewShell } from '../components/section-shell.tsx'
+import { useSaveWorkspaceTheme, useWorkspaceTheme } from '../data/security.ts'
+import { PrimaryButton, SecondaryButton, ViewShell } from '../components/section-shell.tsx'
 
 export function Theming() {
   const [activeId, setActiveId] = useState<string>(DEFAULT_THEME_ID)
+  const ws = useWorkspaceTheme()
+  const save = useSaveWorkspaceTheme()
 
   useEffect(() => {
     setActiveId(getStoredThemeId())
@@ -25,10 +28,13 @@ export function Theming() {
 
   const reset = () => select(DEFAULT_THEME_ID)
 
+  const workspaceThemeId = ws.data?.themeId ?? null
+  const isWorkspaceDefault = workspaceThemeId !== null && workspaceThemeId === activeId
+
   return (
     <ViewShell
       title="Appearance"
-      description="Pick a palette for the whole console. Colors update instantly and persist across sessions — only you see them."
+      description="Pick a palette for the console. Your choice applies instantly on this device; saving it as the workspace default persists it in the tenant document store so teammates can adopt it."
       actions={<SecondaryButton onClick={reset}>Reset to default</SecondaryButton>}
     >
 
@@ -47,6 +53,59 @@ export function Theming() {
       </section>
 
       <section>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-content-subtle">
+            Workspace default
+          </h3>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-edge-default bg-surface-raised p-4">
+          <div className="min-w-0 text-xs text-content-muted">
+            {ws.isLoading ? (
+              'Checking the workspace default theme…'
+            ) : ws.isError ? (
+              <span>
+                The tenant document store is unreachable, so a shared workspace default can't be
+                loaded or saved right now. Your local theme choice still works.
+              </span>
+            ) : workspaceThemeId ? (
+              <span>
+                Workspace default:{' '}
+                <span className="font-semibold text-content">
+                  {THEMES.find((t) => t.id === workspaceThemeId)?.name ?? workspaceThemeId}
+                </span>
+                {ws.data?.updatedAt ? ` · saved ${formatRelative(ws.data.updatedAt)}` : ''}
+                {ws.data?.updatedBy ? ` by ${ws.data.updatedBy}` : ''}
+              </span>
+            ) : (
+              'No workspace default saved yet — each member sees their own local choice.'
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {workspaceThemeId && workspaceThemeId !== activeId ? (
+              <SecondaryButton onClick={() => select(workspaceThemeId)}>
+                Apply workspace default
+              </SecondaryButton>
+            ) : null}
+            <PrimaryButton
+              disabled={ws.isError || save.isPending || isWorkspaceDefault}
+              onClick={() => save.mutate(activeId)}
+            >
+              {save.isPending
+                ? 'Saving…'
+                : isWorkspaceDefault
+                  ? 'Saved as workspace default'
+                  : 'Save as workspace default'}
+            </PrimaryButton>
+          </div>
+        </div>
+        {save.isError ? (
+          <p className="mt-2 text-[12px] text-rose-700 dark:text-rose-400">
+            {(save.error as Error)?.message ?? 'Could not save the workspace theme.'}
+          </p>
+        ) : null}
+      </section>
+
+      <section>
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-sm font-semibold uppercase tracking-wide text-content-subtle">
             Color theme
@@ -59,6 +118,7 @@ export function Theming() {
               key={t.id}
               theme={t}
               active={activeId === t.id}
+              workspaceDefault={workspaceThemeId === t.id}
               onSelect={() => select(t.id)}
             />
           ))}
@@ -78,10 +138,12 @@ export function Theming() {
 function ThemeCard({
   theme,
   active,
+  workspaceDefault,
   onSelect,
 }: {
   theme: ThemePreset
   active: boolean
+  workspaceDefault: boolean
   onSelect(): void
 }) {
   return (
@@ -107,6 +169,7 @@ function ThemeCard({
           <div className="flex items-center gap-2">
             <div className="text-sm font-semibold text-content">{theme.name}</div>
             {active ? <StatusBadge kind="healthy">Active</StatusBadge> : null}
+            {workspaceDefault ? <StatusBadge kind="info">Workspace</StatusBadge> : null}
           </div>
           <p className="mt-0.5 text-xs text-content-muted">{theme.description}</p>
         </div>

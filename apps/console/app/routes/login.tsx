@@ -133,7 +133,25 @@ function LoginPage() {
             </span>
           </div>
 
-          <div className="rounded-2xl border border-edge-default bg-surface-raised/95 p-7 shadow-xl shadow-black/6 backdrop-blur dark:shadow-black/40 sm:p-8">
+          <div className="relative overflow-hidden rounded-2xl border border-edge-default bg-surface-raised/95 p-7 shadow-xl shadow-black/6 ring-1 ring-black/3 backdrop-blur dark:shadow-black/40 dark:ring-white/6 sm:p-8">
+            {/* Top brand accent hairline */}
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-brand-500/60 to-transparent"
+            />
+
+            {/* Seamless redirect overlay — covers the card while we hand off to
+                Keycloak, so the transition reads as one smooth step. */}
+            {redirecting ? (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-2xl bg-surface-raised/85 backdrop-blur-sm">
+                <span className="text-brand-600 dark:text-brand-400">
+                  <BigSpinner />
+                </span>
+                <p className="text-sm font-medium text-content">Taking you to secure sign-in…</p>
+                <p className="text-[11px] text-content-subtle">Redirecting to Keycloak</p>
+              </div>
+            ) : null}
+
             <div className="space-y-1.5">
               <h1 className="text-2xl font-semibold tracking-tight text-content">Welcome back</h1>
               <p className="text-sm text-content-muted">
@@ -336,6 +354,14 @@ function Spinner() {
     <svg className="animate-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
       <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.25" strokeWidth="3" />
       <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  )
+}
+function BigSpinner() {
+  return (
+    <svg className="animate-spin" width="34" height="34" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.2" strokeWidth="2.5" />
+      <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
     </svg>
   )
 }

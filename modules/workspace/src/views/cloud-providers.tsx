@@ -9,6 +9,7 @@ import {
   useAddConnection,
   useCloudConnections,
   useCloudMappings,
+  useRemoveConnection,
   useUpdateMapping,
   type CloudConnection,
   type CloudProvider,
@@ -26,6 +27,7 @@ import {
   ToggleField,
   ViewShell,
 } from '../components/section-shell.tsx'
+import { LoadingBlock, StoreErrorBlock } from '../components/async-states.tsx'
 import { RequirePermission } from '../components/role-gate.tsx'
 import { fmtMoney } from '../data/enterprise.ts'
 
@@ -54,6 +56,7 @@ export function CloudProviders() {
   const conns = useCloudConnections()
   const maps = useCloudMappings()
   const update = useUpdateMapping()
+  const remove = useRemoveConnection()
   const [adding, setAdding] = useState(false)
 
   const allConns = conns.data ?? []
@@ -61,6 +64,7 @@ export function CloudProviders() {
   const usedProviders = new Set(allConns.map((c) => c.providerId))
   const totalSpend = allConns.reduce((s, c) => s + c.monthlySpend, 0)
   const dual = useMemo(() => isDualMode(allMaps, allConns), [allMaps, allConns])
+  const storeError = (conns.error ?? maps.error) as Error | null
 
   return (
     <ViewShell
@@ -88,8 +92,22 @@ export function CloudProviders() {
           tone={dual ? 'good' : 'default'}
           hint={dual ? 'prod ≠ non-prod cloud' : 'prod & non-prod share cloud'}
         />
-        <StatTile label="Monthly spend" value={fmtMoney(totalSpend)} hint="combined estate" />
+        <StatTile
+          label="Monthly spend"
+          value={fmtMoney(totalSpend)}
+          hint="as reported by cost ingestion"
+        />
       </div>
+
+      {storeError ? (
+        <StoreErrorBlock
+          error={storeError}
+          onRetry={() => {
+            conns.refetch()
+            maps.refetch()
+          }}
+        />
+      ) : null}
 
       {adding ? <AddConnectionForm onClose={() => setAdding(false)} /> : null}
 
@@ -109,32 +127,52 @@ export function CloudProviders() {
         </div>
       </SettingsCard>
 
+      {storeError ? null : (
+      <>
       <SettingsCard
         title="Environment → cloud mapping"
         description="Drives Crossplane provisioning and Argo CD destination clusters. Switching production providers is gated by the destructive-RBAC approval policy."
       >
-        <div className="space-y-3">
-          {ENV_ORDER.map((env) => {
-            const mapping = allMaps.find((m) => m.env === env)
-            return (
-              <EnvMappingRow
-                key={env}
-                env={env}
-                mapping={mapping}
-                connections={allConns}
-                onChange={(next) => update.mutate(next)}
-              />
-            )
-          })}
-        </div>
+        {maps.isLoading || conns.isLoading ? (
+          <LoadingBlock label="Loading environment mappings…" />
+        ) : allConns.length === 0 ? (
+          <EmptyState
+            compact
+            title="No clouds connected yet"
+            description="Environments can be mapped once at least one cloud connection is recorded above."
+          />
+        ) : (
+          <div className="space-y-3">
+            {ENV_ORDER.map((env) => {
+              const mapping = allMaps.find((m) => m.env === env)
+              return (
+                <EnvMappingRow
+                  key={env}
+                  env={env}
+                  mapping={mapping}
+                  connections={allConns}
+                  onChange={(next) => update.mutate(next)}
+                />
+              )
+            })}
+          </div>
+        )}
       </SettingsCard>
 
-      <SettingsCard title="Connections">
+      <SettingsCard
+        title="Connections"
+        description="Recorded configuration — a connection stays pending until the platform verifies its credentials; the console never marks one connected on its own."
+      >
         <DataTable
           loading={conns.isLoading}
           rows={allConns}
           rowKey={(c) => c.id}
-          empty={<EmptyState title="No clouds connected" description="Pick a provider above to get started." />}
+          empty={
+            <EmptyState
+              title="No clouds connected"
+              description="Pick a provider above to get started — nothing is pre-connected."
+            />
+          }
           columns={[
             {
               key: 'cloud',
@@ -177,23 +215,36 @@ export function CloudProviders() {
             },
             {
               key: 'last',
-              header: 'Last checked',
-              cell: (c) => formatRelative(c.lastCheckedAt),
+              header: 'Credential check',
+              cell: (c) => (c.lastCheckedAt ? formatRelative(c.lastCheckedAt) : 'not yet run'),
             },
             { key: 'owner', header: 'Owner', cell: (c) => c.ownerEmail },
             {
               key: 'actions',
               header: '',
-              cell: () => (
-                <div className="flex justify-end gap-1.5">
-                  <SecondaryButton>Test</SecondaryButton>
-                  <SecondaryButton>Edit</SecondaryButton>
-                </div>
+              cell: (c) => (
+                <RequirePermission
+                  perm="integrations.write"
+                  required={['admin', 'security', 'owner']}
+                  readOnly
+                >
+                  <div className="flex justify-end gap-1.5">
+                    <SecondaryButton
+                      tone="rose"
+                      disabled={remove.isPending && remove.variables === c.id}
+                      onClick={() => remove.mutate(c.id)}
+                    >
+                      Remove
+                    </SecondaryButton>
+                  </div>
+                </RequirePermission>
               ),
             },
           ]}
         />
       </SettingsCard>
+      </>
+      )}
     </ViewShell>
   )
 }
@@ -226,7 +277,7 @@ function CloudTile({
           </div>
         </div>
         {connectionCount > 0 ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200">
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
             {connectionCount}
           </span>
@@ -424,10 +475,19 @@ function AddConnectionForm({ onClose }: { onClose(): void }) {
           <TextField mono readOnly value={cloud.auth} />
         </FieldShell>
       </div>
-      <div className="mt-4 flex justify-end gap-2">
+      {add.isError ? (
+        <p className="mt-3 text-[12px] text-rose-700 dark:text-rose-400">
+          {(add.error as Error)?.message ?? 'Could not save the connection.'}
+        </p>
+      ) : null}
+      <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+        <span className="mr-auto text-[11px] text-content-subtle">
+          Saved as <span className="font-semibold">pending</span> until the platform verifies the
+          credentials.
+        </span>
         <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
         <PrimaryButton
-          disabled={!label || !accountId || !owner}
+          disabled={!label || !accountId || !owner || add.isPending}
           onClick={() => {
             add.mutate(
               {
@@ -436,13 +496,12 @@ function AddConnectionForm({ onClose }: { onClose(): void }) {
                 region,
                 accountId,
                 ownerEmail: owner,
-                status: 'pending',
               },
               { onSuccess: onClose },
             )
           }}
         >
-          Connect
+          {add.isPending ? 'Saving…' : 'Save connection'}
         </PrimaryButton>
       </div>
     </SettingsCard>

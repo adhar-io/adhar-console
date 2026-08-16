@@ -1,10 +1,19 @@
 import { useQuery } from '@tanstack/react-query'
 import type { k8s } from '@adhar-console/api-clients'
-import { client, LOCAL_CLUSTER } from './client.ts'
+import { client, useActiveCluster } from './client.ts'
 import { useLiveList } from './live.ts'
 import { GVRS } from './gvr.ts'
 
 export const AUTO_REFRESH_MS = 10_000
+
+/**
+ * Every hook here is scoped to the **active cluster** (see the store in
+ * `client.ts`). The cluster name is appended as the *last* query-key segment
+ * so prefix-based invalidation (`['k8s', 'jobs']`, …) keeps working, and with
+ * the single default cluster the segment is the stable `'local'` constant —
+ * no refetch churn. `useLiveList`-backed hooks pick the cluster up inside
+ * `live.ts` instead.
+ */
 
 /** Cast a live (generic) list to a concrete resource type for the views. */
 function asLive<T>(live: ReturnType<typeof useLiveList>) {
@@ -12,32 +21,40 @@ function asLive<T>(live: ReturnType<typeof useLiveList>) {
 }
 
 export function useConnection() {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'version'],
-    queryFn: () => client.getVersion(),
+    queryKey: ['k8s', 'version', cluster],
+    queryFn: () => client.getVersion(cluster),
     retry: false,
     staleTime: 60_000,
   })
 }
 
 export function useApiSurface() {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'api-surface'],
-    queryFn: () => client.getApiSurface(),
+    queryKey: ['k8s', 'api-surface', cluster],
+    queryFn: () => client.getApiSurface(cluster),
     staleTime: 60_000,
   })
 }
 
 export function useNamespaces() {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'namespaces'],
-    queryFn: () => client.listNamespaces(),
+    queryKey: ['k8s', 'namespaces', cluster],
+    queryFn: () => client.listNamespaces(cluster),
     staleTime: 30_000,
   })
 }
 
+/** Clusters configured on the gateway — deliberately *not* cluster-scoped. */
 export function useClusters() {
-  return useQuery({ queryKey: ['k8s', 'clusters'], queryFn: () => client.listClusters() })
+  return useQuery({
+    queryKey: ['k8s', 'clusters'],
+    queryFn: () => client.listClusters(),
+    staleTime: 60_000,
+  })
 }
 
 export function useNodes() {
@@ -61,94 +78,114 @@ export function useDaemonSets(namespace?: string) {
 }
 
 export function useJobs(namespace?: string) {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'jobs', namespace ?? '*'],
-    queryFn: () => client.listJobs(LOCAL_CLUSTER, namespace),
+    queryKey: ['k8s', 'jobs', namespace ?? '*', cluster],
+    queryFn: () => client.listJobs(cluster, namespace),
   })
 }
 
 export function useCronJobs(namespace?: string) {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'cronjobs', namespace ?? '*'],
-    queryFn: () => client.listCronJobs(LOCAL_CLUSTER, namespace),
+    queryKey: ['k8s', 'cronjobs', namespace ?? '*', cluster],
+    queryFn: () => client.listCronJobs(cluster, namespace),
   })
 }
 
 export function useServices(namespace?: string) {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'services', namespace ?? '*'],
-    queryFn: () => client.listServices(LOCAL_CLUSTER, namespace),
+    queryKey: ['k8s', 'services', namespace ?? '*', cluster],
+    queryFn: () => client.listServices(cluster, namespace),
   })
 }
 
 export function useIngresses(namespace?: string) {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'ingresses', namespace ?? '*'],
-    queryFn: () => client.listIngresses(LOCAL_CLUSTER, namespace),
+    queryKey: ['k8s', 'ingresses', namespace ?? '*', cluster],
+    queryFn: () => client.listIngresses(cluster, namespace),
   })
 }
 
 export function useConfigMaps(namespace?: string) {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'configmaps', namespace ?? '*'],
-    queryFn: () => client.listConfigMaps(LOCAL_CLUSTER, namespace),
+    queryKey: ['k8s', 'configmaps', namespace ?? '*', cluster],
+    queryFn: () => client.listConfigMaps(cluster, namespace),
   })
 }
 
 export function useSecrets(namespace?: string) {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'secrets', namespace ?? '*'],
-    queryFn: () => client.listSecrets(LOCAL_CLUSTER, namespace),
+    queryKey: ['k8s', 'secrets', namespace ?? '*', cluster],
+    queryFn: () => client.listSecrets(cluster, namespace),
   })
 }
 
 export function usePersistentVolumes() {
-  return useQuery({ queryKey: ['k8s', 'pv'], queryFn: () => client.listPersistentVolumes() })
+  const { cluster } = useActiveCluster()
+  return useQuery({
+    queryKey: ['k8s', 'pv', cluster],
+    queryFn: () => client.listPersistentVolumes(cluster),
+  })
 }
 
 export function usePersistentVolumeClaims(namespace?: string) {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'pvc', namespace ?? '*'],
-    queryFn: () => client.listPersistentVolumeClaims(LOCAL_CLUSTER, namespace),
+    queryKey: ['k8s', 'pvc', namespace ?? '*', cluster],
+    queryFn: () => client.listPersistentVolumeClaims(cluster, namespace),
   })
 }
 
 export function useStorageClasses() {
-  return useQuery({ queryKey: ['k8s', 'sc'], queryFn: () => client.listStorageClasses() })
+  const { cluster } = useActiveCluster()
+  return useQuery({
+    queryKey: ['k8s', 'sc', cluster],
+    queryFn: () => client.listStorageClasses(cluster),
+  })
 }
 
 export function useServiceAccounts(namespace?: string) {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'sa', namespace ?? '*'],
-    queryFn: () => client.listServiceAccounts(LOCAL_CLUSTER, namespace),
+    queryKey: ['k8s', 'sa', namespace ?? '*', cluster],
+    queryFn: () => client.listServiceAccounts(cluster, namespace),
   })
 }
 
 export function useRoles(namespace?: string) {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'roles', namespace ?? '*'],
-    queryFn: () => client.listRoles(LOCAL_CLUSTER, namespace),
+    queryKey: ['k8s', 'roles', namespace ?? '*', cluster],
+    queryFn: () => client.listRoles(cluster, namespace),
   })
 }
 
 export function useRoleBindings(namespace?: string) {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'rolebindings', namespace ?? '*'],
-    queryFn: () => client.listRoleBindings(LOCAL_CLUSTER, namespace),
+    queryKey: ['k8s', 'rolebindings', namespace ?? '*', cluster],
+    queryFn: () => client.listRoleBindings(cluster, namespace),
   })
 }
 
 export function useClusterRoles() {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'clusterroles'],
-    queryFn: () => client.listClusterRoles(),
+    queryKey: ['k8s', 'clusterroles', cluster],
+    queryFn: () => client.listClusterRoles(cluster),
   })
 }
 
 export function useClusterRoleBindings() {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'clusterrolebindings'],
-    queryFn: () => client.listClusterRoleBindings(),
+    queryKey: ['k8s', 'clusterrolebindings', cluster],
+    queryFn: () => client.listClusterRoleBindings(cluster),
   })
 }
 
@@ -162,11 +199,12 @@ export function useEvents(namespace?: string) {
  * view falls back to "capacity only" tiles in that case.
  */
 export function useNodeMetrics() {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'node-metrics'],
+    queryKey: ['k8s', 'node-metrics', cluster],
     queryFn: () =>
       client
-        .listGeneric(LOCAL_CLUSTER, {
+        .listGeneric(cluster, {
           group: 'metrics.k8s.io',
           version: 'v1beta1',
           resource: 'nodes',
@@ -182,9 +220,10 @@ export function useNodeMetrics() {
 }
 
 export function useGeneric(gvr: k8s.GVR, namespace?: string) {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'generic', gvr.group, gvr.version, gvr.resource, namespace ?? '*'],
-    queryFn: () => client.listGeneric(LOCAL_CLUSTER, gvr, namespace),
+    queryKey: ['k8s', 'generic', gvr.group, gvr.version, gvr.resource, namespace ?? '*', cluster],
+    queryFn: () => client.listGeneric(cluster, gvr, namespace),
   })
 }
 
@@ -201,11 +240,12 @@ export function useHorizontalPodAutoscalers(namespace?: string) {
 /* ─── Networking extras ────────────────────────────────────────────── */
 
 export function useEndpoints(namespace?: string) {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'endpoints', namespace ?? '*'],
+    queryKey: ['k8s', 'endpoints', namespace ?? '*', cluster],
     queryFn: () =>
       client.listGeneric(
-        LOCAL_CLUSTER,
+        cluster,
         { group: '', version: 'v1', resource: 'endpoints', namespaced: true },
         namespace,
       ),
@@ -213,11 +253,12 @@ export function useEndpoints(namespace?: string) {
 }
 
 export function useNetworkPolicies(namespace?: string) {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'networkpolicies', namespace ?? '*'],
+    queryKey: ['k8s', 'networkpolicies', namespace ?? '*', cluster],
     queryFn: () =>
       client.listGeneric(
-        LOCAL_CLUSTER,
+        cluster,
         { group: 'networking.k8s.io', version: 'v1', resource: 'networkpolicies', namespaced: true },
         namespace,
       ),
@@ -225,10 +266,11 @@ export function useNetworkPolicies(namespace?: string) {
 }
 
 export function useIngressClasses() {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'ingressclasses'],
+    queryKey: ['k8s', 'ingressclasses', cluster],
     queryFn: () =>
-      client.listGeneric(LOCAL_CLUSTER, {
+      client.listGeneric(cluster, {
         group: 'networking.k8s.io',
         version: 'v1',
         resource: 'ingressclasses',
@@ -240,11 +282,12 @@ export function useIngressClasses() {
 /* ─── Pod metrics (for top consumers) ──────────────────────────────── */
 
 export function usePodMetrics() {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'pod-metrics'],
+    queryKey: ['k8s', 'pod-metrics', cluster],
     queryFn: () =>
       client
-        .listGeneric(LOCAL_CLUSTER, {
+        .listGeneric(cluster, {
           group: 'metrics.k8s.io',
           version: 'v1beta1',
           resource: 'pods',
@@ -260,10 +303,11 @@ export function usePodMetrics() {
 }
 
 export function usePodLogs(namespace: string, name: string, params?: { container?: string; tailLines?: number }) {
+  const { cluster } = useActiveCluster()
   return useQuery({
-    queryKey: ['k8s', 'logs', namespace, name, params?.container ?? 'default', params?.tailLines ?? 500],
+    queryKey: ['k8s', 'logs', namespace, name, params?.container ?? 'default', params?.tailLines ?? 500, cluster],
     queryFn: () =>
-      client.podLogs(LOCAL_CLUSTER, namespace, name, {
+      client.podLogs(cluster, namespace, name, {
         tailLines: params?.tailLines ?? 500,
         timestamps: true,
         container: params?.container,

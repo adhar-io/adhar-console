@@ -6,8 +6,8 @@ import { useQuery } from '@tanstack/react-query'
  * has its own copy tailored to its KPI tiles; the Overview only needs the
  * coarse-grained aggregates below.
  */
-// `auto()` → in-memory stub fixtures in dev (no cluster / no kubectl proxy),
-// and the console's authenticated `/api/k8s` gateway in production.
+// `auto()` → the console's authenticated `/api/k8s` gateway (per-user token
+// impersonation), in dev and prod alike. No local proxy involved.
 const client = k8s.K8sClient.auto()
 const REFRESH_MS = 15_000
 

@@ -163,6 +163,34 @@ export function getToolRegistry(): Record<string, ToolDef> {
     // caller ever addresses them directly.
     kyverno: { baseUrl: clean(env('KYVERNO_URL')), authMode: 'service', serviceToken: env('KYVERNO_TOKEN') },
     crossplane: { baseUrl: clean(env('CROSSPLANE_URL')), authMode: 'service', serviceToken: env('CROSSPLANE_TOKEN') },
+    // ── Launcher-discoverable tools ──────────────────────────────────────────
+    // The entries below primarily back the app launcher's dynamic discovery:
+    // `/api/config` (via publicToolInfo) reports configured + external URL so
+    // the client can render a real link — or an honest "not set up" tile —
+    // per environment. Addressing one through the proxy returns a clear
+    // "not configured" 503 instead of "unknown tool".
+    keycloak: { baseUrl: clean(env('KEYCLOAK_URL')), authMode: 'none' },
+    vault: { baseUrl: clean(env('VAULT_URL')), authMode: 'service', serviceToken: env('VAULT_TOKEN') },
+    tekton: { baseUrl: clean(env('TEKTON_URL')), authMode: 'service', serviceToken: env('TEKTON_TOKEN') },
+    // RustFS is the platform's S3-compatible store; MINIO_URL kept as the
+    // conventional var name with RUSTFS_URL as an alias.
+    minio: {
+      baseUrl: clean(env('MINIO_URL') ?? env('RUSTFS_URL')),
+      authMode: 'service',
+      serviceToken: env('MINIO_TOKEN') ?? env('RUSTFS_TOKEN'),
+    },
+    iceberg: { baseUrl: clean(env('ICEBERG_URL')), authMode: 'service', serviceToken: env('ICEBERG_TOKEN') },
+    otel: { baseUrl: clean(env('OTEL_URL')), authMode: 'none' },
+    // Raw LGTM endpoints (see .env.example). UI deep-links go through Grafana
+    // Explore; these report the API hosts so availability is env-accurate.
+    loki: { baseUrl: clean(env('LOKI_URL')), authMode: 'service', serviceToken: env('LOKI_TOKEN') },
+    mimir: { baseUrl: clean(env('MIMIR_URL')), authMode: 'service', serviceToken: env('MIMIR_TOKEN') },
+    tempo: { baseUrl: clean(env('TEMPO_URL')), authMode: 'service', serviceToken: env('TEMPO_TOKEN') },
+    prometheus: {
+      baseUrl: clean(env('PROMETHEUS_URL') ?? env('MIMIR_URL')),
+      authMode: 'service',
+      serviceToken: env('PROMETHEUS_TOKEN') ?? env('MIMIR_TOKEN'),
+    },
   }
 }
 

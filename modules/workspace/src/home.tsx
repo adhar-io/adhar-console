@@ -27,11 +27,19 @@ import { Invoices } from './views/invoices.tsx'
 import { CostCenters } from './views/cost-centers.tsx'
 import { Budgets } from './views/budgets.tsx'
 import { CostAllocation } from './views/cost-allocation.tsx'
+import { BrandingLocale } from './views/branding.tsx'
+import { WorkspaceDefaults } from './views/defaults.tsx'
+import { NotificationRouting } from './views/notification-routing.tsx'
+import { FeatureFlags } from './views/feature-flags.tsx'
 import { rolesHavePermission, useCurrentRoles, type Permission, type Role } from './data/access.ts'
 import { RoleBadge } from './components/role-gate.tsx'
 
 type Section =
   | 'organization'
+  | 'branding'
+  | 'defaults'
+  | 'notifications'
+  | 'features'
   | 'members'
   | 'teams'
   | 'roles'
@@ -80,6 +88,7 @@ const GROUPS: Group[] = [
     caption: 'Identity, people, and access shape',
     items: [
       { id: 'organization', label: 'General', description: 'Name, domain, region, SSO realm', icon: <IconOrg />, required: ['admin', 'owner'], readPerm: 'org.read' },
+      { id: 'branding', label: 'Branding & locale', description: 'Logo, brand color, timezone', icon: <IconBrush />, required: ['admin', 'owner'], readPerm: 'org.read' },
       { id: 'members', label: 'Members', description: 'People & lifecycle', icon: <IconUsers />, required: ['admin', 'owner'], readPerm: 'members.read' },
       { id: 'teams', label: 'Teams', description: 'Group people for access grants', icon: <IconTeam />, required: ['admin', 'owner'], readPerm: 'teams.read' },
       { id: 'roles', label: 'Roles & permissions', description: 'Built-in + custom RBAC matrix', icon: <IconShield />, required: ['owner'], readPerm: 'roles.read' },
@@ -111,6 +120,7 @@ const GROUPS: Group[] = [
       { id: 'clouds', label: 'Cloud providers', description: 'AWS · GCP · Azure · Civo · DO · On-prem', icon: <IconCloud />, required: ['admin', 'security', 'owner'], readPerm: 'integrations.read' },
       { id: 'projects', label: 'Projects', description: 'Repos, apps, environments', icon: <IconFolder />, required: ['admin', 'owner'], readPerm: 'projects.read' },
       { id: 'environments', label: 'Environments', description: 'Dev → staging → prod', icon: <IconCloud />, required: ['admin', 'owner'], readPerm: 'environments.read' },
+      { id: 'defaults', label: 'Resource defaults', description: 'What new resources inherit', icon: <IconSliders />, required: ['admin', 'owner'], readPerm: 'org.read' },
     ],
   },
   {
@@ -120,6 +130,7 @@ const GROUPS: Group[] = [
       { id: 'integrations', label: 'Integrations', description: 'Backing tool wiring', icon: <IconPlug />, required: ['admin', 'owner'], readPerm: 'integrations.read' },
       { id: 'tokens', label: 'API tokens', description: 'Org tokens for CI', icon: <IconTokens />, required: ['admin', 'owner'], readPerm: 'tokens.read' },
       { id: 'webhooks', label: 'Webhooks', description: 'Outbound events', icon: <IconWebhook />, required: ['admin', 'owner'], readPerm: 'webhooks.read' },
+      { id: 'notifications', label: 'Notification routing', description: 'Where org events go', icon: <IconBell />, required: ['admin', 'owner'], readPerm: 'integrations.read' },
     ],
   },
   {
@@ -134,6 +145,10 @@ const GROUPS: Group[] = [
       { id: 'budgets', label: 'Budgets', description: 'Caps, alerts, forecasts', icon: <IconTarget />, required: ['billing', 'finance', 'owner'], readPerm: 'budgets.read' },
       { id: 'allocation', label: 'Cost allocation', description: 'Spend by project / team / cluster', icon: <IconPieChart />, readPerm: 'allocation.read' },
     ],
+  },
+  {
+    label: 'Preview features',
+    items: [{ id: 'features', label: 'Feature previews', description: 'Opt-in console capabilities', icon: <IconFlag />, required: ['admin', 'owner'], readPerm: 'org.read' }],
   },
   {
     label: 'Appearance',
@@ -250,6 +265,10 @@ export default function WorkspaceHome({ section: urlSection }: { section?: strin
 function SectionBody({ section }: { section: Section }) {
   switch (section) {
     case 'organization': return <Organization />
+    case 'branding': return <BrandingLocale />
+    case 'defaults': return <WorkspaceDefaults />
+    case 'notifications': return <NotificationRouting />
+    case 'features': return <FeatureFlags />
     case 'members': return <Members />
     case 'teams': return <Teams />
     case 'roles': return <RolesPermissions />
@@ -305,3 +324,7 @@ function IconTarget() { return <svg className={ic} viewBox="0 0 24 24" fill="non
 function IconPieChart() { return <svg className={ic} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg> }
 function IconPalette() { return <svg className={ic} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.93 0 1.5-.7 1.5-1.5 0-.39-.15-.74-.4-1-.23-.27-.36-.62-.36-1 0-.83.67-1.5 1.5-1.5H16c3.31 0 6-2.69 6-6 0-4.96-4.5-9-10-9z"/></svg> }
 function IconAlert() { return <svg className={ic} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg> }
+function IconBrush() { return <svg className={ic} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg> }
+function IconSliders() { return <svg className={ic} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg> }
+function IconBell() { return <svg className={ic} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg> }
+function IconFlag() { return <svg className={ic} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg> }

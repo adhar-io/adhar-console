@@ -8,8 +8,9 @@ import { useQuery } from '@tanstack/react-query'
  * Rollouts, Kyverno PolicyReports) is stored in Kubernetes as a CRD — we
  * don't need each operator's REST API, the kube-apiserver is enough.
  *
- * Dev proxies `/kube-api/*` to `kubectl proxy` on localhost:8001. Prod will
- * swap for the BFF's same-origin path after Keycloak auth.
+ * Reaches the cluster through the console's authenticated BFF gateway
+ * (`/api/k8s`), which forwards the signed-in user's token for per-user RBAC —
+ * in dev and prod alike. No local proxy to run.
  */
 export const client = k8s.K8sClient.auto()
 

@@ -11,6 +11,7 @@ export { AppShell } from './app-shell.tsx'
 export { Sidebar } from './sidebar.tsx'
 export { Topbar } from './topbar.tsx'
 export { TenantSwitcher } from './tenant-switcher.tsx'
+export { useOrganizations, type OrgSummary, type UseOrganizations } from './use-organizations.ts'
 export { PhaseNav, PHASES, type Phase } from './phase-nav.tsx'
 export { NavItem } from './nav-item.tsx'
 export {

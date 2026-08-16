@@ -43,47 +43,59 @@ export function RemoteRoutes({ loader, fallback, label }: Props) {
 }
 
 /**
- * Branded loading skeleton — mirrors the AppShell content area so the page
- * doesn't jump on hydration.
+ * Branded loading skeleton — mirrors the AppShell content area (title, tabs,
+ * stat tiles, content cards) so switching modules never jumps the layout and
+ * never flashes an unstyled/bordered box. Uses the shared themed
+ * `.skeleton-shimmer` utility (defined in the host stylesheet), so the plate +
+ * sweep track the active light/dark theme instead of hardcoded grays.
  */
 function DefaultFallback({ label }: { label?: string }) {
   return (
     <div
       role="status"
+      aria-busy="true"
       aria-live="polite"
       aria-label={label ? `Loading ${label}` : 'Loading module'}
-      className="space-y-6"
+      className="space-y-6 motion-safe:animate-[adhar-fade-in_180ms_ease-out]"
     >
+      {/* Page header — title + subtitle + an action placeholder */}
       <div className="flex items-start justify-between gap-4">
-        <div className="space-y-2">
-          <div className="h-7 w-48 animate-pulse rounded-md bg-slate-200" />
-          <div className="h-4 w-80 animate-pulse rounded bg-slate-100" />
+        <div className="space-y-2.5">
+          <div className="skeleton-shimmer h-7 w-52 rounded-md" />
+          <div className="skeleton-shimmer h-4 w-80 max-w-[70vw] rounded" />
         </div>
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400" />
-          Loading{label ? ` ${label}` : ''}…
-        </div>
+        <div className="skeleton-shimmer hidden h-8 w-28 rounded-md sm:block" />
       </div>
-      <div className="border-b border-slate-200">
-        <div className="flex gap-2 pb-2">
-          {[72, 88, 64, 96, 72].map((w, i) => (
-            <div
-              key={i}
-              className="h-6 animate-pulse rounded bg-slate-100"
-              style={{ width: w }}
-            />
-          ))}
-        </div>
+
+      {/* Tab / filter row */}
+      <div className="flex flex-wrap gap-2">
+        {[72, 90, 64, 96, 76].map((w, i) => (
+          <div key={i} className="skeleton-shimmer h-7 rounded-md" style={{ width: w }} />
+        ))}
       </div>
+
+      {/* Stat tiles */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div
+            key={i}
+            className="skeleton-shimmer h-20 rounded-xl"
+            style={{ animationDelay: `${i * 90}ms` }}
+          />
+        ))}
+      </div>
+
+      {/* Content cards */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
         {Array.from({ length: 6 }).map((_, i) => (
           <div
             key={i}
-            className="h-28 animate-pulse rounded-lg border border-slate-200 bg-white shadow-sm"
-            style={{ animationDelay: `${i * 60}ms` }}
+            className="skeleton-shimmer h-28 rounded-lg"
+            style={{ animationDelay: `${i * 70}ms` }}
           />
         ))}
       </div>
+      <span className="sr-only">Loading{label ? ` ${label}` : ''}…</span>
     </div>
   )
 }

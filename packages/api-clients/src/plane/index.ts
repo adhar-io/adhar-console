@@ -922,7 +922,7 @@ const STUB_PAGES_CON: Page[] = [
     id: 'pg-runbook',
     name: 'Runbook · Cluster unreachable',
     description_stripped:
-      'Steps to triage when ConnectionGate fires — kubectl proxy, Vite proxy, RBAC.',
+      'Steps to triage when the cluster is unreachable — check /api/diagnostics, the apiserver, and RBAC.',
     owned_by: 'usr-leo',
     access: 'public',
     blocks: [],

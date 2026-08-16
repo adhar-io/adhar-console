@@ -266,3 +266,108 @@ export function OTelIcon({ size = 40, className }: BrandProps) {
     </svg>
   )
 }
+
+export function VaultIcon({ size = 40, className }: BrandProps) {
+  // HashiCorp Vault — the black wedge "V" with the keyhole dot, on Vault yellow.
+  return (
+    <svg {...base(size)} className={className} aria-hidden>
+      <rect width="40" height="40" rx="9" fill="#FFD814" />
+      <path d="M8 10h24L20 32 8 10Z" fill="#111" />
+      <circle cx="20" cy="16" r="2" fill="#FFD814" />
+      <path d="M20 18v3.5" stroke="#FFD814" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function FalcoIcon({ size = 40, className }: BrandProps) {
+  // Falco — the falcon-head profile mark, Sysdig teal.
+  return (
+    <svg {...base(size)} className={className} aria-hidden>
+      <rect width="40" height="40" rx="9" fill="#00AEC7" />
+      <path
+        d="M12 11c7-2 13 1 15 6 1.5 3.8.5 8-2.5 11L20 32l2-6c-6 1-10-2-11-7l6 1-5-9Z"
+        fill="#fff"
+      />
+      <circle cx="21.5" cy="16.5" r="1.7" fill="#00AEC7" />
+    </svg>
+  )
+}
+
+export function TektonIcon({ size = 40, className }: BrandProps) {
+  // Tekton — schematic pipeline: chained task nodes flowing left → right.
+  return (
+    <svg {...base(size)} className={className} aria-hidden>
+      <rect width="40" height="40" rx="9" fill="#FD495C" />
+      <path d="M11 20h18" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" />
+      <circle cx="11" cy="20" r="3.4" fill="#fff" />
+      <circle cx="20" cy="20" r="3.4" fill="none" stroke="#fff" strokeWidth="2.2" />
+      <path d="m27 16 5 4-5 4v-8Z" fill="#fff" />
+    </svg>
+  )
+}
+
+export function CoderIcon({ size = 40, className }: BrandProps) {
+  // Coder — terminal prompt in a dev workspace. Near-black brand ground.
+  return (
+    <svg {...base(size)} className={className} aria-hidden>
+      <rect width="40" height="40" rx="9" fill="#090B0B" />
+      <path
+        d="m11 14 6 6-6 6"
+        fill="none"
+        stroke="#fff"
+        strokeWidth="2.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M20 26h9" stroke="#3FE1B0" strokeWidth="2.6" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function TrivyIcon({ size = 40, className }: BrandProps) {
+  // Aqua Trivy — magnifier sweeping a shield (image scanning). Aqua navy/cyan.
+  return (
+    <svg {...base(size)} className={className} aria-hidden>
+      <rect width="40" height="40" rx="9" fill="#1D3C8F" />
+      <path
+        d="M17 9 9 12v5c0 5 3.2 8.5 8 10.5 4.8-2 8-5.5 8-10.5v-5l-8-3Z"
+        fill="none"
+        stroke="#08B1D5"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <circle cx="22" cy="21" r="5" fill="none" stroke="#fff" strokeWidth="2.2" />
+      <path d="m25.7 24.7 4.5 4.5" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function PostHogIcon({ size = 40, className }: BrandProps) {
+  // PostHog — ascending event bars in the tri-color brand palette on near-black.
+  return (
+    <svg {...base(size)} className={className} aria-hidden>
+      <rect width="40" height="40" rx="9" fill="#151515" />
+      <path d="M9 30V22l6 6v2H9Z" fill="#F9BD2B" />
+      <path d="M17 30V16l6 6v8h-6Z" fill="#F54E00" />
+      <path d="M25 30V10l6 6v14h-6Z" fill="#1D4AFF" />
+    </svg>
+  )
+}
+
+export function OpenCostIcon({ size = 40, className }: BrandProps) {
+  // OpenCost — cost gauge/coin over a spend trend. CNCF purple.
+  return (
+    <svg {...base(size)} className={className} aria-hidden>
+      <rect width="40" height="40" rx="9" fill="#6E3ADE" />
+      <circle cx="20" cy="17" r="7.5" fill="none" stroke="#fff" strokeWidth="2.2" />
+      <path
+        d="M22.8 14.3c-.6-.9-1.6-1.4-2.8-1.4-1.9 0-3.2 1-3.2 2.3 0 3 6.4 1.4 6.4 4.4 0 1.3-1.3 2.3-3.2 2.3-1.3 0-2.4-.6-3-1.5M20 11v12"
+        stroke="#fff"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        fill="none"
+      />
+      <path d="M9 31c3-3 6-1.5 9-3s6-4 13-3" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" fill="none" opacity="0.85" />
+    </svg>
+  )
+}

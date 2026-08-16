@@ -48,6 +48,15 @@ function RootComponent() {
   const nav = useNavigate()
   const isPublic = isPublicPath(pathname)
 
+  // Already authenticated but sitting on /login (e.g. a bookmark, or a stale tab
+  // after the OIDC round-trip) → send them into the app, honouring ?returnTo.
+  const search = useRouterState({ select: (s) => s.location.search as { returnTo?: string } })
+  useEffect(() => {
+    if (status !== 'authenticated' || pathname !== '/login') return
+    const to = search?.returnTo && search.returnTo.startsWith('/') ? search.returnTo : '/'
+    nav({ to, replace: true })
+  }, [status, pathname, search, nav])
+
   // Unauthenticated → bounce to /login (preserving the path the user wanted).
   useEffect(() => {
     if (status !== 'anonymous' || isPublic) return
@@ -74,7 +83,30 @@ function RootComponent() {
   // Anonymous + protected route → render nothing (redirect already in flight).
   if (status === 'anonymous' && !isPublic) return null
 
-  return <Outlet />
+  return (
+    <>
+      <NavProgressBar />
+      <Outlet />
+    </>
+  )
+}
+
+/**
+ * Thin indeterminate progress bar pinned to the top of the viewport while the
+ * router is resolving a navigation — instant feedback on every menu click,
+ * before the destination's skeleton or content paints.
+ */
+function NavProgressBar() {
+  const active = useRouterState({ select: (s) => s.status === 'pending' })
+  if (!active) return null
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none fixed inset-x-0 top-0 z-200 h-0.5 overflow-hidden"
+    >
+      <div className="nav-progress-sweep h-full w-full bg-linear-to-r from-brand-500 via-accent-500 to-brand-500" />
+    </div>
+  )
 }
 
 function BootSplash() {

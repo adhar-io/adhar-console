@@ -32,6 +32,7 @@ import { handleDocuments, handleNotifications, handlePreferences } from './app/s
 import { handleScaffold } from './app/server/scaffolder.ts'
 import { handleWorkspace } from './app/server/workspace/handlers.ts'
 import { handleBilling } from './app/server/billing/handlers.ts'
+import { handleOrganizations } from './app/server/organizations.ts'
 import { apiServerFetch, handleK8s, resolveIdentity } from './app/server/k8s/gateway.ts'
 import { handleExec } from './app/server/k8s/exec.ts'
 import { handleAi } from './app/server/ai/handlers.ts'
@@ -324,6 +325,11 @@ async function route(req: Request): Promise<Response> {
   // Billing (plans, subscription, seats, usage metering, invoices, budgets).
   const billing = path.match(/^\/api\/billing\/(.*)$/)
   if (billing) return handleBilling(req, billing[1])
+
+  // Organizations (the tenant that scopes console-owned data) — list, create,
+  // switch (re-signs the session's activeTenant), rename, delete.
+  const orgs = path.match(/^\/api\/organizations(?:\/(.*))?$/)
+  if (orgs) return handleOrganizations(req, orgs[1] ?? '')
 
   // Unknown API path → 404 JSON (don't fall through to the SPA).
   if (path.startsWith('/api/')) {

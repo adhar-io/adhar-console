@@ -6,6 +6,64 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-08-16
+
+### Added
+
+- **Workspace & Organization management** — a real, tenant-scoped SaaS surface
+  persisted in Postgres (no schema migration; generic document store):
+  - Org, members (invite → token, role change, remove), teams + membership,
+    projects, API tokens (hash-only, shown once), an approval queue + persisted
+    approval policies, and an audit log written on every mutation.
+  - **Keycloak group reflection**: team / org-role changes sync into realm
+    groups (`ws-team-*` / `ws-role-*`) for real cluster RBAC, using the console
+    client's own service account (see the platform Keycloak change). Degrades to
+    `keycloakSynced:false` (console-only) when the admin credential is absent.
+  - **Billing** — plans, subscription + seats, budgets, cost centers, payment-
+    method metadata (rejects raw PAN/CVC); usage metered from REAL sources
+    (member seats + live k8s counts + OpenCost `$`, `null` when unavailable —
+    never fabricated); invoice generation; a `BillingProvider` seam (Local
+    default, Stripe stub gated on `STRIPE_SECRET_KEY`).
+  - Enterprise-security views (SSO, MFA/session, security policies, IP allowlist,
+    compliance, integrations) now persist real config via the document store.
+- **Platform Kubernetes — enterprise operations**:
+  - New views: **Namespaces** (ResourceQuota / LimitRange, create/delete),
+    **Autoscaling (HPA)** (current-vs-target metrics, edit bounds, create),
+    **Helm Releases** (revisions, values, uninstall).
+  - New actions: node **drain** (PDB-honoring eviction) + taint/label editors,
+    workload **rollback** (`rollout undo` semantics), CronJob suspend / trigger-
+    now, Job rerun/delete, Secret reveal/edit + ConfigMap edit.
+  - **Multi-cluster** switcher — active-cluster context threaded through the data
+    layer (`K8S_CLUSTERS` + `?cluster=`), byte-identical single-cluster behavior.
+  - Cluster-health dashboard (node pressure, not-ready nodes, pending/failed
+    pods, recent warnings) — honest "metrics unavailable" states.
+- **Adhar Resources — self-service developer platform**: in-console
+  **provisioning wizard** (generated per-kind forms → build + server-side-apply a
+  real Crossplane claim), **edit**, and **deprovision**; richer detail
+  (connection-secret reveal, events, composed-resource health). Real form schemas
+  for all 13 kinds + 4 new kinds (Queue, Certificate, SecretStore, LoadBalancer).
+- Login screen: a seamless redirect overlay during the Keycloak hand-off, plus a
+  refined card treatment.
+
+### Changed / Fixed
+
+- **Kubernetes connection — removed the dummy `kubectl proxy` path.** Deleted
+  `K8sClient.create()` / `/kube-api` and the dead `isDevK8s` stub-fixture
+  scaffolding. The console now has exactly one real path: the authenticated BFF
+  gateway at `/api/k8s` (per-user token impersonation). The k8s client gained
+  typed errors + bounded retries (429/Retry-After), watch/stream cleanup, and
+  clearer TLS/connection errors pointing at `/api/diagnostics`.
+- Removed fabricated nav badges (member counts, cluster counts, event counts) now
+  that the underlying data is real.
+
+### Notes
+
+- Companion platform-repo change (separate `adhar` repo, needs an ArgoCD sync):
+  the `adhar-console` Keycloak client now has `serviceAccountsEnabled: true` and
+  its service account is granted realm-management roles, so the workspace
+  team→group RBAC reflection goes live using the console's existing
+  `AUTH_CLIENT_SECRET` — no separate admin credential required.
+
 ## [0.1.5] - 2026-08-15
 
 ### Added

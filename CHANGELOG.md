@@ -6,6 +6,57 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-08-16
+
+### Added
+
+- **Organizations** — a real, working org (workspace) switcher in the sidebar.
+  Switch between organizations and create new ones; the list is persisted
+  per-user server-side (`/api/organizations`), and switching re-signs the
+  session's `activeTenant` (which scopes the console's own data) then reloads
+  for a clean slate. Kubernetes RBAC is unaffected (driven by Keycloak groups).
+  Fixes the previously inert `onTenantChange` no-op and the dead "New
+  organization" button.
+- **Quick Apps launcher — reworked**: dynamic app discovery driven by the BFF
+  (`/api/config` is authoritative for availability + URL; 10 more backing tools
+  registered), correct per-app routes (right subdomains / Grafana-Explore
+  deep-links / registry-scanner fallthrough), a clean function-based category
+  taxonomy (Code · Build & CI · Deploy · Registry · Observe · Data · Security ·
+  Platform), fuzzy search, full keyboard navigation, pinned + recent apps, and
+  honest configured / "not set up" states.
+- **Profile** — a real, tabbed settings area (Profile, Appearance, Notifications,
+  API tokens, Security & sessions). Editable fields persist to `/api/prefs`;
+  theme/mode/density/reduced-motion apply live and survive reload; personal
+  tokens use the real `/api/workspace/tokens` flow; identity, MFA, password and
+  the cross-device session list are honestly "managed in Keycloak". Replaces the
+  previous stubbed sessions/tokens.
+- **Workspace configuration** — four new persisted pages: Branding & locale,
+  Defaults (namespace prefix, env/cloud/region, container requests/limits,
+  labels), Notification routing (per-category → in-app/email/Slack-webhook with
+  a real webhook test), and Feature flags (opt-in preview capabilities).
+- Navigation **progress bar** on every route change and a **seamless redirect
+  overlay** during the Keycloak hand-off on the login screen.
+
+### Changed / Fixed
+
+- **Loading skeletons** now use the themed shimmer + semantic tokens — fixes the
+  white/bordered-box flash that appeared on every module load (it was the
+  fallback skeleton's hardcoded `bg-white`/`border-slate-200`, not SSR).
+- **Kubernetes connection UX** — removed the "run `kubectl proxy`" instructions
+  entirely; the cluster connects transparently through the authenticated
+  `/api/k8s` gateway, and failures now show a calm, illustrated error screen with
+  a Retry action and a link to `/api/diagnostics` (RBAC vs unreachable
+  distinguished). Cleaned the remaining stale kube-proxy references.
+- **Post-login redirect** — an authenticated user landing on `/login` is now
+  sent into the app honoring `?returnTo`.
+
+### Notes
+
+- Companion platform-repo change (separate `adhar` repo, needs an ArgoCD sync):
+  the `adhar-console` Keycloak client's service account is granted realm-
+  management roles so the workspace team→group RBAC reflection goes live via the
+  existing `AUTH_CLIENT_SECRET`.
+
 ## [0.1.6] - 2026-08-16
 
 ### Added

@@ -6,6 +6,17 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-08-27
+
+### Fixed
+
+- **Keycloak login redirect loop**. An already-authenticated user landing on
+  `/login` with a `?returnTo=/login` (a stale tab / bookmark after the OIDC
+  round-trip) was redirected straight back to `/login`, which re-triggered the
+  guard and looked like the page endlessly reloading. The root auth gate now
+  never sends an authenticated user back to `/login` — it falls through to the
+  app (`/`) — completing the post-login round-trip cleanly.
+
 ## [0.1.7] - 2026-08-16
 
 ### Added

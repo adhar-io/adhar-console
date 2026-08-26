@@ -53,7 +53,10 @@ function RootComponent() {
   const search = useRouterState({ select: (s) => s.location.search as { returnTo?: string } })
   useEffect(() => {
     if (status !== 'authenticated' || pathname !== '/login') return
-    const to = search?.returnTo && search.returnTo.startsWith('/') ? search.returnTo : '/'
+    const raw = search?.returnTo && search.returnTo.startsWith('/') ? search.returnTo : '/'
+    // Never send an authenticated user back to /login — that would re-trigger
+    // this effect and loop (the page appears to just reload).
+    const to = raw === '/login' || raw.startsWith('/login?') ? '/' : raw
     nav({ to, replace: true })
   }, [status, pathname, search, nav])
 

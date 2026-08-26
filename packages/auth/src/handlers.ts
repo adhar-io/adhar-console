@@ -92,10 +92,18 @@ export async function handleLogin(req: Request): Promise<Response> {
   }
 
   const txn: TxnState = { state, nonce, codeVerifier: verifier, returnTo }
+  // SameSite=None (requires Secure) so the transaction cookie survives the
+  // Keycloak round-trip. The callback is reached by a cross-origin redirect FROM
+  // Keycloak; with SameSite=Lax browsers can withhold the cookie on that
+  // top-level cross-origin navigation (esp. after Keycloak's form POST), so the
+  // callback can't find the PKCE `state`/`codeVerifier`, fails "Invalid sign-in
+  // state", and bounces back to /login — the SSO "page just reloads" symptom.
+  // (curl ignores SameSite entirely, which is why the flow tests clean.) Only
+  // over HTTPS (Secure) can we use None; fall back to Lax on plain-HTTP dev.
   const txnCookie = serializeCookie(
     TXN_COOKIE,
     await sign(JSON.stringify(txn), cfg.cookieSecret),
-    { httpOnly: true, secure: cfg.cookieSecure, sameSite: 'Lax', maxAge: 600 },
+    { httpOnly: true, secure: cfg.cookieSecure, sameSite: cfg.cookieSecure ? 'None' : 'Lax', maxAge: 600 },
   )
 
   return new Response(null, {

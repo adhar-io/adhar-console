@@ -3,20 +3,24 @@ import type { Session, User } from './types.ts'
 import type { ServerAuthConfig } from './config.ts'
 
 /**
- * Server-side session, stateless by design.
+ * Server-side session.
  *
- * The full session — including the upstream access/refresh tokens — is encoded
- * into a JWT signed (HS256) with `AUTH_COOKIE_SECRET` and stored in the
- * HttpOnly session cookie. This keeps the console **horizontally scalable with
- * no shared store**: any replica can validate any request's cookie. The tokens
- * never reach the browser (the cookie is HttpOnly and the value is opaque to
- * JS), and `verifySessionToken` rejects tampered or expired cookies.
+ * The session — including the upstream access/refresh/id tokens — is kept in a
+ * **server-side store** (Postgres, registered via `setSessionStore`) and the
+ * HttpOnly cookie carries only a short, opaque **session id**. This is what
+ * makes login reliable: the raw Keycloak tokens (three JWTs) easily exceed the
+ * browser's ~4 KB per-cookie limit, so inlining them made the browser silently
+ * DROP the cookie → every request looked anonymous → the app bounced back to
+ * `/login`. With the tokens server-side the cookie stays tiny.
  *
- * Trade-off: logout cannot revoke an already-issued cookie server-side before
- * its expiry. We mitigate by (a) short session TTLs, (b) clearing the cookie +
- * driving Keycloak's `end_session_endpoint` on logout. A shared revocation
- * store (Redis) can be layered in later behind `ServerSessionStore` without
- * touching call sites.
+ * When no store is registered (e.g. local dev with no database) we fall back to
+ * the legacy **stateless** cookie that inlines the whole session — fine for the
+ * small/stub sessions used there. Either cookie shape is accepted on read, so
+ * upgrades and mixed fleets just work.
+ *
+ * Trade-off (stateless fallback only): logout can't revoke an already-issued
+ * cookie before expiry — mitigated by short TTLs + Keycloak end-session. The
+ * server-side store deletes the row on logout, giving real revocation.
  */
 export interface ServerSession {
   user: User
@@ -32,6 +36,30 @@ export interface ServerSession {
    */
   authTime?: number
   activeTenant: string
+  /**
+   * Server-side store id (present only when a store is active). Never sent to
+   * the browser and never included in the client `Session`. Preserved across
+   * refreshes so a rotating session keeps a single store row.
+   */
+  sid?: string
+}
+
+/**
+ * Pluggable server-side session store. The console registers a Postgres-backed
+ * implementation at boot (`setSessionStore`). Kept as an interface so the auth
+ * package stays storage-agnostic.
+ */
+export interface ServerSessionStore {
+  put(id: string, session: ServerSession, ttlSeconds: number): Promise<void>
+  get(id: string): Promise<ServerSession | null>
+  del(id: string): Promise<void>
+}
+
+let externalStore: ServerSessionStore | null = null
+
+/** Register (or clear) the server-side session store. Call once at server boot. */
+export function setSessionStore(store: ServerSessionStore | null): void {
+  externalStore = store
 }
 
 const ALG = 'HS256'
@@ -40,12 +68,48 @@ function secretKey(cfg: ServerAuthConfig): Uint8Array {
   return new TextEncoder().encode(cfg.cookieSecret)
 }
 
-/** Sign a server session into a compact JWT for the session cookie. */
+function newSid(): string {
+  const bytes = new Uint8Array(24)
+  crypto.getRandomValues(bytes)
+  let bin = ''
+  for (const b of bytes) bin += String.fromCharCode(b)
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+/**
+ * Sign a session into the cookie JWT. With a store active the cookie holds only
+ * `{ sid }` (tiny) and the session lives server-side; otherwise it inlines the
+ * whole `{ session }` (stateless fallback). A store failure degrades to inline
+ * rather than blocking sign-in.
+ */
 export async function signSessionToken(
   session: ServerSession,
   cfg: ServerAuthConfig,
 ): Promise<string> {
-  return await new SignJWT({ session } as Record<string, unknown>)
+  if (externalStore) {
+    try {
+      const sid = session.sid ?? newSid()
+      session.sid = sid
+      // Persist the full session (with tokens) minus the id we key it by.
+      const { sid: _omit, ...stored } = session
+      await externalStore.put(sid, { ...stored, sid }, cfg.sessionTtlSeconds)
+      return await new SignJWT({ sid } as Record<string, unknown>)
+        .setProtectedHeader({ alg: ALG })
+        .setIssuedAt()
+        .setExpirationTime(`${cfg.sessionTtlSeconds}s`)
+        .setSubject(session.user.id)
+        .sign(secretKey(cfg))
+    } catch (e) {
+      console.warn(
+        '[auth] session store unavailable — falling back to an inline cookie:',
+        e instanceof Error ? e.message : e,
+      )
+      // fall through to the stateless inline cookie
+    }
+  }
+  // Stateless fallback — don't leak the internal sid into the inline payload.
+  const { sid: _drop, ...inline } = session
+  return await new SignJWT({ session: inline } as Record<string, unknown>)
     .setProtectedHeader({ alg: ALG })
     .setIssuedAt()
     .setExpirationTime(`${cfg.sessionTtlSeconds}s`)
@@ -60,18 +124,43 @@ export async function verifySessionToken(
 ): Promise<ServerSession | null> {
   try {
     const { payload } = await jwtVerify(token, secretKey(cfg), { algorithms: [ALG] })
-    const session = (payload as { session?: ServerSession }).session
-    return session ?? null
+    const p = payload as { sid?: string; session?: ServerSession }
+    // Server-side session id → look up the store.
+    if (typeof p.sid === 'string' && externalStore) {
+      try {
+        const s = await externalStore.get(p.sid)
+        if (!s) return null
+        s.sid = p.sid
+        return s
+      } catch {
+        return null
+      }
+    }
+    // Legacy / stateless inline session.
+    if (p.session) return { ...p.session, sid: undefined }
+    return null
   } catch {
     return null
   }
 }
 
+/** Delete the server-side session backing a cookie (logout). No-op if inline. */
+export async function destroySession(token: string, cfg: ServerAuthConfig): Promise<void> {
+  if (!externalStore) return
+  try {
+    const { payload } = await jwtVerify(token, secretKey(cfg), { algorithms: [ALG] })
+    const sid = (payload as { sid?: string }).sid
+    if (typeof sid === 'string') await externalStore.del(sid)
+  } catch {
+    // already invalid / inline — nothing to delete
+  }
+}
+
 /**
  * Project a server session down to the client-visible `Session` shape — i.e.
- * with the upstream tokens stripped. This is what `/api/auth/session` returns
- * and what the browser `AuthProvider` consumes; the browser never sees the
- * real access/refresh tokens.
+ * with the upstream tokens (and the internal sid) stripped. This is what
+ * `/api/auth/session` returns and what the browser `AuthProvider` consumes; the
+ * browser never sees the real access/refresh tokens.
  */
 export function toClientSession(s: ServerSession): Session {
   return {

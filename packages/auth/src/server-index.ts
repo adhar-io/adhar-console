@@ -27,10 +27,13 @@ export {
   type TokenResponse,
 } from './server.ts'
 export {
+  destroySession,
+  setSessionStore,
   signSessionToken,
   toClientSession,
   verifySessionToken,
   type ServerSession,
+  type ServerSessionStore,
 } from './session-store.ts'
 export {
   clearCookie,

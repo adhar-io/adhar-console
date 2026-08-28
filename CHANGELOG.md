@@ -6,6 +6,23 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-08-29
+
+### Fixed
+
+- **Keycloak login now completes — session cookie no longer dropped.** The
+  session cookie inlined all three upstream Keycloak JWTs (access + refresh + id
+  tokens); with Keycloak 26's larger tokens that exceeded the browser's ~4 KB
+  per-cookie limit, so the browser silently discarded it — every request looked
+  anonymous and the app bounced straight back to `/login`. Tokens now live in a
+  **server-side session store** (Postgres `documents` table, reserved
+  `auth`/`auth.session` scope — no schema migration) and the cookie carries only
+  a small opaque session id. Both the new `{sid}` cookie and legacy inline
+  cookies are accepted, the session id is preserved across token refreshes, and
+  logout now deletes the store row (real revocation). Falls back to the legacy
+  inline cookie when no database is configured (local dev). This is the actual
+  fix behind the repeated "redirects back to login" reports.
+
 ## [0.1.8] - 2026-08-27
 
 ### Fixed

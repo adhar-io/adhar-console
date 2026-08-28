@@ -33,6 +33,12 @@ import { handleScaffold } from './app/server/scaffolder.ts'
 import { handleWorkspace } from './app/server/workspace/handlers.ts'
 import { handleBilling } from './app/server/billing/handlers.ts'
 import { handleOrganizations } from './app/server/organizations.ts'
+import { registerDbSessionStore } from './app/server/session-store-db.ts'
+
+// Keep the Keycloak tokens server-side (Postgres) so the session cookie stays
+// small — inlining them exceeds the browser cookie-size limit and drops the
+// cookie, which manifests as an endless redirect back to /login.
+registerDbSessionStore()
 import { apiServerFetch, handleK8s, resolveIdentity } from './app/server/k8s/gateway.ts'
 import { handleExec } from './app/server/k8s/exec.ts'
 import { handleAi } from './app/server/ai/handlers.ts'

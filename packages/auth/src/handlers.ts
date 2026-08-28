@@ -17,6 +17,7 @@ import {
   sessionFromTokens,
 } from './server.ts'
 import {
+  destroySession,
   signSessionToken,
   toClientSession,
   verifySessionToken,
@@ -172,6 +173,10 @@ export async function handleLogout(req: Request): Promise<Response> {
 
   const current = await readSession(req, cfg)
   headers.append('set-cookie', clearCookie(cfg.cookieName, { secure: cfg.cookieSecure }))
+  // Delete the server-side session row (real revocation) — the cookie carries
+  // only the session id, so we destroy it by the raw cookie value.
+  const rawSession = parseCookies(req.headers.get('cookie'))[cfg.cookieName]
+  if (rawSession) await destroySession(rawSession, cfg)
   // Defence-in-depth: proactively revoke the refresh token at Keycloak so a
   // stolen copy can't be reused (the RP-initiated end-session below ends the
   // browser SSO session, but doesn't kill an exfiltrated refresh token).

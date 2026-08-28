@@ -245,6 +245,8 @@ export async function sessionFromTokens(
     // Preserve the original login time across refreshes for the absolute cap.
     authTime: opts.previous?.authTime ?? Date.now(),
     activeTenant,
+    // Keep the same server-side store row across token refreshes.
+    sid: opts.previous?.sid,
   }
 }
 

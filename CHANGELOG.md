@@ -6,6 +6,18 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+
+- **Profile is fully editable — avatar, details, links, and custom sections.**
+  Upload a profile photo (resized client-side to 256px and stored as a bounded
+  image in your per-user preferences, with change/remove; falls back to the
+  generated initials avatar). New editable fields — pronouns, department,
+  company, location, phone — alongside the existing name/title/bio/timezone/
+  locale. A dynamic **Links** list (label + URL, add/remove) and user-defined
+  **Custom fields** let you add your own sections. Everything persists through
+  the Postgres-backed `/api/prefs/profile` document behind a single sticky Save
+  bar; inputs are size/count-capped and non-image avatars are rejected.
+
 ## [0.1.13] - 2026-08-29
 
 ### Fixed

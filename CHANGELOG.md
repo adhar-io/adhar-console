@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-08-29
+
 ### Added
 
 - **Create New loads software templates from Gitea.** A new BFF endpoint

@@ -6,6 +6,35 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-08-29
+
+### Added
+
+- **Role-based experience** — the console now adapts to the signed-in persona
+  (Platform admin, Application admin, Developer, Platform engineer, Viewer),
+  resolved from Keycloak realm roles + groups (`platform-admin`,
+  `platform-developer`, `platform-viewer`, …; least-privilege `viewer` default).
+  The sidebar nav is filtered to a role-appropriate menu, a role chip shows in
+  the topbar, and `landingPathForRole` steers each persona to its most relevant
+  home.
+- **Backing platform tools are now connected.** The console proxies these
+  server-side, so each `<TOOL>_URL` is the tool's IN-CLUSTER Service URL (the
+  public `*.localtest.me` hosts resolve to loopback inside the cluster). Wired
+  the tools actually deployed in the platform — Argo CD, Gitea, Grafana,
+  Prometheus, Loki, Mimir, Tempo, Vault, Tekton (plus Argo Workflows / Keycloak
+  already). `publicToolInfo()` hides in-cluster URLs from the browser and marks
+  the tool configured; the app launcher derives the public browser link from the
+  cluster base domain. Tools not deployed stay honestly "not set up."
+
+### Fixed
+
+- **Login no longer forces onboarding every time.** The Keycloak token has no
+  `tenants` claim (it carries `groups`), so the old `tenants.length === 0` guard
+  bounced EVERY sign-in through onboarding. The console auto-provisions a default
+  organization, so a signed-in user lands straight in the app; onboarding is now
+  a one-time first-run helper (skips/completes are remembered) rather than a
+  blocking gate.
+
 ## [0.1.10] - 2026-08-29
 
 ### Fixed

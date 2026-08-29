@@ -20,6 +20,19 @@ export {
   type NavItem as NavItemDescriptor,
   type NavSection,
 } from './nav-tree.tsx'
+export {
+  CONSOLE_ROLES,
+  filterNavByRole,
+  landingPathForRole,
+  resolveConsoleRole,
+  ROLE_DESCRIPTION,
+  ROLE_LABEL,
+  ROLE_LANDING,
+  roleCanSee,
+  useConsoleRole,
+  type ConsoleRole,
+  type RoleSource,
+} from './roles.ts'
 export { ErrorBoundary } from './error-boundary.tsx'
 export { PageHeader } from './page-header.tsx'
 export { EmptyState } from './empty-state.tsx'

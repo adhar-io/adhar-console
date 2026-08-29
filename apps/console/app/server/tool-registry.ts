@@ -198,13 +198,29 @@ export function getTool(name: string): ToolDef | undefined {
   return getToolRegistry()[name]
 }
 
-/** Public-safe view (no tokens) — which tools are wired + their external URLs. */
+/**
+ * True for a URL that is only reachable from inside the cluster (a Service DNS
+ * name or localhost). In production each tool's `<TOOL>_URL` is set to its
+ * in-cluster Service so the server-side proxy can reach it despite split-horizon
+ * DNS — but such a URL is NOT browser-linkable, so we hide it from the launcher
+ * and let the client derive the public URL from the cluster's base domain.
+ */
+function isInClusterUrl(url: string): boolean {
+  return /(^https?:\/\/)?([^/]*\.svc(\.cluster\.local)?|localhost|127\.0\.0\.1|[^/]*\.local)(:\d+)?(\/|$)/i.test(
+    url,
+  )
+}
+
+/** Public-safe view (no tokens) — which tools are wired + their browser URLs. */
 export function publicToolInfo(): Record<string, { configured: boolean; url: string }> {
   const reg = getToolRegistry()
   const out: Record<string, { configured: boolean; url: string }> = {}
   for (const [name, def] of Object.entries(reg)) {
-    // Only expose externally-linkable URLs (not the in-cluster k8s host).
-    const external = name === 'k8s' ? '' : def.baseUrl
+    // Report the URL only when it's a public, browser-openable address. The
+    // k8s apiserver and any in-cluster Service URL are hidden (empty) — the
+    // launcher still shows the tool as configured and derives the public link
+    // from the cluster base domain.
+    const external = name === 'k8s' || isInClusterUrl(def.baseUrl) ? '' : def.baseUrl
     out[name] = { configured: Boolean(def.baseUrl), url: external }
   }
   return out

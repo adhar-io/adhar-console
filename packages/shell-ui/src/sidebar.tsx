@@ -6,6 +6,7 @@ import type { User } from '@adhar-console/auth'
 import { TenantSwitcher } from './tenant-switcher.tsx'
 import { hasActiveDescendant, isItemActive, NavItem } from './nav-item.tsx'
 import { DEFAULT_NAV, type NavItem as TNavItem, type NavSection } from './nav-tree.tsx'
+import { filterNavByRole, useConsoleRole } from './roles.ts'
 import { AdharSymbol, AdharWordmarkStack } from './brand.tsx'
 
 interface Props {
@@ -54,6 +55,20 @@ export function Sidebar({
   const collapsed = controlledCollapsed ?? internalCollapsed
 
   /*
+   * Role-aware nav: resolve the console persona (session first, `user` prop
+   * as fallback, `viewer` when anonymous) and prune the tree up-front so the
+   * accordion, keyboard shortcuts and rendering all agree on what exists.
+   * Items without a `roles` annotation stay visible to everyone; the raw
+   * `user.roles` are passed through so legacy Keycloak-role annotations on
+   * custom trees keep matching.
+   */
+  const role = useConsoleRole(user)
+  const visibleSections = useMemo(
+    () => filterNavByRole(sections, role, user?.roles),
+    [sections, role, user?.roles],
+  )
+
+  /*
    * Accordion expansion is derived from the active route — whichever
    * parent owns the current page is the one that auto-expands. The user
    * can manually override (chevron click) but a route change to a
@@ -66,7 +81,7 @@ export function Sidebar({
   const routeSearch = useRouterState({ select: (s) => s.location.search })
 
   const autoExpandedId = useMemo<string | null>(() => {
-    for (const section of sections) {
+    for (const section of visibleSections) {
       for (const item of section.items) {
         if (!item.children?.length) continue
         const hasActiveChild = item.children.some((c) =>
@@ -78,7 +93,7 @@ export function Sidebar({
       }
     }
     return null
-  }, [sections, pathname, routeSearch])
+  }, [visibleSections, pathname, routeSearch])
 
   // Single source of truth for which parent is expanded. The auto-expand
   // computed from the active route seeds it on initial render and on every
@@ -122,9 +137,9 @@ export function Sidebar({
         if (it.children?.length) walk(it.children)
       }
     }
-    for (const s of sections) walk(s.items)
+    for (const s of visibleSections) walk(s.items)
     return m
-  }, [sections])
+  }, [visibleSections])
 
   useEffect(() => {
     if (!shortcutsMap.size) return
@@ -164,8 +179,6 @@ export function Sidebar({
     return () => window.removeEventListener('keydown', onKey)
   }, [shortcutsMap, navigate])
 
-  const userRoles = user?.roles
-
   return (
     <aside
       className={cn(
@@ -187,12 +200,11 @@ export function Sidebar({
           collapsed ? 'px-2 py-3' : 'px-3 pb-4 pt-2',
         )}
       >
-        {sections.map((section, i) => (
+        {visibleSections.map((section, i) => (
           <Section
             key={section.id}
             section={section}
             collapsed={collapsed}
-            userRoles={userRoles}
             isFirst={i === 0}
             expandedId={expandedId}
             onExpandChange={setExpandedId}
@@ -277,14 +289,12 @@ function Header({
 function Section({
   section,
   collapsed,
-  userRoles,
   isFirst,
   expandedId,
   onExpandChange,
 }: {
   section: NavSection
   collapsed: boolean
-  userRoles?: string[]
   isFirst: boolean
   expandedId: string | null
   onExpandChange(id: string | null): void
@@ -302,7 +312,7 @@ function Section({
         ) : null}
         <div className="space-y-1">
           {section.items.map((item) => (
-            <NavItem key={item.id} item={item} collapsed userRoles={userRoles} />
+            <NavItem key={item.id} item={item} collapsed />
           ))}
         </div>
       </div>
@@ -323,7 +333,6 @@ function Section({
           <NavItem
             key={item.id}
             item={item}
-            userRoles={userRoles}
             expandedId={expandedId}
             onExpandChange={onExpandChange}
           />

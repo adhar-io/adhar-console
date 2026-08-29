@@ -6,6 +6,7 @@ import { Kbd } from './primitives.tsx'
 import { AppLauncher, type AppLink } from './app-launcher.tsx'
 import { ModeToggle } from './mode-toggle.tsx'
 import { useNotifications, type Notification } from './notifications.ts'
+import { ROLE_DESCRIPTION, ROLE_LABEL, useConsoleRole, type ConsoleRole } from './roles.ts'
 import type { User } from '@adhar-console/auth'
 
 interface Props {
@@ -28,6 +29,8 @@ export function Topbar({
   onOpenCommandPalette,
   onOpenSidebar,
 }: Props) {
+  // Resolved console persona — session first, the `user` prop as fallback.
+  const role = useConsoleRole(user)
   return (
     <header className="sticky top-0 z-40 border-b border-edge-default bg-surface-raised/70 backdrop-blur-xl supports-[backdrop-filter]:bg-surface-raised/60">
       <div
@@ -70,10 +73,45 @@ export function Topbar({
           <AppLauncher apps={apps} />
           <NotificationsMenu seed={notifications} />
           <span className="mx-1 hidden h-6 w-px bg-edge-subtle sm:block" aria-hidden />
+          <RoleChip role={role} />
           <UserMenu user={user} onSignOut={onSignOut} />
         </div>
       </div>
     </header>
+  )
+}
+
+/*
+ * Compact persona indicator — tells the user which console role their
+ * session resolved to. Subtle tones per persona, token-based so both light
+ * and dark modes work; the native tooltip carries the role description.
+ */
+const ROLE_CHIP_TONE: Record<ConsoleRole, string> = {
+  'platform-admin':
+    'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-brand-200 dark:ring-brand-500/30',
+  'platform-engineer':
+    'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 ring-indigo-200 dark:ring-indigo-500/30',
+  'application-admin':
+    'bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300 ring-violet-200 dark:ring-violet-500/30',
+  developer:
+    'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200 dark:ring-emerald-500/30',
+  viewer: 'bg-surface-sunken text-content-muted ring-edge-subtle',
+}
+
+function RoleChip({ role }: { role: ConsoleRole }) {
+  return (
+    <span
+      title={ROLE_DESCRIPTION[role]}
+      aria-label={`Signed in as ${ROLE_LABEL[role]}`}
+      className={cn(
+        'hidden h-6 shrink-0 cursor-default select-none items-center gap-1.5 rounded-full px-2.5',
+        'text-[11px] font-medium leading-none ring-1 ring-inset md:inline-flex',
+        ROLE_CHIP_TONE[role],
+      )}
+    >
+      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
+      {ROLE_LABEL[role]}
+    </span>
   )
 }
 

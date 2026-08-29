@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import {
   Button,
   DEFAULT_APP_LINKS,
@@ -121,6 +121,16 @@ function OnboardingWizard() {
     nav({ to: '/' })
   }
 
+  function skipOnboarding() {
+    // Skipping counts as "seen" so the app never forces onboarding again.
+    try {
+      localStorage.setItem('adhar.onboarding.completed', new Date().toISOString())
+    } catch {
+      /* private mode — non-fatal */
+    }
+    nav({ to: '/' })
+  }
+
   function next() {
     if (!canContinue) return
     if (step === 4) {
@@ -148,13 +158,14 @@ function OnboardingWizard() {
       <div className="relative mx-auto flex min-h-screen max-w-5xl flex-col px-4 py-10 sm:px-6 lg:px-8">
         {/* Top chrome */}
         <header className="mb-8 flex items-center justify-between gap-3">
-          <Link
-            to="/"
+          <button
+            type="button"
+            onClick={skipOnboarding}
             className="inline-flex h-9 items-center gap-2 rounded-lg border border-edge-default bg-surface-raised/80 px-3 text-sm text-content-muted shadow-sm backdrop-blur transition-colors hover:border-edge-strong hover:text-content"
           >
             <IconArrowLeft />
             Skip for now
-          </Link>
+          </button>
           {session ? (
             <div className="inline-flex h-10 items-center gap-2.5 rounded-full border border-edge-default bg-surface-raised/80 py-1 pl-1.5 pr-3.5 shadow-sm backdrop-blur">
               <span className="flex h-7 w-7 items-center justify-center rounded-full bg-linear-to-br from-brand-500 to-accent-500 text-[11px] font-semibold text-white">
@@ -267,12 +278,13 @@ function OnboardingWizard() {
                 ) : null}
               </div>
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
-                <Link
-                  to="/"
+                <button
+                  type="button"
+                  onClick={skipOnboarding}
                   className="text-center text-xs font-medium text-content-muted hover:text-content"
                 >
                   I'll finish later
-                </Link>
+                </button>
                 <Button
                   variant="primary"
                   size="md"

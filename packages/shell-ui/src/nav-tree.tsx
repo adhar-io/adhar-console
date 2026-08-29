@@ -50,6 +50,26 @@ export interface NavItem {
   roles?: string[]
 }
 
+/*
+ * Role sets used to annotate `DEFAULT_NAV` below. Values are `ConsoleRole`
+ * strings (see roles.ts) — items without a `roles` field are visible to
+ * everyone, including anonymous/viewer sessions. `platform-admin` always
+ * sees everything (roleCanSee bypass) but is listed anyway so the raw
+ * Keycloak `platform-admin` realm role also matches via legacy filtering.
+ */
+/** Everyone who builds or administers software — everything but viewer. */
+const LIFECYCLE_ROLES = ['platform-admin', 'platform-engineer', 'application-admin', 'developer']
+/** Code-centric surfaces — people who write and ship code. */
+const BUILDER_ROLES = ['platform-admin', 'platform-engineer', 'developer']
+/** Platform read — builders may inspect clusters/workloads. */
+const PLATFORM_READ_ROLES = ['platform-admin', 'platform-engineer', 'developer']
+/** Sensitive platform operations — secrets, RBAC, shell, policy. */
+const PLATFORM_OPS_ROLES = ['platform-admin', 'platform-engineer']
+/** Workspace surfaces an application admin also needs. */
+const WORKSPACE_ADMIN_ROLES = ['platform-admin', 'platform-engineer', 'application-admin']
+/** Org-level administration — members, audit, billing, branding. */
+const ORG_ADMIN_ROLES = ['platform-admin', 'platform-engineer']
+
 export type NavBadge =
   | string
   | number
@@ -103,6 +123,7 @@ export const DEFAULT_NAV: NavSection[] = [
         description: 'Scaffold from a golden-path template',
         shortcut: 'g n',
         badge: { kind: 'info', value: 'templates' },
+        roles: LIFECYCLE_ROLES,
       },
     ],
   },
@@ -116,6 +137,7 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/define',
         icon: <IconTarget />,
         description: 'Plane.so projects & planning',
+        roles: LIFECYCLE_ROLES,
         children: [
           { id: 'define.dashboard', label: 'Dashboard', to: '/define', search: 'dashboard' },
           { id: 'define.projects', label: 'Projects', to: '/define', search: 'projects' },
@@ -135,6 +157,7 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/design',
         icon: <IconDesign />,
         description: 'Architecture & UI/UX design',
+        roles: LIFECYCLE_ROLES,
         children: [
           { id: 'design.dashboard', label: 'Dashboard', to: '/design', search: 'dashboard' },
           {
@@ -161,6 +184,7 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/develop',
         icon: <IconCode />,
         description: 'Code, environments, CI',
+        roles: BUILDER_ROLES,
         children: [
           { id: 'develop.dashboard', label: 'Dashboard', to: '/develop', search: 'dashboard' },
           { id: 'develop.repos', label: 'Repositories', to: '/develop', search: 'repos' },
@@ -181,6 +205,7 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/deliver',
         icon: <IconRocket />,
         description: 'GitOps & rollouts',
+        roles: LIFECYCLE_ROLES,
         children: [
           { id: 'deliver.dashboard', label: 'Dashboard', to: '/deliver', search: 'dashboard' },
           { id: 'deliver.apps', label: 'ArgoCD Apps', to: '/deliver', search: 'apps' },
@@ -274,6 +299,7 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/platform',
         icon: <IconServer />,
         description: 'Clusters & workloads',
+        roles: PLATFORM_READ_ROLES,
         children: [
           { id: 'platform.dashboard', label: 'Dashboard', to: '/platform', search: 'dashboard' },
           { id: 'platform.clusters', label: 'Clusters', to: '/platform', search: 'clusters' },
@@ -284,23 +310,48 @@ export const DEFAULT_NAV: NavSection[] = [
           { id: 'platform.pods', label: 'Pods', to: '/platform', search: 'pods' },
           { id: 'platform.networking', label: 'Networking', to: '/platform', search: 'networking' },
           { id: 'platform.storage', label: 'Storage', to: '/platform', search: 'storage' },
-          { id: 'platform.config', label: 'Config & Secrets', to: '/platform', search: 'config' },
-          { id: 'platform.rbac', label: 'RBAC', to: '/platform', search: 'rbac' },
+          {
+            id: 'platform.config',
+            label: 'Config & Secrets',
+            to: '/platform',
+            search: 'config',
+            roles: PLATFORM_OPS_ROLES,
+          },
+          {
+            id: 'platform.rbac',
+            label: 'RBAC',
+            to: '/platform',
+            search: 'rbac',
+            roles: PLATFORM_OPS_ROLES,
+          },
           { id: 'platform.events', label: 'Events', to: '/platform', search: 'events' },
           { id: 'platform.crds', label: 'Custom Resources', to: '/platform', search: 'crds' },
           { id: 'platform.explore', label: 'Explore', to: '/platform', search: 'explore' },
           { id: 'platform.releases', label: 'Helm Releases', to: '/platform', search: 'releases' },
-          { id: 'platform.shell', label: 'Cloud Shell', to: '/platform', search: 'shell' },
+          {
+            id: 'platform.shell',
+            label: 'Cloud Shell',
+            to: '/platform',
+            search: 'shell',
+            roles: PLATFORM_OPS_ROLES,
+          },
           { id: 'platform.logs', label: 'Logs', to: '/platform', search: 'logs' },
           { id: 'platform.metrics', label: 'Metrics', to: '/platform', search: 'metrics' },
           { id: 'platform.ci', label: 'CI / CD', to: '/platform', search: 'ci' },
-          { id: 'platform.policy', label: 'Policy', to: '/platform', search: 'policy' },
+          {
+            id: 'platform.policy',
+            label: 'Policy',
+            to: '/platform',
+            search: 'policy',
+            roles: PLATFORM_OPS_ROLES,
+          },
           {
             id: 'platform.marketplace',
             label: 'Marketplace',
             to: '/platform',
             search: 'marketplace',
             badge: { kind: 'info', value: 'new' },
+            roles: PLATFORM_OPS_ROLES,
           },
         ],
       },
@@ -311,6 +362,7 @@ export const DEFAULT_NAV: NavSection[] = [
         search: 'catalog',
         icon: <IconAppBox />,
         description: 'Crossplane composites',
+        roles: LIFECYCLE_ROLES,
         children: [
           {
             id: 'platform.catalog',
@@ -436,6 +488,7 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/settings',
         search: 'members',
         icon: <IconUsers />,
+        roles: ORG_ADMIN_ROLES,
       },
       {
         id: 'ws.projects',
@@ -443,6 +496,7 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/settings',
         search: 'projects',
         icon: <IconFolder />,
+        roles: WORKSPACE_ADMIN_ROLES,
       },
       {
         id: 'ws.envs',
@@ -450,6 +504,7 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/settings',
         search: 'environments',
         icon: <IconCloud />,
+        roles: WORKSPACE_ADMIN_ROLES,
       },
       {
         id: 'ws.defaults',
@@ -457,6 +512,7 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/settings',
         search: 'defaults',
         icon: <IconLayers />,
+        roles: WORKSPACE_ADMIN_ROLES,
       },
       {
         id: 'ws.integrations',
@@ -464,6 +520,7 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/settings',
         search: 'integrations',
         icon: <IconPlug />,
+        roles: WORKSPACE_ADMIN_ROLES,
       },
       {
         id: 'ws.tokens',
@@ -471,6 +528,7 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/settings',
         search: 'tokens',
         icon: <IconKey />,
+        roles: WORKSPACE_ADMIN_ROLES,
       },
       {
         id: 'ws.webhooks',
@@ -478,6 +536,7 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/settings',
         search: 'webhooks',
         icon: <IconWebhook />,
+        roles: WORKSPACE_ADMIN_ROLES,
       },
       {
         id: 'ws.notifications',
@@ -485,6 +544,7 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/settings',
         search: 'notifications',
         icon: <IconRoute />,
+        roles: WORKSPACE_ADMIN_ROLES,
       },
       {
         id: 'ws.audit',
@@ -492,6 +552,7 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/settings',
         search: 'audit',
         icon: <IconShield />,
+        roles: ORG_ADMIN_ROLES,
       },
       {
         id: 'ws.plan',
@@ -499,6 +560,7 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/settings',
         search: 'plan',
         icon: <IconCreditCard />,
+        roles: ORG_ADMIN_ROLES,
       },
       {
         id: 'ws.usage',
@@ -506,6 +568,7 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/settings',
         search: 'usage',
         icon: <IconGauge />,
+        roles: ORG_ADMIN_ROLES,
       },
       {
         id: 'ws.branding',
@@ -513,6 +576,7 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/settings',
         search: 'branding',
         icon: <IconDesign />,
+        roles: ORG_ADMIN_ROLES,
       },
       {
         id: 'ws.theming',
@@ -520,6 +584,7 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/settings',
         search: 'theming',
         icon: <IconPalette />,
+        roles: ORG_ADMIN_ROLES,
       },
       {
         id: 'ws.features',
@@ -527,6 +592,7 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/settings',
         search: 'features',
         icon: <IconSparkle />,
+        roles: ORG_ADMIN_ROLES,
       },
     ],
   },

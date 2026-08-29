@@ -70,13 +70,23 @@ function RootComponent() {
     })
   }, [status, isPublic, pathname, nav])
 
-  // Authenticated but no tenant claim → finish onboarding before anything else.
-  // Skip the guard on `/onboarding` itself (so the wizard renders) and on
-  // `/auth/*` (callback bounces handle their own targets).
+  // Onboarding is NO LONGER forced on every login. The Keycloak token has no
+  // `tenants` claim (it carries `groups`), so the old `tenants.length === 0`
+  // guard bounced EVERY sign-in to /onboarding. The console now auto-provisions
+  // a default organization, so a signed-in user always has a workspace and lands
+  // straight in the app. Onboarding stays reachable at /onboarding as a
+  // first-run helper (surfaced in-app), just not as a blocking gate.
+  //
+  // Show it once for a genuinely new browser (no completed/skipped flag), then
+  // never again — a returning user goes directly to the app.
   useEffect(() => {
-    if (status !== 'authenticated' || !session) return
-    if (session.user.tenants.length === 0 && pathname !== ONBOARDING_PATH && !isPublic) {
-      nav({ to: ONBOARDING_PATH, replace: true })
+    if (status !== 'authenticated' || !session || isPublic) return
+    if (pathname !== '/' ) return
+    try {
+      const seen = globalThis.localStorage?.getItem('adhar.onboarding.completed')
+      if (!seen) nav({ to: ONBOARDING_PATH, replace: true })
+    } catch {
+      /* private mode — just land in the app */
     }
   }, [status, session, pathname, isPublic, nav])
 

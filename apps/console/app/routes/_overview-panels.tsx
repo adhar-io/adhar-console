@@ -27,9 +27,11 @@ import {
 import {
   useAllPods,
   useBudget,
+  useCertificates,
   useCiliumClusterPolicies,
   useCiliumPolicies,
   useClusterEvents,
+  useCostTrend,
   useCnpgBackups,
   useCnpgClusters,
   useCnpgScheduledBackups,
@@ -519,14 +521,35 @@ export function BiDashboardsPanel() {
 /* ───── Cost trend · 30-day spend ───── */
 
 export function CostTrendPanel() {
-  const series = useMemo(() => buildCostSeries(30), [])
-  const total = series.reduce((s, v) => s + v, 0)
-  const previousTotal = series.slice(0, 15).reduce((s, v) => s + v, 0)
-  const recentTotal = series.slice(15).reduce((s, v) => s + v, 0)
+  const q = useCostTrend()
+  const data = q.data
+  const series = data?.series ?? []
+
+  if (q.isLoading || q.isError || series.length === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="Cloud spend · 30 days" subtitle="All providers · USD" to="/settings?section=allocation" />
+        {q.isLoading ? (
+          <PanelLoading />
+        ) : q.isError ? (
+          <PanelEmpty message="Requires an OpenCost metrics source" />
+        ) : (
+          <PanelEmpty message="No spend data available" />
+        )}
+      </PanelCard>
+    )
+  }
+
+  const total = data!.total
+  const half = Math.floor(series.length / 2)
+  const previousTotal = series.slice(0, half).reduce((s, v) => s + v, 0)
+  const recentTotal = series.slice(half).reduce((s, v) => s + v, 0)
   const delta = previousTotal === 0 ? 0 : (recentTotal - previousTotal) / previousTotal
   const peak = Math.max(...series)
   const peakIdx = series.indexOf(peak)
-  const peakDate = relDay(29 - peakIdx)
+  const peakDate = relDay(series.length - 1 - peakIdx)
+  const categoryTotal = data!.compute + data!.storage + data!.network || 1
+  const share = (v: number) => Math.round((v / categoryTotal) * 100)
   return (
     <PanelCard>
       <PanelHead title="Cloud spend · 30 days" subtitle="All providers · USD" to="/settings?section=allocation" />
@@ -555,14 +578,14 @@ export function CostTrendPanel() {
           emptyLabel="No spend data"
         />
         <div className="mt-1 flex items-baseline justify-between text-[10px] text-content-subtle">
-          <span>{relDay(29)}</span>
+          <span>{relDay(series.length - 1)}</span>
           <span>today</span>
         </div>
       </div>
       <div className="mt-3 grid grid-cols-3 gap-2 border-t border-edge-subtle pt-3 text-[11px]">
-        <CostBreak label="Compute" value={Math.round(total * 0.55)} share={55} />
-        <CostBreak label="Storage" value={Math.round(total * 0.22)} share={22} />
-        <CostBreak label="Network" value={Math.round(total * 0.23)} share={23} />
+        <CostBreak label="Compute" value={Math.round(data!.compute)} share={share(data!.compute)} />
+        <CostBreak label="Storage" value={Math.round(data!.storage)} share={share(data!.storage)} />
+        <CostBreak label="Network" value={Math.round(data!.network)} share={share(data!.network)} />
       </div>
     </PanelCard>
   )
@@ -585,18 +608,6 @@ function CostBreak({ label, value, share }: { label: string; value: number; shar
   )
 }
 
-function buildCostSeries(days: number): number[] {
-  // Stable pseudo-random: deterministic per-position so the chart doesn't
-  // flicker on re-render. A real BFF call replaces this in prod.
-  const out: number[] = []
-  for (let i = 0; i < days; i++) {
-    const base = 800 + Math.sin(i / 3.1) * 120 + Math.cos(i / 7.5) * 60
-    const jitter = ((i * 9301 + 49297) % 233) / 233
-    out.push(Math.max(120, base + jitter * 220 + i * 4))
-  }
-  return out
-}
-
 function relDay(daysAgo: number): string {
   if (daysAgo === 0) return 'today'
   if (daysAgo === 1) return 'yesterday'
@@ -606,11 +617,50 @@ function relDay(daysAgo: number): string {
 /* ───── Deploy heatmap · 12-week deploy frequency ───── */
 
 export function DeployHeatmapPanel() {
-  const cells = useMemo(() => buildDeployCells(12), [])
-  const total = cells.reduce((s, v) => s + v, 0)
-  const peak = Math.max(...cells)
-  const active = cells.filter((c) => c > 0).length
+  const q = useDoraApps()
+  const WEEKS = 12
+  const DAYS = WEEKS * 7
+
+  const { cells, total, peak, active } = useMemo(() => {
+    const apps = q.data ?? []
+    const counts = new Array<number>(DAYS).fill(0)
+    const now = Date.now()
+    for (const a of apps) {
+      for (const h of a.status?.history ?? []) {
+        if (!h.deployedAt) continue
+        const t = new Date(h.deployedAt).getTime()
+        if (!Number.isFinite(t)) continue
+        const daysAgo = Math.floor((now - t) / 86_400_000)
+        if (daysAgo < 0 || daysAgo >= DAYS) continue
+        counts[DAYS - 1 - daysAgo] += 1
+      }
+    }
+    const peak = Math.max(0, ...counts)
+    const cells = counts.map((c) => (peak > 0 ? c / peak : 0))
+    return {
+      cells,
+      total: counts.reduce((s, c) => s + c, 0),
+      peak,
+      active: counts.filter((c) => c > 0).length,
+    }
+  }, [q.data, DAYS])
+
   const dayLabels = ['Mon', 'Wed', 'Fri']
+
+  if (q.isLoading || q.isError || total === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="Deploys · last 12 weeks" subtitle="GitOps releases per day" to="/deliver?section=releases" />
+        {q.isLoading ? (
+          <PanelLoading />
+        ) : q.isError ? (
+          <PanelEmpty message="Requires Argo CD deploy history" />
+        ) : (
+          <PanelEmpty message="No deploy history in the last 12 weeks" />
+        )}
+      </PanelCard>
+    )
+  }
   return (
     <PanelCard>
       <PanelHead title="Deploys · last 12 weeks" subtitle="GitOps releases per day" to="/deliver?section=releases" />
@@ -620,7 +670,7 @@ export function DeployHeatmapPanel() {
             {total}
           </div>
           <div className="text-[11px] text-content-muted">
-            {active}/84 active days · peak {peak}/day
+            {active}/{DAYS} active days · peak {peak}/day
           </div>
         </div>
         <div className="flex items-center gap-1.5 text-[10px] text-content-subtle">
@@ -650,145 +700,18 @@ export function DeployHeatmapPanel() {
   )
 }
 
-function buildDeployCells(weeks: number): number[] {
-  const total = 7 * weeks
-  const out: number[] = []
-  for (let i = 0; i < total; i++) {
-    const day = i % 7
-    // Lower activity on weekends.
-    const weekendBias = day === 5 || day === 6 ? 0.2 : 1
-    const seed = ((i * 73) % 97) / 97
-    const v = seed * weekendBias
-    out.push(v < 0.18 ? 0 : v)
-  }
-  return out
-}
-
 /* ───── Latency distribution · histogram with p50/p95/p99 ───── */
 
 export function LatencyDistributionPanel() {
-  const buckets = useMemo(() => buildLatencyBuckets(), [])
-  const total = buckets.reduce((s, b) => s + b.count, 0)
-  const p50 = percentile(buckets, total, 0.5)
-  const p95 = percentile(buckets, total, 0.95)
-  const p99 = percentile(buckets, total, 0.99)
-  const peakIdx = buckets.findIndex((b) => b.count === Math.max(...buckets.map((x) => x.count)))
+  // A request-latency histogram (p50/p95/p99 buckets) comes from a Prometheus
+  // histogram source (e.g. http_request_duration_seconds_bucket). That isn't
+  // reachable through the Kubernetes API, so we show a clear empty state rather
+  // than fabricate a distribution.
   return (
     <PanelCard>
       <PanelHead title="Latency · request distribution" subtitle="Last 1h · all services" to="/discover?section=metrics" />
-      <div className="grid grid-cols-3 gap-2">
-        <PercentileTile label="p50" ms={p50.ms} tone="emerald" />
-        <PercentileTile label="p95" ms={p95.ms} tone={p95.ms > 500 ? 'amber' : 'brand'} />
-        <PercentileTile label="p99" ms={p99.ms} tone={p99.ms > 1000 ? 'rose' : 'amber'} />
-      </div>
-      <div className="mt-3 relative">
-        <div className="flex h-28 items-end gap-[2px]">
-          {buckets.map((b, i) => {
-            const max = Math.max(...buckets.map((x) => x.count))
-            const h = (b.count / max) * 100
-            const isPeak = i === peakIdx
-            return (
-              <div
-                key={i}
-                className={cn('flex-1 rounded-t-sm transition-[height] duration-500', isPeak ? 'bg-brand-600' : 'bg-brand-400/70')}
-                style={{ height: `${Math.max(2, h)}%` }}
-                title={`${b.label}: ${b.count}`}
-              />
-            )
-          })}
-        </div>
-        {/* p50/p95/p99 markers */}
-        <PercentileMarker buckets={buckets} idx={p50.idx} label="p50" tone="emerald" />
-        <PercentileMarker buckets={buckets} idx={p95.idx} label="p95" tone="amber" />
-        <PercentileMarker buckets={buckets} idx={p99.idx} label="p99" tone="rose" />
-      </div>
-      <div className="mt-2 flex justify-between font-mono text-[10px] text-content-subtle">
-        <span>0ms</span>
-        <span>{buckets[buckets.length - 1].edge}ms+</span>
-      </div>
+      <PanelEmpty message="Requires a Prometheus latency histogram source" />
     </PanelCard>
-  )
-}
-
-interface LatencyBucket {
-  label: string
-  edge: number
-  count: number
-}
-
-function buildLatencyBuckets(): LatencyBucket[] {
-  // Log-bucketed edges: 10, 25, 50, 100, 200, 400, 800, 1600, 3200, 6400.
-  const edges = [10, 25, 50, 100, 200, 400, 800, 1600, 3200, 6400]
-  // Skewed-right distribution centred ~80ms.
-  const counts = [120, 380, 920, 1480, 1120, 540, 220, 90, 30, 8]
-  return edges.map((e, i) => ({ label: `${e}`, edge: e, count: counts[i] }))
-}
-
-function percentile(buckets: LatencyBucket[], total: number, q: number): { ms: number; idx: number } {
-  const target = total * q
-  let acc = 0
-  for (let i = 0; i < buckets.length; i++) {
-    acc += buckets[i].count
-    if (acc >= target) {
-      return { ms: buckets[i].edge, idx: i }
-    }
-  }
-  return { ms: buckets[buckets.length - 1].edge, idx: buckets.length - 1 }
-}
-
-function PercentileTile({
-  label,
-  ms,
-  tone,
-}: {
-  label: string
-  ms: number
-  tone: 'emerald' | 'amber' | 'rose' | 'brand'
-}) {
-  const color =
-    tone === 'emerald'
-      ? 'text-emerald-700 dark:text-emerald-300'
-      : tone === 'amber'
-        ? 'text-amber-700 dark:text-amber-300'
-        : tone === 'rose'
-          ? 'text-rose-700 dark:text-rose-300'
-          : 'text-brand-700 dark:text-brand-300'
-  return (
-    <div className="rounded-lg border border-edge-subtle bg-surface-sunken/60 px-3 py-2">
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
-        {label}
-      </div>
-      <div className={cn('mt-0.5 font-mono text-base font-semibold tabular-nums', color)}>
-        {ms}ms
-      </div>
-    </div>
-  )
-}
-
-function PercentileMarker({
-  buckets,
-  idx,
-  label,
-  tone,
-}: {
-  buckets: LatencyBucket[]
-  idx: number
-  label: string
-  tone: 'emerald' | 'amber' | 'rose'
-}) {
-  const left = ((idx + 0.5) / buckets.length) * 100
-  const colorClass =
-    tone === 'emerald' ? 'border-emerald-500 text-emerald-700 dark:text-emerald-300' : tone === 'amber' ? 'border-amber-500 text-amber-700 dark:text-amber-300' : 'border-rose-500 text-rose-700 dark:text-rose-300'
-  return (
-    <div
-      className={cn(
-        'pointer-events-none absolute -top-2 -translate-x-1/2 rounded-md border bg-surface-raised px-1 py-0.5 text-[9px] font-bold uppercase tracking-wider shadow-sm',
-        colorClass,
-      )}
-      style={{ left: `${left}%` }}
-    >
-      {label}
-    </div>
   )
 }
 
@@ -919,80 +842,14 @@ function Legend({ dot, label }: { dot: string; label: string }) {
 /* ───── Team activity · 24×7 commits-per-hour heatmap ───── */
 
 export function TeamActivityPanel() {
-  const cells = useMemo(() => buildActivityCells(), [])
-  const total = cells.reduce((s, v) => s + v, 0)
-  const peak = Math.max(...cells)
-  const peakIdx = cells.indexOf(peak)
-  const peakDay = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][Math.floor(peakIdx / 24)]
-  const peakHour = peakIdx % 24
+  // A commits-by-day×hour heatmap needs per-commit timestamps aggregated across
+  // every repo (Gitea commit-activity API). That series isn't available to the
+  // Overview host, so we show an honest empty state instead of synthetic cells.
   return (
     <PanelCard>
       <PanelHead title="Team activity" subtitle="Commits by day × hour · 7-day window" to="/develop?section=commits" />
-      <div className="flex items-baseline justify-between">
-        <div>
-          <div className="text-2xl font-semibold tabular-nums tracking-tight text-content">
-            {total.toLocaleString()}
-          </div>
-          <div className="text-[11px] text-content-muted">
-            commits · peak {peakDay} {String(peakHour).padStart(2, '0')}:00
-          </div>
-        </div>
-        <div className="font-mono text-[10px] text-content-subtle">UTC</div>
-      </div>
-      <div className="mt-3 overflow-x-auto">
-        <ActivityHeatmap cells={cells} />
-      </div>
+      <PanelEmpty message="Requires Gitea commit-activity metrics" />
     </PanelCard>
-  )
-}
-
-function buildActivityCells(): number[] {
-  // 7 days × 24 hours. Activity peaks weekdays 10–16 UTC.
-  const out: number[] = []
-  for (let d = 0; d < 7; d++) {
-    for (let h = 0; h < 24; h++) {
-      const isWeekday = d > 0 && d < 6
-      const officeHours = h >= 9 && h <= 17
-      const base = isWeekday ? (officeHours ? 7 : 1) : 1
-      const seed = ((d * 31 + h * 13) % 11) / 11
-      const v = base + Math.round(seed * 6 * (officeHours ? 1 : 0.4))
-      out.push(v)
-    }
-  }
-  return out
-}
-
-function ActivityHeatmap({ cells }: { cells: number[] }) {
-  const max = Math.max(1, ...cells)
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-  return (
-    <div className="inline-flex flex-col gap-[3px]">
-      <div className="ml-7 flex gap-[3px] font-mono text-[8px] text-content-subtle">
-        {Array.from({ length: 24 }).map((_, h) => (
-          <span key={h} className="inline-block w-3 text-center">
-            {h % 6 === 0 ? h.toString().padStart(2, '0') : ''}
-          </span>
-        ))}
-      </div>
-      {days.map((day, d) => (
-        <div key={day} className="flex items-center gap-[3px]">
-          <span className="w-6 font-mono text-[9px] text-content-subtle">{day}</span>
-          {Array.from({ length: 24 }).map((_, h) => {
-            const v = cells[d * 24 + h]
-            const intensity = v / max
-            const opacity = intensity === 0 ? 0.06 : 0.15 + intensity * 0.85
-            return (
-              <span
-                key={h}
-                title={`${day} ${String(h).padStart(2, '0')}:00 — ${v} commits`}
-                className="inline-block h-3 w-3 rounded-[2px] transition-transform hover:scale-125"
-                style={{ backgroundColor: 'var(--color-brand-500)', opacity }}
-              />
-            )
-          })}
-        </div>
-      ))}
-    </div>
   )
 }
 
@@ -1384,94 +1241,14 @@ export function PipelineFunnelPanel() {
 /* ───── Traffic stream · stacked area RPS by top service ───── */
 
 export function TrafficStreamPanel() {
-  const series = useMemo(() => buildTrafficSeries(), [])
-  const totals = series[0].points.map((_, i) =>
-    series.reduce((s, srv) => s + srv.points[i], 0),
-  )
-  const peak = Math.max(...totals)
+  // Per-service request-rate time series (stacked RPS) comes from a Prometheus /
+  // service-mesh metrics source, which isn't reachable through the Kubernetes
+  // API. We show an honest empty state rather than a synthetic traffic stream.
   return (
     <PanelCard>
       <PanelHead title="Traffic · top services" subtitle="RPS over last hour · stacked" to="/discover?section=metrics" />
-      <div className="flex items-baseline justify-between">
-        <div>
-          <div className="text-2xl font-semibold tabular-nums tracking-tight text-content">
-            {Math.round(totals[totals.length - 1])}
-            <span className="ml-1 text-sm font-normal text-content-muted">rps</span>
-          </div>
-          <div className="text-[11px] text-content-muted">peak {Math.round(peak)} rps · last hour</div>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-          {series.map((s) => (
-            <span key={s.label} className="inline-flex items-center gap-1 text-[10px] text-content-muted">
-              <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: s.color }} />
-              {s.label}
-            </span>
-          ))}
-        </div>
-      </div>
-      <div className="mt-3">
-        <StackedAreaChart series={series} height={120} />
-        <div className="mt-1 flex items-baseline justify-between text-[10px] text-content-subtle">
-          <span>−60m</span>
-          <span>−30m</span>
-          <span>now</span>
-        </div>
-      </div>
+      <PanelEmpty message="Requires a Prometheus request-rate metrics source" />
     </PanelCard>
-  )
-}
-
-interface StackedSeries { label: string; color: string; points: number[] }
-
-function buildTrafficSeries(): StackedSeries[] {
-  const N = 60
-  // Synthetic but stable per-position values so the chart doesn't flicker.
-  const wave = (phase: number, base: number, amp: number) =>
-    Array.from({ length: N }, (_, i) => base + Math.sin((i + phase) / 5) * amp + (((i * 17) % 11) / 11) * amp * 0.4)
-  return [
-    { label: 'gateway', color: 'oklch(0.62 0.18 262)', points: wave(0, 220, 60) },
-    { label: 'api', color: 'oklch(0.7 0.14 230)', points: wave(2, 140, 40) },
-    { label: 'orders', color: 'oklch(0.74 0.12 200)', points: wave(4, 90, 28) },
-    { label: 'payments', color: 'oklch(0.78 0.1 170)', points: wave(6, 50, 18) },
-  ]
-}
-
-function StackedAreaChart({ series, height }: { series: StackedSeries[]; height: number }) {
-  if (!series.length || !series[0].points.length) return null
-  const W = 320
-  const H = height
-  const N = series[0].points.length
-  // Compute cumulative stacks per position.
-  const stack: number[][] = []
-  for (let i = 0; i < N; i++) {
-    let acc = 0
-    const col: number[] = []
-    for (const s of series) {
-      col.push(acc)
-      acc += s.points[i]
-    }
-    col.push(acc) // top
-    stack.push(col)
-  }
-  const totals = stack.map((c) => c[c.length - 1])
-  const max = Math.max(1, ...totals)
-  const x = (i: number) => (i / (N - 1)) * W
-  const y = (v: number) => H - (v / max) * (H - 4) - 2
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-full w-full" style={{ height }}>
-      {series.map((s, idx) => {
-        const top = stack.map((col, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(col[idx + 1]).toFixed(1)}`).join(' ')
-        const bottom = stack
-          .slice()
-          .reverse()
-          .map((col, j) => {
-            const i = N - 1 - j
-            return `L${x(i).toFixed(1)},${y(col[idx]).toFixed(1)}`
-          })
-          .join(' ')
-        return <path key={s.label} d={`${top} ${bottom} Z`} fill={s.color} fillOpacity="0.85" />
-      })}
-    </svg>
   )
 }
 
@@ -1645,54 +1422,15 @@ function squarify(
 /* ───── Service health grid · 12 mini sparklines ───── */
 
 export function ServiceHealthGridPanel() {
-  const services = useMemo(() => buildServiceTiles(), [])
+  // Per-service p95-latency sparklines need a Prometheus / service-mesh metrics
+  // source (not reachable via the Kubernetes API). We show an honest empty state
+  // rather than synthetic latency series.
   return (
     <PanelCard>
       <PanelHead title="Service health · grid" subtitle="p95 latency · last 30 minutes" to="/discover?section=servicemap" />
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-        {services.map((s) => {
-          const last = s.points[s.points.length - 1]
-          const tone =
-            s.health === 'healthy' ? 'bg-emerald-500' : s.health === 'degraded' ? 'bg-amber-500' : 'bg-rose-500'
-          const color =
-            s.health === 'healthy' ? 'var(--color-brand-500)' : s.health === 'degraded' ? '#f59e0b' : '#f43f5e'
-          return (
-            <div
-              key={s.name}
-              className="rounded-lg border border-edge-subtle bg-surface-sunken/40 p-2"
-            >
-              <div className="flex items-center justify-between gap-1">
-                <span className="flex items-center gap-1.5 truncate">
-                  <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', tone)} />
-                  <code className="truncate font-mono text-[10px] text-content">{s.name}</code>
-                </span>
-                <span className="font-mono text-[10px] tabular-nums text-content-muted">
-                  {Math.round(last)}ms
-                </span>
-              </div>
-              <Sparkline points={s.points} color={color} height={24} strokeWidth={1.25} />
-            </div>
-          )
-        })}
-      </div>
+      <PanelEmpty message="Requires a per-service Prometheus latency source" />
     </PanelCard>
   )
-}
-
-interface ServiceTile { name: string; points: number[]; health: 'healthy' | 'degraded' | 'failed' }
-
-function buildServiceTiles(): ServiceTile[] {
-  const names = ['gateway', 'api', 'auth', 'orders', 'payments', 'feed', 'search', 'recs', 'mailer', 'billing', 'reports', 'jobs']
-  return names.map((name, i) => {
-    const N = 24
-    const base = 50 + (i * 13) % 80
-    const amp = 20 + (i * 7) % 30
-    const spike = i === 4 ? 2.5 : i === 7 ? 1.6 : 1
-    const points = Array.from({ length: N }, (_, k) => base + Math.sin((k + i) / 2.5) * amp + (((k * 11 + i) % 17) / 17) * amp * 0.6 * spike)
-    const last = points[points.length - 1]
-    const health: ServiceTile['health'] = last > 220 ? 'failed' : last > 110 ? 'degraded' : 'healthy'
-    return { name, points, health }
-  })
 }
 
 /* ───── Budget bullet · target vs actual per cost center ───── */
@@ -1998,43 +1736,60 @@ function formatScalar(v: number, unit?: string): string {
  * ─────────────────────────────────────────────────────────── */
 
 export function PlatformHealthPanel() {
-  const golden = useGoldenSignals()
+  const { errors } = useGoldenSignals()
   const apps = useDeliverApplications()
   const slos = useDiscoverSlos()
   const trivy = useTrivyReports()
 
-  // Sub-scores 0–100, each computed from the relevant module signal.
-  const reliability = useMemo(() => {
-    const ok = (apps.data ?? []).filter((a) => a.health === 'Healthy' && a.sync === 'Synced').length
-    const total = (apps.data ?? []).length
-    if (total === 0) return 95
-    return Math.round((ok / total) * 100)
+  // Sub-scores 0–100, each from the relevant module signal — or null (shown as
+  // "—") when that source has no data. Never a fabricated fallback number.
+  const reliability = useMemo<number | null>(() => {
+    const list = apps.data ?? []
+    if (list.length === 0) return null
+    const ok = list.filter((a) => a.health === 'Healthy' && a.sync === 'Synced').length
+    return Math.round((ok / list.length) * 100)
   }, [apps.data])
 
-  const slo = useMemo(() => {
+  const slo = useMemo<number | null>(() => {
     const list = slos.data ?? []
-    if (list.length === 0) return 92
+    if (list.length === 0) return null
     const passing = list.filter((s) => (s.errorBudgetRemaining ?? 0) > 0.25).length
     return Math.round((passing / list.length) * 100)
   }, [slos.data])
 
-  const security = useMemo(() => {
+  const security = useMemo<number | null>(() => {
     const reports = trivy.data ?? []
+    if (reports.length === 0) return null
     const crit = reports.reduce((acc, r) => acc + (r.summary?.CRITICAL ?? 0), 0)
     const high = reports.reduce((acc, r) => acc + (r.summary?.HIGH ?? 0), 0)
     return Math.max(0, 100 - crit * 8 - high * 2)
   }, [trivy.data])
 
-  const performance = useMemo(() => {
-    const series = golden.data ?? []
-    const errs = series.filter((s) => /error|5xx/i.test(s.metric.__name__ ?? ''))
-    const errAvg = avgLastValues(errs)
-    const score = errAvg > 0 ? Math.max(40, 100 - Math.round(errAvg * 1000)) : 96
-    return Math.min(100, score)
-  }, [golden.data])
+  const performance = useMemo<number | null>(() => {
+    // useGoldenSignals returns { rps, errors, p95 }; the error rate is the
+    // real perf signal. No series ⇒ unavailable (not a 96 fallback).
+    const series = errors.data ?? []
+    if (series.length === 0) return null
+    const errAvg = avgLastValues(series)
+    return Math.min(100, Math.max(40, 100 - Math.round(errAvg * 1000)))
+  }, [errors.data])
 
-  const overall = Math.round((reliability + slo + security + performance) / 4)
-  const tone = overall >= 90 ? 'emerald' : overall >= 75 ? 'brand' : overall >= 60 ? 'amber' : 'rose'
+  const available = [reliability, slo, security, performance].filter(
+    (v): v is number => v != null,
+  )
+  const overall = available.length
+    ? Math.round(available.reduce((s, v) => s + v, 0) / available.length)
+    : null
+  const tone =
+    overall == null
+      ? 'slate'
+      : overall >= 90
+        ? 'emerald'
+        : overall >= 75
+          ? 'brand'
+          : overall >= 60
+            ? 'amber'
+            : 'rose'
 
   return (
     <PanelCard>
@@ -2056,24 +1811,27 @@ function RadialScore({
   value,
   tone,
 }: {
-  value: number
-  tone: 'emerald' | 'brand' | 'amber' | 'rose'
+  value: number | null
+  tone: 'emerald' | 'brand' | 'amber' | 'rose' | 'slate'
 }) {
+  const na = value == null
   const r = 64
   const stroke = 12
   const c = 2 * Math.PI * r
-  const offset = c - (Math.max(0, Math.min(100, value)) / 100) * c
+  const offset = c - (Math.max(0, Math.min(100, value ?? 0)) / 100) * c
   const ring = {
     emerald: 'stroke-emerald-500',
     brand: 'stroke-brand-500',
     amber: 'stroke-amber-500',
     rose: 'stroke-rose-500',
+    slate: 'stroke-edge-default',
   }[tone]
   const text = {
     emerald: 'text-emerald-700 dark:text-emerald-300',
     brand: 'text-brand-700 dark:text-brand-300',
     amber: 'text-amber-700 dark:text-amber-300',
     rose: 'text-rose-700 dark:text-rose-300',
+    slate: 'text-content-subtle',
   }[tone]
   return (
     <div className="relative flex h-40 w-40 items-center justify-center">
@@ -2101,10 +1859,10 @@ function RadialScore({
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <div className={cn('font-mono text-4xl font-semibold tabular-nums tracking-tight', text)}>
-          {value}
+          {na ? '—' : value}
         </div>
         <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-content-subtle">
-          / 100
+          {na ? 'no data' : '/ 100'}
         </div>
       </div>
     </div>
@@ -2117,21 +1875,33 @@ function SubScore({
   icon,
 }: {
   label: string
-  value: number
+  /** null ⇒ no data for this signal — shown honestly as "—", never faked. */
+  value: number | null
   icon: React.ReactNode
 }) {
-  const tone = value >= 90 ? 'emerald' : value >= 75 ? 'brand' : value >= 60 ? 'amber' : 'rose'
+  const na = value == null
+  const tone = na
+    ? 'slate'
+    : value >= 90
+      ? 'emerald'
+      : value >= 75
+        ? 'brand'
+        : value >= 60
+          ? 'amber'
+          : 'rose'
   const bar = {
     emerald: 'bg-emerald-500',
     brand: 'bg-brand-500',
     amber: 'bg-amber-500',
     rose: 'bg-rose-500',
+    slate: 'bg-transparent',
   }[tone]
   const swatch = {
     emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200/60',
     brand: 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-brand-200/60',
     amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-200/60',
     rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 ring-rose-200/60',
+    slate: 'bg-surface-sunken text-content-subtle ring-edge-subtle',
   }[tone]
   return (
     <div className="rounded-lg border border-edge-subtle bg-surface-sunken/40 p-2.5">
@@ -2144,12 +1914,14 @@ function SubScore({
             {label}
           </span>
         </span>
-        <span className="font-mono text-sm font-semibold tabular-nums text-content">{value}</span>
+        <span className="font-mono text-sm font-semibold tabular-nums text-content">
+          {na ? '—' : value}
+        </span>
       </div>
       <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-surface-sunken">
         <div
           className={cn('h-full rounded-full transition-[width]', bar)}
-          style={{ width: `${value}%`, transitionDuration: '500ms' }}
+          style={{ width: `${na ? 0 : value}%`, transitionDuration: '500ms' }}
         />
       </div>
     </div>
@@ -2161,54 +1933,10 @@ function SubScore({
  * ─────────────────────────────────────────────────────────── */
 
 export function EngineeringVelocityPanel() {
-  // Synthesise plausible 14-day values for each metric. In production this
-  // would come from a /metrics aggregation BFF endpoint.
-  const tracks = useMemo(() => {
-    const seed = (a: number, b: number, c: number) => {
-      const out: number[] = []
-      let v = a
-      for (let i = 0; i < 14; i++) {
-        v += (Math.sin(i * b) + Math.cos(i * c)) * 2
-        out.push(Math.max(0, Math.round(v + i * 0.4)))
-      }
-      return out
-    }
-    return [
-      {
-        id: 'prs',
-        label: 'PRs merged',
-        unit: '/wk',
-        series: seed(38, 0.5, 0.7),
-        tone: 'brand' as const,
-        icon: <IconGitMerge />,
-      },
-      {
-        id: 'deploys',
-        label: 'Deploys',
-        unit: '/wk',
-        series: seed(22, 0.7, 1.1),
-        tone: 'emerald' as const,
-        icon: <IconRocket />,
-      },
-      {
-        id: 'leadtime',
-        label: 'Lead time',
-        unit: 'h',
-        series: seed(14, 0.6, 0.8).map((v) => Math.max(2, 18 - v * 0.05)),
-        tone: 'sky' as const,
-        icon: <IconClockSm />,
-      },
-      {
-        id: 'incidents',
-        label: 'Incidents',
-        unit: '/wk',
-        series: seed(3, 0.4, 0.6).map((v) => Math.max(0, 3 + Math.round((v - 30) / 10))),
-        tone: 'amber' as const,
-        icon: <IconAlertSm />,
-      },
-    ]
-  }, [])
-
+  // 14-day org-wide flow metrics (PRs merged, deploys, lead time, incidents)
+  // need a metrics-aggregation source spanning Gitea, Argo CD and an incident
+  // tracker. That aggregate isn't available to the Overview host, so we show an
+  // honest empty state rather than synthesised trend lines.
   return (
     <PanelCard>
       <PanelHead
@@ -2216,11 +1944,7 @@ export function EngineeringVelocityPanel() {
         subtitle="14-day flow metrics across the org"
         to="/decide"
       />
-      <div className="grid flex-1 grid-cols-2 gap-3 lg:grid-cols-4">
-        {tracks.map((t) => (
-          <VelocityTile key={t.id} {...t} />
-        ))}
-      </div>
+      <PanelEmpty message="Requires a flow-metrics aggregation source" />
     </PanelCard>
   )
 }
@@ -2524,47 +2248,6 @@ export function IncidentTimelinePanel() {
   const list = alerts.data ?? []
 
   const items = useMemo(() => {
-    if (list.length === 0) {
-      // Fallback synthetic timeline when alertmanager is empty.
-      const now = Date.now()
-      return [
-        {
-          id: 'i1',
-          title: 'Payments p95 spike resolved',
-          severity: 'sev2' as const,
-          message: 'p95 latency briefly exceeded 800 ms; recovered after pod restart.',
-          ts: new Date(now - 18 * 60_000).toISOString(),
-        },
-        {
-          id: 'i2',
-          title: 'Argo CD app drift detected',
-          severity: 'sev3' as const,
-          message: 'orders-svc out of sync — auto-prune scheduled.',
-          ts: new Date(now - 47 * 60_000).toISOString(),
-        },
-        {
-          id: 'i3',
-          title: 'Catalog read replica failed over',
-          severity: 'sev2' as const,
-          message: 'Replica reattached; lag back to <100 ms.',
-          ts: new Date(now - 3 * 3_600_000).toISOString(),
-        },
-        {
-          id: 'i4',
-          title: 'Trivy scan completed',
-          severity: 'info' as const,
-          message: '0 critical, 4 high CVEs across 12 images.',
-          ts: new Date(now - 7 * 3_600_000).toISOString(),
-        },
-        {
-          id: 'i5',
-          title: 'Nightly backup succeeded',
-          severity: 'info' as const,
-          message: 'Velero backup of 12 namespaces · 8.2 GiB.',
-          ts: new Date(now - 14 * 3_600_000).toISOString(),
-        },
-      ]
-    }
     return list.slice(0, 5).map((a, i) => {
       const labels = (a.labels ?? {}) as Record<string, string>
       const annotations = (a.annotations ?? {}) as Record<string, string>
@@ -2587,6 +2270,20 @@ export function IncidentTimelinePanel() {
     })
   }, [list])
 
+  if (alerts.isLoading || alerts.isError || items.length === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="Incident timeline" subtitle="Last 5 events from Alertmanager" to="/discover" />
+        {alerts.isLoading ? (
+          <PanelLoading />
+        ) : alerts.isError ? (
+          <PanelEmpty message="Requires an Alertmanager source" />
+        ) : (
+          <PanelEmpty message="No active incidents" />
+        )}
+      </PanelCard>
+    )
+  }
   return (
     <PanelCard>
       <PanelHead title="Incident timeline" subtitle="Last 5 events from Alertmanager" to="/discover" />
@@ -2647,31 +2344,13 @@ function SeverityPill({ sev }: { sev: 'sev1' | 'sev2' | 'sev3' | 'info' }) {
  * ─────────────────────────────────────────────────────────── */
 
 export function BuildRuntimePanel() {
-  // Synthesised distributions for top 5 repos. Real BFF would aggregate
-  // build durations per repo from the CI provider over the last 7 days.
-  const rows = useMemo(
-    () => [
-      { repo: 'web', min: 1.2, q1: 2.4, med: 3.1, q3: 4.0, max: 6.8, n: 142 },
-      { repo: 'api', min: 1.8, q1: 3.2, med: 4.4, q3: 6.1, max: 9.5, n: 96 },
-      { repo: 'orders-svc', min: 2.1, q1: 3.8, med: 5.0, q3: 6.6, max: 11.2, n: 71 },
-      { repo: 'cart', min: 0.9, q1: 1.6, med: 2.0, q3: 2.9, max: 5.0, n: 188 },
-      { repo: 'catalog', min: 1.4, q1: 2.8, med: 3.6, q3: 4.7, max: 7.4, n: 117 },
-    ],
-    [],
-  )
-  const max = Math.max(...rows.map((r) => r.max))
+  // A per-repo build-duration distribution (box plot) needs aggregated CI build
+  // times from the CI provider. That series isn't available to the Overview
+  // host, so we show an honest empty state rather than synthesised quartiles.
   return (
     <PanelCard>
       <PanelHead title="CI build duration" subtitle="7-day distribution per repo" to="/develop" />
-      <div className="flex-1 space-y-2">
-        {rows.map((r) => (
-          <BoxPlotRow key={r.repo} row={r} scaleMax={max} />
-        ))}
-      </div>
-      <div className="mt-3 flex items-center justify-between text-[10px] text-content-subtle">
-        <span>0 min</span>
-        <span>{max.toFixed(1)} min</span>
-      </div>
+      <PanelEmpty message="Requires CI build-duration metrics" />
     </PanelCard>
   )
 }
@@ -2739,35 +2418,37 @@ function BoxPlotRow({
  * ─────────────────────────────────────────────────────────── */
 
 export function TopErrorSourcesPanel() {
-  // Pull plausible per-service error rates from the golden signals stream
-  // when available, otherwise fall back to a synthesised set so the panel
-  // stays meaningful in development.
-  const golden = useGoldenSignals()
+  // Real per-service 5xx rates from the golden-signals 5xx metric stream. No
+  // fabricated fallback — when the source is empty we surface an honest state.
+  const { errors } = useGoldenSignals()
   const rows = useMemo(() => {
-    const series = golden.data ?? []
-    const errs = series.filter((s) =>
-      /error|5xx|fail/i.test(s.metric.__name__ ?? ''),
-    )
+    const series = errors.data ?? []
     const map = new Map<string, number>()
-    for (const e of errs) {
-      const svc = (e.metric.service ?? e.metric.app ?? 'unknown') as string
-      const last = lastValue(e)
-      map.set(svc, (map.get(svc) ?? 0) + last)
+    for (const e of series) {
+      const svc = e.metric.service ?? e.metric.app ?? e.metric.__name__ ?? 'unknown'
+      map.set(svc, (map.get(svc) ?? 0) + lastValue(e))
     }
-    const list = Array.from(map.entries()).map(([service, rate]) => ({ service, rate }))
-    if (list.length === 0) {
-      return [
-        { service: 'payments', rate: 0.041 },
-        { service: 'orders', rate: 0.028 },
-        { service: 'catalog', rate: 0.019 },
-        { service: 'cart', rate: 0.012 },
-        { service: 'web', rate: 0.008 },
-        { service: 'image-cdn', rate: 0.004 },
-      ]
-    }
-    return list.sort((a, b) => b.rate - a.rate).slice(0, 6)
-  }, [golden.data])
+    return Array.from(map.entries())
+      .map(([service, rate]) => ({ service, rate }))
+      .sort((a, b) => b.rate - a.rate)
+      .slice(0, 6)
+  }, [errors.data])
   const max = Math.max(0.001, ...rows.map((r) => r.rate))
+
+  if (errors.isLoading || errors.isError || rows.length === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="Top error sources" subtitle="5xx rate by service · last hour" to="/decide" />
+        {errors.isLoading ? (
+          <PanelLoading />
+        ) : errors.isError ? (
+          <PanelEmpty message="Requires a Prometheus 5xx-rate metrics source" />
+        ) : (
+          <PanelEmpty message="No error-rate data available" />
+        )}
+      </PanelCard>
+    )
+  }
 
   return (
     <PanelCard>
@@ -2871,52 +2552,13 @@ function fmtCount(n: number): string {
  * ─────────────────────────────────────────────────────────── */
 
 export function DatabasePoolPanel() {
-  const pools = useMemo(
-    () => [
-      { db: 'orders-pg', used: 38, max: 50, slow: 4 },
-      { db: 'catalog-pg', used: 22, max: 40, slow: 1 },
-      { db: 'payments-pg', used: 17, max: 30, slow: 0 },
-      { db: 'audit-mongo', used: 9, max: 25, slow: 0 },
-    ],
-    [],
-  )
+  // Connection-pool utilisation and slow-query counts come from a database
+  // metrics source (e.g. postgres_exporter → Prometheus). The Kubernetes API
+  // can't supply them, so we show an honest empty state rather than fabricate.
   return (
     <PanelCard>
       <PanelHead title="Database pool" subtitle="Connection utilisation + slow queries" to="/decide" />
-      <ul className="flex-1 space-y-2.5">
-        {pools.map((p) => {
-          const pctUsed = Math.round((p.used / p.max) * 100)
-          const tone = pctUsed >= 85 ? 'rose' : pctUsed >= 70 ? 'amber' : 'emerald'
-          const bar = {
-            emerald: 'bg-emerald-500',
-            amber: 'bg-amber-500',
-            rose: 'bg-rose-500',
-          }[tone]
-          return (
-            <li key={p.db}>
-              <div className="flex items-baseline justify-between text-[11px]">
-                <span className="font-mono text-content">{p.db}</span>
-                <span className="text-content-subtle">
-                  <span className="font-mono tabular-nums text-content">
-                    {p.used}/{p.max}
-                  </span>
-                  {p.slow > 0 ? (
-                    <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-rose-50 dark:bg-rose-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-300 ring-1 ring-rose-200">
-                      {p.slow} slow
-                    </span>
-                  ) : null}
-                </span>
-              </div>
-              <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
-                <div
-                  className={cn('h-full rounded-full transition-[width]', bar)}
-                  style={{ width: `${pctUsed}%`, transitionDuration: '500ms' }}
-                />
-              </div>
-            </li>
-          )
-        })}
-      </ul>
+      <PanelEmpty message="Requires a database metrics source (postgres_exporter / Prometheus)" />
     </PanelCard>
   )
 }
@@ -2926,47 +2568,13 @@ export function DatabasePoolPanel() {
  * ─────────────────────────────────────────────────────────── */
 
 export function QueueDepthPanel() {
-  const topics = useMemo(
-    () => [
-      { topic: 'orders.events.v1', lag: 12_400, partitions: 12, tone: 'amber' as const },
-      { topic: 'audit.events.v2', lag: 480, partitions: 6, tone: 'emerald' as const },
-      { topic: 'lake.events', lag: 47_300, partitions: 24, tone: 'rose' as const },
-      { topic: 'notifications', lag: 130, partitions: 4, tone: 'emerald' as const },
-      { topic: 'fraud.scores', lag: 2_900, partitions: 8, tone: 'amber' as const },
-    ],
-    [],
-  )
-  const max = Math.max(...topics.map((t) => t.lag))
+  // Kafka consumer-group lag isn't exposed on the Strimzi CRDs — it needs a
+  // Kafka metrics source (kafka-exporter / Cruise Control → Prometheus). We show
+  // an honest empty state rather than invent lag numbers.
   return (
     <PanelCard>
       <PanelHead title="Queue depth" subtitle="Top Kafka consumer lag" to="/discover" />
-      <ul className="flex-1 space-y-2">
-        {topics.map((t) => {
-          const w = (t.lag / max) * 100
-          const fill = {
-            emerald: 'bg-emerald-500',
-            amber: 'bg-amber-500',
-            rose: 'bg-rose-500',
-          }[t.tone]
-          return (
-            <li key={t.topic}>
-              <div className="flex items-baseline justify-between text-[11px]">
-                <span className="truncate font-mono text-content">{t.topic}</span>
-                <span className="text-content-muted">
-                  <span className="font-mono tabular-nums text-content">{fmtCount(t.lag)}</span>
-                  <span className="text-content-subtle"> · {t.partitions}p</span>
-                </span>
-              </div>
-              <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
-                <div
-                  className={cn('h-full rounded-full', fill)}
-                  style={{ width: `${w}%` }}
-                />
-              </div>
-            </li>
-          )
-        })}
-      </ul>
+      <PanelEmpty message="Requires a Kafka consumer-lag metrics source (kafka-exporter / Prometheus)" />
     </PanelCard>
   )
 }
@@ -2976,16 +2584,48 @@ export function QueueDepthPanel() {
  * ─────────────────────────────────────────────────────────── */
 
 export function CertExpiryPanel() {
-  const certs = useMemo(
-    () => [
-      { host: 'app.acme.io', daysLeft: 6, issuer: 'letsencrypt' },
-      { host: 'api.acme.io', daysLeft: 14, issuer: 'letsencrypt' },
-      { host: 'admin.acme.io', daysLeft: 27, issuer: 'letsencrypt' },
-      { host: 'mesh.internal.acme', daysLeft: 88, issuer: 'mesh-ca' },
-      { host: 'gateway.acme.io', daysLeft: 142, issuer: 'aws-acm' },
-    ],
-    [],
-  )
+  const q = useCertificates()
+
+  const certs = useMemo(() => {
+    const raw = (q.data ?? []) as Array<
+      Generic & {
+        spec?: { dnsNames?: string[]; commonName?: string; issuerRef?: { name?: string } }
+        status?: { notAfter?: string; renewalTime?: string }
+      }
+    >
+    const now = Date.now()
+    return raw
+      .map((c) => {
+        const notAfter = c.status?.notAfter
+        const daysLeft = notAfter
+          ? Math.floor((new Date(notAfter).getTime() - now) / 86_400_000)
+          : null
+        const host = c.spec?.commonName ?? c.spec?.dnsNames?.[0] ?? c.metadata.name
+        return {
+          host,
+          daysLeft,
+          issuer: c.spec?.issuerRef?.name ?? c.metadata.namespace ?? '—',
+        }
+      })
+      .filter((c): c is { host: string; daysLeft: number; issuer: string } => c.daysLeft != null)
+      .sort((a, b) => a.daysLeft - b.daysLeft)
+      .slice(0, 8)
+  }, [q.data])
+
+  if (q.isLoading || q.isError || certs.length === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="Certificate expiry" subtitle="TLS certs across all routes" to="/platform" />
+        {q.isLoading ? (
+          <PanelLoading />
+        ) : q.isError ? (
+          <PanelEmpty message="Requires cert-manager (cert-manager.io)" />
+        ) : (
+          <PanelEmpty message="No Certificates found" />
+        )}
+      </PanelCard>
+    )
+  }
   return (
     <PanelCard>
       <PanelHead title="Certificate expiry" subtitle="TLS certs across all routes" to="/platform" />
@@ -3025,20 +2665,46 @@ export function CertExpiryPanel() {
  * ─────────────────────────────────────────────────────────── */
 
 export function PodRestartsPanel() {
-  const pods = useMemo(
-    () => [
-      { pod: 'orders-svc-7c9b', restarts: 12, namespace: 'acme-console' },
-      { pod: 'payments-svc-4a2f', restarts: 8, namespace: 'acme-console' },
-      { pod: 'lake-ingest-5d8e', restarts: 5, namespace: 'acme-data' },
-      { pod: 'web-3b1c', restarts: 3, namespace: 'acme-console' },
-      { pod: 'fraud-detection-9f0a', restarts: 2, namespace: 'acme-data' },
-    ],
-    [],
-  )
-  const max = Math.max(...pods.map((p) => p.restarts))
+  const q = useAllPods()
+
+  const pods = useMemo(() => {
+    const raw = (q.data ?? []) as Array<{
+      metadata: { name: string; namespace?: string }
+      status?: { containerStatuses?: Array<{ restartCount?: number }> }
+    }>
+    return raw
+      .map((p) => ({
+        pod: p.metadata.name,
+        namespace: p.metadata.namespace ?? 'default',
+        restarts: (p.status?.containerStatuses ?? []).reduce(
+          (s, c) => s + (c.restartCount ?? 0),
+          0,
+        ),
+      }))
+      .filter((p) => p.restarts > 0)
+      .sort((a, b) => b.restarts - a.restarts)
+      .slice(0, 6)
+  }, [q.data])
+
+  const max = Math.max(1, ...pods.map((p) => p.restarts))
+
+  if (q.isLoading || q.isError || pods.length === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="Pod restarts" subtitle="Top pods · last 24 hours" to="/platform" />
+        {q.isLoading ? (
+          <PanelLoading />
+        ) : q.isError ? (
+          <PanelError message="Could not reach the cluster" />
+        ) : (
+          <PanelEmpty message="No pod restarts" />
+        )}
+      </PanelCard>
+    )
+  }
   return (
     <PanelCard>
-      <PanelHead title="Pod restarts" subtitle="Top pods · last 24 hours" to="/platform" />
+      <PanelHead title="Pod restarts" subtitle="Top pods by restart count" to="/platform" />
       <ul className="flex-1 space-y-2">
         {pods.map((p) => {
           const w = (p.restarts / max) * 100
@@ -3546,64 +3212,76 @@ interface GiteaLang {
   color: string
 }
 
+const LANG_PALETTE = [
+  'oklch(0.58 0.16 245)',
+  'oklch(0.66 0.13 200)',
+  'oklch(0.7 0.14 90)',
+  'oklch(0.6 0.18 30)',
+  'oklch(0.72 0.14 350)',
+  'oklch(0.7 0.02 260)',
+]
+
 export function GiteaRepoMetricsPanel() {
   const repos = useDevelopRepos()
-  const total = repos.data?.length ?? 32
-  const commits7d = useMemo(
-    () => [42, 58, 71, 64, 88, 51, 24].reduce((s, n) => s + n, 0),
-    [],
-  )
-  const commitSeries = useMemo(() => [42, 58, 71, 64, 88, 51, 24], [])
-  const branches = total * 4 + 12
-  const stars = 187
-  const forks = 24
 
-  const langs = useMemo<GiteaLang[]>(
-    () => [
-      { name: 'TypeScript', pct: 48, color: 'oklch(0.58 0.16 245)' },
-      { name: 'Go', pct: 22, color: 'oklch(0.66 0.13 200)' },
-      { name: 'Python', pct: 14, color: 'oklch(0.7 0.14 90)' },
-      { name: 'Rust', pct: 9, color: 'oklch(0.6 0.18 30)' },
-      { name: 'Other', pct: 7, color: 'oklch(0.7 0.02 260)' },
-    ],
-    [],
-  )
+  const { total, stars, forks, openIssues, langs } = useMemo(() => {
+    const list = (repos.data ?? []) as Array<{
+      stars_count?: number
+      forks_count?: number
+      open_issues_count?: number
+      language?: string
+    }>
+    const stars = list.reduce((s, r) => s + (r.stars_count ?? 0), 0)
+    const forks = list.reduce((s, r) => s + (r.forks_count ?? 0), 0)
+    const openIssues = list.reduce((s, r) => s + (r.open_issues_count ?? 0), 0)
+    const byLang = new Map<string, number>()
+    for (const r of list) {
+      const lang = r.language?.trim()
+      if (!lang) continue
+      byLang.set(lang, (byLang.get(lang) ?? 0) + 1)
+    }
+    const withLang = Array.from(byLang.values()).reduce((s, n) => s + n, 0)
+    const sorted = Array.from(byLang.entries()).sort((a, b) => b[1] - a[1])
+    const top = sorted.slice(0, 5)
+    const restCount = sorted.slice(5).reduce((s, [, n]) => s + n, 0)
+    const entries = restCount > 0 ? [...top, ['Other', restCount] as [string, number]] : top
+    const langs: GiteaLang[] = entries.map(([name, count], i) => ({
+      name,
+      pct: withLang > 0 ? Math.round((count / withLang) * 100) : 0,
+      color: LANG_PALETTE[i % LANG_PALETTE.length],
+    }))
+    return { total: list.length, stars, forks, openIssues, langs }
+  }, [repos.data])
 
-  const max = Math.max(...commitSeries)
+  if (repos.isLoading || repos.isError || total === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="Code repositories" subtitle="Gitea · org-wide activity" to="/develop" />
+        {repos.isLoading ? (
+          <PanelLoading />
+        ) : repos.isError ? (
+          <PanelEmpty message="Requires a Gitea source" />
+        ) : (
+          <PanelEmpty message="No repositories found" />
+        )}
+      </PanelCard>
+    )
+  }
 
   return (
     <PanelCard>
       <PanelHead title="Code repositories" subtitle="Gitea · org-wide activity" to="/develop" />
       <div className="mb-3 grid grid-cols-4 gap-2">
         <Stat label="Repos" value={total} tone="brand" />
-        <Stat label="Commits 7d" value={commits7d} tone="emerald" />
-        <Stat label="Branches" value={branches} tone="slate" />
-        <Stat label="Stars" value={`${stars}/${forks}f`} tone="amber" />
-      </div>
-
-      <div className="mb-3">
-        <div className="mb-1 flex items-baseline justify-between text-[10px] text-content-subtle">
-          <span className="font-semibold uppercase tracking-wider">Commits · last 7 days</span>
-          <span className="tabular-nums text-content-muted">{commits7d} total</span>
-        </div>
-        <div className="flex h-12 items-end gap-1">
-          {commitSeries.map((v, i) => (
-            <div
-              key={i}
-              className="flex-1 rounded-sm bg-brand-500/80 transition-colors hover:bg-brand-600"
-              style={{ height: `${(v / max) * 100}%` }}
-              title={`${v} commits`}
-            />
-          ))}
-        </div>
-        <div className="mt-1 flex justify-between text-[9px] text-content-subtle">
-          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
-            <span key={d}>{d}</span>
-          ))}
-        </div>
+        <Stat label="Stars" value={stars} tone="amber" />
+        <Stat label="Forks" value={forks} tone="slate" />
+        <Stat label="Open issues" value={openIssues} tone="emerald" />
       </div>
 
       <div className="flex-1 space-y-1.5">
+        {langs.length === 0 ? (
+          <div className="text-[10px] text-content-subtle">No language data reported</div>
+        ) : null}
         <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
           Language mix
         </div>
@@ -3642,100 +3320,14 @@ interface ReviewerLoad {
 }
 
 export function PrThroughputPanel() {
-  const opened7d = 38
-  const merged7d = 42
-  const closed7d = 4
-  const avgCycleHours = 26
-  const medianFirstReviewHours = 4.5
-  const reviewDepthAvg = 2.3
-
-  const cycleHistogram = useMemo(
-    () => [
-      { bucket: '<4h', count: 6 },
-      { bucket: '4–12h', count: 11 },
-      { bucket: '12–24h', count: 9 },
-      { bucket: '1–2d', count: 8 },
-      { bucket: '2–4d', count: 5 },
-      { bucket: '>4d', count: 3 },
-    ],
-    [],
-  )
-  const histMax = Math.max(...cycleHistogram.map((b) => b.count))
-
-  const reviewers = useMemo<ReviewerLoad[]>(
-    () => [
-      { name: 'maya@acme', reviews: 18, avgHours: 3.2 },
-      { name: 'priya@acme', reviews: 14, avgHours: 5.8 },
-      { name: 'leo@acme', reviews: 11, avgHours: 7.1 },
-      { name: 'tapas@acme', reviews: 9, avgHours: 4.4 },
-    ],
-    [],
-  )
-  const maxReviews = Math.max(...reviewers.map((r) => r.reviews))
-
-  const mergeRatio = opened7d > 0 ? Math.round((merged7d / opened7d) * 100) : 0
-
+  // PR cycle-time histograms, first-review latency and per-reviewer load require
+  // merged/closed PR history plus review timings aggregated across every repo.
+  // That history isn't available to the Overview host (the live client only
+  // lists open PRs), so we show an honest empty state rather than fabricate it.
   return (
     <PanelCard>
       <PanelHead title="PR throughput" subtitle="Last 7 days · cycle + review load" to="/develop" />
-      <div className="mb-3 grid grid-cols-3 gap-2">
-        <Stat label="Opened" value={opened7d} tone="brand" />
-        <Stat label="Merged" value={merged7d} tone="emerald" />
-        <Stat label="Avg cycle" value={`${avgCycleHours}h`} tone={avgCycleHours <= 24 ? 'emerald' : 'amber'} />
-      </div>
-
-      <div className="mb-3">
-        <div className="mb-1 flex items-baseline justify-between text-[10px] text-content-subtle">
-          <span className="font-semibold uppercase tracking-wider">Cycle-time histogram</span>
-          <span className="tabular-nums text-content-muted">
-            median 1st-review {medianFirstReviewHours}h
-          </span>
-        </div>
-        <div className="flex h-14 items-end gap-1">
-          {cycleHistogram.map((b) => (
-            <div key={b.bucket} className="flex flex-1 flex-col items-center gap-0.5">
-              <div
-                className="w-full rounded-sm bg-sky-500/80 transition-colors hover:bg-sky-600"
-                style={{ height: `${(b.count / histMax) * 100}%` }}
-                title={`${b.count} PRs in ${b.bucket}`}
-              />
-            </div>
-          ))}
-        </div>
-        <div className="mt-1 flex justify-between text-[9px] text-content-subtle">
-          {cycleHistogram.map((b) => (
-            <span key={b.bucket}>{b.bucket}</span>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex-1 space-y-1.5">
-        <div className="flex items-center justify-between text-[10px] text-content-subtle">
-          <span className="font-semibold uppercase tracking-wider">Top reviewers</span>
-          <span className="text-content-muted">avg {reviewDepthAvg} per PR · {mergeRatio}% merged · {closed7d} closed</span>
-        </div>
-        <ul className="space-y-1">
-          {reviewers.map((r) => {
-            const w = (r.reviews / maxReviews) * 100
-            return (
-              <li key={r.name} className="text-[11px]">
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="truncate font-mono text-content">{r.name}</span>
-                  <span className="tabular-nums text-content-muted">
-                    {r.reviews} · {r.avgHours}h
-                  </span>
-                </div>
-                <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-surface-sunken">
-                  <div
-                    className="h-full rounded-full bg-violet-500"
-                    style={{ width: `${w}%` }}
-                  />
-                </div>
-              </li>
-            )
-          })}
-        </ul>
-      </div>
+      <PanelEmpty message="Requires aggregated PR cycle-time & review metrics" />
     </PanelCard>
   )
 }
@@ -3766,23 +3358,48 @@ export function GitOpsSyncPanel() {
   )
   const totalApps = apps.length || 1
 
+  // Real recent sync operations from each app's status.operationState.
   const recent = useMemo<SyncEvent[]>(() => {
-    const now = Date.now()
-    const ago = (m: number) => new Date(now - m * 60_000).toISOString()
-    return [
-      { at: ago(3), app: 'orders-svc', result: 'synced', revision: 'abf8c2e' },
-      { at: ago(11), app: 'web', result: 'synced', revision: '7c91d4a' },
-      { at: ago(28), app: 'payments-svc', result: 'failed', revision: 'd402ea1' },
-      { at: ago(46), app: 'lake-ingest', result: 'degraded', revision: 'b21ff09' },
-      { at: ago(72), app: 'fraud-detection', result: 'synced', revision: '5ee8c12' },
-      { at: ago(118), app: 'identity-bff', result: 'synced', revision: '9aa1e7d' },
-    ]
-  }, [])
+    return apps
+      .filter((a) => a.status.operationState?.finishedAt)
+      .map((a) => {
+        const phase = a.status.operationState?.phase
+        const result: SyncEvent['result'] =
+          phase === 'Failed' || phase === 'Error'
+            ? 'failed'
+            : a.status.health.status === 'Degraded'
+              ? 'degraded'
+              : 'synced'
+        return {
+          at: a.status.operationState!.finishedAt!,
+          app: a.metadata.name,
+          result,
+          revision: a.status.sync.revision ?? '',
+        }
+      })
+      .sort((x, y) => new Date(y.at).getTime() - new Date(x.at).getTime())
+      .slice(0, 6)
+  }, [apps])
 
   const tones: Record<SyncEvent['result'], { dot: string; label: string }> = {
     synced: { dot: 'bg-emerald-500', label: 'text-emerald-700 dark:text-emerald-300' },
     failed: { dot: 'bg-rose-500', label: 'text-rose-700 dark:text-rose-300' },
     degraded: { dot: 'bg-amber-500', label: 'text-amber-700 dark:text-amber-300' },
+  }
+
+  if (q.isLoading || q.isError || apps.length === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="GitOps sync" subtitle="ArgoCD · drift + recent syncs" to="/deliver" />
+        {q.isLoading ? (
+          <PanelLoading />
+        ) : q.isError ? (
+          <PanelEmpty message="Requires an Argo CD source" />
+        ) : (
+          <PanelEmpty message="No Argo CD applications found" />
+        )}
+      </PanelCard>
+    )
   }
 
   return (
@@ -3837,6 +3454,9 @@ export function GitOpsSyncPanel() {
         <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
           Recent syncs
         </div>
+        {recent.length === 0 ? (
+          <div className="text-[10px] text-content-subtle">No recorded sync operations</div>
+        ) : null}
         <ul className="space-y-1">
           {recent.map((e, i) => (
             <li
@@ -3872,162 +3492,15 @@ interface QuotaUsage {
 }
 
 export function TenantOverviewPanel() {
-  const tenant = useMemo(
-    () => ({
-      name: 'Acme Corp',
-      slug: 'acme',
-      plan: 'Business',
-      region: 'us-east-1',
-      members: 42,
-      environments: 4,
-      apps: 28,
-      monthlySpend: 4_280,
-      planQuota: 6_000,
-      contacts: [
-        { name: 'Tapas Jena', role: 'Owner', email: 'tapas@acme.io' },
-        { name: 'Maya Patel', role: 'Platform Lead', email: 'maya@acme.io' },
-        { name: 'Leo Park', role: 'Billing', email: 'leo@acme.io' },
-      ],
-    }),
-    [],
-  )
-
-  const quotas = useMemo<QuotaUsage[]>(
-    () => [
-      { label: 'Workloads', used: 62, limit: 100, unit: '' },
-      { label: 'Storage', used: 1240, limit: 2000, unit: 'GB' },
-      { label: 'CI minutes', used: 8400, limit: 12_000, unit: 'min' },
-      { label: 'Members', used: 42, limit: 50, unit: '' },
-    ],
-    [],
-  )
-
-  const billingPct = Math.round((tenant.monthlySpend / tenant.planQuota) * 100)
-
+  // Organization identity, plan, billing quota and key contacts come from the
+  // control-plane tenancy service, not the Kubernetes API. That source isn't
+  // wired into the Overview host, so we show an honest empty state rather than
+  // display a hard-coded tenant. Per-namespace quota consumption is shown live
+  // by the Tenant usage panel.
   return (
     <PanelCard>
       <PanelHead title="Tenant overview" subtitle="Active organization · plan + quotas" to="/settings" />
-      <div className="mb-3 flex items-start gap-3 rounded-xl border border-edge-subtle bg-surface-sunken/40 p-3">
-        <div
-          className="flex h-10 w-10 flex-none items-center justify-center rounded-lg bg-brand-600 text-sm font-semibold text-white"
-          aria-hidden
-        >
-          {tenant.name
-            .split(' ')
-            .map((p) => p[0])
-            .join('')
-            .slice(0, 2)
-            .toUpperCase()}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-semibold text-content">{tenant.name}</span>
-            <span className="rounded-md border border-brand-200 dark:border-brand-500/25 bg-brand-50 dark:bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-medium text-brand-700 dark:text-brand-300">
-              {tenant.plan}
-            </span>
-          </div>
-          <div className="mt-0.5 flex flex-wrap gap-x-2 text-[11px] text-content-muted">
-            <span>slug:{tenant.slug}</span>
-            <span>·</span>
-            <span>{tenant.region}</span>
-            <span>·</span>
-            <span>{tenant.members} members</span>
-            <span>·</span>
-            <span>{tenant.environments} envs</span>
-            <span>·</span>
-            <span>{tenant.apps} apps</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="mb-3 space-y-1.5">
-        <div className="flex items-baseline justify-between text-[10px]">
-          <span className="font-semibold uppercase tracking-wider text-content-subtle">
-            Plan usage
-          </span>
-          <span className="tabular-nums text-content-muted">
-            ${tenant.monthlySpend.toLocaleString()} / ${tenant.planQuota.toLocaleString()}
-          </span>
-        </div>
-        <div className="h-2 w-full overflow-hidden rounded-full bg-surface-sunken">
-          <div
-            className={cn(
-              'h-full rounded-full',
-              billingPct < 75 ? 'bg-emerald-500' : billingPct < 90 ? 'bg-amber-500' : 'bg-rose-500',
-            )}
-            style={{ width: `${Math.min(100, billingPct)}%` }}
-          />
-        </div>
-      </div>
-
-      <div className="mb-3 grid grid-cols-2 gap-2">
-        {quotas.map((q) => {
-          const p = pct(q.used, q.limit)
-          const tone = p < 75 ? 'emerald' : p < 90 ? 'amber' : 'rose'
-          const fill = {
-            emerald: 'bg-emerald-500',
-            amber: 'bg-amber-500',
-            rose: 'bg-rose-500',
-          }[tone]
-          return (
-            <div
-              key={q.label}
-              className="rounded-lg border border-edge-subtle bg-surface-raised p-2.5"
-            >
-              <div className="flex items-baseline justify-between">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
-                  {q.label}
-                </span>
-                <span className="text-[10px] tabular-nums text-content-muted">{p}%</span>
-              </div>
-              <div className="mt-1 text-sm font-semibold tabular-nums text-content">
-                {q.used.toLocaleString()}
-                {q.unit ? <span className="text-content-muted"> {q.unit}</span> : null}
-                <span className="text-[11px] font-normal text-content-subtle">
-                  {' '}
-                  / {q.limit.toLocaleString()}
-                  {q.unit ? ` ${q.unit}` : ''}
-                </span>
-              </div>
-              <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-surface-sunken">
-                <div
-                  className={cn('h-full rounded-full', fill)}
-                  style={{ width: `${Math.min(100, p)}%` }}
-                />
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      <div className="flex-1 space-y-1">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
-          Key contacts
-        </div>
-        <ul className="space-y-1">
-          {tenant.contacts.map((c) => (
-            <li
-              key={c.email}
-              className="flex items-center gap-2 rounded-md bg-surface-sunken/40 px-2 py-1.5 text-[11px]"
-            >
-              <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-surface-raised text-[10px] font-semibold text-content ring-1 ring-edge-subtle">
-                {c.name
-                  .split(' ')
-                  .map((p) => p[0])
-                  .join('')
-                  .slice(0, 2)}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-medium text-content">{c.name}</div>
-                <div className="truncate text-[10px] text-content-subtle">{c.email}</div>
-              </div>
-              <span className="flex-none rounded-md bg-surface-raised px-1.5 py-0.5 text-[10px] font-medium text-content-muted ring-1 ring-edge-subtle">
-                {c.role}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </div>
+      <PanelEmpty message="Requires a tenancy / billing source" />
     </PanelCard>
   )
 }
@@ -4044,39 +3517,7 @@ export function SprintProgressPanel() {
   const progress = active?.progress ?? (total > 0 ? Math.round((completed / total) * 100) : 0)
   const started = active?.started_issues ?? 0
   const backlog = active?.backlog_issues ?? 0
-
-  // Synthesize a burndown line: ideal vs. actual remaining over the cycle.
-  const days = 14
   const remaining = total - completed
-  const ideal = useMemo(
-    () => Array.from({ length: days }, (_, i) => Math.round(total - (total / (days - 1)) * i)),
-    [total],
-  )
-  const actual = useMemo(() => {
-    // Slow start, faster mid-cycle.
-    const elapsed = Math.min(days - 1, Math.max(2, days - Math.ceil((remaining / Math.max(total, 1)) * days)))
-    const out: number[] = []
-    for (let i = 0; i < days; i++) {
-      if (i > elapsed) {
-        out.push(remaining)
-        continue
-      }
-      const factor = 1 - Math.pow(i / elapsed, 1.4) * (1 - remaining / Math.max(total, 1))
-      out.push(Math.max(remaining, Math.round(total * factor)))
-    }
-    return out
-  }, [total, remaining])
-
-  const max = Math.max(...ideal, ...actual, 1)
-  const w = 200
-  const h = 60
-  const stepX = w / (days - 1)
-  const idealPath = ideal.map((v, i) => `${i === 0 ? 'M' : 'L'} ${i * stepX} ${h - (v / max) * h}`).join(' ')
-  const actualPath = actual
-    .map((v, i) => `${i === 0 ? 'M' : 'L'} ${i * stepX} ${h - (v / max) * h}`)
-    .join(' ')
-
-  const onTrack = actual[Math.min(actual.length - 1, days - 3)] <= ideal[Math.min(ideal.length - 1, days - 3)]
   const endLabel = active?.end_date ? formatRelative(active.end_date) : '—'
 
   return (
@@ -4093,33 +3534,11 @@ export function SprintProgressPanel() {
         <Stat label="Backlog" value={backlog} tone="slate" />
       </div>
 
-      <div className="mb-3">
-        <div className="mb-1 flex items-baseline justify-between text-[10px]">
-          <span className="font-semibold uppercase tracking-wider text-content-subtle">Burndown</span>
-          <span
-            className={cn(
-              'tabular-nums',
-              onTrack ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300',
-            )}
-          >
-            {onTrack ? 'On track' : 'Behind ideal'} · ends {endLabel}
-          </span>
-        </div>
-        <svg viewBox={`0 0 ${w} ${h}`} className="h-16 w-full">
-          <path d={idealPath} fill="none" stroke="oklch(0.7 0.02 260)" strokeWidth="1" strokeDasharray="3 3" />
-          <path d={actualPath} fill="none" stroke="oklch(0.51 0.19 262)" strokeWidth="1.75" />
-        </svg>
-        <div className="flex items-center gap-3 text-[10px] text-content-subtle">
-          <span className="flex items-center gap-1">
-            <span className="h-0.5 w-3 bg-content-subtle" /> Ideal
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="h-0.5 w-3 bg-brand-600" /> Actual
-          </span>
-          <span className="ml-auto tabular-nums">
-            {progress}% complete · {remaining} remaining
-          </span>
-        </div>
+      <div className="mb-3 flex items-baseline justify-between text-[10px]">
+        <span className="font-semibold uppercase tracking-wider text-content-subtle">Progress</span>
+        <span className="tabular-nums text-content-muted">
+          {progress}% complete · {remaining} remaining · ends {endLabel}
+        </span>
       </div>
 
       <div className="flex-1">
@@ -4168,13 +3587,10 @@ export function IssueBacklogPanel() {
     return buckets
   }, [open])
 
-  // Fall back to representative numbers when the stub returns nothing.
-  const fallback = open.length === 0
-  const safe = fallback
-    ? { urgent: 3, high: 12, medium: 24, low: 18, none: 6 }
-    : byPriority
-  const safeAging = fallback ? { week: 18, month: 22, quarter: 14, stale: 9 } : aging
-  const totalOpen = Object.values(safe).reduce((s, n) => s + n, 0)
+  // Real counts only — no fabricated fallback when there are no open issues.
+  const safe = byPriority
+  const safeAging = aging
+  const totalOpen = open.length
 
   const priorityRows: { key: keyof typeof safe; label: string; tone: string; fill: string }[] = [
     { key: 'urgent', label: 'Urgent', tone: 'text-rose-700 dark:text-rose-300', fill: 'bg-rose-500' },
@@ -4193,6 +3609,21 @@ export function IssueBacklogPanel() {
     fair: 'text-amber-700 dark:text-amber-300',
     stale: 'text-rose-700 dark:text-rose-300',
   }[groomingHealth]
+
+  if (issues.isLoading || issues.isError || totalOpen === 0) {
+    return (
+      <PanelCard>
+        <PanelHead title="Issue backlog" subtitle="Open issues by priority & age" to="/define" />
+        {issues.isLoading ? (
+          <PanelLoading />
+        ) : issues.isError ? (
+          <PanelEmpty message="Requires a Plane source" />
+        ) : (
+          <PanelEmpty message="No open issues" />
+        )}
+      </PanelCard>
+    )
+  }
 
   return (
     <PanelCard>
@@ -4846,27 +4277,11 @@ export function WorkflowRunsPanel() {
 /* ───── Pipeline success-rate trend ───── */
 
 export function PipelineSuccessTrendPanel() {
-  // 14-day series: succeeded + failed counts per day.
-  const series = useMemo(() => {
-    const seed = (a: number, b: number) => Array.from({ length: 14 }, (_, i) => Math.max(0, Math.round(a + Math.sin(i * b) * 6)))
-    const succeeded = seed(38, 0.6)
-    const failed = seed(4, 0.9).map((v) => Math.max(0, v - 2))
-    return succeeded.map((s, i) => ({ day: i, succeeded: s, failed: failed[i] }))
-  }, [])
-
-  const totalSucc = series.reduce((s, d) => s + d.succeeded, 0)
-  const totalFail = series.reduce((s, d) => s + d.failed, 0)
-  const overall = pct(totalSucc, totalSucc + totalFail)
-  const last7Succ = series.slice(-7).reduce((s, d) => s + d.succeeded, 0)
-  const last7Fail = series.slice(-7).reduce((s, d) => s + d.failed, 0)
-  const trend7d = pct(last7Succ, last7Succ + last7Fail)
-  const delta = trend7d - overall
-
-  const max = Math.max(...series.map((d) => d.succeeded + d.failed), 1)
-  const avgDuration = '4m 32s'
-  const p95Duration = '12m 18s'
-  const flakyRate = 3.2
-
+  // A 14-day pass/fail trend plus avg/p95 duration and flaky rate needs run
+  // history aggregated over time. The live Argo Workflows list is a point-in-
+  // time snapshot, not a 14-day time series, so we show an honest empty state
+  // rather than a synthesised trend. (Per-stage timings are shown live by the
+  // Pipeline stages panel.)
   return (
     <PanelCard>
       <PanelHead
@@ -4874,84 +4289,7 @@ export function PipelineSuccessTrendPanel() {
         subtitle="14-day pass/fail trend across all workflows"
         to="/develop"
       />
-      <div className="mb-3 grid grid-cols-3 gap-2">
-        <Stat label="Success" value={`${overall}%`} tone={overall >= 90 ? 'emerald' : 'amber'} />
-        <Stat label="Avg" value={avgDuration} tone="brand" />
-        <Stat label="p95" value={p95Duration} tone="violet" />
-      </div>
-
-      <div className="mb-3">
-        <div className="mb-1 flex items-baseline justify-between text-[10px]">
-          <span className="font-semibold uppercase tracking-wider text-content-subtle">
-            Daily run volume
-          </span>
-          <span className={cn('tabular-nums', delta >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300')}>
-            7d {trend7d}% ({delta >= 0 ? '+' : ''}
-            {delta}pp)
-          </span>
-        </div>
-        <div className="flex h-16 items-end gap-1">
-          {series.map((d, i) => {
-            const total = d.succeeded + d.failed
-            const totalH = (total / max) * 100
-            const failH = total > 0 ? (d.failed / total) * totalH : 0
-            const succH = totalH - failH
-            return (
-              <div
-                key={i}
-                className="flex flex-1 flex-col-reverse"
-                title={`Day ${i + 1}: ${d.succeeded} ok / ${d.failed} fail`}
-              >
-                <div className="rounded-b-sm bg-emerald-500/80" style={{ height: `${succH}%` }} />
-                <div className="bg-rose-500/80" style={{ height: `${failH}%` }} />
-              </div>
-            )
-          })}
-        </div>
-        <div className="mt-1 flex items-center gap-3 text-[10px] text-content-subtle">
-          <span className="flex items-center gap-1">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Succeeded
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="h-1.5 w-1.5 rounded-full bg-rose-500" /> Failed
-          </span>
-          <span className="ml-auto tabular-nums text-content-muted">
-            {totalSucc} ok · {totalFail} fail
-          </span>
-        </div>
-      </div>
-
-      <div className="flex-1">
-        <div className="rounded-lg border border-edge-subtle bg-surface-sunken/40 p-2.5 text-[11px]">
-          <div className="flex items-center justify-between">
-            <span className="font-medium text-content">Flaky rate</span>
-            <span
-              className={cn(
-                'font-medium tabular-nums',
-                flakyRate < 2
-                  ? 'text-emerald-700 dark:text-emerald-300'
-                  : flakyRate < 5
-                    ? 'text-amber-700 dark:text-amber-300'
-                    : 'text-rose-700 dark:text-rose-300',
-              )}
-            >
-              {flakyRate}%
-            </span>
-          </div>
-          <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-surface-raised">
-            <div
-              className={cn(
-                'h-full rounded-full',
-                flakyRate < 2 ? 'bg-emerald-500' : flakyRate < 5 ? 'bg-amber-500' : 'bg-rose-500',
-              )}
-              style={{ width: `${Math.min(100, flakyRate * 10)}%` }}
-            />
-          </div>
-          <div className="mt-1 text-[10px] text-content-subtle">
-            Re-runs that pass on retry · target &lt; 2%
-          </div>
-        </div>
-      </div>
+      <PanelEmpty message="Requires aggregated workflow run history" />
     </PanelCard>
   )
 }
@@ -5111,95 +4449,18 @@ interface Template {
 }
 
 export function WorkflowTriggersPanel() {
-  const triggers = useMemo(
-    () => [
-      { source: 'commit', count: 184, color: 'oklch(0.51 0.19 262)' },
-      { source: 'pull_request', count: 96, color: 'oklch(0.6 0.16 155)' },
-      { source: 'schedule', count: 42, color: 'oklch(0.66 0.16 70)' },
-      { source: 'manual', count: 18, color: 'oklch(0.7 0.02 260)' },
-      { source: 'webhook', count: 12, color: 'oklch(0.6 0.18 30)' },
-    ],
-    [],
-  )
-
-  const total = triggers.reduce((s, t) => s + t.count, 0)
-
-  const templates = useMemo<Template[]>(
-    () => [
-      { name: 'go-build-test-publish', uses7d: 124, avgDuration: '3m 48s', successRate: 96 },
-      { name: 'node-ci-deploy', uses7d: 88, avgDuration: '5m 12s', successRate: 92 },
-      { name: 'python-train-publish', uses7d: 22, avgDuration: '14m 22s', successRate: 88 },
-      { name: 'security-scan', uses7d: 184, avgDuration: '1m 4s', successRate: 99 },
-    ],
-    [],
-  )
-  const maxUses = Math.max(...templates.map((t) => t.uses7d))
-
+  // Trigger-source breakdown and top-template usage/success stats need workflow
+  // run history grouped by trigger label and template over 7 days. That
+  // aggregate isn't available from the live Argo Workflows snapshot, so we show
+  // an honest empty state rather than fabricated counts.
   return (
     <PanelCard>
       <PanelHead
         title="Pipeline triggers"
-        subtitle={`${total} runs / 7d · trigger sources + top templates`}
+        subtitle="Trigger sources + top templates"
         to="/develop"
       />
-
-      <div className="mb-3">
-        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
-          By trigger source
-        </div>
-        <div className="flex h-2 w-full overflow-hidden rounded-full bg-surface-sunken">
-          {triggers.map((t) => (
-            <div
-              key={t.source}
-              style={{ width: `${(t.count / total) * 100}%`, backgroundColor: t.color }}
-              title={`${t.source} · ${t.count} runs`}
-            />
-          ))}
-        </div>
-        <ul className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
-          {triggers.map((t) => (
-            <li key={t.source} className="flex items-center gap-1.5 text-content-muted">
-              <span
-                className="h-1.5 w-1.5 flex-none rounded-full"
-                style={{ backgroundColor: t.color }}
-              />
-              <span className="flex-1 truncate font-mono">{t.source}</span>
-              <span className="tabular-nums text-content">{t.count}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div className="flex-1 space-y-1.5">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
-          Top workflow templates
-        </div>
-        <ul className="space-y-1.5">
-          {templates.map((t) => {
-            const w = (t.uses7d / maxUses) * 100
-            const okTone =
-              t.successRate >= 95
-                ? 'text-emerald-700 dark:text-emerald-300'
-                : t.successRate >= 90
-                  ? 'text-amber-700 dark:text-amber-300'
-                  : 'text-rose-700 dark:text-rose-300'
-            return (
-              <li key={t.name} className="text-[11px]">
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="truncate font-mono text-content">{t.name}</span>
-                  <span className="tabular-nums text-content-muted">
-                    {t.uses7d} runs · {t.avgDuration} ·{' '}
-                    <span className={okTone}>{t.successRate}%</span>
-                  </span>
-                </div>
-                <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-surface-sunken">
-                  <div className="h-full rounded-full bg-violet-500" style={{ width: `${w}%` }} />
-                </div>
-              </li>
-            )
-          })}
-        </ul>
-      </div>
+      <PanelEmpty message="Requires aggregated workflow trigger & template metrics" />
     </PanelCard>
   )
 }

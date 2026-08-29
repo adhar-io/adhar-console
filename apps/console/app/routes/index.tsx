@@ -13,6 +13,7 @@ import {
 import { cn, formatRelative } from '@adhar-console/utils'
 import { STUB_USER, useOptionalSession } from '@adhar-console/auth'
 import { summarizeCluster, useClusterSignals } from '~/data/cluster-signals.ts'
+import { useDoraApps } from '~/data/platform-signals.ts'
 import {
   ALL_PANEL_IDS,
   CATEGORY_ORDER,
@@ -1631,36 +1632,9 @@ interface DoraStat {
   series: number[]
 }
 
-const DORA_STATS: DoraStat[] = [
-  {
-    label: 'Deploys (7d)',
-    value: '128',
-    delta: '+24%',
-    tone: 'emerald',
-    series: [6, 8, 7, 9, 11, 12, 10, 14, 13, 16, 15, 18, 20, 22, 24],
-  },
-  {
-    label: 'Lead time',
-    value: '2h 14m',
-    delta: '−18%',
-    tone: 'emerald',
-    series: [180, 175, 168, 172, 160, 158, 150, 144, 142, 138, 135, 132, 140, 138, 134],
-  },
-  {
-    label: 'Change fail rate',
-    value: '4.2%',
-    delta: '+0.6pp',
-    tone: 'amber',
-    series: [3.2, 3.1, 3.4, 3.6, 3.5, 3.8, 3.7, 4.0, 4.1, 4.3, 4.2, 4.0, 4.1, 4.2, 4.2],
-  },
-  {
-    label: 'MTTR',
-    value: '32m',
-    delta: '−42%',
-    tone: 'emerald',
-    series: [58, 55, 52, 48, 50, 45, 44, 40, 42, 38, 35, 36, 34, 33, 32],
-  },
-]
+// DORA metrics are derived from real ArgoCD deploy history (see DoraPanel).
+// Deploy frequency + change-fail rate are computable from ArgoCD; lead time and
+// MTTR require a Four-Keys / incident source, so they are flagged, not faked.
 
 const DORA_COLOR: Record<DoraStat['tone'], string> = {
   emerald: 'var(--color-brand-500)',
@@ -1669,9 +1643,73 @@ const DORA_COLOR: Record<DoraStat['tone'], string> = {
 }
 
 function DoraPanel() {
+  const q = useDoraApps()
+
+  const stats = useMemo(() => {
+    const apps = q.data ?? []
+    const now = Date.now()
+    const day = 24 * 3600_000
+    // Real 14-day daily deploy histogram from ArgoCD sync history.
+    const series14 = new Array(14).fill(0) as number[]
+    let withOps = 0
+    let failed = 0
+    for (const a of apps) {
+      for (const h of a.status?.history ?? []) {
+        if (!h.deployedAt) continue
+        const t = new Date(h.deployedAt).getTime()
+        if (!Number.isFinite(t)) continue
+        const ago = Math.floor((now - t) / day)
+        if (ago >= 0 && ago < 14) series14[13 - ago] += 1
+      }
+      const phase = a.status?.operationState?.phase
+      if (phase) {
+        withOps += 1
+        if (phase === 'Failed') failed += 1
+      }
+    }
+    const last7 = series14.slice(7).reduce((s, n) => s + n, 0)
+    const prior7 = series14.slice(0, 7).reduce((s, n) => s + n, 0)
+    const deltaPct = prior7 > 0 ? Math.round(((last7 - prior7) / prior7) * 100) : null
+    const cfr = withOps ? failed / withOps : null
+    return { series14, last7, deltaPct, cfr, hasHistory: series14.some((n) => n > 0) }
+  }, [q.data])
+
+  type Tone = 'emerald' | 'amber' | 'rose' | 'slate'
+  const loading = q.isLoading
+  const tiles: Array<{
+    label: string
+    value: string
+    delta: string
+    deltaTone: Tone
+    color: string
+    series: number[]
+    muted?: string
+  }> = [
+    {
+      label: 'Deploys (7d)',
+      value: loading ? '···' : stats.hasHistory ? String(stats.last7) : '—',
+      delta: stats.deltaPct == null ? '' : `${stats.deltaPct >= 0 ? '+' : ''}${stats.deltaPct}%`,
+      deltaTone: (stats.deltaPct ?? 0) >= 0 ? 'emerald' : 'rose',
+      color: DORA_COLOR.emerald,
+      series: stats.series14,
+      muted: loading ? undefined : stats.hasHistory ? undefined : 'no Argo CD deploy history',
+    },
+    {
+      label: 'Change fail rate',
+      value: loading ? '···' : stats.cfr == null ? '—' : `${(stats.cfr * 100).toFixed(1)}%`,
+      delta: '',
+      deltaTone: stats.cfr != null && stats.cfr > 0.15 ? 'rose' : 'amber',
+      color: DORA_COLOR.amber,
+      series: [],
+      muted: loading ? undefined : stats.cfr == null ? 'no sync operations yet' : undefined,
+    },
+    { label: 'Lead time', value: '—', delta: '', deltaTone: 'slate', color: DORA_COLOR.amber, series: [], muted: 'needs Four Keys source' },
+    { label: 'MTTR', value: '—', delta: '', deltaTone: 'slate', color: DORA_COLOR.amber, series: [], muted: 'needs incident source' },
+  ]
+
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      {DORA_STATS.map((s) => (
+      {tiles.map((s) => (
         <div
           key={s.label}
           className="group relative overflow-hidden rounded-xl border border-edge-default bg-surface-raised p-5 shadow-sm transition-all duration-150 ease-smooth hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md"
@@ -1681,15 +1719,18 @@ function DoraPanel() {
               <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">
                 {s.label}
               </div>
-              <div className={`text-xs font-medium ${toneText(s.tone)}`}>{s.delta}</div>
+              {s.delta ? <div className={`text-xs font-medium ${toneText(s.deltaTone)}`}>{s.delta}</div> : null}
             </div>
             <div className="mt-2 text-2xl font-semibold tabular-nums tracking-tight text-content">
               {s.value}
             </div>
+            {s.muted ? <div className="mt-0.5 text-[11px] text-content-subtle">{s.muted}</div> : null}
           </div>
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 opacity-60">
-            <Sparkline points={s.series} color={DORA_COLOR[s.tone]} height={64} strokeWidth={1.25} />
-          </div>
+          {s.series.filter((n) => n > 0).length > 1 ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 opacity-60">
+              <Sparkline points={s.series} color={s.color} height={64} strokeWidth={1.25} />
+            </div>
+          ) : null}
         </div>
       ))}
     </div>

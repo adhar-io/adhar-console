@@ -26,6 +26,26 @@ All notable changes to Adhar Console are documented here. Format based on
   `cert-manager`, any `*-system` or `kube-*`, and other platform namespaces), so
   it shows apps in user namespaces (and `default`) rather than the platform's
   own pods.
+- **Overview page shows only real cluster data — no fabricated widgets.** Audited
+  all 56 dashboard panels + the home widgets. Newly wired to real sources: the
+  DORA hero and cost-trend (Argo CD deploy history / OpenCost), the deploy
+  heatmap (Argo CD), pod restarts (live `restartCount`), certificate expiry
+  (cert-manager), Gitea repo metrics, and GitOps recent-syncs. Panels whose
+  backing tool isn't deployed now render an honest "connect &lt;tool&gt;" empty
+  state instead of hardcoded rows/series, and `PlatformHealthPanel` shows "—"
+  for any sub-score with no data rather than a fabricated 95/92/96 (and its
+  performance score now reads the real error-rate signal). Added
+  `useCertificates()` and `useCostTrend()` signals.
+
+### Fixed
+
+- **App launcher marks all deployed tools as enabled.** Harbor, MinIO, Argo
+  Rollouts, Kyverno, Crossplane (and Trivy, via Harbor) were shown as "not set
+  up" only because their `<TOOL>_URL` env vars were never wired into the console
+  deployment. Their in-cluster Service URLs are now set, so the launcher reports
+  them enabled (Kyverno/Crossplane have no web UI — their data flows via k8s
+  CRDs; the URLs just mark the tiles enabled). Tools genuinely not deployed
+  (Falco, Kargo, OpenCost, …) still show honestly as "not set up".
 
 ## [0.1.14] - 2026-08-29
 

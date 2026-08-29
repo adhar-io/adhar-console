@@ -38,6 +38,7 @@ const GVR = {
   istioPeerAuth: { group: 'security.istio.io', version: 'v1beta1', resource: 'peerauthentications', namespaced: true },
   resourceQuotas: { group: '', version: 'v1', resource: 'resourcequotas', namespaced: true },
   endpoints: { group: '', version: 'v1', resource: 'endpoints', namespaced: true },
+  certificates: { group: 'cert-manager.io', version: 'v1', resource: 'certificates', namespaced: true },
 } as const
 
 function useGeneric(key: string, gvr: (typeof GVR)[keyof typeof GVR], refetch = REFRESH_MS) {
@@ -166,6 +167,11 @@ export function useCiliumClusterPolicies() {
 
 export function useIstioPeerAuth() {
   return useGeneric('istio-peerauth', GVR.istioPeerAuth)
+}
+
+/** cert-manager Certificates — real TLS certs with `status.notAfter` expiry. */
+export function useCertificates() {
+  return useGeneric('certificates', GVR.certificates)
 }
 
 /* ─────────── tool-backed sources (BFF proxies) ─────────── */
@@ -313,6 +319,55 @@ export function useBudget() {
         n.share = monthlyTotal > 0 ? n.actual / monthlyTotal : 0
       }
       return { namespaces, monthlyTotal, budget: configuredBudget() }
+    },
+    staleTime: 60_000,
+    retry: false,
+  })
+}
+
+/* ── OpenCost daily spend trend ── */
+
+export interface CostTrendData {
+  /** Daily total spend (USD), oldest → newest. */
+  series: number[]
+  total: number
+  compute: number
+  storage: number
+  network: number
+}
+
+/**
+ * 30-day daily cloud spend from OpenCost (`window=30d&step=1d`). Each step is a
+ * map of namespace → allocation; we sum totalCost per day for the trend and
+ * accumulate cost categories across the window. Errors (OpenCost absent) surface
+ * so the panel can show an honest empty state instead of fabricating a series.
+ */
+export function useCostTrend() {
+  return useQuery({
+    queryKey: ['ov', 'opencost', 'trend'],
+    queryFn: async (): Promise<CostTrendData> => {
+      const resp = await ocGet(
+        '/allocation/compute?window=30d&aggregate=namespace&accumulate=false&step=1d',
+      )
+      const steps = (resp.data ?? []).map((m) => m ?? {})
+      const series = steps.map((step) =>
+        Object.entries(step)
+          .filter(([k]) => !isPseudo(k))
+          .reduce((s, [, a]) => s + totalOf(a), 0),
+      )
+      let compute = 0
+      let storage = 0
+      let network = 0
+      for (const step of steps) {
+        for (const [k, a] of Object.entries(step)) {
+          if (isPseudo(k)) continue
+          compute += (a.cpuCost ?? 0) + (a.gpuCost ?? 0) + (a.ramCost ?? 0)
+          storage += a.pvCost ?? 0
+          network += (a.networkCost ?? 0) + (a.loadBalancerCost ?? 0)
+        }
+      }
+      const total = series.reduce((s, v) => s + v, 0)
+      return { series, total, compute, storage, network }
     },
     staleTime: 60_000,
     retry: false,

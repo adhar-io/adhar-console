@@ -101,20 +101,41 @@ export async function signSessionToken(
         .sign(secretKey(cfg))
     } catch (e) {
       console.warn(
-        '[auth] session store unavailable — falling back to an inline cookie:',
+        '[auth] session store unavailable — falling back to a trimmed inline cookie:',
         e instanceof Error ? e.message : e,
       )
       // fall through to the stateless inline cookie
     }
   }
-  // Stateless fallback — don't leak the internal sid into the inline payload.
-  const { sid: _drop, ...inline } = session
-  return await new SignJWT({ session: inline } as Record<string, unknown>)
+  // Stateless fallback. CRITICAL: drop the large `refreshToken` + `idToken`
+  // (each ~1.5–2 KB) — inlining all three Keycloak JWTs pushes the cookie past
+  // the browser's ~4 KB limit, so it gets silently dropped and the user bounces
+  // back to /login. Keeping only the access token stays under the limit. The
+  // trade-off (no server-side refresh; session ends at access-token expiry) is
+  // acceptable for the store-less path (local dev / a momentary DB outage) —
+  // the Postgres store keeps the full session when it's available.
+  const inline: ServerSession = {
+    user: session.user,
+    accessToken: session.accessToken,
+    expiresAt: session.expiresAt,
+    authTime: session.authTime,
+    activeTenant: session.activeTenant,
+  }
+  const token = await new SignJWT({ session: inline } as Record<string, unknown>)
     .setProtectedHeader({ alg: ALG })
     .setIssuedAt()
     .setExpirationTime(`${cfg.sessionTtlSeconds}s`)
     .setSubject(session.user.id)
     .sign(secretKey(cfg))
+  const bytes = token.length
+  if (bytes > 3900) {
+    console.warn(
+      `[auth] inline session cookie is ${bytes} bytes — over the ~4 KB browser ` +
+        'limit even after trimming (very large access token). Configure DATABASE_URL ' +
+        'so sessions are stored server-side, or login may fail.',
+    )
+  }
+  return token
 }
 
 /** Verify + decode a session cookie JWT. Returns null when invalid/expired. */

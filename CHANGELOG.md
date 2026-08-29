@@ -6,6 +6,29 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-08-29
+
+### Fixed
+
+- **THE Keycloak login loop — real root cause.** Diagnosed against the live
+  cluster: the generated Postgres password contains URL-reserved characters
+  (`/`, from the platform's `symbolCharacters: /-+`), so `DATABASE_URL`
+  (`postgres://console:…/…@…`) was an **invalid URL**, `postgres(url)` threw
+  "Invalid URL", and the database silently reported **down**. With no database
+  the server-side session store couldn't engage, so the session cookie inlined
+  all three Keycloak JWTs (~5.7 KB) — over the browser's ~4 KB limit — and the
+  browser **silently dropped it**, making every request anonymous and bouncing
+  the user back to `/login`. The DB connection now prefers the discrete
+  `POSTGRES_HOST/PORT/DB/USER/PASSWORD` components (immune to URL encoding) and
+  percent-encodes the password in the `DATABASE_URL` fallback — verified
+  connecting to the live database with the real password.
+- **Defense in depth**: even if the database is ever unreachable, the inline
+  session cookie now drops the large refresh/id tokens (keeps only the access
+  token) so it stays under the browser limit and login still completes. Session
+  tokens are stored server-side (Postgres) when the DB is up so the cookie is a
+  tiny session id; logout deletes the store row (real revocation). `/api/diagnostics`
+  now reports the session-store mode.
+
 ## [0.1.9] - 2026-08-29
 
 ### Fixed

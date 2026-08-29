@@ -33,7 +33,7 @@ import { handleScaffold } from './app/server/scaffolder.ts'
 import { handleWorkspace } from './app/server/workspace/handlers.ts'
 import { handleBilling } from './app/server/billing/handlers.ts'
 import { handleOrganizations } from './app/server/organizations.ts'
-import { registerDbSessionStore } from './app/server/session-store-db.ts'
+import { registerDbSessionStore, sessionStoreStatus } from './app/server/session-store-db.ts'
 
 // Keep the Keycloak tokens server-side (Postgres) so the session cookie stays
 // small — inlining them exceeds the browser cookie-size limit and drops the
@@ -178,6 +178,11 @@ async function diagnostics(req: Request): Promise<Response> {
 
   const cfg = getServerAuthConfig()
   out.auth = { configured: Boolean(cfg), publicUrl: cfg?.publicUrl ?? null }
+
+  // Session-store mode — 'postgres' means the session cookie is small (a session
+  // id only). 'inline-fallback' means tokens are inlined and login can fail if
+  // the cookie exceeds the browser's ~4 KB limit; set DATABASE_URL to fix.
+  out.sessionStore = sessionStoreStatus()
 
   // ── Keycloak (OIDC discovery + resolved endpoint origins) ──
   if (cfg) {

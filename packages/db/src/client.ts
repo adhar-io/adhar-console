@@ -18,20 +18,62 @@ let dbInstance: Db | null = null
 let migratePromise: Promise<void> | null = null
 
 export function isDbConfigured(): boolean {
-  return Boolean(env('DATABASE_URL'))
+  return Boolean(env('DATABASE_URL') || (env('POSTGRES_HOST') && env('POSTGRES_PASSWORD')))
+}
+
+function poolOptions() {
+  return {
+    max: Number(env('DATABASE_POOL_MAX') ?? 10),
+    idle_timeout: 30,
+    connect_timeout: 15,
+    // Disable prepared statements for compatibility with PgBouncer-style poolers.
+    prepare: env('DATABASE_PREPARE') !== 'false' ? undefined : false,
+    ssl: env('DATABASE_SSL') === 'true' ? ('require' as const) : undefined,
+  }
+}
+
+/**
+ * Percent-encode the userinfo of a `postgres://user:pass@host/db` string.
+ *
+ * The platform generates the DB password with URL-reserved symbols (`/ - +`),
+ * and a raw `/` in the password makes the connection string an INVALID URL —
+ * `postgres(url)` then throws "Invalid URL", the database silently drops to
+ * "down", the server-side session store can't engage, and login loops on an
+ * oversized cookie. Encoding just the credentials makes any password safe.
+ */
+function encodeConnString(url: string): string {
+  const m = url.match(/^(postgres(?:ql)?:\/\/)([^:@/]+):([^@]*)@(.+)$/)
+  if (!m) return url
+  const [, scheme, user, pass, rest] = m
+  if (!/[/@?#\s:%]/.test(pass) && !/[/@?#\s:%]/.test(user)) return url
+  return `${scheme}${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${rest}`
 }
 
 export function getDb(): Db | null {
   if (dbInstance) return dbInstance
+
+  // Prefer discrete components (POSTGRES_HOST/PORT/DB/USER/PASSWORD) when
+  // present — postgres.js takes the password as a plain string, so it's immune
+  // to the URL-encoding problem above. Fall back to DATABASE_URL (encoded).
+  const host = env('POSTGRES_HOST')
+  const password = env('POSTGRES_PASSWORD')
   const url = env('DATABASE_URL')
-  if (!url) return null
-  sqlClient = postgres(url, {
-    max: Number(env('DATABASE_POOL_MAX') ?? 10),
-    idle_timeout: 30,
-    // Disable prepared statements for compatibility with PgBouncer-style poolers.
-    prepare: env('DATABASE_PREPARE') !== 'false' ? undefined : false,
-    ssl: env('DATABASE_SSL') === 'true' ? 'require' : undefined,
-  })
+
+  if (host && password) {
+    sqlClient = postgres({
+      host,
+      port: Number(env('POSTGRES_PORT') ?? 5432),
+      database: env('POSTGRES_DB') ?? 'console',
+      username: env('POSTGRES_USER') ?? 'console',
+      password,
+      ...poolOptions(),
+    })
+  } else if (url) {
+    sqlClient = postgres(encodeConnString(url), poolOptions())
+  } else {
+    return null
+  }
+
   dbInstance = drizzle(sqlClient, { schema })
   return dbInstance
 }

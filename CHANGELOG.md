@@ -6,6 +6,27 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+
+- **Create New loads software templates from Gitea.** A new BFF endpoint
+  `GET /api/templates` discovers templates hosted in Gitea — every repo flagged
+  as a Gitea *template repository*, plus the curated templates org
+  (`GITEA_TEMPLATES_ORG`, else `GITEA_ORG`) — using the platform Gitea service
+  token. Each repo becomes a Create-New card whose `scaffold.sourceRepo` feeds
+  the existing `/api/scaffold` engine (generate-from-template → GitOps). An
+  optional `.adhar/template.json` in a repo enriches the card (title, family,
+  wizard steps, glyph…); otherwise it's built from repo metadata. The page shows
+  a provenance row ("N templates from Gitea") and falls back to the built-in
+  seed templates when Gitea isn't connected.
+
+### Changed
+
+- **Service Catalog hides platform/system workloads.** The live catalog view
+  now filters out system namespaces (`adhar-system`, `kube-system`,
+  `cert-manager`, any `*-system` or `kube-*`, and other platform namespaces), so
+  it shows apps in user namespaces (and `default`) rather than the platform's
+  own pods.
+
 ## [0.1.14] - 2026-08-29
 
 ### Added

@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-08-29
+
 ### Added
 
 - **Profile is fully editable — avatar, details, links, and custom sections.**

@@ -6,6 +6,35 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+
+- **Admin users no longer resolve as "Viewer".** Keycloak assigns Adhar RBAC via
+  **group membership**, surfaced in a `groups` claim (e.g. a user in the
+  `/platform-admin` group). The console only read a `tenants` claim and filtered
+  realm roles to a fixed list, so a group-only admin — which is every seeded
+  user — collapsed to the least-privilege `viewer`. The ID/access-token
+  `groups` claim is now read end-to-end (Claims → User → session), and role
+  resolution aliases realm roles, client roles AND group names to the console
+  persona. Verified against the live realm: `user1` (`groups:[platform-admin]`)
+  now resolves to **Platform admin**.
+
+### Changed
+
+- **RBAC model — read-everything, write-by-role.** Every persona now sees *all*
+  details across the console (navigation is no longer hidden by role); what
+  differs is write access, gated by a capability layer (`can` / `useCan` /
+  `isReadOnly`, capabilities `platform.manage`, `workspace.manage`, `app.manage`,
+  `develop`, `create`). The persona set is stated clearly:
+  **Super admin** (Keycloak `admin`), **Platform admin**, **Platform engineer**,
+  **Application admin**, **Developer**, **Viewer** — resolved high→low privilege,
+  least-privilege default. The `super-admin` persona + its RoleChip tone are new;
+  the auth `Role` union was widened to match. Platform Keycloak config gains the
+  `platform-engineer` and `application-admin` groups so the full taxonomy is
+  assignable.
+- **`npm run release`** — one command to bump the version, promote the CHANGELOG,
+  commit, tag `vX.Y.Z` and push (triggers the Release pipeline). Supports
+  `patch|minor|major`, an explicit version, and `--dry`.
+
 ## [0.1.11] - 2026-08-29
 
 ### Added

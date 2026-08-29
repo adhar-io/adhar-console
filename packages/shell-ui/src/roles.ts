@@ -12,6 +12,7 @@ import type { NavItem, NavSection } from './nav-tree.tsx'
  * session at all) we fall back to `viewer` — least privilege.
  */
 export type ConsoleRole =
+  | 'super-admin'
   | 'platform-admin'
   | 'application-admin'
   | 'developer'
@@ -20,6 +21,7 @@ export type ConsoleRole =
 
 /** All personas, ordered by descending privilege (used for resolution). */
 export const CONSOLE_ROLES: readonly ConsoleRole[] = [
+  'super-admin',
   'platform-admin',
   'platform-engineer',
   'application-admin',
@@ -28,6 +30,7 @@ export const CONSOLE_ROLES: readonly ConsoleRole[] = [
 ]
 
 export const ROLE_LABEL: Record<ConsoleRole, string> = {
+  'super-admin': 'Super admin',
   'platform-admin': 'Platform admin',
   'platform-engineer': 'Platform engineer',
   'application-admin': 'Application admin',
@@ -36,6 +39,8 @@ export const ROLE_LABEL: Record<ConsoleRole, string> = {
 }
 
 export const ROLE_DESCRIPTION: Record<ConsoleRole, string> = {
+  'super-admin':
+    'Unrestricted — every surface across the platform and all workspaces, including administration.',
   'platform-admin':
     'Full control — platform operations, workspace administration and every lifecycle surface.',
   'platform-engineer':
@@ -44,20 +49,22 @@ export const ROLE_DESCRIPTION: Record<ConsoleRole, string> = {
     'Administers applications — catalog, planning, delivery and application-level settings.',
   developer:
     'Builds and ships software — the full lifecycle plus read access to platform surfaces.',
-  viewer: 'Read-only access — overview, catalog, score cards, observability and analytics.',
+  viewer: 'Read-only access — sees every detail across the console, but cannot make changes.',
 }
 
 /**
  * Keycloak → persona mapping. Tokens are matched (case-insensitively,
  * ignoring group-path prefixes) against the user's realm/client roles and
- * group memberships.
+ * group memberships. Mirrors the auth package's `ROLE_ALIASES` so the console
+ * persona and the coarse auth `Role` agree.
  */
 const ROLE_TOKENS: Record<ConsoleRole, readonly string[]> = {
+  'super-admin': ['super-admin', 'superadmin', 'admin'],
   'platform-admin': ['platform-admin', 'platform-admins'],
   'platform-engineer': ['platform-engineer', 'platform-engineers', 'platform-eng'],
   'application-admin': ['application-admin', 'app-admin', 'tenant-admin', 'application-admins'],
   developer: ['developer', 'developers', 'platform-developer'],
-  viewer: ['viewer', 'viewers', 'platform-viewer'],
+  viewer: ['viewer', 'viewers', 'platform-viewer', 'base-user'],
 }
 
 /**
@@ -111,6 +118,7 @@ export function useConsoleRole(fallback?: RoleSource | null): ConsoleRole {
 
 /** Where each persona lands right after login. */
 export const ROLE_LANDING: Record<ConsoleRole, string> = {
+  'super-admin': '/platform',
   'platform-admin': '/platform',
   'platform-engineer': '/platform',
   developer: '/develop',
@@ -122,17 +130,71 @@ export function landingPathForRole(role: ConsoleRole): string {
   return ROLE_LANDING[role] ?? '/'
 }
 
+/** Personas with unrestricted access — every capability, every surface. */
+const UNRESTRICTED: readonly ConsoleRole[] = ['super-admin', 'platform-admin']
+
 /**
  * Can `role` see a surface gated by `requiredRoles`?
  *
  *   - `undefined` / empty → visible to everyone (backward compatible).
- *   - `platform-admin` sees everything, always.
+ *   - unrestricted personas (super/platform admin) see everything, always.
  *   - otherwise the role must be listed.
+ *
+ * NOTE: the console shows *all details* to every persona by design — visibility
+ * is not gated. This helper remains for callers that opt into hiding a specific
+ * surface; write access is gated separately via {@link can}.
  */
 export function roleCanSee(role: ConsoleRole, requiredRoles?: readonly string[]): boolean {
   if (!requiredRoles?.length) return true
-  if (role === 'platform-admin') return true
+  if (UNRESTRICTED.includes(role)) return true
   return requiredRoles.includes(role)
+}
+
+/* ───────────────────────── Capabilities (write access) ─────────────────────
+ *
+ * The console follows a "read-everything, write-by-role" model: every persona
+ * can SEE all details, but mutating actions are gated by capability. Modules
+ * call `useCan('platform.manage')` (etc.) to enable/disable edit controls.
+ */
+export type Capability =
+  | 'platform.manage' // Kubernetes ops, Crossplane resources, policies, cluster settings
+  | 'workspace.manage' // members, billing/plan, org settings, branding, integrations
+  | 'app.manage' // catalog, planning, design, delivery — application-level changes
+  | 'develop' // develop lifecycle — build/ship software
+  | 'create' // create new entities (apps, projects, resources)
+
+const ALL_CAPS: readonly Capability[] = [
+  'platform.manage',
+  'workspace.manage',
+  'app.manage',
+  'develop',
+  'create',
+]
+
+/** Per-persona write capabilities. Unrestricted personas implicitly get all. */
+export const ROLE_CAPABILITIES: Record<ConsoleRole, readonly Capability[]> = {
+  'super-admin': ALL_CAPS,
+  'platform-admin': ALL_CAPS,
+  'platform-engineer': ['platform.manage', 'develop', 'create'],
+  'application-admin': ['app.manage', 'workspace.manage', 'create'],
+  developer: ['develop', 'create'],
+  viewer: [],
+}
+
+/** Does `role` hold write capability `cap`? Unrestricted personas always do. */
+export function can(role: ConsoleRole, cap: Capability): boolean {
+  if (UNRESTRICTED.includes(role)) return true
+  return ROLE_CAPABILITIES[role].includes(cap)
+}
+
+/** Capability check for the running tab's persona (session-aware). */
+export function useCan(cap: Capability): boolean {
+  return can(useConsoleRole(), cap)
+}
+
+/** True when the persona has no write capability at all — pure read-only. */
+export function isReadOnly(role: ConsoleRole): boolean {
+  return !UNRESTRICTED.includes(role) && ROLE_CAPABILITIES[role].length === 0
 }
 
 function itemVisible(item: NavItem, role: ConsoleRole, extraRoles?: readonly string[]): boolean {

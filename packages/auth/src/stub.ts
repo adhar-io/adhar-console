@@ -5,6 +5,7 @@ export const STUB_USER: User = {
   email: 'tapas.friends@gmail.com',
   name: 'Tapas Jena',
   roles: ['platform-admin', 'developer'],
+  groups: ['platform-admin'],
   tenants: ['acme', 'globex'],
 }
 

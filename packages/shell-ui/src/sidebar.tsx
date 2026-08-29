@@ -6,7 +6,6 @@ import type { User } from '@adhar-console/auth'
 import { TenantSwitcher } from './tenant-switcher.tsx'
 import { hasActiveDescendant, isItemActive, NavItem } from './nav-item.tsx'
 import { DEFAULT_NAV, type NavItem as TNavItem, type NavSection } from './nav-tree.tsx'
-import { filterNavByRole, useConsoleRole } from './roles.ts'
 import { AdharSymbol, AdharWordmarkStack } from './brand.tsx'
 
 interface Props {
@@ -18,7 +17,7 @@ interface Props {
   /** Controlled collapse state. When omitted the component manages its own. */
   collapsed?: boolean
   onCollapseChange?(collapsed: boolean): void
-  /** User is only used for role-based menu filtering — the user menu lives in the Topbar. */
+  /** Accepted for API compatibility; the user menu + role chip live in the Topbar. */
   user?: User
   onSignOut?(): void
   /** Wires the ⌘K keyboard shortcut. The visible trigger lives in the Topbar. */
@@ -48,25 +47,19 @@ export function Sidebar({
   sections = DEFAULT_NAV,
   collapsed: controlledCollapsed,
   onCollapseChange,
-  user,
   onOpenCommandPalette,
 }: Props) {
   const [internalCollapsed, setInternalCollapsed] = useState(false)
   const collapsed = controlledCollapsed ?? internalCollapsed
 
   /*
-   * Role-aware nav: resolve the console persona (session first, `user` prop
-   * as fallback, `viewer` when anonymous) and prune the tree up-front so the
-   * accordion, keyboard shortcuts and rendering all agree on what exists.
-   * Items without a `roles` annotation stay visible to everyone; the raw
-   * `user.roles` are passed through so legacy Keycloak-role annotations on
-   * custom trees keep matching.
+   * The console shows *all details* to every persona — navigation is not
+   * gated by role (a viewer sees the same surfaces as an admin). What differs
+   * is write access: pages enable/disable their edit controls via the
+   * capability layer (`useCan`). So the sidebar renders the full nav tree; the
+   * signed-in persona is surfaced by the topbar RoleChip, not by hiding menus.
    */
-  const role = useConsoleRole(user)
-  const visibleSections = useMemo(
-    () => filterNavByRole(sections, role, user?.roles),
-    [sections, role, user?.roles],
-  )
+  const visibleSections = sections
 
   /*
    * Accordion expansion is derived from the active route — whichever

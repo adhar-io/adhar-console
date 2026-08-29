@@ -87,6 +87,8 @@ export function Topbar({
  * and dark modes work; the native tooltip carries the role description.
  */
 const ROLE_CHIP_TONE: Record<ConsoleRole, string> = {
+  'super-admin':
+    'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 ring-rose-200 dark:ring-rose-500/30',
   'platform-admin':
     'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-brand-200 dark:ring-brand-500/30',
   'platform-engineer':

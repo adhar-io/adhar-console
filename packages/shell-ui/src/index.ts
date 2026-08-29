@@ -21,15 +21,20 @@ export {
   type NavSection,
 } from './nav-tree.tsx'
 export {
+  can,
   CONSOLE_ROLES,
   filterNavByRole,
+  isReadOnly,
   landingPathForRole,
   resolveConsoleRole,
+  ROLE_CAPABILITIES,
   ROLE_DESCRIPTION,
   ROLE_LABEL,
   ROLE_LANDING,
   roleCanSee,
+  useCan,
   useConsoleRole,
+  type Capability,
   type ConsoleRole,
   type RoleSource,
 } from './roles.ts'

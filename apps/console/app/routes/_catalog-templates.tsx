@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import {
   Button,
@@ -18,14 +18,17 @@ import { useRegisterEntity, useCatalog, type Entity } from '~/data/catalog.ts'
 import {
   buildCustomTemplate,
   entityFromTemplate,
+  getGiteaStatus,
   getTemplate,
   getTemplates,
   isUserTemplate,
   LANGUAGE_LABEL,
+  loadGiteaTemplates,
   registerTemplate,
   removeUserTemplate,
   subscribeUserTemplates,
   type CatalogTemplate,
+  type GiteaTemplateStatus,
   type TemplateField,
   type TemplateFamily,
   type TemplateLanguage,
@@ -75,6 +78,11 @@ export function CatalogTemplates({ onCreated }: { onCreated(): void }) {
     getTemplates,
     getTemplates,
   )
+  // Gitea-hosted templates load lazily from the BFF and fold into the store.
+  const gitea = useSyncExternalStore(subscribeUserTemplates, getGiteaStatus, getGiteaStatus)
+  useEffect(() => {
+    loadGiteaTemplates()
+  }, [])
   const [familyFilter, setFamilyFilter] = useState<string>('all')
   const [langFilter, setLangFilter] = useState<TemplateLanguage | 'all'>('all')
   const [text, setText] = useState<string>('')
@@ -163,6 +171,7 @@ export function CatalogTemplates({ onCreated }: { onCreated(): void }) {
           onLaunchRecent={launch}
           text={text}
           onText={setText}
+          gitea={gitea}
           onClearFilters={() => {
             setText('')
             setFamilyFilter('all')
@@ -249,6 +258,35 @@ function Header({ onRegister }: { onRegister(): void }) {
 
 /* ─────────── template list (left pane) ─────────── */
 
+/** Thin provenance row under the search bar: where the templates came from. */
+function GiteaStatusRow({ gitea }: { gitea: GiteaTemplateStatus }) {
+  let label: ReactNode = null
+  if (gitea.loading) {
+    label = (
+      <>
+        <Spinner size={12} /> Loading templates from Gitea…
+      </>
+    )
+  } else if (gitea.configured && gitea.count > 0) {
+    label = (
+      <>
+        <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        {gitea.count} template{gitea.count === 1 ? '' : 's'} from Gitea
+      </>
+    )
+  } else if (gitea.loaded && gitea.configured && gitea.count === 0) {
+    label = <>No template repositories found in Gitea — showing built-in starters.</>
+  } else if (gitea.loaded && !gitea.configured) {
+    label = <>Gitea not connected — showing built-in starters.</>
+  }
+  if (!label) return null
+  return (
+    <div className="flex items-center gap-1.5 border-b border-edge-subtle px-3 py-1.5 text-[11px] text-content-subtle">
+      {label}
+    </div>
+  )
+}
+
 function TemplateList({
   grouped,
   totalShown,
@@ -266,6 +304,7 @@ function TemplateList({
   onLaunchRecent,
   text,
   onText,
+  gitea,
   onClearFilters,
 }: {
   grouped: Array<{ id: string; label: string; items: CatalogTemplate[] }>
@@ -284,6 +323,7 @@ function TemplateList({
   onLaunchRecent(t: CatalogTemplate): void
   text: string
   onText(v: string): void
+  gitea: GiteaTemplateStatus
   onClearFilters(): void
 }) {
   const hasFilters = filterCount > 0 || text.length > 0
@@ -332,6 +372,8 @@ function TemplateList({
           filterCount={filterCount}
         />
       </div>
+
+      <GiteaStatusRow gitea={gitea} />
 
       <div className="flex-1 overflow-y-auto">
         {recents.length > 0 && !hasFilters ? (

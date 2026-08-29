@@ -30,6 +30,7 @@ import { proxyToolRequest } from './app/server/proxy.ts'
 import { publicToolInfo } from './app/server/tool-registry.ts'
 import { handleDocuments, handleNotifications, handlePreferences } from './app/server/api-handlers.ts'
 import { handleScaffold } from './app/server/scaffolder.ts'
+import { handleListTemplates } from './app/server/templates.ts'
 import { handleWorkspace } from './app/server/workspace/handlers.ts'
 import { handleBilling } from './app/server/billing/handlers.ts'
 import { handleOrganizations } from './app/server/organizations.ts'
@@ -323,6 +324,9 @@ async function route(req: Request): Promise<Response> {
   // Console-owned document store: /api/store/<kind>[/<id>]
   const store = path.match(/^\/api\/store\/([^/]+)(?:\/(.+))?$/)
   if (store) return handleDocuments(req, decodeURIComponent(store[1]), store[2] ? decodeURIComponent(store[2]) : undefined)
+
+  // Software templates for Catalog → Create New — discovered from Gitea.
+  if (path === '/api/templates') return handleListTemplates(req)
 
   // Component scaffolder (Catalog → Create): real Gitea repo + GitOps.
   if (path === '/api/scaffold') return handleScaffold(req)

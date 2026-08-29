@@ -124,6 +124,10 @@ export interface CatalogTemplate {
   glyph: string
   /** Tone for the card border. */
   tone: 'brand' | 'emerald' | 'sky' | 'amber' | 'violet' | 'rose' | 'slate'
+  /** Where this template came from — drives a small provenance badge. */
+  source?: 'seed' | 'user' | 'gitea'
+  /** For Gitea templates: the source repo's browser URL. */
+  repoUrl?: string
   /**
    * Declarative scaffold contract executed by the BFF `/api/scaffold` endpoint.
    * Absent → the template only registers a catalog entry (no repo/GitOps). This
@@ -1590,8 +1594,177 @@ function invalidateComposed() {
 
 export function getTemplates(): CatalogTemplate[] {
   if (cachedComposed) return cachedComposed
-  cachedComposed = [...readUserTemplates(), ...TEMPLATES]
+  // Order: user-registered first, then Gitea-hosted (the platform's curated
+  // golden paths), then the built-in seed as an always-present fallback.
+  cachedComposed = [...readUserTemplates(), ...giteaTemplates, ...TEMPLATES]
   return cachedComposed
+}
+
+/* ─────────── Gitea-hosted templates (GET /api/templates) ─────────── */
+
+/**
+ * Templates discovered from Gitea by the BFF (`/api/templates`) — repos flagged
+ * as template repositories, plus the curated templates org. Loaded once per tab
+ * (call {@link loadGiteaTemplates} from the Create New page) and folded into
+ * `getTemplates()` through the same external store, so the list re-renders when
+ * they arrive. When Gitea isn't configured the list stays empty and the seed
+ * templates are shown — the page always works.
+ */
+export interface GiteaTemplateStatus {
+  loading: boolean
+  loaded: boolean
+  configured: boolean
+  count: number
+  error?: string
+}
+
+const VALID_FAMILIES = new Set<string>([
+  'service',
+  'website',
+  'library',
+  'api',
+  'mobile',
+  'docs',
+  'data',
+  'infra',
+])
+
+let giteaTemplates: CatalogTemplate[] = []
+let giteaStatus: GiteaTemplateStatus = {
+  loading: false,
+  loaded: false,
+  configured: false,
+  count: 0,
+}
+let giteaInFlight: Promise<void> | null = null
+
+export function getGiteaStatus(): GiteaTemplateStatus {
+  return giteaStatus
+}
+
+/** Coerce a RegExp that survived JSON as `{source,flags}` or a string. */
+function toRegExp(v: unknown): RegExp | undefined {
+  try {
+    if (v instanceof RegExp) return v
+    if (typeof v === 'string') return new RegExp(v)
+    if (v && typeof v === 'object' && 'source' in v) {
+      const o = v as { source: string; flags?: string }
+      return new RegExp(o.source, o.flags ?? '')
+    }
+  } catch {
+    /* malformed pattern — skip validation */
+  }
+  return undefined
+}
+
+/** Harden one server-provided template into a well-formed CatalogTemplate. */
+function sanitizeServerTemplate(raw: unknown): CatalogTemplate | null {
+  if (!raw || typeof raw !== 'object') return null
+  const t = raw as Record<string, unknown>
+  if (typeof t.id !== 'string' || typeof t.title !== 'string') return null
+  const steps = Array.isArray(t.steps)
+    ? (t.steps as Array<Record<string, unknown>>).map((s) => ({
+        key: String(s.key ?? s.id ?? 'step'),
+        title: String(s.title ?? 'Details'),
+        description: String(s.description ?? ''),
+        fields: Array.isArray(s.fields)
+          ? (s.fields as Array<Record<string, unknown>>).map((f) => {
+              const field = { ...f, key: String(f.key ?? f.id ?? 'field') }
+              if (f.pattern && typeof f.pattern === 'object') {
+                const p = f.pattern as { regex?: unknown; message?: unknown }
+                const regex = toRegExp(p.regex)
+                field.pattern = regex ? { regex, message: String(p.message ?? 'Invalid value.') } : undefined
+              }
+              return field
+            })
+          : [],
+      }))
+    : []
+  // Constrain to known enums so downstream label lookups never blow up.
+  const language: TemplateLanguage = (LANGUAGE_LABEL as Record<string, string>)[String(t.language)]
+    ? (t.language as TemplateLanguage)
+    : 'mixed'
+  const family: TemplateFamily = VALID_FAMILIES.has(String(t.family))
+    ? (t.family as TemplateFamily)
+    : 'service'
+  return {
+    id: t.id,
+    title: t.title,
+    description: String(t.description ?? ''),
+    produces: (t.produces as CatalogTemplate['produces']) ?? { kind: 'Component', type: 'service' },
+    family,
+    language,
+    tags: Array.isArray(t.tags) ? (t.tags as string[]).map(String) : ['gitea'],
+    owner: String(t.owner ?? 'team-platform'),
+    steps: steps.length ? (steps as CatalogTemplate['steps']) : [],
+    actions: Array.isArray(t.actions) ? (t.actions as CatalogTemplate['actions']) : [],
+    estimateMinutes: typeof t.estimateMinutes === 'number' ? t.estimateMinutes : 1,
+    popular: Boolean(t.popular),
+    isNew: Boolean(t.isNew),
+    glyph: String(t.glyph ?? 'GT'),
+    tone: (t.tone as CatalogTemplate['tone']) ?? 'brand',
+    source: 'gitea',
+    repoUrl: typeof t.repoUrl === 'string' ? t.repoUrl : undefined,
+    scaffold: (t.scaffold as CatalogTemplate['scaffold']) ?? undefined,
+  }
+}
+
+function setGiteaStatus(next: GiteaTemplateStatus): void {
+  giteaStatus = next
+  invalidateComposed()
+  notify()
+}
+
+/**
+ * Fetch Gitea templates once (deduped). Safe to call from multiple mounts;
+ * concurrent calls share the same in-flight promise. Pass `force` to refetch.
+ */
+export function loadGiteaTemplates(force = false): Promise<void> {
+  if (giteaInFlight) return giteaInFlight
+  if (giteaStatus.loaded && !force) return Promise.resolve()
+  setGiteaStatus({ ...giteaStatus, loading: true, error: undefined })
+  giteaInFlight = (async () => {
+    try {
+      const res = await fetch('/api/templates', {
+        credentials: 'include',
+        headers: { accept: 'application/json' },
+      })
+      const ct = res.headers.get('content-type') ?? ''
+      if (!res.ok || !ct.includes('application/json')) {
+        // No BFF (dev SPA) or an error — keep seed templates, note the state.
+        giteaTemplates = []
+        setGiteaStatus({ loading: false, loaded: true, configured: false, count: 0 })
+        return
+      }
+      const json = (await res.json()) as {
+        configured?: boolean
+        templates?: unknown[]
+        error?: string
+      }
+      giteaTemplates = (json.templates ?? [])
+        .map(sanitizeServerTemplate)
+        .filter((t): t is CatalogTemplate => t !== null)
+      setGiteaStatus({
+        loading: false,
+        loaded: true,
+        configured: json.configured === true,
+        count: giteaTemplates.length,
+        error: json.error,
+      })
+    } catch (e) {
+      giteaTemplates = []
+      setGiteaStatus({
+        loading: false,
+        loaded: true,
+        configured: false,
+        count: 0,
+        error: e instanceof Error ? e.message : 'network error',
+      })
+    } finally {
+      giteaInFlight = null
+    }
+  })()
+  return giteaInFlight
 }
 
 export function getTemplate(id: string): CatalogTemplate | undefined {

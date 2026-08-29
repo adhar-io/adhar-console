@@ -343,6 +343,47 @@ export interface LiveCatalog {
   hasLive: boolean
 }
 
+/**
+ * Kubernetes namespaces that hold platform/system workloads, not user apps.
+ * The Service Catalog is a developer view of *their* software, so these are
+ * filtered out — only user namespaces (and `default`) surface. Covers the
+ * well-known cluster namespaces plus the Adhar platform's own (everything the
+ * platform installs lives in `adhar-system`).
+ */
+const SYSTEM_NAMESPACES = new Set([
+  'kube-system',
+  'kube-public',
+  'kube-node-lease',
+  'adhar-system',
+  'local-path-storage',
+  'metallb-system',
+  'ingress-nginx',
+  'cert-manager',
+  'argocd',
+  'argo',
+  'crossplane-system',
+  'external-secrets',
+  'cnpg-system',
+  'kyverno',
+  'tekton-pipelines',
+  'flux-system',
+  'monitoring',
+  'observability',
+])
+
+/** True for a platform/system namespace that should be hidden from the catalog. */
+function isSystemNamespace(ns: string | undefined): boolean {
+  const n = ns ?? 'default'
+  if (SYSTEM_NAMESPACES.has(n)) return true
+  // Conventional system namespaces: the `kube-` prefix and any `*-system`.
+  return n.startsWith('kube-') || n.endsWith('-system')
+}
+
+/** Keep only objects living in a user namespace (drops system/platform ones). */
+function inUserNamespace(obj: { metadata?: { namespace?: string } }): boolean {
+  return !isSystemNamespace(obj.metadata?.namespace)
+}
+
 export function useLiveCatalog(): LiveCatalog {
   const deployments = useQuery({
     queryKey: ['catalog', 'live', 'deployments'],
@@ -376,10 +417,12 @@ export function useLiveCatalog(): LiveCatalog {
   })
 
   return useMemo(() => {
-    const deps = deployments.data ?? []
-    const sts = statefulSets.data ?? []
-    const svcs = services.data ?? []
-    const ings = ingresses.data ?? []
+    // Only surface workloads in user namespaces — hide platform/system pods
+    // (adhar-system, kube-system, cert-manager, …) so the catalog shows apps.
+    const deps = (deployments.data ?? []).filter(inUserNamespace)
+    const sts = (statefulSets.data ?? []).filter(inUserNamespace)
+    const svcs = (services.data ?? []).filter(inUserNamespace)
+    const ings = (ingresses.data ?? []).filter(inUserNamespace)
     const gitRepos = repos.data ?? []
 
     const components = [

@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-08-29
+
 ### Fixed
 
 - **Admin users no longer resolve as "Viewer".** Keycloak assigns Adhar RBAC via

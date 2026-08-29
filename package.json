@@ -1,6 +1,6 @@
 {
   "name": "adhar-console",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "private": true,
   "description": "Enterprise console for the Adhar platform — unified UI across the 6D SDLC (Define, Design, Develop, Deliver, Discover, Decide)",
   "type": "module",

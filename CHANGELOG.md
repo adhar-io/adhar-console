@@ -6,6 +6,19 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+
+- **Login goes straight to the dashboard; only sign-up goes to onboarding.**
+  Both the "Continue with Single Sign-On" and "Create a new account" buttons
+  landed on `/onboarding`, because the OIDC callback chose the destination from
+  `tenants.length === 0` — always true for Keycloak users (their token carries
+  `groups`, not `tenants`). The destination is now driven by the sign-in
+  **intent** carried through the auth transaction: `register` → `/onboarding`,
+  `login` → the app (or an explicit same-origin `returnTo`). The client-side
+  first-run gate that could still bounce a fresh browser to onboarding was
+  removed, so a normal login always lands in the console. Onboarding stays
+  reachable via "Create a new account" and the in-app entry point.
+
 ## [0.1.12] - 2026-08-29
 
 ### Fixed

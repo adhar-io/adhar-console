@@ -33,7 +33,6 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 /* ─────────── auth gate ─────────── */
 
 const PUBLIC_PATH_PREFIXES = ['/login', '/signup', '/auth/']
-const ONBOARDING_PATH = '/onboarding'
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATH_PREFIXES.some(
@@ -44,7 +43,7 @@ function isPublicPath(pathname: string): boolean {
 function RootComponent() {
   useRouteTitleSync()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const { status, session } = useAuth()
+  const { status } = useAuth()
   const nav = useNavigate()
   const isPublic = isPublicPath(pathname)
 
@@ -70,25 +69,12 @@ function RootComponent() {
     })
   }, [status, isPublic, pathname, nav])
 
-  // Onboarding is NO LONGER forced on every login. The Keycloak token has no
-  // `tenants` claim (it carries `groups`), so the old `tenants.length === 0`
-  // guard bounced EVERY sign-in to /onboarding. The console now auto-provisions
-  // a default organization, so a signed-in user always has a workspace and lands
-  // straight in the app. Onboarding stays reachable at /onboarding as a
-  // first-run helper (surfaced in-app), just not as a blocking gate.
-  //
-  // Show it once for a genuinely new browser (no completed/skipped flag), then
-  // never again — a returning user goes directly to the app.
-  useEffect(() => {
-    if (status !== 'authenticated' || !session || isPublic) return
-    if (pathname !== '/' ) return
-    try {
-      const seen = globalThis.localStorage?.getItem('adhar.onboarding.completed')
-      if (!seen) nav({ to: ONBOARDING_PATH, replace: true })
-    } catch {
-      /* private mode — just land in the app */
-    }
-  }, [status, session, pathname, isPublic, nav])
+  // Onboarding is NEVER auto-forced. A normal login lands straight in the app
+  // (the server callback sends `login` intent to `/`, `register` intent to
+  // `/onboarding`). The console auto-provisions a default organization, so a
+  // signed-in user always has a workspace. Onboarding stays reachable at
+  // /onboarding — via "Create a new account" or an in-app entry point — but it
+  // is not a blocking gate, so a fresh browser logging in goes to the dashboard.
 
   // Loading splash while we're still figuring out who the user is.
   if (status === 'loading' && !isPublic) return <BootSplash />

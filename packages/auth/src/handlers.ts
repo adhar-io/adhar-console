@@ -44,6 +44,9 @@ interface TxnState {
   nonce: string
   codeVerifier: string
   returnTo: string
+  /** Which button started the flow. `register` lands on onboarding; `login`
+   *  goes straight to the app (or an explicit same-origin `returnTo`). */
+  intent?: 'login' | 'register'
 }
 
 /** Confine `returnTo` to same-origin absolute paths to prevent open redirects. */
@@ -92,7 +95,7 @@ export async function handleLogin(req: Request): Promise<Response> {
     return redirectWithError(origin, 'Sign-in is temporarily unavailable. Please try again shortly.')
   }
 
-  const txn: TxnState = { state, nonce, codeVerifier: verifier, returnTo }
+  const txn: TxnState = { state, nonce, codeVerifier: verifier, returnTo, intent }
   // SameSite=None (requires Secure) so the transaction cookie survives the
   // Keycloak round-trip. The callback is reached by a cross-origin redirect FROM
   // Keycloak; with SameSite=Lax browsers can withhold the cookie on that
@@ -153,8 +156,12 @@ export async function handleCallback(req: Request): Promise<Response> {
     return redirectWithError(origin, 'Sign-in could not be completed. Please try again.')
   }
 
-  // Fresh signup with no tenant yet → send through onboarding.
-  const dest = session.user.tenants.length === 0 ? '/onboarding' : safeReturnTo(txn.returnTo)
+  // Onboarding is driven by INTENT, not tenant count. Keycloak users carry a
+  // `groups` claim (not `tenants`), so `tenants.length === 0` was always true
+  // and forced EVERY sign-in — including plain login — through onboarding.
+  // Now only the "Create a new account" button (intent=register) lands on
+  // onboarding; a normal login goes straight to the app (or its `returnTo`).
+  const dest = txn.intent === 'register' ? '/onboarding' : safeReturnTo(txn.returnTo)
   const headers = new Headers({ location: `${origin}${dest}` })
   headers.append('set-cookie', await sessionSetCookie(session, cfg))
   headers.append('set-cookie', clearCookie(TXN_COOKIE, { secure: cfg.cookieSecure }))

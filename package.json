@@ -21,6 +21,7 @@
     "fmt": "deno fmt",
     "check": "deno task check",
     "clean": "deno task clean && rm -rf node_modules .turbo",
-    "console:dev": "cd apps/console && deno task dev"
+    "console:dev": "cd apps/console && deno task dev",
+    "release": "node scripts/release.mjs"
   }
 }

@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-08-29
+
 ### Fixed
 
 - **Login goes straight to the dashboard; only sign-up goes to onboarding.**

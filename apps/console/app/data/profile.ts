@@ -27,13 +27,41 @@ import type { Session } from '@adhar-console/auth'
 
 /* ═══════════════════════════ prefs types ═══════════════════════════ */
 
+/** A labelled external link (website, GitHub, LinkedIn…). */
+export interface ProfileLink {
+  label: string
+  url: string
+}
+
+/** A user-defined key/value detail — the "add your own section" mechanism. */
+export interface ProfileCustomField {
+  label: string
+  value: string
+}
+
 export interface ProfileIdentityPrefs {
   displayName: string
   title: string
   bio: string
   timezone: string
   locale: string
+  /** Uploaded avatar as a `data:image/...` URL. Empty ⇒ generated initials. */
+  avatarDataUrl: string
+  pronouns: string
+  phone: string
+  location: string
+  company: string
+  department: string
+  /** Labelled external links, add/remove in the UI. */
+  links: ProfileLink[]
+  /** User-defined key/value fields — fully custom sections. */
+  customFields: ProfileCustomField[]
 }
+
+/** Max stored avatar payload (~90 KB of base64 ≈ a 256px JPEG). */
+export const AVATAR_MAX_BYTES = 90_000
+export const MAX_PROFILE_LINKS = 12
+export const MAX_CUSTOM_FIELDS = 24
 
 export type Density = 'comfortable' | 'compact'
 
@@ -76,8 +104,24 @@ export const DEFAULT_NOTIFICATIONS: NotificationMatrix = {
   billing: { inApp: true, email: true },
 }
 
+export const EMPTY_IDENTITY: ProfileIdentityPrefs = {
+  displayName: '',
+  title: '',
+  bio: '',
+  timezone: '',
+  locale: '',
+  avatarDataUrl: '',
+  pronouns: '',
+  phone: '',
+  location: '',
+  company: '',
+  department: '',
+  links: [],
+  customFields: [],
+}
+
 export const DEFAULT_PREFS: ProfilePrefs = {
-  identity: { displayName: '', title: '', bio: '', timezone: '', locale: '' },
+  identity: EMPTY_IDENTITY,
   appearance: { themeId: DEFAULT_THEME_ID, density: 'comfortable', reducedMotion: false },
   notifications: DEFAULT_NOTIFICATIONS,
 }
@@ -98,6 +142,25 @@ function sanitize(input: unknown): ProfilePrefs {
       email: typeof row?.email === 'boolean' ? row.email : DEFAULT_NOTIFICATIONS[cat].email,
     }
   }
+  // Keep only a bounded `data:image/...` avatar; reject anything else (URLs,
+  // scripts, oversized payloads) so the prefs document stays safe + small.
+  const avatar = (() => {
+    const v = id.avatarDataUrl
+    if (typeof v !== 'string' || !v.startsWith('data:image/')) return ''
+    return v.length <= AVATAR_MAX_BYTES ? v : ''
+  })()
+  const links = Array.isArray(id.links)
+    ? id.links
+        .slice(0, MAX_PROFILE_LINKS)
+        .map((l) => ({ label: str((l as ProfileLink)?.label, 60), url: str((l as ProfileLink)?.url, 300) }))
+        .filter((l) => l.label !== '' || l.url !== '')
+    : []
+  const customFields = Array.isArray(id.customFields)
+    ? id.customFields
+        .slice(0, MAX_CUSTOM_FIELDS)
+        .map((f) => ({ label: str((f as ProfileCustomField)?.label, 60), value: str((f as ProfileCustomField)?.value, 500) }))
+        .filter((f) => f.label !== '' || f.value !== '')
+    : []
   return {
     identity: {
       displayName: str(id.displayName, 120),
@@ -105,6 +168,14 @@ function sanitize(input: unknown): ProfilePrefs {
       bio: str(id.bio, 2000),
       timezone: str(id.timezone, 80),
       locale: str(id.locale, 32),
+      avatarDataUrl: avatar,
+      pronouns: str(id.pronouns, 40),
+      phone: str(id.phone, 40),
+      location: str(id.location, 120),
+      company: str(id.company, 120),
+      department: str(id.department, 120),
+      links,
+      customFields,
     },
     appearance: {
       themeId: VALID_THEME_IDS.has(ap.themeId ?? '') ? (ap.themeId as string) : DEFAULT_THEME_ID,
@@ -113,6 +184,60 @@ function sanitize(input: unknown): ProfilePrefs {
     },
     notifications,
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : undefined,
+  }
+}
+
+/* ═══════════════════════ avatar image processing ═══════════════════════ */
+
+export class AvatarError extends Error {}
+
+/**
+ * Read an image File, downscale it to a square `size`px thumbnail on a canvas,
+ * and return a compressed `data:image/...` URL small enough to live in the
+ * prefs document. Compresses progressively until it fits `AVATAR_MAX_BYTES`.
+ * Runs entirely client-side — no upload endpoint required.
+ */
+export async function fileToAvatarDataUrl(file: File, size = 256): Promise<string> {
+  if (!file.type.startsWith('image/')) throw new AvatarError('Please choose an image file.')
+  if (file.size > 12_000_000) throw new AvatarError('Image is too large (max 12 MB).')
+  const bitmap = await loadBitmap(file)
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new AvatarError('Could not process the image in this browser.')
+  // Cover-crop to a centered square, then draw at target size.
+  const src = Math.min(bitmap.width, bitmap.height)
+  const sx = (bitmap.width - src) / 2
+  const sy = (bitmap.height - src) / 2
+  ctx.drawImage(bitmap, sx, sy, src, src, 0, 0, size, size)
+  if ('close' in bitmap && typeof bitmap.close === 'function') bitmap.close()
+  for (const quality of [0.85, 0.7, 0.55, 0.4]) {
+    const url = canvas.toDataURL('image/jpeg', quality)
+    if (url.length <= AVATAR_MAX_BYTES) return url
+  }
+  throw new AvatarError('Could not compress the image small enough — try a simpler picture.')
+}
+
+async function loadBitmap(file: File): Promise<ImageBitmap | HTMLImageElement> {
+  if (typeof createImageBitmap === 'function') {
+    try {
+      return await createImageBitmap(file)
+    } catch {
+      /* fall through to <img> decoding (e.g. some SVG/HEIC cases) */
+    }
+  }
+  const url = URL.createObjectURL(file)
+  try {
+    const img = new Image()
+    img.decoding = 'async'
+    img.src = url
+    await img.decode()
+    return img
+  } catch {
+    throw new AvatarError('That image could not be read.')
+  } finally {
+    URL.revokeObjectURL(url)
   }
 }
 

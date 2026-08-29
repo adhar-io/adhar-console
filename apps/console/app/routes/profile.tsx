@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import {
   AppShell,
@@ -16,6 +16,7 @@ import {
   PageHeader,
   Select,
   Skeleton,
+  Spinner,
   StatusBadge,
   Tabs,
   Textarea,
@@ -26,14 +27,19 @@ import { STUB_USER, useOptionalSession, type Session, type User } from '@adhar-c
 import { getLayoutData } from '~/server/session.ts'
 import {
   applyAppearance,
+  AvatarError,
   browserTimezone,
   DEFAULT_PREFS,
+  EMPTY_IDENTITY,
+  fileToAvatarDataUrl,
   isDbUnavailable,
   isServerUnavailable,
   isUnauthenticated,
   keycloakAccountUrl,
   listTimezones,
   LOCALE_OPTIONS,
+  MAX_CUSTOM_FIELDS,
+  MAX_PROFILE_LINKS,
   NOTIFICATION_CATEGORIES,
   TOKEN_SCOPE_OPTIONS,
   useAuthSessionInfo,
@@ -49,7 +55,9 @@ import {
   type NotificationCategory,
   type NotificationMatrix,
   type PersonalToken,
+  type ProfileCustomField,
   type ProfileIdentityPrefs,
+  type ProfileLink,
   type ProfilePrefs,
 } from '~/data/profile.ts'
 
@@ -188,7 +196,7 @@ function initialsOf(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
-function GeneratedAvatar({ name, size = 56 }: { name: string; size?: number }) {
+function GeneratedAvatar({ name, size = 64 }: { name: string; size?: number }) {
   return (
     <div
       aria-hidden
@@ -205,6 +213,91 @@ function GeneratedAvatar({ name, size = 56 }: { name: string; size?: number }) {
   )
 }
 
+/** Uploaded photo when set, otherwise the generated initials avatar. */
+function AvatarDisplay({ name, dataUrl, size = 64 }: { name: string; dataUrl?: string; size?: number }) {
+  if (dataUrl) {
+    return (
+      <img
+        src={dataUrl}
+        alt={`${name}'s avatar`}
+        width={size}
+        height={size}
+        className="shrink-0 rounded-full object-cover ring-1 ring-inset ring-black/10 dark:ring-white/15"
+        style={{ width: size, height: size }}
+      />
+    )
+  }
+  return <GeneratedAvatar name={name} size={size} />
+}
+
+/** Editable avatar with upload + remove; edits flow into the identity draft. */
+function AvatarEditor({
+  name,
+  dataUrl,
+  onChange,
+}: {
+  name: string
+  dataUrl: string
+  onChange(next: string): void
+}) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const pick = async (file: File | undefined) => {
+    if (!file) return
+    setErr(null)
+    setBusy(true)
+    try {
+      onChange(await fileToAvatarDataUrl(file))
+    } catch (e) {
+      setErr(e instanceof AvatarError ? e.message : 'Could not process that image.')
+    } finally {
+      setBusy(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-4">
+      <div className="relative">
+        <AvatarDisplay name={name} dataUrl={dataUrl} size={64} />
+        {busy ? (
+          <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 text-white">
+            <Spinner />
+          </span>
+        ) : null}
+      </div>
+      <div className="min-w-0 space-y-2">
+        <div className="flex flex-wrap gap-2">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => pick(e.target.files?.[0])}
+          />
+          <Button size="xs" variant="secondary" disabled={busy} onClick={() => fileRef.current?.click()}>
+            {dataUrl ? 'Change photo' : 'Upload photo'}
+          </Button>
+          {dataUrl ? (
+            <Button size="xs" variant="ghost" disabled={busy} onClick={() => onChange('')}>
+              Remove
+            </Button>
+          ) : null}
+        </div>
+        {err ? (
+          <p className="text-[11px] text-rose-700 dark:text-rose-400">{err}</p>
+        ) : (
+          <p className="text-[11px] text-content-subtle">
+            PNG or JPG, square works best. Resized to 256px and stored with your profile.
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function ProfileSection({
   user,
   prefs,
@@ -216,15 +309,31 @@ function ProfileSection({
 }) {
   const save = useSaveProfilePrefs()
   const [draft, setDraft] = useState<ProfileIdentityPrefs | null>(null)
-  const identity = draft ?? prefs.identity
-  const dirty = draft !== null && JSON.stringify(draft) !== JSON.stringify(prefs.identity)
+  // Merge persisted identity over defaults so older documents (missing the
+  // newer fields) still yield a complete, editable shape.
+  const identity: ProfileIdentityPrefs = draft ?? { ...EMPTY_IDENTITY, ...prefs.identity }
+  const baseline: ProfileIdentityPrefs = { ...EMPTY_IDENTITY, ...prefs.identity }
+  const dirty = draft !== null && JSON.stringify(draft) !== JSON.stringify(baseline)
 
   const [browserTz, setBrowserTz] = useState('')
   useEffect(() => setBrowserTz(browserTimezone()), [])
   const timezones = useMemo(() => listTimezones(), [])
 
-  const displayName = prefs.identity.displayName || user.name
+  const displayName = identity.displayName || user.name
   const patch = (p: Partial<ProfileIdentityPrefs>) => setDraft({ ...identity, ...p })
+
+  // Links helpers
+  const addLink = () => patch({ links: [...identity.links, { label: '', url: '' }] })
+  const setLink = (i: number, p: Partial<ProfileLink>) =>
+    patch({ links: identity.links.map((l, idx) => (idx === i ? { ...l, ...p } : l)) })
+  const removeLink = (i: number) => patch({ links: identity.links.filter((_, idx) => idx !== i) })
+
+  // Custom-field helpers
+  const addField = () => patch({ customFields: [...identity.customFields, { label: '', value: '' }] })
+  const setField = (i: number, p: Partial<ProfileCustomField>) =>
+    patch({ customFields: identity.customFields.map((f, idx) => (idx === i ? { ...f, ...p } : f)) })
+  const removeField = (i: number) =>
+    patch({ customFields: identity.customFields.filter((_, idx) => idx !== i) })
 
   const submit = () => {
     if (draft === null) return
@@ -234,24 +343,19 @@ function ProfileSection({
   if (loading) return <SectionSkeleton />
 
   return (
-    <div className="max-w-3xl space-y-6">
-      {/* Identity from Keycloak — read-only */}
+    <div className="max-w-3xl space-y-6 pb-24">
+      {/* Identity — avatar is editable; SSO fields are read-only */}
       <Card as="section">
         <CardHeader className="flex items-center justify-between">
-          <SectionTitle title="Identity" />
+          <SectionTitle title="Identity" description="Your photo and how you appear across the console." />
           <KeycloakLink />
         </CardHeader>
         <CardBody className="space-y-4">
-          <div className="flex items-center gap-4">
-            <GeneratedAvatar name={displayName} />
-            <div className="min-w-0">
-              <div className="truncate text-base font-medium text-content">{displayName}</div>
-              <div className="truncate text-xs text-content-subtle">{user.email}</div>
-              <div className="mt-1 text-[11px] text-content-subtle">
-                Avatar is generated from your name — no image upload yet.
-              </div>
-            </div>
-          </div>
+          <AvatarEditor
+            name={displayName}
+            dataUrl={identity.avatarDataUrl}
+            onChange={(next) => patch({ avatarDataUrl: next })}
+          />
           <dl className="grid grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
             <div>
               <dt className="text-xs text-content-subtle">Email</dt>
@@ -276,7 +380,7 @@ function ProfileSection({
             </div>
             <div>
               <dt className="text-xs text-content-subtle">Org memberships</dt>
-              <dd className="text-content">{user.tenants.join(', ')}</dd>
+              <dd className="text-content">{user.tenants.join(', ') || '—'}</dd>
             </div>
           </dl>
           <p className="text-xs text-content-subtle">
@@ -304,12 +408,53 @@ function ProfileSection({
                 onChange={(e) => patch({ displayName: e.target.value })}
               />
             </Field>
+            <Field label="Pronouns">
+              <Input
+                value={identity.pronouns}
+                placeholder="e.g. she/her, they/them"
+                maxLength={40}
+                onChange={(e) => patch({ pronouns: e.target.value })}
+              />
+            </Field>
             <Field label="Title / role">
               <Input
                 value={identity.title}
                 placeholder="e.g. Platform engineer"
                 maxLength={120}
                 onChange={(e) => patch({ title: e.target.value })}
+              />
+            </Field>
+            <Field label="Department / team">
+              <Input
+                value={identity.department}
+                placeholder="e.g. Platform Engineering"
+                maxLength={120}
+                onChange={(e) => patch({ department: e.target.value })}
+              />
+            </Field>
+            <Field label="Company / organization">
+              <Input
+                value={identity.company}
+                placeholder="e.g. Acme Corp"
+                maxLength={120}
+                onChange={(e) => patch({ company: e.target.value })}
+              />
+            </Field>
+            <Field label="Location">
+              <Input
+                value={identity.location}
+                placeholder="e.g. Bengaluru, IN"
+                maxLength={120}
+                onChange={(e) => patch({ location: e.target.value })}
+              />
+            </Field>
+            <Field label="Phone">
+              <Input
+                type="tel"
+                value={identity.phone}
+                placeholder="e.g. +91 90000 00000"
+                maxLength={40}
+                onChange={(e) => patch({ phone: e.target.value })}
               />
             </Field>
           </div>
@@ -347,22 +492,133 @@ function ProfileSection({
               </Select>
             </Field>
           </div>
-          <NotPersistedNote show={save.data?.persisted === false} />
-          <div className="flex items-center gap-3">
-            <Button variant="primary" size="sm" disabled={!dirty} loading={save.isPending} onClick={submit}>
-              Save changes
-            </Button>
-            {dirty ? (
-              <Button variant="ghost" size="sm" onClick={() => setDraft(null)}>
-                Discard
-              </Button>
-            ) : null}
-            {!dirty && save.isSuccess ? (
-              <span className="text-xs text-emerald-700 dark:text-emerald-400">Saved</span>
-            ) : null}
-          </div>
         </CardBody>
       </Card>
+
+      {/* Links — dynamic add/remove */}
+      <Card as="section">
+        <CardHeader className="flex items-center justify-between">
+          <SectionTitle title="Links" description="Website, GitHub, LinkedIn, docs — anything you want on your profile." />
+          <Button
+            size="xs"
+            variant="secondary"
+            disabled={identity.links.length >= MAX_PROFILE_LINKS}
+            onClick={addLink}
+          >
+            Add link
+          </Button>
+        </CardHeader>
+        <CardBody className="space-y-3">
+          {identity.links.length === 0 ? (
+            <p className="text-sm text-content-subtle">No links yet. Add one to show it on your profile.</p>
+          ) : (
+            identity.links.map((l, i) => (
+              <div key={i} className="flex flex-wrap items-end gap-2 sm:flex-nowrap">
+                <Field label={i === 0 ? 'Label' : undefined} className="w-full sm:w-44">
+                  <Input
+                    value={l.label}
+                    placeholder="GitHub"
+                    maxLength={60}
+                    onChange={(e) => setLink(i, { label: e.target.value })}
+                  />
+                </Field>
+                <Field label={i === 0 ? 'URL' : undefined} className="w-full flex-1">
+                  <Input
+                    type="url"
+                    value={l.url}
+                    placeholder="https://github.com/you"
+                    maxLength={300}
+                    onChange={(e) => setLink(i, { url: e.target.value })}
+                  />
+                </Field>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
+                  onClick={() => removeLink(i)}
+                >
+                  Remove
+                </Button>
+              </div>
+            ))
+          )}
+        </CardBody>
+      </Card>
+
+      {/* Custom fields — user-defined sections */}
+      <Card as="section">
+        <CardHeader className="flex items-center justify-between">
+          <SectionTitle
+            title="Custom fields"
+            description="Add your own labelled details — cost center, Slack handle, on-call rotation, anything."
+          />
+          <Button
+            size="xs"
+            variant="secondary"
+            disabled={identity.customFields.length >= MAX_CUSTOM_FIELDS}
+            onClick={addField}
+          >
+            Add field
+          </Button>
+        </CardHeader>
+        <CardBody className="space-y-3">
+          {identity.customFields.length === 0 ? (
+            <p className="text-sm text-content-subtle">
+              No custom fields yet. Add one to capture details the standard fields don’t cover.
+            </p>
+          ) : (
+            identity.customFields.map((f, i) => (
+              <div key={i} className="flex flex-wrap items-end gap-2 sm:flex-nowrap">
+                <Field label={i === 0 ? 'Label' : undefined} className="w-full sm:w-52">
+                  <Input
+                    value={f.label}
+                    placeholder="e.g. Slack"
+                    maxLength={60}
+                    onChange={(e) => setField(i, { label: e.target.value })}
+                  />
+                </Field>
+                <Field label={i === 0 ? 'Value' : undefined} className="w-full flex-1">
+                  <Input
+                    value={f.value}
+                    placeholder="e.g. @yourhandle"
+                    maxLength={500}
+                    onChange={(e) => setField(i, { value: e.target.value })}
+                  />
+                </Field>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
+                  onClick={() => removeField(i)}
+                >
+                  Remove
+                </Button>
+              </div>
+            ))
+          )}
+        </CardBody>
+      </Card>
+
+      <NotPersistedNote show={save.data?.persisted === false} />
+
+      {/* Sticky save bar — one action commits every editable field above */}
+      {dirty || save.isSuccess ? (
+        <div className="sticky bottom-4 z-10 flex items-center gap-3 rounded-xl border border-edge-default bg-surface-raised/95 px-4 py-3 shadow-lg backdrop-blur">
+          <Button variant="primary" size="sm" disabled={!dirty} loading={save.isPending} onClick={submit}>
+            Save changes
+          </Button>
+          {dirty ? (
+            <Button variant="ghost" size="sm" onClick={() => setDraft(null)}>
+              Discard
+            </Button>
+          ) : null}
+          {!dirty && save.isSuccess ? (
+            <span className="text-xs text-emerald-700 dark:text-emerald-400">All changes saved</span>
+          ) : (
+            <span className="text-xs text-content-subtle">You have unsaved changes.</span>
+          )}
+        </div>
+      ) : null}
     </div>
   )
 }

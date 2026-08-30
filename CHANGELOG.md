@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.22] - 2026-08-30
+
 ### Changed
 
 - **Scaffold builds pin the Java toolchain (JDK 25 + Maven 3.9.x).** The kpack

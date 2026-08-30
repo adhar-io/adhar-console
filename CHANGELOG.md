@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.19] - 2026-08-30
+
 ### Fixed
 
 - **Create-from-template "Owner" picker is no longer empty.** It sourced teams

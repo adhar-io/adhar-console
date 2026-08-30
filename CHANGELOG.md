@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.17] - 2026-08-30
+
 ### Changed
 
 - **Cluster + Namespace selection moved to the top bar.** The active cluster

@@ -1,10 +1,20 @@
 import { useQuery } from '@tanstack/react-query'
 import type { k8s } from '@adhar-console/api-clients'
-import { client, useActiveCluster } from './client.ts'
+import { client, useActiveCluster, useActiveNamespace, useNamespaceScope } from './client.ts'
 import { useLiveList } from './live.ts'
 import { GVRS } from './gvr.ts'
 
 export const AUTO_REFRESH_MS = 10_000
+
+/**
+ * Resolve the namespace a namespaced query should target: an explicit argument
+ * wins, otherwise fall back to the shared active-namespace selection (the
+ * top-bar Namespace picker). Returning `undefined` means "all namespaces".
+ */
+function useScopedNamespace(explicit?: string): string | undefined {
+  const { namespace } = useActiveNamespace()
+  return explicit ?? namespace
+}
 
 /**
  * Every hook here is scoped to the **active cluster** (see the store in
@@ -39,11 +49,17 @@ export function useApiSurface() {
   })
 }
 
+/**
+ * Namespace list — restricted to the active organization's namespaces when an
+ * org scope is set (see the shared selection store). The default / no-org case
+ * passes no selector and lists every namespace (RBAC still applies upstream).
+ */
 export function useNamespaces() {
   const { cluster } = useActiveCluster()
+  const scope = useNamespaceScope()
   return useQuery({
-    queryKey: ['k8s', 'namespaces', cluster],
-    queryFn: () => client.listNamespaces(cluster),
+    queryKey: ['k8s', 'namespaces', scope, cluster],
+    queryFn: () => client.listNamespaces(cluster, scope || undefined),
     staleTime: 30_000,
   })
 }
@@ -79,49 +95,55 @@ export function useDaemonSets(namespace?: string) {
 
 export function useJobs(namespace?: string) {
   const { cluster } = useActiveCluster()
+  const ns = useScopedNamespace(namespace)
   return useQuery({
-    queryKey: ['k8s', 'jobs', namespace ?? '*', cluster],
-    queryFn: () => client.listJobs(cluster, namespace),
+    queryKey: ['k8s', 'jobs', ns ?? '*', cluster],
+    queryFn: () => client.listJobs(cluster, ns),
   })
 }
 
 export function useCronJobs(namespace?: string) {
   const { cluster } = useActiveCluster()
+  const ns = useScopedNamespace(namespace)
   return useQuery({
-    queryKey: ['k8s', 'cronjobs', namespace ?? '*', cluster],
-    queryFn: () => client.listCronJobs(cluster, namespace),
+    queryKey: ['k8s', 'cronjobs', ns ?? '*', cluster],
+    queryFn: () => client.listCronJobs(cluster, ns),
   })
 }
 
 export function useServices(namespace?: string) {
   const { cluster } = useActiveCluster()
+  const ns = useScopedNamespace(namespace)
   return useQuery({
-    queryKey: ['k8s', 'services', namespace ?? '*', cluster],
-    queryFn: () => client.listServices(cluster, namespace),
+    queryKey: ['k8s', 'services', ns ?? '*', cluster],
+    queryFn: () => client.listServices(cluster, ns),
   })
 }
 
 export function useIngresses(namespace?: string) {
   const { cluster } = useActiveCluster()
+  const ns = useScopedNamespace(namespace)
   return useQuery({
-    queryKey: ['k8s', 'ingresses', namespace ?? '*', cluster],
-    queryFn: () => client.listIngresses(cluster, namespace),
+    queryKey: ['k8s', 'ingresses', ns ?? '*', cluster],
+    queryFn: () => client.listIngresses(cluster, ns),
   })
 }
 
 export function useConfigMaps(namespace?: string) {
   const { cluster } = useActiveCluster()
+  const ns = useScopedNamespace(namespace)
   return useQuery({
-    queryKey: ['k8s', 'configmaps', namespace ?? '*', cluster],
-    queryFn: () => client.listConfigMaps(cluster, namespace),
+    queryKey: ['k8s', 'configmaps', ns ?? '*', cluster],
+    queryFn: () => client.listConfigMaps(cluster, ns),
   })
 }
 
 export function useSecrets(namespace?: string) {
   const { cluster } = useActiveCluster()
+  const ns = useScopedNamespace(namespace)
   return useQuery({
-    queryKey: ['k8s', 'secrets', namespace ?? '*', cluster],
-    queryFn: () => client.listSecrets(cluster, namespace),
+    queryKey: ['k8s', 'secrets', ns ?? '*', cluster],
+    queryFn: () => client.listSecrets(cluster, ns),
   })
 }
 
@@ -135,9 +157,10 @@ export function usePersistentVolumes() {
 
 export function usePersistentVolumeClaims(namespace?: string) {
   const { cluster } = useActiveCluster()
+  const ns = useScopedNamespace(namespace)
   return useQuery({
-    queryKey: ['k8s', 'pvc', namespace ?? '*', cluster],
-    queryFn: () => client.listPersistentVolumeClaims(cluster, namespace),
+    queryKey: ['k8s', 'pvc', ns ?? '*', cluster],
+    queryFn: () => client.listPersistentVolumeClaims(cluster, ns),
   })
 }
 
@@ -151,25 +174,28 @@ export function useStorageClasses() {
 
 export function useServiceAccounts(namespace?: string) {
   const { cluster } = useActiveCluster()
+  const ns = useScopedNamespace(namespace)
   return useQuery({
-    queryKey: ['k8s', 'sa', namespace ?? '*', cluster],
-    queryFn: () => client.listServiceAccounts(cluster, namespace),
+    queryKey: ['k8s', 'sa', ns ?? '*', cluster],
+    queryFn: () => client.listServiceAccounts(cluster, ns),
   })
 }
 
 export function useRoles(namespace?: string) {
   const { cluster } = useActiveCluster()
+  const ns = useScopedNamespace(namespace)
   return useQuery({
-    queryKey: ['k8s', 'roles', namespace ?? '*', cluster],
-    queryFn: () => client.listRoles(cluster, namespace),
+    queryKey: ['k8s', 'roles', ns ?? '*', cluster],
+    queryFn: () => client.listRoles(cluster, ns),
   })
 }
 
 export function useRoleBindings(namespace?: string) {
   const { cluster } = useActiveCluster()
+  const ns = useScopedNamespace(namespace)
   return useQuery({
-    queryKey: ['k8s', 'rolebindings', namespace ?? '*', cluster],
-    queryFn: () => client.listRoleBindings(cluster, namespace),
+    queryKey: ['k8s', 'rolebindings', ns ?? '*', cluster],
+    queryFn: () => client.listRoleBindings(cluster, ns),
   })
 }
 
@@ -221,9 +247,13 @@ export function useNodeMetrics() {
 
 export function useGeneric(gvr: k8s.GVR, namespace?: string) {
   const { cluster } = useActiveCluster()
+  // Cluster-scoped GVRs ignore the active namespace; namespaced ones fall back
+  // to the shared active-namespace selection.
+  const active = useScopedNamespace(namespace)
+  const ns = gvr.namespaced === false ? namespace : active
   return useQuery({
-    queryKey: ['k8s', 'generic', gvr.group, gvr.version, gvr.resource, namespace ?? '*', cluster],
-    queryFn: () => client.listGeneric(cluster, gvr, namespace),
+    queryKey: ['k8s', 'generic', gvr.group, gvr.version, gvr.resource, ns ?? '*', cluster],
+    queryFn: () => client.listGeneric(cluster, gvr, ns),
   })
 }
 
@@ -241,26 +271,28 @@ export function useHorizontalPodAutoscalers(namespace?: string) {
 
 export function useEndpoints(namespace?: string) {
   const { cluster } = useActiveCluster()
+  const ns = useScopedNamespace(namespace)
   return useQuery({
-    queryKey: ['k8s', 'endpoints', namespace ?? '*', cluster],
+    queryKey: ['k8s', 'endpoints', ns ?? '*', cluster],
     queryFn: () =>
       client.listGeneric(
         cluster,
         { group: '', version: 'v1', resource: 'endpoints', namespaced: true },
-        namespace,
+        ns,
       ),
   })
 }
 
 export function useNetworkPolicies(namespace?: string) {
   const { cluster } = useActiveCluster()
+  const ns = useScopedNamespace(namespace)
   return useQuery({
-    queryKey: ['k8s', 'networkpolicies', namespace ?? '*', cluster],
+    queryKey: ['k8s', 'networkpolicies', ns ?? '*', cluster],
     queryFn: () =>
       client.listGeneric(
         cluster,
         { group: 'networking.k8s.io', version: 'v1', resource: 'networkpolicies', namespaced: true },
-        namespace,
+        ns,
       ),
   })
 }

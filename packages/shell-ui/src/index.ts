@@ -12,6 +12,23 @@ export { Sidebar } from './sidebar.tsx'
 export { Topbar } from './topbar.tsx'
 export { TenantSwitcher } from './tenant-switcher.tsx'
 export { useOrganizations, type OrgSummary, type UseOrganizations } from './use-organizations.ts'
+export { PlatformSelectionControls } from './platform-selection.tsx'
+export {
+  LOCAL_CLUSTER,
+  getActiveCluster,
+  getActiveNamespace,
+  getNamespaceScope,
+  getSelection,
+  setActiveCluster,
+  setActiveNamespace,
+  setNamespaceScope,
+  subscribeSelection,
+  useActiveCluster,
+  useActiveNamespace,
+  useNamespaceScope,
+  useSelection,
+  type Selection,
+} from './selection-store.ts'
 export { PhaseNav, PHASES, type Phase } from './phase-nav.tsx'
 export { NavItem } from './nav-item.tsx'
 export {

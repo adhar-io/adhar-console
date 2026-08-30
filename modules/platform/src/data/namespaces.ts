@@ -1,6 +1,7 @@
 import type { KubeObject } from '@adhar-console/api-clients/k8s'
 import { useGeneric } from './hooks.ts'
 import { useLiveList } from './live.ts'
+import { useNamespaceScope } from './client.ts'
 import { GVRS } from './gvr.ts'
 
 /**
@@ -36,9 +37,14 @@ export interface NamespaceObject extends KubeObject {
 
 /* ─── hooks ─────────────────────────────────────────────────────────────── */
 
-/** Watch-backed namespace list — updates in place as namespaces come and go. */
+/**
+ * Watch-backed namespace list — updates in place as namespaces come and go.
+ * Restricted to the active organization's namespaces when an org scope is set
+ * (label selector from the shared selection store); unscoped otherwise.
+ */
 export function useNamespacesLive() {
-  const live = useLiveList<NamespaceObject>(GVRS.namespaces)
+  const scope = useNamespaceScope()
+  const live = useLiveList<NamespaceObject>(GVRS.namespaces, { labelSelector: scope || undefined })
   return live
 }
 

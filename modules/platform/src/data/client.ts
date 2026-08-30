@@ -1,4 +1,3 @@
-import { useSyncExternalStore } from 'react'
 import { kube } from '@adhar-console/api-clients/k8s'
 import type {
   ApiSurface,
@@ -17,58 +16,46 @@ import type {
   Service,
   VersionInfo,
 } from '@adhar-console/api-clients/k8s'
+import {
+  getActiveCluster,
+  getActiveNamespace,
+  getNamespaceScope,
+  LOCAL_CLUSTER,
+  setActiveCluster,
+  subscribeSelection,
+  useActiveCluster,
+  useActiveNamespace,
+  useNamespaceScope,
+} from '@adhar-console/shell-ui'
 import { GVRS } from './gvr.ts'
 
-export const LOCAL_CLUSTER = 'local'
-
-/* ─────────── active-cluster store ─────────── */
+/* ─────────── shared cluster + namespace selection ─────────── */
 
 /**
- * Module-level active-cluster store (external store + `useSyncExternalStore`
- * so `.ts` data files can read it without a React context). The selection is
- * persisted per-browser and defaults to the gateway's default cluster
- * (`LOCAL_CLUSTER`). Every data hook reads this store and folds the value into
- * its query key, so switching clusters re-scopes every view automatically.
+ * The active cluster **and** the active namespace now live in the shell's
+ * shared selection store (`@adhar-console/shell-ui`), so the top-bar pickers
+ * (rendered by the host) and this data layer (in the platform remote) stay in
+ * sync across the Module-Federation boundary via `localStorage` + a `window`
+ * event — shell-ui is not a shared singleton, so a plain variable would not.
+ *
+ * We re-export the same names the platform module always imported from here, so
+ * every existing caller (`useActiveCluster`, `clusterParam`, `LOCAL_CLUSTER`, …)
+ * keeps working unchanged. Every data hook folds the cluster **and** namespace
+ * into its query key, so switching either re-scopes every view automatically.
  */
-const CLUSTER_STORAGE_KEY = 'adhar.platform.active-cluster'
-
-function loadStoredCluster(): string {
-  try {
-    return globalThis.localStorage?.getItem(CLUSTER_STORAGE_KEY) || LOCAL_CLUSTER
-  } catch {
-    return LOCAL_CLUSTER
-  }
+export {
+  getActiveCluster,
+  getActiveNamespace,
+  getNamespaceScope,
+  LOCAL_CLUSTER,
+  setActiveCluster,
+  useActiveCluster,
+  useActiveNamespace,
+  useNamespaceScope,
 }
 
-let activeCluster = loadStoredCluster()
-const clusterListeners = new Set<() => void>()
-
-export function getActiveCluster(): string {
-  return activeCluster
-}
-
-export function setActiveCluster(name: string): void {
-  const next = name || LOCAL_CLUSTER
-  if (next === activeCluster) return
-  activeCluster = next
-  try {
-    globalThis.localStorage?.setItem(CLUSTER_STORAGE_KEY, next)
-  } catch {
-    /* private mode etc. — selection just won't persist */
-  }
-  for (const listener of [...clusterListeners]) listener()
-}
-
-export function subscribeActiveCluster(listener: () => void): () => void {
-  clusterListeners.add(listener)
-  return () => clusterListeners.delete(listener)
-}
-
-/** Reactive active-cluster selection — `{ cluster, setCluster }`. */
-export function useActiveCluster(): { cluster: string; setCluster: (name: string) => void } {
-  const cluster = useSyncExternalStore(subscribeActiveCluster, getActiveCluster, getActiveCluster)
-  return { cluster, setCluster: setActiveCluster }
-}
+/** Back-compat alias — the old cluster-only subscribe name. */
+export const subscribeActiveCluster = subscribeSelection
 
 /**
  * Gateway `?cluster=` value for a UI selection. `local` / `default` / empty
@@ -182,7 +169,10 @@ const gatewayClient: K8sClient = {
     )
   },
 
-  listNamespaces: (c) => items<Namespace>(GVRS.namespaces, undefined, c),
+  listNamespaces: (c, selector) =>
+    kube
+      .list<Namespace>(GVRS.namespaces, { labelSelector: selector, cluster: clusterParam(c) })
+      .then((l) => l.items),
   listNodes: (c) => items<Node>(GVRS.nodes, undefined, c),
   listPods: (c, ns, selector) =>
     kube

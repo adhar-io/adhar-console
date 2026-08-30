@@ -69,7 +69,7 @@ export interface K8sClient {
   probeHealth?(cluster?: string): Promise<ClusterHealth>
 
   listClusters(): Promise<Cluster[]>
-  listNamespaces(cluster?: string): Promise<Namespace[]>
+  listNamespaces(cluster?: string, labelSelector?: string): Promise<Namespace[]>
   listNodes(cluster?: string): Promise<Node[]>
 
   listPods(cluster?: string, namespace?: string, labelSelector?: string): Promise<Pod[]>

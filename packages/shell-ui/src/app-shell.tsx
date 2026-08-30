@@ -31,6 +31,10 @@ interface Props {
   commandItems?: CommandItem[]
   /** Enable the ⌘K command palette. Defaults to true. */
   commandPaletteEnabled?: boolean
+  /** Optional controls rendered into the top bar's left cluster — e.g. the
+   *  platform Cluster + Namespace pickers, mounted here by the host so both the
+   *  shell and the platform remote share one selection. */
+  headerControls?: ReactNode
   /**
    * Content width:
    *   • `standard` (default) — `max-w-7xl`, the right size for forms + tables.
@@ -59,6 +63,7 @@ export function AppShell({
   commandItems,
   commandPaletteEnabled = true,
   contentWidth = 'standard',
+  headerControls,
 }: Props) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -171,6 +176,7 @@ export function AppShell({
           onSignOut={onSignOut}
           onOpenCommandPalette={openPalette}
           onOpenSidebar={() => setMobileOpen(true)}
+          headerControls={headerControls}
         />
         <main className="isolate flex-1 overflow-y-auto">
           <ErrorBoundary>

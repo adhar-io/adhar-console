@@ -1,6 +1,6 @@
 import { createFileRoute, notFound, Outlet } from '@tanstack/react-router'
 import { z } from 'zod'
-import { AppShell } from '@adhar-console/shell-ui'
+import { AppShell, PlatformSelectionControls } from '@adhar-console/shell-ui'
 import { STUB_USER, useOptionalSession } from '@adhar-console/auth'
 import { getLayoutData } from '~/server/session.ts'
 
@@ -72,6 +72,7 @@ function PhaseLayout() {
       ]}
       notifications={notifications}
       contentWidth={PHASE_WIDTH[phase as keyof typeof PHASE_WIDTH]}
+      headerControls={phase === 'platform' ? <PlatformSelectionControls /> : undefined}
     >
       <Outlet />
     </AppShell>

@@ -6,6 +6,30 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+
+- **Cluster + Namespace selection moved to the top bar.** The active cluster
+  chip (name + reachability dot) and the Namespace dropdown are now a single
+  common control in the top bar on Platform pages, instead of being repeated in
+  each view's header. Selection is a shared store backed by localStorage + a
+  window event, so it stays in sync across the Module-Federation boundary (host
+  top bar ↔ platform remote); every platform data hook folds the active
+  cluster + namespace into its query key, so changing either re-scopes all
+  views. The per-page pickers were removed (drill-down log/shell/explore views
+  keep their own inline namespace control).
+
+### Added
+
+- **Organization isolation.** Console-owned data (document store, workspace
+  data) is tenant-scoped by the active organization server-side, and switching
+  org re-signs the session and reloads so no in-memory cache leaks across orgs.
+  Platform/Kubernetes views can now be scoped to an organization's namespaces
+  via the label convention `adhar.io/org=<slug>`: when a non-default org is
+  active, the namespace picker + platform listings are restricted to namespaces
+  carrying that label (honest empty state with a hint when none are assigned);
+  the default/single-org case keeps showing all namespaces. Kubernetes RBAC is
+  unchanged — every call still goes through the per-user impersonation gateway.
+
 ## [0.1.16] - 2026-08-30
 
 ### Added

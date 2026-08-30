@@ -1,7 +1,5 @@
-import { useState } from 'react'
 import { PageHeader } from '@adhar-console/shell-ui'
 import { ConnectionGate } from './components/connection-banner.tsx'
-import { NamespacePicker } from './components/namespace-picker.tsx'
 import { PlatformDashboard } from './views/dashboard.tsx'
 import { ClusterView } from './views/cluster-list.tsx'
 import { NodesView } from './views/nodes-list.tsx'
@@ -44,7 +42,8 @@ import { PlatformCatalog } from './views/catalog.tsx'
 import { NamespacesView } from './views/namespaces-list.tsx'
 import { AutoscalingView } from './views/autoscaling-list.tsx'
 import { ReleasesView } from './views/releases-list.tsx'
-import { ClusterPicker, ClusterProvider } from './components/cluster-picker.tsx'
+import { ClusterProvider } from './components/cluster-picker.tsx'
+import { useActiveNamespace } from './data/client.ts'
 
 type Section =
   | 'dashboard'
@@ -344,35 +343,15 @@ const SECTIONS: Record<Section, SectionDef> = {
 export default function PlatformHome({ section }: { section?: string } = {}) {
   const active = (SECTIONS[section as Section]?.id ?? 'dashboard') as Section
   const def = SECTIONS[active]
-  const [namespace, setNamespace] = useState<string | undefined>(undefined)
-
-  const ownNamespacePicker = active === 'shell' || active === 'logs' || active === 'ci'
-  const showNamespacePicker =
-    active !== 'marketplace' &&
-    active !== 'dashboard' &&
-    active !== 'catalog' &&
-    active !== 'clusters' &&
-    active !== 'namespaces' &&
-    active !== 'environments' &&
-    active !== 'explore' &&
-    active !== 'metrics' &&
-    !ownNamespacePicker
+  // Cluster + Namespace selection now live in the top bar (rendered by the host
+  // via the shell's shared selection store). Views read the active namespace
+  // through the data hooks; drill-down views seed their own picker from it.
+  const { namespace } = useActiveNamespace()
 
   return (
     <ClusterProvider>
       <div className="space-y-6">
-        <PageHeader
-          title={def.label}
-          description={def.description}
-          actions={
-            <div className="flex items-center gap-2">
-              <ClusterPicker />
-              {showNamespacePicker ? (
-                <NamespacePicker value={namespace} onChange={setNamespace} />
-              ) : null}
-            </div>
-          }
-        />
+        <PageHeader title={def.label} description={def.description} />
         <ConnectionGate>
           <SectionBody active={active} namespace={namespace} />
         </ConnectionGate>

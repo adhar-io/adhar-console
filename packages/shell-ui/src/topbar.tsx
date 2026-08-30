@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from '@tanstack/react-router'
 import { formatRelative, cn } from '@adhar-console/utils'
@@ -18,6 +18,9 @@ interface Props {
   onOpenCommandPalette?(): void
   /** Triggers the slide-over sidebar on mobile. Hidden at lg+. */
   onOpenSidebar?(): void
+  /** Optional controls rendered in the top bar's left cluster (e.g. the
+   *  platform Cluster + Namespace pickers). */
+  headerControls?: ReactNode
 }
 
 export function Topbar({
@@ -27,6 +30,7 @@ export function Topbar({
   onSignOut,
   onOpenCommandPalette,
   onOpenSidebar,
+  headerControls,
 }: Props) {
   return (
     <header className="sticky top-0 z-40 border-b border-edge-default bg-surface-raised/70 backdrop-blur-xl supports-[backdrop-filter]:bg-surface-raised/60">
@@ -45,6 +49,9 @@ export function Topbar({
             >
               <IconMenu />
             </button>
+          ) : null}
+          {headerControls ? (
+            <div className="flex min-w-0 items-center gap-2">{headerControls}</div>
           ) : null}
         </div>
         <div className="flex items-center gap-1.5">

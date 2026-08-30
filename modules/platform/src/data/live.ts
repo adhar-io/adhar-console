@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { kube } from '@adhar-console/api-clients/k8s'
 import type { GatewayGVR as GVR, KubeObject } from '@adhar-console/api-clients/k8s'
-import { clusterParam, useActiveCluster } from './client.ts'
+import { clusterParam, useActiveCluster, useActiveNamespace } from './client.ts'
 
 /**
  * Live, watch-backed Kubernetes lists. Instead of polling, `useLiveList` does
@@ -44,8 +44,13 @@ export function useLiveList<T extends KubeObject = KubeObject>(
     cluster?: string
   } = {},
 ): LiveList<T> {
-  const { namespace, labelSelector, fieldSelector, enabled = true } = opts
+  const { namespace: explicitNamespace, labelSelector, fieldSelector, enabled = true } = opts
   const { cluster: activeCluster } = useActiveCluster()
+  const { namespace: activeNamespace } = useActiveNamespace()
+  // Namespaced resources fall back to the shared active-namespace selection
+  // (the top-bar Namespace picker) when no explicit namespace is given;
+  // cluster-scoped resources (nodes, namespaces, PVs, …) stay cluster-wide.
+  const namespace = gvr.namespaced ? (explicitNamespace ?? activeNamespace) : explicitNamespace
   // Undefined for the gateway default cluster → requests stay byte-identical
   // to single-cluster operation; switching clusters changes `depKey`, which
   // tears down the watch and relists against the newly selected cluster.

@@ -6,6 +6,31 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+
+- **Create-from-template "Owner" picker is no longer empty.** It sourced teams
+  from live-catalog `Group` entities, of which a real cluster has none — so the
+  required Owner field had nothing to pick and the wizard stalled. A new BFF
+  endpoint `GET /api/teams` discovers `kind: Group` teams from the
+  `adhar/adhar-templates` Gitea repo and **always** includes the two defaults
+  `default-platform` and `default-application` in every org (also seeding a
+  `teams.yaml` into that repo so they genuinely originate there). The owner
+  picker merges these with any catalog Groups, so it's never empty.
+
+### Changed
+
+- **Create New runs the full journey automatically.** Gitea-discovered templates
+  now default to `gitops: true` (with `deploy/` as the manifest path), so
+  submitting the wizard generates a real repo **from the template's code**
+  (`git_content`), commits the catalog descriptor, and creates an Argo CD
+  Application that deploys it. The scaffold run log now reports each real step —
+  repo created → template code copied → catalog-info → CI workflow/runner →
+  Argo CD app — with honest status (e.g. it reports truthfully when a repo's
+  `.gitea/workflows` CI can't run because no Gitea Actions runner is registered,
+  rather than faking success).
+- **Loki now shows its real logo** in the app launcher (Tempo, Mimir, Kargo,
+  Plane and OpenCost keep the Kubernetes fallback until official SVGs are added).
+
 ## [0.1.18] - 2026-08-30
 
 ### Changed

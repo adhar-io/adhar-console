@@ -205,8 +205,12 @@ async function buildFromRepo(api: GiteaApi, repo: GiteaRepo, org: string): Promi
     actions: (m('actions') as unknown) ?? defaultActions(fullName),
     scaffold: {
       sourceRepo: fullName,
-      gitops: Boolean(scaffoldIn.gitops),
-      manifestPath: (scaffoldIn.manifestPath as string) ?? undefined,
+      // Gitea-discovered templates default to GitOps ON so the end-to-end
+      // journey (generate repo → commit descriptor → Argo CD Application →
+      // deploy) actually happens. A repo's `.adhar/template.json` can opt out
+      // by setting `scaffold.gitops: false` explicitly.
+      gitops: scaffoldIn.gitops !== undefined ? Boolean(scaffoldIn.gitops) : true,
+      manifestPath: (scaffoldIn.manifestPath as string) ?? 'deploy',
       catalogInfoPath: (scaffoldIn.catalogInfoPath as string) ?? undefined,
       goldenPath: (scaffoldIn.goldenPath as string) ?? undefined,
     },

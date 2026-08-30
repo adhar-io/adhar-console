@@ -1071,6 +1071,68 @@ interface ScaffoldRun {
   startedAt: number
 }
 
+/* ─────────── owner/team source (GET /api/teams) ─────────── */
+
+interface Team {
+  name: string
+  title?: string
+}
+
+/**
+ * The two teams every organisation can always own components with. Used as the
+ * honest fallback when the BFF/`/api/teams` endpoint is absent (dev SPA) or the
+ * platform Gitea isn't connected — the picker is never empty.
+ */
+const DEFAULT_TEAMS: Team[] = [
+  { name: 'default-platform', title: 'Platform Team' },
+  { name: 'default-application', title: 'Application Team' },
+]
+
+/** Synthesize a `kind: Group` catalog Entity from a discovered team. */
+function teamGroupEntity(t: Team): Entity {
+  return {
+    apiVersion: 'backstage.io/v1alpha1',
+    kind: 'Group',
+    metadata: { name: t.name, namespace: 'default', title: t.title ?? t.name },
+    spec: {},
+  }
+}
+
+/**
+ * Fetch the org's teams from the BFF (`GET /api/teams`) and expose them as
+ * synthesized Group entities. Mirrors {@link loadGiteaTemplates}' honest
+ * fallback: on any failure (no BFF, non-JSON, network) the two defaults stand,
+ * so the Owner picker always offers at least default-platform + default-application.
+ */
+function useTeamGroups(): Entity[] {
+  const [teams, setTeams] = useState<Team[]>(DEFAULT_TEAMS)
+  useEffect(() => {
+    let alive = true
+    fetch('/api/teams', { credentials: 'include', headers: { accept: 'application/json' } })
+      .then(async (res) => {
+        const ct = res.headers.get('content-type') ?? ''
+        if (!res.ok || !ct.includes('application/json')) return
+        const json = (await res.json()) as { teams?: Team[] }
+        if (alive && Array.isArray(json.teams) && json.teams.length > 0) setTeams(json.teams)
+      })
+      .catch(() => {
+        /* keep the defaults */
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+  return useMemo(() => teams.map(teamGroupEntity), [teams])
+}
+
+/** Live-catalog Groups first, then any team Groups not already present (by name). */
+function mergeGroups(catalog: Entity[], teamGroups: Entity[]): Entity[] {
+  const base = catalog.filter((e) => e.kind === 'Group')
+  const seen = new Set(base.map((e) => e.metadata.name))
+  const extra = teamGroups.filter((t) => !seen.has(t.metadata.name))
+  return [...base, ...extra]
+}
+
 function ScaffoldWizard({
   template,
   onClose,
@@ -1082,6 +1144,11 @@ function ScaffoldWizard({
 }) {
   const register = useRegisterEntity()
   const catalog = useCatalog().data ?? []
+  // Owner picker source: live catalog Groups ∪ the platform teams from
+  // /api/teams (which always guarantees default-platform + default-application),
+  // so Owner is never empty even when the live catalog defines no Group entity.
+  const teamGroups = useTeamGroups()
+  const ownerGroups = useMemo(() => mergeGroups(catalog, teamGroups), [catalog, teamGroups])
   const [stepIdx, setStepIdx] = useState(0)
   const [stage, setStage] = useState<WizardStage>('fields')
   const [values, setValues] = useState<Record<string, unknown>>(() => seedDefaults(template))
@@ -1183,7 +1250,7 @@ function ScaffoldWizard({
             values={values}
             onChange={(k, v) => setValues((cur) => ({ ...cur, [k]: v }))}
             errors={errors}
-            catalog={catalog}
+            groups={ownerGroups}
           />
         )}
         {stage === 'review' && <ReviewStep template={template} values={values} />}
@@ -1279,15 +1346,14 @@ function FieldStep({
   values,
   onChange,
   errors,
-  catalog,
+  groups,
 }: {
   step: CatalogTemplate['steps'][number]
   values: Record<string, unknown>
   onChange(k: string, v: unknown): void
   errors: Record<string, string>
-  catalog: Entity[]
+  groups: Entity[]
 }) {
-  const groups = catalog.filter((e) => e.kind === 'Group')
   return (
     <div className="space-y-1">
       <h3 className="text-base font-semibold text-content">{step.title}</h3>

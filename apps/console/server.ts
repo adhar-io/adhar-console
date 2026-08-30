@@ -32,6 +32,7 @@ import { handleDocuments, handleNotifications, handlePreferences } from './app/s
 import { handleScaffold } from './app/server/scaffolder.ts'
 import { handleAppsetToggle } from './app/server/appset.ts'
 import { handleListTemplates } from './app/server/templates.ts'
+import { handleListTeams } from './app/server/teams.ts'
 import { handleWorkspace } from './app/server/workspace/handlers.ts'
 import { handleBilling } from './app/server/billing/handlers.ts'
 import { handleOrganizations } from './app/server/organizations.ts'
@@ -328,6 +329,10 @@ async function route(req: Request): Promise<Response> {
 
   // Software templates for Catalog → Create New — discovered from Gitea.
   if (path === '/api/templates') return handleListTemplates(req)
+
+  // Owner/team (Group entity) picker for Catalog → Create New — discovered
+  // from the adhar/adhar-templates Gitea repo, always incl. the two defaults.
+  if (path === '/api/teams') return handleListTeams(req)
 
   // Component scaffolder (Catalog → Create): real Gitea repo + GitOps.
   if (path === '/api/scaffold') return handleScaffold(req)

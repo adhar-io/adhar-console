@@ -102,6 +102,7 @@ export async function handleScaffold(req: Request): Promise<Response> {
 
   const org = env('GITEA_ORG') ?? 'platform'
   const sc = body.scaffold ?? {}
+  const fromTemplate = Boolean(sc.sourceRepo && sc.sourceRepo.includes('/'))
   const catalogInfoPath = sc.catalogInfoPath || 'catalog-info.yaml'
   const manifestPath = sc.manifestPath || 'deploy'
   const steps: StepResult[] = []
@@ -120,8 +121,8 @@ export async function handleScaffold(req: Request): Promise<Response> {
   /* ── 1. create the repo ── */
   let repoRes: Response
   try {
-    if (sc.sourceRepo && sc.sourceRepo.includes('/')) {
-      const [tplOwner, tplRepo] = sc.sourceRepo.split('/')
+    if (fromTemplate) {
+      const [tplOwner, tplRepo] = sc.sourceRepo!.split('/')
       repoRes = await gitea_api(
         `/repos/${encodeURIComponent(tplOwner)}/${encodeURIComponent(tplRepo)}/generate`,
         {
@@ -168,6 +169,12 @@ export async function handleScaffold(req: Request): Promise<Response> {
   const repoUrl = repo.html_url ?? `${gitea.baseUrl}/${org}/${name}`
   const cloneUrl = repo.clone_url ?? `${gitea.baseUrl}/${org}/${name}.git`
   steps.push({ name: 'create-repo', ok: true, detail: repoUrl })
+  // When generated from a real template repo, `git_content: true` copied the
+  // template's source tree into the new repo — report that as its own step so
+  // the run view shows the code actually came across (not an empty repo).
+  if (fromTemplate) {
+    steps.push({ name: 'template-code', ok: true, detail: `copied from ${sc.sourceRepo}` })
+  }
 
   const putFile = (filePath: string, content: string, message: string) =>
     gitea_api(`/repos/${encodeURIComponent(org)}/${encodeURIComponent(name)}/contents/${filePath}`, {
@@ -213,6 +220,44 @@ export async function handleScaffold(req: Request): Promise<Response> {
         steps.push({ name: `commit:${file.path}`, ok: false, detail: e instanceof Error ? e.message : '' })
       }
     }
+  }
+
+  /* ── 2c. CI: report the REAL state of the pipeline (nothing simulated) ── */
+  // A generated repo runs its own `.gitea/workflows/*.yaml` via Gitea Actions —
+  // but only if the platform has a registered Actions runner. Report honestly:
+  // whether a workflow is present, and whether a runner exists to execute it.
+  try {
+    const wf = await gitea_api(`/repos/${encodeURIComponent(org)}/${encodeURIComponent(name)}/contents/.gitea/workflows`)
+    if (wf.ok) {
+      const entries = (await wf.json().catch(() => [])) as Array<{ name?: string; type?: string }>
+      const yamls = Array.isArray(entries)
+        ? entries.filter((e) => e.type === 'file' && /\.ya?ml$/i.test(e.name ?? ''))
+        : []
+      if (yamls.length) {
+        // Is a runner actually registered to pick the workflow up?
+        let runnerNote = 'a registered Gitea Actions runner is required to run it'
+        try {
+          const rr = await gitea_api(`/repos/${encodeURIComponent(org)}/${encodeURIComponent(name)}/actions/runners`)
+          if (rr.ok) {
+            const body = (await rr.json().catch(() => ({}))) as { runners?: unknown[] }
+            const n = Array.isArray(body.runners) ? body.runners.length : 0
+            runnerNote =
+              n > 0
+                ? `${n} Actions runner${n === 1 ? '' : 's'} registered — CI will run`
+                : 'no Gitea Actions runner registered — CI will queue until the platform adds one'
+          }
+        } catch {
+          /* runners endpoint not readable with this token — keep the requirement note */
+        }
+        steps.push({ name: 'ci-workflow', ok: true, detail: `.gitea/workflows/${yamls[0].name} — ${runnerNote}` })
+      } else {
+        steps.push({ name: 'ci-workflow', ok: false, detail: 'template ships no CI workflow (.gitea/workflows is empty)' })
+      }
+    } else {
+      steps.push({ name: 'ci-workflow', ok: false, detail: 'no .gitea/workflows in the template — CI not configured' })
+    }
+  } catch (e) {
+    steps.push({ name: 'ci-workflow', ok: false, detail: e instanceof Error ? e.message : '' })
   }
 
   /* ── 3. GitOps: deploy starter + Argo CD Application (as the user) ── */

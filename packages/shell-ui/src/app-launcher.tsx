@@ -396,15 +396,10 @@ function titleize(id: string): string {
     .join(' ')
 }
 
-function GenericAppIcon({ label }: { label: string }) {
-  return (
-    <span
-      aria-hidden
-      className="flex h-10 w-10 items-center justify-center rounded-[9px] bg-surface-sunken text-sm font-bold uppercase text-content-muted ring-1 ring-edge-subtle"
-    >
-      {label.slice(0, 2)}
-    </span>
-  )
+// Dynamically-discovered tools have no client-side logo — default to the
+// Kubernetes mark (every platform service runs on the cluster).
+function GenericAppIcon(_props: { label: string }) {
+  return <KubernetesIcon />
 }
 
 /**

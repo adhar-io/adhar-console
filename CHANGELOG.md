@@ -6,6 +6,18 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+
+- **Scaffolder wires new repos to Tekton CI (not Gitea Actions).** Adhar's CI is
+  Tekton: a Gitea push webhook posts to the `adhar-ci` EventListener, which starts
+  a PipelineRun. The Create-New scaffold step now registers a per-repo push
+  webhook → the Tekton EventListener (`TEKTON_EVENTLISTENER_URL`, default the
+  in-cluster `el-adhar-ci` service) instead of checking for `.gitea/workflows` +
+  a Gitea Actions runner. Idempotent, and reported truthfully in the run log
+  (`ci-tekton`). Pairs with the platform's generic `scaffold-ci` Tekton pipeline
+  (clone → test → build image → push to Harbor → GitOps) so a scaffolded repo
+  builds and deploys on push.
+
 ## [0.1.19] - 2026-08-30
 
 ### Fixed

@@ -222,42 +222,41 @@ export async function handleScaffold(req: Request): Promise<Response> {
     }
   }
 
-  /* ── 2c. CI: report the REAL state of the pipeline (nothing simulated) ── */
-  // A generated repo runs its own `.gitea/workflows/*.yaml` via Gitea Actions —
-  // but only if the platform has a registered Actions runner. Report honestly:
-  // whether a workflow is present, and whether a runner exists to execute it.
+  /* ── 2c. CI: wire the repo to Tekton (nothing simulated) ── */
+  // Adhar's CI is Tekton, not Gitea Actions: a Gitea push webhook posts to the
+  // `adhar-ci` Tekton EventListener, whose CEL triggers start a PipelineRun
+  // (see the platform `scaffold-ci` pipeline). Register a per-repo webhook →
+  // EventListener so a push builds the repo — regardless of which org it's in
+  // (the platform's org-level hook only covers the `adhar` org). Idempotent.
+  const elUrl = env('TEKTON_EVENTLISTENER_URL') ??
+    'http://el-adhar-ci.adhar-system.svc.cluster.local:8080'
   try {
-    const wf = await gitea_api(`/repos/${encodeURIComponent(org)}/${encodeURIComponent(name)}/contents/.gitea/workflows`)
-    if (wf.ok) {
-      const entries = (await wf.json().catch(() => [])) as Array<{ name?: string; type?: string }>
-      const yamls = Array.isArray(entries)
-        ? entries.filter((e) => e.type === 'file' && /\.ya?ml$/i.test(e.name ?? ''))
-        : []
-      if (yamls.length) {
-        // Is a runner actually registered to pick the workflow up?
-        let runnerNote = 'a registered Gitea Actions runner is required to run it'
-        try {
-          const rr = await gitea_api(`/repos/${encodeURIComponent(org)}/${encodeURIComponent(name)}/actions/runners`)
-          if (rr.ok) {
-            const body = (await rr.json().catch(() => ({}))) as { runners?: unknown[] }
-            const n = Array.isArray(body.runners) ? body.runners.length : 0
-            runnerNote =
-              n > 0
-                ? `${n} Actions runner${n === 1 ? '' : 's'} registered — CI will run`
-                : 'no Gitea Actions runner registered — CI will queue until the platform adds one'
-          }
-        } catch {
-          /* runners endpoint not readable with this token — keep the requirement note */
-        }
-        steps.push({ name: 'ci-workflow', ok: true, detail: `.gitea/workflows/${yamls[0].name} — ${runnerNote}` })
-      } else {
-        steps.push({ name: 'ci-workflow', ok: false, detail: 'template ships no CI workflow (.gitea/workflows is empty)' })
-      }
+    const hooksRes = await gitea_api(`/repos/${encodeURIComponent(org)}/${encodeURIComponent(name)}/hooks`)
+    const existing = hooksRes.ok
+      ? ((await hooksRes.json().catch(() => [])) as Array<{ config?: { url?: string } }>)
+      : []
+    const already = Array.isArray(existing) && existing.some((h) => h.config?.url === elUrl)
+    if (already) {
+      steps.push({ name: 'ci-tekton', ok: true, detail: `push webhook → Tekton EventListener already set (${elUrl})` })
     } else {
-      steps.push({ name: 'ci-workflow', ok: false, detail: 'no .gitea/workflows in the template — CI not configured' })
+      const hookRes = await gitea_api(`/repos/${encodeURIComponent(org)}/${encodeURIComponent(name)}/hooks`, {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'gitea',
+          active: true,
+          events: ['push'],
+          config: { url: elUrl, content_type: 'json' },
+        }),
+      })
+      if (hookRes.ok) {
+        steps.push({ name: 'ci-tekton', ok: true, detail: `push webhook → Tekton EventListener (${elUrl}) — a push runs the scaffold-ci pipeline` })
+      } else {
+        const d = (await hookRes.text().catch(() => '')).slice(0, 160)
+        steps.push({ name: 'ci-tekton', ok: false, detail: `couldn't register Tekton webhook: gitea ${hookRes.status} ${d}` })
+      }
     }
   } catch (e) {
-    steps.push({ name: 'ci-workflow', ok: false, detail: e instanceof Error ? e.message : '' })
+    steps.push({ name: 'ci-tekton', ok: false, detail: e instanceof Error ? e.message : '' })
   }
 
   /* ── 3. GitOps: deploy starter + Argo CD Application (as the user) ── */

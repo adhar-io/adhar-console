@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.21] - 2026-08-30
+
 ### Changed
 
 - **Scaffolder builds new services with Cloud Native Buildpacks (kpack).** The

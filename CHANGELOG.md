@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.20] - 2026-08-30
+
 ### Changed
 
 - **Scaffolder wires new repos to Tekton CI (not Gitea Actions).** Adhar's CI is

@@ -6,6 +6,18 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+
+- **Scaffolder builds new services with Cloud Native Buildpacks (kpack).** The
+  build step now creates a kpack `Image` (no Dockerfile) that builds the new
+  repo with the platform's `adhar-builder` ClusterBuilder, pushes the OCI image
+  to Harbor via the `adhar-pipeline` service account, and auto-rebuilds on every
+  commit — matching the platform supply chain (`supply-chain/50-service-template`).
+  Reported as `build-buildpacks` in the run log. Replaces the previous Tekton
+  push-webhook step (kpack polls git, so no webhook is needed for builds).
+  Registry/builder/namespace are overridable via `KPACK_REGISTRY`,
+  `KPACK_BUILDER`, `KPACK_SERVICE_ACCOUNT`, `KPACK_NAMESPACE`.
+
 ## [0.1.20] - 2026-08-30
 
 ### Changed

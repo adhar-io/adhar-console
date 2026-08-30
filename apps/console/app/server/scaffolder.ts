@@ -222,41 +222,37 @@ export async function handleScaffold(req: Request): Promise<Response> {
     }
   }
 
-  /* ── 2c. CI: wire the repo to Tekton (nothing simulated) ── */
-  // Adhar's CI is Tekton, not Gitea Actions: a Gitea push webhook posts to the
-  // `adhar-ci` Tekton EventListener, whose CEL triggers start a PipelineRun
-  // (see the platform `scaffold-ci` pipeline). Register a per-repo webhook →
-  // EventListener so a push builds the repo — regardless of which org it's in
-  // (the platform's org-level hook only covers the `adhar` org). Idempotent.
-  const elUrl = env('TEKTON_EVENTLISTENER_URL') ??
-    'http://el-adhar-ci.adhar-system.svc.cluster.local:8080'
-  try {
-    const hooksRes = await gitea_api(`/repos/${encodeURIComponent(org)}/${encodeURIComponent(name)}/hooks`)
-    const existing = hooksRes.ok
-      ? ((await hooksRes.json().catch(() => [])) as Array<{ config?: { url?: string } }>)
-      : []
-    const already = Array.isArray(existing) && existing.some((h) => h.config?.url === elUrl)
-    if (already) {
-      steps.push({ name: 'ci-tekton', ok: true, detail: `push webhook → Tekton EventListener already set (${elUrl})` })
+  /* ── 2c. Build: kpack Image (Cloud Native Buildpacks → Harbor) ── */
+  // Adhar builds with kpack/buildpacks — no Dockerfile. Create a kpack Image
+  // that builds the repo with the `adhar-builder` ClusterBuilder, pushes the OCI
+  // image to Harbor (signed via the `adhar-pipeline` service account per the
+  // platform supply chain), and auto-rebuilds on every commit. This is the CI
+  // build; nothing is simulated.
+  {
+    const id = await resolveIdentity(req)
+    if (!id) {
+      steps.push({ name: 'build-buildpacks', ok: false, detail: 'no cluster identity to create the kpack Image' })
     } else {
-      const hookRes = await gitea_api(`/repos/${encodeURIComponent(org)}/${encodeURIComponent(name)}/hooks`, {
-        method: 'POST',
-        body: JSON.stringify({
-          type: 'gitea',
-          active: true,
-          events: ['push'],
-          config: { url: elUrl, content_type: 'json' },
-        }),
-      })
-      if (hookRes.ok) {
-        steps.push({ name: 'ci-tekton', ok: true, detail: `push webhook → Tekton EventListener (${elUrl}) — a push runs the scaffold-ci pipeline` })
-      } else {
-        const d = (await hookRes.text().catch(() => '')).slice(0, 160)
-        steps.push({ name: 'ci-tekton', ok: false, detail: `couldn't register Tekton webhook: gitea ${hookRes.status} ${d}` })
+      const buildNs = env('KPACK_NAMESPACE') ?? 'adhar-system'
+      const subPath = typeof body.params?.subpath === 'string' ? (body.params.subpath as string) : undefined
+      const image = buildKpackImage({ name, cloneUrl, subPath })
+      try {
+        const r = await apiServerFetch(
+          id.token,
+          `/apis/kpack.io/v1alpha2/namespaces/${encodeURIComponent(buildNs)}/images`,
+          { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(image) },
+        )
+        steps.push({
+          name: 'build-buildpacks',
+          ok: r.ok,
+          detail: r.ok
+            ? `kpack Image ${buildNs}/${name} — buildpacks build → Harbor (rebuilds on push)`
+            : `apiserver ${r.status}: ${(await r.text().catch(() => '')).slice(0, 140)}`,
+        })
+      } catch (e) {
+        steps.push({ name: 'build-buildpacks', ok: false, detail: e instanceof Error ? e.message : '' })
       }
     }
-  } catch (e) {
-    steps.push({ name: 'ci-tekton', ok: false, detail: e instanceof Error ? e.message : '' })
   }
 
   /* ── 3. GitOps: deploy starter + Argo CD Application (as the user) ── */
@@ -321,6 +317,35 @@ export async function handleScaffold(req: Request): Promise<Response> {
 }
 
 /* ─────────────── descriptor builders ─────────────── */
+
+/**
+ * kpack `Image` — builds the repo with Cloud Native Buildpacks (no Dockerfile)
+ * via the platform's `adhar-builder` ClusterBuilder, pushing the OCI image to
+ * Harbor. kpack polls the git source and rebuilds on every commit. Mirrors the
+ * platform supply-chain convention (see supply-chain/50-service-template.yaml).
+ */
+function buildKpackImage(o: { name: string; cloneUrl: string; subPath?: string }) {
+  const registry = env('KPACK_REGISTRY') ?? 'harbor-core.adhar-system.svc.cluster.local/library'
+  return {
+    apiVersion: 'kpack.io/v1alpha2',
+    kind: 'Image',
+    metadata: {
+      name: o.name,
+      namespace: env('KPACK_NAMESPACE') ?? 'adhar-system',
+      labels: { 'adhar.io/supply-chain': 'true', 'adhar.io/scaffolded': 'true' },
+    },
+    spec: {
+      tag: `${registry.replace(/\/$/, '')}/${o.name}`,
+      serviceAccountName: env('KPACK_SERVICE_ACCOUNT') ?? 'adhar-pipeline',
+      builder: { name: env('KPACK_BUILDER') ?? 'adhar-builder', kind: 'ClusterBuilder' },
+      cache: { volume: { size: '1Gi' } },
+      source: {
+        git: { url: o.cloneUrl, revision: 'main' },
+        ...(o.subPath ? { subPath: o.subPath } : {}),
+      },
+    },
+  }
+}
 
 function yamlList(items: string[]): string {
   return items.length ? `[${items.map((t) => JSON.stringify(t)).join(', ')}]` : '[]'

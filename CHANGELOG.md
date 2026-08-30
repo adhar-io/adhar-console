@@ -6,6 +6,33 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+
+- **Marketplace is driven by the Adhar ApplicationSet, with GitOps enable/disable.**
+  The Platform → Marketplace now lists the real apps/tools from the cluster's
+  `helm-charts-*` ApplicationSet (every `list.elements[]` entry — name, category,
+  enabled state, namespace, manifest path) and cross-references live Argo CD
+  Application health/sync. Enabling or disabling an app is a **GitOps** action: a
+  new BFF endpoint `POST /api/platform/appset/toggle` flips that element's
+  `enabled` flag in the ApplicationSet's Git source and commits it (a scoped,
+  formatting-preserving YAML edit with the Gitea service token), so ArgoCD
+  reconciles — identical to editing the file in Gitea by hand. The appset's
+  repo/path is auto-discovered from the managing Argo CD Application, with
+  `ADHAR_APPSET_REPO`/`ADHAR_APPSET_FILE` env overrides. Replaces the previous
+  hardcoded chart catalogue + localStorage install state.
+
+### Changed
+
+- **Adhar Resources load real Crossplane composites.** The platform composites
+  are Crossplane v2 namespaced XRs under `platform.adhar.io/v1alpha1` with
+  `composite<Domain>` plurals; the views queried bare plurals that don't exist.
+  Corrected the GVR + kind for each sub-view (applications → `compositeapplications`,
+  databases → `compositedatabases`, buckets → `compositestorages`, topics →
+  `compositemessagings`, pipelines → `compositepipelines`, environments →
+  `compositeenvironments`), so Catalog and each resource view list real
+  instances with real status; kinds with no XRD (functions/workflows/caches)
+  honestly show the "not installed" empty state.
+
 ## [0.1.15] - 2026-08-29
 
 ### Added

@@ -37,9 +37,10 @@ const APPLICATION_CONFIG: XrKindConfig = {
   gvr: {
     group: 'platform.adhar.io',
     version: 'v1alpha1',
-    resource: 'applications',
+    resource: 'compositeapplications',
     namespaced: true,
   },
+  kind: 'CompositeApplication',
   singular: 'Application',
   plural: 'Applications',
   description:
@@ -166,9 +167,10 @@ const DATABASE_CONFIG: XrKindConfig = {
   gvr: {
     group: 'platform.adhar.io',
     version: 'v1alpha1',
-    resource: 'databases',
+    resource: 'compositedatabases',
     namespaced: true,
   },
+  kind: 'CompositeDatabase',
   singular: 'Database',
   plural: 'Databases',
   description:
@@ -385,9 +387,10 @@ const PIPELINE_CONFIG: XrKindConfig = {
   gvr: {
     group: 'platform.adhar.io',
     version: 'v1alpha1',
-    resource: 'pipelines',
+    resource: 'compositepipelines',
     namespaced: true,
   },
+  kind: 'CompositePipeline',
   singular: 'Pipeline',
   plural: 'Pipelines',
   description:
@@ -592,9 +595,10 @@ const CACHE_CONFIG: XrKindConfig = {
   gvr: {
     group: 'platform.adhar.io',
     version: 'v1alpha1',
-    resource: 'caches',
+    resource: 'compositecaches',
     namespaced: true,
   },
+  kind: 'CompositeCache',
   singular: 'Cache',
   plural: 'Caches',
   description:
@@ -734,9 +738,10 @@ const BUCKET_CONFIG: XrKindConfig = {
   gvr: {
     group: 'platform.adhar.io',
     version: 'v1alpha1',
-    resource: 'buckets',
+    resource: 'compositestorages',
     namespaced: true,
   },
+  kind: 'CompositeStorage',
   singular: 'Bucket',
   plural: 'Buckets',
   description:
@@ -842,9 +847,10 @@ const TOPIC_CONFIG: XrKindConfig = {
   gvr: {
     group: 'platform.adhar.io',
     version: 'v1alpha1',
-    resource: 'topics',
+    resource: 'compositemessagings',
     namespaced: true,
   },
+  kind: 'CompositeMessaging',
   singular: 'Topic',
   plural: 'Topics',
   description:
@@ -953,9 +959,10 @@ const FUNCTION_CONFIG: XrKindConfig = {
   gvr: {
     group: 'platform.adhar.io',
     version: 'v1alpha1',
-    resource: 'functions',
+    resource: 'compositefunctions',
     namespaced: true,
   },
+  kind: 'CompositeFunction',
   singular: 'Function',
   plural: 'Functions',
   description:
@@ -1109,9 +1116,10 @@ const WORKFLOW_CONFIG: XrKindConfig = {
   gvr: {
     group: 'platform.adhar.io',
     version: 'v1alpha1',
-    resource: 'workflows',
+    resource: 'compositeworkflows',
     namespaced: true,
   },
+  kind: 'CompositeWorkflow',
   singular: 'Workflow',
   plural: 'Workflows',
   description:
@@ -1213,9 +1221,10 @@ const ENVIRONMENT_CONFIG: XrKindConfig = {
   gvr: {
     group: 'platform.adhar.io',
     version: 'v1alpha1',
-    resource: 'environments',
-    namespaced: false,
+    resource: 'compositeenvironments',
+    namespaced: true,
   },
+  kind: 'CompositeEnvironment',
   singular: 'Environment',
   plural: 'Environments',
   description:

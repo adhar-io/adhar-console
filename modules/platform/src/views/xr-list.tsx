@@ -76,6 +76,13 @@ export interface XrFormField {
 export interface XrKindConfig {
   /** GVR used to query the kube-apiserver. */
   gvr: k8s.GVR
+  /**
+   * Kubernetes `kind` for freshly provisioned claims/composites. Defaults to
+   * the human `singular` with non-alphanumerics stripped, but the Adhar
+   * Crossplane composites use `Composite<Domain>` kinds (e.g. a "Database"
+   * surfaces the `CompositeDatabase` kind), so it's set explicitly per kind.
+   */
+  kind?: string
   /** Singular + plural human names. */
   singular: string
   plural: string
@@ -172,7 +179,7 @@ function setPath(obj: Record<string, unknown>, path: string, value: unknown): vo
  * `kind` instead, so this only shapes freshly provisioned claims.
  */
 function claimKind(config: XrKindConfig): string {
-  return config.singular.replace(/[^A-Za-z0-9]/g, '')
+  return config.kind ?? config.singular.replace(/[^A-Za-z0-9]/g, '')
 }
 
 function claimApiVersion(gvr: k8s.GVR): string {

@@ -1,13 +1,24 @@
+import { useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { k8s } from '@adhar-console/api-clients'
+import { client, useActiveCluster } from './client.ts'
 
 /**
- * Curated Helm-chart marketplace.
+ * Adhar Marketplace — driven by the real Adhar **ApplicationSet**.
  *
- * The catalog is a compile-time array of vetted charts (Bitnami, Grafana,
- * Argo, Crossplane, Adhar). The "installed releases" set lives in
- * localStorage so the install / upgrade / uninstall flow is fully
- * functional end-to-end without a real Helm backend yet — when the BFF
- * lands, swap `loadReleases` / `saveReleases` for HTTP calls.
+ * The list of apps/tools comes from the `helm-charts-*` ApplicationSet(s)
+ * (kind `ApplicationSet`, `argoproj.io/v1alpha1`, namespace `adhar-system`):
+ * each `spec.generators[].list.elements[]` entry is one marketplace app
+ * (`{ name|packageName, enabled, namespace, category, manifestPath, plane? }`),
+ * read live through the per-user k8s gateway and cross-referenced with the
+ * matching live ArgoCD `Application` for health/sync. Enabling/disabling an app
+ * is a GitOps change — the toggle flips that element's `enabled` value in the
+ * ApplicationSet YAML in Gitea (via the `/api/platform/appset/toggle` BFF
+ * endpoint), and ArgoCD reconciles it.
+ *
+ * The curated chart catalogue below is retained only as **optional enrichment**
+ * (icon, publisher, provenance, description) matched to an app by name — it is
+ * never the source of the list or of the enabled state.
  */
 
 export type ChartCategory =
@@ -1283,227 +1294,371 @@ const SEED_CATALOG: SeedChart[] = [
 
 export const CATALOG: MarketplaceChart[] = SEED_CATALOG.map(withTrustDefaults)
 
-/* ─────────── installed releases (in-memory + localStorage) ─────────── */
+/* ─────────── enrichment: match an app to a curated chart ─────────── */
 
-export type ReleaseStatus = 'installing' | 'deployed' | 'upgrading' | 'uninstalling' | 'failed'
-
-export interface HelmRelease {
-  /** Stable id — `${namespace}/${releaseName}`. */
-  id: string
-  chartId: string
-  releaseName: string
-  namespace: string
-  chart: string
-  version: string
-  appVersion: string
-  status: ReleaseStatus
-  values: Record<string, unknown>
-  createdAt: string
-  updatedAt: string
-  /** Increments on every upgrade. */
-  revision: number
-  notes?: string
+function normalizeKey(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
-const STORAGE_KEY = 'adhar.platform.helm.releases'
-
-function loadReleases(): HelmRelease[] {
-  if (typeof localStorage === 'undefined') return []
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as HelmRelease[]
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
-function saveReleases(releases: HelmRelease[]) {
-  if (typeof localStorage === 'undefined') return
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(releases))
-  } catch {
-    /* ignore quota errors */
-  }
-}
-
-/* ─────────── repositories ─────────── */
-
-export interface HelmRepository {
-  name: string
-  url: string
-  chartCount: number
-  verified: boolean
-  description: string
-}
-
-export const REPOSITORIES: HelmRepository[] = [
-  { name: 'bitnami', url: 'https://charts.bitnami.com/bitnami', chartCount: 200, verified: true, description: 'Production-ready OSS images and Helm charts.' },
-  { name: 'grafana', url: 'https://grafana.github.io/helm-charts', chartCount: 38, verified: true, description: 'Grafana, Loki, Tempo, Mimir, Pyroscope.' },
-  { name: 'prometheus-community', url: 'https://prometheus-community.github.io/helm-charts', chartCount: 64, verified: true, description: 'Prometheus, Alertmanager, exporters.' },
-  { name: 'argo', url: 'https://argoproj.github.io/argo-helm', chartCount: 12, verified: true, description: 'Argo CD, Workflows, Rollouts, Events.' },
-  { name: 'jetstack', url: 'https://charts.jetstack.io', chartCount: 5, verified: true, description: 'cert-manager and trust-related tooling.' },
-  { name: 'kyverno', url: 'https://kyverno.github.io/kyverno', chartCount: 6, verified: true, description: 'Kyverno policy engine.' },
-  { name: 'crossplane-stable', url: 'https://charts.crossplane.io/stable', chartCount: 4, verified: true, description: 'Crossplane core and providers.' },
-  { name: 'minio', url: 'https://charts.min.io', chartCount: 3, verified: true, description: 'MinIO server, operator, console.' },
-  { name: 'open-telemetry', url: 'https://open-telemetry.github.io/opentelemetry-helm-charts', chartCount: 8, verified: true, description: 'OpenTelemetry collector and operator.' },
-  { name: 'ingress-nginx', url: 'https://kubernetes.github.io/ingress-nginx', chartCount: 1, verified: true, description: 'Official NGINX ingress controller.' },
-  { name: 'hashicorp', url: 'https://helm.releases.hashicorp.com', chartCount: 6, verified: true, description: 'Vault, Consul, Boundary, Waypoint.' },
-  { name: 'adhar', url: 'https://charts.adhar.io', chartCount: 12, verified: true, description: 'Adhar-curated platform extensions.' },
-  { name: 'temporalio', url: 'https://go.temporal.io/helm-charts', chartCount: 2, verified: true, description: 'Temporal server and tooling (partner).' },
-  { name: 'open-8gears', url: 'https://8gears.container-registry.com/chartrepo/library', chartCount: 3, verified: false, description: 'Community charts — n8n and friends.' },
-  { name: 'uptime-kuma', url: 'https://helm.irsigler.cloud', chartCount: 1, verified: false, description: 'Community Uptime Kuma chart.' },
-]
-
-/* ─────────── hooks ─────────── */
-
-export function useCatalog() {
-  return useQuery({
-    queryKey: ['marketplace', 'catalog'],
-    queryFn: () => Promise.resolve(CATALOG),
-    staleTime: Infinity,
-  })
-}
-
-export function useRepositories() {
-  return useQuery({
-    queryKey: ['marketplace', 'repositories'],
-    queryFn: () => Promise.resolve(REPOSITORIES),
-    staleTime: Infinity,
-  })
-}
-
-export function useReleases() {
-  return useQuery<HelmRelease[]>({
-    queryKey: ['marketplace', 'releases'],
-    queryFn: () => Promise.resolve(loadReleases()),
-    staleTime: 1_000,
-  })
-}
-
-interface InstallInput {
-  chart: MarketplaceChart
-  releaseName: string
-  namespace: string
-  values: Record<string, unknown>
-}
-
-export function useInstallChart() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async (input: InstallInput) => {
-      const now = new Date().toISOString()
-      const release: HelmRelease = {
-        id: `${input.namespace}/${input.releaseName}`,
-        chartId: input.chart.id,
-        releaseName: input.releaseName,
-        namespace: input.namespace,
-        chart: input.chart.name,
-        version: input.chart.version,
-        appVersion: input.chart.appVersion,
-        status: 'installing',
-        values: input.values,
-        createdAt: now,
-        updatedAt: now,
-        revision: 1,
-        notes: defaultNotes(input.chart, input.releaseName, input.namespace),
-      }
-      const existing = loadReleases()
-      if (existing.some((r) => r.id === release.id)) {
-        throw new Error(
-          `Release "${input.releaseName}" already exists in namespace "${input.namespace}".`,
-        )
-      }
-      saveReleases([...existing, release])
-      // Simulate the install pulling images / running hooks.
-      await delay(900)
-      const next = loadReleases().map((r) =>
-        r.id === release.id ? { ...r, status: 'deployed' as const, updatedAt: new Date().toISOString() } : r,
-      )
-      saveReleases(next)
-      return next.find((r) => r.id === release.id)!
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['marketplace', 'releases'] }),
-  })
-}
-
-export function useUpgradeChart() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async (input: { id: string; values: Record<string, unknown>; version?: string }) => {
-      const all = loadReleases()
-      const next = all.map((r) =>
-        r.id === input.id
-          ? {
-              ...r,
-              status: 'upgrading' as const,
-              values: input.values,
-              version: input.version ?? r.version,
-              revision: r.revision + 1,
-              updatedAt: new Date().toISOString(),
-            }
-          : r,
-      )
-      saveReleases(next)
-      await delay(700)
-      const finalState = loadReleases().map((r) =>
-        r.id === input.id ? { ...r, status: 'deployed' as const, updatedAt: new Date().toISOString() } : r,
-      )
-      saveReleases(finalState)
-      return finalState.find((r) => r.id === input.id)
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['marketplace', 'releases'] }),
-  })
-}
-
-export function useUninstallChart() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const all = loadReleases()
-      saveReleases(all.map((r) => (r.id === id ? { ...r, status: 'uninstalling' as const } : r)))
-      await delay(500)
-      saveReleases(loadReleases().filter((r) => r.id !== id))
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['marketplace', 'releases'] }),
-  })
-}
-
-function delay(ms: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms))
-}
-
-function defaultNotes(chart: MarketplaceChart, releaseName: string, namespace: string): string {
-  return [
-    `${chart.title ?? chart.name} v${chart.version} installed.`,
-    '',
-    'Get the resources:',
-    `  kubectl get all -n ${namespace} -l app.kubernetes.io/instance=${releaseName}`,
-    '',
-    'Tail the logs:',
-    `  kubectl logs -n ${namespace} -l app.kubernetes.io/instance=${releaseName} -f`,
-    '',
-    chart.docsUrl ? `Docs: ${chart.docsUrl}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n')
-}
-
-/* ─────────── small helpers used by the view ─────────── */
-
+/** Chart lookup by id, then by fuzzy name — used to enrich appset apps. */
 export function chartByIdMap(): Map<string, MarketplaceChart> {
   const out = new Map<string, MarketplaceChart>()
   for (const c of CATALOG) out.set(c.id, c)
   return out
 }
 
-export function suggestReleaseName(chart: MarketplaceChart, existing: HelmRelease[]): string {
-  const base = chart.name
-  if (!existing.some((r) => r.releaseName === base)) return base
-  for (let i = 2; i < 100; i++) {
-    const candidate = `${base}-${i}`
-    if (!existing.some((r) => r.releaseName === candidate)) return candidate
+let enrichmentIndex: Map<string, MarketplaceChart> | null = null
+function chartEnrichmentIndex(): Map<string, MarketplaceChart> {
+  if (enrichmentIndex) return enrichmentIndex
+  const idx = new Map<string, MarketplaceChart>()
+  for (const c of CATALOG) {
+    for (const key of [c.id, c.name, c.title ?? '', ...c.tags]) {
+      const k = normalizeKey(key)
+      if (k && !idx.has(k)) idx.set(k, c)
+    }
   }
-  return `${base}-${Date.now()}`
+  enrichmentIndex = idx
+  return idx
+}
+
+/** Best-effort enrichment for an app name — never fabricates, returns undefined. */
+export function enrichApp(name: string): MarketplaceChart | undefined {
+  const idx = chartEnrichmentIndex()
+  const k = normalizeKey(name)
+  if (idx.has(k)) return idx.get(k)
+  // Try dropping common suffixes (e.g. "kube-prometheus" ~ "kube-prometheus-stack").
+  for (const [key, chart] of idx) {
+    if (key.startsWith(k) || k.startsWith(key)) return chart
+  }
+  return undefined
+}
+
+/** Humanize an ApplicationSet category id ("ai-ml" → "AI ML", "cicd" → "Cicd"). */
+export function appCategoryLabel(cat: string): string {
+  const known: Record<string, string> = {
+    application: 'Application',
+    security: 'Security',
+    observability: 'Observability',
+    ai: 'AI',
+    data: 'Data',
+    core: 'Core',
+    infrastructure: 'Infrastructure',
+    networking: 'Networking',
+    storage: 'Storage',
+    identity: 'Identity',
+    plugins: 'Plugins',
+    backup: 'Backup',
+  }
+  if (known[cat]) return known[cat]
+  return cat.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+/* ─────────── ApplicationSet-driven marketplace ─────────── */
+
+/** Namespace the Adhar ApplicationSet(s) + generated ArgoCD Applications live in. */
+export const APPSET_NAMESPACE = 'adhar-system'
+
+const APPLICATIONSETS_GVR: k8s.GVR = {
+  group: 'argoproj.io',
+  version: 'v1alpha1',
+  resource: 'applicationsets',
+  namespaced: true,
+}
+const APPLICATIONS_GVR: k8s.GVR = {
+  group: 'argoproj.io',
+  version: 'v1alpha1',
+  resource: 'applications',
+  namespaced: true,
+}
+
+export type ArgoHealth =
+  | 'Healthy'
+  | 'Progressing'
+  | 'Degraded'
+  | 'Suspended'
+  | 'Missing'
+  | 'Unknown'
+  | ''
+export type ArgoSync = 'Synced' | 'OutOfSync' | 'Unknown' | ''
+
+/** One element of an ApplicationSet list/matrix generator. */
+export interface AppsetElement {
+  name: string
+  enabled: boolean
+  namespace?: string
+  category: string
+  manifestPath?: string
+  plane?: string
+  /** Owning ApplicationSet name (e.g. `helm-charts-local`). */
+  appset: string
+}
+
+/** Live ArgoCD Application status for a marketplace app. */
+export interface AppLiveStatus {
+  name: string
+  namespace: string
+  health: ArgoHealth
+  sync: ArgoSync
+  operationPhase?: string
+  message?: string
+  createdAt?: string
+  repoURL?: string
+  path?: string
+}
+
+export interface MarketplaceApp extends AppsetElement {
+  /** Stable id — `${appset}/${name}`. */
+  id: string
+  /** Live ArgoCD Application status, when a matching Application exists. */
+  live?: AppLiveStatus
+  /** Optional curated-catalogue enrichment matched by name. */
+  chart?: MarketplaceChart
+}
+
+/* raw shapes (cast from the generic gateway objects) */
+interface RawElement {
+  name?: string
+  packageName?: string
+  enabled?: string | boolean
+  namespace?: string
+  category?: string
+  manifestPath?: string
+  plane?: string
+  [k: string]: unknown
+}
+interface RawListGen {
+  list?: { elements?: RawElement[] }
+  matrix?: { generators?: Array<{ list?: { elements?: RawElement[] } }> }
+}
+interface RawAppSet {
+  metadata?: { name?: string; namespace?: string }
+  spec?: { generators?: RawListGen[] }
+}
+interface RawApplication {
+  metadata?: { name?: string; namespace?: string; creationTimestamp?: string }
+  spec?: { source?: { repoURL?: string; path?: string } }
+  status?: {
+    health?: { status?: string; message?: string }
+    sync?: { status?: string }
+    operationState?: { phase?: string; message?: string }
+  }
+}
+
+function elementsFromAppSet(as: RawAppSet): AppsetElement[] {
+  const appset = as.metadata?.name ?? ''
+  const out: AppsetElement[] = []
+  const lists: RawElement[][] = []
+  for (const g of as.spec?.generators ?? []) {
+    if (g.list?.elements) lists.push(g.list.elements)
+    for (const mg of g.matrix?.generators ?? []) {
+      if (mg.list?.elements) lists.push(mg.list.elements)
+    }
+  }
+  for (const els of lists) {
+    for (const e of els) {
+      const name = e.name ?? e.packageName
+      if (!name) continue
+      out.push({
+        name,
+        enabled: String(e.enabled) === 'true',
+        namespace: e.namespace,
+        category: e.category || 'other',
+        manifestPath: e.manifestPath,
+        plane: e.plane,
+        appset,
+      })
+    }
+  }
+  return out
+}
+
+function liveFromApplication(app: RawApplication): AppLiveStatus {
+  return {
+    name: app.metadata?.name ?? '',
+    namespace: app.metadata?.namespace ?? '',
+    health: (app.status?.health?.status as ArgoHealth) ?? 'Unknown',
+    sync: (app.status?.sync?.status as ArgoSync) ?? 'Unknown',
+    operationPhase: app.status?.operationState?.phase,
+    message: app.status?.health?.message ?? app.status?.operationState?.message,
+    createdAt: app.metadata?.creationTimestamp,
+    repoURL: app.spec?.source?.repoURL,
+    path: app.spec?.source?.path,
+  }
+}
+
+/** Query key for the ApplicationSet list — the toggle mutation invalidates this. */
+export function appsetsQueryKey(cluster: string) {
+  return ['marketplace', 'appsets', cluster] as const
+}
+
+/**
+ * The marketplace, read live from the cluster: every `helm-charts-*`
+ * ApplicationSet element, cross-referenced with its live ArgoCD Application and
+ * enriched from the curated catalogue. Grouped/sorted in the view.
+ */
+export function useMarketplaceApps() {
+  const { cluster } = useActiveCluster()
+
+  const appsetsQ = useQuery({
+    queryKey: appsetsQueryKey(cluster),
+    queryFn: () =>
+      client.listGeneric(cluster, APPLICATIONSETS_GVR, APPSET_NAMESPACE) as Promise<RawAppSet[]>,
+    staleTime: 15_000,
+    retry: false,
+  })
+
+  const appsQ = useQuery({
+    queryKey: ['marketplace', 'argo-apps', cluster],
+    queryFn: () =>
+      client.listGeneric(cluster, APPLICATIONS_GVR, APPSET_NAMESPACE) as Promise<RawApplication[]>,
+    refetchInterval: 10_000,
+    retry: false,
+  })
+
+  const appsets = appsetsQ.data ?? []
+  const argoApps = appsQ.data ?? []
+
+  const liveByName = useMemo(() => {
+    const m = new Map<string, AppLiveStatus>()
+    for (const a of argoApps) {
+      const n = a.metadata?.name
+      if (n) m.set(n, liveFromApplication(a))
+    }
+    return m
+  }, [argoApps])
+
+  const apps = useMemo<MarketplaceApp[]>(() => {
+    // Prefer the curated `helm-charts-*` ApplicationSets; if none are present
+    // fall back to every ApplicationSet in the namespace so the list stays real.
+    const helmCharts = appsets.filter((a) => (a.metadata?.name ?? '').startsWith('helm-charts'))
+    const source = helmCharts.length ? helmCharts : appsets
+    const seen = new Set<string>()
+    const out: MarketplaceApp[] = []
+    for (const as of source) {
+      for (const el of elementsFromAppSet(as)) {
+        const id = `${el.appset}/${el.name}`
+        if (seen.has(id)) continue
+        seen.add(id)
+        out.push({
+          ...el,
+          id,
+          live: liveByName.get(el.name),
+          chart: enrichApp(el.name),
+        })
+      }
+    }
+    out.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name))
+    return out
+  }, [appsets, liveByName])
+
+  const appsetNames = useMemo(
+    () => appsets.map((a) => a.metadata?.name ?? '').filter(Boolean),
+    [appsets],
+  )
+
+  return {
+    apps,
+    appsetNames,
+    isLoading: appsetsQ.isLoading,
+    isFetching: appsetsQ.isFetching || appsQ.isFetching,
+    isError: appsetsQ.isError,
+    error: appsetsQ.error as Error | null,
+    /** 404 → the ApplicationSet CRD (ArgoCD) isn't installed on this cluster. */
+    argoNotInstalled:
+      appsetsQ.isError && (appsetsQ.error as { status?: number } | null)?.status === 404,
+    dataUpdatedAt: appsetsQ.dataUpdatedAt,
+    refetch: () => {
+      appsetsQ.refetch()
+      appsQ.refetch()
+    },
+  }
+}
+
+/* ─────────── GitOps enable/disable toggle ─────────── */
+
+export interface ToggleResult {
+  ok: boolean
+  name: string
+  enabled: boolean
+  gitops: boolean
+  changed?: boolean
+  repo?: string
+  path?: string
+  commit?: string
+  commitUrl?: string
+  note?: string
+}
+
+/**
+ * Flip an app's `enabled` state in the Adhar ApplicationSet YAML in Gitea —
+ * a GitOps change applied by the `/api/platform/appset/toggle` BFF endpoint
+ * (which holds the Gitea service token). Optimistically patches the
+ * ApplicationSet cache, then invalidates so the reconciled state re-loads.
+ */
+export function useToggleApp() {
+  const qc = useQueryClient()
+  const { cluster } = useActiveCluster()
+
+  return useMutation<ToggleResult, Error, { app: MarketplaceApp; enabled: boolean }>({
+    mutationFn: async ({ app, enabled }) => {
+      const res = await fetch('/api/platform/appset/toggle', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ appset: app.appset, name: app.name, enabled }),
+      })
+      const body = (await res.json().catch(() => ({}))) as ToggleResult & { error?: string; detail?: string }
+      if (!res.ok || !body.ok) {
+        throw new Error(body.detail || body.error || `toggle failed (${res.status})`)
+      }
+      return body
+    },
+    onMutate: async ({ app, enabled }) => {
+      const key = appsetsQueryKey(cluster)
+      await qc.cancelQueries({ queryKey: key })
+      const previous = qc.getQueryData<RawAppSet[]>(key)
+      // Optimistically flip the element's `enabled` in the cached ApplicationSet.
+      qc.setQueryData<RawAppSet[]>(key, (old) =>
+        (old ?? []).map((as) => {
+          if ((as.metadata?.name ?? '') !== app.appset) return as
+          const patchEls = (els?: RawElement[]) =>
+            (els ?? []).map((e) =>
+              (e.name ?? e.packageName) === app.name ? { ...e, enabled: String(enabled) } : e,
+            )
+          return {
+            ...as,
+            spec: {
+              ...as.spec,
+              generators: (as.spec?.generators ?? []).map((g) => ({
+                ...g,
+                ...(g.list ? { list: { ...g.list, elements: patchEls(g.list.elements) } } : {}),
+                ...(g.matrix
+                  ? {
+                      matrix: {
+                        ...g.matrix,
+                        generators: (g.matrix.generators ?? []).map((mg) => ({
+                          ...mg,
+                          ...(mg.list
+                            ? { list: { ...mg.list, elements: patchEls(mg.list.elements) } }
+                            : {}),
+                        })),
+                      },
+                    }
+                  : {}),
+              })),
+            },
+          }
+        }),
+      )
+      return { previous }
+    },
+    onError: (_err, _vars, context) => {
+      const ctx = context as { previous?: RawAppSet[] } | undefined
+      if (ctx?.previous) qc.setQueryData(appsetsQueryKey(cluster), ctx.previous)
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: appsetsQueryKey(cluster) })
+      qc.invalidateQueries({ queryKey: ['marketplace', 'argo-apps', cluster] })
+    },
+  })
 }

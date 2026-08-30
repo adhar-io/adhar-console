@@ -30,6 +30,7 @@ import { proxyToolRequest } from './app/server/proxy.ts'
 import { publicToolInfo } from './app/server/tool-registry.ts'
 import { handleDocuments, handleNotifications, handlePreferences } from './app/server/api-handlers.ts'
 import { handleScaffold } from './app/server/scaffolder.ts'
+import { handleAppsetToggle } from './app/server/appset.ts'
 import { handleListTemplates } from './app/server/templates.ts'
 import { handleWorkspace } from './app/server/workspace/handlers.ts'
 import { handleBilling } from './app/server/billing/handlers.ts'
@@ -330,6 +331,10 @@ async function route(req: Request): Promise<Response> {
 
   // Component scaffolder (Catalog → Create): real Gitea repo + GitOps.
   if (path === '/api/scaffold') return handleScaffold(req)
+
+  // Marketplace enable/disable: flip an app's `enabled` in the Adhar
+  // ApplicationSet YAML in Gitea (GitOps) — ArgoCD reconciles the change.
+  if (path === '/api/platform/appset/toggle') return handleAppsetToggle(req)
 
   // Workspace / Organization management (orgs, members, teams, roles,
   // invitations, projects, api-tokens, audit) — tenant-scoped, Postgres-backed,

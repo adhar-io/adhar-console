@@ -39,7 +39,8 @@ export function Topbar({
         aria-hidden
       />
       <div className="relative flex h-14 items-center justify-between gap-2 px-3 sm:gap-4 sm:px-6">
-        <div className="flex min-w-0 items-center gap-2">
+        {/* Left — navigation toggle + the primary search box */}
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           {onOpenSidebar ? (
             <button
               type="button"
@@ -50,27 +51,45 @@ export function Topbar({
               <IconMenu />
             </button>
           ) : null}
-          {headerControls ? (
-            <div className="flex min-w-0 items-center gap-2">{headerControls}</div>
+          {onOpenCommandPalette ? (
+            <>
+              {/* Enhanced search field (sm+) */}
+              <button
+                type="button"
+                onClick={onOpenCommandPalette}
+                aria-label="Search"
+                className={cn(
+                  'group hidden h-9 w-full max-w-md items-center gap-2.5 rounded-lg border border-edge-default bg-surface-sunken/40 px-3 text-sm text-content-muted transition-all duration-150',
+                  'hover:border-brand-300 hover:bg-surface-raised hover:text-content',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25 sm:flex',
+                )}
+              >
+                <span className="text-content-subtle transition-colors group-hover:text-brand-600">
+                  <IconSearch />
+                </span>
+                <span className="flex-1 truncate text-left">Search resources, apps, docs…</span>
+                <Kbd size="xs">⌘K</Kbd>
+              </button>
+              {/* Compact icon (mobile) */}
+              <button
+                type="button"
+                onClick={onOpenCommandPalette}
+                aria-label="Search"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-content-muted transition-colors hover:bg-surface-sunken hover:text-content sm:hidden"
+              >
+                <IconSearch />
+              </button>
+            </>
           ) : null}
         </div>
-        <div className="flex items-center gap-1.5">
-          {onOpenCommandPalette ? (
-            <button
-              type="button"
-              onClick={onOpenCommandPalette}
-              className={cn(
-                'group hidden h-9 items-center gap-2 rounded-lg border border-edge-default bg-surface-raised/80 px-3 text-xs text-content-muted shadow-sm transition-all duration-150',
-                'hover:border-brand-300 hover:bg-surface-raised hover:text-content hover:shadow-md',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25 sm:flex',
-              )}
-            >
-              <span className="text-content-subtle transition-colors group-hover:text-brand-600">
-                <IconSearch />
-              </span>
-              <span className="min-w-28 text-left">Search anything…</span>
-              <Kbd size="xs" className="ml-4">⌘K</Kbd>
-            </button>
+
+        {/* Right — cluster + namespace context, then actions + account */}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {headerControls ? (
+            <>
+              <div className="hidden items-center gap-2 md:flex">{headerControls}</div>
+              <span className="mx-1 hidden h-6 w-px bg-edge-subtle md:block" aria-hidden />
+            </>
           ) : null}
           <HelpMenu />
           <ModeToggle />

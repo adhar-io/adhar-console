@@ -6,6 +6,17 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+
+- **Top-bar layout + selectors polished.** The search box moves to the **left**
+  and is enhanced into a proper search field (wider, clearer placeholder, ⌘K
+  hint; collapses to an icon on mobile). Cluster + Namespace move to the
+  **right**, and both are now consistent, styled dropdowns: the cluster is a
+  dropdown even with a single cluster (a one-item menu, no more static chip),
+  and the namespace picker is a custom dropdown (replacing the native select)
+  with a filter box once there are more than a few namespaces, health/version
+  detail, and the org-scoped "no namespaces in this org" hint inline.
+
 ## [0.1.17] - 2026-08-30
 
 ### Changed

@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-08-30
+
 ### Added
 
 - **Marketplace is driven by the Adhar ApplicationSet, with GitOps enable/disable.**

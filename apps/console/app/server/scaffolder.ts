@@ -343,6 +343,15 @@ function buildKpackImage(o: { name: string; cloneUrl: string; subPath?: string }
         git: { url: o.cloneUrl, revision: 'main' },
         ...(o.subPath ? { subPath: o.subPath } : {}),
       },
+      // Build-time toolchain pins (Paketo). These only apply to the languages
+      // that consume them — Java gets JDK 25 + Maven 3.9.x; every other language
+      // ignores them and uses the buildpack's latest default. Overridable via env.
+      build: {
+        env: [
+          { name: 'BP_JVM_VERSION', value: env('BP_JVM_VERSION') ?? '25' },
+          { name: 'BP_MAVEN_VERSION', value: env('BP_MAVEN_VERSION') ?? '3.9.9' },
+        ],
+      },
     },
   }
 }

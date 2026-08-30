@@ -6,6 +6,15 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+
+- **Scaffold builds pin the Java toolchain (JDK 25 + Maven 3.9.x).** The kpack
+  `Image` now sets Paketo build env `BP_JVM_VERSION=25` and
+  `BP_MAVEN_VERSION=3.9.9`, so Java services build on JDK 25 with Maven 3.9.x.
+  These only affect Java/Maven builds — every other language ignores them and
+  uses the buildpack's latest default. Overridable via `BP_JVM_VERSION` /
+  `BP_MAVEN_VERSION`.
+
 ## [0.1.21] - 2026-08-30
 
 ### Changed

@@ -170,6 +170,10 @@ export function getToolRegistry(): Record<string, ToolDef> {
     // per environment. Addressing one through the proxy returns a clear
     // "not configured" 503 instead of "unknown tool".
     keycloak: { baseUrl: clean(env('KEYCLOAK_URL')), authMode: 'none' },
+    // Hubble UI (Cilium network flows) + Kafka UI — browser UIs surfaced in the
+    // app launcher. Configured when their <TOOL>_URL is set on the deployment.
+    hubble: { baseUrl: clean(env('HUBBLE_URL')), authMode: 'none' },
+    'kafka-ui': { baseUrl: clean(env('KAFKA_UI_URL')), authMode: 'none' },
     vault: { baseUrl: clean(env('VAULT_URL')), authMode: 'service', serviceToken: env('VAULT_TOKEN') },
     tekton: { baseUrl: clean(env('TEKTON_URL')), authMode: 'service', serviceToken: env('TEKTON_TOKEN') },
     // RustFS is the platform's S3-compatible store; MINIO_URL kept as the

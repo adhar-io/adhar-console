@@ -6,6 +6,27 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+
+- **Adhar Resources — live composition topology.** Each Crossplane composite's
+  detail drawer now has a **Graph ⇄ List** view of its composed resources: the
+  composite on the left, every managed resource it created fanning out on the
+  right, edges and nodes coloured by real, live health (healthy / degraded /
+  unknown / deleting), with a health rollup legend. Nodes (and list rows) are
+  **click-to-inspect**: selecting one opens a live inspector for that managed
+  resource — its real conditions, status, and age, fetched on demand through the
+  per-user gateway (auto-refreshing), with honest "not authorized / not found /
+  not discoverable" states. Reuses the existing health discovery, so the graph
+  adds no extra API load.
+
+### Changed
+
+- **Apps drawer curated.** Removed **Loki** and **Tempo** tiles — they have no
+  standalone UI (you reach them through Grafana Explore). Added **Hubble**
+  (Cilium network flows) and **Kafka UI**, with their official logos. Hubble
+  shows enabled where deployed; Kafka UI shows honestly "not set up" until it's
+  installed.
+
 ## [0.1.22] - 2026-08-30
 
 ### Changed

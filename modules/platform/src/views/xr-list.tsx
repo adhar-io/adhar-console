@@ -1537,37 +1537,432 @@ function ComposedResourcesSection({ xr, cluster }: { xr: XR; cluster?: string })
   const health = healthQ.data ?? []
 
   return (
+    <ComposedResourcesCard
+      xr={xr}
+      refs={refs}
+      health={health}
+      fetching={healthQ.isFetching}
+      discovery={discoveryQ.data?.resources ?? []}
+      cluster={cluster}
+    />
+  )
+}
+
+interface DiscoveryResource {
+  group: string
+  version: string
+  name: string
+  kind: string
+  groupVersion: string
+  namespaced: boolean
+  subresource?: boolean
+}
+
+/** Resolve a composed-resource ref to its GVR via the discovery map. */
+function resolveRefGvr(
+  ref: ResourceRef,
+  discovery: DiscoveryResource[],
+): { gvr: k8s.GVR; namespace?: string } | null {
+  const match = discovery.find(
+    (r) => !r.subresource && r.kind === ref.kind && r.groupVersion === ref.apiVersion,
+  )
+  if (!match) return null
+  return {
+    gvr: { group: match.group, version: match.version, resource: match.name, namespaced: match.namespaced },
+    namespace: match.namespaced ? ref.namespace : undefined,
+  }
+}
+
+/**
+ * Composed-resources card with a Graph ⇄ List toggle. The graph is a live
+ * composition topology (the composite → every managed resource it created,
+ * coloured by real health); the list is the compact per-resource breakdown.
+ * Both read the same discovered health data, so the toggle is free.
+ */
+function ComposedResourcesCard({
+  xr,
+  refs,
+  health,
+  fetching,
+  discovery,
+  cluster,
+}: {
+  xr: XR
+  refs: ResourceRef[]
+  health: Array<RefHealth | null>
+  fetching: boolean
+  discovery: DiscoveryResource[]
+  cluster?: string
+}) {
+  const [view, setView] = useState<'graph' | 'list'>('graph')
+  const [selected, setSelected] = useState<number | null>(null)
+  const toggle = (i: number) => setSelected((s) => (s === i ? null : i))
+  return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <div className="text-sm font-semibold text-content">Composed resources</div>
-          <span className="text-xs text-content-subtle">{refs.length}</span>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <div className="text-sm font-semibold text-content">Composed resources</div>
+            <span className="rounded-full bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] text-content-subtle">
+              {refs.length}
+            </span>
+            {fetching ? <Spinner size={11} /> : null}
+          </div>
+          <div className="inline-flex items-center rounded-lg border border-edge-default bg-surface-raised p-0.5 text-[11px] font-medium">
+            {(['graph', 'list'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={view === v}
+                onClick={() => setView(v)}
+                className={cn(
+                  'rounded-md px-2.5 py-1 capitalize transition-colors',
+                  view === v
+                    ? 'bg-brand-600 text-white shadow-sm'
+                    : 'text-content-muted hover:bg-surface-sunken hover:text-content',
+                )}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
         </div>
       </CardHeader>
       <CardBody>
-        <ul className="divide-y divide-edge-subtle">
-          {refs.map((r, i) => (
-            <li
-              key={i}
-              className="flex items-center justify-between gap-3 px-1 py-2 text-sm"
-            >
+        {view === 'graph' ? (
+          <CompositionGraph xr={xr} refs={refs} health={health} selected={selected} onSelect={toggle} />
+        ) : (
+          <ul className="divide-y divide-edge-subtle">
+            {refs.map((r, i) => (
+              <li key={i}>
+                <button
+                  type="button"
+                  onClick={() => toggle(i)}
+                  className={cn(
+                    'flex w-full items-center justify-between gap-3 rounded-md px-1.5 py-2 text-left text-sm transition-colors hover:bg-surface-sunken',
+                    selected === i && 'bg-surface-sunken ring-1 ring-inset ring-brand-500/25',
+                  )}
+                >
+                  <div className="min-w-0">
+                    <div className="truncate font-medium text-content">
+                      {r.kind}/{r.name}
+                    </div>
+                    <div className="text-[11px] font-mono text-content-muted">
+                      {r.apiVersion}
+                      {r.namespace ? ` · ${r.namespace}` : ''}
+                    </div>
+                  </div>
+                  {health[i] ? (
+                    <StatusBadge kind={health[i]!.state}>{health[i]!.label}</StatusBadge>
+                  ) : null}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {selected != null && refs[selected] ? (
+          <ComposedResourceInspector
+            refItem={refs[selected]}
+            discovery={discovery}
+            cluster={cluster}
+            onClose={() => setSelected(null)}
+          />
+        ) : null}
+      </CardBody>
+    </Card>
+  )
+}
+
+/**
+ * Live inspector for one composed (managed) resource — fetched on demand
+ * through the per-user gateway. Shows real conditions, key status fields, age,
+ * and the exact GVR. Honest states: RBAC-denied / not-found / unresolvable GVR
+ * each say so rather than guessing.
+ */
+function ComposedResourceInspector({
+  refItem,
+  discovery,
+  cluster,
+  onClose,
+}: {
+  refItem: ResourceRef
+  discovery: DiscoveryResource[]
+  cluster?: string
+  onClose(): void
+}) {
+  const resolved = useMemo(() => resolveRefGvr(refItem, discovery), [refItem, discovery])
+
+  const q = useQuery({
+    queryKey: [
+      'platform',
+      'composed-inspect',
+      cluster ?? '-',
+      refItem.apiVersion,
+      refItem.kind,
+      refItem.namespace ?? '',
+      refItem.name,
+    ],
+    enabled: Boolean(resolved && refItem.name),
+    refetchInterval: 15_000,
+    retry: false,
+    queryFn: () =>
+      kube.get<XR>(resolved!.gvr, resolved!.namespace, refItem.name!, { cluster }) as Promise<XR>,
+  })
+
+  const obj = q.data
+  const conds = obj?.status?.conditions ?? []
+
+  return (
+    <div className="mt-3 rounded-lg border border-brand-200 dark:border-brand-500/25 bg-brand-50/40 dark:bg-brand-500/5 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-content">
+            {refItem.kind}/{refItem.name}
+          </div>
+          <div className="truncate text-[11px] font-mono text-content-subtle">
+            {refItem.apiVersion}
+            {refItem.namespace ? ` · ${refItem.namespace}` : ''}
+            {obj?.metadata?.creationTimestamp ? ` · ${age(obj.metadata.creationTimestamp)}` : ''}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close inspector"
+          className="shrink-0 rounded-md p-1 text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content"
+        >
+          <IconClose />
+        </button>
+      </div>
+
+      {!resolved ? (
+        <p className="mt-2 text-[12px] text-content-muted">
+          This resource type isn’t discoverable on the cluster (no matching served API), so it
+          can’t be inspected here.
+        </p>
+      ) : q.isLoading ? (
+        <div className="mt-2 flex items-center gap-2 text-[12px] text-content-muted">
+          <Spinner size={12} /> loading…
+        </div>
+      ) : q.isError ? (
+        <p className="mt-2 text-[12px] text-content-muted">
+          Couldn’t read this resource ({(q.error as { status?: number })?.status === 403
+            ? 'not authorized'
+            : (q.error as { status?: number })?.status === 404
+              ? 'not found — it may still be provisioning'
+              : 'unavailable'}
+          ).
+        </p>
+      ) : conds.length ? (
+        <ul className="mt-2 space-y-1.5">
+          {conds.map((c, i) => (
+            <li key={i} className="flex items-start justify-between gap-3 text-[12px]">
               <div className="min-w-0">
-                <div className="truncate font-medium text-content">
-                  {r.kind}/{r.name}
-                </div>
-                <div className="text-[11px] font-mono text-content-muted">
-                  {r.apiVersion}
-                  {r.namespace ? ` · ${r.namespace}` : ''}
-                </div>
+                <span className="font-medium text-content">{c.type}</span>
+                {c.reason ? (
+                  <span className="ml-1.5 font-mono text-[11px] text-content-subtle">{c.reason}</span>
+                ) : null}
+                {c.message ? (
+                  <div className="truncate text-[11px] text-content-muted" title={c.message}>
+                    {c.message}
+                  </div>
+                ) : null}
               </div>
-              {health[i] ? (
-                <StatusBadge kind={health[i]!.state}>{health[i]!.label}</StatusBadge>
-              ) : null}
+              {conditionBadge(c)}
             </li>
           ))}
         </ul>
-      </CardBody>
-    </Card>
+      ) : (
+        <p className="mt-2 text-[12px] text-content-muted">
+          No conditions reported yet — this resource doesn’t publish status conditions.
+        </p>
+      )}
+    </div>
+  )
+}
+
+interface ResourceRef {
+  apiVersion?: string
+  kind?: string
+  name?: string
+  namespace?: string
+}
+
+/** Health-state → a concrete colour usable in SVG (theme-agnostic, legible on both). */
+function refStateColor(state: RefHealth['state'] | undefined): string {
+  switch (state) {
+    case 'healthy':
+      return '#10b981'
+    case 'degraded':
+      return '#f43f5e'
+    case 'unknown':
+      return '#f59e0b'
+    case 'paused':
+      return '#64748b'
+    default:
+      return '#94a3b8'
+  }
+}
+
+/**
+ * Live composition topology. The composite sits at the left; each managed
+ * resource it created fans out on the right, connected by a curved edge and
+ * coloured by its real health. Nodes are theme-aware HTML (absolute-positioned)
+ * over an SVG edge layer, so it reads correctly in light + dark. Horizontally
+ * scrolls on narrow drawers; caps at 25 nodes like the underlying health query.
+ */
+function CompositionGraph({
+  xr,
+  refs,
+  health,
+  selected,
+  onSelect,
+}: {
+  xr: XR
+  refs: ResourceRef[]
+  health: Array<RefHealth | null>
+  selected?: number | null
+  onSelect?: (i: number) => void
+}) {
+  const shown = refs.slice(0, 25)
+  const rowH = 54
+  const nodeW = 208
+  const nodeH = 42
+  const rootX = 4
+  const childX = 272
+  const width = childX + nodeW + 4
+  const height = Math.max(shown.length * rowH + 12, nodeH + 24)
+  const rootMidY = height / 2
+  const rootReady = findCondition(xr, 'Ready')
+  const rootState: RefHealth['state'] =
+    rootReady?.status === 'True' ? 'healthy' : rootReady?.status === 'False' ? 'degraded' : 'unknown'
+
+  return (
+    <div className="overflow-x-auto">
+      <div className="relative" style={{ width, height }}>
+        <svg className="absolute inset-0" width={width} height={height} aria-hidden>
+          {shown.map((_, i) => {
+            const cy = i * rowH + 6 + nodeH / 2
+            const x1 = rootX + nodeW
+            const x2 = childX
+            const mx = (x1 + x2) / 2
+            return (
+              <path
+                key={i}
+                d={`M${x1},${rootMidY} C${mx},${rootMidY} ${mx},${cy} ${x2},${cy}`}
+                fill="none"
+                stroke={refStateColor(health[i]?.state)}
+                strokeWidth={1.5}
+                strokeOpacity={0.65}
+              />
+            )
+          })}
+        </svg>
+        <GraphNode
+          left={rootX}
+          top={rootMidY - nodeH / 2}
+          width={nodeW}
+          kind={xr.kind}
+          name={xr.metadata.name}
+          state={rootState}
+          label={rootReady?.status === 'True' ? 'Ready' : rootReady?.reason ?? 'Reconciling'}
+          root
+        />
+        {shown.map((r, i) => (
+          <GraphNode
+            key={i}
+            left={childX}
+            top={i * rowH + 6}
+            width={nodeW}
+            kind={r.kind ?? '—'}
+            name={r.name ?? '—'}
+            sub={r.apiVersion}
+            state={health[i]?.state}
+            label={health[i]?.label}
+            selected={selected === i}
+            onClick={onSelect ? () => onSelect(i) : undefined}
+          />
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-edge-subtle pt-2.5">
+        {([
+          ['healthy', 'Healthy'],
+          ['degraded', 'Degraded'],
+          ['unknown', 'Unknown'],
+          ['paused', 'Deleting'],
+        ] as const).map(([state, label]) => {
+          const count = health.filter((h) => h?.state === state).length
+          if (count === 0) return null
+          return (
+            <span key={state} className="inline-flex items-center gap-1.5 text-[11px] text-content-muted">
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: refStateColor(state) }} />
+              {count} {label.toLowerCase()}
+            </span>
+          )
+        })}
+        {refs.length > shown.length ? (
+          <span className="text-[11px] text-content-subtle">+{refs.length - shown.length} more not shown</span>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function GraphNode({
+  left,
+  top,
+  width,
+  kind,
+  name,
+  sub,
+  state,
+  label,
+  root,
+  selected,
+  onClick,
+}: {
+  left: number
+  top: number
+  width: number
+  kind: string
+  name: string
+  sub?: string
+  state?: RefHealth['state']
+  label?: string
+  root?: boolean
+  selected?: boolean
+  onClick?: () => void
+}) {
+  const color = refStateColor(state)
+  const cls = cn(
+    'absolute flex flex-col justify-center gap-0.5 rounded-lg border bg-surface-raised px-2.5 py-1.5 text-left shadow-sm transition-shadow',
+    root ? 'border-brand-300 dark:border-brand-500/40 ring-1 ring-brand-500/20' : 'border-edge-default',
+    onClick && 'cursor-pointer hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-500',
+    selected && 'ring-2 ring-brand-500/50',
+  )
+  const style = { left, top, width, borderLeftColor: color, borderLeftWidth: 3 } as const
+  const title = `${kind}/${name}${label ? ` · ${label}` : ''}`
+  const inner = (
+    <>
+      <div className="flex items-center gap-1.5">
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+        <span className="truncate text-xs font-semibold text-content">{name}</span>
+      </div>
+      <div className="truncate pl-3 text-[10px] font-mono text-content-subtle">
+        {root ? 'composite · ' : ''}
+        {kind}
+        {sub ? ` · ${sub.split('/').pop()}` : ''}
+      </div>
+    </>
+  )
+  return onClick ? (
+    <button type="button" onClick={onClick} className={cls} style={style} title={title} aria-pressed={selected}>
+      {inner}
+    </button>
+  ) : (
+    <div className={cls} style={style} title={title}>
+      {inner}
+    </div>
   )
 }
 

@@ -6,6 +6,48 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.24] - 2026-08-31
+
+### Added
+
+- **Workloads get an OpenShift-style detail.** Deployments, StatefulSets, and
+  DaemonSets now open the same rich tabbed drawer Pods already had —
+  **Overview · Scale/Rollout · Metrics · Logs · Shell · YAML · Events**. Metrics,
+  Logs, and Shell run behind a pod picker (scoped to the workload's selector,
+  defaulting to the first Ready pod) reusing the existing metrics / log-stream /
+  xterm-terminal panels; the Shell streams to the container over the per-user
+  exec proxy, exactly like the Pod terminal. YAML is the Monaco editor pointed at
+  the workload itself (RBAC-gated apply). The **Scale/Rollout** tab is the
+  centerpiece: a replica gauge (ready/desired/updated/available), inline scale
+  and scale-to-0/restore, rollout **restart** and **pause/resume**, a
+  **revision-history** timeline with rollback from owned ReplicaSets, the
+  associated **HPA** (min→max position + per-metric utilization), and — when an
+  **Argo Rollout** backs the workload — its canary/blue-green **step ladder**
+  with live weight and step status. DaemonSets show node coverage instead of a
+  replica count. Every panel has a real / loading / empty / not-authorized path.
+
+- **Tekton pipeline management (CI/CD).** The platform **CI / CD** section is now
+  a full Tekton surface: a live **PipelineRuns** list (status, trigger, task
+  progress, ticking duration), plus **Pipelines**, **Tasks**, and **Triggers**
+  (EventListener → binding → template service map) tabs. Each run opens a
+  **task-DAG** (topologically laid out, health-coloured, `runAfter` + result/when
+  edges) with per-step **log streaming**, params, results, workspaces, timeline,
+  and conditions. Management actions — **cancel**, **re-run**, **delete**, and
+  **run a pipeline** — are RBAC-gated and routed through the per-user gateway.
+
+- **Delivery Flow — end-to-end value stream.** A new Deliver page visualizes one
+  service's change from commit to production as a horizontal flow:
+  **Code → Pull Request → Build → Dev loop → Preview env → Promotion → GitOps
+  sync → Rollout**. Each stage pulls real status from its backing tool (Gitea
+  commits/PRs, Tekton/kpack builds, Coder workspaces, preview ArgoCD apps, Kargo
+  stages/freight, ArgoCD sync/health, Argo Rollouts), with SVG edges coloured by
+  whether the change cleared each stage, click-to-drill-in panels, deep links to
+  the full views, and honest "not configured / no data" nodes.
+
+- **JupyterHub in the app launcher.** JupyterHub joins the Apps drawer with its
+  official logo, discovered via `JUPYTERHUB_URL` (honest "not set up" until
+  configured).
+
 ## [0.1.23] - 2026-08-31
 
 ### Added

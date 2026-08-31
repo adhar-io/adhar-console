@@ -6,6 +6,17 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.25] - 2026-08-31
+
+### Fixed
+
+- **v0.1.24 features now in the published image.** The v0.1.24 version bump was
+  cut ahead of its feature code — the workload detail drawer, Tekton CI/CD page,
+  Delivery Flow value stream, and JupyterHub tile landed in a follow-up commit,
+  so the v0.1.24 image didn't contain them. This release packages all of that
+  code into a published, deployable image. No behaviour change beyond shipping
+  the already-documented v0.1.24 work.
+
 ## [0.1.24] - 2026-08-31
 
 ### Added

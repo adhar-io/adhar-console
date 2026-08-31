@@ -208,6 +208,13 @@ export const DEFAULT_NAV: NavSection[] = [
         roles: LIFECYCLE_ROLES,
         children: [
           { id: 'deliver.dashboard', label: 'Dashboard', to: '/deliver', search: 'dashboard' },
+          {
+            id: 'deliver.flow',
+            label: 'Delivery Flow',
+            to: '/deliver',
+            search: 'flow',
+            badge: { kind: 'info', value: 'value stream' },
+          },
           { id: 'deliver.apps', label: 'ArgoCD Apps', to: '/deliver', search: 'apps' },
           { id: 'deliver.environments', label: 'Environments', to: '/deliver', search: 'environments' },
           { id: 'deliver.stages', label: 'Kargo Stages', to: '/deliver', search: 'stages' },

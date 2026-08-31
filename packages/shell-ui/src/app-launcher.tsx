@@ -13,6 +13,7 @@ import {
   CiliumIcon,
   HarborIcon,
   IcebergIcon,
+  JupyterIcon,
   KafkaIcon,
   KargoIcon,
   KeycloakIcon,
@@ -189,6 +190,14 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     url: 'https://kafka.adhar.localtest.me:8443',
     category: 'Data',
     icon: <KafkaIcon />,
+  },
+  {
+    id: 'jupyterhub',
+    name: 'JupyterHub',
+    description: 'Notebooks & data science',
+    url: 'https://jupyter.adhar.localtest.me:8443',
+    category: 'Data',
+    icon: <JupyterIcon />,
   },
   {
     id: 'otel',

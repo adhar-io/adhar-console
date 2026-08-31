@@ -4,7 +4,7 @@ import { Button } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
 import type { k8s } from '@adhar-console/api-clients'
 import { client, LOCAL_CLUSTER } from '../data/client.ts'
-import { useHasK8sPermission } from '../data/access.ts'
+import { useHasK8sPermission, type K8sPermission } from '../data/access.ts'
 import { K8sRolePill } from '../components/role-gate.tsx'
 
 /**
@@ -24,13 +24,24 @@ import { K8sRolePill } from '../components/role-gate.tsx'
 
 const POD_GVR: k8s.GVR = { group: '', version: 'v1', resource: 'pods', namespaced: true }
 
+/**
+ * The panel is a generic Monaco-style YAML view/edit surface. It defaults to a
+ * Pod (the original use), but any caller — the workload drawers, say — can point
+ * it at a different object by passing that object's `gvr` and the write
+ * permission to gate Apply on. Everything else (serialize, diff, apply →
+ * `replaceGeneric`, cache-nudge) is kind-agnostic.
+ */
 export function PodYamlPanel({
   pod,
+  gvr = POD_GVR,
+  writePerm = 'pods.write',
 }: {
-  pod: k8s.Pod | undefined
+  pod: k8s.Pod | { metadata: { name: string; namespace?: string } } | undefined
+  gvr?: k8s.GVR
+  writePerm?: K8sPermission
 }) {
   const qc = useQueryClient()
-  const canWrite = useHasK8sPermission('pods.write')
+  const canWrite = useHasK8sPermission(writePerm)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [applying, setApplying] = useState(false)
@@ -90,15 +101,16 @@ export function PodYamlPanel({
     try {
       await client.replaceGeneric(
         LOCAL_CLUSTER,
-        POD_GVR,
+        gvr,
         pod.metadata.namespace ?? '',
         pod.metadata.name,
         parsed,
       )
       setSuccess(true)
       setEditing(false)
-      // Nudge any open pod queries so the drawer's other tabs refresh too.
+      // Nudge any open queries so the drawer's other tabs refresh too.
       qc.invalidateQueries({ queryKey: ['k8s', 'pod', pod.metadata.namespace, pod.metadata.name] })
+      qc.invalidateQueries({ queryKey: ['k8s'] })
     } catch (e) {
       // K8s API errors carry body.message which is usually the useful bit.
       const status = (e as { status?: number }).status
@@ -179,7 +191,7 @@ export function PodYamlPanel({
               title="Editing requires the Tenant Admin or Platform Admin role"
             >
               Edit
-              <K8sRolePill perm="pods.write" />
+              <K8sRolePill perm={writePerm} />
             </span>
           )}
         </div>

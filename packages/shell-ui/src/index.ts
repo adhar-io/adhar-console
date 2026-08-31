@@ -94,6 +94,7 @@ export {
   KafkaIcon,
   KargoIcon,
   KeycloakIcon,
+  JupyterIcon,
   KubernetesIcon,
   KyvernoIcon,
   LokiIcon,

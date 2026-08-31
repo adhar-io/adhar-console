@@ -16,9 +16,8 @@ import {
 } from '../data/hooks.ts'
 import { age, shortImage } from '../data/format.ts'
 import type { k8s } from '@adhar-console/api-clients'
-import { DrawerSection, DrawerStatusTile, ResourceDrawer, Row } from './resource-drawer.tsx'
 import { ListShell, matchesSearch } from './list-shell.tsx'
-import { WorkloadOpsForKind } from './workload-ops.tsx'
+import { WorkloadDrawer, type WorkloadKind } from './workload-drawer.tsx'
 
 type Sub = 'deployments' | 'replicasets' | 'statefulsets' | 'daemonsets' | 'jobs' | 'cronjobs' | 'hpa'
 
@@ -130,182 +129,14 @@ function DeploymentTable({ namespace }: { namespace?: string }) {
         />
       </ListShell>
       {selected ? (
-        <DeploymentDrawer deployment={selected} onClose={() => setSelected(null)} />
+        <WorkloadDrawer
+          kind="Deployment"
+          namespace={selected.metadata.namespace ?? 'default'}
+          name={selected.metadata.name}
+          onClose={() => setSelected(null)}
+        />
       ) : null}
     </>
-  )
-}
-
-function DeploymentDrawer({
-  deployment,
-  onClose,
-}: {
-  deployment: k8s.Deployment
-  onClose(): void
-}) {
-  const spec = deployment.spec
-  const status = deployment.status as
-    | {
-        replicas?: number
-        readyReplicas?: number
-        updatedReplicas?: number
-        availableReplicas?: number
-        conditions?: Array<{
-          type: string
-          status: string
-          reason?: string
-          message?: string
-          lastTransitionTime?: string
-        }>
-      }
-    | undefined
-
-  const desired = spec?.replicas ?? 0
-  const ready = status?.readyReplicas ?? 0
-  const available = status?.availableReplicas ?? 0
-  const updated = status?.updatedReplicas ?? 0
-
-  const healthKind = desired === 0 ? 'paused' : ready >= desired ? 'healthy' : 'progressing'
-  const healthLabel = desired === 0 ? 'Scaled 0' : ready >= desired ? 'Healthy' : 'Rolling'
-
-  const containers = (spec as
-    | {
-        template?: {
-          spec?: {
-            containers?: Array<{
-              name: string
-              image: string
-              resources?: { requests?: Record<string, string>; limits?: Record<string, string> }
-            }>
-          }
-        }
-      }
-    | undefined)
-    ?.template?.spec?.containers ?? []
-
-  return (
-    <ResourceDrawer
-      resource={
-        {
-          ...deployment,
-          apiVersion: 'apps/v1',
-          kind: 'Deployment',
-        } as k8s.Deployment & { apiVersion: string; kind: string }
-      }
-      kindLabel="Deployment"
-      statusBadge={<StatusBadge kind={healthKind}>{healthLabel}</StatusBadge>}
-      onClose={onClose}
-    >
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <DrawerStatusTile label="Desired" kind="info" value={String(desired)} />
-        <DrawerStatusTile
-          label="Ready"
-          kind={ready >= desired && desired > 0 ? 'healthy' : 'progressing'}
-          value={String(ready)}
-        />
-        <DrawerStatusTile
-          label="Available"
-          kind={available >= desired && desired > 0 ? 'healthy' : 'progressing'}
-          value={String(available)}
-        />
-        <DrawerStatusTile label="Up-to-date" kind="info" value={String(updated)} />
-      </section>
-
-      <WorkloadOpsForKind
-        namespace={deployment.metadata.namespace ?? 'default'}
-        kind="Deployment"
-        name={deployment.metadata.name}
-        showStatus={false}
-      />
-
-      <DrawerSection title="Spec">
-        <div className="divide-y divide-edge-subtle text-sm">
-          <Row label="Replicas" value={String(desired)} />
-          <Row label="Strategy" value={(spec?.strategy as { type?: string } | undefined)?.type ?? '—'} />
-          <Row
-            label="Selector"
-            mono
-            value={
-              Object.entries(
-                (spec?.selector as { matchLabels?: Record<string, string> } | undefined)
-                  ?.matchLabels ?? {},
-              )
-                .map(([k, v]) => `${k}=${v}`)
-                .join(', ') || '—'
-            }
-          />
-        </div>
-      </DrawerSection>
-
-      {containers.length ? (
-        <DrawerSection
-          title="Containers"
-          actions={<span className="text-xs text-content-subtle">{containers.length}</span>}
-        >
-          <ul className="divide-y divide-edge-subtle">
-            {containers.map((c, i) => (
-              <li key={i} className="space-y-1 px-1 py-3 text-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="font-medium text-content">{c.name}</div>
-                    <code className="text-[11px] text-content-muted">{shortImage(c.image)}</code>
-                  </div>
-                  {c.resources?.requests || c.resources?.limits ? (
-                    <div className="shrink-0 text-right text-[11px] text-content-muted">
-                      {c.resources?.requests ? (
-                        <div>
-                          req cpu {c.resources.requests.cpu ?? '—'} · mem{' '}
-                          {c.resources.requests.memory ?? '—'}
-                        </div>
-                      ) : null}
-                      {c.resources?.limits ? (
-                        <div>
-                          lim cpu {c.resources.limits.cpu ?? '—'} · mem{' '}
-                          {c.resources.limits.memory ?? '—'}
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </DrawerSection>
-      ) : null}
-
-      {status?.conditions?.length ? (
-        <DrawerSection title="Conditions">
-          <ul className="divide-y divide-edge-subtle">
-            {status.conditions.map((c) => (
-              <li key={c.type} className="flex items-start gap-3 px-1 py-2 text-sm">
-                <StatusBadge
-                  kind={
-                    c.status === 'True' && (c.type === 'Available' || c.type === 'Progressing')
-                      ? 'healthy'
-                      : c.status === 'False'
-                        ? 'degraded'
-                        : 'info'
-                  }
-                >
-                  {c.type}
-                </StatusBadge>
-                <div className="min-w-0 flex-1">
-                  <div className="text-content">{c.reason ?? c.status}</div>
-                  {c.message ? (
-                    <div className="mt-0.5 text-xs text-content-muted">{c.message}</div>
-                  ) : null}
-                  {c.lastTransitionTime ? (
-                    <div className="mt-0.5 text-[11px] text-content-subtle">
-                      transitioned {age(c.lastTransitionTime)} ago
-                    </div>
-                  ) : null}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </DrawerSection>
-      ) : null}
-    </ResourceDrawer>
   )
 }
 
@@ -405,6 +236,7 @@ function StatefulSetTable({ namespace }: { namespace?: string }) {
       title="StatefulSets"
       query={q}
       empty="No statefulsets"
+      drawerKind="StatefulSet"
       readyExtractor={(o) =>
         `${(o.status as { readyReplicas?: number })?.readyReplicas ?? 0}/${(o.spec as { replicas?: number })?.replicas ?? 0}`
       }
@@ -419,6 +251,7 @@ function DaemonSetTable({ namespace }: { namespace?: string }) {
       title="DaemonSets"
       query={q}
       empty="No daemonsets"
+      drawerKind="DaemonSet"
       readyExtractor={(o) => {
         const s = o.status as { numberReady?: number; desiredNumberScheduled?: number }
         return `${s?.numberReady ?? 0}/${s?.desiredNumberScheduled ?? 0}`
@@ -699,13 +532,17 @@ function GenericWorkloadList({
   query,
   empty,
   readyExtractor,
+  drawerKind,
 }: {
   title: string
   query: GenericQuery
   empty: string
   readyExtractor(obj: { spec?: unknown; status?: unknown }): string
+  /** When set, rows open a rich WorkloadDrawer for that kind. */
+  drawerKind?: WorkloadKind
 }) {
   const [search, setSearch] = useState('')
+  const [selected, setSelected] = useState<{ namespace: string; name: string } | null>(null)
   const all = query.data ?? []
   const rows = useMemo(
     () =>
@@ -716,38 +553,57 @@ function GenericWorkloadList({
     [all, search],
   )
   return (
-    <ListShell
-      title={title}
-      total={all.length}
-      visible={rows.length}
-      loading={query.isLoading}
-      isFetching={query.isFetching}
-      onRefresh={() => query.refetch()}
-      lastUpdatedAt={query.dataUpdatedAt}
-      search={search}
-      onSearchChange={setSearch}
-    >
-      <DataTable
+    <>
+      <ListShell
+        title={title}
+        total={all.length}
+        visible={rows.length}
         loading={query.isLoading}
-        columns={[
-          {
-            key: 'name',
-            header: 'Name',
-            cell: (o) => (
-              <div>
-                <div className="font-medium text-content">{o.metadata.name}</div>
-                <div className="text-xs text-content-muted">{o.metadata.namespace}</div>
-              </div>
-            ),
-          },
-          { key: 'ready', header: 'Ready', numeric: true, cell: (o) => readyExtractor(o) },
-          { key: 'age', header: 'Age', cell: (o) => age(o.metadata.creationTimestamp) },
-        ]}
-        rows={rows}
-        rowKey={(o) => `${o.metadata.namespace}/${o.metadata.name}`}
-        empty={<EmptyState title={empty} />}
-      />
-    </ListShell>
+        isFetching={query.isFetching}
+        onRefresh={() => query.refetch()}
+        lastUpdatedAt={query.dataUpdatedAt}
+        search={search}
+        onSearchChange={setSearch}
+      >
+        <DataTable
+          loading={query.isLoading}
+          onRowClick={
+            drawerKind
+              ? (o) =>
+                  setSelected({
+                    namespace: o.metadata.namespace ?? 'default',
+                    name: o.metadata.name,
+                  })
+              : undefined
+          }
+          columns={[
+            {
+              key: 'name',
+              header: 'Name',
+              cell: (o) => (
+                <div>
+                  <div className="font-medium text-content">{o.metadata.name}</div>
+                  <div className="text-xs text-content-muted">{o.metadata.namespace}</div>
+                </div>
+              ),
+            },
+            { key: 'ready', header: 'Ready', numeric: true, cell: (o) => readyExtractor(o) },
+            { key: 'age', header: 'Age', cell: (o) => age(o.metadata.creationTimestamp) },
+          ]}
+          rows={rows}
+          rowKey={(o) => `${o.metadata.namespace}/${o.metadata.name}`}
+          empty={<EmptyState title={empty} />}
+        />
+      </ListShell>
+      {drawerKind && selected ? (
+        <WorkloadDrawer
+          kind={drawerKind}
+          namespace={selected.namespace}
+          name={selected.name}
+          onClose={() => setSelected(null)}
+        />
+      ) : null}
+    </>
   )
 }
 

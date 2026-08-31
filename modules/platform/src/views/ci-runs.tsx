@@ -12,6 +12,15 @@ import { useLiveList, type LiveStatus } from '../data/live.ts'
 import { age } from '../data/format.ts'
 import { DrawerSection, DrawerStatusTile, ResourceDrawer, Row } from './resource-drawer.tsx'
 import { ListShell, matchesSearch } from './list-shell.tsx'
+import { TektonPipelineRuns, TektonPipelines, TektonTasks, TektonTriggers } from './tekton.tsx'
+
+/**
+ * CI / CD runs. A single tab row spans the Tekton surface (PipelineRuns with a
+ * task DAG / service map, per-step logs, and re-run / cancel / delete
+ * management; plus Pipelines, Tasks, and Triggers) and keeps the existing Argo
+ * Workflows view. The Tekton tabs live in `tekton.tsx`; this file owns the tab
+ * shell and the Argo Workflows table + drawer.
+ */
 
 /* ─────────── GVRs (real cluster; dev resolves to stub fixtures) ─────────── */
 
@@ -19,12 +28,6 @@ const ARGO_WORKFLOWS_GVR: GVR = {
   group: 'argoproj.io',
   version: 'v1alpha1',
   resource: 'workflows',
-  namespaced: true,
-}
-const TEKTON_PIPELINERUNS_GVR: GVR = {
-  group: 'tekton.dev',
-  version: 'v1',
-  resource: 'pipelineruns',
   namespaced: true,
 }
 
@@ -48,32 +51,6 @@ interface ArgoWorkflow extends KubeObject {
     startedAt?: string
     finishedAt?: string
     nodes?: Record<string, ArgoNode>
-  }
-}
-
-interface TektonCondition {
-  type?: string
-  status?: string
-  reason?: string
-  message?: string
-  lastTransitionTime?: string
-}
-interface TektonChildRef {
-  name?: string
-  kind?: string
-  pipelineTaskName?: string
-}
-interface TektonTaskRun {
-  pipelineTaskName?: string
-  status?: { conditions?: TektonCondition[] }
-}
-interface TektonRun extends KubeObject {
-  status?: {
-    startTime?: string
-    completionTime?: string
-    conditions?: TektonCondition[]
-    childReferences?: TektonChildRef[]
-    taskRuns?: Record<string, TektonTaskRun>
   }
 }
 
@@ -128,39 +105,6 @@ function argoKind(phase?: string): StatusKind {
   }
 }
 
-/** Newest `Succeeded`-type condition (falls back to first condition). */
-function tektonCondition(run: TektonRun): TektonCondition | undefined {
-  const conds = run.status?.conditions ?? []
-  const succeeded = conds.filter((c) => c.type === 'Succeeded')
-  const pool = succeeded.length ? succeeded : conds
-  return [...pool].sort(
-    (a, b) =>
-      new Date(b.lastTransitionTime ?? 0).getTime() - new Date(a.lastTransitionTime ?? 0).getTime(),
-  )[0]
-}
-function tektonKind(c?: TektonCondition): StatusKind {
-  if (!c) return 'unknown'
-  if (c.status === 'True') return 'healthy'
-  if (c.status === 'False') return 'failed'
-  return 'progressing'
-}
-function tektonLabel(c?: TektonCondition): string {
-  if (!c) return 'Unknown'
-  if (c.reason) return c.reason
-  return c.status === 'True' ? 'Succeeded' : c.status === 'False' ? 'Failed' : 'Running'
-}
-function tektonProgress(run: TektonRun): string {
-  const refs = run.status?.childReferences ?? []
-  const trs = Object.values(run.status?.taskRuns ?? {})
-  const total = refs.length || trs.length
-  if (!total) return '—'
-  const done = trs.filter((tr) => {
-    const c = (tr.status?.conditions ?? []).find((x) => x.type === 'Succeeded')
-    return c ? c.status !== 'Unknown' : false
-  }).length
-  return `${done}/${total}`
-}
-
 /* ─────────── Small shared bits ─────────── */
 
 const LIVE_TONE: Record<LiveStatus, string> = {
@@ -203,20 +147,26 @@ function StepRow({
 
 /* ─────────── Root view ─────────── */
 
-type Source = 'argo' | 'tekton'
+type Source = 'runs' | 'pipelines' | 'tasks' | 'triggers' | 'argo'
 
 const SOURCE_TABS: readonly TabDef<Source>[] = [
+  { id: 'runs', label: 'PipelineRuns' },
+  { id: 'pipelines', label: 'Pipelines' },
+  { id: 'tasks', label: 'Tasks' },
+  { id: 'triggers', label: 'Triggers' },
   { id: 'argo', label: 'Argo Workflows' },
-  { id: 'tekton', label: 'Tekton' },
 ]
 
 export function CiRunsView({ namespace }: { namespace?: string }) {
   return (
-    <Tabs<Source> tabs={SOURCE_TABS} defaultValue="argo" ariaLabel="Pipeline source">
+    <Tabs<Source> tabs={SOURCE_TABS} defaultValue="runs" ariaLabel="CI / CD source">
       {(active) => (
         <>
+          {active === 'runs' && <TektonPipelineRuns namespace={namespace} />}
+          {active === 'pipelines' && <TektonPipelines namespace={namespace} />}
+          {active === 'tasks' && <TektonTasks namespace={namespace} />}
+          {active === 'triggers' && <TektonTriggers namespace={namespace} />}
           {active === 'argo' && <ArgoTable namespace={namespace} />}
-          {active === 'tekton' && <TektonTable namespace={namespace} />}
         </>
       )}
     </Tabs>
@@ -375,190 +325,6 @@ function ArgoDrawer({ wf, onClose }: { wf: ArgoWorkflow; onClose(): void }) {
           </div>
         ) : (
           <EmptyState compact title="No step nodes reported" />
-        )}
-      </DrawerSection>
-    </ResourceDrawer>
-  )
-}
-
-/* ─────────── Tekton PipelineRuns ─────────── */
-
-function TektonTable({ namespace }: { namespace?: string }) {
-  const live = useLiveList<TektonRun>(TEKTON_PIPELINERUNS_GVR, { namespace })
-  const [search, setSearch] = useState('')
-  const [selected, setSelected] = useState<TektonRun | null>(null)
-  useTick()
-
-  const all = live.data
-  const rows = useMemo(
-    () =>
-      all
-        .filter(
-          (r) =>
-            matchesSearch(r.metadata?.name, search) ||
-            matchesSearch(r.metadata?.namespace, search) ||
-            matchesSearch(tektonCondition(r)?.reason, search),
-        )
-        .slice()
-        .sort(newestFirst),
-    [all, search],
-  )
-
-  return (
-    <>
-      <ListShell
-        title="Tekton PipelineRuns"
-        total={all.length}
-        visible={rows.length}
-        loading={live.isLoading}
-        onRefresh={() => live.refetch()}
-        search={search}
-        onSearchChange={setSearch}
-        searchPlaceholder="Search pipeline runs…"
-        caption="newest first"
-        filters={<LiveIndicator status={live.status} />}
-      >
-        <DataTable
-          loading={live.isLoading}
-          onRowClick={(r) => setSelected(r)}
-          columns={[
-            {
-              key: 'name',
-              header: 'Name',
-              cell: (r) => <span className="font-medium text-content">{r.metadata?.name}</span>,
-            },
-            { key: 'namespace', header: 'Namespace', cell: (r) => r.metadata?.namespace ?? '—' },
-            {
-              key: 'status',
-              header: 'Status',
-              cell: (r) => {
-                const c = tektonCondition(r)
-                return <StatusBadge kind={tektonKind(c)}>{tektonLabel(c)}</StatusBadge>
-              },
-            },
-            {
-              key: 'progress',
-              header: 'Progress',
-              cell: (r) => (
-                <span className="font-mono text-xs text-content-muted">{tektonProgress(r)}</span>
-              ),
-            },
-            {
-              key: 'started',
-              header: 'Started',
-              cell: (r) => age(r.status?.startTime ?? r.metadata?.creationTimestamp),
-            },
-            {
-              key: 'duration',
-              header: 'Duration',
-              cell: (r) => duration(r.status?.startTime, r.status?.completionTime),
-            },
-          ]}
-          rows={rows}
-          rowKey={(r) => r.metadata?.uid ?? `${r.metadata?.namespace}/${r.metadata?.name}`}
-          empty={
-            <EmptyState
-              title="No pipeline runs"
-              description="Tekton PipelineRuns in this scope will appear here as they start."
-            />
-          }
-        />
-      </ListShell>
-      {selected ? <TektonDrawer run={selected} onClose={() => setSelected(null)} /> : null}
-    </>
-  )
-}
-
-function TektonDrawer({ run, onClose }: { run: TektonRun; onClose(): void }) {
-  useTick()
-  const status = run.status
-  const primary = tektonCondition(run)
-  const kind = tektonKind(primary)
-  const label = tektonLabel(primary)
-  const conditions = status?.conditions ?? []
-  const children = status?.childReferences ?? []
-  const taskRuns = status?.taskRuns ?? {}
-
-  const steps = useMemo(() => {
-    if (children.length) {
-      return children.map((c) => ({
-        key: c.name ?? c.pipelineTaskName ?? '',
-        label: c.pipelineTaskName || c.name || '—',
-        sub: c.kind || undefined,
-        cond: undefined as TektonCondition | undefined,
-      }))
-    }
-    return Object.entries(taskRuns).map(([name, tr]) => ({
-      key: name,
-      label: tr.pipelineTaskName || name,
-      sub: 'TaskRun',
-      cond: (tr.status?.conditions ?? []).find((x) => x.type === 'Succeeded'),
-    }))
-  }, [children, taskRuns])
-
-  return (
-    <ResourceDrawer
-      resource={
-        {
-          ...run,
-          apiVersion: 'tekton.dev/v1',
-          kind: 'PipelineRun',
-        } as unknown as { apiVersion: string; kind: string; metadata: { name: string } }
-      }
-      kindLabel="PipelineRun"
-      statusBadge={<StatusBadge kind={kind}>{label}</StatusBadge>}
-      onClose={onClose}
-    >
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <DrawerStatusTile label="Status" kind={kind} value={label} sub={primary?.message} />
-        <DrawerStatusTile label="Progress" kind="info" value={tektonProgress(run)} />
-        <DrawerStatusTile
-          label="Duration"
-          kind="info"
-          value={duration(status?.startTime, status?.completionTime)}
-        />
-      </section>
-
-      <DrawerSection title="Run">
-        <div className="divide-y divide-edge-subtle text-sm">
-          <Row label="Started" value={age(status?.startTime)} />
-          <Row label="Completed" value={status?.completionTime ? age(status.completionTime) : '—'} />
-        </div>
-      </DrawerSection>
-
-      <DrawerSection title={`Conditions (${conditions.length})`}>
-        {conditions.length ? (
-          <div className="divide-y divide-edge-subtle">
-            {conditions.map((c, i) => (
-              <StepRow
-                key={`${c.type ?? 'cond'}-${i}`}
-                label={c.type ?? '—'}
-                sub={c.message || undefined}
-                kind={tektonKind(c)}
-                badge={c.reason ?? c.status ?? '—'}
-              />
-            ))}
-          </div>
-        ) : (
-          <EmptyState compact title="No conditions reported" />
-        )}
-      </DrawerSection>
-
-      <DrawerSection title={`Tasks (${steps.length})`}>
-        {steps.length ? (
-          <div className="divide-y divide-edge-subtle">
-            {steps.map((s, i) => (
-              <StepRow
-                key={s.key || `step-${i}`}
-                label={s.label}
-                sub={s.sub}
-                kind={s.cond ? tektonKind(s.cond) : 'unknown'}
-                badge={s.cond ? tektonLabel(s.cond) : s.sub === 'TaskRun' ? 'Pending' : 'Task'}
-              />
-            ))}
-          </div>
-        ) : (
-          <EmptyState compact title="No task references reported" />
         )}
       </DrawerSection>
     </ResourceDrawer>

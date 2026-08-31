@@ -1,5 +1,6 @@
 import { PageHeader } from '@adhar-console/shell-ui'
 import { Dashboard } from './views/dashboard.tsx'
+import { DeliveryFlow } from './views/flow.tsx'
 import { ArgoApps } from './views/argo-apps.tsx'
 import { Environments } from './views/environments.tsx'
 import { KargoStages } from './views/kargo-stages.tsx'
@@ -12,6 +13,7 @@ import { Policy } from './views/policy.tsx'
 
 type Section =
   | 'dashboard'
+  | 'flow'
   | 'apps'
   | 'environments'
   | 'stages'
@@ -26,6 +28,11 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   dashboard: {
     label: 'Deliver Dashboard',
     description: 'Delivery pulse — sync state, rollouts in flight, vulnerabilities, runtime alerts.',
+  },
+  flow: {
+    label: 'Delivery Flow',
+    description:
+      'End-to-end value stream — one change from commit to production across code, PR, build, dev loop, preview, promotion, GitOps sync and rollout.',
   },
   apps: {
     label: 'ArgoCD Applications',
@@ -72,6 +79,7 @@ export default function DeliverHome({ section }: { section?: string } = {}) {
     <div className="space-y-6">
       <PageHeader title={def.label} description={def.description} />
       {active === 'dashboard' && <Dashboard />}
+      {active === 'flow' && <DeliveryFlow />}
       {active === 'apps' && <ArgoApps />}
       {active === 'environments' && <Environments />}
       {active === 'stages' && <KargoStages />}

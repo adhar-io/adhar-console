@@ -206,7 +206,7 @@ const SECTIONS: Record<Section, SectionDef> = {
   ci: {
     id: 'ci',
     label: 'CI / CD Runs',
-    description: 'Live Argo Workflows + Tekton pipeline runs with status and drill-in.',
+    description: 'Live Tekton PipelineRuns with a task DAG, step logs, and re-run / cancel / delete — plus Pipelines, Tasks, Triggers, and Argo Workflows.',
     kind: 'k8s',
   },
   policy: {

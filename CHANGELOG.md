@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.23] - 2026-08-31
+
 ### Added
 
 - **Adhar Resources — live composition topology.** Each Crossplane composite's

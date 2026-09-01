@@ -6,6 +6,19 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.27] - 2026-09-01
+
+### Changed
+
+- **Durable upstream auth for Gitea & ArgoCD.** The BFF proxy gains two auth
+  modes so tiles no longer break when a token rotates or expires. **Gitea** now
+  authenticates with the stable admin username/password (HTTP **Basic**) instead
+  of a rotating PAT. **ArgoCD** uses a new **login** mode: the console mints and
+  caches its *own* session token from admin credentials and re-mints on a
+  401/403 — so it never rides on a pre-injected token that expires after 24h.
+  Both fall back to the previous `<TOOL>_TOKEN` behaviour when credentials aren't
+  present, so nothing regresses.
+
 ## [0.1.26] - 2026-09-01
 
 ### Added

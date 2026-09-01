@@ -11,13 +11,22 @@ import { env } from '@adhar-console/utils'
  *   - `service` → use a service/robot token held by the console
  *                 (`<TOOL>_TOKEN` env). The console acts on the user's behalf;
  *                 the audit actor is still the user.
+ *   - `basic`   → HTTP Basic auth from durable admin creds
+ *                 (`<TOOL>_USERNAME`/`<TOOL>_PASSWORD`). Preferred over a
+ *                 rotating PAT for tools whose API accepts Basic (e.g. Gitea)
+ *                 so a token rotation can't break the tile.
+ *   - `login`   → the BFF mints and caches a short-lived session token from
+ *                 durable admin creds (`<TOOL>_USERNAME`/`<TOOL>_PASSWORD`) via
+ *                 the tool's `POST /api/v1/session` endpoint, sends it as a
+ *                 Bearer, and re-mints on demand (expiry or an upstream
+ *                 401/403). Used for ArgoCD, whose session tokens expire.
  *   - `none`    → no auth header (e.g. anonymous Grafana embeds).
  *
  * A tool with no configured `baseUrl` is considered NOT configured; the proxy
  * returns 503 and the module's data layer falls back to stub fixtures so the
  * UI still renders.
  */
-export type AuthMode = 'user' | 'service' | 'none'
+export type AuthMode = 'user' | 'service' | 'basic' | 'login' | 'none'
 
 export interface ToolDef {
   /** Upstream base URL (no trailing slash). Empty string ⇒ not configured. */
@@ -25,6 +34,10 @@ export interface ToolDef {
   authMode: AuthMode
   /** Service token (only read when authMode === 'service'). */
   serviceToken?: string
+  /** Admin username (read when authMode === 'basic' | 'login'). */
+  username?: string
+  /** Admin password (read when authMode === 'basic' | 'login'). Never surfaced publicly. */
+  password?: string
   /** Extra static headers to send upstream. */
   headers?: Record<string, string>
   /** Strip this prefix from the proxied path before forwarding. */
@@ -70,10 +83,17 @@ export function getToolRegistry(): Record<string, ToolDef> {
       authMode: 'service',
       serviceToken: env('K8S_SA_TOKEN'),
     },
+    // Gitea's API accepts HTTP Basic. Prefer durable admin creds
+    // (`GITEA_USERNAME`/`GITEA_PASSWORD`) in `basic` mode so a rotated PAT can't
+    // break the tile; fall back to the `service`/`GITEA_TOKEN` path when only a
+    // token is present. `GITEA_AUTH_MODE` still overrides.
     gitea: {
       baseUrl: clean(env('GITEA_URL')),
-      authMode: (env('GITEA_AUTH_MODE') as AuthMode) ?? 'service',
+      authMode: (env('GITEA_AUTH_MODE') as AuthMode) ??
+        (env('GITEA_USERNAME') && env('GITEA_PASSWORD') ? 'basic' : 'service'),
       serviceToken: env('GITEA_TOKEN'),
+      username: env('GITEA_USERNAME'),
+      password: env('GITEA_PASSWORD'),
     },
     plane: {
       baseUrl: clean(env('PLANE_URL')),
@@ -81,10 +101,18 @@ export function getToolRegistry(): Record<string, ToolDef> {
       serviceToken: env('PLANE_TOKEN'),
       headers: env('PLANE_TOKEN') ? { 'x-api-key': env('PLANE_TOKEN')! } : undefined,
     },
+    // ArgoCD session tokens expire (~24h). Prefer durable admin creds
+    // (`ARGOCD_USERNAME`/`ARGOCD_PASSWORD`) in `login` mode so the BFF mints and
+    // caches a session token (and re-mints on expiry / 401); fall back to the
+    // `service`/`ARGOCD_TOKEN` path when only a token is present.
+    // `ARGOCD_AUTH_MODE` still overrides.
     argocd: {
       baseUrl: clean(env('ARGOCD_URL')),
-      authMode: (env('ARGOCD_AUTH_MODE') as AuthMode) ?? 'service',
+      authMode: (env('ARGOCD_AUTH_MODE') as AuthMode) ??
+        (env('ARGOCD_USERNAME') && env('ARGOCD_PASSWORD') ? 'login' : 'service'),
       serviceToken: env('ARGOCD_TOKEN'),
+      username: env('ARGOCD_USERNAME'),
+      password: env('ARGOCD_PASSWORD'),
     },
     kargo: {
       baseUrl: clean(env('KARGO_URL')),

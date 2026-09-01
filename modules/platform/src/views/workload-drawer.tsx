@@ -69,6 +69,21 @@ interface Container {
   name: string
   image?: string
   resources?: { requests?: Record<string, string>; limits?: Record<string, string> }
+  ports?: Array<{ name?: string; containerPort: number; protocol?: string }>
+  env?: unknown[]
+  volumeMounts?: Array<{ name: string; mountPath: string; readOnly?: boolean; subPath?: string }>
+  livenessProbe?: Record<string, unknown>
+  readinessProbe?: Record<string, unknown>
+  startupProbe?: Record<string, unknown>
+}
+
+interface PodTemplateSpec {
+  containers?: Container[]
+  nodeSelector?: Record<string, string>
+  tolerations?: Array<{ key?: string; operator?: string; value?: string; effect?: string }>
+  affinity?: Record<string, unknown>
+  priorityClassName?: string
+  serviceAccountName?: string
 }
 
 interface WorkloadObj {
@@ -89,7 +104,7 @@ interface WorkloadObj {
     strategy?: { type?: string; rollingUpdate?: Record<string, unknown> }
     updateStrategy?: { type?: string; rollingUpdate?: Record<string, unknown> }
     selector?: { matchLabels?: Record<string, string> }
-    template?: { spec?: { containers?: Container[] } }
+    template?: { metadata?: { labels?: Record<string, string> }; spec?: PodTemplateSpec }
   }
   status?: {
     replicas?: number
@@ -398,11 +413,34 @@ function Overview({
                     <KV label="Mem limit" value={cn0.resources?.limits?.memory ?? '—'} mono />
                   </div>
                 ) : null}
+                <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-content-muted sm:grid-cols-4">
+                  <KV label="Ports" value={(cn0.ports ?? []).map((p) => `${p.containerPort}/${p.protocol ?? 'TCP'}`).join(', ') || '—'} />
+                  <KV label="Env vars" value={cn0.env?.length ?? 0} />
+                  <KV label="Mounts" value={cn0.volumeMounts?.length ?? 0} />
+                  <KV label="Probes" value={probeList(cn0).length || '—'} />
+                </div>
+                {probeList(cn0).length ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {probeList(cn0).map(([k, v]) => (
+                      <span key={k} className="inline-flex items-center gap-1 rounded-md bg-surface-sunken px-1.5 py-0.5 text-[10px] text-content-muted ring-1 ring-inset ring-edge-subtle">
+                        <span className="font-medium text-content-subtle">{k}</span>
+                        <span className="font-mono">{v}</span>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ))
           )}
         </div>
       </Section>
+
+      <SchedulingSection spec={obj.spec?.template?.spec} />
+
+      <RelatedResources
+        namespace={obj.metadata.namespace ?? ''}
+        matchLabels={obj.spec?.selector?.matchLabels ?? obj.spec?.template?.metadata?.labels}
+      />
 
       {obj.status?.conditions?.length ? (
         <Section title="Conditions">
@@ -418,17 +456,229 @@ function Overview({
                     <div className="text-xs text-content-subtle">{cond.message}</div>
                   ) : null}
                 </div>
-                <StatusBadge
-                  kind={cond.status === 'True' ? 'healthy' : cond.status === 'False' ? 'degraded' : 'unknown'}
-                >
-                  {cond.status}
-                </StatusBadge>
+                <div className="flex shrink-0 items-center gap-2">
+                  <StatusBadge
+                    kind={cond.status === 'True' ? 'healthy' : cond.status === 'False' ? 'degraded' : 'unknown'}
+                  >
+                    {cond.status}
+                  </StatusBadge>
+                  {cond.lastTransitionTime ? (
+                    <span className="text-[11px] tabular-nums text-content-subtle">{age(cond.lastTransitionTime)}</span>
+                  ) : null}
+                </div>
               </div>
             ))}
           </div>
         </Section>
       ) : null}
+
+      <WorkloadRecentEvents namespace={obj.metadata.namespace ?? ''} name={obj.metadata.name} kind={kind} />
     </div>
+  )
+}
+
+/* ── scheduling / related resources / recent events ──────────────────────── */
+
+function probeList(c: Container): Array<[string, string]> {
+  const out: Array<[string, string]> = []
+  if (c.livenessProbe) out.push(['liveness', probeSummary(c.livenessProbe)])
+  if (c.readinessProbe) out.push(['readiness', probeSummary(c.readinessProbe)])
+  if (c.startupProbe) out.push(['startup', probeSummary(c.startupProbe)])
+  return out
+}
+
+function probeSummary(probe: Record<string, unknown>): string {
+  const http = probe.httpGet as { path?: string; port?: number | string } | undefined
+  if (http) return `HTTP ${http.port ?? ''}${http.path ?? ''}`
+  const tcp = probe.tcpSocket as { port?: number | string } | undefined
+  if (tcp) return `TCP ${tcp.port ?? ''}`
+  const grpc = probe.grpc as { port?: number | string } | undefined
+  if (grpc) return `gRPC ${grpc.port ?? ''}`
+  if (probe.exec) return 'exec'
+  return 'probe'
+}
+
+function affinitySummary(affinity?: Record<string, unknown>): string | null {
+  if (!affinity) return null
+  const parts: string[] = []
+  if (affinity.nodeAffinity) parts.push('node')
+  if (affinity.podAffinity) parts.push('pod')
+  if (affinity.podAntiAffinity) parts.push('pod-anti')
+  return parts.length ? parts.join(' · ') : null
+}
+
+function SchedulingSection({ spec }: { spec?: PodTemplateSpec }) {
+  if (!spec) return null
+  const hasNodeSelector = spec.nodeSelector && Object.keys(spec.nodeSelector).length > 0
+  const affinity = affinitySummary(spec.affinity)
+  if (!hasNodeSelector && !spec.tolerations?.length && !affinity && !spec.priorityClassName && !spec.serviceAccountName) {
+    return null
+  }
+  return (
+    <Section title="Scheduling">
+      {spec.priorityClassName ? <Row label="Priority class" value={<Mono>{spec.priorityClassName}</Mono>} /> : null}
+      {spec.serviceAccountName ? <Row label="Service account" value={<Mono>{spec.serviceAccountName}</Mono>} /> : null}
+      {hasNodeSelector ? <Row label="Node selector" value={<KeyValueList obj={spec.nodeSelector} />} /> : null}
+      {affinity ? <Row label="Affinity" value={<Mono>{affinity}</Mono>} /> : null}
+      {spec.tolerations?.length ? (
+        <Row
+          label="Tolerations"
+          value={
+            <div className="flex flex-wrap gap-1">
+              {spec.tolerations.map((t, i) => (
+                <code key={i} className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-content-muted">
+                  {t.key || 'all'}{t.effect ? `:${t.effect}` : ''}
+                </code>
+              ))}
+            </div>
+          }
+        />
+      ) : null}
+    </Section>
+  )
+}
+
+interface ServiceLite {
+  metadata: { name: string; namespace?: string }
+  spec?: { selector?: Record<string, string>; type?: string; ports?: Array<{ port: number; protocol?: string }> }
+}
+interface IngressLite {
+  metadata: { name: string }
+  spec?: { rules?: Array<{ host?: string; http?: { paths?: Array<{ backend?: { service?: { name?: string } } }> } }> }
+}
+
+/** Selector match: a Service targets these pods if all its selector keys match. */
+function serviceMatches(svc: ServiceLite, labels?: Record<string, string>): boolean {
+  const sel = svc.spec?.selector
+  if (!sel || Object.keys(sel).length === 0 || !labels) return false
+  return Object.entries(sel).every(([k, v]) => labels[k] === v)
+}
+
+function RelatedResources({
+  namespace,
+  matchLabels,
+}: {
+  namespace: string
+  matchLabels?: Record<string, string>
+}) {
+  const svcQ = useQuery({
+    queryKey: ['k8s', 'workload-related-svc', namespace],
+    enabled: Boolean(namespace && matchLabels),
+    retry: false,
+    refetchInterval: 30_000,
+    queryFn: () => client.listServices(LOCAL_CLUSTER, namespace) as unknown as Promise<ServiceLite[]>,
+  })
+  const ingQ = useQuery({
+    queryKey: ['k8s', 'workload-related-ing', namespace],
+    enabled: Boolean(namespace && matchLabels),
+    retry: false,
+    refetchInterval: 30_000,
+    queryFn: () => client.listIngresses(LOCAL_CLUSTER, namespace) as unknown as Promise<IngressLite[]>,
+  })
+
+  const services = useMemo(
+    () => (svcQ.data ?? []).filter((s) => serviceMatches(s, matchLabels)),
+    [svcQ.data, matchLabels],
+  )
+  const serviceNames = useMemo(() => new Set(services.map((s) => s.metadata.name)), [services])
+  const ingresses = useMemo(
+    () =>
+      (ingQ.data ?? []).filter((ing) =>
+        (ing.spec?.rules ?? []).some((r) =>
+          (r.http?.paths ?? []).some((p) => p.backend?.service?.name && serviceNames.has(p.backend.service.name)),
+        ),
+      ),
+    [ingQ.data, serviceNames],
+  )
+
+  if (!matchLabels) return null
+  if (svcQ.isLoading) {
+    return (
+      <Section title="Related resources">
+        <div className="px-4 py-3 text-xs text-content-muted">Resolving Services / Ingress…</div>
+      </Section>
+    )
+  }
+  if (services.length === 0 && ingresses.length === 0) {
+    return (
+      <Section title="Related resources">
+        <div className="px-4 py-3 text-xs text-content-subtle">No Services or Ingress select these pods.</div>
+      </Section>
+    )
+  }
+
+  return (
+    <Section title="Related resources">
+      <div className="divide-y divide-edge-subtle">
+        {services.map((s) => (
+          <Row
+            key={s.metadata.name}
+            label="Service"
+            value={
+              <span className="flex flex-wrap items-center gap-2">
+                <Mono>{s.metadata.name}</Mono>
+                <StatusBadge kind="info">{s.spec?.type ?? 'ClusterIP'}</StatusBadge>
+                <span className="text-[11px] text-content-subtle">
+                  {(s.spec?.ports ?? []).map((p) => `${p.port}/${p.protocol ?? 'TCP'}`).join(', ')}
+                </span>
+              </span>
+            }
+          />
+        ))}
+        {ingresses.map((ing) => (
+          <Row
+            key={ing.metadata.name}
+            label="Ingress"
+            value={
+              <span className="flex flex-wrap items-center gap-2">
+                <Mono>{ing.metadata.name}</Mono>
+                <span className="text-[11px] text-content-subtle">
+                  {(ing.spec?.rules ?? []).map((r) => r.host).filter(Boolean).join(', ') || 'no host rules'}
+                </span>
+              </span>
+            }
+          />
+        ))}
+      </div>
+    </Section>
+  )
+}
+
+function WorkloadRecentEvents({ namespace, name, kind }: { namespace: string; name: string; kind: WorkloadKind }) {
+  const q = useQuery({
+    queryKey: ['k8s', 'workload-events', namespace, kind, name],
+    queryFn: () => client.listEvents(LOCAL_CLUSTER, namespace),
+    refetchInterval: 15_000,
+    retry: false,
+  })
+  const events = (q.data ?? [])
+    .filter((e) => e.involvedObject.namespace === namespace && e.involvedObject.name === name && e.involvedObject.kind === kind)
+    .sort((a, b) => new Date(b.lastTimestamp ?? 0).getTime() - new Date(a.lastTimestamp ?? 0).getTime())
+    .slice(0, 5)
+
+  return (
+    <Section title="Recent events">
+      {q.isLoading ? (
+        <div className="px-4 py-3 text-xs text-content-muted">Loading…</div>
+      ) : events.length === 0 ? (
+        <div className="px-4 py-3 text-xs text-content-subtle">No recent events. See the Events tab for the full stream.</div>
+      ) : (
+        <div className="divide-y divide-edge-subtle">
+          {events.map((e) => (
+            <div key={e.metadata.name} className="flex items-start justify-between gap-3 px-4 py-2">
+              <div className="min-w-0">
+                <div className="text-xs font-medium text-content">{e.reason}</div>
+                <div className="truncate text-[11px] text-content-muted" title={e.message}>{e.message}</div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <StatusBadge kind={e.type === 'Warning' ? 'degraded' : 'info'}>{e.type}</StatusBadge>
+                <span className="text-[11px] tabular-nums text-content-subtle">{age(e.lastTimestamp)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Section>
   )
 }
 

@@ -1,16 +1,42 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { createFileRoute, Link, useNavigate, useSearch } from '@tanstack/react-router'
-import { AdharSymbol, AdharWordmark, Button, ModeToggle } from '@adhar-console/shell-ui'
+import {
+  AdharSymbol,
+  AdharWordmark,
+  ArgoCDIcon,
+  ArgoRolloutsIcon,
+  ArgoWorkflowsIcon,
+  Button,
+  CrossplaneIcon,
+  GiteaIcon,
+  GrafanaIcon,
+  HarborIcon,
+  KargoIcon,
+  KeycloakIcon,
+  KubernetesIcon,
+  KyvernoIcon,
+  LokiIcon,
+  ModeToggle,
+  PlaneIcon,
+  PrometheusIcon,
+  TempoIcon,
+} from '@adhar-console/shell-ui'
 import { getStubSession, useAuth } from '@adhar-console/auth'
 import { z } from 'zod'
 
 /**
- * Sign-in page — split-screen: an immersive brand panel + an SSO-first card.
+ * Sign-in page — a split hero: an immersive, brand-saturated story panel on the
+ * left and an SSO-first action card on the right.
  *
  * When Keycloak is configured the primary CTA triggers the OIDC redirect
  * (Keycloak owns the credentials form — the console never sees a password).
  * In local dev (no Keycloak) a stub "demo user" keeps the UI walkable.
- * `?returnTo=/path` is preserved through the redirect.
+ * `?returnTo=/path` is preserved through the redirect; sign-up carries the user
+ * into the onboarding wizard.
+ *
+ * Theme-aware throughout: the action side runs on design tokens (light/dark),
+ * and the hero uses the brand-token gradient (brand-900→brand-950) that stays
+ * legible with light type in either color mode — no bare white/black surfaces.
  */
 export const Route = createFileRoute('/login')({
   validateSearch: z.object({
@@ -21,13 +47,70 @@ export const Route = createFileRoute('/login')({
   component: LoginPage,
 })
 
-const PHASES = [
-  { k: 'Define', d: 'Requirements, epics, OKRs' },
-  { k: 'Design', d: 'ADRs, tokens, diagrams' },
-  { k: 'Develop', d: 'Repos, PRs, pipelines' },
-  { k: 'Deliver', d: 'GitOps, rollouts, policy' },
-  { k: 'Discover', d: 'Logs, metrics, traces' },
-  { k: 'Decide', d: 'DORA, health, spend' },
+/* ─────────────── capability showcase (real platform tools) ─────────────── */
+
+interface Capability {
+  icon: ReactNode
+  name: string
+  blurb: string
+}
+interface CapabilityGroup {
+  key: string
+  label: string
+  items: Capability[]
+}
+
+/**
+ * The platform's real backing tools, grouped by what they do. Each carries a
+ * one-line value prop (not just a name) and its actual brand icon. This is the
+ * "no black boxes" promise made visible on the sign-in screen.
+ */
+const CAPABILITY_GROUPS: CapabilityGroup[] = [
+  {
+    key: 'source',
+    label: 'Plan & Source',
+    items: [
+      { icon: <PlaneIcon size={28} />, name: 'Plane', blurb: 'Issues, cycles & OKRs' },
+      { icon: <GiteaIcon size={28} />, name: 'Gitea', blurb: 'Git hosting, PRs & packages' },
+    ],
+  },
+  {
+    key: 'delivery',
+    label: 'Delivery',
+    items: [
+      { icon: <ArgoCDIcon size={28} />, name: 'Argo CD', blurb: 'GitOps continuous delivery' },
+      { icon: <KargoIcon size={28} />, name: 'Kargo', blurb: 'Multi-stage promotion' },
+      { icon: <ArgoRolloutsIcon size={28} />, name: 'Rollouts', blurb: 'Canary & blue/green' },
+      { icon: <ArgoWorkflowsIcon size={28} />, name: 'Workflows', blurb: 'Container-native CI' },
+    ],
+  },
+  {
+    key: 'security',
+    label: 'Security & Supply chain',
+    items: [
+      { icon: <KyvernoIcon size={28} />, name: 'Kyverno', blurb: 'Policy-as-code admission' },
+      { icon: <HarborIcon size={28} />, name: 'Harbor', blurb: 'OCI registry + CVE scans' },
+      { icon: <KeycloakIcon size={28} />, name: 'Keycloak', blurb: 'SSO & identity' },
+    ],
+  },
+  {
+    key: 'observability',
+    label: 'Observability',
+    items: [
+      { icon: <GrafanaIcon size={28} />, name: 'Grafana', blurb: 'Dashboards & alerts' },
+      { icon: <PrometheusIcon size={28} />, name: 'Prometheus', blurb: 'Metrics & alerting' },
+      { icon: <LokiIcon size={28} />, name: 'Loki', blurb: 'Log aggregation' },
+      { icon: <TempoIcon size={28} />, name: 'Tempo', blurb: 'Distributed traces' },
+    ],
+  },
+  {
+    key: 'platform',
+    label: 'Platform',
+    items: [
+      { icon: <CrossplaneIcon size={28} />, name: 'Crossplane', blurb: 'Infra via K8s APIs' },
+      { icon: <KubernetesIcon size={28} />, name: 'Kubernetes', blurb: 'The runtime substrate' },
+    ],
+  },
 ]
 
 /**
@@ -114,7 +197,7 @@ function LoginPage() {
           <ModeToggle variant="icon" />
         </div>
 
-        {/* Ambient tint (mobile / narrow) */}
+        {/* Ambient tint (mobile / narrow — hero panel is hidden below lg) */}
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 lg:hidden"
@@ -153,9 +236,15 @@ function LoginPage() {
             ) : null}
 
             <div className="space-y-1.5">
-              <h1 className="text-2xl font-semibold tracking-tight text-content">Welcome back</h1>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-brand-700 ring-1 ring-inset ring-brand-200 dark:bg-brand-500/10 dark:text-brand-300 dark:ring-brand-500/25">
+                Internal Developer Platform
+              </span>
+              <h1 className="pt-1 text-2xl font-semibold tracking-tight text-content">
+                {configured ? 'Welcome back' : 'Explore the console'}
+              </h1>
               <p className="text-sm text-content-muted">
-                Sign in to your Adhar platform — one console for the whole software lifecycle.
+                Sign in to ship, operate, and observe — the whole software lifecycle in one
+                Kubernetes-native console.
               </p>
             </div>
 
@@ -280,26 +369,33 @@ function LoginPage() {
 
 function BrandPanel() {
   return (
-    <aside className="relative hidden w-[46%] max-w-2xl shrink-0 overflow-hidden lg:flex lg:flex-col">
-      {/* Base + animated gradient orbs */}
-      <div className="absolute inset-0" style={{ background: 'linear-gradient(150deg, #0b1220 0%, #131a2e 55%, #0d1b2a 100%)' }} />
+    <aside
+      className="relative hidden w-[48%] max-w-3xl shrink-0 overflow-hidden lg:flex lg:flex-col"
+      style={{
+        backgroundImage:
+          'radial-gradient(ellipse at 20% -5%, color-mix(in oklch, var(--color-brand-500) 55%, transparent), transparent 55%), linear-gradient(150deg, var(--color-brand-950), var(--color-brand-900) 55%, var(--color-accent-950, var(--color-brand-950)))',
+      }}
+    >
+      {/* Animated gradient orbs */}
       <div
         aria-hidden
-        className="absolute -left-24 -top-24 h-96 w-96 rounded-full opacity-60 blur-3xl"
-        style={{ background: 'radial-gradient(circle, #3B82F6 0%, transparent 70%)' }}
+        className="absolute -left-24 -top-24 h-96 w-96 animate-pulse rounded-full opacity-50 blur-3xl"
+        style={{ background: 'radial-gradient(circle, var(--color-brand-400) 0%, transparent 70%)' }}
       />
       <div
         aria-hidden
-        className="absolute -bottom-32 -right-16 h-[28rem] w-[28rem] rounded-full opacity-50 blur-3xl"
-        style={{ background: 'radial-gradient(circle, #8B5CF6 0%, transparent 70%)' }}
+        className="absolute -bottom-32 -right-16 h-[28rem] w-[28rem] rounded-full opacity-40 blur-3xl"
+        style={{ background: 'radial-gradient(circle, var(--color-accent-500) 0%, transparent 70%)' }}
       />
+      {/* Faint grid mesh */}
       <div
         aria-hidden
-        className="absolute inset-0 opacity-[0.06]"
+        className="absolute inset-0 opacity-[0.07]"
         style={{
           backgroundImage:
             'linear-gradient(rgba(255,255,255,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.6) 1px, transparent 1px)',
           backgroundSize: '44px 44px',
+          maskImage: 'radial-gradient(ellipse 80% 80% at 40% 30%, black, transparent 75%)',
         }}
       />
 
@@ -312,35 +408,54 @@ function BrandPanel() {
           </span>
         </div>
 
-        <div className="max-w-lg">
-          <h2 className="text-[2.1rem] font-semibold leading-[1.15] tracking-tight text-white xl:text-[2.5rem]">
-            One control plane for your whole platform.
+        <div className="max-w-xl">
+          <h2 className="text-[2.1rem] font-semibold leading-[1.12] tracking-tight text-white xl:text-[2.6rem]">
+            Your entire platform,
+            <br />
+            one console.
           </h2>
-          <p className="mt-4 text-[15px] leading-relaxed text-white/70">
-            Requirements to production to observability — aggregated from the best open-source tools,
-            unified under one tenant-aware, Kubernetes-native console.
+          <p className="mt-4 max-w-md text-[15px] leading-relaxed text-white/70">
+            Plan, build, ship, and observe without stitching together a dozen dashboards. Every
+            capability is powered by a best-in-class open-source project — self-hosted, tenant-aware,
+            and yours. No black boxes, no lock-in.
           </p>
 
-          <ul className="mt-8 grid grid-cols-2 gap-x-6 gap-y-4">
-            {PHASES.map((p) => (
-              <li key={p.k} className="flex items-start gap-2.5">
-                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/10 text-white ring-1 ring-inset ring-white/15">
-                  <IconDot />
-                </span>
-                <div>
-                  <div className="text-sm font-semibold text-white">{p.k}</div>
-                  <div className="text-xs text-white/55">{p.d}</div>
+          {/* Grouped capability showcase */}
+          <div className="mt-8 space-y-5">
+            {CAPABILITY_GROUPS.map((group) => (
+              <div key={group.key}>
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">
+                    {group.label}
+                  </span>
+                  <span className="h-px flex-1 bg-white/10" />
                 </div>
-              </li>
+                <div className="grid grid-cols-2 gap-2 xl:grid-cols-2">
+                  {group.items.map((cap) => (
+                    <div
+                      key={cap.name}
+                      className="flex items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-2.5 py-2 backdrop-blur-sm transition-colors hover:border-white/20 hover:bg-white/10"
+                    >
+                      <span className="flex-none">{cap.icon}</span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-[13px] font-semibold text-white">
+                          {cap.name}
+                        </span>
+                        <span className="block truncate text-[11px] text-white/55">{cap.blurb}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             ))}
-          </ul>
+          </div>
         </div>
 
         <div className="flex items-center gap-3 text-xs text-white/55">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 font-medium text-white/80 ring-1 ring-inset ring-white/10">
             <IconShield /> SSO by Keycloak
           </span>
-          <span className="hidden xl:inline">Gitea · Argo CD · Kargo · Harbor · Kyverno · Grafana · Crossplane</span>
+          <span className="hidden xl:inline">Kubernetes-native · Multi-tenant · 100% open source</span>
         </div>
       </div>
     </aside>
@@ -386,13 +501,6 @@ function IconAlert() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-px shrink-0" aria-hidden>
       <circle cx="12" cy="12" r="10" />
       <path d="M12 8v4M12 16h.01" />
-    </svg>
-  )
-}
-function IconDot() {
-  return (
-    <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" aria-hidden>
-      <circle cx="4" cy="4" r="3" />
     </svg>
   )
 }

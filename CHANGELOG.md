@@ -6,6 +6,48 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+
+- **Full-featured YAML editor** on pod & workload detail. Monaco with YAML
+  syntax, live error markers + a validity status line, find/replace, minimap and
+  word-wrap toggles, **format/prettify**, copy, download, a **diff view** (cluster
+  vs edited), a "hide managedFields/status" noise toggle, Cmd/Ctrl-S to apply,
+  RBAC-gated apply with a read-only lock when unauthorized, and a graceful
+  read-only fallback if the editor can't load.
+- **Deeper metrics tab.** Alongside the live instantaneous snapshot, a Prometheus
+  time-series layer with a 15m/1h/6h/24h range selector: CPU vs requests/limits
+  with **throttling**, memory working-set vs requests/limits, **restart/OOM**
+  indicators, network RX/TX, filesystem I/O, and a **per-container** breakdown —
+  each degrading to an honest empty/"Prometheus not reachable" state.
+- **Richer Overview** for pods and workloads: container image digests, ports,
+  probes, volume mounts; scheduling (QoS, nodeSelector, tolerations, affinity,
+  priorityClass); conditions as a timeline; owner chain; related Services/Ingress;
+  and a recent-events summary.
+- **SaaS onboarding that actually provisions.** "Create a new account" now runs a
+  multi-step wizard — organization (with live slug preview), capability/tool
+  selection, review, and a live provisioning screen that **creates + activates the
+  org** (`POST /api/organizations`) and **enables each selected tool via GitOps**
+  (`POST /api/platform/appset/toggle`), with real per-step status, verbatim
+  errors, per-step retry, and honest "requested / unavailable here" states.
+
+### Changed
+
+- **Login screen redesign.** A modern split-hero sign-in: brand story panel +
+  SSO-first action card, theme-aware, with a grouped capability showcase (Plan &
+  Source, Delivery, Security, Observability, Platform) using real product logos
+  and benefit-led copy. The Keycloak SSO flow is unchanged.
+- **Cluster RBAC reflects your real identity.** The k8s permission gate
+  (logs/exec/scale/…) now derives from the signed-in persona instead of a stub,
+  with a safe fallback that never downgrades a real operator when no session is
+  resolvable. The **"View as" role switcher** now lives in the platform header
+  (not buried on the dashboard), so a stuck preview role is easy to reset.
+- **Apps panel corrected & curated.** Fixed wrong launch URLs
+  (Argo Workflows, Argo Rollouts, Kafka UI, JupyterHub now resolve to their real
+  hosts); the generic **Kubernetes** tile is now **Headlamp** pointing at the real
+  dashboard; added **Nexus** (artifact repository) and **Policy Reporter** (Kyverno
+  policy & Trivy vulnerability reports); and removed tiles for tools with no
+  standalone UI (Trivy, Falco, Crossplane, OpenTelemetry, Kyverno, Iceberg).
+
 ## [0.1.25] - 2026-08-31
 
 ### Fixed

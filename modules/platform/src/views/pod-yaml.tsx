@@ -1,35 +1,82 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Button } from '@adhar-console/shell-ui'
+import { Button, Spinner } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
 import type { k8s } from '@adhar-console/api-clients'
 import { client, LOCAL_CLUSTER } from '../data/client.ts'
 import { useHasK8sPermission, type K8sPermission } from '../data/access.ts'
 import { K8sRolePill } from '../components/role-gate.tsx'
+import { loadMonaco, type MonacoEditorInstance } from '../components/monaco-loader.ts'
 
 /**
- * Full-featured YAML view/edit panel.
+ * Full-featured, Lens/OpenShift-grade YAML view/edit panel — Monaco-backed.
  *
- * View mode:  syntax-tinted YAML with copy + download.
- * Edit mode:  monospace editor with line numbers, basic YAML syntax colouring,
- *             apply/cancel. On apply we PUT the parsed YAML back against
- *             `/api/v1/namespaces/{ns}/pods/{name}` (or any object with the
- *             same shape) and refresh the query cache.
+ * View mode:  read-only Monaco with YAML colouring, line numbers, minimap +
+ *             word-wrap toggles, find/replace (⌘F built-in) and a lock badge
+ *             when the user lacks write.
+ * Edit mode:  editable Monaco with live YAML validation surfaced as real error
+ *             markers + a status line, Format (round-trip through
+ *             `toYaml(parseYaml(…))`), a side-by-side Diff against the live
+ *             cluster manifest, Reload-from-cluster, Copy, Download, and
+ *             Apply (⌘S) gated on `writePerm` with the apiserver's 403/error
+ *             surfaced verbatim.
+ *
+ * A "hide managedFields/status" toggle filters those server-managed keys from
+ * the view for readability *without* mutating the object that Apply sends
+ * (server-side apply owns those fields regardless).
  *
  * Editing mutable K8s fields is restricted by the server; we surface the
- * apiserver's rejection message verbatim so the user knows why. For pods,
- * most spec fields are immutable, so edits typically succeed only for labels
- * / annotations — the panel still works for those.
+ * apiserver's rejection message verbatim so the user knows why.
  */
 
 const POD_GVR: k8s.GVR = { group: '', version: 'v1', resource: 'pods', namespaced: true }
 
+/* ───── richer Monaco surface (diff editor + markers) ─────
+ * The shared loader (`components/monaco-loader.ts`) types only the subset the
+ * JSON manifest editor needed. We cast the same runtime to the richer surface
+ * we use here (diff editor, models, markers) — no second Monaco is loaded. */
+interface MonacoModel {
+  getValue(): string
+  setValue(v: string): void
+  dispose(): void
+}
+interface MonacoMarker {
+  startLineNumber: number
+  startColumn: number
+  endLineNumber: number
+  endColumn: number
+  message: string
+  severity: number
+}
+interface MonacoDiffEditor {
+  setModel(m: { original: MonacoModel; modified: MonacoModel }): void
+  layout(): void
+  dispose(): void
+}
+interface RichMonaco {
+  editor: {
+    create(el: HTMLElement, opts?: unknown): MonacoEditorInstance
+    createDiffEditor(el: HTMLElement, opts?: unknown): MonacoDiffEditor
+    createModel(value: string, language?: string): MonacoModel
+    setModelMarkers(model: unknown, owner: string, markers: MonacoMarker[]): void
+    setTheme(name: string): void
+  }
+  MarkerSeverity: { Error: number; Warning: number; Info: number; Hint: number }
+  KeyMod: Record<string, number>
+  KeyCode: Record<string, number>
+}
+
+interface YamlIssue {
+  line: number
+  column: number
+  message: string
+}
+
 /**
- * The panel is a generic Monaco-style YAML view/edit surface. It defaults to a
- * Pod (the original use), but any caller — the workload drawers, say — can point
- * it at a different object by passing that object's `gvr` and the write
- * permission to gate Apply on. Everything else (serialize, diff, apply →
- * `replaceGeneric`, cache-nudge) is kind-agnostic.
+ * The panel defaults to a Pod (the original use), but any caller — the workload
+ * drawers, say — can point it at a different object by passing that object's
+ * `gvr` and the write permission to gate Apply on. Everything else (serialize,
+ * validate, diff, apply → `replaceGeneric`, cache-nudge) is kind-agnostic.
  */
 export function PodYamlPanel({
   pod,
@@ -48,38 +95,82 @@ export function PodYamlPanel({
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [showDiff, setShowDiff] = useState(false)
+  const [hideNoise, setHideNoise] = useState(true)
+  const [minimap, setMinimap] = useState(false)
+  const [wordWrap, setWordWrap] = useState(false)
+  const [issues, setIssues] = useState<YamlIssue[]>([])
 
-  const yaml = useMemo(() => (pod ? toYaml(pod) : ''), [pod])
-  const dirty = editing && draft !== yaml
+  // Filtered manifest (server-managed noise hidden for readability). Apply always
+  // sends the buffer verbatim — server-side apply owns managedFields/status.
+  const skip = useMemo(
+    () => (hideNoise ? new Set(['managedFields', 'status']) : new Set(['managedFields'])),
+    [hideNoise],
+  )
+  const base = useMemo(() => (pod ? toYaml(pod, skip) : ''), [pod, skip])
+  const dirty = editing && draft !== base
 
-  // Seed draft whenever the underlying YAML updates and we're not mid-edit.
+  // Seed draft whenever the underlying manifest updates and we're not mid-edit.
   useEffect(() => {
-    if (!editing) setDraft(yaml)
-  }, [yaml, editing])
+    if (!editing) setDraft(base)
+  }, [base, editing])
+
+  const value = editing ? draft : base
 
   const startEdit = () => {
-    setDraft(yaml)
+    setDraft(base)
     setEditing(true)
     setError(null)
     setSuccess(false)
   }
   const cancel = () => {
-    setDraft(yaml)
+    setDraft(base)
     setEditing(false)
+    setShowDiff(false)
     setError(null)
   }
-  const copy = () => navigator.clipboard?.writeText(editing ? draft : yaml)
+  const copy = () => navigator.clipboard?.writeText(value)
+
   const download = () => {
     if (!pod) return
-    const blob = new Blob([editing ? draft : yaml], { type: 'text/yaml;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${pod.metadata.name}.yaml`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    try {
+      const blob = new Blob([value], { type: 'text/yaml;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${pod.metadata.name}.yaml`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch {
+      // Some sandboxes block programmatic downloads — degrade to clipboard so
+      // the manifest is still recoverable.
+      navigator.clipboard?.writeText(value)
+      setError('Download is blocked in this sandbox — copied the manifest to the clipboard instead.')
+    }
+  }
+
+  const reload = () => {
+    setError(null)
+    setSuccess(false)
+    setDraft(base)
+    if (pod) {
+      qc.invalidateQueries({ queryKey: ['k8s', 'pod', pod.metadata.namespace, pod.metadata.name] })
+      qc.invalidateQueries({ queryKey: ['k8s'] })
+    }
+  }
+
+  const format = () => {
+    setError(null)
+    try {
+      const trimmed = draft.trimStart()
+      const parsed = trimmed.startsWith('{') || trimmed.startsWith('[')
+        ? JSON.parse(draft)
+        : parseYaml(draft)
+      setDraft(toYaml(parsed, skip))
+    } catch (e) {
+      setError(`Cannot format — ${e instanceof Error ? e.message : String(e)}`)
+    }
   }
 
   const apply = async () => {
@@ -108,6 +199,7 @@ export function PodYamlPanel({
       )
       setSuccess(true)
       setEditing(false)
+      setShowDiff(false)
       // Nudge any open queries so the drawer's other tabs refresh too.
       qc.invalidateQueries({ queryKey: ['k8s', 'pod', pod.metadata.namespace, pod.metadata.name] })
       qc.invalidateQueries({ queryKey: ['k8s'] })
@@ -125,75 +217,96 @@ export function PodYamlPanel({
     }
   }
 
+  // Keep the ⌘S handler pointing at the freshest closure without re-mounting.
+  const applyRef = useRef(apply)
+  applyRef.current = apply
+
   if (!pod) {
     return <div className="p-8 text-sm text-content-muted">Loading…</div>
   }
 
+  const errorCount = issues.length
+
   return (
     <div className="space-y-3">
+      {/* ── toolbar ── */}
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-surface-sunken p-2">
         <span className="text-[11px] font-medium text-content-subtle">
           {editing
             ? dirty
-              ? 'Editing · unsaved changes will PUT to the apiserver on Apply'
+              ? 'Editing · Apply PUTs the buffer to the apiserver'
               : 'Editing · no changes yet'
-            : 'Live manifest · click Edit to modify'}
+            : canWrite
+              ? 'Live manifest · click Edit to modify'
+              : 'Live manifest · read-only'}
         </span>
-        {dirty ? (
-          <button
-            type="button"
+
+        <Toggle active={hideNoise} onClick={() => setHideNoise((v) => !v)} title="Hide server-managed managedFields + status for readability (not sent to the apiserver either way)">
+          {hideNoise ? 'Noise hidden' : 'Show all fields'}
+        </Toggle>
+        <Toggle active={minimap} onClick={() => setMinimap((v) => !v)} title="Toggle the Monaco minimap">
+          Minimap
+        </Toggle>
+        <Toggle active={wordWrap} onClick={() => setWordWrap((v) => !v)} title="Toggle soft word-wrap">
+          Wrap
+        </Toggle>
+        {editing ? (
+          <Toggle
+            active={showDiff}
+            disabled={!dirty}
             onClick={() => setShowDiff((v) => !v)}
-            className={cn(
-              'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition',
-              showDiff
-                ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-500/25 dark:bg-brand-500/10 dark:text-brand-300'
-                : 'border-edge-default bg-surface-raised text-content-muted hover:text-content',
-            )}
+            title={dirty ? 'Diff the buffer against the live cluster manifest' : 'No changes to diff'}
           >
-            <span className="font-mono">±</span>
-            {showDiff ? 'Hide diff' : 'Show diff'}
-          </button>
+            <span className="font-mono">±</span> Diff
+          </Toggle>
         ) : null}
+
         <div className="ml-auto flex items-center gap-1.5">
-          <Button size="sm" variant="secondary" onClick={copy}>
-            Copy
-          </Button>
-          <Button size="sm" variant="secondary" onClick={download}>
-            Download
-          </Button>
+          <Button size="sm" variant="secondary" onClick={copy}>Copy</Button>
+          <Button size="sm" variant="secondary" onClick={download}>Download</Button>
           {editing ? (
             <>
-              <Button size="sm" variant="secondary" onClick={cancel} disabled={applying}>
-                Cancel
+              <Button size="sm" variant="secondary" onClick={reload} disabled={applying} title="Discard local edits and reload the manifest from the cluster">
+                Reload
               </Button>
+              <Button size="sm" variant="secondary" onClick={format} disabled={applying} title="Prettify — round-trip the buffer through the YAML serializer">
+                Format
+              </Button>
+              <Button size="sm" variant="secondary" onClick={cancel} disabled={applying}>Cancel</Button>
               <Button
                 size="sm"
                 onClick={apply}
-                disabled={applying || !dirty || !canWrite}
+                disabled={applying || !dirty || !canWrite || errorCount > 0}
                 title={
                   !canWrite
                     ? 'Apply requires the Tenant Admin or Platform Admin role'
-                    : !dirty
-                      ? 'No changes to apply'
-                      : undefined
+                    : errorCount > 0
+                      ? 'Fix the YAML errors before applying'
+                      : !dirty
+                        ? 'No changes to apply'
+                        : 'Apply (⌘S)'
                 }
               >
                 {applying ? 'Applying…' : 'Apply'}
               </Button>
             </>
           ) : canWrite ? (
-            <Button size="sm" onClick={startEdit}>
-              Edit
+            <Button size="sm" variant="secondary" onClick={reload} title="Reload the manifest from the cluster">
+              Reload
             </Button>
-          ) : (
+          ) : null}
+          {!editing && canWrite ? (
+            <Button size="sm" onClick={startEdit}>Edit</Button>
+          ) : null}
+          {!canWrite ? (
             <span
               className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-[11px] text-content-muted"
               title="Editing requires the Tenant Admin or Platform Admin role"
             >
-              Edit
+              <LockIcon /> read-only
               <K8sRolePill perm={writePerm} />
             </span>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -208,269 +321,367 @@ export function PodYamlPanel({
         </div>
       ) : null}
 
-      {editing ? (
-        <div className="space-y-3">
-          <YamlEditor value={draft} onChange={setDraft} />
-          {showDiff && dirty ? <DiffViewer before={yaml} after={draft} /> : null}
-        </div>
+      {/* ── editor ── */}
+      {showDiff && editing && dirty ? (
+        <MonacoDiff original={base} modified={draft} />
       ) : (
-        <YamlViewer text={yaml} />
+        <MonacoYaml
+          value={value}
+          readOnly={!editing}
+          minimap={minimap}
+          wordWrap={wordWrap}
+          onChange={editing ? setDraft : undefined}
+          onValidate={setIssues}
+          onSave={() => {
+            if (editing && canWrite) applyRef.current()
+          }}
+        />
       )}
-    </div>
-  )
-}
 
-/* ───── diff viewer ───── */
-
-function DiffViewer({ before, after }: { before: string; after: string }) {
-  const hunks = useMemo(() => diffLines(before, after), [before, after])
-  const adds = hunks.filter((h) => h.kind === 'add').length
-  const dels = hunks.filter((h) => h.kind === 'del').length
-  if (adds === 0 && dels === 0) return null
-  return (
-    <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
-      <div className="flex items-center justify-between border-b border-slate-800/80 bg-slate-900/60 px-3 py-1.5 text-[11px] text-slate-400">
-        <span className="font-mono uppercase tracking-wider">Diff vs apiserver</span>
-        <span className="font-mono">
-          <span className="text-emerald-300">+{adds}</span>{' '}
-          <span className="text-rose-300">-{dels}</span>
+      {/* ── status line ── */}
+      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+        {errorCount === 0 ? (
+          <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Valid YAML
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-rose-700 dark:text-rose-300">
+            <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+            {errorCount} YAML {errorCount === 1 ? 'error' : 'errors'}
+            <span className="text-content-muted">
+              · line {issues[0].line}: {issues[0].message}
+            </span>
+          </span>
+        )}
+        <span className="ml-auto font-mono text-content-subtle">
+          {gvr.group ? `${gvr.group}/` : ''}{gvr.version}/{gvr.resource}
+          {value ? ` · ${value.split('\n').length} lines` : ''}
         </span>
       </div>
-      <div className="max-h-[35vh] overflow-auto font-mono text-[12px] leading-[1.55]">
-        {hunks.map((h, i) => (
-          <div
-            key={i}
-            className={cn(
-              'grid grid-cols-[2.5rem_auto] gap-0',
-              h.kind === 'add' && 'bg-emerald-500/10 text-emerald-200',
-              h.kind === 'del' && 'bg-rose-500/10 text-rose-200',
-              h.kind === 'eq' && 'text-slate-400',
-            )}
-          >
-            <span className="select-none border-r border-slate-800/80 bg-slate-900/40 px-2 text-right text-slate-600">
-              {h.kind === 'add' ? '+' : h.kind === 'del' ? '−' : ' '}
-            </span>
-            <span className="whitespace-pre px-3">{h.text || ' '}</span>
-          </div>
-        ))}
-      </div>
     </div>
   )
 }
 
-/**
- * Tiny LCS-based line diff — good enough for the YAML round-trip view. Output
- * preserves original ordering with adds/dels interleaved as deltas, plus
- * unchanged context lines (collapsed into a single span when long).
- */
-function diffLines(a: string, b: string): Array<{ kind: 'eq' | 'add' | 'del'; text: string }> {
-  const A = a.split('\n')
-  const B = b.split('\n')
-  const m = A.length
-  const n = B.length
-  // LCS length table (DP).
-  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
-  for (let i = m - 1; i >= 0; i--) {
-    for (let j = n - 1; j >= 0; j--) {
-      dp[i][j] = A[i] === B[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
-    }
-  }
-  const out: Array<{ kind: 'eq' | 'add' | 'del'; text: string }> = []
-  let i = 0
-  let j = 0
-  while (i < m && j < n) {
-    if (A[i] === B[j]) {
-      out.push({ kind: 'eq', text: A[i] })
-      i++
-      j++
-    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-      out.push({ kind: 'del', text: A[i] })
-      i++
-    } else {
-      out.push({ kind: 'add', text: B[j] })
-      j++
-    }
-  }
-  while (i < m) out.push({ kind: 'del', text: A[i++] })
-  while (j < n) out.push({ kind: 'add', text: B[j++] })
-  // Collapse big blocks of unchanged lines into context windows of 3 around
-  // each change, so the diff stays focused on the deltas.
-  return collapseContext(out, 3)
-}
+/* ───── toolbar bits ───── */
 
-function collapseContext(
-  hunks: Array<{ kind: 'eq' | 'add' | 'del'; text: string }>,
-  ctx: number,
-): Array<{ kind: 'eq' | 'add' | 'del'; text: string }> {
-  const keep = new Array(hunks.length).fill(false)
-  for (let i = 0; i < hunks.length; i++) {
-    if (hunks[i].kind !== 'eq') {
-      keep[i] = true
-      for (let k = 1; k <= ctx; k++) {
-        if (i - k >= 0) keep[i - k] = true
-        if (i + k < hunks.length) keep[i + k] = true
-      }
-    }
-  }
-  const out: Array<{ kind: 'eq' | 'add' | 'del'; text: string }> = []
-  let suppressed = 0
-  for (let i = 0; i < hunks.length; i++) {
-    if (keep[i]) {
-      if (suppressed > 0) {
-        out.push({ kind: 'eq', text: `   …${suppressed} unchanged line${suppressed === 1 ? '' : 's'}…` })
-        suppressed = 0
-      }
-      out.push(hunks[i])
-    } else {
-      suppressed++
-    }
-  }
-  if (suppressed > 0) {
-    out.push({ kind: 'eq', text: `   …${suppressed} unchanged line${suppressed === 1 ? '' : 's'}…` })
-  }
-  return out
-}
-
-function YamlViewer({ text }: { text: string }) {
-  const lines = text.split('\n')
+function Toggle({
+  active,
+  disabled,
+  onClick,
+  title,
+  children,
+}: {
+  active: boolean
+  disabled?: boolean
+  onClick(): void
+  title?: string
+  children: React.ReactNode
+}) {
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950 text-slate-100">
-      <div className="max-h-[55vh] overflow-auto">
-        <table className="w-full border-collapse font-mono text-[12px] leading-[1.55]">
-          <tbody>
-            {lines.map((l, i) => (
-              <tr key={i}>
-                <td className="w-10 select-none border-r border-slate-800/80 bg-slate-900/50 px-2 text-right tabular-nums text-slate-500">
-                  {i + 1}
-                </td>
-                <td className="px-3 py-0 align-top whitespace-pre">
-                  {renderYamlLine(l)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40',
+        active
+          ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-500/25 dark:bg-brand-500/10 dark:text-brand-300'
+          : 'border-edge-default bg-surface-raised text-content-muted hover:text-content',
+      )}
+    >
+      {children}
+    </button>
   )
 }
 
-function YamlEditor({
+function LockIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="3" y="11" width="18" height="11" rx="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  )
+}
+
+/* ───── Monaco YAML editor ───── */
+
+function themeName(): string {
+  if (typeof document === 'undefined') return 'adhar-light'
+  const attr = document.documentElement.getAttribute('data-theme')
+  if (attr === 'dark') return 'vs-dark'
+  if (attr === 'light') return 'adhar-light'
+  const prefersDark = typeof globalThis.matchMedia === 'function' &&
+    globalThis.matchMedia('(prefers-color-scheme: dark)').matches
+  return prefersDark ? 'vs-dark' : 'adhar-light'
+}
+
+function MonacoYaml({
   value,
+  readOnly,
+  minimap,
+  wordWrap,
   onChange,
+  onValidate,
+  onSave,
 }: {
   value: string
-  onChange(v: string): void
+  readOnly: boolean
+  minimap: boolean
+  wordWrap: boolean
+  onChange?(v: string): void
+  onValidate?(issues: YamlIssue[]): void
+  onSave?(): void
 }) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const preRef = useRef<HTMLPreElement>(null)
-  const [focused, setFocused] = useState(false)
+  const hostRef = useRef<HTMLDivElement | null>(null)
+  const editorRef = useRef<MonacoEditorInstance | null>(null)
+  const monacoRef = useRef<RichMonaco | null>(null)
+  const [ready, setReady] = useState(false)
+  const [failed, setFailed] = useState<string | null>(null)
 
-  const lines = value.split('\n')
-  // Soft-sync scroll so the syntax overlay matches the textarea.
-  const onScroll = () => {
-    const t = textareaRef.current
-    const p = preRef.current
-    if (t && p) {
-      p.scrollTop = t.scrollTop
-      p.scrollLeft = t.scrollLeft
+  // Latest callbacks via refs so the once-mounted editor always calls fresh ones.
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
+  const onValidateRef = useRef(onValidate)
+  onValidateRef.current = onValidate
+  const onSaveRef = useRef(onSave)
+  onSaveRef.current = onSave
+
+  const runValidate = (text: string) => {
+    if (!onValidateRef.current) return
+    const issues = validateYaml(text)
+    onValidateRef.current(issues)
+    const m = monacoRef.current
+    const model = editorRef.current?.getModel()
+    if (m && model) {
+      m.editor.setModelMarkers(model, 'adhar-yaml', issues.map((i) => ({
+        startLineNumber: i.line,
+        startColumn: i.column,
+        endLineNumber: i.line,
+        endColumn: i.column + 1,
+        message: i.message,
+        severity: m.MarkerSeverity.Error,
+      })))
     }
   }
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Tab') {
-      e.preventDefault()
-      const t = e.currentTarget
-      const start = t.selectionStart
-      const end = t.selectionEnd
-      const next = value.slice(0, start) + '  ' + value.slice(end)
-      onChange(next)
-      requestAnimationFrame(() => {
-        t.selectionStart = t.selectionEnd = start + 2
+  // Mount once.
+  useEffect(() => {
+    let disposed = false
+    loadMonaco()
+      .then((raw) => {
+        if (disposed || !hostRef.current) return
+        const m = raw as unknown as RichMonaco
+        monacoRef.current = m
+        m.editor.setTheme(themeName())
+        editorRef.current = m.editor.create(hostRef.current, {
+          value,
+          language: 'yaml',
+          readOnly,
+          minimap: { enabled: minimap },
+          wordWrap: wordWrap ? 'on' : 'off',
+          automaticLayout: true,
+          fontSize: 12,
+          lineNumbers: 'on',
+          scrollBeyondLastLine: false,
+          renderWhitespace: 'selection',
+          tabSize: 2,
+          bracketPairColorization: { enabled: true },
+          matchBrackets: 'always',
+          smoothScrolling: true,
+        })
+        editorRef.current.onDidChangeModelContent(() => {
+          const text = editorRef.current?.getValue() ?? ''
+          onChangeRef.current?.(text)
+          runValidate(text)
+        })
+        editorRef.current.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.KeyS, () => onSaveRef.current?.())
+        runValidate(value)
+        setReady(true)
+      })
+      .catch((e) => setFailed((e as Error).message))
+    return () => {
+      disposed = true
+      editorRef.current?.dispose()
+      editorRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Push external value changes (format / reload / toggle / refetch) into Monaco
+  // without clobbering in-flight typing (only when they truly differ).
+  useEffect(() => {
+    const ed = editorRef.current
+    if (ready && ed && ed.getValue() !== value) {
+      ed.setValue(value)
+      runValidate(value)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, value])
+
+  useEffect(() => {
+    if (ready) {
+      editorRef.current?.updateOptions({
+        readOnly,
+        minimap: { enabled: minimap },
+        wordWrap: wordWrap ? 'on' : 'off',
+      })
+    }
+  }, [ready, readOnly, minimap, wordWrap])
+
+  if (failed) {
+    // Honest degrade — Monaco (jsDelivr) couldn't load; fall back to a plain,
+    // read-only pre so the manifest is still viewable/copyable.
+    return (
+      <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-sunken">
+        <div className="border-b border-edge-default px-3 py-1.5 text-[11px] text-content-muted">
+          Editor failed to load ({failed}) — showing plain text.
+        </div>
+        <pre className="max-h-[55vh] overflow-auto p-3 font-mono text-[12px] leading-[1.55] text-content whitespace-pre">
+          {value}
+        </pre>
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm">
+      {!ready ? (
+        <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-surface-raised/70 text-sm text-content-muted">
+          <Spinner size={16} /> Loading editor…
+        </div>
+      ) : null}
+      <div ref={hostRef} className="h-[55vh] w-full" />
+    </div>
+  )
+}
+
+/* ───── Monaco diff (cluster vs buffer) ───── */
+
+function MonacoDiff({ original, modified }: { original: string; modified: string }) {
+  const hostRef = useRef<HTMLDivElement | null>(null)
+  const diffRef = useRef<MonacoDiffEditor | null>(null)
+  const modelsRef = useRef<{ original: MonacoModel; modified: MonacoModel } | null>(null)
+  const [ready, setReady] = useState(false)
+  const [failed, setFailed] = useState<string | null>(null)
+
+  useEffect(() => {
+    let disposed = false
+    loadMonaco()
+      .then((raw) => {
+        if (disposed || !hostRef.current) return
+        const m = raw as unknown as RichMonaco
+        m.editor.setTheme(themeName())
+        const originalModel = m.editor.createModel(original, 'yaml')
+        const modifiedModel = m.editor.createModel(modified, 'yaml')
+        modelsRef.current = { original: originalModel, modified: modifiedModel }
+        diffRef.current = m.editor.createDiffEditor(hostRef.current, {
+          readOnly: true,
+          renderSideBySide: true,
+          automaticLayout: true,
+          fontSize: 12,
+          minimap: { enabled: false },
+          scrollBeyondLastLine: false,
+          ignoreTrimWhitespace: false,
+        })
+        diffRef.current.setModel({ original: originalModel, modified: modifiedModel })
+        setReady(true)
+      })
+      .catch((e) => setFailed((e as Error).message))
+    return () => {
+      disposed = true
+      diffRef.current?.dispose()
+      modelsRef.current?.original.dispose()
+      modelsRef.current?.modified.dispose()
+      diffRef.current = null
+      modelsRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Keep the diff models in sync as the buffer edits.
+  useEffect(() => {
+    if (ready && modelsRef.current) {
+      if (modelsRef.current.original.getValue() !== original) modelsRef.current.original.setValue(original)
+      if (modelsRef.current.modified.getValue() !== modified) modelsRef.current.modified.setValue(modified)
+    }
+  }, [ready, original, modified])
+
+  if (failed) {
+    return (
+      <div className="rounded-xl border border-edge-default bg-surface-sunken p-4 text-xs text-content-muted">
+        Diff view failed to load ({failed}).
+      </div>
+    )
+  }
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm">
+      <div className="flex items-center justify-between border-b border-edge-default px-3 py-1.5 text-[11px] text-content-muted">
+        <span className="font-mono uppercase tracking-wider">Diff · cluster (left) → buffer (right)</span>
+        <span className="text-content-subtle">what Apply will change</span>
+      </div>
+      <div className="relative">
+        {!ready ? (
+          <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-surface-raised/70 text-sm text-content-muted">
+            <Spinner size={16} /> Loading diff…
+          </div>
+        ) : null}
+        <div ref={hostRef} className="h-[50vh] w-full" />
+      </div>
+    </div>
+  )
+}
+
+/* ───── YAML validation ─────
+ * Real, line-accurate syntax checks: YAML forbids tab indentation, and the
+ * repo parser rejects malformed structure. Cheap and honest — good enough to
+ * catch the mistakes hand-editing introduces before an Apply round-trip. */
+function validateYaml(text: string): YamlIssue[] {
+  const issues: YamlIssue[] = []
+  const trimmed = text.trimStart()
+  // JSON buffers are valid input too — validate them as JSON.
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      JSON.parse(text)
+    } catch (e) {
+      issues.push({ line: 1, column: 1, message: e instanceof Error ? e.message : 'Invalid JSON' })
+    }
+    return issues
+  }
+  const lines = text.split('\n')
+  lines.forEach((l, idx) => {
+    const indentMatch = l.match(/^([ \t]*)/)
+    const indent = indentMatch ? indentMatch[1] : ''
+    if (indent.includes('\t')) {
+      issues.push({
+        line: idx + 1,
+        column: indent.indexOf('\t') + 1,
+        message: 'Tabs are not allowed for YAML indentation — use spaces',
+      })
+    }
+  })
+  if (issues.length === 0) {
+    try {
+      parseYaml(text)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      const lineMatch = msg.match(/line (\d+)/i)
+      issues.push({
+        line: lineMatch ? parseInt(lineMatch[1], 10) : 1,
+        column: 1,
+        message: msg,
       })
     }
   }
-
-  return (
-    <div
-      className={cn(
-        'relative overflow-hidden rounded-xl border bg-slate-950',
-        focused ? 'border-brand-400 ring-2 ring-brand-400/20' : 'border-slate-800',
-      )}
-    >
-      <div className="grid grid-cols-[2.5rem_1fr]">
-        <div className="select-none border-r border-slate-800/80 bg-slate-900/60 py-2 text-right font-mono text-[11px] tabular-nums text-slate-500">
-          {lines.map((_, i) => (
-            <div key={i} className="px-2 leading-[1.55]">
-              {i + 1}
-            </div>
-          ))}
-        </div>
-        <div className="relative">
-          <pre
-            ref={preRef}
-            aria-hidden
-            className="pointer-events-none absolute inset-0 m-0 overflow-auto whitespace-pre p-2 font-mono text-[12px] leading-[1.55] text-slate-100"
-          >
-            {lines.map((l, i) => (
-              <div key={i}>{renderYamlLine(l)}</div>
-            ))}
-          </pre>
-          <textarea
-            ref={textareaRef}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            onScroll={onScroll}
-            onKeyDown={onKeyDown}
-            spellCheck={false}
-            className="relative block h-[55vh] w-full resize-none overflow-auto whitespace-pre bg-transparent p-2 font-mono text-[12px] leading-[1.55] text-transparent caret-white focus:outline-none"
-            style={{ tabSize: 2 }}
-          />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ───── YAML rendering ───── */
-
-function renderYamlLine(line: string): React.ReactNode {
-  if (!line) return '\u00a0'
-  if (/^\s*#/.test(line)) {
-    return <span className="text-slate-500">{line}</span>
-  }
-  // key: value — colourise key + value with simple regex.
-  const m = line.match(/^(\s*-?\s*)([A-Za-z0-9_./-]+)(\s*):(\s*)(.*)$/)
-  if (m) {
-    const [, lead, key, ws1, ws2, rest] = m
-    return (
-      <>
-        <span>{lead}</span>
-        <span className="text-sky-300">{key}</span>
-        <span>{ws1}:</span>
-        <span>{ws2}</span>
-        {renderYamlValue(rest)}
-      </>
-    )
-  }
-  return <span>{line}</span>
-}
-
-function renderYamlValue(raw: string): React.ReactNode {
-  if (raw === '') return null
-  if (/^-?\d+(\.\d+)?$/.test(raw)) return <span className="text-amber-300">{raw}</span>
-  if (/^(true|false|null|~)$/.test(raw)) return <span className="text-purple-300">{raw}</span>
-  if (/^['"]/.test(raw)) return <span className="text-emerald-300">{raw}</span>
-  return <span className="text-slate-100">{raw}</span>
+  return issues
 }
 
 /* ───── YAML serialize + parse ───── */
 
-const SKIP = new Set(['managedFields'])
+const DEFAULT_SKIP = new Set(['managedFields'])
 
-export function toYaml(value: unknown): string {
+export function toYaml(value: unknown, skip: Set<string> = DEFAULT_SKIP): string {
   const emit = (v: unknown, indent: number, inList: boolean): string => {
     const pad = '  '.repeat(indent)
     if (v === null || v === undefined) return 'null'
@@ -499,7 +710,7 @@ export function toYaml(value: unknown): string {
         .join('\n')
     }
     if (typeof v === 'object') {
-      const entries = Object.entries(v as Record<string, unknown>).filter(([k]) => !SKIP.has(k))
+      const entries = Object.entries(v as Record<string, unknown>).filter(([k]) => !skip.has(k))
       if (entries.length === 0) return '{}'
       return entries
         .map(([k, val], i) => {

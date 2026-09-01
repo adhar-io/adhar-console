@@ -233,6 +233,12 @@ export function OTelIcon(props: BrandProps) {
   return <LogoTile {...props} viewBox="-12.70 -12.70 1024.40 1024.40" markup={OPENTELEMETRY_SVG} />
 }
 
+// Sonatype Nexus — a package/module hexagon in Sonatype green.
+const NEXUS_D = 'M12 2L20.66 7v10L12 22 3.34 17V7L12 2zm0 2.31L5.34 8.15v7.7L12 19.69l6.66-3.84v-7.7L12 4.31z'
+export function NexusIcon(props: BrandProps) {
+  return <MonoTile {...props} hex="#00B04F" d={NEXUS_D} />
+}
+
 export function VaultIcon(props: BrandProps) {
   return <MonoTile {...props} hex="#000000" d={VAULT_D} />
 }

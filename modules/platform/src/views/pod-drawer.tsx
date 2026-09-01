@@ -10,6 +10,7 @@ import {
 } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
 import { client, LOCAL_CLUSTER } from '../data/client.ts'
+import { GVRS } from '../data/gvr.ts'
 import { age, shortImage } from '../data/format.ts'
 import { PodShell } from './pod-shell.tsx'
 import { PodLogsPanel } from './pod-logs.tsx'
@@ -319,25 +320,58 @@ function Overview({
         </Section>
       ) : null}
 
+      {pod.spec.affinity && affinitySummary(pod.spec.affinity) ? (
+        <Section title="Affinity">
+          <Row label="Rules" value={<Mono>{affinitySummary(pod.spec.affinity)}</Mono>} />
+        </Section>
+      ) : null}
+
       <Section title="Conditions">
-        <div className="divide-y divide-edge-subtle">
-          {(pod.status.conditions ?? []).map((c) => (
-            <div key={c.type} className="flex items-start justify-between gap-3 px-4 py-2">
-              <div className="min-w-0">
-                <div className="text-sm text-content">{c.type}</div>
-                {c.message ? (
-                  <div className="text-xs text-content-muted">{c.message}</div>
-                ) : null}
-              </div>
-              <StatusBadge
-                kind={c.status === 'True' ? 'healthy' : c.status === 'False' ? 'degraded' : 'unknown'}
-              >
-                {c.status}
-              </StatusBadge>
-            </div>
-          ))}
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-xs">
+            <thead>
+              <tr className="text-left text-content-subtle">
+                <th className="px-4 py-1.5 font-medium">Type</th>
+                <th className="px-2 py-1.5 font-medium">Status</th>
+                <th className="px-2 py-1.5 font-medium">Reason</th>
+                <th className="px-4 py-1.5 font-medium">Last transition</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(pod.status.conditions ?? []).map((c) => (
+                <tr key={c.type} className="border-t border-edge-subtle align-top">
+                  <td className="px-4 py-1.5 text-content">
+                    {c.type}
+                    {c.message ? (
+                      <div className="text-[11px] text-content-subtle">{c.message}</div>
+                    ) : null}
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <StatusBadge
+                      kind={c.status === 'True' ? 'healthy' : c.status === 'False' ? 'degraded' : 'unknown'}
+                    >
+                      {c.status}
+                    </StatusBadge>
+                  </td>
+                  <td className="px-2 py-1.5 text-content-muted">{c.reason ?? '—'}</td>
+                  <td className="px-4 py-1.5 tabular-nums text-content-muted">
+                    {c.lastTransitionTime ? age(c.lastTransitionTime) : '—'}
+                  </td>
+                </tr>
+              ))}
+              {(pod.status.conditions ?? []).length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-4 py-2 text-content-subtle">No conditions reported.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
         </div>
       </Section>
+
+      <PodRelations pod={pod} />
+
+      <RecentEvents namespace={pod.metadata.namespace ?? ''} name={pod.metadata.name} kind="Pod" />
 
       {pod.status.message || pod.status.reason ? (
         <Section title="Status message">
@@ -372,6 +406,11 @@ function ContainerCard({
 
   const envCount = container.env?.length ?? 0
   const mountCount = container.volumeMounts?.length ?? 0
+  const digest = digestOf(status?.imageID)
+  const probes: Array<[string, string]> = []
+  if (container.livenessProbe) probes.push(['liveness', probeSummary(container.livenessProbe)])
+  if (container.readinessProbe) probes.push(['readiness', probeSummary(container.readinessProbe)])
+  if (container.startupProbe) probes.push(['startup', probeSummary(container.startupProbe)])
   return (
     <div className="rounded-lg border border-edge-default bg-surface-raised p-3 shadow-sm">
       <div className="flex items-start justify-between gap-3">
@@ -385,6 +424,11 @@ function ContainerCard({
             ) : null}
           </div>
           <code className="mt-0.5 block text-xs text-content-muted">{shortImage(container.image)}</code>
+          {digest ? (
+            <code className="mt-0.5 block truncate font-mono text-[10px] text-content-subtle" title={status?.imageID}>
+              digest {digest}
+            </code>
+          ) : null}
         </div>
         <StatusBadge
           kind={
@@ -421,6 +465,46 @@ function ContainerCard({
           <KV label="Mem limit" value={container.resources.limits?.memory ?? '—'} mono />
         </div>
       ) : null}
+      {probes.length ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {probes.map(([k, v]) => (
+            <span
+              key={k}
+              className="inline-flex items-center gap-1 rounded-md bg-surface-sunken px-1.5 py-0.5 text-[10px] text-content-muted ring-1 ring-inset ring-edge-subtle"
+            >
+              <span className="font-medium text-content-subtle">{k}</span>
+              <span className="font-mono">{v}</span>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-2 text-[10px] text-content-subtle">No probes configured</div>
+      )}
+      {container.ports?.length ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {container.ports.map((p, i) => (
+            <span key={i} className="rounded-md bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-content-muted ring-1 ring-inset ring-edge-subtle">
+              {p.name ? `${p.name} ` : ''}{p.containerPort}/{p.protocol ?? 'TCP'}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {container.volumeMounts?.length ? (
+        <details className="mt-2 text-[11px]">
+          <summary className="cursor-pointer text-content-muted hover:text-content">
+            Volume mounts ({mountCount})
+          </summary>
+          <div className="mt-1 space-y-0.5">
+            {container.volumeMounts.map((m, i) => (
+              <div key={i} className="font-mono text-[10px] text-content-muted">
+                <span className="text-content">{m.name}</span> → {m.mountPath}
+                {m.readOnly ? ' (ro)' : ''}
+                {m.subPath ? ` [${m.subPath}]` : ''}
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
       {container.command?.length ? (
         <details className="mt-2 text-[11px]">
           <summary className="cursor-pointer text-content-muted hover:text-content">
@@ -442,6 +526,35 @@ function KV({ label, value, mono = false }: { label: string; value: React.ReactN
       <span className={cn('text-content', mono && 'font-mono')}>{value}</span>
     </div>
   )
+}
+
+/** Short image digest (`sha256:abc123…`) from a container status `imageID`. */
+function digestOf(imageID?: string): string | null {
+  if (!imageID) return null
+  const m = imageID.match(/sha256:([0-9a-f]{6,})/i)
+  return m ? `sha256:${m[1].slice(0, 12)}` : null
+}
+
+/** One-line probe summary from a probe object (`httpGet`/`tcpSocket`/`exec`). */
+function probeSummary(probe: Record<string, unknown>): string {
+  const http = probe.httpGet as { path?: string; port?: number | string } | undefined
+  if (http) return `HTTP ${http.port ?? ''}${http.path ?? ''}`
+  const tcp = probe.tcpSocket as { port?: number | string } | undefined
+  if (tcp) return `TCP ${tcp.port ?? ''}`
+  const grpc = probe.grpc as { port?: number | string } | undefined
+  if (grpc) return `gRPC ${grpc.port ?? ''}`
+  if (probe.exec) return 'exec'
+  return 'probe'
+}
+
+/** Compact affinity summary (rule counts) — the full tree lives in YAML. */
+function affinitySummary(affinity?: Record<string, unknown>): string | null {
+  if (!affinity) return null
+  const parts: string[] = []
+  if (affinity.nodeAffinity) parts.push('node')
+  if (affinity.podAffinity) parts.push('pod')
+  if (affinity.podAntiAffinity) parts.push('pod-anti')
+  return parts.length ? parts.join(' · ') : null
 }
 
 function VolumeSource({
@@ -506,6 +619,110 @@ function Events({ namespace, name }: { namespace: string; name: string }) {
         </li>
       ))}
     </ul>
+  )
+}
+
+/* ── owner chain + related resources ─────────────────────────────────── */
+
+interface GenericLite {
+  kind?: string
+  metadata: { name: string; namespace?: string; ownerReferences?: Array<{ kind: string; name: string; controller?: boolean }> }
+}
+
+function PodRelations({ pod }: { pod: Awaited<ReturnType<typeof client.getPod>> }) {
+  const ns = pod.metadata.namespace ?? ''
+  const owner = pod.metadata.ownerReferences?.find((o) => o.controller) ?? pod.metadata.ownerReferences?.[0]
+
+  // If the controller is a ReplicaSet, walk one more hop to its Deployment.
+  const rsQ = useQuery({
+    queryKey: ['k8s', 'pod-owner-rs', ns, owner?.name],
+    enabled: Boolean(owner && owner.kind === 'ReplicaSet' && ns),
+    retry: false,
+    queryFn: () =>
+      client.getGeneric(LOCAL_CLUSTER, GVRS.replicasets, ns, owner!.name) as unknown as Promise<GenericLite>,
+  })
+  const deployOwner = rsQ.data?.metadata.ownerReferences?.find((o) => o.controller)
+
+  if (!owner) return null
+  return (
+    <Section title="Owner chain">
+      <div className="px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {deployOwner ? (
+            <>
+              <ChainNode kind={deployOwner.kind} name={deployOwner.name} />
+              <Arrow />
+            </>
+          ) : null}
+          <ChainNode kind={owner.kind} name={owner.name} />
+          <Arrow />
+          <ChainNode kind="Pod" name={pod.metadata.name} current />
+        </div>
+      </div>
+    </Section>
+  )
+}
+
+function ChainNode({ kind, name, current }: { kind: string; name: string; current?: boolean }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono',
+        current
+          ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-500/25 dark:bg-brand-500/10 dark:text-brand-300'
+          : 'border-edge-default bg-surface-sunken text-content-muted',
+      )}
+    >
+      <span className="text-[10px] uppercase tracking-wide text-content-subtle">{kind}</span>
+      <span className="truncate text-content">{name}</span>
+    </span>
+  )
+}
+
+function Arrow() {
+  return <span className="text-content-subtle">→</span>
+}
+
+function RecentEvents({ namespace, name, kind }: { namespace: string; name: string; kind: string }) {
+  const q = useQuery({
+    queryKey: ['k8s', 'pod-events', namespace, name],
+    queryFn: () => client.listEvents(LOCAL_CLUSTER, namespace),
+    refetchInterval: 15_000,
+    retry: false,
+  })
+  const events = (q.data ?? [])
+    .filter(
+      (e) =>
+        e.involvedObject.namespace === namespace &&
+        e.involvedObject.name === name &&
+        e.involvedObject.kind === kind,
+    )
+    .sort((a, b) => new Date(b.lastTimestamp ?? 0).getTime() - new Date(a.lastTimestamp ?? 0).getTime())
+    .slice(0, 5)
+
+  return (
+    <Section title="Recent events">
+      {q.isLoading ? (
+        <div className="px-4 py-3 text-xs text-content-muted">Loading…</div>
+      ) : events.length === 0 ? (
+        <div className="px-4 py-3 text-xs text-content-subtle">No recent events. See the Events tab for the full stream.</div>
+      ) : (
+        <div className="divide-y divide-edge-subtle">
+          {events.map((e) => (
+            <div key={e.metadata.name} className="flex items-start justify-between gap-3 px-4 py-2">
+              <div className="min-w-0">
+                <div className="text-xs font-medium text-content">{e.reason}</div>
+                <div className="truncate text-[11px] text-content-muted" title={e.message}>{e.message}</div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <StatusBadge kind={e.type === 'Warning' ? 'degraded' : 'info'}>{e.type}</StatusBadge>
+                <span className="text-[11px] tabular-nums text-content-subtle">{age(e.lastTimestamp)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Section>
   )
 }
 

@@ -116,6 +116,19 @@ export function useConsoleRole(fallback?: RoleSource | null): ConsoleRole {
   return resolveConsoleRole(session?.user ?? fallback)
 }
 
+/**
+ * Like {@link useConsoleRole} but returns `null` when there is no auth session
+ * in scope (anonymous, or the provider isn't mounted in this tree — e.g. an MF
+ * remote that doesn't share the host's auth context). Callers use the `null`
+ * to distinguish "real viewer" from "identity unknown" and pick a safe default
+ * instead of silently downgrading to least-privilege.
+ */
+export function useOptionalConsoleRole(): ConsoleRole | null {
+  const session = useOptionalSession()
+  if (!session?.user) return null
+  return resolveConsoleRole(session.user)
+}
+
 /** Where each persona lands right after login. */
 export const ROLE_LANDING: Record<ConsoleRole, string> = {
   'super-admin': '/platform',

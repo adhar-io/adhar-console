@@ -97,14 +97,14 @@ function SignupPage() {
                 ? 'Email + password (or social login) hosted by Keycloak.'
                 : 'Stubbed in demo mode — no real credentials needed.'}
             </Step>
-            <Step n={2} title="Set up your organization">
-              Name, slug, region, plan — takes about 30 seconds.
+            <Step n={2} title="Name your organization">
+              Your tenant — scopes your projects, data, and namespaces.
             </Step>
-            <Step n={3} title="Connect your tools">
-              Pre-wired to the Adhar platform stack — flip toggles to opt in or out.
+            <Step n={3} title="Choose your capabilities">
+              Pick from the Adhar platform stack — each one a real open-source project.
             </Step>
-            <Step n={4} title="Pick a starter project">
-              Lands a first workload so dashboards have data on day one.
+            <Step n={4} title="Provision via GitOps">
+              We create the org and commit your capabilities to your ApplicationSet — live status, no fake spinners.
             </Step>
           </ol>
 

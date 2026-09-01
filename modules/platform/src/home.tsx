@@ -1,4 +1,5 @@
 import { PageHeader } from '@adhar-console/shell-ui'
+import { ViewAsRoleSwitcher } from './components/role-gate.tsx'
 import { ConnectionGate } from './components/connection-banner.tsx'
 import { PlatformDashboard } from './views/dashboard.tsx'
 import { ClusterView } from './views/cluster-list.tsx'
@@ -351,7 +352,12 @@ export default function PlatformHome({ section }: { section?: string } = {}) {
   return (
     <ClusterProvider>
       <div className="space-y-6">
-        <PageHeader title={def.label} description={def.description} />
+        <div className="flex items-start justify-between gap-4">
+          <PageHeader title={def.label} description={def.description} />
+          {/* Cluster-header "View as" control — preview any role's UX and, just
+              as importantly, reset a stuck override back to your real identity. */}
+          <ViewAsRoleSwitcher className="shrink-0" />
+        </div>
         <ConnectionGate>
           <SectionBody active={active} namespace={namespace} />
         </ConnectionGate>

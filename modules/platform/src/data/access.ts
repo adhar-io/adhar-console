@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { useOptionalConsoleRole, type ConsoleRole } from '@adhar-console/shell-ui'
 
 /**
  * Kubernetes-scoped RBAC.
@@ -170,11 +171,27 @@ export const K8S_PERMISSION_LABEL: Record<K8sPermission, string> = {
 /* ─────────── current roles + view-as override ─────────── */
 
 /**
- * In v1 the current user's K8s roles are seeded from the auth stub. Once the
- * SPA wires up `<SessionContext.Provider>` end-to-end, swap this for a
- * `useUser()` call from `@adhar-console/auth/client`.
+ * Map the console persona (resolved from the real auth session) to the
+ * cluster-RBAC role that gates the k8s dashboard. Both admin personas get full
+ * cluster control; an application-admin manages their tenants; developer and
+ * viewer map straight through.
  */
-const STUB_ROLES: K8sRole[] = ['platform-admin']
+const CONSOLE_ROLE_TO_K8S: Record<ConsoleRole, K8sRole> = {
+  'super-admin': 'platform-admin',
+  'platform-admin': 'platform-admin',
+  'application-admin': 'tenant-admin',
+  developer: 'developer',
+  viewer: 'viewer',
+}
+
+/**
+ * Fallback when there is NO auth session in scope — anonymous, or the auth
+ * provider isn't mounted in this MF remote's tree. We deliberately fall back to
+ * full access (not `viewer`) so a context-resolution gap never silently strips
+ * a real operator's ability to read logs / exec; a genuine `viewer` session
+ * still resolves to `viewer` and is correctly limited.
+ */
+const NO_SESSION_ROLES: K8sRole[] = ['platform-admin']
 
 const VIEW_AS_KEY = 'adhar.k8s.view-as'
 
@@ -225,8 +242,13 @@ export function useViewAsRole(): K8sRole | null {
 
 export function useK8sCurrentRoles(): K8sRole[] {
   const override = useViewAsRole()
+  const persona = useOptionalConsoleRole()
+  // View-as override always wins (dev/preview). Otherwise use the real signed-in
+  // persona; if no session is resolvable, fall back to full access rather than
+  // downgrading a real operator to viewer.
   if (override) return [override]
-  return STUB_ROLES
+  if (persona) return [CONSOLE_ROLE_TO_K8S[persona] ?? 'viewer']
+  return NO_SESSION_ROLES
 }
 
 /* ─────────── permission checks ─────────── */

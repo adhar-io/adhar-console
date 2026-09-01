@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.26] - 2026-09-01
+
 ### Added
 
 - **Full-featured YAML editor** on pod & workload detail. Monaco with YAML

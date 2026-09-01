@@ -6,6 +6,17 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.28] - 2026-09-01
+
+### Changed
+
+- **Login screen decluttered + "Create a new account" fixed.** The left hero
+  panel drops the dense tool-logo grid for a clean, professional set of concise
+  highlights. And "Create a new account" now opens the **onboarding stages**
+  directly (client route) instead of redirecting to the Keycloak login page —
+  `/onboarding` is reachable without a prior session, and the wizard establishes
+  identity at the provisioning step.
+
 ## [0.1.27] - 2026-09-01
 
 ### Changed

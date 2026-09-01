@@ -32,7 +32,10 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 
 /* ─────────── auth gate ─────────── */
 
-const PUBLIC_PATH_PREFIXES = ['/login', '/signup', '/auth/']
+// `/onboarding` is public so "Create a new account" opens the onboarding stages
+// directly (no Keycloak round-trip first); the wizard renders fine without a
+// session and establishes identity at the provisioning step.
+const PUBLIC_PATH_PREFIXES = ['/login', '/signup', '/onboarding', '/auth/']
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATH_PREFIXES.some(

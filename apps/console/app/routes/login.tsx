@@ -1,25 +1,10 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { createFileRoute, Link, useNavigate, useSearch } from '@tanstack/react-router'
 import {
   AdharSymbol,
   AdharWordmark,
-  ArgoCDIcon,
-  ArgoRolloutsIcon,
-  ArgoWorkflowsIcon,
   Button,
-  CrossplaneIcon,
-  GiteaIcon,
-  GrafanaIcon,
-  HarborIcon,
-  KargoIcon,
-  KeycloakIcon,
-  KubernetesIcon,
-  KyvernoIcon,
-  LokiIcon,
   ModeToggle,
-  PlaneIcon,
-  PrometheusIcon,
-  TempoIcon,
 } from '@adhar-console/shell-ui'
 import { getStubSession, useAuth } from '@adhar-console/auth'
 import { z } from 'zod'
@@ -47,70 +32,12 @@ export const Route = createFileRoute('/login')({
   component: LoginPage,
 })
 
-/* ─────────────── capability showcase (real platform tools) ─────────────── */
-
-interface Capability {
-  icon: ReactNode
-  name: string
-  blurb: string
-}
-interface CapabilityGroup {
-  key: string
-  label: string
-  items: Capability[]
-}
-
-/**
- * The platform's real backing tools, grouped by what they do. Each carries a
- * one-line value prop (not just a name) and its actual brand icon. This is the
- * "no black boxes" promise made visible on the sign-in screen.
- */
-const CAPABILITY_GROUPS: CapabilityGroup[] = [
-  {
-    key: 'source',
-    label: 'Plan & Source',
-    items: [
-      { icon: <PlaneIcon size={28} />, name: 'Plane', blurb: 'Issues, cycles & OKRs' },
-      { icon: <GiteaIcon size={28} />, name: 'Gitea', blurb: 'Git hosting, PRs & packages' },
-    ],
-  },
-  {
-    key: 'delivery',
-    label: 'Delivery',
-    items: [
-      { icon: <ArgoCDIcon size={28} />, name: 'Argo CD', blurb: 'GitOps continuous delivery' },
-      { icon: <KargoIcon size={28} />, name: 'Kargo', blurb: 'Multi-stage promotion' },
-      { icon: <ArgoRolloutsIcon size={28} />, name: 'Rollouts', blurb: 'Canary & blue/green' },
-      { icon: <ArgoWorkflowsIcon size={28} />, name: 'Workflows', blurb: 'Container-native CI' },
-    ],
-  },
-  {
-    key: 'security',
-    label: 'Security & Supply chain',
-    items: [
-      { icon: <KyvernoIcon size={28} />, name: 'Kyverno', blurb: 'Policy-as-code admission' },
-      { icon: <HarborIcon size={28} />, name: 'Harbor', blurb: 'OCI registry + CVE scans' },
-      { icon: <KeycloakIcon size={28} />, name: 'Keycloak', blurb: 'SSO & identity' },
-    ],
-  },
-  {
-    key: 'observability',
-    label: 'Observability',
-    items: [
-      { icon: <GrafanaIcon size={28} />, name: 'Grafana', blurb: 'Dashboards & alerts' },
-      { icon: <PrometheusIcon size={28} />, name: 'Prometheus', blurb: 'Metrics & alerting' },
-      { icon: <LokiIcon size={28} />, name: 'Loki', blurb: 'Log aggregation' },
-      { icon: <TempoIcon size={28} />, name: 'Tempo', blurb: 'Distributed traces' },
-    ],
-  },
-  {
-    key: 'platform',
-    label: 'Platform',
-    items: [
-      { icon: <CrossplaneIcon size={28} />, name: 'Crossplane', blurb: 'Infra via K8s APIs' },
-      { icon: <KubernetesIcon size={28} />, name: 'Kubernetes', blurb: 'The runtime substrate' },
-    ],
-  },
+/* A few concise, benefit-led highlights — kept deliberately minimal so the
+ * sign-in panel reads clean and professional rather than a wall of logos. */
+const HIGHLIGHTS = [
+  'One console for the whole delivery lifecycle — plan, build, ship, observe.',
+  'GitOps delivery, progressive rollouts, and policy guardrails built in.',
+  'Self-hosted and multi-tenant. 100% open source — no black boxes, no lock-in.',
 ]
 
 /**
@@ -149,7 +76,7 @@ function friendlyError(raw: string): { title: string; hint?: string; retryable: 
 }
 
 function LoginPage() {
-  const { configured, signin, signup, setSession } = useAuth()
+  const { configured, signin, setSession } = useAuth()
   const { returnTo, error } = useSearch({ from: '/login' })
   const nav = useNavigate()
   const [busy, setBusy] = useState<'login' | 'register' | 'demo' | null>(null)
@@ -166,16 +93,6 @@ function LoginPage() {
     }
   }
 
-  async function handleSignup() {
-    setBusy('register')
-    setLocalError(null)
-    try {
-      await signup({ returnTo: '/onboarding' })
-    } catch (e) {
-      setBusy(null)
-      setLocalError(e instanceof Error ? e.message : 'Could not start sign-up.')
-    }
-  }
 
   function continueAsDemo() {
     setBusy('demo')
@@ -302,8 +219,7 @@ function LoginPage() {
                     variant="secondary"
                     size="lg"
                     block
-                    loading={busy === 'register'}
-                    onClick={handleSignup}
+                    onClick={() => nav({ to: '/onboarding' })}
                   >
                     Create a new account
                   </Button>
@@ -321,10 +237,10 @@ function LoginPage() {
                     Continue as demo user
                   </Button>
                   <Link
-                    to="/signup"
+                    to="/onboarding"
                     className="inline-flex h-11 w-full items-center justify-center rounded-md border border-edge-default bg-surface-raised px-4 text-sm font-medium text-content shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken"
                   >
-                    Walk through onboarding
+                    Create a new account
                   </Link>
                 </>
               )}
@@ -420,35 +336,17 @@ function BrandPanel() {
             and yours. No black boxes, no lock-in.
           </p>
 
-          {/* Grouped capability showcase */}
-          <div className="mt-8 space-y-5">
-            {CAPABILITY_GROUPS.map((group) => (
-              <div key={group.key}>
-                <div className="mb-2 flex items-center gap-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">
-                    {group.label}
-                  </span>
-                  <span className="h-px flex-1 bg-white/10" />
-                </div>
-                <div className="grid grid-cols-2 gap-2 xl:grid-cols-2">
-                  {group.items.map((cap) => (
-                    <div
-                      key={cap.name}
-                      className="flex items-center gap-2.5 rounded-xl border border-white/10 bg-white/5 px-2.5 py-2 backdrop-blur-sm transition-colors hover:border-white/20 hover:bg-white/10"
-                    >
-                      <span className="flex-none">{cap.icon}</span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-[13px] font-semibold text-white">
-                          {cap.name}
-                        </span>
-                        <span className="block truncate text-[11px] text-white/55">{cap.blurb}</span>
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+          {/* Clean, professional highlights — no logo wall */}
+          <ul className="mt-9 space-y-4">
+            {HIGHLIGHTS.map((h) => (
+              <li key={h} className="flex items-start gap-3 text-[15px] leading-relaxed text-white/75">
+                <span className="mt-0.5 flex-none text-white/50">
+                  <IconCheck />
+                </span>
+                <span>{h}</span>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
 
         <div className="flex items-center gap-3 text-xs text-white/55">
@@ -493,6 +391,13 @@ function IconLock() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <rect x="4" y="11" width="16" height="10" rx="2" />
       <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
+  )
+}
+function IconCheck() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="m20 6-11 11-5-5" />
     </svg>
   )
 }

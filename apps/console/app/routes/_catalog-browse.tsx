@@ -14,12 +14,16 @@ import {
   Select,
   Spinner,
   StatusBadge,
+  type StatusKind,
+  Tabs,
+  type TabDef,
   Textarea,
 } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
 import {
   type Entity,
   type EntityKind,
+  type EntityMetadata,
   type EntityOrigin,
   entityRef,
   findEntity,
@@ -31,7 +35,13 @@ import {
   useRegisterEntity,
 } from '~/data/catalog.ts'
 import { parseApiDefinition, type ParsedApi, type SourceStatus } from '~/data/catalog-live.ts'
-import { type Scorecard, scoreEntity } from '~/data/scorecard.ts'
+import {
+  CATEGORY_LABEL,
+  CHECK_CATEGORIES,
+  type Grade,
+  type Scorecard,
+  scoreEntity,
+} from '~/data/scorecard.ts'
 import type { CatalogSearch } from './catalog.tsx'
 import {
   deleteView,
@@ -2602,6 +2612,234 @@ function sortEntities(rows: Entity[], by: SortKey): Entity[] {
 
 /* ─────────── entity card ─────────── */
 
+/* ─────────── tech-stack detection ─────────── */
+
+type TechTone =
+  | 'amber'
+  | 'sky'
+  | 'blue'
+  | 'cyan'
+  | 'indigo'
+  | 'violet'
+  | 'emerald'
+  | 'green'
+  | 'teal'
+  | 'rose'
+  | 'red'
+  | 'orange'
+  | 'slate'
+
+interface TechBadge {
+  label: string
+  tone: TechTone
+}
+
+/**
+ * Known language / framework tags → a recognisable, brand-ish badge. Keys are
+ * the lowercased tag values `catalog-live.ts` derives from a repo's primary
+ * language (`['java','repo']`, `['python','ml']`) or `adhar.io/tags`. Anything
+ * not in here is treated as a generic tag — never guessed at.
+ */
+const TECH_MAP: Record<string, TechBadge> = {
+  // languages
+  java: { label: 'Java', tone: 'orange' },
+  python: { label: 'Python', tone: 'blue' },
+  py: { label: 'Python', tone: 'blue' },
+  go: { label: 'Go', tone: 'cyan' },
+  golang: { label: 'Go', tone: 'cyan' },
+  typescript: { label: 'TypeScript', tone: 'blue' },
+  ts: { label: 'TypeScript', tone: 'blue' },
+  javascript: { label: 'JavaScript', tone: 'amber' },
+  js: { label: 'JavaScript', tone: 'amber' },
+  rust: { label: 'Rust', tone: 'orange' },
+  'c#': { label: 'C#', tone: 'violet' },
+  csharp: { label: 'C#', tone: 'violet' },
+  ruby: { label: 'Ruby', tone: 'red' },
+  php: { label: 'PHP', tone: 'indigo' },
+  kotlin: { label: 'Kotlin', tone: 'violet' },
+  scala: { label: 'Scala', tone: 'red' },
+  // frameworks
+  spring: { label: 'Spring', tone: 'green' },
+  'spring-boot': { label: 'Spring Boot', tone: 'green' },
+  springboot: { label: 'Spring Boot', tone: 'green' },
+  node: { label: 'Node.js', tone: 'green' },
+  nodejs: { label: 'Node.js', tone: 'green' },
+  'node.js': { label: 'Node.js', tone: 'green' },
+  express: { label: 'Express', tone: 'slate' },
+  react: { label: 'React', tone: 'cyan' },
+  next: { label: 'Next.js', tone: 'slate' },
+  nextjs: { label: 'Next.js', tone: 'slate' },
+  'next.js': { label: 'Next.js', tone: 'slate' },
+  django: { label: 'Django', tone: 'emerald' },
+  fastapi: { label: 'FastAPI', tone: 'teal' },
+  dotnet: { label: '.NET', tone: 'violet' },
+  '.net': { label: '.NET', tone: 'violet' },
+  rails: { label: 'Rails', tone: 'red' },
+  'ruby-on-rails': { label: 'Rails', tone: 'red' },
+  quarkus: { label: 'Quarkus', tone: 'sky' },
+  micronaut: { label: 'Micronaut', tone: 'cyan' },
+}
+
+/** Full literal Tailwind classes (JIT-safe), matching the StatusBadge pill pattern. */
+const TECH_PILL: Record<TechTone, string> = {
+  amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 ring-amber-200',
+  sky: 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 ring-sky-200',
+  blue: 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 ring-blue-200',
+  cyan: 'bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 ring-cyan-200',
+  indigo: 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 ring-indigo-200',
+  violet: 'bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300 ring-violet-200',
+  emerald:
+    'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200',
+  green: 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300 ring-green-200',
+  teal: 'bg-teal-50 dark:bg-teal-500/10 text-teal-700 dark:text-teal-300 ring-teal-200',
+  rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 ring-rose-200',
+  red: 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 ring-red-200',
+  orange: 'bg-orange-50 dark:bg-orange-500/10 text-orange-700 dark:text-orange-300 ring-orange-200',
+  slate: 'bg-slate-100 dark:bg-slate-500/10 text-slate-700 dark:text-slate-300 ring-slate-300',
+}
+
+/** Lowercased tags that mapped to a tech badge — kept out of the generic tag row. */
+function techTagKeys(entity: Entity): Set<string> {
+  const out = new Set<string>()
+  for (const t of entity.metadata.tags ?? []) {
+    const k = t.toLowerCase()
+    if (TECH_MAP[k]) out.add(k)
+  }
+  return out
+}
+
+/** Generic (non-tech) tags — the ones the plain tag treatment should render. */
+function genericTags(entity: Entity): string[] {
+  const tech = techTagKeys(entity)
+  return (entity.metadata.tags ?? []).filter((t) => !tech.has(t.toLowerCase()))
+}
+
+/** Detected languages + frameworks, de-duped by label. Empty when none match. */
+function techStack(entity: Entity): TechBadge[] {
+  const seen = new Set<string>()
+  const out: TechBadge[] = []
+  for (const t of entity.metadata.tags ?? []) {
+    const hit = TECH_MAP[t.toLowerCase()]
+    if (hit && !seen.has(hit.label)) {
+      seen.add(hit.label)
+      out.push(hit)
+    }
+  }
+  return out
+}
+
+function TechPill({ badge }: { badge: TechBadge }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset',
+        TECH_PILL[badge.tone],
+      )}
+    >
+      {badge.label}
+    </span>
+  )
+}
+
+function TechBadges({ stack, max = 4 }: { stack: TechBadge[]; max?: number }) {
+  if (!stack.length) return null
+  const shown = stack.slice(0, max)
+  const extra = stack.length - shown.length
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {shown.map((b) => (
+        <TechPill key={b.label} badge={b} />
+      ))}
+      {extra > 0 ? (
+        <span className="inline-flex items-center rounded-md bg-surface-sunken px-1.5 py-0.5 text-[10px] font-semibold text-content-muted ring-1 ring-inset ring-edge-subtle">
+          ＋{extra}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
+/* ─────────── version + health signal ─────────── */
+
+/**
+ * `Entity.metadata` has no `annotations` field in the core model, but live
+ * k8s-derived entities may carry one structurally. Read it defensively — the
+ * same approach the scorecard engine uses — so a value surfaces the moment the
+ * live mapper forwards it, and stays honestly absent until then.
+ */
+function entityAnnotations(e: Entity): Record<string, string> {
+  const meta = e.metadata as EntityMetadata & { annotations?: Record<string, string> }
+  return meta.annotations && typeof meta.annotations === 'object' ? meta.annotations : {}
+}
+
+/**
+ * A display version, derived honestly: an explicit version annotation first,
+ * then a version-shaped tag (`v1.4.2` / `1.4`). `undefined` when unknown — the
+ * caller shows nothing rather than inventing a number.
+ */
+function entityVersion(e: Entity): string | undefined {
+  const ann = entityAnnotations(e)
+  const fromAnn = (
+    ann['adhar.io/version'] ??
+    ann['backstage.io/version'] ??
+    ann['app.kubernetes.io/version'] ??
+    ''
+  ).trim()
+  const raw = fromAnn || (e.metadata.tags ?? []).find((t) => /^v?\d+\.\d+(\.\d+)?$/.test(t.trim()))
+  if (!raw) return undefined
+  const v = raw.trim()
+  return /^v/i.test(v) ? v : `v${v}`
+}
+
+/** Same-origin techdocs/docs URL if one is registered (link or annotation). */
+function techDocsUrl(e: Entity): string | undefined {
+  const fromLink = (e.metadata.links ?? []).find((l) => l.icon === 'docs')?.url
+  if (fromLink) return fromLink
+  const ann = entityAnnotations(e)
+  const raw = (ann['backstage.io/techdocs-ref'] ?? ann['adhar.io/docs'] ?? '').trim()
+  return raw && /^https?:/.test(raw) ? raw : undefined
+}
+
+function hasDocsLink(e: Entity): boolean {
+  return (e.metadata.links ?? []).some((l) => l.icon === 'docs')
+}
+
+interface Health {
+  label: string
+  kind: StatusKind
+}
+
+function isStale(iso?: string): boolean {
+  if (!iso) return false
+  const ms = Date.now() - new Date(iso).getTime()
+  if (Number.isNaN(ms) || ms < 0) return false
+  return ms > 1000 * 60 * 60 * 24 * 180 // stale after ~6 months untouched
+}
+
+/** Grade → status tone (A/B green, C amber, D/F red). */
+function gradeKind(grade: Grade): StatusKind {
+  if (grade === 'A' || grade === 'B') return 'healthy'
+  if (grade === 'C') return 'paused'
+  return 'degraded'
+}
+
+/**
+ * One clear health signal per entity, folding the amber "needs attention" dot,
+ * the scorecard grade, lifecycle, and staleness into a single chip.
+ */
+function entityHealth(e: Entity, score: Scorecard): Health {
+  if (score.grade === 'D' || score.grade === 'F') return { label: 'At risk', kind: 'degraded' }
+  if (
+    needsAttention(e) ||
+    score.grade === 'C' ||
+    e.spec.lifecycle === 'deprecated' ||
+    isStale(e.metadata.updatedAt)
+  ) {
+    return { label: 'Needs update', kind: 'paused' }
+  }
+  return { label: 'Healthy', kind: 'healthy' }
+}
+
 function EntityCard({
   entity,
   starred,
@@ -2613,9 +2851,13 @@ function EntityCard({
 }) {
   const ref = entityRef(entity)
   const links = entity.metadata.links ?? []
-  const attention = needsAttention(entity)
   const ageLabel = relativeTime(entity.metadata.updatedAt ?? entity.metadata.createdAt)
   const score = scoreEntity(entity)
+  const stack = techStack(entity)
+  const generics = genericTags(entity)
+  const version = entityVersion(entity)
+  const health = entityHealth(entity, score)
+  const docs = hasDocsLink(entity)
   return (
     <div
       role="button"
@@ -2653,13 +2895,6 @@ function EntityCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <h3 className="flex min-w-0 items-center gap-1.5 truncate text-[14px] font-semibold leading-tight text-content">
-              {attention ? (
-                <span
-                  aria-label="Needs attention"
-                  title="Needs attention — see meta row below"
-                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500"
-                />
-              ) : null}
               <span className="truncate">{entity.metadata.title ?? entity.metadata.name}</span>
             </h3>
             {entity.spec.lifecycle ? (
@@ -2681,9 +2916,14 @@ function EntityCard({
           {entity.metadata.description}
         </p>
       ) : null}
-      {(entity.metadata.tags ?? []).length > 0 ? (
-        <div className="mt-3 flex flex-wrap gap-1 px-4">
-          {(entity.metadata.tags ?? []).slice(0, 4).map((t) => (
+      {stack.length > 0 ? (
+        <div className="mt-3 px-4">
+          <TechBadges stack={stack} max={4} />
+        </div>
+      ) : null}
+      {generics.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-1 px-4">
+          {generics.slice(0, 4).map((t) => (
             <span
               key={t}
               className="rounded-md bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium text-content-muted"
@@ -2693,9 +2933,12 @@ function EntityCard({
           ))}
         </div>
       ) : null}
-      <div className="mt-3 flex flex-wrap items-center gap-3 px-4 pb-3 text-[11px] text-content-muted">
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 pb-3 text-[11px] text-content-muted">
+        <StatusBadge kind={health.kind} className="px-1.5 py-0 text-[10px]">
+          {health.label}
+        </StatusBadge>
         {entity.spec.owner ? (
-          <span className="inline-flex items-center gap-1">
+          <span className="inline-flex items-center gap-1" title={`Owned by ${parseRef(entity.spec.owner).name}`}>
             <IconUsers />
             <span className="font-medium text-content">{parseRef(entity.spec.owner).name}</span>
           </span>
@@ -2705,6 +2948,20 @@ function EntityCard({
             no owner
           </span>
         )}
+        {version ? (
+          <span className="inline-flex items-center gap-1 font-mono font-semibold text-content" title="Registered version">
+            {version}
+          </span>
+        ) : null}
+        {docs ? (
+          <span
+            className="inline-flex items-center gap-1 rounded bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium text-content-muted ring-1 ring-inset ring-edge-subtle"
+            title="TechDocs registered"
+          >
+            <LinkGlyph icon="docs" />
+            Docs
+          </span>
+        ) : null}
         {entity.spec.system ? (
           <span className="inline-flex items-center gap-1">
             <IconBox />
@@ -2857,6 +3114,8 @@ function SectionHeader({
 
 /* ─────────── entity drawer ─────────── */
 
+type DrawerTab = 'overview' | 'tech' | 'docs' | 'relations' | 'scorecard' | 'raw'
+
 function EntityDrawer({
   entity,
   onClose,
@@ -2926,6 +3185,48 @@ function EntityDrawer({
       ? catalog.filter((e) => (e.spec.consumesApis ?? []).includes(selfRef))
       : []
 
+  const stack = techStack(entity)
+  const generics = genericTags(entity)
+  const version = entityVersion(entity)
+  const health = entityHealth(entity, score)
+  const docsUrl = techDocsUrl(entity)
+  const relationCount =
+    provides.length +
+    consumes.length +
+    dependsOn.length +
+    ownedBy.length +
+    childComponents.length +
+    definedBy.length +
+    providedBy.length +
+    consumedBy.length
+  const hasRelations = relationCount > 0 || Boolean(apiDef)
+  const isTechKind = entity.kind === 'Component' || entity.kind === 'API' || entity.kind === 'Resource'
+  const scoreable = score.checks.length > 0
+
+  const tabs: TabDef<DrawerTab>[] = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'tech', label: 'Tech stack', hidden: !(stack.length || version || isTechKind) },
+    {
+      id: 'docs',
+      label: 'TechDocs',
+      hidden: !(docsUrl || entity.kind === 'Component'),
+      badge: docsUrl ? { kind: 'healthy', value: '✓' } : undefined,
+    },
+    {
+      id: 'relations',
+      label: 'Relations',
+      hidden: !hasRelations,
+      badge: relationCount > 0 ? relationCount : undefined,
+    },
+    {
+      id: 'scorecard',
+      label: 'Scorecard',
+      hidden: !scoreable,
+      badge: { kind: gradeKind(score.grade), value: score.grade },
+    },
+    { id: 'raw', label: 'Raw' },
+  ]
+
   if (typeof document === 'undefined') return null
 
   return createPortal(
@@ -2939,7 +3240,7 @@ function EntityDrawer({
       <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-content-subtle">
+            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wider text-content-subtle">
               <KindGlyph kind={entity.kind} type={entity.spec.type} />
               {entity.kind}
               {entity.spec.lifecycle ? (
@@ -2947,11 +3248,22 @@ function EntityDrawer({
                   {entity.spec.lifecycle}
                 </StatusBadge>
               ) : null}
+              <StatusBadge kind={health.kind}>{health.label}</StatusBadge>
+              {version ? (
+                <span className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold normal-case tracking-normal text-content">
+                  {version}
+                </span>
+              ) : null}
             </div>
             <h2 className="mt-1 truncate text-xl font-semibold text-content">
               {entity.metadata.title ?? entity.metadata.name}
             </h2>
             <div className="mt-1 font-mono text-[11px] text-content-muted">{entityRef(entity)}</div>
+            {stack.length ? (
+              <div className="mt-2">
+                <TechBadges stack={stack} max={8} />
+              </div>
+            ) : null}
             {entity.metadata.description ? (
               <p className="mt-2 max-w-xl text-sm text-content-muted">
                 {entity.metadata.description}
@@ -2985,172 +3297,220 @@ function EntityDrawer({
           </div>
         </header>
 
-        <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
-          {entity.metadata.links?.length ? (
-            <div className="flex flex-wrap gap-2">
-              {entity.metadata.links.map((l) => (
-                <a
-                  key={l.url}
-                  href={l.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm hover:border-brand-200 dark:hover:border-brand-500/25 hover:text-brand-700 dark:hover:text-brand-300"
-                >
-                  <LinkGlyph icon={l.icon} />
-                  {l.title}
-                </a>
-              ))}
-            </div>
-          ) : null}
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          <Tabs<DrawerTab> tabs={tabs} ariaLabel="Entity details">
+            {(active) => (
+              <div className="space-y-5">
+                {active === 'overview' ? (
+                  <>
+                    {entity.metadata.links?.length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {entity.metadata.links.map((l) => (
+                          <a
+                            key={l.url}
+                            href={l.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm hover:border-brand-200 dark:hover:border-brand-500/25 hover:text-brand-700 dark:hover:text-brand-300"
+                          >
+                            <LinkGlyph icon={l.icon} />
+                            {l.title}
+                          </a>
+                        ))}
+                      </div>
+                    ) : null}
 
-          <SignalsCard signals={signals} score={score} />
+                    <Card>
+                      <CardHeader>
+                        <h3 className="text-sm font-semibold text-content">About</h3>
+                      </CardHeader>
+                      <CardBody className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <Field
+                          label="Owner"
+                          value={
+                            ownerEnt ? (
+                              <RefChip ent={ownerEnt} onPick={onPick} />
+                            ) : (
+                              entity.spec.owner ?? '—'
+                            )
+                          }
+                        />
+                        <Field
+                          label="System"
+                          value={systemEnt ? <RefChip ent={systemEnt} onPick={onPick} /> : '—'}
+                        />
+                        <Field
+                          label="Domain"
+                          value={domainEnt ? <RefChip ent={domainEnt} onPick={onPick} /> : '—'}
+                        />
+                        <Field
+                          label="Type"
+                          value={
+                            entity.spec.type ? (
+                              <code className="text-xs text-content-muted">{entity.spec.type}</code>
+                            ) : (
+                              '—'
+                            )
+                          }
+                        />
+                        <Field
+                          label="Lifecycle"
+                          value={
+                            entity.spec.lifecycle ? (
+                              <StatusBadge kind={LIFECYCLE_TONE[entity.spec.lifecycle]}>
+                                {entity.spec.lifecycle}
+                              </StatusBadge>
+                            ) : (
+                              '—'
+                            )
+                          }
+                        />
+                        <Field label="Origin" value={ORIGIN_LABEL[entity.origin ?? 'seed']} />
+                        <Field
+                          label="Tech stack"
+                          value={
+                            stack.length ? <TechBadges stack={stack} max={8} /> : (
+                              <span className="text-content-subtle">—</span>
+                            )
+                          }
+                        />
+                        <Field
+                          label="Tags"
+                          value={
+                            generics.length === 0 ? (
+                              <span className="text-content-subtle">—</span>
+                            ) : (
+                              <div className="flex flex-wrap gap-1">
+                                {generics.map((t) => (
+                                  <span
+                                    key={t}
+                                    className="rounded bg-surface-sunken px-1.5 py-0.5 text-[10px] text-content-muted"
+                                  >
+                                    {t}
+                                  </span>
+                                ))}
+                              </div>
+                            )
+                          }
+                        />
+                        <Field
+                          label="Created"
+                          value={
+                            <code className="text-xs">{formatDate(entity.metadata.createdAt)}</code>
+                          }
+                        />
+                        <Field
+                          label="Updated"
+                          value={
+                            <code className="text-xs">{formatDate(entity.metadata.updatedAt)}</code>
+                          }
+                        />
+                      </CardBody>
+                    </Card>
 
-          {apiDef ? <ApiDefinitionCard api={apiDef} /> : null}
+                    <SignalsCard signals={signals} score={score} />
+                    <ActivityCard events={activity} />
+                  </>
+                ) : null}
 
-          <Card>
-            <CardHeader>
-              <h3 className="text-sm font-semibold text-content">About</h3>
-            </CardHeader>
-            <CardBody className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field
-                label="Owner"
-                value={
-                  ownerEnt ? <RefChip ent={ownerEnt} onPick={onPick} /> : (entity.spec.owner ?? '—')
-                }
-              />
-              <Field
-                label="System"
-                value={systemEnt ? <RefChip ent={systemEnt} onPick={onPick} /> : '—'}
-              />
-              <Field
-                label="Domain"
-                value={domainEnt ? <RefChip ent={domainEnt} onPick={onPick} /> : '—'}
-              />
-              <Field
-                label="Type"
-                value={
-                  entity.spec.type ? (
-                    <code className="text-xs text-content-muted">{entity.spec.type}</code>
-                  ) : (
-                    '—'
-                  )
-                }
-              />
-              <Field
-                label="Lifecycle"
-                value={
-                  entity.spec.lifecycle ? (
-                    <StatusBadge kind={LIFECYCLE_TONE[entity.spec.lifecycle]}>
-                      {entity.spec.lifecycle}
-                    </StatusBadge>
-                  ) : (
-                    '—'
-                  )
-                }
-              />
-              <Field
-                label="Tags"
-                value={
-                  (entity.metadata.tags ?? []).length === 0 ? (
-                    <span className="text-content-subtle">—</span>
-                  ) : (
-                    <div className="flex flex-wrap gap-1">
-                      {entity.metadata.tags?.map((t) => (
-                        <span
-                          key={t}
-                          className="rounded bg-surface-sunken px-1.5 py-0.5 text-[10px] text-content-muted"
-                        >
-                          {t}
-                        </span>
-                      ))}
-                    </div>
-                  )
-                }
-              />
-            </CardBody>
-          </Card>
+                {active === 'tech' ? (
+                  <TechStackCard stack={stack} version={version} entity={entity} />
+                ) : null}
 
-          {provides.length > 0 ||
-          consumes.length > 0 ||
-          dependsOn.length > 0 ||
-          ownedBy.length > 0 ||
-          childComponents.length > 0 ||
-          definedBy.length > 0 ||
-          providedBy.length > 0 ||
-          consumedBy.length > 0 ? (
-            <Card>
-              <CardHeader>
-                <h3 className="text-sm font-semibold text-content">Relations</h3>
-              </CardHeader>
-              <CardBody className="space-y-3">
-                {provides.length ? (
-                  <RelationRow label="Provides APIs" entities={provides} onPick={onPick} />
-                ) : null}
-                {consumes.length ? (
-                  <RelationRow label="Consumes APIs" entities={consumes} onPick={onPick} />
-                ) : null}
-                {definedBy.length ? (
-                  <RelationRow label="Defined by" entities={definedBy} onPick={onPick} />
-                ) : null}
-                {providedBy.length ? (
-                  <RelationRow label="Provided by" entities={providedBy} onPick={onPick} />
-                ) : null}
-                {consumedBy.length ? (
-                  <RelationRow label="Consumed by" entities={consumedBy} onPick={onPick} />
-                ) : null}
-                {dependsOn.length ? (
-                  <RelationRow label="Depends on" entities={dependsOn} onPick={onPick} />
-                ) : null}
-                {childComponents.length ? (
-                  <RelationRow
-                    label={entity.kind === 'Domain' ? 'In this domain' : 'In this system'}
-                    entities={childComponents}
-                    onPick={onPick}
-                  />
-                ) : null}
-                {ownedBy.length ? (
-                  <RelationRow label="Owns" entities={ownedBy} onPick={onPick} />
-                ) : null}
-              </CardBody>
-            </Card>
-          ) : null}
+                {active === 'docs' ? <TechDocsCard url={docsUrl} /> : null}
 
-          <ActivityCard events={activity} />
+                {active === 'relations' ? (
+                  <>
+                    {apiDef ? <ApiDefinitionCard api={apiDef} /> : null}
+                    {relationCount > 0 ? (
+                      <Card>
+                        <CardHeader>
+                          <h3 className="text-sm font-semibold text-content">Relations</h3>
+                        </CardHeader>
+                        <CardBody className="space-y-3">
+                          {provides.length ? (
+                            <RelationRow label="Provides APIs" entities={provides} onPick={onPick} />
+                          ) : null}
+                          {consumes.length ? (
+                            <RelationRow label="Consumes APIs" entities={consumes} onPick={onPick} />
+                          ) : null}
+                          {definedBy.length ? (
+                            <RelationRow label="Defined by" entities={definedBy} onPick={onPick} />
+                          ) : null}
+                          {providedBy.length ? (
+                            <RelationRow label="Provided by" entities={providedBy} onPick={onPick} />
+                          ) : null}
+                          {consumedBy.length ? (
+                            <RelationRow label="Consumed by" entities={consumedBy} onPick={onPick} />
+                          ) : null}
+                          {dependsOn.length ? (
+                            <RelationRow label="Depends on" entities={dependsOn} onPick={onPick} />
+                          ) : null}
+                          {childComponents.length ? (
+                            <RelationRow
+                              label={entity.kind === 'Domain' ? 'In this domain' : 'In this system'}
+                              entities={childComponents}
+                              onPick={onPick}
+                            />
+                          ) : null}
+                          {ownedBy.length ? (
+                            <RelationRow label="Owns" entities={ownedBy} onPick={onPick} />
+                          ) : null}
+                        </CardBody>
+                      </Card>
+                    ) : null}
+                  </>
+                ) : null}
 
-          <Card>
-            <CardHeader>
-              <h3 className="text-sm font-semibold text-content">Metadata</h3>
-            </CardHeader>
-            <CardBody className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field
-                label="Namespace"
-                value={<code className="text-xs">{entity.metadata.namespace ?? 'default'}</code>}
-              />
-              <Field
-                label="Created"
-                value={<code className="text-xs">{formatDate(entity.metadata.createdAt)}</code>}
-              />
-              <Field
-                label="Updated"
-                value={<code className="text-xs">{formatDate(entity.metadata.updatedAt)}</code>}
-              />
-              <Field
-                label="API version"
-                value={<code className="text-xs">{entity.apiVersion}</code>}
-              />
-            </CardBody>
-          </Card>
+                {active === 'scorecard' ? <ScorecardBreakdown score={score} /> : null}
 
-          <Card>
-            <CardHeader>
-              <h3 className="text-sm font-semibold text-content">Raw entity</h3>
-            </CardHeader>
-            <CardBody>
-              <pre className="max-h-72 overflow-auto rounded-lg bg-slate-950 p-4 font-mono text-[11px] leading-relaxed text-slate-100">
-                {JSON.stringify(entity, null, 2)}
-              </pre>
-            </CardBody>
-          </Card>
+                {active === 'raw' ? (
+                  <>
+                    <Card>
+                      <CardHeader>
+                        <h3 className="text-sm font-semibold text-content">Metadata</h3>
+                      </CardHeader>
+                      <CardBody className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <Field
+                          label="Namespace"
+                          value={
+                            <code className="text-xs">{entity.metadata.namespace ?? 'default'}</code>
+                          }
+                        />
+                        <Field
+                          label="Created"
+                          value={
+                            <code className="text-xs">{formatDate(entity.metadata.createdAt)}</code>
+                          }
+                        />
+                        <Field
+                          label="Updated"
+                          value={
+                            <code className="text-xs">{formatDate(entity.metadata.updatedAt)}</code>
+                          }
+                        />
+                        <Field
+                          label="API version"
+                          value={<code className="text-xs">{entity.apiVersion}</code>}
+                        />
+                      </CardBody>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <h3 className="text-sm font-semibold text-content">Raw entity</h3>
+                      </CardHeader>
+                      <CardBody>
+                        <pre className="max-h-72 overflow-auto rounded-lg bg-slate-950 p-4 font-mono text-[11px] leading-relaxed text-slate-100">
+                          {JSON.stringify(entity, null, 2)}
+                        </pre>
+                      </CardBody>
+                    </Card>
+                  </>
+                ) : null}
+              </div>
+            )}
+          </Tabs>
         </div>
       </aside>
     </div>,
@@ -3496,6 +3856,289 @@ function ActivityCard({ events }: { events: Activity[] }) {
             </li>
           ))}
         </ol>
+      </CardBody>
+    </Card>
+  )
+}
+
+/* ─────────── tech stack card (drawer) ─────────── */
+
+function TechStackCard({
+  stack,
+  version,
+  entity,
+}: {
+  stack: TechBadge[]
+  version?: string
+  entity: Entity
+}) {
+  const hasAny = stack.length > 0 || Boolean(version)
+  return (
+    <Card>
+      <CardHeader>
+        <h3 className="text-sm font-semibold text-content">Tech stack &amp; versions</h3>
+      </CardHeader>
+      <CardBody className="space-y-4">
+        {stack.length ? (
+          <div>
+            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+              Languages &amp; frameworks
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {stack.map((b) => (
+                <TechPill key={b.label} badge={b} />
+              ))}
+            </div>
+          </div>
+        ) : null}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field
+            label="Version"
+            value={
+              version ? (
+                <code className="font-mono text-xs font-semibold text-content">{version}</code>
+              ) : (
+                <span className="text-content-subtle">— not published</span>
+              )
+            }
+          />
+          <Field
+            label="Detected from"
+            value={
+              stack.length ? (
+                <span className="text-xs text-content-muted">Repository language / tags</span>
+              ) : (
+                <span className="text-content-subtle">—</span>
+              )
+            }
+          />
+        </div>
+        {!hasAny ? (
+          <EmptyState
+            compact
+            title="No tech stack detected"
+            description={
+              <>
+                Add language / framework tags (e.g. <code>java</code>, <code>spring-boot</code>) or
+                the <code>adhar.io/version</code> annotation on{' '}
+                <code>{entity.metadata.name}</code> to surface its stack.
+              </>
+            }
+          />
+        ) : (
+          <p className="text-[11px] leading-relaxed text-content-subtle">
+            Per-language versions aren&apos;t published to the catalog — the version above is the
+            registered entity version when available. Honest &quot;—&quot; is shown when unknown.
+          </p>
+        )}
+      </CardBody>
+    </Card>
+  )
+}
+
+/* ─────────── techdocs card (drawer) ─────────── */
+
+function TechDocsCard({ url }: { url?: string }) {
+  const [text, setText] = useState<string | null>(null)
+  const [state, setState] = useState<'idle' | 'loading' | 'error' | 'external'>('idle')
+
+  useEffect(() => {
+    setText(null)
+    if (!url || typeof globalThis.location === 'undefined') {
+      setState('idle')
+      return
+    }
+    let sameOrigin = false
+    let isMarkdown = false
+    try {
+      const u = new URL(url, globalThis.location.href)
+      sameOrigin = u.origin === globalThis.location.origin
+      isMarkdown = /\.mdx?($|\?)/i.test(u.pathname)
+    } catch {
+      sameOrigin = false
+    }
+    if (!sameOrigin || !isMarkdown) {
+      setState('external')
+      return
+    }
+    let cancelled = false
+    setState('loading')
+    fetch(url)
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
+      .then((body) => {
+        if (!cancelled) {
+          setText(body)
+          setState('idle')
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setState('error')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [url])
+
+  if (!url) {
+    return (
+      <Card>
+        <CardHeader>
+          <h3 className="text-sm font-semibold text-content">TechDocs</h3>
+        </CardHeader>
+        <CardBody>
+          <EmptyState
+            compact
+            title="No tech docs registered"
+            description={
+              <>
+                Add a <code>docs</code> link to <code>metadata.links</code> or set the{' '}
+                <code>backstage.io/techdocs-ref</code> / <code>adhar.io/docs</code> annotation to
+                publish documentation here.
+              </>
+            }
+          />
+        </CardBody>
+      </Card>
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold text-content">TechDocs</h3>
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors visited:text-white hover:bg-brand-700 hover:text-white"
+          >
+            <LinkGlyph icon="docs" />
+            Read the docs
+          </a>
+        </div>
+      </CardHeader>
+      <CardBody className="space-y-3">
+        <div className="truncate font-mono text-[11px] text-content-muted">{url}</div>
+        {state === 'loading' ? (
+          <div className="flex items-center gap-2 text-xs text-content-muted">
+            <Spinner /> Loading documentation…
+          </div>
+        ) : null}
+        {state === 'error' ? (
+          <p className="text-xs text-content-muted">
+            Couldn&apos;t load the document inline — open it with “Read the docs” above.
+          </p>
+        ) : null}
+        {state === 'external' ? (
+          <p className="text-xs text-content-muted">
+            Documentation is hosted externally. Open it with “Read the docs” above.
+          </p>
+        ) : null}
+        {text != null ? (
+          <pre className="max-h-96 overflow-auto rounded-lg border border-edge-subtle bg-surface-sunken p-4 font-mono text-[11px] leading-relaxed text-content">
+            {text}
+          </pre>
+        ) : null}
+      </CardBody>
+    </Card>
+  )
+}
+
+/* ─────────── scorecard breakdown (drawer) ─────────── */
+
+function ScorecardBreakdown({ score }: { score: Scorecard }) {
+  const ok = score.checks.filter((c) => c.pass).length
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-content">Production readiness</h3>
+            <ScoreBadge score={score} />
+          </div>
+          <span className="font-mono text-[11px] tabular-nums text-content-muted">
+            {ok}/{score.checks.length} passing
+          </span>
+        </div>
+      </CardHeader>
+      <CardBody className="space-y-4">
+        <div className="flex items-center gap-4">
+          <div
+            className={cn(
+              'flex h-14 w-14 shrink-0 items-center justify-center rounded-xl text-2xl font-bold ring-1 ring-inset',
+              TECH_PILL[
+                score.grade === 'A' || score.grade === 'B'
+                  ? 'emerald'
+                  : score.grade === 'C'
+                    ? 'amber'
+                    : 'rose'
+              ],
+            )}
+          >
+            {score.grade}
+          </div>
+          <div className="grid flex-1 grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
+            {CHECK_CATEGORIES.map((cat) => {
+              const c = score.byCategory[cat]
+              if (c.total === 0) return null
+              return (
+                <div key={cat}>
+                  <div className="flex items-center justify-between text-[10px] font-medium text-content-muted">
+                    <span className="uppercase tracking-wider">{CATEGORY_LABEL[cat]}</span>
+                    <span className="tabular-nums">{c.score}%</span>
+                  </div>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-sunken">
+                    <div
+                      className={cn(
+                        'h-full rounded-full',
+                        c.score >= 80
+                          ? 'bg-emerald-500'
+                          : c.score >= 50
+                            ? 'bg-amber-500'
+                            : 'bg-rose-500',
+                      )}
+                      style={{ width: `${c.score}%` }}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        <ul className="divide-y divide-edge-subtle overflow-hidden rounded-lg border border-edge-subtle">
+          {score.checks.map((c) => (
+            <li key={c.id} className="flex items-start gap-3 px-3 py-2.5">
+              <span
+                className={cn(
+                  'mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full ring-1',
+                  c.pass
+                    ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200'
+                    : 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 ring-rose-200',
+                )}
+              >
+                {c.pass ? <IconCheck /> : <IconAlert />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[13px] font-medium text-content">{c.label}</span>
+                  <span className="shrink-0 text-[10px] uppercase tracking-wider text-content-subtle">
+                    {CATEGORY_LABEL[c.category]} · {c.weight}
+                  </span>
+                </div>
+                {c.detail ? (
+                  <div className="mt-0.5 truncate text-[11px] text-content-muted">{c.detail}</div>
+                ) : null}
+                {!c.pass && c.hint ? (
+                  <div className="mt-0.5 text-[11px] text-amber-700 dark:text-amber-300">
+                    {c.hint}
+                  </div>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ul>
       </CardBody>
     </Card>
   )

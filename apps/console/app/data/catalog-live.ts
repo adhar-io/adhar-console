@@ -121,6 +121,9 @@ function baseMeta(meta: Meta | undefined, fallbackDesc: string): EntityMetadata 
     description: ann(meta, 'adhar.io/description', 'backstage.io/description') ?? fallbackDesc,
     tags: undefined,
     links: undefined,
+    // Forward the raw annotation map so the catalog UI can read version /
+    // techdocs (`adhar.io/version`, `backstage.io/techdocs-ref`, …) directly.
+    annotations: meta?.annotations,
     createdAt: created,
     updatedAt: created,
   }

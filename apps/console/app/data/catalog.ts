@@ -50,6 +50,12 @@ export interface EntityMetadata {
   description?: string
   tags?: string[]
   links?: Link[]
+  /**
+   * Raw annotations carried through from the source (`adhar.io/*`,
+   * `backstage.io/*`, `app.kubernetes.io/*`). Drives version / techdocs reads in
+   * the catalog UI. Forwarded from live k8s objects and catalog-info.yaml.
+   */
+  annotations?: Record<string, string>
   /** ISO timestamp; bumped by the catalog on every save. */
   updatedAt?: string
   createdAt?: string

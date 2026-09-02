@@ -6,6 +6,25 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.29] - 2026-09-02
+
+### Added
+
+- **Backstage-style Service Catalog cards & details drawer.** Component cards now
+  carry a prominent **tech-stack badge row** (Java · Spring · Python · Node.js ·
+  Go · TypeScript · …, mapped from the entity's language/framework tags), the
+  **owner team**, a clear **health chip** (Healthy / Needs update / At risk —
+  derived from the readiness scorecard grade, `needsAttention`, lifecycle, and
+  staleness), a **Docs** indicator when tech docs are registered, and a
+  **version** when published. The details drawer is now a full tabbed component
+  page — **Overview** (about, owner/system/domain, links, activity),
+  **Tech stack & versions**, **TechDocs** (inline render for same-origin
+  markdown, else a link-out; honest empty state), **Relations** (dependsOn /
+  provides / consumes / part-of / owned-by, each clickable), **Scorecard**
+  (grade + per-check pass/fail breakdown), and **Raw**. Entity `annotations`
+  (`adhar.io/version`, `backstage.io/techdocs-ref`, …) are now forwarded from
+  live objects so version/tech-docs light up when authored.
+
 ## [0.1.28] - 2026-09-01
 
 ### Changed

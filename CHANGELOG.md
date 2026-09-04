@@ -6,6 +6,37 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.30] - 2026-09-04
+
+### Added
+
+- **Marketplace redesign.** Modern app cards — brand logo, clamped description,
+  category, version/app-version + publisher, a couple of tags, and a prominent
+  **enable/disable toggle** (real GitOps commit, per-card pending + honest error);
+  installed vs not-installed reads clearly. A stats strip (apps / enabled /
+  disabled / categories + GitOps source), a responsive auto-fill grid, skeleton
+  loading, and an enriched detail drawer (package/version, provenance,
+  compatibility, source repo, front-and-centre enable/disable).
+
+### Changed
+
+- **Real brand logos in the Apps drawer.** Kargo (its fox mascot), Headlamp
+  (official mark), and Hubble now use the correct **full-colour Cilium honeycomb**
+  instead of placeholders/monochrome.
+- **Session expiry redirects to sign-in.** Any `401 Unauthorized` from a BFF call
+  now routes back to the login screen (preserving where you were, with a
+  "session expired" note) instead of failing inline — wired once through a shared
+  signal the shell listens for.
+- **Cleaner search (⌘K) modal.** Removed the odd brand focus-ring/offset that
+  highlighted the whole modal on input focus.
+
+### Fixed
+
+- **Role-requirement pill no longer overlaps.** The "🔒 Role +N" access pill
+  (shown on gated actions across the app) is now `shrink-0` + `whitespace-nowrap`
+  and its read-only overlay is z-ordered and width-capped, so it stops colliding
+  with adjacent labels/content.
+
 ## [0.1.29] - 2026-09-02
 
 ### Added

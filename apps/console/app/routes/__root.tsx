@@ -6,7 +6,7 @@ import {
   useRouterState,
 } from '@tanstack/react-router'
 import type { QueryClient } from '@tanstack/react-query'
-import { AdharSymbol, Spinner } from '@adhar-console/shell-ui'
+import { AdharSymbol, Spinner, subscribeUnauthorized } from '@adhar-console/shell-ui'
 import { useAuth, type Session } from '@adhar-console/auth'
 import type { Tenant } from '@adhar-console/tenancy'
 
@@ -71,6 +71,23 @@ function RootComponent() {
       replace: true,
     })
   }, [status, isPublic, pathname, nav])
+
+  // A 401 from any BFF call means the session expired mid-use — data layers emit
+  // `adhar:unauthorized`; send the user to sign in again (unless already on a
+  // public page), preserving where they were.
+  useEffect(() => {
+    return subscribeUnauthorized(() => {
+      if (isPublicPath(globalThis.location?.pathname ?? pathname)) return
+      nav({
+        to: '/login',
+        search: {
+          returnTo: pathname === '/' ? undefined : pathname,
+          error: 'Your session expired. Please sign in again.',
+        },
+        replace: true,
+      })
+    })
+  }, [pathname, nav])
 
   // Onboarding is NEVER auto-forced. A normal login lands straight in the app
   // (the server callback sends `login` intent to `/`, `register` intent to

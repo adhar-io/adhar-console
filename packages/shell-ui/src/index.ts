@@ -91,6 +91,7 @@ export {
   GiteaIcon,
   GrafanaIcon,
   HarborIcon,
+  HeadlampIcon,
   IcebergIcon,
   KafkaIcon,
   KargoIcon,
@@ -123,6 +124,7 @@ export {
   type NotificationKind,
 } from './notifications.ts'
 export { docStore, DocStoreError, type StoredDoc } from './doc-store.ts'
+export { notifyUnauthorized, subscribeUnauthorized, UNAUTHORIZED_EVENT } from './unauthorized.ts'
 
 /* ─ Primitives (new polish layer) ─ */
 export {

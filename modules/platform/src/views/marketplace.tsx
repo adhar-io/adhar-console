@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
   AirbyteIcon,
   ArgoCDIcon,
   ArgoRolloutsIcon,
   ArgoWorkflowsIcon,
+  Badge,
   Button,
+  Card,
   CrossplaneIcon,
   EmptyState,
   GiteaIcon,
@@ -22,6 +24,7 @@ import {
   OTelIcon,
   PlaneIcon,
   PrometheusIcon,
+  Skeleton,
   Spinner,
   StatusBadge,
   TempoIcon,
@@ -142,6 +145,14 @@ export function MarketplaceView() {
 
   return (
     <div className="space-y-4">
+      <StatsStrip
+        total={apps.length}
+        enabled={enabledCount}
+        disabled={apps.length - enabledCount}
+        categories={Object.keys(categoryCounts).length}
+        appsetNames={appsetNames}
+      />
+
       <ListShell
         title="Marketplace"
         total={apps.length}
@@ -168,7 +179,9 @@ export function MarketplaceView() {
           </div>
         }
       >
-        {visible.length === 0 ? (
+        {isLoading && apps.length === 0 ? (
+          <SkeletonGrid />
+        ) : visible.length === 0 ? (
           <EmptyState
             title="No matching apps"
             description={
@@ -178,29 +191,127 @@ export function MarketplaceView() {
             }
           />
         ) : (
-          <div className="space-y-5">
-            {grouped.map(([cat, items]) => (
-              <section key={cat} className="space-y-2">
-                <header className="flex items-baseline justify-between gap-2">
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.08em] text-content-subtle">
-                    {appCategoryLabel(cat)}
-                  </h3>
-                  <span className="font-mono text-[11px] tabular-nums text-content-subtle">
-                    {items.filter((a) => a.enabled).length}/{items.length} enabled
-                  </span>
-                </header>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                  {items.map((a) => (
-                    <AppCard key={a.id} app={a} onClick={() => setSelectedId(a.id)} />
-                  ))}
-                </div>
-              </section>
-            ))}
+          <div className="space-y-6">
+            {grouped.map(([cat, items]) => {
+              const on = items.filter((a) => a.enabled).length
+              return (
+                <section key={cat} className="space-y-2.5">
+                  <header className="flex items-baseline justify-between gap-2 border-b border-edge-subtle pb-1.5">
+                    <h3 className="flex items-baseline gap-2 text-[13px] font-semibold text-content">
+                      {appCategoryLabel(cat)}
+                      <span className="font-mono text-[11px] font-normal tabular-nums text-content-subtle">
+                        {items.length}
+                      </span>
+                    </h3>
+                    <span className="font-mono text-[11px] tabular-nums text-content-subtle">
+                      {on}/{items.length} enabled
+                    </span>
+                  </header>
+                  <div
+                    className="grid gap-4"
+                    style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(288px, 1fr))' }}
+                  >
+                    {items.map((a) => (
+                      <AppCard key={a.id} app={a} onOpen={() => setSelectedId(a.id)} />
+                    ))}
+                  </div>
+                </section>
+              )
+            })}
           </div>
         )}
       </ListShell>
 
       {selected ? <AppDrawer app={selected} onClose={() => setSelectedId(null)} /> : null}
+    </div>
+  )
+}
+
+/* ─────────────────────────── stats strip ─────────────────────────── */
+
+function StatsStrip({
+  total,
+  enabled,
+  disabled,
+  categories,
+  appsetNames,
+}: {
+  total: number
+  enabled: number
+  disabled: number
+  categories: number
+  appsetNames: string[]
+}) {
+  return (
+    <Card className="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3">
+      <Stat label="Apps" value={total} />
+      <span className="hidden h-8 w-px bg-edge-subtle sm:block" aria-hidden />
+      <Stat label="Enabled" value={enabled} tone="emerald" />
+      <Stat label="Disabled" value={disabled} tone="muted" />
+      <span className="hidden h-8 w-px bg-edge-subtle sm:block" aria-hidden />
+      <Stat label="Categories" value={categories} />
+      <div className="ml-auto flex min-w-0 items-center gap-2">
+        <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-content-subtle">
+          <IconGit size={13} /> GitOps source
+        </span>
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
+          {appsetNames.length ? (
+            appsetNames.map((n) => (
+              <code
+                key={n}
+                className="truncate rounded-md bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-content-muted"
+              >
+                {n}
+              </code>
+            ))
+          ) : (
+            <span className="text-[11px] text-content-subtle">ApplicationSet</span>
+          )}
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+function Stat({ label, value, tone = 'default' }: { label: string; value: number; tone?: 'default' | 'emerald' | 'muted' }) {
+  const valueCls =
+    tone === 'emerald'
+      ? 'text-emerald-600 dark:text-emerald-400'
+      : tone === 'muted'
+        ? 'text-content-muted'
+        : 'text-content'
+  return (
+    <div className="flex items-baseline gap-1.5">
+      <span className={cn('text-xl font-semibold tabular-nums', valueCls)}>{value}</span>
+      <span className="text-[11px] font-medium uppercase tracking-wide text-content-subtle">{label}</span>
+    </div>
+  )
+}
+
+/* ─────────────────────────── loading skeleton ─────────────────────────── */
+
+function SkeletonGrid() {
+  return (
+    <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(288px, 1fr))' }}>
+      {Array.from({ length: 8 }).map((_, i) => (
+        <Card key={i} className="flex flex-col p-4">
+          <div className="flex items-start gap-3">
+            <Skeleton width={48} height={48} rounded="lg" />
+            <div className="flex-1 space-y-1.5 pt-1">
+              <Skeleton width="70%" height={12} />
+              <Skeleton width="45%" height={10} />
+            </div>
+          </div>
+          <div className="mt-3 space-y-1.5">
+            <Skeleton width="100%" height={10} />
+            <Skeleton width="85%" height={10} />
+          </div>
+          <div className="mt-4 flex items-center justify-between">
+            <Skeleton width={90} height={12} />
+            <Skeleton width={64} height={26} rounded="md" />
+          </div>
+        </Card>
+      ))}
     </div>
   )
 }
@@ -265,52 +376,124 @@ function FilterButton({
 
 /* ─────────────────────────── app card ─────────────────────────── */
 
-function AppCard({ app, onClick }: { app: MarketplaceApp; onClick(): void }) {
+function AppCard({ app, onOpen }: { app: MarketplaceApp; onOpen(): void }) {
+  const chart = app.chart
+  const toggle = useToggleApp()
+  const busy = toggle.isPending
+  const err = toggle.error as Error | undefined
+  const tags = (chart?.tags ?? []).slice(0, 2)
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <Card
+      as="article"
+      interactive
       className={cn(
-        'group relative flex h-full flex-col rounded-xl border bg-surface-raised p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md',
-        app.enabled
-          ? 'border-emerald-200 dark:border-emerald-500/25 hover:border-emerald-300'
-          : 'border-edge-default hover:border-brand-300',
+        'group relative flex h-full flex-col focus-within:ring-2 focus-within:ring-brand-400/30',
+        app.enabled && 'border-emerald-200 dark:border-emerald-500/25',
+        busy && 'opacity-90',
       )}
     >
-      <div className="flex items-start gap-3">
-        <AppIcon app={app} size={40} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <div className="truncate text-[13px] font-semibold text-content">
-              {app.chart?.title ?? app.name}
+      {/* Body — click / Enter / Space opens the detail drawer. */}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-haspopup="dialog"
+        aria-label={`Open details for ${chart?.title ?? app.name}`}
+        onClick={onOpen}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onOpen()
+          }
+        }}
+        className="flex flex-1 cursor-pointer flex-col rounded-t-xl p-4 text-left outline-none"
+      >
+        <div className="flex items-start gap-3">
+          <AppIcon app={app} size={40} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <div className="truncate text-sm font-semibold text-content">{chart?.title ?? app.name}</div>
+              {chart?.verified ? <VerifiedDot /> : null}
             </div>
-            {app.chart?.verified ? <VerifiedDot /> : null}
+            <div className="mt-0.5 flex items-center gap-1.5">
+              <code className="truncate font-mono text-[11px] text-content-muted">{app.name}</code>
+              {chart ? <SourceChip source={chart.source} /> : null}
+            </div>
           </div>
-          <code className="truncate text-[11px] text-content-muted">{app.name}</code>
+          <EnabledPill enabled={app.enabled} />
         </div>
-        <EnabledPill enabled={app.enabled} />
+
+        {chart?.description ? (
+          <p className="mt-3 line-clamp-2 text-[12px] leading-relaxed text-content-muted">{chart.description}</p>
+        ) : (
+          <p className="mt-3 line-clamp-2 font-mono text-[11px] leading-relaxed text-content-subtle">
+            {app.manifestPath ?? app.namespace ?? 'ApplicationSet element'}
+          </p>
+        )}
+
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <Badge tone="slate">{appCategoryLabel(app.category)}</Badge>
+          {tags.map((t) => (
+            <span
+              key={t}
+              className="rounded-md bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-content-muted"
+            >
+              #{t}
+            </span>
+          ))}
+        </div>
+
+        <div className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-0.5 pt-3 text-[11px] text-content-subtle">
+          {chart?.version ? <span className="font-mono">v{chart.version}</span> : null}
+          {chart?.appVersion ? (
+            <>
+              <span aria-hidden>·</span>
+              <span className="font-mono">app {chart.appVersion}</span>
+            </>
+          ) : null}
+          {chart?.publisher?.name ? (
+            <>
+              <span aria-hidden>·</span>
+              <span className="truncate">by {chart.publisher.name}</span>
+            </>
+          ) : null}
+          {!chart ? <span className="italic">uncurated package</span> : null}
+        </div>
       </div>
 
-      {app.chart?.description ? (
-        <p className="mt-3 line-clamp-2 flex-1 text-[12px] leading-relaxed text-content-muted">
-          {app.chart.description}
-        </p>
-      ) : (
-        <p className="mt-3 line-clamp-2 flex-1 font-mono text-[11px] leading-relaxed text-content-subtle">
-          {app.manifestPath ?? app.namespace ?? '—'}
-        </p>
-      )}
-
-      <div className="mt-3 flex items-center justify-between gap-2 border-t border-edge-subtle pt-3">
-        <div className="flex items-center gap-1.5">
-          {app.live ? <HealthBadge health={app.live.health} /> : (
-            <span className="text-[10px] text-content-subtle">not deployed</span>
+      {/* Footer — GitOps cue + functional enable/disable toggle. */}
+      <div className="flex items-center justify-between gap-2 border-t border-edge-subtle px-4 py-2.5">
+        <span
+          className={cn(
+            'inline-flex min-w-0 items-center gap-1.5 text-[11px] font-medium',
+            app.enabled ? 'text-emerald-700 dark:text-emerald-400' : 'text-content-subtle',
           )}
-          {app.plane ? <PlaneChip plane={app.plane} /> : null}
-        </div>
-        <span className="truncate font-mono text-[10px] text-content-subtle">{app.namespace ?? ''}</span>
+          title="Managed by GitOps — ArgoCD reconciles the ApplicationSet"
+        >
+          <IconGit size={12} />
+          <span className="truncate">{app.enabled ? 'Installed via GitOps' : 'Not installed'}</span>
+        </span>
+        <Button
+          variant={app.enabled ? 'secondary' : 'primary'}
+          size="xs"
+          loading={busy}
+          aria-label={app.enabled ? `Disable ${app.name}` : `Enable ${app.name}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            toggle.mutate({ app, enabled: !app.enabled })
+          }}
+        >
+          {busy ? 'Committing…' : app.enabled ? 'Disable' : 'Enable'}
+        </Button>
       </div>
-    </button>
+
+      {err ? (
+        <div className="border-t border-rose-200 px-4 py-2 text-[11px] text-rose-800 dark:border-rose-500/25 dark:text-rose-300">
+          <span className="font-semibold">Toggle failed.</span>{' '}
+          <span className="wrap-break-word font-mono">{err.message}</span>
+        </div>
+      ) : null}
+    </Card>
   )
 }
 
@@ -340,6 +523,7 @@ function PlaneChip({ plane }: { plane: string }) {
 function AppDrawer({ app, onClose }: { app: MarketplaceApp; onClose(): void }) {
   const toggle = useToggleApp()
   const chart = app.chart
+  const panelRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -348,6 +532,11 @@ function AppDrawer({ app, onClose }: { app: MarketplaceApp; onClose(): void }) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose, toggle.isPending])
+
+  // Move focus into the drawer on open so Escape + tabbing land inside it.
+  useEffect(() => {
+    panelRef.current?.focus()
+  }, [])
 
   const result = toggle.data
   const err = toggle.error as Error | undefined
@@ -361,7 +550,12 @@ function AppDrawer({ app, onClose }: { app: MarketplaceApp; onClose(): void }) {
         className="absolute inset-0 bg-slate-900/35 backdrop-blur-[2px]"
         onClick={() => !toggle.isPending && onClose()}
       />
-      <aside className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
+      <aside
+        ref={panelRef}
+        tabIndex={-1}
+        aria-label={`${chart?.title ?? app.name} details`}
+        className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl outline-none"
+      >
         <header className="border-b border-edge-default bg-surface-raised px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 items-start gap-3">
@@ -371,12 +565,14 @@ function AppDrawer({ app, onClose }: { app: MarketplaceApp; onClose(): void }) {
                   <h2 className="truncate text-xl font-semibold text-content">
                     {chart?.title ?? app.name}
                   </h2>
+                  {chart?.version ? <Badge tone="brand">v{chart.version}</Badge> : null}
                   <EnabledPill enabled={app.enabled} />
                   {chart ? <SourceChip source={chart.source} /> : null}
                 </div>
                 <div className="mt-0.5 text-[12px] text-content-muted">
                   <code className="font-mono">{app.name}</code> ·{' '}
                   {appCategoryLabel(app.category)}
+                  {chart?.appVersion ? <> · app <code className="font-mono">{chart.appVersion}</code></> : null}
                   {chart?.publisher?.name ? <> · by {chart.publisher.name}</> : null}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-content-subtle">
@@ -514,6 +710,7 @@ function AppDrawer({ app, onClose }: { app: MarketplaceApp; onClose(): void }) {
                   ) : null}
                 </section>
               ) : null}
+              <PackageCard chart={chart} />
               <ProvenanceCard chart={chart} />
               <CompatibilityCard chart={chart} />
               {chart.docsUrl ? (
@@ -867,7 +1064,66 @@ function CompatibilityCard({ chart }: { chart: MarketplaceChart }) {
   )
 }
 
+/* ─────────────────────────── package (chart source) ─────────────────────────── */
+
+function PackageCard({ chart }: { chart: MarketplaceChart }) {
+  return (
+    <DetailCard title="Package">
+      <KV label="Version" value={<code className="font-mono">{chart.version}</code>} />
+      <KV label="App version" value={<code className="font-mono">{chart.appVersion}</code>} />
+      <KV label="Source" value={<SourceChip source={chart.source} />} />
+      <KV
+        label="Publisher"
+        value={
+          chart.publisher.url ? (
+            <a
+              href={chart.publisher.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-brand-700 hover:underline dark:text-brand-300"
+            >
+              {chart.publisher.name}
+              {chart.publisher.verifiedPublisher ? <VerifiedDot /> : null}
+            </a>
+          ) : (
+            <span className="inline-flex items-center gap-1">
+              {chart.publisher.name}
+              {chart.publisher.verifiedPublisher ? <VerifiedDot /> : null}
+            </span>
+          )
+        }
+      />
+      <KV label="Helm repository" value={<code className="font-mono break-all">{chart.repository}</code>} />
+      {chart.repoUrl ? (
+        <KV
+          label="Repository URL"
+          value={
+            <a
+              href={chart.repoUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="break-all text-brand-700 hover:underline dark:text-brand-300"
+            >
+              {chart.repoUrl}
+            </a>
+          }
+        />
+      ) : null}
+    </DetailCard>
+  )
+}
+
 /* ─────────────────────────── icons ─────────────────────────── */
+
+function IconGit({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0">
+      <circle cx="18" cy="18" r="3" />
+      <circle cx="6" cy="6" r="3" />
+      <path d="M6 21V9a9 9 0 0 0 9 9" />
+    </svg>
+  )
+}
 
 function IconClose() {
   return (

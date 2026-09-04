@@ -189,8 +189,6 @@ export function CommandPalette({
       <div
         className={cn(
           'pop-in relative w-full max-w-xl overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-[0_30px_60px_-15px_rgba(15,23,42,0.35)]',
-          'ring-1 ring-edge-default transition-shadow duration-150',
-          'focus-within:ring-2 focus-within:ring-brand-500/30 focus-within:ring-offset-2 focus-within:ring-offset-slate-950/30',
         )}
         onMouseMove={() => {
           lastInput.current = 'mouse'

@@ -92,6 +92,29 @@ export class NetworkError extends Error {
   }
 }
 
+/**
+ * Browser-only "session expired" signal. Mirrors shell-ui's `notifyUnauthorized`
+ * but inlined here to avoid a UI dependency in the base HTTP layer — the host
+ * shell listens for the same `adhar:unauthorized` event and redirects to login.
+ */
+let lastUnauthorizedAt = 0
+function signalUnauthorized(): void {
+  if (typeof document === 'undefined') return
+  const g = globalThis as unknown as {
+    dispatchEvent?: (e: Event) => boolean
+    CustomEvent?: typeof CustomEvent
+  }
+  if (typeof g.dispatchEvent !== 'function' || typeof g.CustomEvent !== 'function') return
+  const now = Date.now()
+  if (now - lastUnauthorizedAt < 1500) return
+  lastUnauthorizedAt = now
+  try {
+    g.dispatchEvent(new g.CustomEvent('adhar:unauthorized'))
+  } catch {
+    /* ignore */
+  }
+}
+
 export class HttpClient {
   private readonly baseUrl: string
   private readonly defaultHeaders: Record<string, string>
@@ -155,6 +178,7 @@ export class HttpClient {
     // Response handling branches by opts.response + content-type.
     if (opts.response === 'raw') {
       if (!res.ok) {
+        if (res.status === 401) signalUnauthorized()
         throw new HttpError(res.status, res.statusText, await safeBody(res), url, method)
       }
       return res as unknown as T
@@ -167,7 +191,10 @@ export class HttpClient {
     const text = await res.text()
     const parsed = wantText ? text : text ? safeJson(text) : undefined
 
-    if (!res.ok) throw new HttpError(res.status, res.statusText, parsed ?? text, url, method)
+    if (!res.ok) {
+      if (res.status === 401) signalUnauthorized()
+      throw new HttpError(res.status, res.statusText, parsed ?? text, url, method)
+    }
     return parsed as T
   }
 

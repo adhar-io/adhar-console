@@ -46,7 +46,7 @@ export function RequireK8sPermission({
   return (
     <div className="relative" aria-disabled="true">
       <div className="pointer-events-none opacity-55">{children}</div>
-      <div className="pointer-events-none absolute right-2 top-2">
+      <div className="pointer-events-none absolute right-2 top-2 z-10 max-w-[calc(100%-1rem)]">
         <K8sRolePill perm={perm} />
       </div>
     </div>
@@ -103,14 +103,14 @@ export function K8sRolePill({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 rounded-full border bg-surface-raised px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-content-muted shadow-sm',
+        'inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border bg-surface-raised px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-wider text-content-muted shadow-sm align-middle',
         'border-edge-default',
         className,
       )}
       title={`Requires ${required.map((r) => K8S_ROLE_LABEL[r]).join(', ')} · ${K8S_PERMISSION_LABEL[perm]}`}
     >
       <IconLock />
-      <span>
+      <span className="whitespace-nowrap">
         {K8S_ROLE_LABEL[primary]}
         {required.length > 1 ? ` +${required.length - 1}` : ''}
       </span>

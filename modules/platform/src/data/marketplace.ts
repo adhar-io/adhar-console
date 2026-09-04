@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { k8s } from '@adhar-console/api-clients'
+import { notifyUnauthorized } from '@adhar-console/shell-ui'
 import { client, useActiveCluster } from './client.ts'
 
 /**
@@ -1609,6 +1610,7 @@ export function useToggleApp() {
       })
       const body = (await res.json().catch(() => ({}))) as ToggleResult & { error?: string; detail?: string }
       if (!res.ok || !body.ok) {
+        if (res.status === 401) notifyUnauthorized()
         throw new Error(body.detail || body.error || `toggle failed (${res.status})`)
       }
       return body

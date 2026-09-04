@@ -10,6 +10,7 @@ import {
   GrafanaIcon,
   CiliumIcon,
   HarborIcon,
+  HeadlampIcon,
   JupyterIcon,
   KafkaIcon,
   KargoIcon,
@@ -284,7 +285,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Kubernetes cluster dashboard',
     url: 'https://headlamp.adhar.localtest.me:8443',
     category: 'Platform',
-    icon: <KubernetesIcon />,
+    icon: <HeadlampIcon />,
   },
 ]
 

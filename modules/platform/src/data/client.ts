@@ -1,4 +1,5 @@
 import { kube } from '@adhar-console/api-clients/k8s'
+import { notifyUnauthorized } from '@adhar-console/shell-ui'
 import type {
   ApiSurface,
   Cluster,
@@ -86,7 +87,10 @@ async function raw<T>(path: string, cluster?: string): Promise<T> {
     credentials: 'include',
     headers: { accept: 'application/json' },
   })
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  if (!res.ok) {
+    if (res.status === 401) notifyUnauthorized()
+    throw new Error(`${res.status} ${res.statusText}`)
+  }
   return (await res.json()) as T
 }
 

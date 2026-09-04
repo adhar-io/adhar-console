@@ -7,7 +7,33 @@
  * render at once); monochrome simple-icons marks are tinted with the brand hex.
  */
 
+import { CILIUM_MARKUP, CILIUM_VIEWBOX, HEADLAMP_PNG_URI, KARGO_PNG_URI } from './brand-assets.ts'
+
 type BrandProps = { size?: number; className?: string }
+
+/** White rounded tile holding an official raster logo (data URI), matching the
+ *  MonoTile/LogoTile look — used where a vendor ships only a bitmap mark. */
+function RasterTile({ size = 40, className, src, alt }: BrandProps & { src: string; alt: string }) {
+  const inner = Math.round(size * 0.72)
+  return (
+    <span
+      className={className}
+      style={{
+        display: 'inline-flex',
+        width: size,
+        height: size,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 9,
+        background: '#ffffff',
+        border: '0.5px solid #e5e7eb',
+        overflow: 'hidden',
+      }}
+    >
+      <img src={src} alt={alt} width={inner} height={inner} style={{ objectFit: 'contain' }} />
+    </span>
+  )
+}
 
 function MonoTile({ size = 40, className, hex, d }: BrandProps & { hex: string; d: string }) {
   return (
@@ -132,7 +158,7 @@ const CILIUM_D =
 
 /** Hubble (Cilium network observability) uses the Cilium mark. */
 export function CiliumIcon(props: BrandProps) {
-  return <MonoTile {...props} hex="#0F172A" d={CILIUM_D} />
+  return <LogoTile {...props} viewBox={CILIUM_VIEWBOX} markup={CILIUM_MARKUP} />
 }
 
 const KAFKA_D =
@@ -168,7 +194,11 @@ export function ArgoRolloutsIcon(props: BrandProps) {
 }
 
 export function KargoIcon(props: BrandProps) {
-  return <KubernetesIcon {...props} />
+  return <RasterTile {...props} src={KARGO_PNG_URI} alt="Kargo" />
+}
+
+export function HeadlampIcon(props: BrandProps) {
+  return <RasterTile {...props} src={HEADLAMP_PNG_URI} alt="Headlamp" />
 }
 
 export function KyvernoIcon(props: BrandProps) {

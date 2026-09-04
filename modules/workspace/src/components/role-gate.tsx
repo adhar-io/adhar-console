@@ -87,14 +87,14 @@ export function RequiredRolePill({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 rounded-full border bg-surface-raised px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider shadow-sm',
+        'inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border bg-surface-raised px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-wider shadow-sm align-middle',
         'border-edge-default text-content-muted',
         className,
       )}
       title={`Required role${required.length > 1 ? 's' : ''}: ${required.map((r) => ROLE_LABEL[r]).join(', ')}`}
     >
       <IconLock />
-      <span>{ROLE_LABEL[primary]}{required.length > 1 ? ` +${required.length - 1}` : ''}</span>
+      <span className="whitespace-nowrap">{ROLE_LABEL[primary]}{required.length > 1 ? ` +${required.length - 1}` : ''}</span>
     </span>
   )
 }

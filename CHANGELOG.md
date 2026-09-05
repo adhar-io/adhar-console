@@ -6,6 +6,19 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.34] - 2026-09-05
+
+### Changed
+
+- **Storage added to resource-utilization widgets.** The Cluster-detail
+  "Capacity utilization" panel now shows a **Storage** dial (PVC bound/total +
+  provisioned capacity) alongside CPU/Memory/Pods, and the Metrics view adds an
+  ephemeral-storage tile — matching the Overview dashboard (which already had it)
+  and node detail. Grids rebalanced to stay even. "No data" states across the
+  metrics widgets were audited and confirmed to be correct honest fallbacks
+  (they were empty only while metrics-server/tooling wasn't serving — fixed in
+  0.1.32 — and populate on their own now).
+
 ## [0.1.33] - 2026-09-05
 
 ### Changed

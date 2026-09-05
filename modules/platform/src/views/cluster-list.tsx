@@ -22,6 +22,7 @@ import {
   useNamespaces,
   useNodeMetrics,
   useNodes,
+  usePersistentVolumeClaims,
   usePods,
   useStatefulSets,
 } from '../data/hooks.ts'
@@ -52,6 +53,7 @@ export function ClusterView() {
   const daemonSets = useDaemonSets()
   const jobs = useJobs()
   const cronJobs = useCronJobs()
+  const pvcs = usePersistentVolumeClaims()
 
   if (version.isError) return null
 
@@ -62,6 +64,13 @@ export function ClusterView() {
   const cpuPct = capacity.cpu > 0 ? Math.min(100, Math.round((usage.cpu / capacity.cpu) * 100)) : 0
   const memPct = capacity.mem > 0 ? Math.min(100, Math.round((usage.mem / capacity.mem) * 100)) : 0
   const podPct = capacity.pods > 0 ? Math.min(100, Math.round((podCount / capacity.pods) * 100)) : 0
+
+  // Storage utilization from PersistentVolumeClaims (bound vs total) — the same
+  // honest, metrics-server-independent signal the Overview dashboard uses. No
+  // node fs-usage source is wired here, so we report claim binding + provisioned
+  // capacity rather than fabricating a disk-usage percentage.
+  const storage = aggregatePvc(pvcs.data as PvcObject[] | undefined)
+  const storagePct = storage.total > 0 ? Math.round((storage.bound / storage.total) * 100) : 0
 
   const podPhases = groupPodsByPhase(pods.data ?? [])
   const podsByNamespace = topPodsByNamespace(pods.data ?? [], 8)
@@ -142,7 +151,7 @@ export function ClusterView() {
             </StatusBadge>
           </div>
         </CardHeader>
-        <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <GaugeTile
             title="CPU"
             pct={cpuPct}
@@ -163,6 +172,17 @@ export function ClusterView() {
             primary={`${podCount} / ${capacity.pods}`}
             secondary={`${Math.max(0, capacity.pods - podCount)} slots free`}
             color="#8b5cf6"
+          />
+          <GaugeTile
+            title="Storage"
+            pct={storagePct}
+            primary={`${storage.bound} / ${storage.total} bound`}
+            secondary={
+              storage.capacity > 0
+                ? `${formatBytes(storage.capacity)} provisioned`
+                : 'no claims provisioned'
+            }
+            color="var(--color-sky-500)"
           />
         </CardBody>
       </Card>
@@ -596,6 +616,27 @@ function aggregateAllocatable(nodes: Array<{ status?: { allocatable?: Record<str
     pods += parseQuantity(alloc.pods)
   }
   return { cpu, mem, pods: Math.round(pods) }
+}
+
+interface PvcObject {
+  spec?: { resources?: { requests?: { storage?: string } } }
+  status?: { phase?: string; capacity?: { storage?: string } }
+}
+
+/**
+ * PersistentVolumeClaim summary — how many are Bound of the total, plus the
+ * provisioned capacity (bound `status.capacity`, else the requested `spec` size).
+ * Mirrors the Overview dashboard so both surfaces report storage the same way.
+ */
+function aggregatePvc(pvcs: PvcObject[] | undefined) {
+  if (!pvcs) return { bound: 0, total: 0, capacity: 0 }
+  let bound = 0
+  let capacity = 0
+  for (const p of pvcs) {
+    if (p.status?.phase === 'Bound') bound++
+    capacity += parseQuantity(p.status?.capacity?.storage ?? p.spec?.resources?.requests?.storage)
+  }
+  return { bound, total: pvcs.length, capacity }
 }
 
 function aggregateUsage(metrics: RawMetrics[] | undefined) {

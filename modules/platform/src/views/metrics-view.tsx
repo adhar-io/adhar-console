@@ -66,11 +66,12 @@ export function MetricsView() {
       acc.cpuAlloc += parseQuantity(alloc.cpu)
       acc.memAlloc += parseQuantity(alloc.memory)
       acc.podAlloc += parseQuantity(alloc.pods)
+      acc.storageAlloc += parseQuantity(alloc['ephemeral-storage'])
       acc.cpuUsed += m?.cpu ?? 0
       acc.memUsed += m?.mem ?? 0
       return acc
     },
-    { cpuAlloc: 0, memAlloc: 0, podAlloc: 0, cpuUsed: 0, memUsed: 0 },
+    { cpuAlloc: 0, memAlloc: 0, podAlloc: 0, storageAlloc: 0, cpuUsed: 0, memUsed: 0 },
   )
   const podCount = pods.data?.length ?? 0
   const podCapacity = Math.round(totals.podAlloc)
@@ -104,7 +105,7 @@ export function MetricsView() {
       ) : null}
 
       {/* ── Cluster totals ─────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <StatTile
           label="CPU"
           primary={hasNodeMetrics ? `${formatCpu(totals.cpuUsed)} / ${formatCpu(totals.cpuAlloc)} cores` : `${formatCpu(totals.cpuAlloc)} cores`}
@@ -116,6 +117,12 @@ export function MetricsView() {
           primary={hasNodeMetrics ? `${formatBytes(totals.memUsed)} / ${formatBytes(totals.memAlloc)}` : formatBytes(totals.memAlloc)}
           secondary={hasNodeMetrics ? `${formatBytes(Math.max(0, totals.memAlloc - totals.memUsed))} free` : 'allocatable'}
           pct={hasNodeMetrics ? memPct : null}
+        />
+        <StatTile
+          label="Storage"
+          primary={totals.storageAlloc > 0 ? formatBytes(totals.storageAlloc) : '—'}
+          secondary="ephemeral allocatable"
+          pct={null}
         />
         <StatTile
           label="Pods"

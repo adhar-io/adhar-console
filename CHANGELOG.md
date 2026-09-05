@@ -6,6 +6,35 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.32] - 2026-09-05
+
+### Fixed
+
+- **Develop & Deliver connectivity — no more `acme` 404s.** Both phases hardcoded
+  a non-existent tenant `acme` as the Gitea org / Argo CD project, so every view
+  404'd or came up empty. Removed the three hardcoded constants and threaded the
+  **real, config-driven** identifiers through every data hook: `/api/config` now
+  serves `giteaOrg` (real: `adhar`) and `argocdProject` (real: `default`), exposed
+  via new `useGiteaOrg()` / `useArgocdProject()` hooks in shell-ui (real defaults
+  so queries are correct even before config resolves). Develop repos/PRs/commits/
+  branches/issues/IDE and Deliver ArgoCD apps/Kargo/releases/flow/Harbor now query
+  the real backends. (ArgoCD auth itself was already fixed in 0.1.27.)
+- **Discover observability connectivity (Grafana/Prometheus 503).** The `lgtm`
+  client sent metrics/logs/traces/alerts to Grafana sub-paths it doesn't serve.
+  Rewrote it to route each signal to its own proxy: metrics→**Prometheus**
+  (`/api/v1/query[_range]`), logs→**Loki** (`/loki/api/v1/query_range`),
+  traces→**Tempo** (`/api/search`, `/api/traces/{id}`), alerts→**Prometheus**
+  (`/api/v1/alerts`+`/rules`, with a real alert mapper), dashboards→**Grafana**.
+  Fixed a `searchTraces` tag-clobber bug; service-map/SLOs degrade honestly.
+
+### Changed
+
+- **Platform Overview dashboard reworked.** Health/utilization widgets now show
+  real data (metrics-server was fixed) with honest "metrics-server unavailable"
+  states; the Resource Utilization panel grows from 3 to **6 live dials** (CPU,
+  Memory, Pods, Nodes-ready, Workload-health, Storage/PVC); all widgets live-update
+  (~10s); and the grid is rebalanced so no row leaves empty right-side space.
+
 ## [0.1.31] - 2026-09-05
 
 ### Fixed

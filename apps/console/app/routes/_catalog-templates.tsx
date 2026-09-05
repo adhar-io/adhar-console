@@ -149,6 +149,32 @@ export function CatalogTemplates({ onCreated }: { onCreated(): void }) {
     setWizardFor(t)
   }
 
+  // Honest states when there are no templates at all — no built-in seed fallback.
+  // While Gitea is still resolving (initial mount or in-flight) show a skeleton;
+  // once it has loaded with nothing, show a clear empty state that points at the
+  // Gitea templates repo rather than pretending starters exist.
+  const noTemplates = templates.length === 0
+  if (noTemplates) {
+    return (
+      <div className="space-y-6">
+        <Header onRegister={() => setRegisterOpen(true)} />
+        {gitea.loading || !gitea.loaded ? (
+          <TemplatesLoading />
+        ) : (
+          <TemplatesEmpty gitea={gitea} onRetry={() => loadGiteaTemplates(true)} onRegister={() => setRegisterOpen(true)} />
+        )}
+        <RegisterTemplateModal
+          open={registerOpen}
+          onClose={() => setRegisterOpen(false)}
+          onRegistered={(t) => {
+            setRegisterOpen(false)
+            setActiveId(t.id)
+          }}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <Header onRegister={() => setRegisterOpen(true)} />
@@ -275,9 +301,9 @@ function GiteaStatusRow({ gitea }: { gitea: GiteaTemplateStatus }) {
       </>
     )
   } else if (gitea.loaded && gitea.configured && gitea.count === 0) {
-    label = <>No template repositories found in Gitea — showing built-in starters.</>
+    label = <>No template repositories found in Gitea.</>
   } else if (gitea.loaded && !gitea.configured) {
-    label = <>Gitea not connected — showing built-in starters.</>
+    label = <>Gitea not connected — showing your registered templates only.</>
   }
   if (!label) return null
   return (
@@ -917,6 +943,104 @@ function NoSelection() {
     <div className="flex items-center justify-center rounded-2xl border border-dashed border-edge-default bg-surface-raised p-12 text-center text-sm text-content-muted shadow-sm">
       Pick a template from the left to preview it here.
     </div>
+  )
+}
+
+/* ─────────── whole-page loading / empty states (no seed fallback) ─────────── */
+
+/** Skeleton shown while Gitea templates are still being fetched. */
+function TemplatesLoading() {
+  return (
+    <div className="grid grid-cols-1 gap-5 lg:grid-cols-[22rem_1fr]" aria-busy="true">
+      <aside className="flex flex-col gap-3 rounded-2xl border border-edge-default bg-surface-raised p-3 shadow-sm">
+        <div className="h-9 animate-pulse rounded-lg bg-surface-sunken" />
+        <div className="flex items-center gap-1.5 text-[11px] text-content-subtle">
+          <Spinner size={12} /> Loading templates from Gitea…
+        </div>
+        <ol className="mt-1 space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <li key={i} className="flex items-center gap-3 px-1 py-1">
+              <span className="h-8 w-8 shrink-0 animate-pulse rounded-lg bg-surface-sunken" />
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <div className="h-3 w-2/3 animate-pulse rounded bg-surface-sunken" />
+                <div className="h-2.5 w-1/2 animate-pulse rounded bg-surface-sunken" />
+              </div>
+            </li>
+          ))}
+        </ol>
+      </aside>
+      <div className="rounded-2xl border border-edge-default bg-surface-raised p-7 shadow-sm">
+        <div className="flex items-start gap-5">
+          <span className="h-16 w-16 shrink-0 animate-pulse rounded-2xl bg-surface-sunken" />
+          <div className="flex-1 space-y-2.5">
+            <div className="h-5 w-1/3 animate-pulse rounded bg-surface-sunken" />
+            <div className="h-3 w-3/4 animate-pulse rounded bg-surface-sunken" />
+            <div className="h-3 w-2/3 animate-pulse rounded bg-surface-sunken" />
+          </div>
+        </div>
+        <div className="mt-6 space-y-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-3 w-1/2 animate-pulse rounded bg-surface-sunken" />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Honest empty state once Gitea has loaded with zero templates. */
+function TemplatesEmpty({
+  gitea,
+  onRetry,
+  onRegister,
+}: {
+  gitea: GiteaTemplateStatus
+  onRetry(): void
+  onRegister(): void
+}) {
+  const detail = !gitea.configured
+    ? 'The Gitea templates repository is not reachable (configured: false). Check that the platform BFF is running and the adhar/adhar-templates repo is connected.'
+    : gitea.error
+      ? `Gitea responded, but no templates could be loaded: ${gitea.error}`
+      : 'No template repositories were found in Gitea. Add templates to the adhar/adhar-templates repo, or register one below.'
+  return (
+    <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-edge-default bg-surface-raised p-12 text-center shadow-sm">
+      <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-surface-sunken text-content-subtle">
+        <IconInbox />
+      </span>
+      <div className="space-y-1.5">
+        <h2 className="text-[15px] font-semibold text-content">No templates available</h2>
+        <p className="mx-auto max-w-md text-[13px] leading-relaxed text-content-muted">
+          Check that the Gitea templates repo is reachable. {detail}
+        </p>
+      </div>
+      <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 text-[12px] font-semibold text-content shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken"
+        >
+          Retry
+        </button>
+        <button
+          type="button"
+          onClick={onRegister}
+          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 text-[12px] font-medium text-content-muted shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken hover:text-content"
+        >
+          <IconUpload />
+          <span>Register template</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function IconInbox() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+      <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z" />
+    </svg>
   )
 }
 

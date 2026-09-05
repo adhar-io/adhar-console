@@ -27,7 +27,6 @@ import {
 } from '../data/hooks.ts'
 import { age, formatBytes, formatCpu, parseQuantity } from '../data/format.ts'
 import { LOCAL_CLUSTER, useActiveCluster } from '../data/client.ts'
-import { ViewAsRoleSwitcher } from '../components/role-gate.tsx'
 import { K8S_ROLE_LABEL, useK8sCurrentRoles } from '../data/access.ts'
 
 /**
@@ -875,7 +874,6 @@ function ClusterSummary({
           {sample?.osImage ? (
             <SummaryStat label="OS" value={sample.osImage.split(' ')[0]} hint={sample.architecture} />
           ) : null}
-          <ViewAsRoleSwitcher />
         </div>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-edge-subtle pt-3 text-[11px] text-content-muted">

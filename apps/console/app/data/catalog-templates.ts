@@ -256,7 +256,13 @@ const LIFECYCLE_FIELD: TemplateField = {
 
 /* ─────────── templates ─────────── */
 
-const TEMPLATES: CatalogTemplate[] = [
+/**
+ * Built-in seed templates. Retained as reference data (and for any code/types
+ * that reference it) but deliberately NOT surfaced by {@link getTemplates} — the
+ * Create New screen shows only Gitea-discovered + user-registered templates.
+ * Exported so it never reads as dead code and stays available to callers.
+ */
+export const TEMPLATES: CatalogTemplate[] = [
   /* ─────── Golden paths — real scaffolds via /api/scaffold ─────── */
 
   {
@@ -1595,8 +1601,11 @@ function invalidateComposed() {
 export function getTemplates(): CatalogTemplate[] {
   if (cachedComposed) return cachedComposed
   // Order: user-registered first, then Gitea-hosted (the platform's curated
-  // golden paths), then the built-in seed as an always-present fallback.
-  cachedComposed = [...readUserTemplates(), ...giteaTemplates, ...TEMPLATES]
+  // golden paths from the real `adhar/adhar-templates` repo). The built-in
+  // `TEMPLATES` seed is deliberately NOT included — the Create New screen shows
+  // only genuinely available templates, falling back to an honest loading /
+  // empty state (see `_catalog-templates.tsx`) rather than dummy seeds.
+  cachedComposed = [...readUserTemplates(), ...giteaTemplates]
   return cachedComposed
 }
 
@@ -1607,8 +1616,8 @@ export function getTemplates(): CatalogTemplate[] {
  * as template repositories, plus the curated templates org. Loaded once per tab
  * (call {@link loadGiteaTemplates} from the Create New page) and folded into
  * `getTemplates()` through the same external store, so the list re-renders when
- * they arrive. When Gitea isn't configured the list stays empty and the seed
- * templates are shown — the page always works.
+ * they arrive. When Gitea isn't configured the list stays empty and the Create
+ * New page shows an honest empty state (never the built-in seed).
  */
 export interface GiteaTemplateStatus {
   loading: boolean
@@ -1731,7 +1740,8 @@ export function loadGiteaTemplates(force = false): Promise<void> {
       })
       const ct = res.headers.get('content-type') ?? ''
       if (!res.ok || !ct.includes('application/json')) {
-        // No BFF (dev SPA) or an error — keep seed templates, note the state.
+        // No BFF (dev SPA) or an error — no templates; the page shows the
+        // honest empty state (configured:false) rather than seeds.
         giteaTemplates = []
         setGiteaStatus({ loading: false, loaded: true, configured: false, count: 0 })
         return

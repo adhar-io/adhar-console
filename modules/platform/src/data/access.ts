@@ -1,4 +1,3 @@
-import { useSyncExternalStore } from 'react'
 import { useOptionalConsoleRole, type ConsoleRole } from '@adhar-console/shell-ui'
 
 /**
@@ -22,10 +21,10 @@ import { useOptionalConsoleRole, type ConsoleRole } from '@adhar-console/shell-u
  *   - `viewer`         — read-only. Sees lists and details but cannot stream
  *                        logs or exec.
  *
- * In dev a "view-as" override is persisted to localStorage so the same logged
- * in user can preview each role's UX without re-authenticating. This is
- * deliberate — every gate uses the same hook, so the previewer mirrors the
- * production experience exactly.
+ * The cluster view is purely the logged-in user's real Keycloak role: the
+ * persona resolved from the auth session's `groups` claim maps straight to a
+ * cluster-RBAC role, so what a user sees is exactly what their signed-in
+ * identity is entitled to.
  */
 
 export type K8sRole = 'platform-admin' | 'tenant-admin' | 'developer' | 'viewer'
@@ -42,17 +41,6 @@ export const K8S_ROLE_LABEL: Record<K8sRole, string> = {
   'tenant-admin': 'Tenant Admin',
   developer: 'Developer',
   viewer: 'Viewer',
-}
-
-export const K8S_ROLE_DESCRIPTION: Record<K8sRole, string> = {
-  'platform-admin':
-    'Full cluster control — read, write, exec, delete every resource including cluster RBAC and Secrets.',
-  'tenant-admin':
-    'Manages workloads in their tenants. Can edit YAML, exec into pods, scale and delete workloads.',
-  'developer':
-    'Read pods and logs, exec into pods, scale own deployments. No destructive ops in shared envs.',
-  viewer:
-    'Read-only — no log streaming, no exec, no edits.',
 }
 
 export const K8S_ROLE_TONE: Record<K8sRole, 'failed' | 'progressing' | 'healthy' | 'unknown'> = {
@@ -168,7 +156,7 @@ export const K8S_PERMISSION_LABEL: Record<K8sPermission, string> = {
   'nodes.cordon': 'Cordon / uncordon nodes',
 }
 
-/* ─────────── current roles + view-as override ─────────── */
+/* ─────────── current roles ─────────── */
 
 /**
  * Map the console persona (resolved from the real auth session) to the
@@ -193,62 +181,11 @@ const CONSOLE_ROLE_TO_K8S: Record<ConsoleRole, K8sRole> = {
  */
 const NO_SESSION_ROLES: K8sRole[] = ['platform-admin']
 
-const VIEW_AS_KEY = 'adhar.k8s.view-as'
-
-const listeners = new Set<() => void>()
-function notify() {
-  for (const l of Array.from(listeners)) l()
-}
-
-function readOverride(): K8sRole | null {
-  if (typeof localStorage === 'undefined') return null
-  const v = localStorage.getItem(VIEW_AS_KEY)
-  if (v && (ALL_K8S_ROLES as string[]).includes(v)) return v as K8sRole
-  return null
-}
-
-export function setViewAsRole(role: K8sRole | null): void {
-  if (typeof localStorage === 'undefined') return
-  if (role) localStorage.setItem(VIEW_AS_KEY, role)
-  else localStorage.removeItem(VIEW_AS_KEY)
-  notify()
-}
-
-function subscribe(cb: () => void): () => void {
-  listeners.add(cb)
-  const onStorage = (e: StorageEvent) => {
-    if (e.key === VIEW_AS_KEY) cb()
-  }
-  if (typeof globalThis !== 'undefined' && 'addEventListener' in globalThis) {
-    globalThis.addEventListener('storage', onStorage)
-  }
-  return () => {
-    listeners.delete(cb)
-    if (typeof globalThis !== 'undefined' && 'removeEventListener' in globalThis) {
-      globalThis.removeEventListener('storage', onStorage)
-    }
-  }
-}
-function getSnapshot(): K8sRole | null {
-  return readOverride()
-}
-function getServerSnapshot(): K8sRole | null {
-  return null
-}
-
-export function useViewAsRole(): K8sRole | null {
-  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
-}
-
 export function useK8sCurrentRoles(): K8sRole[] {
-  const override = useViewAsRole()
   const persona = useOptionalConsoleRole()
-  // View-as override always wins (dev/preview). Otherwise use the real signed-in
-  // persona; if no session is resolvable, fall back to full access rather than
-  // downgrading a real operator to viewer.
-  if (override) return [override]
-  if (persona) return [CONSOLE_ROLE_TO_K8S[persona] ?? 'viewer']
-  return NO_SESSION_ROLES
+  // Derive purely from the real signed-in persona; if no session is resolvable,
+  // fall back to full access rather than downgrading a real operator to viewer.
+  return [persona ? (CONSOLE_ROLE_TO_K8S[persona] ?? 'viewer') : NO_SESSION_ROLES[0]]
 }
 
 /* ─────────── permission checks ─────────── */

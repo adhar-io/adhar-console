@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, EmptyState, Spinner, StatusBadge } from '@adhar-console/shell-ui'
+import { Button, EmptyState, Spinner, StatusBadge, useGiteaOrg } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
 import {
-  ORG,
   getStoredBranch,
   getStoredRepo,
   setStoredBranch,
@@ -38,12 +37,12 @@ function getVscodeHost(): string {
   return w.ADHAR_VSCODE_URL ?? FALLBACK_HOST
 }
 
-function buildVscodeUrl(host: string, repo?: string, branch?: string): string | null {
+function buildVscodeUrl(host: string, org: string, repo?: string, branch?: string): string | null {
   if (!repo) return null
   const stripped = host.replace(/\/$/, '')
   if (host.includes('vscode.dev')) {
     // vscode.dev opens a Gitea path the same way as a github.dev path.
-    return `${stripped}/${ORG}/${repo}${branch ? `/tree/${encodeURIComponent(branch)}` : ''}`
+    return `${stripped}/${org}/${repo}${branch ? `/tree/${encodeURIComponent(branch)}` : ''}`
   }
   // code-server takes `?folder=`. Branch is informational; users switch from
   // VS Code's Source Control view.
@@ -81,6 +80,7 @@ export function Ide() {
     if (repo && branch) setStoredBranch(repo, branch)
   }, [repo, branch])
 
+  const org = useGiteaOrg()
   const repoQ = useRepo(repo)
   const branchesQ = useBranches(repo)
 
@@ -92,7 +92,10 @@ export function Ide() {
   }, [repo, branch, repoQ.data?.defaultBranch])
 
   const vscodeHost = useMemo(() => getVscodeHost(), [])
-  const url = useMemo(() => buildVscodeUrl(vscodeHost, repo, branch), [vscodeHost, repo, branch])
+  const url = useMemo(
+    () => buildVscodeUrl(vscodeHost, org, repo, branch),
+    [vscodeHost, org, repo, branch],
+  )
 
   // Track iframe load — switch to "ready" once it fires `load`, or "error"
   // after a 12 s timeout (most likely indicates an unreachable code-server).

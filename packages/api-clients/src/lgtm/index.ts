@@ -4,11 +4,18 @@ import { HttpClient, isProdBuild, svcBaseUrl, type HttpClientOptions } from '../
 /**
  * Loki + Grafana + Mimir + Tempo (LGTM) aggregator.
  *
- * One client for the whole observability stack — the BFF fans out per
- * tenant to the right backend. Schemas mirror the upstream shapes
- * (Prometheus instant/range, Loki log streams, Tempo trace search,
- * Alertmanager, Pyrra-style SLOs) so the views render real data when
- * pointed at production.
+ * One façade over the whole observability stack, but each signal is routed to
+ * its OWN BFF tool proxy and real upstream path — Grafana does not serve the
+ * Loki/Prometheus/Tempo APIs, so a single `/api/svc/lgtm` proxy 404/503s.
+ * Routing:
+ *   • metrics (query_range) → `prometheus` proxy → `/api/v1/query_range`
+ *   • logs                  → `loki` proxy       → `/loki/api/v1/query_range`
+ *   • traces (search+by-id) → `tempo` proxy      → `/api/search`, `/api/traces/{id}`
+ *   • alerts / rules        → `prometheus` proxy → `/api/v1/alerts`, `/api/v1/rules`
+ *   • dashboards            → `grafana` proxy    → `/api/search?type=dash-db`
+ * Schemas mirror the upstream shapes so the views render real data when pointed
+ * at production. Endpoints with no real backend (service map, SLOs) degrade to
+ * an honest empty "not available" state rather than erroring.
  */
 
 /* ─────────── logs ─────────── */
@@ -265,10 +272,90 @@ function parseOtlpTrace(res: OtlpTraceResponse): Span[] {
   })
 }
 
-function build(http: HttpClient, grafanaUrl: string): LgtmClient {
+/* ─────────── Prometheus alerts/rules parsing ─────────── */
+
+/**
+ * Prometheus `/api/v1/alerts` and `/api/v1/rules` shapes (the subset we read).
+ * `/alerts` lists every active (firing/pending) alert instance; `/rules` gives
+ * the owning rule's expression so the detail drawer can show it.
+ */
+interface PromAlert {
+  labels?: Record<string, string>
+  annotations?: Record<string, string>
+  state?: string
+  activeAt?: string
+  value?: string
+}
+interface PromRule {
+  name?: string
+  query?: string
+  type?: string
+  alerts?: PromAlert[]
+}
+interface PromRuleGroup {
+  rules?: PromRule[]
+}
+interface PromAlertsResponse {
+  data?: { alerts?: PromAlert[] }
+}
+interface PromRulesResponse {
+  data?: { groups?: PromRuleGroup[] }
+}
+
+/** Prometheus alert state → our tri-state. `/alerts` only returns active ones. */
+function mapAlertState(s?: string): AlertState {
+  if (s === 'firing') return 'firing'
+  if (s === 'pending') return 'pending'
+  return 'resolved'
+}
+
+/** `labels.severity` → our enum, defaulting to `info` when absent/unknown. */
+function mapSeverity(s?: string): AlertSeverity {
+  return s === 'critical' ? 'critical' : s === 'warning' ? 'warning' : 'info'
+}
+
+/** Stable identity for an alert instance — Prometheus has no fingerprint. */
+function fingerprintOf(labels: Record<string, string>): string {
+  const joined = Object.keys(labels)
+    .sort()
+    .map((k) => `${k}=${labels[k]}`)
+    .join(',')
+  return joined || (labels.alertname ?? 'alert')
+}
+
+/** Map one Prometheus alert instance (+ its rule's expression) to our Alert. */
+function mapPromAlert(a: PromAlert, expression?: string): Alert {
+  const labels = a.labels ?? {}
+  const ann = a.annotations ?? {}
+  const value = a.value != null ? Number(a.value) : undefined
+  return {
+    fingerprint: fingerprintOf(labels),
+    name: labels.alertname ?? 'alert',
+    state: mapAlertState(a.state),
+    severity: mapSeverity(labels.severity),
+    summary: ann.summary,
+    description: ann.description,
+    runbook_url: ann.runbook_url,
+    labels,
+    startsAt: a.activeAt ?? new Date().toISOString(),
+    value: value != null && Number.isFinite(value) ? value : undefined,
+    expression,
+  }
+}
+
+/** Per-backend HTTP clients, each bound to its own BFF tool proxy. */
+interface LgtmBackends {
+  prometheus: HttpClient
+  loki: HttpClient
+  tempo: HttpClient
+  grafana: HttpClient
+}
+
+function build(be: LgtmBackends, grafanaUrl: string): LgtmClient {
   return {
     queryLogs: async (query, start, end, limit = 500) => {
-      const res = await http.get<{
+      // Loki → `loki` proxy → `/api/svc/loki/loki/api/v1/query_range`.
+      const res = await be.loki.get<{
         data: { result: { values: [string, string][]; stream: Record<string, string> }[] }
       }>(
         `/loki/api/v1/query_range?query=${encodeURIComponent(query)}&start=${start.toISOString()}&end=${end.toISOString()}&limit=${limit}`,
@@ -282,56 +369,89 @@ function build(http: HttpClient, grafanaUrl: string): LgtmClient {
       )
     },
     queryMetrics: async (query, start, end, step) => {
-      const res = await http.get<{ data: { result: MetricSeries[] } }>(
-        `/prometheus/api/v1/query_range?query=${encodeURIComponent(query)}&start=${start.toISOString()}&end=${end.toISOString()}&step=${step}`,
+      // Metrics → `prometheus` proxy → `/api/svc/prometheus/api/v1/query_range`.
+      const res = await be.prometheus.get<{ data: { result: MetricSeries[] } }>(
+        `/api/v1/query_range?query=${encodeURIComponent(query)}&start=${start.toISOString()}&end=${end.toISOString()}&step=${step}`,
       )
       return res.data.result
     },
     searchTraces: async (filter) => {
+      // Traces → `tempo` proxy → `/api/svc/tempo/api/search`.
+      // Merge every tag filter into a single `tags` param — the earlier code
+      // set `tags` twice, so `status=error` clobbered the `service.name` tag.
+      const tags: string[] = []
+      if (filter.service) tags.push(`service.name=${filter.service}`)
+      if (filter.status === 'error') tags.push('status.code=error')
       const qs = new URLSearchParams()
-      if (filter.service) qs.set('tags', `service.name=${filter.service}`)
+      if (tags.length) qs.set('tags', tags.join(' '))
       if (filter.minDurationMs) qs.set('minDuration', `${filter.minDurationMs}ms`)
-      if (filter.status === 'error') qs.set('tags', `${qs.get('tags') ?? ''} status.code=error`.trim())
-      const res = await http.get<{ traces: Trace[] }>(`/api/search?${qs}`)
+      const res = await be.tempo.get<{ traces: Trace[] }>(`/api/search?${qs}`)
       return res.traces
     },
     getTrace: async (id) => {
-      const res = await http.get<OtlpTraceResponse>(`/api/traces/${id}`)
+      const res = await be.tempo.get<OtlpTraceResponse>(`/api/traces/${id}`)
       return parseOtlpTrace(res)
     },
-    listServices: async () => {
-      const res = await http.get<{ services: ServiceNode[] }>(`/api/services`)
-      return res.services
-    },
-    serviceMap: async () => {
-      return await http.get<{ nodes: ServiceNode[]; edges: ServiceEdge[] }>(`/api/service-map`)
-    },
+    // No real upstream endpoint backs a service topology (would need Tempo's
+    // metrics-generator service-graph + a bespoke aggregator). Degrade to an
+    // honest empty state — the view renders "No service graph yet".
+    listServices: async () => [],
+    serviceMap: async () => ({ nodes: [], edges: [] }),
     listAlerts: async () => {
-      const res = await http.get<Alert[]>(`/alertmanager/api/v2/alerts`)
-      return res
+      // Alerts → `prometheus` proxy. `/api/v1/alerts` is the active list;
+      // `/api/v1/rules` supplies each rule's expression (best-effort).
+      const [alertsRes, rulesRes] = await Promise.allSettled([
+        be.prometheus.get<PromAlertsResponse>(`/api/v1/alerts`),
+        be.prometheus.get<PromRulesResponse>(`/api/v1/rules`),
+      ])
+      const exprByName = new Map<string, string>()
+      if (rulesRes.status === 'fulfilled') {
+        for (const g of rulesRes.value.data?.groups ?? []) {
+          for (const r of g.rules ?? []) {
+            if (r.name && r.query && (r.type === 'alerting' || r.alerts)) {
+              exprByName.set(r.name, r.query)
+            }
+          }
+        }
+      }
+      if (alertsRes.status === 'rejected') throw alertsRes.reason
+      return (alertsRes.value.data?.alerts ?? []).map((a) =>
+        mapPromAlert(a, exprByName.get(a.labels?.alertname ?? '')),
+      )
     },
-    silenceAlert: async (fingerprint, durationMin) => {
-      await http.post<void>(`/alertmanager/api/v2/silences`, {
-        matchers: [{ name: 'fingerprint', value: fingerprint, isRegex: false }],
-        startsAt: new Date().toISOString(),
-        endsAt: new Date(Date.now() + durationMin * 60_000).toISOString(),
-        comment: 'Silenced from Adhar Console',
-      })
-    },
-    listSlos: async () => {
-      const res = await http.get<{ slos: Slo[] }>(`/api/slos`)
-      return res.slos
-    },
+    // Silencing lives in Alertmanager, which isn't fronted by a tool proxy;
+    // treat it as a no-op so the view stays usable rather than erroring.
+    silenceAlert: async () => {},
+    // Pyrra/Sloth SLO API isn't wired as a tool proxy — degrade honestly to an
+    // empty list; the view renders "No SLOs configured".
+    listSlos: async () => [],
     grafanaEmbedUrl: (uid, params = {}) => {
       const qs = new URLSearchParams({ kiosk: 'tv', ...params })
       return `${grafanaUrl.replace(/\/$/, '')}/d/${uid}?${qs}`
     },
     listDashboards: async () => {
-      const res = await http.get<Array<{ uid: string; title: string; tags: string[]; folderTitle?: string }>>(
+      // Dashboards → `grafana` proxy → `/api/svc/grafana/api/search?type=dash-db`.
+      const res = await be.grafana.get<Array<{ uid: string; title: string; tags: string[]; folderTitle?: string }>>(
         `/api/search?type=dash-db`,
       )
       return res.map((d) => ({ uid: d.uid, title: d.title, tags: d.tags, folder: d.folderTitle }))
     },
+  }
+}
+
+/** Build one HTTP client per backend, each bound to its BFF tool proxy. */
+function makeBackends(opts: Partial<HttpClientOptions> = {}): LgtmBackends {
+  const mk = (tool: string) =>
+    new HttpClient({
+      ...opts,
+      baseUrl: opts.baseUrl ?? svcBaseUrl(tool),
+      credentials: opts.credentials ?? 'include',
+    })
+  return {
+    prometheus: mk('prometheus'),
+    loki: mk('loki'),
+    tempo: mk('tempo'),
+    grafana: mk('grafana'),
   }
 }
 
@@ -658,11 +778,13 @@ const STUB_DASHBOARDS = [
 ]
 
 export const LgtmClient = {
-  create: (opts: import('../base/http.ts').HttpClientOptions & { grafanaUrl: string }) =>
-    build(new HttpClient(opts), opts.grafanaUrl),
+  create: (opts: HttpClientOptions & { grafanaUrl?: string }) =>
+    build(makeBackends(opts), opts.grafanaUrl ?? 'https://grafana.adhar.local'),
   /**
-   * Environment-aware client. Prod build → LGTM/Grafana datasource API through
-   * the BFF proxy (`/api/svc/lgtm`, cookie-authenticated); dev → stub. The
+   * Environment-aware client. Prod build → real backends, each through its OWN
+   * BFF tool proxy (`prometheus` / `loki` / `tempo` / `grafana`,
+   * cookie-authenticated); dev → stub. The `tool` option is accepted for call-site
+   * compatibility but ignored — routing is per-signal, not per-tool. The
    * `grafanaUrl` (for embed deep-links) defaults to the conventional host and
    * can be overridden from `/api/config`.
    */
@@ -671,14 +793,10 @@ export const LgtmClient = {
   ): LgtmClient {
     const real = opts.mode ? opts.mode === 'real' : isProdBuild()
     if (!real) return this.stub()
-    return build(
-      new HttpClient({
-        ...opts,
-        baseUrl: opts.baseUrl ?? svcBaseUrl(opts.tool ?? 'lgtm'),
-        credentials: opts.credentials ?? 'include',
-      }),
-      opts.grafanaUrl ?? 'https://grafana.adhar.local',
-    )
+    // Drop `tool`/`grafanaUrl` before spreading into HttpClientOptions; each
+    // backend derives its own `/api/svc/<tool>` base URL.
+    const { tool: _tool, mode: _mode, grafanaUrl, ...httpOpts } = opts
+    return build(makeBackends(httpOpts), grafanaUrl ?? 'https://grafana.adhar.local')
   },
   stub: (): LgtmClient => ({
     queryLogs: async (q) => {

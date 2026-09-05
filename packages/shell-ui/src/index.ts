@@ -124,6 +124,13 @@ export {
   type NotificationKind,
 } from './notifications.ts'
 export { docStore, DocStoreError, type StoredDoc } from './doc-store.ts'
+export {
+  useAppConfig,
+  useGiteaOrg,
+  useArgocdProject,
+  APP_CONFIG_DEFAULTS,
+  type AppConfig,
+} from './app-config.ts'
 export { notifyUnauthorized, subscribeUnauthorized, UNAUTHORIZED_EVENT } from './unauthorized.ts'
 
 /* ─ Primitives (new polish layer) ─ */

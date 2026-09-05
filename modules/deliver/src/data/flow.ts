@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { coder, gitea, type k8s } from '@adhar-console/api-clients'
+import { useGiteaOrg } from '@adhar-console/shell-ui'
 import { useCRD } from './k8s.ts'
 
 /**
@@ -24,8 +25,12 @@ import { useCRD } from './k8s.ts'
 export const giteaClient = gitea.GiteaClient.auto({ tool: 'gitea' })
 export const coderClient = coder.CoderClient.auto({ tool: 'coder' })
 
-/** Gitea org / Coder are single-tenant per install — mirrors the Develop module. */
-export const FLOW_ORG = 'acme'
+/**
+ * Gitea org — a per-install identifier served by the BFF at `/api/config` and
+ * read through `useGiteaOrg()` (real default `adhar`). Mirrors the Develop
+ * module; each Gitea hook resolves it locally and threads it through its
+ * `queryKey` + `queryFn` (never the old hardcoded `acme`).
+ */
 
 const REFRESH_MS = 15_000
 const SLOW_MS = 30_000
@@ -57,18 +62,20 @@ export const FLOW_GVRS = {
 /* ─────────── Gitea: Code + Pull Request ─────────── */
 
 export function useGiteaRepos() {
+  const org = useGiteaOrg()
   return useQuery({
-    queryKey: ['flow', 'gitea', 'repos', FLOW_ORG],
-    queryFn: () => giteaClient.listRepos(FLOW_ORG),
+    queryKey: ['flow', 'gitea', 'repos', org],
+    queryFn: () => giteaClient.listRepos(org),
     staleTime: SLOW_MS,
     retry: false,
   })
 }
 
 export function useGiteaCommits(repo?: string, ref?: string, limit = 5) {
+  const org = useGiteaOrg()
   return useQuery({
-    queryKey: ['flow', 'gitea', 'commits', FLOW_ORG, repo, ref, limit],
-    queryFn: () => giteaClient.listCommits(FLOW_ORG, repo!, ref, limit),
+    queryKey: ['flow', 'gitea', 'commits', org, repo, ref, limit],
+    queryFn: () => giteaClient.listCommits(org, repo!, ref, limit),
     enabled: !!repo,
     refetchInterval: REFRESH_MS,
     retry: false,
@@ -76,9 +83,10 @@ export function useGiteaCommits(repo?: string, ref?: string, limit = 5) {
 }
 
 export function useGiteaPulls(repo?: string, state: 'open' | 'closed' | 'all' = 'all') {
+  const org = useGiteaOrg()
   return useQuery({
-    queryKey: ['flow', 'gitea', 'pulls', FLOW_ORG, repo, state],
-    queryFn: () => giteaClient.listPullRequests(FLOW_ORG, repo!, state),
+    queryKey: ['flow', 'gitea', 'pulls', org, repo, state],
+    queryFn: () => giteaClient.listPullRequests(org, repo!, state),
     enabled: !!repo,
     refetchInterval: REFRESH_MS,
     retry: false,

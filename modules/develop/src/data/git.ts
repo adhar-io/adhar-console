@@ -1,14 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { gitea } from '@adhar-console/api-clients';
+import { useGiteaOrg } from '@adhar-console/shell-ui';
 
 /**
- * Gitea hooks for the Develop module. Stub-backed in dev so the IDE,
- * repo cards, branch picker, and PR drawers all render without a live
- * Gitea behind them.
+ * Gitea hooks for the Develop module.
+ *
+ * The Gitea org is a per-install identifier served by the BFF at `/api/config`
+ * and read through `useGiteaOrg()` (real default `adhar`) — never hardcoded.
+ * Each hook resolves the org locally and threads it through both its
+ * `queryKey` and `queryFn`, so every Develop view queries the real org.
  */
 
 export const giteaClient = gitea.GiteaClient.auto({ tool: 'gitea' });
-export const ORG = 'acme';
 
 const REFRESH_MS = 30_000;
 
@@ -37,44 +40,49 @@ export function setStoredBranch(repo: string, branch: string) {
 /* ─────────── queries ─────────── */
 
 export function useRepos() {
+  const org = useGiteaOrg();
   return useQuery({
-    queryKey: ['gitea', 'repos', ORG],
-    queryFn: () => giteaClient.listRepos(ORG),
+    queryKey: ['gitea', 'repos', org],
+    queryFn: () => giteaClient.listRepos(org),
     staleTime: REFRESH_MS,
   });
 }
 
 export function useRepo(repo?: string) {
+  const org = useGiteaOrg();
   return useQuery({
-    queryKey: ['gitea', 'repo', ORG, repo],
-    queryFn: () => giteaClient.getRepo(ORG, repo!),
+    queryKey: ['gitea', 'repo', org, repo],
+    queryFn: () => giteaClient.getRepo(org, repo!),
     enabled: !!repo,
     staleTime: REFRESH_MS,
   });
 }
 
 export function useBranches(repo?: string) {
+  const org = useGiteaOrg();
   return useQuery({
-    queryKey: ['gitea', 'branches', ORG, repo],
-    queryFn: () => giteaClient.listBranches(ORG, repo!),
+    queryKey: ['gitea', 'branches', org, repo],
+    queryFn: () => giteaClient.listBranches(org, repo!),
     enabled: !!repo,
     staleTime: REFRESH_MS,
   });
 }
 
 export function useCommits(repo?: string, ref?: string, limit = 50) {
+  const org = useGiteaOrg();
   return useQuery({
-    queryKey: ['gitea', 'commits', ORG, repo, ref, limit],
-    queryFn: () => giteaClient.listCommits(ORG, repo!, ref, limit),
+    queryKey: ['gitea', 'commits', org, repo, ref, limit],
+    queryFn: () => giteaClient.listCommits(org, repo!, ref, limit),
     enabled: !!repo,
     staleTime: REFRESH_MS,
   });
 }
 
 export function usePullRequests(repo?: string, state: 'open' | 'closed' | 'all' = 'open') {
+  const org = useGiteaOrg();
   return useQuery({
-    queryKey: ['gitea', 'prs', ORG, repo, state],
-    queryFn: () => giteaClient.listPullRequests(ORG, repo!, state),
+    queryKey: ['gitea', 'prs', org, repo, state],
+    queryFn: () => giteaClient.listPullRequests(org, repo!, state),
     enabled: !!repo,
     staleTime: REFRESH_MS,
   });
@@ -82,14 +90,15 @@ export function usePullRequests(repo?: string, state: 'open' | 'closed' | 'all' 
 
 /** PRs across every repo in the org — flattened. Used by the dashboard. */
 export function useAllOpenPullRequests() {
+  const org = useGiteaOrg();
   const repos = useRepos();
   return useQuery({
-    queryKey: ['gitea', 'prs-flat', ORG, repos.data?.map((r) => r.name).join(',')],
+    queryKey: ['gitea', 'prs-flat', org, repos.data?.map((r) => r.name).join(',')],
     queryFn: async () => {
       if (!repos.data) return [];
       const out: Array<gitea.PullRequest & { repo: string }> = [];
       for (const r of repos.data) {
-        const list = await giteaClient.listPullRequests(ORG, r.name, 'open');
+        const list = await giteaClient.listPullRequests(org, r.name, 'open');
         out.push(...list.map((p) => ({ ...p, repo: r.name })));
       }
       return out;
@@ -100,27 +109,30 @@ export function useAllOpenPullRequests() {
 }
 
 export function useIssues(repo?: string, state: 'open' | 'closed' | 'all' = 'open') {
+  const org = useGiteaOrg();
   return useQuery({
-    queryKey: ['gitea', 'issues', ORG, repo, state],
-    queryFn: () => giteaClient.listIssues(ORG, repo!, state),
+    queryKey: ['gitea', 'issues', org, repo, state],
+    queryFn: () => giteaClient.listIssues(org, repo!, state),
     enabled: !!repo,
     staleTime: REFRESH_MS,
   });
 }
 
 export function useTree(repo?: string, ref?: string, path = '') {
+  const org = useGiteaOrg();
   return useQuery({
-    queryKey: ['gitea', 'tree', ORG, repo, ref, path],
-    queryFn: () => giteaClient.listTree(ORG, repo!, ref!, path),
+    queryKey: ['gitea', 'tree', org, repo, ref, path],
+    queryFn: () => giteaClient.listTree(org, repo!, ref!, path),
     enabled: !!repo && !!ref,
     staleTime: REFRESH_MS,
   });
 }
 
 export function useFile(repo?: string, ref?: string, path?: string) {
+  const org = useGiteaOrg();
   return useQuery({
-    queryKey: ['gitea', 'file', ORG, repo, ref, path],
-    queryFn: () => giteaClient.getFile(ORG, repo!, ref!, path!),
+    queryKey: ['gitea', 'file', org, repo, ref, path],
+    queryFn: () => giteaClient.getFile(org, repo!, ref!, path!),
     enabled: !!repo && !!ref && !!path,
     staleTime: REFRESH_MS,
   });
@@ -248,13 +260,15 @@ export function parseUnifiedDiff(raw: string): DiffFile[] {
 /**
  * Real PR diff — fetches the raw unified `.diff` text from Gitea (through the
  * BFF proxy) and runs it through {@link parseUnifiedDiff}. `repo` may be a bare
- * name (owner defaults to {@link ORG}) or a fully-qualified `owner/name`.
+ * name (owner defaults to the configured Gitea org) or a fully-qualified
+ * `owner/name`.
  */
 export function usePullDiff(repo?: string, number?: number) {
+  const org = useGiteaOrg();
   return useQuery({
-    queryKey: ['gitea', 'pull-diff', ORG, repo, number],
+    queryKey: ['gitea', 'pull-diff', org, repo, number],
     queryFn: async (): Promise<DiffFile[]> => {
-      const [owner, name] = repo!.includes('/') ? repo!.split('/') : [ORG, repo!];
+      const [owner, name] = repo!.includes('/') ? repo!.split('/') : [org, repo!];
       const raw = await giteaClient.getPullDiff(owner, name, number!);
       return parseUnifiedDiff(raw ?? '');
     },
@@ -264,6 +278,7 @@ export function usePullDiff(repo?: string, number?: number) {
 }
 
 export function useSaveFile() {
+  const org = useGiteaOrg();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -280,10 +295,10 @@ export function useSaveFile() {
       content: string;
       message: string;
       sha?: string;
-    }) => giteaClient.saveFile(ORG, repo, ref, path, { content, message, sha }),
+    }) => giteaClient.saveFile(org, repo, ref, path, { content, message, sha }),
     onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ['gitea', 'file', ORG, vars.repo, vars.ref, vars.path] });
-      qc.invalidateQueries({ queryKey: ['gitea', 'commits', ORG, vars.repo] });
+      qc.invalidateQueries({ queryKey: ['gitea', 'file', org, vars.repo, vars.ref, vars.path] });
+      qc.invalidateQueries({ queryKey: ['gitea', 'commits', org, vars.repo] });
     },
   });
 }

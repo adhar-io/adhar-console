@@ -61,6 +61,7 @@ export function useNamespaces() {
     queryKey: ['k8s', 'namespaces', scope, cluster],
     queryFn: () => client.listNamespaces(cluster, scope || undefined),
     staleTime: 30_000,
+    refetchInterval: AUTO_REFRESH_MS,
   })
 }
 
@@ -99,6 +100,7 @@ export function useJobs(namespace?: string) {
   return useQuery({
     queryKey: ['k8s', 'jobs', ns ?? '*', cluster],
     queryFn: () => client.listJobs(cluster, ns),
+    refetchInterval: AUTO_REFRESH_MS,
   })
 }
 
@@ -108,6 +110,7 @@ export function useCronJobs(namespace?: string) {
   return useQuery({
     queryKey: ['k8s', 'cronjobs', ns ?? '*', cluster],
     queryFn: () => client.listCronJobs(cluster, ns),
+    refetchInterval: AUTO_REFRESH_MS,
   })
 }
 
@@ -161,6 +164,7 @@ export function usePersistentVolumeClaims(namespace?: string) {
   return useQuery({
     queryKey: ['k8s', 'pvc', ns ?? '*', cluster],
     queryFn: () => client.listPersistentVolumeClaims(cluster, ns),
+    refetchInterval: AUTO_REFRESH_MS,
   })
 }
 

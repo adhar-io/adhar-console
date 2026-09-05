@@ -21,6 +21,11 @@ export const Route = createFileRoute('/api/config')({
             builderUrl: env('ADHAR_BUILDER_URL') ?? env('VITE_ADHAR_BUILDER_URL') ?? '',
             tools: publicToolInfo(),
             version: env('ADHAR_CONSOLE_VERSION') ?? '0.1.0',
+            // Real single-tenant-per-install backend identifiers so the UI never
+            // hardcodes them (Develop/Deliver used a bogus "acme" org/project →
+            // 404/empty). Gitea org owns the repos; Argo CD project scopes apps.
+            giteaOrg: env('GITEA_TEMPLATES_ORG') ?? env('GITEA_ORG') ?? 'adhar',
+            argocdProject: env('ARGOCD_PROJECT') ?? 'default',
           },
           { headers: { 'cache-control': 'no-store' } },
         ),

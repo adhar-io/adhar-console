@@ -20,6 +20,7 @@ import {
   useNamespaces,
   useNodeMetrics,
   useNodes,
+  usePersistentVolumeClaims,
   usePodMetrics,
   usePods,
   useStatefulSets,
@@ -51,6 +52,7 @@ export function PlatformDashboard() {
   const cronJobs = useCronJobs()
   const events = useEvents()
   const podMetrics = usePodMetrics()
+  const pvcs = usePersistentVolumeClaims()
 
   const clusterLabel = cluster === LOCAL_CLUSTER ? 'Local cluster' : cluster
 
@@ -84,9 +86,20 @@ export function PlatformDashboard() {
   const capacity = aggregateAllocatable(nodes.data ?? [])
   const usage = aggregateUsage(nodeMetrics.data as RawMetrics[] | undefined)
   const podCount = pods.data?.length ?? 0
+  // metrics.k8s.io (metrics-server) is optional: an empty array means it is not
+  // serving, so the CPU/Memory dials must show an honest "n/a" instead of 0%.
+  const hasNodeMetrics = Array.isArray(nodeMetrics.data) && (nodeMetrics.data as unknown[]).length > 0
   const cpuPct = capacity.cpu > 0 ? Math.min(100, Math.round((usage.cpu / capacity.cpu) * 100)) : 0
   const memPct = capacity.mem > 0 ? Math.min(100, Math.round((usage.mem / capacity.mem) * 100)) : 0
   const podPct = capacity.pods > 0 ? Math.min(100, Math.round((podCount / capacity.pods) * 100)) : 0
+
+  // Additional utilization dials — all from real k8s state (no metrics-server
+  // dependency), each with an honest empty state when the source is absent.
+  const nodeReadyPct = totalNodesReadyPct(nodes.data ?? [])
+  const wl = workloadHealth(deployments.data ?? [], statefulSets.data as GenericWorkload[] | undefined)
+  const wlPct = wl.total > 0 ? Math.round((wl.healthy / wl.total) * 100) : 0
+  const storage = aggregatePvc(pvcs.data as PvcObject[] | undefined)
+  const storagePct = storage.total > 0 ? Math.round((storage.bound / storage.total) * 100) : 0
 
   const readyNodes = (nodes.data ?? []).filter((n) => isNodeReady(n)).length
   const totalNodes = nodes.data?.length ?? 0
@@ -172,7 +185,7 @@ export function PlatformDashboard() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+        <Card className="h-full lg:col-span-2">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
@@ -223,7 +236,7 @@ export function PlatformDashboard() {
           </CardBody>
         </Card>
 
-        <Card>
+        <Card className="h-full">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
@@ -275,31 +288,27 @@ export function PlatformDashboard() {
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <div className="text-sm font-semibold text-content">Capacity utilization</div>
+              <div className="text-sm font-semibold text-content">Resource utilization</div>
               <div className="text-[11px] text-content-subtle">
-                {nodeMetrics.data && (nodeMetrics.data as unknown[]).length
-                  ? 'Live usage from metrics-server'
-                  : 'metrics-server missing — showing allocatable only'}
+                {hasNodeMetrics
+                  ? 'Live usage from metrics-server · refreshing every 10s'
+                  : 'Allocatable + workload health live; CPU/Memory need metrics-server'}
               </div>
             </div>
-            <StatusBadge
-              kind={
-                nodeMetrics.data && (nodeMetrics.data as unknown[]).length ? 'healthy' : 'unknown'
-              }
-            >
-              {nodeMetrics.data && (nodeMetrics.data as unknown[]).length
-                ? 'metrics live'
-                : 'static capacity'}
+            <StatusBadge kind={hasNodeMetrics ? 'healthy' : 'unknown'}>
+              {hasNodeMetrics ? 'metrics live' : 'metrics offline'}
             </StatusBadge>
           </div>
         </CardHeader>
-        <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <GaugeTile
             title="CPU"
             pct={cpuPct}
             primary={`${formatCpu(usage.cpu)} / ${formatCpu(capacity.cpu)}`}
             secondary={`${formatCpu(Math.max(0, capacity.cpu - usage.cpu))} free`}
             color="var(--color-brand-500)"
+            unavailable={!hasNodeMetrics}
+            note="metrics-server not available"
           />
           <GaugeTile
             title="Memory"
@@ -307,19 +316,53 @@ export function PlatformDashboard() {
             primary={`${formatBytes(usage.mem)} / ${formatBytes(capacity.mem)}`}
             secondary={`${formatBytes(Math.max(0, capacity.mem - usage.mem))} free`}
             color="var(--color-accent-500)"
+            unavailable={!hasNodeMetrics}
+            note="metrics-server not available"
           />
           <GaugeTile
             title="Pods"
             pct={podPct}
             primary={`${podCount} / ${capacity.pods}`}
             secondary={`${Math.max(0, capacity.pods - podCount)} slots free`}
-            color="#8b5cf6"
+            color="var(--color-violet-500)"
+          />
+          <GaugeTile
+            title="Nodes ready"
+            pct={nodeReadyPct}
+            primary={`${readyNodes} / ${totalNodes} ready`}
+            secondary={`${Math.max(0, totalNodes - readyNodes)} need attention`}
+            color="var(--color-emerald-500)"
+            invert
+            unavailable={totalNodes === 0}
+            note="No nodes reported"
+          />
+          <GaugeTile
+            title="Workload health"
+            pct={wlPct}
+            primary={`${wl.healthy} / ${wl.total} healthy`}
+            secondary="deployments + statefulsets at desired replicas"
+            color="var(--color-emerald-500)"
+            invert
+            unavailable={wl.total === 0}
+            note="No deployments or statefulsets"
+          />
+          <GaugeTile
+            title="Storage claims"
+            pct={storagePct}
+            primary={`${storage.bound} / ${storage.total} bound`}
+            secondary={
+              storage.capacity > 0 ? `${formatBytes(storage.capacity)} provisioned` : 'no capacity reported'
+            }
+            color="var(--color-sky-500)"
+            invert
+            unavailable={storage.total === 0}
+            note={pvcs.isLoading ? 'Loading claims…' : 'No PersistentVolumeClaims'}
           />
         </CardBody>
       </Card>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+        <Card className="h-full lg:col-span-2">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
@@ -360,7 +403,7 @@ export function PlatformDashboard() {
           </CardBody>
         </Card>
 
-        <Card>
+        <Card className="h-full">
           <CardHeader>
             <div className="text-sm font-semibold text-content">Top namespaces</div>
             <div className="text-[11px] text-content-subtle">By pod density</div>
@@ -395,7 +438,7 @@ export function PlatformDashboard() {
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+        <Card className="h-full lg:col-span-2">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
@@ -422,7 +465,7 @@ export function PlatformDashboard() {
           </CardBody>
         </Card>
 
-        <Card>
+        <Card className="h-full">
           <CardHeader>
             <div className="text-sm font-semibold text-content">Node health</div>
             <div className="text-[11px] text-content-subtle">CPU + memory headroom</div>
@@ -608,7 +651,8 @@ function MicroBar({ pct, label, color }: { pct: number; label: string; color: st
           className="h-full rounded-full"
           style={{
             width: `${Math.max(0, Math.min(100, pct))}%`,
-            backgroundColor: pct >= 85 ? '#f43f5e' : pct >= 65 ? '#f59e0b' : color,
+            backgroundColor:
+              pct >= 85 ? 'var(--color-rose-500)' : pct >= 65 ? 'var(--color-amber-500)' : color,
           }}
         />
       </div>
@@ -622,21 +666,63 @@ function GaugeTile({
   primary,
   secondary,
   color,
+  unavailable = false,
+  note,
+  invert = false,
 }: {
   title: string
   pct: number
   primary: string
   secondary: string
   color: string
+  /** Metrics genuinely absent — render an honest "n/a" dial, never a false 0%. */
+  unavailable?: boolean
+  /** Explanation shown in the unavailable state. */
+  note?: string
+  /** For "higher is better" dials (readiness/health): warn on LOW, not high. */
+  invert?: boolean
 }) {
+  if (unavailable) {
+    return (
+      <div className="flex h-full items-center gap-4 rounded-xl border border-dashed border-edge-default bg-surface-sunken/40 p-4">
+        <DonutGauge
+          value={0}
+          max={100}
+          size={100}
+          thickness={12}
+          color="var(--color-edge-strong)"
+          label={<span className="text-sm font-medium text-content-subtle">n/a</span>}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">
+            {title}
+          </div>
+          <div className="mt-1 text-[11px] leading-relaxed text-content-muted">
+            {note ?? 'No data available'}
+          </div>
+        </div>
+      </div>
+    )
+  }
+  const gaugeColor = invert
+    ? pct <= 50
+      ? 'var(--color-rose-500)'
+      : pct <= 80
+        ? 'var(--color-amber-500)'
+        : color
+    : pct >= 85
+      ? 'var(--color-rose-500)'
+      : pct >= 65
+        ? 'var(--color-amber-500)'
+        : color
   return (
-    <div className="flex items-center gap-4 rounded-xl border border-edge-subtle bg-surface-sunken/60 p-4">
+    <div className="flex h-full items-center gap-4 rounded-xl border border-edge-subtle bg-surface-sunken/60 p-4">
       <DonutGauge
         value={pct}
         max={100}
         size={100}
         thickness={12}
-        color={pct >= 85 ? '#f43f5e' : pct >= 65 ? '#f59e0b' : color}
+        color={gaugeColor}
         label={
           <span>
             {pct}
@@ -714,7 +800,7 @@ function QuickStartCard({
     violet: 'border-violet-200/60 dark:border-violet-500/25 bg-violet-50/30 dark:bg-violet-500/10',
   }[tone]
   return (
-    <Card className={`${accent} border`}>
+    <Card className={`${accent} h-full border`}>
       <CardBody className="space-y-3">
         <div>
           <div className="text-sm font-semibold text-content">{title}</div>
@@ -888,7 +974,7 @@ function TopConsumerList({
 }) {
   const max = unit === 'cpu' ? Math.max(...rows.map((r) => r.cpu), 0.001) : Math.max(...rows.map((r) => r.mem), 1)
   return (
-    <Card>
+    <Card className="h-full">
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
@@ -998,6 +1084,61 @@ function aggregateAllocatable(nodes: Array<{ status?: { allocatable?: Record<str
     pods += parseQuantity(alloc.pods)
   }
   return { cpu, mem, pods: Math.round(pods) }
+}
+
+/** Percentage of nodes reporting Ready=True (100 when there are no nodes yet). */
+function totalNodesReadyPct(
+  nodes: Array<{ status?: { conditions?: Array<{ type: string; status: string }> } }>,
+): number {
+  if (nodes.length === 0) return 0
+  const ready = nodes.filter((n) => isNodeReady(n)).length
+  return Math.round((ready / nodes.length) * 100)
+}
+
+interface GenericWorkload {
+  spec?: { replicas?: number }
+  status?: { readyReplicas?: number }
+}
+
+/**
+ * Workload health = deployments + statefulsets whose ready replicas meet their
+ * desired replica count, over the total. A workload scaled to zero counts as
+ * healthy (nothing is expected to be running).
+ */
+function workloadHealth(
+  deployments: Array<{ spec?: { replicas?: number }; status?: { readyReplicas?: number } }>,
+  statefulSets: GenericWorkload[] | undefined,
+) {
+  let healthy = 0
+  let total = 0
+  const tally = (desired: number, ready: number) => {
+    total++
+    if (ready >= desired) healthy++
+  }
+  for (const d of deployments) tally(d.spec?.replicas ?? 0, d.status?.readyReplicas ?? 0)
+  for (const s of statefulSets ?? []) tally(s.spec?.replicas ?? 0, s.status?.readyReplicas ?? 0)
+  return { healthy, total }
+}
+
+interface PvcObject {
+  spec?: { resources?: { requests?: { storage?: string } } }
+  status?: { phase?: string; capacity?: { storage?: string } }
+}
+
+/**
+ * PersistentVolumeClaim summary — how many are Bound of the total, plus the
+ * provisioned capacity (bound `status.capacity`, else requested `spec` size).
+ */
+function aggregatePvc(pvcs: PvcObject[] | undefined) {
+  if (!pvcs) return { bound: 0, total: 0, capacity: 0 }
+  let bound = 0
+  let capacity = 0
+  for (const p of pvcs) {
+    if (p.status?.phase === 'Bound') bound++
+    const cap = p.status?.capacity?.storage ?? p.spec?.resources?.requests?.storage
+    capacity += parseQuantity(cap)
+  }
+  return { bound, total: pvcs.length, capacity }
 }
 
 function aggregateUsage(metrics: RawMetrics[] | undefined) {

@@ -60,7 +60,7 @@ export function Alerts() {
 
   if (q.isLoading) return <LoadingCard label="Loading alerts…" />
   if (q.isError) {
-    return <SourceError tool="Alertmanager" error={q.error} onRetry={() => q.refetch()} icon={<PrometheusIcon size={20} />} />
+    return <SourceError tool="Prometheus" error={q.error} onRetry={() => q.refetch()} icon={<PrometheusIcon size={20} />} />
   }
 
   const sorted = list.slice().sort((a, b) => severityRank(a.severity) - severityRank(b.severity))

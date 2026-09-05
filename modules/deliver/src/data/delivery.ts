@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { argocd, argoRollouts, falco, harbor, kargo, trivy } from '@adhar-console/api-clients'
+import { useArgocdProject } from '@adhar-console/shell-ui'
 import {
   fetchManagedResources,
   fetchRevisionHistory,
@@ -33,16 +34,23 @@ export const harborClient = harbor.HarborClient.auto({ tool: 'harbor' })
 export const trivyClient = trivy.TrivyClient.auto({ tool: 'trivy' })
 export const falcoClient = falco.FalcoClient.auto({ tool: 'falco' })
 
-export const PROJECT = 'acme'
+/**
+ * Argo CD project the platform's Applications (and, per-install, the matching
+ * Kargo project / Harbor project) live under. Served by the BFF at
+ * `/api/config` and read through `useArgocdProject()` (real default `default`)
+ * — never the old hardcoded `acme` that made every list come back empty. Each
+ * hook resolves it locally and threads it through its `queryKey` + `queryFn`.
+ */
 
 const REFRESH_MS = 15_000
 
 /* ─────────── ArgoCD ─────────── */
 
 export function useApplications() {
+  const project = useArgocdProject()
   return useQuery({
-    queryKey: ['argocd', 'apps', PROJECT],
-    queryFn: () => argocdClient.listApplications(PROJECT),
+    queryKey: ['argocd', 'apps', project],
+    queryFn: () => argocdClient.listApplications(project),
     refetchInterval: REFRESH_MS,
   })
 }
@@ -125,26 +133,29 @@ export function useRollbackApplication() {
 /* ─────────── Kargo ─────────── */
 
 export function useStages() {
+  const project = useArgocdProject()
   return useQuery({
-    queryKey: ['kargo', 'stages', PROJECT],
-    queryFn: () => kargoClient.listStages(PROJECT),
+    queryKey: ['kargo', 'stages', project],
+    queryFn: () => kargoClient.listStages(project),
     refetchInterval: REFRESH_MS,
   })
 }
 
 export function useFreight() {
+  const project = useArgocdProject()
   return useQuery({
-    queryKey: ['kargo', 'freight', PROJECT],
-    queryFn: () => kargoClient.listFreight(PROJECT),
+    queryKey: ['kargo', 'freight', project],
+    queryFn: () => kargoClient.listFreight(project),
     refetchInterval: REFRESH_MS,
   })
 }
 
 export function usePromote() {
+  const project = useArgocdProject()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ stage, freight }: { stage: string; freight: string }) =>
-      kargoClient.promote(PROJECT, stage, freight),
+      kargoClient.promote(project, stage, freight),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['kargo'] }),
   })
 }
@@ -180,17 +191,19 @@ export function useAbortRollout() {
 /* ─────────── Harbor ─────────── */
 
 export function useRepositories() {
+  const project = useArgocdProject()
   return useQuery({
-    queryKey: ['harbor', 'repos', PROJECT],
-    queryFn: () => harborClient.listRepositories(PROJECT),
+    queryKey: ['harbor', 'repos', project],
+    queryFn: () => harborClient.listRepositories(project),
     staleTime: 30_000,
   })
 }
 
 export function useArtifacts(repo?: string) {
+  const project = useArgocdProject()
   return useQuery({
-    queryKey: ['harbor', 'artifacts', PROJECT, repo],
-    queryFn: () => harborClient.listArtifacts(PROJECT, repo!),
+    queryKey: ['harbor', 'artifacts', project, repo],
+    queryFn: () => harborClient.listArtifacts(project, repo!),
     enabled: !!repo,
     staleTime: 30_000,
   })

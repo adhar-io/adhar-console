@@ -5,8 +5,13 @@ import { lgtm, posthog } from '@adhar-console/api-clients'
  * Discover hooks layer — wraps the LGTM stack (Loki / Mimir / Tempo /
  * Grafana / Alertmanager / SLOs) and PostHog analytics.
  *
- * Stub-backed in dev so every view renders rich data without a live LGTM
- * or PostHog instance behind the BFF.
+ * Every hook talks to a real backend through the console BFF tool proxy
+ * (`/api/svc/<tool>`, cookie-authenticated). In production builds the queries
+ * hit live Prometheus/Mimir, Loki, Tempo, Grafana, Alertmanager and PostHog;
+ * the LGTM client falls back to an in-memory fixture only in a non-prod dev
+ * build so the views are demoable without a cluster. Views render honest
+ * "not configured / unreachable / no data" states (see `views/states.tsx`)
+ * whenever a source is absent — no fabricated series or rows.
  */
 
 export const lgtmClient = lgtm.LgtmClient.auto({ tool: 'lgtm' })
@@ -63,10 +68,14 @@ export function selectionLabel(sel: TimeSelection): string {
 
 export function useLogs(query: string, sel: TimeSelection, limit = 200) {
   const { start, end } = selectionToWindow(sel)
+  // Loki (LogQL) requires a non-empty stream selector — never fire an empty
+  // query against a real backend; the view prompts for one instead.
+  const enabled = query.trim().length > 0
   return useQuery({
     queryKey: ['lgtm', 'logs', query, sel],
     queryFn: () => lgtmClient.queryLogs(query, start, end, limit),
     refetchInterval: REFRESH_MS,
+    enabled,
   })
 }
 

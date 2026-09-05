@@ -19,7 +19,7 @@ import type { Journey, JourneyEmotion, JourneyStage, Persona } from '../data/typ
  * context, an emotion curve, and an editable stage grid where every cell
  * (actions / thoughts / pains / opportunities) is in-place editable.
  *
- * All edits autosave to localStorage.
+ * All edits persist to the tenant document store (kind `design.journey`).
  */
 export function Journeys() {
   const { items: list, isLoading, error, refetch } = useCollection<Journey>(KIND.journey)

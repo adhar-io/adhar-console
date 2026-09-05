@@ -44,17 +44,6 @@ export function Scans() {
   const q = useScans()
   const rescan = useRescan()
 
-  if (q.isLoading) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Loading scan reports…
-      </div>
-    )
-  }
-  if (q.isError) {
-    return <EmptyState title="Couldn't reach Trivy operator" />
-  }
-
   const all = q.data ?? []
   const list = useMemo(() => {
     const f = search.trim().toLowerCase()
@@ -75,6 +64,17 @@ export function Scans() {
       )
       .sort(rankReports)
   }, [all, target, severity, search])
+
+  if (q.isLoading) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
+        <Spinner size={14} /> Loading scan reports…
+      </div>
+    )
+  }
+  if (q.isError) {
+    return <EmptyState title="Couldn't reach Trivy operator" />
+  }
 
   const counts = countByTarget(all)
   const totals = sumSummaries(all)

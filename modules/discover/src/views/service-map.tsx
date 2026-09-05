@@ -4,12 +4,13 @@ import {
   CardBody,
   CardHeader,
   EmptyState,
-  Spinner,
+  OTelIcon,
   StatusBadge,
 } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
 import type { lgtm } from '@adhar-console/api-clients'
 import { useServiceMap } from '../data/observability.ts'
+import { LoadingCard, SourceError } from './states.tsx'
 
 /**
  * Service Map — OpenTelemetry-derived service topology rendered as an
@@ -20,19 +21,24 @@ export function ServiceMap() {
   const q = useServiceMap()
   const [focused, setFocused] = useState<string | null>(null)
 
-  if (q.isLoading) {
+  const nodes = q.data?.nodes ?? []
+  const edges = q.data?.edges ?? []
+  // Hooks must run every render — compute layout before any early return.
+  const layout = useMemo(() => layoutNodes(nodes, edges), [nodes, edges])
+
+  if (q.isLoading) return <LoadingCard label="Building service map…" />
+  if (q.isError) {
+    return <SourceError tool="Tempo" error={q.error} onRetry={() => q.refetch()} icon={<OTelIcon size={20} />} />
+  }
+  if (!q.data || nodes.length === 0) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Building service map…
-      </div>
+      <EmptyState
+        title="No service graph yet"
+        description="Tempo hasn't produced a service graph for this window. Generate some traffic, or check that the metrics-generator is enabled."
+      />
     )
   }
-  if (!q.data) {
-    return <EmptyState title="Service map unavailable" />
-  }
 
-  const { nodes, edges } = q.data
-  const layout = useMemo(() => layoutNodes(nodes, edges), [nodes, edges])
   const visibleEdges = focused
     ? edges.filter((e) => e.from === focused || e.to === focused)
     : edges
@@ -99,7 +105,7 @@ export function ServiceMap() {
                       markerEnd={err ? 'url(#sm-arrow-err)' : 'url(#sm-arrow)'}
                     />
                     <g transform={`translate(${mx},${my})`}>
-                      <rect x="-22" y="-9" width="44" height="18" rx="9" fill="white" stroke="var(--color-edge-default)" />
+                      <rect x="-22" y="-9" width="44" height="18" rx="9" fill="var(--color-surface-raised)" stroke="var(--color-edge-default)" />
                       <text x="0" y="3" fontSize="9" textAnchor="middle" fill={err ? 'var(--color-rose-700)' : 'var(--color-content-muted)'}>
                         {e.rps.toFixed(0)} rps · {e.errorRate.toFixed(1)}%
                       </text>

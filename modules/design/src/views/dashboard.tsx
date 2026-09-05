@@ -16,6 +16,14 @@ import type { Adr, Diagram, Journey, Persona, WhiteboardBoard, Wireframe } from 
  * Postgres-backed document store — an unavailable store surfaces as an error,
  * never fake data.
  */
+const RECENT_TONE: Record<'brand' | 'amber' | 'violet' | 'emerald' | 'rose', string> = {
+  brand: 'bg-brand-50 text-brand-700',
+  amber: 'bg-amber-50 text-amber-700',
+  violet: 'bg-violet-50 text-violet-700',
+  emerald: 'bg-emerald-50 text-emerald-700',
+  rose: 'bg-rose-50 text-rose-700',
+}
+
 export function Dashboard() {
   const adrsQ = useCollection<Adr>(KIND.adr)
   const diagramsQ = useCollection<Diagram>(KIND.diagram)
@@ -48,30 +56,48 @@ export function Dashboard() {
   const proposed = adrs.filter((a) => a.status === 'proposed').length
   const accepted = adrs.filter((a) => a.status === 'accepted').length
 
+  // Recent activity uses the REAL envelope timestamp (`_updatedAt`) the store
+  // folds onto every listed document, falling back to a domain field only for
+  // types that also carry one. No fabricated dates.
   const recent = [
     ...adrs.map((a) => ({
       kind: 'ADR',
       id: a.id,
       title: a.title,
-      ts: a.updated_at,
+      ts: a._updatedAt ?? a.updated_at,
       tone: 'brand' as const,
+    })),
+    ...diagramsQ.items.map((d) => ({
+      kind: 'Diagram',
+      id: d.id,
+      title: d.title,
+      ts: d._updatedAt ?? d.updated_at,
+      tone: 'amber' as const,
     })),
     ...journeys.map((j) => ({
       kind: 'Journey',
       id: j.id,
       title: j.name,
-      ts: '2026-04-20T10:00:00Z',
+      ts: j._updatedAt,
       tone: 'violet' as const,
     })),
     ...personas.map((p) => ({
       kind: 'Persona',
       id: p.id,
       title: p.name,
-      ts: '2026-04-18T10:00:00Z',
+      ts: p._updatedAt,
       tone: 'emerald' as const,
     })),
+    ...wireframes.map((w) => ({
+      kind: 'Wireframe',
+      id: w.id,
+      title: w.name,
+      ts: w._updatedAt,
+      tone: 'rose' as const,
+    })),
   ]
-    .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
+    .filter((r) => !!r.ts)
+    .sort((a, b) => new Date(b.ts!).getTime() - new Date(a.ts!).getTime())
     .slice(0, 8)
 
   if (anyError) return <ErrorBlock error={anyError} onRetry={adrsQ.refetch} />
@@ -138,6 +164,11 @@ export function Dashboard() {
             </div>
           </CardHeader>
           <CardBody className="p-0">
+            {recent.length === 0 ? (
+              <div className="px-5 py-8 text-center text-xs text-content-subtle">
+                No artifacts yet — create an ADR, diagram, or persona to see activity here.
+              </div>
+            ) : (
             <ul className="divide-y divide-edge-subtle">
               {recent.map((r) => (
                 <li
@@ -145,23 +176,18 @@ export function Dashboard() {
                   className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-brand-50/40"
                 >
                   <span
-                    className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
-                      r.tone === 'brand'
-                        ? 'bg-brand-50 text-brand-700'
-                        : r.tone === 'violet'
-                          ? 'bg-violet-50 text-violet-700'
-                          : 'bg-emerald-50 text-emerald-700'
-                    }`}
+                    className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${RECENT_TONE[r.tone]}`}
                   >
                     {r.kind}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-sm text-content">{r.title}</span>
                   <span className="shrink-0 text-[11px] text-content-subtle">
-                    {formatRelative(r.ts)}
+                    {r.ts ? formatRelative(r.ts) : '—'}
                   </span>
                 </li>
               ))}
             </ul>
+            )}
           </CardBody>
         </Card>
 
@@ -202,7 +228,7 @@ export function Dashboard() {
           description="Tokens, components, builder — the production-ready primitives."
           links={[
             { label: 'Design tokens', href: '?tokens' },
-            { label: 'Component catalog', href: '?catalog' },
+            { label: 'Artifact catalog', href: '?catalog' },
             { label: 'Visual builder', href: '?builder' },
           ]}
           tone="emerald"

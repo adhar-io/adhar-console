@@ -1,9 +1,10 @@
 import type { TokenSet } from './types.ts'
 
 /**
- * Canonical default design tokens. The Tokens view seeds the localStorage
- * store from this on first run; "Reset to defaults" writes it back. Editing
- * in the view mutates the stored copy — this stays the immutable baseline.
+ * Canonical default design tokens. The Tokens view shows these until a stored
+ * token-set document exists (tenant document store, kind `design.token-set`);
+ * the first edit persists the working copy and "Reset to defaults" writes this
+ * baseline back. This constant stays the immutable baseline.
  */
 export const DEFAULT_TOKENS: TokenSet = {
   color: [

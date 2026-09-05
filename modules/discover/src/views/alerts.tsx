@@ -6,12 +6,13 @@ import {
   CardBody,
   CardHeader,
   EmptyState,
-  Spinner,
+  PrometheusIcon,
   StatusBadge,
 } from '@adhar-console/shell-ui'
 import { formatRelative } from '@adhar-console/utils'
 import type { lgtm } from '@adhar-console/api-clients'
 import { useAlerts, useSilenceAlert } from '../data/observability.ts'
+import { LoadingCard, SourceError } from './states.tsx'
 
 const STATE_TONE: Record<lgtm.AlertState, 'failed' | 'progressing' | 'healthy'> = {
   firing: 'failed',
@@ -35,14 +36,6 @@ export function Alerts() {
   const [tab, setTab] = useState<'active' | 'firing' | 'pending' | 'resolved'>('active')
   const [openId, setOpenId] = useState<string | null>(null)
 
-  if (q.isLoading) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Loading alerts…
-      </div>
-    )
-  }
-
   const all = q.data ?? []
   const counts = useMemo(() => {
     const out = { active: 0, firing: 0, pending: 0, resolved: 0 }
@@ -64,6 +57,11 @@ export function Alerts() {
     if (tab === 'active') return all.filter((a) => a.state === 'firing' || a.state === 'pending')
     return all.filter((a) => a.state === tab)
   }, [all, tab])
+
+  if (q.isLoading) return <LoadingCard label="Loading alerts…" />
+  if (q.isError) {
+    return <SourceError tool="Alertmanager" error={q.error} onRetry={() => q.refetch()} icon={<PrometheusIcon size={20} />} />
+  }
 
   const sorted = list.slice().sort((a, b) => severityRank(a.severity) - severityRank(b.severity))
   const open = all.find((a) => a.fingerprint === openId) ?? null

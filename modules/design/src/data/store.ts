@@ -48,21 +48,49 @@ export interface Entity {
   id: string
 }
 
+/**
+ * Envelope metadata folded onto every listed entity from the document store.
+ * These reserved keys let read-only surfaces (dashboard, catalog) show honest
+ * "last touched" times and authorship for artifact types that don't carry their
+ * own timestamps (personas, journeys, boards, wireframes). They are ALWAYS
+ * stripped before a write, so they never pollute the stored `data`.
+ */
+export interface EntityMeta {
+  _createdAt?: string
+  _updatedAt?: string
+  _updatedBy?: string | null
+}
+
+/** A listed entity: its own fields plus the reserved envelope metadata. */
+export type Listed<T> = T & EntityMeta
+
 type Data = Record<string, unknown>
 
-/** Strip the client-facing `id`; the document id is the source of truth. */
+const META_KEYS = ['_createdAt', '_updatedAt', '_updatedBy'] as const
+
+/**
+ * Strip the client-facing `id` and reserved envelope metadata; the document id
+ * and timestamps are the store's source of truth, never part of the payload.
+ */
 function stripId<T extends Entity>(entity: T): Data {
   const clone: Data = { ...(entity as unknown as Data) }
   delete clone.id
+  for (const k of META_KEYS) delete clone[k]
   return clone
 }
 
-/** Fold the document id back onto the stored payload. */
-function fromDoc<T extends Entity>(doc: StoredDoc<Data>): T {
-  return { ...doc.data, id: doc.id } as unknown as T
+/** Fold the document id + envelope metadata back onto the stored payload. */
+function fromDoc<T extends Entity>(doc: StoredDoc<Data>): Listed<T> {
+  return {
+    ...doc.data,
+    id: doc.id,
+    _createdAt: doc.createdAt,
+    _updatedAt: doc.updatedAt,
+    _updatedBy: doc.updatedBy,
+  } as unknown as Listed<T>
 }
 
-async function listDocs<T extends Entity>(kind: string): Promise<T[]> {
+async function listDocs<T extends Entity>(kind: string): Promise<Listed<T>[]> {
   const docs = await docStore.list<Data>(kind)
   return docs
     .map((d) => fromDoc<T>(d))
@@ -70,12 +98,12 @@ async function listDocs<T extends Entity>(kind: string): Promise<T[]> {
     .sort((a, b) => (a.id < b.id ? 1 : -1))
 }
 
-async function createDoc<T extends Entity>(kind: string, entity: T): Promise<T> {
+async function createDoc<T extends Entity>(kind: string, entity: T): Promise<Listed<T>> {
   const doc = await docStore.create<Data>(kind, stripId(entity))
   return fromDoc<T>(doc)
 }
 
-async function putDoc<T extends Entity>(kind: string, entity: T): Promise<T> {
+async function putDoc<T extends Entity>(kind: string, entity: T): Promise<Listed<T>> {
   const doc = await docStore.put<Data>(kind, entity.id, stripId(entity))
   return fromDoc<T>(doc)
 }
@@ -85,15 +113,15 @@ async function putDoc<T extends Entity>(kind: string, entity: T): Promise<T> {
 const listKey = (kind: string) => ['design', kind] as const
 
 export interface CollectionResult<T> {
-  items: T[]
+  items: Listed<T>[]
   isLoading: boolean
   error: Error | null
   refetch: () => void
 }
 
-/** Live list of every document in a collection. */
+/** Live list of every document in a collection (entities carry envelope meta). */
 export function useCollection<T extends Entity>(kind: string): CollectionResult<T> {
-  const q = useQuery<T[], Error>({
+  const q = useQuery<Listed<T>[], Error>({
     queryKey: listKey(kind),
     queryFn: () => listDocs<T>(kind),
     staleTime: 30_000,

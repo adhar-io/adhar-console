@@ -5,6 +5,7 @@ import {
   CardBody,
   CardHeader,
   EmptyState,
+  PrometheusIcon,
   Spinner,
   StatusBadge,
 } from '@adhar-console/shell-ui'
@@ -16,6 +17,7 @@ import {
   useMetrics,
   type TimeRangeId,
 } from '../data/observability.ts'
+import { SourceError } from './states.tsx'
 
 const QUICK_PANELS: Array<{
   id: string
@@ -153,6 +155,8 @@ function MetricPanel({
           <div className="flex h-32 items-center justify-center text-xs text-content-subtle">
             <Spinner size={12} />
           </div>
+        ) : q.isError ? (
+          <SourceError compact tool="Prometheus" error={q.error} onRetry={() => q.refetch()} icon={<PrometheusIcon size={20} />} />
         ) : series.length === 0 ? (
           <EmptyState compact title="No data" />
         ) : (
@@ -182,6 +186,8 @@ function CustomPanel({ query, range }: { query: string; range: TimeRangeId }) {
           <div className="flex h-40 items-center justify-center text-xs text-content-subtle">
             <Spinner size={12} />
           </div>
+        ) : q.isError ? (
+          <SourceError compact tool="Prometheus" error={q.error} onRetry={() => q.refetch()} icon={<PrometheusIcon size={20} />} />
         ) : series.length === 0 ? (
           <EmptyState compact title="No matching series" description="Refine your PromQL." />
         ) : (

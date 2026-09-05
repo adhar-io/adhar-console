@@ -4,11 +4,12 @@ import {
   CardBody,
   CardHeader,
   EmptyState,
-  Spinner,
+  PrometheusIcon,
   StatusBadge,
 } from '@adhar-console/shell-ui'
 import type { lgtm } from '@adhar-console/api-clients'
 import { useSlos } from '../data/observability.ts'
+import { LoadingCard, SourceError } from './states.tsx'
 
 /**
  * SLOs — service-level objectives with current performance, error budget,
@@ -17,12 +18,9 @@ import { useSlos } from '../data/observability.ts'
 export function Slos() {
   const q = useSlos()
 
-  if (q.isLoading) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Loading SLOs…
-      </div>
-    )
+  if (q.isLoading) return <LoadingCard label="Loading SLOs…" />
+  if (q.isError) {
+    return <SourceError tool="Prometheus" error={q.error} onRetry={() => q.refetch()} icon={<PrometheusIcon size={20} />} />
   }
   const list = q.data ?? []
   if (list.length === 0) {

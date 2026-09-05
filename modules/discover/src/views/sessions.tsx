@@ -1,19 +1,15 @@
 import { useState } from 'react'
-import { Card, CardBody, EmptyState, Spinner, StatusBadge } from '@adhar-console/shell-ui'
+import { Card, CardBody, EmptyState, StatusBadge } from '@adhar-console/shell-ui'
 import { formatRelative } from '@adhar-console/utils'
 import { useSessions } from '../data/observability.ts'
+import { LoadingCard, SourceError } from './states.tsx'
 
 export function Sessions() {
   const [errorsOnly, setErrorsOnly] = useState(false)
   const q = useSessions({ hasErrors: errorsOnly })
 
-  if (q.isLoading) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Loading sessions…
-      </div>
-    )
-  }
+  if (q.isLoading) return <LoadingCard label="Loading sessions…" />
+  if (q.isError) return <SourceError tool="PostHog" error={q.error} onRetry={() => q.refetch()} />
   const list = q.data ?? []
   return (
     <div className="space-y-3">

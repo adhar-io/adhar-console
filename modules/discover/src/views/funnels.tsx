@@ -4,11 +4,11 @@ import {
   CardBody,
   CardHeader,
   EmptyState,
-  Spinner,
   StatusBadge,
 } from '@adhar-console/shell-ui'
 import type { posthog } from '@adhar-console/api-clients'
 import { useInsights } from '../data/observability.ts'
+import { LoadingCard, SourceError } from './states.tsx'
 
 /**
  * Funnels — PostHog conversion funnels rendered as a step ladder with
@@ -23,13 +23,8 @@ export function Funnels() {
     if (!activeId && q.data?.length) setActiveId(q.data[0].id)
   }, [q.data, activeId])
 
-  if (q.isLoading) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Loading funnels…
-      </div>
-    )
-  }
+  if (q.isLoading) return <LoadingCard label="Loading funnels…" />
+  if (q.isError) return <SourceError tool="PostHog" error={q.error} onRetry={() => q.refetch()} />
   const list = q.data ?? []
   const active = list.find((f) => f.id === activeId)
 

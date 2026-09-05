@@ -97,6 +97,13 @@ function Events() {
     sinceMs: windowMs,
   })
 
+  const list = q.data ?? []
+  const counts = useMemo(() => {
+    const out: Record<string, number> = {}
+    for (const e of list) out[e.priority] = (out[e.priority] ?? 0) + 1
+    return out
+  }, [list])
+
   if (q.isLoading) {
     return (
       <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
@@ -107,13 +114,6 @@ function Events() {
   if (q.isError) {
     return <EmptyState title="Couldn't reach Falco" />
   }
-
-  const list = q.data ?? []
-  const counts = useMemo(() => {
-    const out: Record<string, number> = {}
-    for (const e of list) out[e.priority] = (out[e.priority] ?? 0) + 1
-    return out
-  }, [list])
 
   return (
     <div className="space-y-3">

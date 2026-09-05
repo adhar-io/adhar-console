@@ -31,8 +31,9 @@ import { MermaidPreview, renderToSvg } from '../components/mermaid-render.tsx'
  *   2. **Editor** — split-pane source ↔ live preview, type switcher, template
  *      picker, save / clone / delete / export (SVG download, MD copy).
  *
- * Persistence is localStorage keyed `adhar.design.diagrams`. Mermaid is
- * lazy-loaded once on first render via the MermaidPreview component.
+ * Persistence is the tenant document store (`docStore`, kind `design.diagram`)
+ * via TanStack Query. Mermaid is lazy-loaded once on first render via the
+ * MermaidPreview component.
  */
 export function Diagrams() {
   const { items: list, isLoading, error, refetch } = useCollection<Diagram>(KIND.diagram)

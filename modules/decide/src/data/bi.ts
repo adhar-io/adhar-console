@@ -2,9 +2,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { metabase } from '@adhar-console/api-clients'
 
 /**
- * Metabase BI hooks. Stub-backed in dev so the Decide module's BI
- * surfaces (dashboards, questions, SQL editor, pulses) render rich data
- * without a live Metabase instance.
+ * Metabase BI hooks — REAL. `MetabaseClient.auto` is real by default: it talks
+ * to the live Metabase instance through the console BFF proxy
+ * (`/api/svc/metabase/…`, service-authenticated by the server; no client
+ * token). There is no synthesized fallback here — when Metabase isn't
+ * configured or is unreachable the proxy errors and these queries surface it,
+ * so the BI surfaces (dashboards, questions, SQL editor, databases, pulses)
+ * render an honest "Metabase not connected" state (see `bi-states.tsx`) rather
+ * than fabricated data. `retry: false` keeps that state prompt instead of
+ * spinning through retries.
  */
 
 export const metabaseClient = metabase.MetabaseClient.auto({ tool: 'metabase' })
@@ -14,6 +20,7 @@ export function useDatabases() {
     queryKey: ['metabase', 'databases'],
     queryFn: () => metabaseClient.listDatabases(),
     staleTime: 60_000,
+    retry: false,
   })
 }
 
@@ -22,6 +29,7 @@ export function useCollections() {
     queryKey: ['metabase', 'collections'],
     queryFn: () => metabaseClient.listCollections(),
     staleTime: 60_000,
+    retry: false,
   })
 }
 
@@ -30,6 +38,7 @@ export function useQuestions(collectionId?: number) {
     queryKey: ['metabase', 'questions', collectionId ?? 'all'],
     queryFn: () => metabaseClient.listQuestions(collectionId ? { collectionId } : undefined),
     staleTime: 30_000,
+    retry: false,
   })
 }
 
@@ -39,6 +48,7 @@ export function useQuestion(id?: number) {
     queryFn: () => metabaseClient.getQuestion(id!),
     enabled: !!id,
     staleTime: 30_000,
+    retry: false,
   })
 }
 
@@ -47,6 +57,7 @@ export function useDashboards() {
     queryKey: ['metabase', 'dashboards'],
     queryFn: () => metabaseClient.listDashboards(),
     staleTime: 30_000,
+    retry: false,
   })
 }
 
@@ -56,6 +67,7 @@ export function useDashboard(id?: number) {
     queryFn: () => metabaseClient.getDashboard(id!),
     enabled: !!id,
     staleTime: 30_000,
+    retry: false,
   })
 }
 
@@ -64,6 +76,7 @@ export function usePulses() {
     queryKey: ['metabase', 'pulses'],
     queryFn: () => metabaseClient.listPulses(),
     staleTime: 30_000,
+    retry: false,
   })
 }
 

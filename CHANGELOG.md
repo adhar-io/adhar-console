@@ -6,6 +6,37 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+
+- **Adhar Resources dashboard redesigned.** A live control surface — hero stats
+  (Kinds, Resources, Ready, Synced, Degraded), search + family filter +
+  "only kinds with resources", and per-family kind cards (glyph, description,
+  GVR, live Total·Ready·Synced health, latest-claim age) with View / + Create
+  quick actions (Create opens the real provisioning wizard, RBAC-gated). Fixed
+  4 kind glyphs that rendered blank; confirmed all 17 kinds' create-blueprints
+  are functional.
+
+### Changed
+
+- **Phase modules audited & completed (Define · Design · Deliver · Discover ·
+  Decide).** Every dashboard and submenu verified to render **real data or
+  honest states — no hidden seed data**. Notable de-stubs/fixes: Deliver's
+  **Policy** now reads live Kyverno / PolicyReport CRDs (was hardcoded);
+  Design's **Catalog** is a live cross-artifact index (was a static Storybook
+  iframe) and the dashboard uses real edit timestamps; Decide's BI views gained
+  honest "Metabase not connected" states and the SQL editor lost its fictional
+  schema; Discover gained honest per-source error/not-configured states across
+  all 14 views. Workspace **Environments** is now real `docStore` CRUD (was an
+  inert stub) and dead `enterprise.ts` stub code was removed.
+
+### Fixed
+
+- **Nine view-crashing rules-of-hooks bugs.** A `useMemo`/hook placed after an
+  early return (throwing "Rendered more hooks than during the previous render")
+  crashed these views on load — now fixed: Deliver **environments, releases,
+  scans, runtime, policy**; Discover **alerts, service-map, analytics**; Decide
+  **questions**.
+
 ## [0.1.30] - 2026-09-04
 
 ### Added

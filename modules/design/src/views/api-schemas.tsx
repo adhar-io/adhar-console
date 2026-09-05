@@ -23,8 +23,8 @@ import {
 /**
  * API / Schema design surface. Manage a library of API specs, then open one to
  * paste/edit its OpenAPI document (JSON or best-effort YAML) and read it back
- * as grouped endpoints + component schemas. Persistence is localStorage keyed
- * `adhar.design.apiSpecs`, mirroring the ADR / Diagram views.
+ * as grouped endpoints + component schemas. Persistence is the tenant document
+ * store (kind `design.api-spec`), mirroring the ADR / Diagram views.
  */
 export function ApiSchemas() {
   const { items: list, isLoading, error, refetch } = useCollection<ApiSpec>(KIND.apiSpec)

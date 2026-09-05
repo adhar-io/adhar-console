@@ -11,7 +11,8 @@ import {
   type StatusKind,
 } from '@adhar-console/shell-ui'
 import { formatRelative } from '@adhar-console/utils'
-import { kyverno } from '@adhar-console/api-clients'
+import type { kyverno } from '@adhar-console/api-clients'
+import { kyvernoClient as client } from '../data/kyverno-api.ts'
 import {
   packCoverage,
   POLICY_PACKS,
@@ -23,8 +24,6 @@ import {
   type PackFramework,
   type PolicyPack as CompliancePack,
 } from '../data/policy-packs.ts'
-
-const client = kyverno.KyvernoClient.stub()
 
 const RESULT_TONE: Record<kyverno.PolicyResult, StatusKind> = {
   pass: 'healthy',
@@ -86,8 +85,38 @@ export function Policy() {
   const totals = sumSummaries(reportList)
   const enforced = (policies.data ?? []).filter((p) => p.validationFailureAction === 'Enforce').length
 
+  // Honest failure state: the live CRD reads all failed (not a 404 → those map
+  // to empty). Surface the underlying reason rather than pretending it's empty.
+  if (policies.isError && reports.isError && exceptions.isError) {
+    return (
+      <EmptyState
+        title="Couldn't reach the policy engine"
+        description={
+          policies.error instanceof Error
+            ? policies.error.message
+            : 'The Kubernetes gateway did not answer for kyverno.io / wgpolicyk8s.io resources.'
+        }
+      />
+    )
+  }
+
+  const loaded = !policies.isLoading && !reports.isLoading && !exceptions.isLoading
+  const nothingInstalled =
+    loaded &&
+    (policies.data?.length ?? 0) === 0 &&
+    reportList.length === 0 &&
+    (exceptions.data?.length ?? 0) === 0
+
   return (
     <div className="space-y-4">
+      {nothingInstalled ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-[12px] leading-relaxed text-amber-900 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200">
+          No Kyverno policies or PolicyReports found in this cluster. Install{' '}
+          <span className="font-semibold">Kyverno</span> and the{' '}
+          <span className="font-semibold">Policy Reporter</span> (wgpolicyk8s.io) to populate this
+          view. Compliance packs below still work — they ship as opt-in bundles.
+        </div>
+      ) : null}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
         <Tile label="Policies" value={policies.data?.length ?? 0} hint={`${enforced} enforce`} />
         <Tile label="Pass" value={totals.pass} accent="emerald" />
@@ -357,8 +386,6 @@ function Findings({ reports, loading }: { reports: kyverno.PolicyReport[]; loadi
   const [severity, setSeverity] = useState<'all' | kyverno.PolicySeverity>('all')
   const [result, setResult] = useState<'all' | kyverno.PolicyResult>('fail')
 
-  if (loading) return <Loading label="Loading findings…" />
-
   const flat = useMemo(() => {
     const out: Array<{ report: kyverno.PolicyReport; finding: NonNullable<kyverno.PolicyReport['results']>[number] }> = []
     for (const r of reports) {
@@ -373,6 +400,8 @@ function Findings({ reports, loading }: { reports: kyverno.PolicyReport[]; loadi
       .filter(({ finding }) => severity === 'all' || finding.severity === severity)
       .sort((a, b) => sevRank(a.finding.severity) - sevRank(b.finding.severity))
   }, [flat, result, severity])
+
+  if (loading) return <Loading label="Loading findings…" />
 
   return (
     <div className="space-y-3">

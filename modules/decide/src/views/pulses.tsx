@@ -3,12 +3,12 @@ import {
   CardBody,
   CardHeader,
   EmptyState,
-  Spinner,
   StatusBadge,
 } from '@adhar-console/shell-ui'
 import { formatRelative } from '@adhar-console/utils'
 import type { metabase } from '@adhar-console/api-clients'
 import { useQuestions, usePulses, useTogglePulse } from '../data/bi.ts'
+import { BiSkeletonGrid, MetabaseUnavailable } from './bi-states.tsx'
 
 const CHANNEL_ICON: Record<string, string> = {
   email: '📧',
@@ -25,10 +25,16 @@ export function Pulses() {
   const toggle = useTogglePulse()
 
   if (q.isLoading) {
+    return <BiSkeletonGrid cards={4} />
+  }
+  if (q.isError) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Loading pulses…
-      </div>
+      <MetabaseUnavailable
+        resource="pulses"
+        error={q.error}
+        onRetry={() => q.refetch()}
+        retrying={q.isFetching}
+      />
     )
   }
 

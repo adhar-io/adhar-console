@@ -29,7 +29,7 @@ import {
 } from '../components/section-shell.tsx'
 import { LoadingBlock, StoreErrorBlock } from '../components/async-states.tsx'
 import { RequirePermission } from '../components/role-gate.tsx'
-import { fmtMoney } from '../data/enterprise.ts'
+import { fmtMoney } from '../data/billing.ts'
 
 const STATUS_KIND: Record<CloudConnection['status'], StatusKind> = {
   connected: 'healthy',

@@ -21,17 +21,6 @@ export function Environments() {
   const apps = useApplications()
   const stages = useStages()
 
-  if (apps.isLoading) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Loading environments…
-      </div>
-    )
-  }
-  if (apps.isError) {
-    return <EmptyState title="Couldn't reach ArgoCD" />
-  }
-
   const grouped = useMemo(() => {
     const out: Record<string, EnvBucket> = {}
     for (const a of apps.data ?? []) {
@@ -48,6 +37,17 @@ export function Environments() {
     }
     return Object.values(out).sort((a, b) => a.namespace.localeCompare(b.namespace))
   }, [apps.data])
+
+  if (apps.isLoading) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
+        <Spinner size={14} /> Loading environments…
+      </div>
+    )
+  }
+  if (apps.isError) {
+    return <EmptyState title="Couldn't reach ArgoCD" />
+  }
 
   const stageByKey = new Map(
     (stages.data ?? []).map((s) => [s.name.toLowerCase(), s] as const),

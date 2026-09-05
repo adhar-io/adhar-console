@@ -1,5 +1,6 @@
-import { Card, CardBody, EmptyState, Spinner, StatusBadge } from '@adhar-console/shell-ui'
+import { Card, CardBody, EmptyState, StatusBadge } from '@adhar-console/shell-ui'
 import { useDatabases, useQuestions } from '../data/bi.ts'
+import { BiSkeletonGrid, MetabaseUnavailable } from './bi-states.tsx'
 
 const ENGINE_ICON: Record<string, string> = {
   snowflake: '❄️',
@@ -16,10 +17,16 @@ export function Databases() {
   const questions = useQuestions()
 
   if (dbs.isLoading) {
+    return <BiSkeletonGrid cards={6} />
+  }
+  if (dbs.isError) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Loading databases…
-      </div>
+      <MetabaseUnavailable
+        resource="databases"
+        error={dbs.error}
+        onRetry={() => dbs.refetch()}
+        retrying={dbs.isFetching}
+      />
     )
   }
   const list = dbs.data ?? []

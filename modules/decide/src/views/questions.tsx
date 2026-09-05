@@ -4,13 +4,13 @@ import {
   CardBody,
   CardHeader,
   EmptyState,
-  Spinner,
   StatusBadge,
 } from '@adhar-console/shell-ui'
 import { formatRelative } from '@adhar-console/utils'
 import type { metabase } from '@adhar-console/api-clients'
 import { useCollections, useQuestions } from '../data/bi.ts'
 import { CardRender } from './bi-dashboards.tsx'
+import { BiSkeletonGrid, MetabaseUnavailable } from './bi-states.tsx'
 
 const DISPLAY_TONE: Record<metabase.ChartType, string> = {
   scalar: 'bg-brand-50 text-brand-700',
@@ -34,14 +34,6 @@ export function Questions() {
   const [display, setDisplay] = useState<'all' | metabase.ChartType>('all')
   const [search, setSearch] = useState('')
 
-  if (questions.isLoading) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Loading questions…
-      </div>
-    )
-  }
-
   const all = questions.data ?? []
   const list = useMemo(() => {
     const f = search.trim().toLowerCase()
@@ -51,6 +43,20 @@ export function Questions() {
       .filter((q) => !f || q.name.toLowerCase().includes(f) || (q.description ?? '').toLowerCase().includes(f))
       .sort((a, b) => (b.view_count ?? 0) - (a.view_count ?? 0))
   }, [all, collId, display, search])
+
+  if (questions.isLoading) {
+    return <BiSkeletonGrid cards={6} />
+  }
+  if (questions.isError) {
+    return (
+      <MetabaseUnavailable
+        resource="questions"
+        error={questions.error}
+        onRetry={() => questions.refetch()}
+        retrying={questions.isFetching}
+      />
+    )
+  }
 
   return (
     <div className="space-y-4">

@@ -7,6 +7,7 @@ import {
   EmptyState,
   Spinner,
   StatusBadge,
+  TempoIcon,
 } from '@adhar-console/shell-ui'
 import { formatRelative } from '@adhar-console/utils'
 import type { lgtm } from '@adhar-console/api-clients'
@@ -16,6 +17,7 @@ import {
   useTraces,
   type SpanDetail,
 } from '../data/observability.ts'
+import { LoadingCard, SourceError } from './states.tsx'
 
 /**
  * Traces — Tempo search with a span-timeline drawer.
@@ -37,12 +39,9 @@ export function Traces() {
     status: errorsOnly ? 'error' : undefined,
   })
 
-  if (q.isLoading) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Searching Tempo…
-      </div>
-    )
+  if (q.isLoading) return <LoadingCard label="Searching Tempo…" />
+  if (q.isError) {
+    return <SourceError tool="Tempo" error={q.error} onRetry={() => q.refetch()} icon={<TempoIcon size={20} />} />
   }
 
   const list = q.data ?? []

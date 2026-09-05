@@ -1,18 +1,14 @@
-import { Card, CardBody, EmptyState, Spinner, StatusBadge } from '@adhar-console/shell-ui'
+import { Card, CardBody, EmptyState, StatusBadge } from '@adhar-console/shell-ui'
 import { formatRelative } from '@adhar-console/utils'
 import { useFeatureFlags, useToggleFlag } from '../data/observability.ts'
+import { LoadingCard, SourceError } from './states.tsx'
 
 export function Flags() {
   const q = useFeatureFlags()
   const toggle = useToggleFlag()
 
-  if (q.isLoading) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Loading flags…
-      </div>
-    )
-  }
+  if (q.isLoading) return <LoadingCard label="Loading flags…" />
+  if (q.isError) return <SourceError tool="PostHog" error={q.error} onRetry={() => q.refetch()} />
   const list = q.data ?? []
   if (list.length === 0) {
     return <EmptyState title="No flags" />

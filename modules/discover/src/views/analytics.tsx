@@ -6,7 +6,6 @@ import {
   CardBody,
   CardHeader,
   EmptyState,
-  Spinner,
   StatusBadge,
 } from '@adhar-console/shell-ui'
 import { cn, formatRelative } from '@adhar-console/utils'
@@ -16,6 +15,7 @@ import {
   useInsights,
   usePersons,
 } from '../data/observability.ts'
+import { LoadingCard, SourceError } from './states.tsx'
 
 /**
  * Analytics — PostHog product insights.
@@ -34,14 +34,6 @@ export function Analytics() {
     return trends.data.find((t) => t.id === activeId) ?? trends.data[0] ?? null
   }, [trends.data, activeId])
 
-  if (events.isLoading || trends.isLoading) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Loading analytics…
-      </div>
-    )
-  }
-
   const eventList = events.data ?? []
   const personList = persons.data ?? []
 
@@ -51,6 +43,16 @@ export function Analytics() {
     for (const e of eventList) out[e.event] = (out[e.event] ?? 0) + 1
     return out
   }, [eventList])
+
+  if (events.isLoading || trends.isLoading) return <LoadingCard label="Loading analytics…" />
+  // Analytics is meaningless without the event feed or trend insights.
+  if (events.isError && trends.isError) {
+    return <SourceError tool="PostHog" error={events.error ?? trends.error} onRetry={() => {
+      events.refetch()
+      trends.refetch()
+    }} />
+  }
+
   const topEvents = Object.entries(eventsByName)
     .sort(([, a], [, b]) => b - a)
     .slice(0, 8)

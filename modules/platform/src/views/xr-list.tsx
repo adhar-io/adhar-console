@@ -53,6 +53,16 @@ import { K8sRolePill } from '../components/role-gate.tsx'
  */
 
 /**
+ * sessionStorage key used to hand off a "open the create wizard" intent across
+ * a section navigation. The catalog dashboard writes the target kind's GVR
+ * `resource` here before deep-linking to `?section=<id>`; the matching
+ * <XrList/> reads and clears it on mount (see the effect in `XrList`). Kept in
+ * sessionStorage so it survives the full-document navigation a plain anchor
+ * triggers (the federated remote does not share the host router).
+ */
+export const AUTO_CREATE_KEY = 'adhar:platform:autocreate'
+
+/**
  * One field of the generated provisioning form. `key` is a spec path —
  * dot-notation expands into nested objects (`'network.public'` →
  * `spec.network.public`). Populated per kind in `xr-kinds.tsx`.
@@ -367,6 +377,26 @@ export function XrList({
   const [selected, setSelected] = useState<XR | null>(null)
   const [provisioning, setProvisioning] = useState(false)
   const canProvision = useHasK8sPermission('crds.write')
+
+  // Honour a "create" intent handed off by the catalog dashboard — open the
+  // provisioning wizard once, on mount, only for the matching kind and only
+  // when the user may actually provision.
+  useEffect(() => {
+    let intent: string | null = null
+    try {
+      intent = sessionStorage.getItem(AUTO_CREATE_KEY)
+    } catch {
+      return // storage unavailable — the deep-link to the list still works
+    }
+    if (intent !== config.gvr.resource) return
+    // Consume the one-shot intent regardless of permission so it can't linger.
+    try {
+      sessionStorage.removeItem(AUTO_CREATE_KEY)
+    } catch {
+      /* ignore — best-effort cleanup */
+    }
+    if (canProvision) setProvisioning(true)
+  }, [canProvision, config.gvr.resource])
 
   const is404 = q.isError && (q.error as { status?: number })?.status === 404
 

@@ -8,9 +8,10 @@ import type { TokenSet } from '../data/types.ts'
 type Format = 'json' | 'css'
 
 /**
- * Design tokens — now fully editable and persisted. The token set is seeded
- * from DEFAULT_TOKENS into localStorage (`adhar.design.tokens`); every edit
- * writes straight back, the swatches/previews re-render live, and the CSS/JSON
+ * Design tokens — now fully editable and persisted. The working set falls back
+ * to DEFAULT_TOKENS until a stored document exists (tenant document store, kind
+ * `design.token-set`, id `default`); every edit writes straight back, the
+ * swatches/previews re-render live, and the CSS/JSON
  * export always reflects the current (edited) values. "Reset to defaults"
  * restores the canonical baseline.
  */

@@ -10,25 +10,35 @@ import {
 } from '@adhar-console/shell-ui'
 import type { metabase } from '@adhar-console/api-clients'
 import { useDatabases, useRunQuery } from '../data/bi.ts'
+import { MetabaseUnavailable } from './bi-states.tsx'
 
-const SAMPLE_QUERIES: { label: string; sql: string }[] = [
+/**
+ * Schema-agnostic starter queries. These use ANSI `information_schema`
+ * introspection (portable across Postgres / MySQL / Snowflake / Redshift / H2 /
+ * SQL Server) rather than any assumed business schema, so they run against
+ * whatever database Metabase actually has connected — and surface a real error
+ * honestly if the engine (e.g. BigQuery) shapes introspection differently.
+ */
+const STARTER_QUERIES: { label: string; sql: string }[] = [
   {
-    label: 'Tables in finance schema',
-    sql: 'SELECT table_name FROM information_schema.tables WHERE table_schema = \'finance\' ORDER BY 1',
+    label: 'List tables',
+    sql: 'SELECT table_schema, table_name\nFROM information_schema.tables\nORDER BY 1, 2\nLIMIT 100',
   },
   {
-    label: 'Plan distribution',
-    sql: 'SELECT plan AS bucket, COUNT(*) AS count\nFROM finance.subscriptions\nWHERE active = true\nGROUP BY plan\nORDER BY count DESC',
+    label: 'List schemas',
+    sql: 'SELECT schema_name\nFROM information_schema.schemata\nORDER BY 1',
   },
   {
-    label: 'Recent invoices',
-    sql: 'SELECT invoice_id, customer, amount, status\nFROM finance.invoices\nORDER BY created_at DESC\nLIMIT 10',
+    label: 'Column catalog',
+    sql: 'SELECT table_name, column_name, data_type\nFROM information_schema.columns\nORDER BY 1, 2\nLIMIT 200',
   },
   {
-    label: 'Pageviews · 14 days',
-    sql: 'SELECT day, COUNT(*) AS pageviews\nFROM events.pageviews\nWHERE day > current_date - 14\nGROUP BY day\nORDER BY day',
+    label: 'Connectivity check',
+    sql: 'SELECT 1 AS ok',
   },
 ]
+
+const DEFAULT_SQL = STARTER_QUERIES[0].sql
 
 /**
  * Native SQL workbench — pick a database, write a query, run it, and
@@ -37,7 +47,7 @@ const SAMPLE_QUERIES: { label: string; sql: string }[] = [
 export function SqlEditor() {
   const databases = useDatabases()
   const [databaseId, setDatabaseId] = useState<number | null>(null)
-  const [sql, setSql] = useState('SELECT plan, COUNT(*) FROM finance.subscriptions GROUP BY plan')
+  const [sql, setSql] = useState(DEFAULT_SQL)
   const run = useRunQuery()
 
   useEffect(() => {
@@ -62,6 +72,32 @@ export function SqlEditor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [databaseId, sql])
 
+  if (databases.isLoading) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
+        <Spinner size={14} /> Loading databases…
+      </div>
+    )
+  }
+  if (databases.isError) {
+    return (
+      <MetabaseUnavailable
+        resource="databases"
+        error={databases.error}
+        onRetry={() => databases.refetch()}
+        retrying={databases.isFetching}
+      />
+    )
+  }
+  if ((databases.data ?? []).length === 0) {
+    return (
+      <EmptyState
+        title="No databases connected"
+        description="Register a database in Metabase to run native SQL against it here."
+      />
+    )
+  }
+
   return (
     <div className="space-y-3">
       <header className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-surface-raised p-2 shadow-sm">
@@ -79,15 +115,15 @@ export function SqlEditor() {
         </select>
         <select
           onChange={(e) => {
-            const sample = SAMPLE_QUERIES.find((s) => s.label === e.target.value)
-            if (sample) setSql(sample.sql)
+            const starter = STARTER_QUERIES.find((s) => s.label === e.target.value)
+            if (starter) setSql(starter.sql)
           }}
           className="rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-xs"
-          aria-label="Sample query"
+          aria-label="Starter query"
           defaultValue=""
         >
-          <option value="">Sample queries…</option>
-          {SAMPLE_QUERIES.map((s) => (
+          <option value="">Starter queries…</option>
+          {STARTER_QUERIES.map((s) => (
             <option key={s.label} value={s.label}>
               {s.label}
             </option>
@@ -95,7 +131,12 @@ export function SqlEditor() {
         </select>
         <span className="text-[11px] text-content-muted">⌘+Enter to run</span>
         <div className="ml-auto">
-          <Button size="sm" onClick={onRun} loading={run.isPending} disabled={!sql.trim()}>
+          <Button
+            size="sm"
+            onClick={onRun}
+            loading={run.isPending}
+            disabled={!sql.trim() || databaseId == null}
+          >
             Run
           </Button>
         </div>
@@ -131,7 +172,7 @@ export function SqlEditor() {
                     : ''}
                 </div>
               </div>
-              {run.data?.status === 'failed' ? (
+              {run.isError || run.data?.status === 'failed' ? (
                 <StatusBadge kind="failed">failed</StatusBadge>
               ) : run.data?.status === 'completed' ? (
                 <StatusBadge kind="healthy">completed</StatusBadge>
@@ -142,6 +183,10 @@ export function SqlEditor() {
             {run.isPending ? (
               <div className="flex h-[60vh] items-center justify-center">
                 <Spinner size={14} />
+              </div>
+            ) : run.isError ? (
+              <div className="m-3 rounded-md border border-rose-200 bg-rose-50/60 p-3 font-mono text-[11px] text-rose-800">
+                {(run.error as Error)?.message ?? 'Query request failed — Metabase may be unreachable.'}
               </div>
             ) : run.data ? (
               <ResultPane result={run.data} />

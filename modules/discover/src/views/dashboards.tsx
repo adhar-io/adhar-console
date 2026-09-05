@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Card, CardBody, CardHeader, EmptyState, Spinner, StatusBadge } from '@adhar-console/shell-ui'
+import { Card, CardBody, CardHeader, EmptyState, GrafanaIcon, StatusBadge } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
 import { grafanaEmbedUrl, useGrafanaDashboards } from '../data/observability.ts'
+import { LoadingCard, SourceError } from './states.tsx'
 
 /**
  * Grafana boards — list every dashboard returned by the LGTM client and
@@ -15,12 +16,9 @@ export function Dashboards() {
     if (!activeUid && q.data?.length) setActiveUid(q.data[0].uid)
   }, [q.data, activeUid])
 
-  if (q.isLoading) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Loading boards…
-      </div>
-    )
+  if (q.isLoading) return <LoadingCard label="Loading boards…" />
+  if (q.isError) {
+    return <SourceError tool="Grafana" error={q.error} onRetry={() => q.refetch()} icon={<GrafanaIcon size={20} />} />
   }
   const list = q.data ?? []
   const active = list.find((d) => d.uid === activeUid)

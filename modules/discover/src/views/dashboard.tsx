@@ -6,7 +6,6 @@ import {
   CardHeader,
   EmptyState,
   Sparkline,
-  Spinner,
   StatusBadge,
 } from '@adhar-console/shell-ui'
 import { formatRelative } from '@adhar-console/utils'
@@ -21,6 +20,7 @@ import {
   useSessions,
   useSlos,
 } from '../data/observability.ts'
+import { LoadingCard, SourceError } from './states.tsx'
 
 /**
  * Workspace-level Discover dashboard. Side-by-side observability + product
@@ -57,10 +57,23 @@ export function Dashboard() {
   const dauPoints = dauTrend?.result?.kind === 'trend' ? dauTrend.result.series[0]?.data ?? [] : []
 
   if (rps.isLoading || alerts.isLoading) {
+    return <LoadingCard label="Loading observability feed…" />
+  }
+
+  // Everything is down — most often no BFF/backends wired. Say so once rather
+  // than rendering a page full of empty cards.
+  if (rps.isError && alerts.isError && slos.isError && events.isError) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Loading observability feed…
-      </div>
+      <SourceError
+        tool="the observability backends"
+        error={rps.error ?? alerts.error}
+        onRetry={() => {
+          rps.refetch()
+          alerts.refetch()
+          slos.refetch()
+          events.refetch()
+        }}
+      />
     )
   }
 

@@ -5,6 +5,7 @@ import {
   CardHeader,
   EmptyState,
   LegendDot,
+  LokiIcon,
   Spinner,
   StatusBadge,
   type StatusKind,
@@ -23,8 +24,17 @@ import {
   type TimeRangeId,
   type TimeSelection,
 } from '../data/observability.ts'
+import { SourceError } from './states.tsx'
 
 const LEVELS: Array<lgtm.LogEntry['level']> = ['debug', 'info', 'warn', 'error', 'fatal']
+
+/** One-click LogQL starters shown before a query is entered. */
+const EXAMPLE_QUERIES: Array<{ label: string; query: string }> = [
+  { label: 'all errors', query: '{namespace=~".+"} |= "error"' },
+  { label: 'by namespace', query: '{namespace="acme-billing"}' },
+  { label: 'by app', query: '{app="platform-bff"}' },
+  { label: 'rate limited', query: '{namespace=~".+"} |~ "rate limit"' },
+]
 
 const LEVEL_TONE: Record<string, StatusKind> = {
   debug: 'unknown',
@@ -59,6 +69,7 @@ export function Logs() {
   const [query, setQuery] = useState('')
   const [levels, setLevels] = useState<Set<string>>(new Set(['info', 'warn', 'error', 'fatal']))
 
+  const hasQuery = query.trim().length > 0
   const q = useLogs(query, sel, 200)
   const all = q.data ?? []
   const list = useMemo(
@@ -135,7 +146,34 @@ export function Logs() {
           </div>
         </CardHeader>
         <CardBody className="p-0!">
-          {q.isLoading ? (
+          {!hasQuery ? (
+            <div className="p-6">
+              <EmptyState
+                compact
+                icon={<LokiIcon size={20} />}
+                title="Enter a LogQL query"
+                description="Loki needs a stream selector to start. Pick a starter or type your own above."
+                action={
+                  <div className="flex flex-wrap justify-center gap-1.5">
+                    {EXAMPLE_QUERIES.map((ex) => (
+                      <button
+                        key={ex.query}
+                        type="button"
+                        onClick={() => setQuery(ex.query)}
+                        className="rounded-md border border-edge-default bg-surface-raised px-2 py-1 font-mono text-[11px] text-content-muted hover:border-brand-400 hover:text-content"
+                      >
+                        {ex.label}
+                      </button>
+                    ))}
+                  </div>
+                }
+              />
+            </div>
+          ) : q.isError ? (
+            <div className="p-6">
+              <SourceError compact tool="Loki" error={q.error} onRetry={() => q.refetch()} icon={<LokiIcon size={20} />} />
+            </div>
+          ) : q.isLoading ? (
             <div className="flex h-40 items-center justify-center text-xs text-content-subtle">
               <Spinner size={12} />
             </div>

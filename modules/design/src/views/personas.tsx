@@ -17,7 +17,8 @@ const AVATAR_OPTIONS = ['👩🏽‍💻', '🧑🏽‍💼', '🎨', '👨🏿�
 
 /**
  * Persona cards — the team's shared view of who they're building for.
- * Stored in localStorage; each card opens a detail drawer with goals,
+ * Persisted in the tenant document store (kind `design.persona`); each card
+ * opens a detail drawer with goals,
  * frustrations, behaviors, and tech context. New personas are created via a
  * modal with comma-separated list inputs (lightweight, fast to fill).
  */

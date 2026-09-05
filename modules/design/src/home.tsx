@@ -62,8 +62,8 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
     description: 'OpenAPI-driven API design — endpoints grouped by tag and component schemas.',
   },
   catalog: {
-    label: 'Component Catalog',
-    description: 'Embedded adhar-ui Storybook — live components with props and docs.',
+    label: 'Artifact Catalog',
+    description: 'A live index of every design artifact — counts, recent activity, and search across all types.',
   },
   builder: {
     label: 'Visual Builder',

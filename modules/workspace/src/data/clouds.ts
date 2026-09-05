@@ -263,6 +263,109 @@ export function useRemoveConnection() {
   })
 }
 
+/* ─────────── environments (docStore-backed deployment targets) ─────────── */
+
+/**
+ * Per-workspace deployment targets. These are REAL tenant configuration
+ * persisted in the document store (`workspace.environment`) — not the old
+ * `wsClient` stub. Promotion rules and protected change windows recorded here
+ * are the source of record the delivery pipeline reads; a missing database
+ * surfaces as a `DocStoreError` the view renders (never fake environments).
+ */
+export type EnvironmentKind = 'dev' | 'staging' | 'preview' | 'prod'
+
+export const ENVIRONMENT_KINDS: { value: EnvironmentKind; label: string }[] = [
+  { value: 'dev', label: 'Development' },
+  { value: 'staging', label: 'Staging' },
+  { value: 'preview', label: 'Preview' },
+  { value: 'prod', label: 'Production' },
+]
+
+export interface EnvironmentInput {
+  name: string
+  kind: EnvironmentKind
+  /** Cluster this environment deploys to (a registered connection's cluster). */
+  clusterRef: string
+  /** Kubernetes namespace the workloads land in. */
+  namespace: string
+  /** Environment promotions flow from (doc id) — optional. */
+  promoteFromEnvId?: string
+  /** Gate promotions into this environment on approval. */
+  requireApproval: boolean
+  /** Roles/emails whose approval is required (only when requireApproval). */
+  approvers: string[]
+  /** Cron expression restricting when changes may land — optional. */
+  windowsCron?: string
+}
+
+type EnvironmentData = EnvironmentInput
+
+export interface WorkspaceEnvironment extends EnvironmentInput {
+  id: string
+  createdAt: string
+  createdBy: string | null
+}
+
+const ENV_KIND = 'workspace.environment'
+const KEY_ENVS = ['ws', 'environments'] as const
+
+function toEnvironment(doc: StoredDoc<EnvironmentData>): WorkspaceEnvironment {
+  return {
+    id: doc.id,
+    ...doc.data,
+    approvers: [...(doc.data.approvers ?? [])],
+    createdAt: doc.createdAt,
+    createdBy: doc.createdBy,
+  }
+}
+
+function normalizeEnvironment(input: EnvironmentInput): EnvironmentData {
+  return {
+    name: input.name.trim(),
+    kind: input.kind,
+    clusterRef: input.clusterRef.trim(),
+    namespace: input.namespace.trim(),
+    promoteFromEnvId: input.promoteFromEnvId || undefined,
+    requireApproval: input.requireApproval,
+    approvers: input.requireApproval
+      ? input.approvers.map((a) => a.trim()).filter(Boolean)
+      : [],
+    windowsCron: input.windowsCron?.trim() || undefined,
+  }
+}
+
+export function useEnvironments() {
+  return useQuery<WorkspaceEnvironment[]>({
+    queryKey: KEY_ENVS,
+    queryFn: async () => (await docStore.list<EnvironmentData>(ENV_KIND)).map(toEnvironment),
+  })
+}
+
+export function useSaveEnvironment() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (v: { id?: string; input: EnvironmentInput }) => {
+      const data = normalizeEnvironment(v.input)
+      if (!data.name) throw new Error('Name is required')
+      if (!data.clusterRef) throw new Error('Cluster is required')
+      if (!data.namespace) throw new Error('Namespace is required')
+      const doc = v.id
+        ? await docStore.put<EnvironmentData>(ENV_KIND, v.id, data)
+        : await docStore.create<EnvironmentData>(ENV_KIND, data)
+      return toEnvironment(doc)
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: KEY_ENVS }),
+  })
+}
+
+export function useDeleteEnvironment() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => docStore.remove(ENV_KIND, id),
+    onSettled: () => qc.invalidateQueries({ queryKey: KEY_ENVS }),
+  })
+}
+
 /* ─────────── tone helpers (mirrors marketplace) ─────────── */
 
 export const CLOUD_TONE_TILE: Record<CloudProvider['tone'], string> = {

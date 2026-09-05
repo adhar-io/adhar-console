@@ -6,6 +6,23 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.31] - 2026-09-05
+
+### Fixed
+
+- **Software templates now really load from Gitea, and "Create New" scaffolds
+  end-to-end.** The Catalog previously showed no templates and couldn't scaffold:
+  the BFF assumed Gitea "template repos" (`repos/search?template=true` +
+  `/generate`) and authenticated with an empty `GITEA_TOKEN` (401). Reality is
+  the **Backstage Software Templates** model in `adhar/adhar-templates`
+  (`catalog-info.yaml` `Location` → `templates/<name>/template.yaml` + `skeleton/`,
+  9 templates). Rewrote discovery to read the Location + each `template.yaml`
+  (carrying its parameter schema into the Create wizard), rewrote the scaffolder
+  to **render the `skeleton/` tree** (`${{ values.* }}` substitution + nunjucks-lite
+  conditionals) into a new repo and commit it, then commit `catalog-info.yaml`,
+  create the kpack build Image, and the Argo CD Application. Both handlers now use
+  **durable Gitea Basic auth** (`GITEA_USERNAME`/`GITEA_PASSWORD`, token fallback).
+
 ### Added
 
 - **Adhar Resources dashboard redesigned.** A live control surface — hero stats

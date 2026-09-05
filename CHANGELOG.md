@@ -6,6 +6,24 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.33] - 2026-09-05
+
+### Changed
+
+- **Cluster view follows the real signed-in Keycloak role.** Removed the "View
+  as" role switcher and the dev localStorage override entirely — `useK8sCurrentRoles()`
+  now derives purely from the logged-in user's persona (resolved from the token's
+  `groups` claim). The roles already exist in the Keycloak realm
+  (`platform-admin`, `application-admin`, `platform-developer`, `platform-viewer`,
+  `admin`); adding a user to the matching group is what grants their view. RBAC
+  gates/pills are unchanged and now reflect only the real role.
+- **Create New shows only real Gitea templates.** Dropped the built-in "starter"
+  seed templates from the Create list — it now shows only the templates
+  discovered from the `adhar/adhar-templates` Gitea repo (plus any user-registered
+  ones), keeping the category grouping. When templates are loading or none are
+  reachable, an honest skeleton / "no templates available" state shows instead of
+  dummy seeds.
+
 ## [0.1.32] - 2026-09-05
 
 ### Fixed

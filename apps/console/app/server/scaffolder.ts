@@ -1,25 +1,31 @@
 import { env } from '@adhar-console/utils'
 import { getRequestUser, unauthorized } from './request-user.ts'
 import { getTool } from './tool-registry.ts'
+import { giteaConn, giteaFetcher } from './gitea-auth.ts'
 import { apiServerFetch, resolveIdentity } from './k8s/gateway.ts'
 import { generateGoldenPathFiles, isGoldenPathFamily } from './golden-paths.ts'
 import type { GoldenPathFamily } from './golden-paths.ts'
+import { parseYaml } from './yaml-lite.ts'
+import { computeValues, renderContent, renderPath, skeletonDir } from './template-render.ts'
 
 /**
  * Component scaffolder — the real GitOps engine behind Catalog → Create.
  *
  * `POST /api/scaffold` runs as the signed-in user and performs, in order:
- *   1. create a Gitea repo (generated from a template repo, or auto-init'd),
- *   2. commit a Backstage `catalog-info.yaml` descriptor,
- *   2b. (optional) golden path: commit the full starter file set — Dockerfile,
- *       CI workflow, `deploy/` Kustomize, observability (see golden-paths.ts),
- *   3. (optional) commit a `deploy/` starter + create an Argo CD `Application`
- *      via the per-user Kubernetes gateway so GitOps takes over.
+ *   1. create an empty Gitea repo in the org,
+ *   2. render the chosen Backstage template's `skeleton/` tree with the user's
+ *      parameter values (`${{ values.x }}` + `{% if %}` nunjucks-lite) and
+ *      commit every rendered file (the skeleton ships its own catalog-info.yaml
+ *      + deploy/); golden-path / plain templates fall back to the generated
+ *      starter set,
+ *   3. create the kpack `Image` (Cloud Native Buildpacks build → Harbor), and
+ *   4. create the Argo CD `Application` so GitOps takes over.
  *
  * Nothing is simulated: each step hits a real backend and its outcome is
- * reported back so the wizard can show true progress + links. Repos are created
- * with the platform Gitea service token; the Argo CD Application is created with
- * the USER's token (their RBAC), consistent with the console's impersonation model.
+ * reported back so the wizard can show true progress + links. Gitea calls use
+ * the fixed durable auth (Basic `GITEA_USERNAME`/`GITEA_PASSWORD`, else a PAT —
+ * see gitea-auth.ts); the kpack Image + Argo CD Application are created with the
+ * USER's cluster token (their RBAC), consistent with the impersonation model.
  *
  * See docs/guides/authoring-templates.md + component-registration.md.
  */
@@ -36,11 +42,16 @@ interface ScaffoldRequest {
   type?: string
   tags?: string[]
   scaffold?: {
+    /** Backstage templates repo, "owner/repo" (default adhar/adhar-templates). */
+    templatesRepo?: string
+    /** Path of the chosen template within that repo, e.g. templates/nodejs-web-service. */
+    templatePath?: string
+    /** Legacy Gitea template-repo generate source (kept for back-compat). */
     sourceRepo?: string
     gitops?: boolean
     manifestPath?: string
     catalogInfoPath?: string
-    /** Golden-path family — commit a full starter (Dockerfile, CI, deploy/, observability). */
+    /** Golden-path family — commit a full generated starter set. */
     goldenPath?: GoldenPathFamily | string
   }
   params?: Record<string, unknown>
@@ -52,11 +63,30 @@ interface StepResult {
   detail?: string
 }
 
+interface TreeEntry {
+  path?: string
+  type?: string
+}
+
 const NAME_RE = /^[a-z][a-z0-9-]{1,61}[a-z0-9]$/
+
+const BINARY_EXT = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'ico', 'webp', 'bmp', 'svg',
+  'woff', 'woff2', 'ttf', 'otf', 'eot',
+  'pdf', 'zip', 'gz', 'tar', 'jar', 'class', 'wasm', 'mp4', 'mp3',
+])
+
+function extOf(path: string): string {
+  const i = path.lastIndexOf('.')
+  return i >= 0 ? path.slice(i + 1).toLowerCase() : ''
+}
 
 /** UTF-8 safe base64 (Gitea contents API expects base64-encoded file bodies). */
 function toBase64(s: string): string {
-  const bytes = new TextEncoder().encode(s)
+  return bytesToBase64(new TextEncoder().encode(s))
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
   let bin = ''
   for (const b of bytes) bin += String.fromCharCode(b)
   return btoa(bin)
@@ -93,62 +123,43 @@ export async function handleScaffold(req: Request): Promise<Response> {
   if (!gitea?.baseUrl) {
     return withCookie(Response.json({ error: 'gitea_not_configured' }, { status: 503 }), auth.refreshedCookie)
   }
-  if (!gitea.serviceToken) {
+  const conn = giteaConn()
+  if (!conn) {
     return withCookie(
-      Response.json({ error: 'gitea_service_token_missing', detail: 'set GITEA_TOKEN' }, { status: 503 }),
+      Response.json(
+        { error: 'gitea_auth_missing', detail: 'set GITEA_USERNAME/GITEA_PASSWORD or GITEA_TOKEN' },
+        { status: 503 },
+      ),
       auth.refreshedCookie,
     )
   }
+  const gitea_api = giteaFetcher(conn)
 
-  const org = env('GITEA_ORG') ?? 'platform'
+  const org = env('GITEA_ORG') ?? 'adhar'
   const sc = body.scaffold ?? {}
-  const fromTemplate = Boolean(sc.sourceRepo && sc.sourceRepo.includes('/'))
   const catalogInfoPath = sc.catalogInfoPath || 'catalog-info.yaml'
   const manifestPath = sc.manifestPath || 'deploy'
   const steps: StepResult[] = []
 
-  const gitea_api = (path: string, init?: RequestInit) =>
-    fetch(`${gitea.baseUrl}/api/v1${path}`, {
-      ...init,
-      headers: {
-        authorization: `token ${gitea.serviceToken}`,
-        accept: 'application/json',
-        ...(init?.body ? { 'content-type': 'application/json' } : {}),
-        ...(init?.headers as Record<string, string> | undefined),
-      },
-    })
+  // Resolve the Backstage template source (repo + path) for skeleton rendering.
+  const templatesOrg = env('GITEA_TEMPLATES_ORG') || env('GITEA_ORG') || 'adhar'
+  const templatesRepo = sc.templatesRepo || `${templatesOrg}/${env('GITEA_TEMPLATES_REPO') || 'adhar-templates'}`
+  const templatePath = sc.templatePath || (body.templateId ? `templates/${body.templateId}` : undefined)
+  const isBackstage = Boolean(templatePath && templatesRepo.includes('/'))
 
-  /* ── 1. create the repo ── */
+  /* ── 1. create the (empty) repo ── */
   let repoRes: Response
   try {
-    if (fromTemplate) {
-      const [tplOwner, tplRepo] = sc.sourceRepo!.split('/')
-      repoRes = await gitea_api(
-        `/repos/${encodeURIComponent(tplOwner)}/${encodeURIComponent(tplRepo)}/generate`,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            owner: org,
-            name,
-            description: body.description ?? '',
-            private: false,
-            git_content: true,
-            default_branch: 'main',
-          }),
-        },
-      )
-    } else {
-      repoRes = await gitea_api(`/orgs/${encodeURIComponent(org)}/repos`, {
-        method: 'POST',
-        body: JSON.stringify({
-          name,
-          description: body.description ?? '',
-          private: false,
-          auto_init: true,
-          default_branch: 'main',
-        }),
-      })
-    }
+    repoRes = await gitea_api(`/orgs/${encodeURIComponent(org)}/repos`, {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        description: body.description ?? '',
+        private: false,
+        auto_init: false,
+        default_branch: 'main',
+      }),
+    })
   } catch (e) {
     return withCookie(
       Response.json({ error: 'gitea_unreachable', detail: e instanceof Error ? e.message : '', steps }, { status: 502 }),
@@ -169,30 +180,110 @@ export async function handleScaffold(req: Request): Promise<Response> {
   const repoUrl = repo.html_url ?? `${gitea.baseUrl}/${org}/${name}`
   const cloneUrl = repo.clone_url ?? `${gitea.baseUrl}/${org}/${name}.git`
   steps.push({ name: 'create-repo', ok: true, detail: repoUrl })
-  // When generated from a real template repo, `git_content: true` copied the
-  // template's source tree into the new repo — report that as its own step so
-  // the run view shows the code actually came across (not an empty repo).
-  if (fromTemplate) {
-    steps.push({ name: 'template-code', ok: true, detail: `copied from ${sc.sourceRepo}` })
-  }
 
-  const putFile = (filePath: string, content: string, message: string) =>
+  const putFile = (filePath: string, base64Content: string, message: string) =>
     gitea_api(`/repos/${encodeURIComponent(org)}/${encodeURIComponent(name)}/contents/${filePath}`, {
       method: 'POST',
-      body: JSON.stringify({ content: toBase64(content), message, branch: 'main' }),
+      body: JSON.stringify({ content: base64Content, message, branch: 'main' }),
     })
 
-  /* ── 2. commit catalog-info.yaml ── */
-  const catalogInfo = buildCatalogInfo({ ...body, name, repoUrl, gitops: Boolean(sc.gitops) })
-  try {
-    const r = await putFile(catalogInfoPath, catalogInfo, `chore: add ${catalogInfoPath} (adhar scaffolder)`)
-    steps.push({ name: 'catalog-info', ok: r.ok, detail: r.ok ? catalogInfoPath : (await r.text().catch(() => '')).slice(0, 200) })
-  } catch (e) {
-    steps.push({ name: 'catalog-info', ok: false, detail: e instanceof Error ? e.message : '' })
+  // Track what the skeleton already wrote so later steps don't double-commit.
+  const committedPaths = new Set<string>()
+
+  /* ── 2. render + commit the template skeleton ── */
+  if (isBackstage) {
+    const [tplOwner, tplRepo] = templatesRepo.split('/')
+    const rawBase = `/repos/${encodeURIComponent(tplOwner)}/${encodeURIComponent(tplRepo)}/raw`
+    let doc: ReturnType<typeof parseYaml> = null
+    let entries: TreeEntry[] = []
+    let skelPrefix = ''
+    try {
+      const tplRes = await gitea_api(`${rawBase}/${templatePath}/template.yaml`)
+      if (!tplRes.ok) throw new Error(`template.yaml ${tplRes.status}`)
+      doc = parseYaml(await tplRes.text())
+      const dir = skeletonDir(doc)
+      skelPrefix = `${templatePath}/${dir}/`
+      const treeRes = await gitea_api(
+        `/repos/${encodeURIComponent(tplOwner)}/${encodeURIComponent(tplRepo)}/git/trees/main?recursive=true`,
+      )
+      if (!treeRes.ok) throw new Error(`git tree ${treeRes.status}`)
+      const tree = (await treeRes.json().catch(() => ({}))) as { tree?: TreeEntry[] }
+      entries = (tree.tree ?? []).filter((e) => e.type === 'blob' && e.path && e.path.startsWith(skelPrefix))
+      steps.push({ name: 'render-skeleton', ok: true, detail: `${templatePath} — ${entries.length} files` })
+    } catch (e) {
+      steps.push({ name: 'render-skeleton', ok: false, detail: e instanceof Error ? e.message : String(e) })
+    }
+
+    if (entries.length) {
+      // Build the render context from the template's fetch:template value map.
+      const params: Record<string, unknown> = { ...(body.params ?? {}) }
+      if (params.name == null) params.name = name
+      if (params.description == null) params.description = body.description ?? ''
+      if (params.owner == null && body.owner) params.owner = body.owner
+      // The console creates the repo itself, so synthesise the RepoUrlPicker value.
+      if (params.repoUrl == null) params.repoUrl = `${gitea.baseUrl}?owner=${org}&repo=${name}`
+      const values = computeValues(doc, params)
+      // Pin repo identity to the repo we actually created (not the picker guess).
+      values.gitOwner = org
+      values.repoName = name
+
+      let committed = 0
+      let failed = 0
+      let firstError: string | undefined
+      for (const entry of entries) {
+        const rel = entry.path!.slice(skelPrefix.length)
+        const outPath = renderPath(rel, values)
+        try {
+          const fileRes = await gitea_api(`${rawBase}/${entry.path}`)
+          if (!fileRes.ok) throw new Error(`fetch ${fileRes.status}`)
+          const buf = new Uint8Array(await fileRes.arrayBuffer())
+          const isBinary = BINARY_EXT.has(extOf(rel))
+          const content = isBinary
+            ? bytesToBase64(buf)
+            : toBase64(renderContent(new TextDecoder().decode(buf), values))
+          const put = await putFile(outPath, content, `feat: scaffold ${templatePath} skeleton (adhar)`)
+          if (put.ok) {
+            committed++
+            committedPaths.add(outPath)
+          } else {
+            failed++
+            if (!firstError) firstError = `${outPath}: gitea ${put.status} ${(await put.text().catch(() => '')).slice(0, 120)}`
+          }
+        } catch (e) {
+          failed++
+          if (!firstError) firstError = `${outPath}: ${e instanceof Error ? e.message : String(e)}`
+        }
+      }
+      steps.push({
+        name: 'commit-files',
+        ok: failed === 0,
+        detail: failed === 0
+          ? `${committed} files committed to main`
+          : `${committed} committed, ${failed} failed — ${firstError ?? ''}`,
+      })
+    }
   }
 
-  /* ── 2b. golden path: commit the full starter file set ── */
-  const goldenPath = isGoldenPathFamily(sc.goldenPath) ? sc.goldenPath : undefined
+  /* ── 2b. catalog-info.yaml ── */
+  // The Backstage skeleton ships its own; only commit a generated descriptor
+  // when the template didn't provide one.
+  if (committedPaths.has(catalogInfoPath)) {
+    steps.push({ name: 'catalog-info', ok: true, detail: `${catalogInfoPath} (from template skeleton)` })
+  } else {
+    const catalogInfo = buildCatalogInfo({ ...body, name, repoUrl, gitops: Boolean(sc.gitops) })
+    try {
+      const r = await putFile(catalogInfoPath, toBase64(catalogInfo), `chore: add ${catalogInfoPath} (adhar scaffolder)`)
+      steps.push({ name: 'catalog-info', ok: r.ok, detail: r.ok ? catalogInfoPath : (await r.text().catch(() => '')).slice(0, 200) })
+      if (r.ok) committedPaths.add(catalogInfoPath)
+    } catch (e) {
+      steps.push({ name: 'catalog-info', ok: false, detail: e instanceof Error ? e.message : '' })
+    }
+  }
+
+  /* ── 2c. golden path: commit the full generated starter set ── */
+  // Only for non-Backstage templates; a Backstage skeleton already populated the
+  // repo (Dockerfile-less buildpacks + deploy/ + observability).
+  const goldenPath = !isBackstage && isGoldenPathFamily(sc.goldenPath) ? sc.goldenPath : undefined
   if (goldenPath) {
     const p = body.params ?? {}
     const files = generateGoldenPathFiles(goldenPath, {
@@ -203,35 +294,30 @@ export async function handleScaffold(req: Request): Promise<Response> {
       language: typeof p.language === 'string' ? p.language : undefined,
     })
     for (const file of files) {
-      // The catalog descriptor was already committed above with richer metadata.
-      if (file.path === catalogInfoPath || file.path === 'catalog-info.yaml') continue
+      if (committedPaths.has(file.path) || file.path === catalogInfoPath || file.path === 'catalog-info.yaml') continue
       try {
-        const r = await putFile(
-          file.path,
-          file.content,
-          `feat: add ${goldenPath} golden-path starter (adhar scaffolder)`,
-        )
+        const r = await putFile(file.path, toBase64(file.content), `feat: add ${goldenPath} golden-path starter (adhar scaffolder)`)
         steps.push({
           name: `commit:${file.path}`,
           ok: r.ok,
           detail: r.ok ? undefined : `gitea ${r.status}: ${(await r.text().catch(() => '')).slice(0, 160)}`,
         })
+        if (r.ok) committedPaths.add(file.path)
       } catch (e) {
         steps.push({ name: `commit:${file.path}`, ok: false, detail: e instanceof Error ? e.message : '' })
       }
     }
   }
 
-  /* ── 2c. Build: kpack Image (Cloud Native Buildpacks → Harbor) ── */
+  /* ── 2d. Build: kpack Image (Cloud Native Buildpacks → Harbor) ── */
   // Adhar builds with kpack/buildpacks — no Dockerfile. Create a kpack Image
   // that builds the repo with the `adhar-builder` ClusterBuilder, pushes the OCI
-  // image to Harbor (signed via the `adhar-pipeline` service account per the
-  // platform supply chain), and auto-rebuilds on every commit. This is the CI
-  // build; nothing is simulated.
+  // image to Harbor, and auto-rebuilds on every commit. This is the CI build;
+  // nothing is simulated.
   {
     const id = await resolveIdentity(req)
     if (!id) {
-      steps.push({ name: 'build-buildpacks', ok: false, detail: 'no cluster identity to create the kpack Image' })
+      steps.push({ name: 'build-image', ok: false, detail: 'no cluster identity to create the kpack Image' })
     } else {
       const buildNs = env('KPACK_NAMESPACE') ?? 'adhar-system'
       const subPath = typeof body.params?.subpath === 'string' ? (body.params.subpath as string) : undefined
@@ -243,14 +329,14 @@ export async function handleScaffold(req: Request): Promise<Response> {
           { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(image) },
         )
         steps.push({
-          name: 'build-buildpacks',
+          name: 'build-image',
           ok: r.ok,
           detail: r.ok
             ? `kpack Image ${buildNs}/${name} — buildpacks build → Harbor (rebuilds on push)`
             : `apiserver ${r.status}: ${(await r.text().catch(() => '')).slice(0, 140)}`,
         })
       } catch (e) {
-        steps.push({ name: 'build-buildpacks', ok: false, detail: e instanceof Error ? e.message : '' })
+        steps.push({ name: 'build-image', ok: false, detail: e instanceof Error ? e.message : '' })
       }
     }
   }
@@ -258,13 +344,15 @@ export async function handleScaffold(req: Request): Promise<Response> {
   /* ── 3. GitOps: deploy starter + Argo CD Application (as the user) ── */
   let appName: string | undefined
   if (sc.gitops) {
-    // Golden paths ship their own populated deploy/ — only seed the empty
-    // Kustomization stub when no golden path filled it in.
-    if (!goldenPath) {
+    // Backstage skeletons and golden paths ship their own populated deploy/;
+    // only seed the empty Kustomization stub when nothing else filled it in.
+    const haveDeploy = isBackstage || goldenPath ||
+      [...committedPaths].some((p) => p.startsWith(`${manifestPath}/`))
+    if (!haveDeploy) {
       try {
         await putFile(
           `${manifestPath}/kustomization.yaml`,
-          'apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n',
+          toBase64('apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n'),
           'chore: add deploy starter (adhar scaffolder)',
         )
       } catch {
@@ -273,7 +361,7 @@ export async function handleScaffold(req: Request): Promise<Response> {
     }
     const id = await resolveIdentity(req)
     if (!id) {
-      steps.push({ name: 'argocd-application', ok: false, detail: 'no cluster identity' })
+      steps.push({ name: 'gitops-app', ok: false, detail: 'no cluster identity' })
     } else {
       const argoNs = env('ARGOCD_NAMESPACE') ?? 'argocd'
       const app = buildArgoApplication({
@@ -291,12 +379,12 @@ export async function handleScaffold(req: Request): Promise<Response> {
         )
         appName = r.ok ? name : undefined
         steps.push({
-          name: 'argocd-application',
+          name: 'gitops-app',
           ok: r.ok,
-          detail: r.ok ? `${argoNs}/${name}` : `apiserver ${r.status}`,
+          detail: r.ok ? `${argoNs}/${name}` : `apiserver ${r.status}: ${(await r.text().catch(() => '')).slice(0, 140)}`,
         })
       } catch (e) {
-        steps.push({ name: 'argocd-application', ok: false, detail: e instanceof Error ? e.message : '' })
+        steps.push({ name: 'gitops-app', ok: false, detail: e instanceof Error ? e.message : '' })
       }
     }
   }

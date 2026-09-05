@@ -1,61 +1,38 @@
 import { env } from '@adhar-console/utils'
 import { getRequestUser, unauthorized } from './request-user.ts'
 import { getTool } from './tool-registry.ts'
+import { giteaConn, giteaFetcher } from './gitea-auth.ts'
+import { parseYaml } from './yaml-lite.ts'
+import type { YamlValue } from './yaml-lite.ts'
 
 /**
  * Software-template discovery — the real source behind Catalog → Create New.
  *
- * `GET /api/templates` lists templates hosted in **Gitea**, so platform teams
- * curate the golden paths in git rather than in the console bundle. Discovery,
- * in order, using the platform Gitea service token:
+ * `GET /api/templates` lists the platform's **Backstage Software Templates**
+ * hosted in Gitea, so platform teams curate the golden paths in git rather than
+ * in the console bundle. The model is Backstage's, NOT Gitea "template repos":
  *
- *   1. every repo flagged as a Gitea *template repository* (`template: true`),
- *   2. every repo in the templates org (`GITEA_TEMPLATES_ORG`, else `GITEA_ORG`).
+ *   - `adhar/adhar-templates/catalog-info.yaml` is a Backstage `kind: Location`
+ *     whose `spec.targets` point at `./templates/<name>/template.yaml`.
+ *   - Each `template.yaml` is a `kind: Template` with `metadata` (name/title/
+ *     description/tags), `spec.parameters` (the wizard's parameter schema) and
+ *     `spec.steps` (a `fetch:template` that renders a `skeleton/` tree).
  *
- * Each repo maps to a Create-New card whose `scaffold.sourceRepo` is the repo
- * itself, so submitting the wizard generates a new repo FROM it via the
- * existing `/api/scaffold` engine. A repo may include an optional
- * `.adhar/template.json` (or `template.json`) to enrich the card — title,
- * description, family, glyph, wizard steps, etc. — otherwise the card is built
- * from repo metadata (name, description, language).
+ * Discovery fetches the Location, reads its targets, then fetches + parses each
+ * `template.yaml`. The org/repo are configurable via `GITEA_TEMPLATES_ORG` /
+ * `GITEA_ORG` (default org `adhar`) and `GITEA_TEMPLATES_REPO` (default
+ * `adhar-templates`); the real defaults work out of the box.
  *
- * When Gitea is not configured the endpoint returns `configured: false` with an
- * empty list; the client then falls back to its built-in seed templates.
+ * Each template maps to a Create-New card. The Backstage `spec.parameters` are
+ * translated into the wizard's `steps`/`fields` model so the Create wizard
+ * renders the real form, and the parameter schema is carried through verbatim
+ * on `parameters` for callers that want it. The card's `scaffold` block records
+ * where the skeleton lives so `/api/scaffold` can render + commit it.
+ *
+ * When Gitea isn't configured the endpoint returns `configured: false` with an
+ * empty list; when it's configured but unreachable it returns
+ * `error: 'gitea_unreachable'`. The client then falls back to seed templates.
  */
-
-interface GiteaOwner {
-  login?: string
-}
-interface GiteaRepo {
-  id?: number
-  name?: string
-  full_name?: string
-  description?: string
-  owner?: GiteaOwner
-  language?: string
-  html_url?: string
-  template?: boolean
-  archived?: boolean
-  empty?: boolean
-  topics?: string[]
-  updated_at?: string
-}
-
-const LANGUAGE_BY_GITEA: Record<string, string> = {
-  go: 'go',
-  java: 'java',
-  kotlin: 'kotlin',
-  typescript: 'typescript',
-  javascript: 'javascript',
-  python: 'python',
-  rust: 'rust',
-  scala: 'scala',
-  swift: 'swift',
-  shell: 'shell',
-  hcl: 'hcl',
-  smarty: 'helm',
-  dockerfile: 'mixed',
-}
 
 const TONES = ['brand', 'emerald', 'sky', 'amber', 'violet', 'rose', 'slate'] as const
 
@@ -71,21 +48,8 @@ function humanize(name: string): string {
     .trim()
 }
 
-function inferLanguage(repo: GiteaRepo): string {
-  return LANGUAGE_BY_GITEA[(repo.language ?? '').toLowerCase()] ?? 'mixed'
-}
-
-/** Guess a template family from topics, name and language. */
-function inferFamily(repo: GiteaRepo, lang: string): string {
-  const hay = `${repo.name ?? ''} ${(repo.topics ?? []).join(' ')}`.toLowerCase()
-  if (/\b(web|frontend|spa|site|ui|react|vue|angular|next)\b/.test(hay)) return 'website'
-  if (/\b(lib|library|sdk|package)\b/.test(hay)) return 'library'
-  if (/\b(api|openapi|graphql|grpc|proto|contract)\b/.test(hay)) return 'api'
-  if (/\b(mobile|ios|android|expo|flutter)\b/.test(hay)) return 'mobile'
-  if (/\b(data|ml|pipeline|etl|spark|notebook|model)\b/.test(hay)) return 'data'
-  if (/\b(infra|terraform|helm|chart|iac|module)\b/.test(hay) || lang === 'hcl' || lang === 'helm') return 'infra'
-  if (/\b(docs|documentation)\b/.test(hay)) return 'docs'
-  return 'service'
+function slug(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'step'
 }
 
 function glyphOf(name: string): string {
@@ -93,190 +57,285 @@ function glyphOf(name: string): string {
   return (letters.slice(0, 2) || 'GT').toUpperCase()
 }
 
-function toneOf(fullName: string): (typeof TONES)[number] {
+function toneOf(key: string): (typeof TONES)[number] {
   let h = 0
-  for (let i = 0; i < fullName.length; i++) h = (h * 31 + fullName.charCodeAt(i)) >>> 0
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0
   return TONES[h % TONES.length]
 }
 
-/** Default single-step wizard when a repo carries no `template.json`. */
-function defaultSteps() {
+/** Infer a template family from its name + tags (all are `spec.type: service`). */
+function inferFamily(name: string, tags: string[]): string {
+  const hay = `${name} ${tags.join(' ')}`.toLowerCase()
+  if (/\b(web|frontend|spa|site|ui|react|vue|angular|next|tanstack)\b/.test(hay)) return 'website'
+  if (/\b(lib|library|sdk|package)\b/.test(hay)) return 'library'
+  if (/\b(api|openapi|graphql|grpc|proto|contract)\b/.test(hay)) return 'api'
+  if (/\b(mobile|ios|android|expo|flutter)\b/.test(hay)) return 'mobile'
+  if (/\b(data|ml|pipeline|etl|spark|notebook|model)\b/.test(hay)) return 'data'
+  if (/\b(infra|terraform|helm|chart|iac|module)\b/.test(hay)) return 'infra'
+  if (/\b(docs|documentation)\b/.test(hay)) return 'docs'
+  return 'service'
+}
+
+/** Infer the display language from name + tags. */
+function inferLanguage(name: string, tags: string[]): string {
+  const hay = `${name} ${tags.join(' ')}`.toLowerCase()
+  if (/\b(nodejs|node|express|javascript)\b/.test(hay)) return 'javascript'
+  if (/\b(react|angular|vue|tanstack|typescript|spa)\b/.test(hay)) return 'typescript'
+  if (/\bgo\b|golang/.test(hay)) return 'go'
+  if (/\b(springboot|spring|quarkus|java|hexagon)\b/.test(hay)) return 'java'
+  if (/\bkotlin\b/.test(hay)) return 'kotlin'
+  if (/\bpython\b/.test(hay)) return 'python'
+  if (/\brust\b/.test(hay)) return 'rust'
+  if (/\b(helm|chart)\b/.test(hay)) return 'helm'
+  if (/\b(terraform|hcl|iac)\b/.test(hay)) return 'hcl'
+  return 'mixed'
+}
+
+/** Progress-log actions mirroring the real scaffolder steps (display only). */
+function defaultActions() {
   return [
-    {
-      key: 'identity',
-      title: 'Identity',
-      description: 'Name, purpose and owner of the new component.',
-      fields: [
-        {
-          kind: 'string',
-          key: 'name',
-          label: 'Component name',
-          placeholder: 'orders-svc',
-          help: 'Lowercase, kebab-case. Becomes the catalog name + repo slug.',
-          required: true,
-        },
-        {
-          kind: 'string',
-          key: 'description',
-          label: 'Description',
-          placeholder: 'Short explanation of what this does.',
-          required: true,
-        },
-        { kind: 'owner', key: 'owner', label: 'Owner', help: 'Pick a Group entity.', required: true },
-      ],
-    },
+    { title: 'Create repository', duration: 0.8 },
+    { title: 'Render template skeleton', duration: 0.9 },
+    { title: 'Commit rendered files', duration: 0.7 },
+    { title: 'Register catalog-info.yaml', duration: 0.3 },
+    { title: 'Create kpack build (buildpacks → Harbor)', duration: 0.6 },
+    { title: 'Create Argo CD Application (GitOps)', duration: 0.6 },
   ]
 }
 
-function defaultActions(fullName: string) {
-  return [
-    { title: 'Generate repository from template', duration: 0.9, detail: fullName },
-    { title: 'Commit catalog-info.yaml', duration: 0.4 },
-    { title: 'Register entity in catalog', duration: 0.4 },
-  ]
-}
+const asObj = (v: YamlValue | undefined): Record<string, YamlValue> =>
+  v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, YamlValue>) : {}
 
-type GiteaApi = (path: string) => Promise<Response>
+/** Translate one Backstage parameter property into a wizard field. */
+function buildField(key: string, spec: Record<string, YamlValue>, required: boolean): Record<string, unknown> | null {
+  const uiField = spec['ui:field']
+  // The console creates the repo itself from `name`; a RepoUrlPicker has no
+  // place in the wizard (the scaffolder derives owner/repo from the org + name).
+  if (uiField === 'RepoUrlPicker') return null
 
-/** Best-effort `.adhar/template.json` (or `template.json`) enrichment. */
-async function readManifest(api: GiteaApi, owner: string, name: string): Promise<Record<string, unknown> | null> {
-  for (const path of ['.adhar/template.json', 'template.json']) {
-    try {
-      const r = await api(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/${path}`)
-      if (!r.ok) continue
-      const body = (await r.json()) as { content?: string; encoding?: string }
-      if (!body.content) continue
-      const text = body.encoding === 'base64' ? decodeBase64(body.content) : body.content
-      const parsed = JSON.parse(text)
-      if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>
-    } catch {
-      /* missing / malformed manifest — ignore, fall back to metadata */
+  const label = typeof spec.title === 'string' ? spec.title : humanize(key)
+  const help = typeof spec.description === 'string' ? spec.description : undefined
+  const base: Record<string, unknown> = { key, label }
+  if (help) base.help = help
+  if (required) base.required = true
+
+  if (uiField === 'OwnerPicker') return { kind: 'owner', ...base }
+
+  if (Array.isArray(spec.enum)) {
+    const names = Array.isArray(spec.enumNames) ? spec.enumNames : []
+    return {
+      kind: 'select',
+      ...base,
+      options: spec.enum.map((v, i) => ({ value: String(v), label: String(names[i] ?? v) })),
+      ...(spec.default != null ? { default: String(spec.default) } : {}),
     }
   }
-  return null
+
+  const type = spec.type
+  if (type === 'boolean') return { kind: 'boolean', ...base, default: Boolean(spec.default) }
+
+  if (type === 'integer' || type === 'number') {
+    return {
+      kind: 'string',
+      ...base,
+      ...(spec.default != null ? { default: String(spec.default) } : {}),
+      pattern: {
+        regex: type === 'integer' ? '^-?\\d+$' : '^-?\\d*\\.?\\d+$',
+        message: 'Enter a number.',
+      },
+    }
+  }
+
+  if (type === 'array') {
+    const items = asObj(spec.items)
+    if (Array.isArray(items.enum)) {
+      return {
+        kind: 'multiselect',
+        ...base,
+        options: items.enum.map((v) => ({ value: String(v), label: String(v) })),
+        ...(Array.isArray(spec.default) ? { default: spec.default.map(String) } : {}),
+      }
+    }
+  }
+
+  // Default: a string field, carrying JSON-schema pattern + maxLength hints.
+  const field: Record<string, unknown> = { kind: 'string', ...base }
+  if (spec.default != null) field.default = String(spec.default)
+  if (typeof spec.pattern === 'string') {
+    field.pattern = { regex: spec.pattern, message: 'Value does not match the required format.' }
+  }
+  if (typeof spec.maxLength === 'number') {
+    field.help = `${help ? `${help} ` : ''}Max ${spec.maxLength} characters.`
+  }
+  return field
 }
 
-function decodeBase64(b64: string): string {
-  const bin = atob(b64.replace(/\s+/g, ''))
-  const bytes = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  return new TextDecoder().decode(bytes)
+/** Turn Backstage `spec.parameters` (a page, or an array of pages) into wizard steps. */
+function buildSteps(parameters: YamlValue | undefined): Array<Record<string, unknown>> {
+  const pages: YamlValue[] = Array.isArray(parameters)
+    ? parameters
+    : parameters && typeof parameters === 'object'
+    ? [parameters]
+    : []
+
+  const steps: Array<Record<string, unknown>> = []
+  pages.forEach((pageRaw, i) => {
+    const page = asObj(pageRaw)
+    const props = asObj(page.properties)
+    const required = Array.isArray(page.required) ? page.required.map(String) : []
+    const fields: Array<Record<string, unknown>> = []
+    for (const [key, spec] of Object.entries(props)) {
+      const f = buildField(key, asObj(spec), required.includes(key))
+      if (f) fields.push(f)
+    }
+    if (!fields.length) return
+    const title = typeof page.title === 'string' ? page.title : `Step ${i + 1}`
+    steps.push({
+      key: slug(title),
+      title,
+      description: typeof page.description === 'string' ? page.description : '',
+      fields,
+    })
+  })
+  return steps
 }
 
-/** Build one CatalogTemplate-shaped object from a repo (+ optional manifest). */
-async function buildFromRepo(api: GiteaApi, repo: GiteaRepo, org: string): Promise<Record<string, unknown> | null> {
-  const owner = repo.owner?.login ?? repo.full_name?.split('/')[0]
-  const name = repo.name ?? repo.full_name?.split('/')[1]
-  if (!owner || !name) return null
-  const fullName = `${owner}/${name}`
-  const manifest = await readManifest(api, owner, name)
-  const m = (k: string) => (manifest ? manifest[k] : undefined)
+/** Build one CatalogTemplate-shaped object from a parsed `template.yaml`. */
+function buildTemplate(
+  doc: YamlValue,
+  templateDir: string,
+  org: string,
+  templatesRepo: string,
+  browseBase: string,
+): Record<string, unknown> | null {
+  const root = asObj(doc)
+  const metadata = asObj(root.metadata)
+  const spec = asObj(root.spec)
+  const name = typeof metadata.name === 'string' ? metadata.name : undefined
+  if (!name) return null
 
-  const lang = (m('language') as string) ?? inferLanguage(repo)
-  const family = (m('family') as string) ?? inferFamily(repo, lang)
-  const tags = Array.isArray(m('tags'))
-    ? (m('tags') as string[])
-    : Array.from(new Set([...(repo.topics ?? []), 'gitea']))
-  const scaffoldIn = (m('scaffold') as Record<string, unknown>) ?? {}
+  const tags = Array.isArray(metadata.tags) ? metadata.tags.map(String) : []
+  const family = inferFamily(name, tags)
+  const language = inferLanguage(name, tags)
+  const specType = typeof spec.type === 'string' ? spec.type : 'service'
+  const steps = buildSteps(spec.parameters)
 
   return {
-    id: `gitea-${owner}-${name}`.toLowerCase(),
-    title: (m('title') as string) ?? humanize(name),
-    description:
-      (m('description') as string) ??
-      repo.description ??
-      `Scaffold a new project from the ${fullName} template.`,
-    produces: (m('produces') as unknown) ?? {
+    id: name,
+    title: typeof metadata.title === 'string' ? metadata.title : humanize(name),
+    description: typeof metadata.description === 'string' ? metadata.description : '',
+    produces: {
       kind: family === 'api' ? 'API' : family === 'infra' ? 'Resource' : 'Component',
-      type: family,
+      type: specType,
     },
     family,
-    language: lang,
+    language,
     tags: tags.length ? tags : ['gitea'],
-    owner: (m('owner') as string) ?? org ?? owner,
-    glyph: (m('glyph') as string) ?? glyphOf(name),
-    tone: (m('tone') as string) ?? toneOf(fullName),
-    estimateMinutes: (m('estimateMinutes') as number) ?? 1,
-    popular: Boolean(m('popular')),
-    isNew: m('isNew') !== undefined ? Boolean(m('isNew')) : true,
+    owner: typeof spec.owner === 'string' ? spec.owner : org,
+    glyph: glyphOf(name),
+    tone: toneOf(name),
+    estimateMinutes: 2,
+    popular: tags.includes('recommended'),
+    isNew: true,
     source: 'gitea',
-    repoUrl: repo.html_url,
-    steps: (m('steps') as unknown) ?? defaultSteps(),
-    actions: (m('actions') as unknown) ?? defaultActions(fullName),
+    repoUrl: `${browseBase}/${org}/${templatesRepo}/src/branch/main/${templateDir}`,
+    // Carry the Backstage parameter schema through verbatim (additive), and the
+    // wizard-native translation the Create form actually renders.
+    parameters: spec.parameters ?? [],
+    steps,
+    actions: defaultActions(),
     scaffold: {
-      sourceRepo: fullName,
-      // Gitea-discovered templates default to GitOps ON so the end-to-end
-      // journey (generate repo → commit descriptor → Argo CD Application →
-      // deploy) actually happens. A repo's `.adhar/template.json` can opt out
-      // by setting `scaffold.gitops: false` explicitly.
-      gitops: scaffoldIn.gitops !== undefined ? Boolean(scaffoldIn.gitops) : true,
-      manifestPath: (scaffoldIn.manifestPath as string) ?? 'deploy',
-      catalogInfoPath: (scaffoldIn.catalogInfoPath as string) ?? undefined,
-      goldenPath: (scaffoldIn.goldenPath as string) ?? undefined,
+      // Backstage templates own their catalog descriptor + deploy/ + GitOps, so
+      // GitOps is ON: generate repo → render skeleton → kpack build → Argo CD.
+      gitops: true,
+      manifestPath: 'deploy',
+      catalogInfoPath: 'catalog-info.yaml',
+      // Where the scaffolder finds the skeleton to render + commit.
+      templatesRepo: `${org}/${templatesRepo}`,
+      templatePath: templateDir,
     },
   }
 }
 
-function mergeReposById(a: GiteaRepo[], b: GiteaRepo[]): GiteaRepo[] {
-  const seen = new Set(a.map((r) => r.full_name ?? `${r.owner?.login}/${r.name}`))
-  const out = [...a]
-  for (const r of b) {
-    const key = r.full_name ?? `${r.owner?.login}/${r.name}`
-    if (!seen.has(key)) {
-      seen.add(key)
-      out.push(r)
-    }
-  }
-  return out
+/** Read `spec.targets` from a parsed catalog-info Location. */
+function extractTargets(doc: YamlValue): string[] {
+  const spec = asObj(asObj(doc).spec)
+  const targets = spec.targets
+  if (!Array.isArray(targets)) return []
+  return targets
+    .map(String)
+    .map((t) => t.replace(/^\.\//, ''))
+    .filter((t) => t.endsWith('template.yaml'))
+}
+
+type Api = (path: string, init?: RequestInit) => Promise<Response>
+
+/** Fallback discovery: list each `templates/<name>` dir via the contents API. */
+async function listTargetsFromContents(api: Api, org: string, repo: string): Promise<string[]> {
+  const r = await api(`/repos/${encodeURIComponent(org)}/${encodeURIComponent(repo)}/contents/templates`)
+  if (!r.ok) return []
+  const entries = (await r.json().catch(() => [])) as Array<{ type?: string; name?: string; path?: string }>
+  return entries
+    .filter((e) => e?.type === 'dir' && e.name)
+    .map((e) => `templates/${e.name}/template.yaml`)
 }
 
 export async function handleListTemplates(req: Request): Promise<Response> {
   const auth = await getRequestUser(req)
   if (!auth) return unauthorized()
 
-  const gitea = getTool('gitea')
-  if (!gitea?.baseUrl || !gitea.serviceToken) {
+  const conn = giteaConn()
+  if (!conn) {
     return withCookie(
       Response.json({ configured: false, source: 'gitea', templates: [] }),
       auth.refreshedCookie,
     )
   }
 
-  const api: GiteaApi = (path) =>
-    fetch(`${gitea.baseUrl}/api/v1${path}`, {
-      headers: { authorization: `token ${gitea.serviceToken}`, accept: 'application/json' },
-    })
+  const org = env('GITEA_TEMPLATES_ORG') || env('GITEA_ORG') || 'adhar'
+  const templatesRepo = env('GITEA_TEMPLATES_REPO') || 'adhar-templates'
+  const browseBase = getTool('gitea')?.baseUrl ?? ''
+  const api = giteaFetcher(conn)
 
-  const org = env('GITEA_TEMPLATES_ORG') || env('GITEA_ORG') || ''
-  let repos: GiteaRepo[] = []
+  let targets: string[] = []
   try {
-    // Repos explicitly flagged as template repositories, instance-wide.
-    const s = await api('/repos/search?template=true&limit=50')
-    if (s.ok) {
-      const body = (await s.json()) as { data?: GiteaRepo[] }
-      repos = body.data ?? []
-    }
-    // Plus everything in the curated templates org.
-    if (org) {
-      const r = await api(`/orgs/${encodeURIComponent(org)}/repos?limit=50`)
-      if (r.ok) repos = mergeReposById(repos, ((await r.json()) as GiteaRepo[]) ?? [])
-    }
+    const ci = await api(`/repos/${encodeURIComponent(org)}/${encodeURIComponent(templatesRepo)}/raw/catalog-info.yaml`)
+    if (ci.ok) targets = extractTargets(parseYaml(await ci.text()))
+    if (!targets.length) targets = await listTargetsFromContents(api, org, templatesRepo)
   } catch (e) {
     return withCookie(
       Response.json(
-        { configured: true, source: 'gitea', templates: [], error: 'gitea_unreachable', detail: e instanceof Error ? e.message : String(e) },
+        {
+          configured: true,
+          source: 'gitea',
+          org,
+          templates: [],
+          error: 'gitea_unreachable',
+          detail: e instanceof Error ? e.message : String(e),
+        },
         { status: 502 },
       ),
       auth.refreshedCookie,
     )
   }
 
-  const candidates = repos.filter((r) => r && !r.archived && !r.empty).slice(0, 30)
-  const built = await Promise.all(candidates.map((r) => buildFromRepo(api, r, org)))
-  const templates = built.filter(Boolean)
+  const templates: Array<Record<string, unknown>> = []
+  for (const target of targets) {
+    const dir = target.replace(/\/template\.yaml$/, '')
+    try {
+      const r = await api(
+        `/repos/${encodeURIComponent(org)}/${encodeURIComponent(templatesRepo)}/raw/${target}`,
+      )
+      if (!r.ok) continue
+      const built = buildTemplate(parseYaml(await r.text()), dir, org, templatesRepo, browseBase)
+      if (built) templates.push(built)
+    } catch {
+      /* skip a single malformed template — the rest still list */
+    }
+  }
 
   return withCookie(
-    Response.json({ configured: true, source: 'gitea', org: org || undefined, templates }),
+    Response.json({ configured: true, source: 'gitea', org, templates }),
     auth.refreshedCookie,
   )
 }

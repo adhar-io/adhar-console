@@ -6,6 +6,16 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+
+- **Cloud Shell is now multi-session (tabbed).** Open as many terminals as you
+  need — each into a pod/container (Pod exec) or the cluster tools pod with
+  kubectl/k9s/helm (Cluster shell) — and switch between them via tabs. Sessions
+  stay live when you switch tabs, so a `k9s` view or `tail -f` survives
+  navigation; a launcher lets you spin up new sessions and close finished ones.
+  Each terminal keeps the full toolbar (search, copy/paste, clear, reconnect,
+  font-size, download, fullscreen) and per-user RBAC.
+
 ## [0.1.43] - 2026-09-06
 
 ### Changed

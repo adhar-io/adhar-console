@@ -7,8 +7,10 @@ import {
   Sparkline,
   Spinner,
   StatusBadge,
+  useOrganizations,
 } from '@adhar-console/shell-ui'
 import { cn, formatRelative } from '@adhar-console/utils'
+import { summarizeCluster, useClusterSignals } from '~/data/cluster-signals.ts'
 import {
   useAirbyteConnections,
   useBiDashboards,
@@ -41,6 +43,7 @@ import {
   useIstioPeerAuth,
   useKafkas,
   useKafkaTopics,
+  useNamespaces,
   useNodeMetrics,
   useNodes,
   usePvcs,
@@ -1578,11 +1581,29 @@ function PanelHead({
         <div className="text-sm font-semibold text-content">{title}</div>
         {subtitle ? <div className="mt-0.5 truncate text-[11px] text-content-subtle">{subtitle}</div> : null}
       </div>
+      {/* Arrow-only "open" affordance (no "Open" label). Offset from the very
+          top-right corner so it never sits under the drag-handle indicator that
+          draggable-grid renders at `right-3 top-3`. */}
       <Link
         to={to}
-        className="shrink-0 text-[11px] font-medium text-brand-700 dark:text-brand-300 hover:text-brand-800 dark:hover:text-brand-300 hover:underline"
+        aria-label={`Open ${title}`}
+        title={`Open ${title}`}
+        className="mr-6 -mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-sunken hover:text-brand-700 dark:hover:text-brand-300"
       >
-        Open →
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M5 12h14" />
+          <path d="m13 6 6 6-6 6" />
+        </svg>
       </Link>
     </div>
   )
@@ -1736,49 +1757,57 @@ function formatScalar(v: number, unit?: string): string {
  * ─────────────────────────────────────────────────────────── */
 
 export function PlatformHealthPanel() {
+  // Real, currently-reachable cluster signals — nodes / pods / Argo CD apps /
+  // Kyverno policy reports — via the same authenticated /api/k8s gateway the
+  // rest of the Overview uses. Prometheus (golden signals) drives Performance.
+  const cluster = useClusterSignals()
+  const s = summarizeCluster(cluster)
   const { errors } = useGoldenSignals()
-  const apps = useDeliverApplications()
-  const slos = useDiscoverSlos()
-  const trivy = useTrivyReports()
 
-  // Sub-scores 0–100, each from the relevant module signal — or null (shown as
-  // "—") when that source has no data. Never a fabricated fallback number.
+  // Sub-scores 0–100, each from a real signal — or null (shown as "—") when the
+  // source is genuinely absent (CRD not installed / no data). Never a fabricated
+  // fallback number.
+
+  // Reliability = ready-node ratio + running-pod ratio (whichever are present).
   const reliability = useMemo<number | null>(() => {
-    const list = apps.data ?? []
-    if (list.length === 0) return null
-    const ok = list.filter((a) => a.health === 'Healthy' && a.sync === 'Synced').length
-    return Math.round((ok / list.length) * 100)
-  }, [apps.data])
+    const parts: number[] = []
+    if (s.nodes.total > 0) parts.push((s.nodes.ready / s.nodes.total) * 100)
+    if (s.pods.total > 0) parts.push((s.pods.running / s.pods.total) * 100)
+    if (parts.length === 0) return null
+    return Math.round(parts.reduce((a, b) => a + b, 0) / parts.length)
+  }, [s.nodes.total, s.nodes.ready, s.pods.total, s.pods.running])
 
-  const slo = useMemo<number | null>(() => {
-    const list = slos.data ?? []
-    if (list.length === 0) return null
-    const passing = list.filter((s) => (s.errorBudgetRemaining ?? 0) > 0.25).length
-    return Math.round((passing / list.length) * 100)
-  }, [slos.data])
+  // Delivery = Argo CD apps Synced + Healthy ratio. Null when Argo CD is not
+  // installed or reports no applications.
+  const delivery = useMemo<number | null>(() => {
+    if (!s.argo.installed || s.argo.total === 0) return null
+    const okShare = (s.argo.synced + s.argo.healthy) / (s.argo.total * 2)
+    return Math.round(okShare * 100)
+  }, [s.argo.installed, s.argo.total, s.argo.synced, s.argo.healthy])
 
+  // Security = Kyverno policy pass ratio. Null when Kyverno / policy reports are
+  // not installed or nothing has been evaluated yet.
   const security = useMemo<number | null>(() => {
-    const reports = trivy.data ?? []
-    if (reports.length === 0) return null
-    const crit = reports.reduce((acc, r) => acc + (r.summary?.CRITICAL ?? 0), 0)
-    const high = reports.reduce((acc, r) => acc + (r.summary?.HIGH ?? 0), 0)
-    return Math.max(0, 100 - crit * 8 - high * 2)
-  }, [trivy.data])
+    if (!s.policy.installed) return null
+    const evaluated = s.policy.pass + s.policy.fail + s.policy.warn
+    if (evaluated === 0) return null
+    return Math.round((s.policy.pass / evaluated) * 100)
+  }, [s.policy.installed, s.policy.pass, s.policy.fail, s.policy.warn])
 
+  // Performance = Prometheus 5xx error rate (golden signals). No series ⇒
+  // unavailable — Prometheus isn't wired — shown honestly as "—".
   const performance = useMemo<number | null>(() => {
-    // useGoldenSignals returns { rps, errors, p95 }; the error rate is the
-    // real perf signal. No series ⇒ unavailable (not a 96 fallback).
     const series = errors.data ?? []
     if (series.length === 0) return null
     const errAvg = avgLastValues(series)
     return Math.min(100, Math.max(40, 100 - Math.round(errAvg * 1000)))
   }, [errors.data])
 
-  const available = [reliability, slo, security, performance].filter(
+  const available = [reliability, delivery, security, performance].filter(
     (v): v is number => v != null,
   )
   const overall = available.length
-    ? Math.round(available.reduce((s, v) => s + v, 0) / available.length)
+    ? Math.round(available.reduce((sum, v) => sum + v, 0) / available.length)
     : null
   const tone =
     overall == null
@@ -1793,12 +1822,12 @@ export function PlatformHealthPanel() {
 
   return (
     <PanelCard>
-      <PanelHead title="Platform health" subtitle="Reliability · SLOs · security · perf" to="/decide" />
+      <PanelHead title="Platform health" subtitle="Reliability · delivery · security · perf" to="/decide" />
       <div className="grid flex-1 grid-cols-1 items-center gap-5 sm:grid-cols-[auto_1fr]">
         <RadialScore value={overall} tone={tone} />
         <div className="grid grid-cols-2 gap-3">
           <SubScore label="Reliability" value={reliability} icon={<IconShield />} />
-          <SubScore label="SLO health" value={slo} icon={<IconTarget />} />
+          <SubScore label="Delivery" value={delivery} icon={<IconRocket />} />
           <SubScore label="Security" value={security} icon={<IconLock />} />
           <SubScore label="Performance" value={performance} icon={<IconBolt />} />
         </div>
@@ -2096,6 +2125,7 @@ function IconAlertSm() {
 export function ResourceUtilizationPanel() {
   const nodesQ = useNodes()
   const metricsQ = useNodeMetrics()
+  const pvcsQ = usePvcs()
 
   const gauges = useMemo(() => {
     const nodes = (nodesQ.data ?? []) as Array<{
@@ -2103,6 +2133,12 @@ export function ResourceUtilizationPanel() {
     }>
     const nodeMetrics = (metricsQ.data ?? []) as Array<
       Generic & { usage?: { cpu?: string; memory?: string } }
+    >
+    const pvcs = (pvcsQ.data ?? []) as Array<
+      Generic & {
+        status?: { phase?: string; capacity?: { storage?: string } }
+        spec?: { resources?: { requests?: { storage?: string } } }
+      }
     >
 
     const out: Array<{
@@ -2117,6 +2153,9 @@ export function ResourceUtilizationPanel() {
     const cpuTotal = nodes.reduce((s, n) => s + parseCpu(n.status?.allocatable?.cpu), 0)
     const memTotal = nodes.reduce((s, n) => s + parseBytes(n.status?.allocatable?.memory), 0)
 
+    // CPU / Memory need metrics-server (metrics.k8s.io). When it's absent these
+    // gauges are simply omitted — the Storage gauge below is metrics-server
+    // independent, so the panel still populates on a live cluster.
     if (nodeMetrics.length > 0 && cpuTotal > 0) {
       const cpuUsed = nodeMetrics.reduce((s, m) => s + parseCpu(m.usage?.cpu), 0)
       out.push({
@@ -2139,21 +2178,46 @@ export function ResourceUtilizationPanel() {
         icon: <IconMemory />,
       })
     }
+    // Storage — bound / total PVCs (the same honest, metrics-server-independent
+    // signal the Platform dashboard uses). Provisioned capacity is summed from
+    // status.capacity.storage, falling back to spec.resources.requests.storage.
+    // Always shown (even 0 / 0) as long as the PVC list is reachable.
+    if (!pvcsQ.isError) {
+      const bound = pvcs.filter((p) => p.status?.phase === 'Bound').length
+      const totalPvcs = pvcs.length
+      const provisioned = pvcs.reduce(
+        (s, p) =>
+          s +
+          parseBytes(p.status?.capacity?.storage ?? p.spec?.resources?.requests?.storage),
+        0,
+      )
+      out.push({
+        key: 'storage',
+        label: 'Storage',
+        value: totalPvcs > 0 ? pct(bound, totalPvcs) : 0,
+        used: `${bound} / ${totalPvcs} bound`,
+        total: formatStorage(provisioned),
+        icon: <IconStorage />,
+      })
+    }
     return out
-  }, [nodesQ.data, metricsQ.data])
+  }, [nodesQ.data, metricsQ.data, pvcsQ.data, pvcsQ.isError])
 
-  const loading = nodesQ.isLoading || metricsQ.isLoading
+  const loading = nodesQ.isLoading || metricsQ.isLoading || pvcsQ.isLoading
+  // Keep the multi-up gauge row balanced whatever the available signal count.
+  const gridCols =
+    gauges.length >= 3 ? 'sm:grid-cols-3' : gauges.length === 2 ? 'sm:grid-cols-2' : 'grid-cols-1'
   return (
     <PanelCard>
       <PanelHead title="Resource utilization" subtitle="Cluster-wide live consumption" to="/platform" />
       {loading ? (
         <PanelLoading />
-      ) : nodesQ.isError ? (
+      ) : nodesQ.isError && pvcsQ.isError ? (
         <PanelError message="Could not reach the cluster" />
       ) : gauges.length === 0 ? (
-        <PanelEmpty message="Requires metrics-server (metrics.k8s.io)" />
+        <PanelEmpty message="Requires metrics-server or PVCs (metrics.k8s.io)" />
       ) : (
-        <div className="grid flex-1 grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className={cn('grid flex-1 grid-cols-1 gap-4', gridCols)}>
           {gauges.map((g) => (
             <ResourceGauge
               key={g.key}
@@ -2168,6 +2232,15 @@ export function ResourceUtilizationPanel() {
       )}
     </PanelCard>
   )
+}
+
+/** Human-readable storage size from bytes (GiB / TiB), honest 0 B when empty. */
+function formatStorage(bytes: number): string {
+  if (bytes <= 0) return '0 B'
+  const gib = bytes / 1024 ** 3
+  if (gib >= 1024) return `${(gib / 1024).toFixed(1)} TiB`
+  if (gib >= 1) return `${gib.toFixed(0)} GiB`
+  return `${(bytes / 1024 ** 2).toFixed(0)} MiB`
 }
 
 function ResourceGauge({
@@ -2520,6 +2593,16 @@ function IconMemory() {
       <path d="M12 11V9" />
       <path d="M2 15h20" />
       <path d="M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1.1a2 2 0 0 0 0 3.837V17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5.1a2 2 0 0 0 0-3.837Z" />
+    </svg>
+  )
+}
+
+function IconStorage() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <ellipse cx="12" cy="5" rx="9" ry="3" />
+      <path d="M3 5v6a9 3 0 0 0 18 0V5" />
+      <path d="M3 11v6a9 3 0 0 0 18 0v-6" />
     </svg>
   )
 }
@@ -3484,24 +3567,198 @@ export function GitOpsSyncPanel() {
 
 /* ───── Tenant overview ───── */
 
-interface QuotaUsage {
-  label: string
-  used: number
-  limit: number
-  unit: string
+/** Namespaces carry `adhar.io/org=<org slug>` to bind them to a tenant. */
+const ORG_LABEL = 'adhar.io/org'
+
+function safeFormatRelative(at: string): string {
+  try {
+    return formatRelative(at)
+  } catch {
+    return at
+  }
+}
+
+type QuotaObject = Generic & {
+  status?: { used?: Record<string, string>; hard?: Record<string, string> }
+}
+
+interface QuotaAgg {
+  cpuUsed: number
+  cpuHard: number
+  memUsed: number
+  memHard: number
+  storageUsed: number
+  storageHard: number
+  quotaCount: number
+}
+
+function pickQuota(m: Record<string, string> | undefined, keys: string[]): string | undefined {
+  if (!m) return undefined
+  for (const k of keys) if (m[k] != null) return m[k]
+  return undefined
+}
+
+/** Sum ResourceQuota status.used / status.hard across a set of quota objects. */
+function aggregateQuotas(quotas: QuotaObject[]): QuotaAgg {
+  const agg: QuotaAgg = {
+    cpuUsed: 0,
+    cpuHard: 0,
+    memUsed: 0,
+    memHard: 0,
+    storageUsed: 0,
+    storageHard: 0,
+    quotaCount: quotas.length,
+  }
+  for (const q of quotas) {
+    const used = q.status?.used
+    const hard = q.status?.hard
+    agg.cpuUsed += parseCpu(pickQuota(used, ['requests.cpu', 'cpu', 'limits.cpu']))
+    agg.cpuHard += parseCpu(pickQuota(hard, ['requests.cpu', 'cpu', 'limits.cpu']))
+    agg.memUsed += parseBytes(pickQuota(used, ['requests.memory', 'memory', 'limits.memory']))
+    agg.memHard += parseBytes(pickQuota(hard, ['requests.memory', 'memory', 'limits.memory']))
+    agg.storageUsed += parseBytes(pickQuota(used, ['requests.storage']))
+    agg.storageHard += parseBytes(pickQuota(hard, ['requests.storage']))
+  }
+  return agg
 }
 
 export function TenantOverviewPanel() {
-  // Organization identity, plan, billing quota and key contacts come from the
-  // control-plane tenancy service, not the Kubernetes API. That source isn't
-  // wired into the Overview host, so we show an honest empty state rather than
-  // display a hard-coded tenant. Per-namespace quota consumption is shown live
-  // by the Tenant usage panel.
+  // Tenant identity comes from the console's own organizations service
+  // (/api/organizations, per-user, cookie-scoped). Per-tenant capacity comes
+  // from the cluster: namespaces labelled `adhar.io/org=<slug>` and the
+  // ResourceQuotas inside them. No hard-coded tenant — real org or honest empty.
+  const org = useOrganizations()
+  const nsQ = useNamespaces()
+  const rqQ = useResourceQuotas()
+
+  const active = useMemo(
+    () => org.orgs.find((o) => o.id === org.activeId) ?? org.orgs[0],
+    [org.orgs, org.activeId],
+  )
+
+  const view = useMemo(() => {
+    if (!active) return null
+    const namespaces = (nsQ.data ?? []) as Array<{
+      metadata: { name: string; labels?: Record<string, string> }
+    }>
+    const nsNames = new Set(
+      namespaces
+        .filter((n) => n.metadata.labels?.[ORG_LABEL] === active.slug)
+        .map((n) => n.metadata.name),
+    )
+    const quotas = (rqQ.data ?? []) as QuotaObject[]
+    const scoped = quotas.filter((q) => nsNames.has(q.metadata.namespace ?? ''))
+    return { nsCount: nsNames.size, agg: aggregateQuotas(scoped) }
+  }, [active, nsQ.data, rqQ.data])
+
+  // Loading: org list still resolving, or the cluster reads still in flight.
+  if (org.loading || (active && (nsQ.isLoading || rqQ.isLoading))) {
+    return (
+      <PanelCard>
+        <PanelHead title="Tenant overview" subtitle="Active organization · quotas" to="/settings" />
+        <PanelLoading />
+      </PanelCard>
+    )
+  }
+
+  // No org resolved — not signed in / no organizations service.
+  if (!active) {
+    return (
+      <PanelCard>
+        <PanelHead title="Tenant overview" subtitle="Active organization · quotas" to="/settings" />
+        <PanelEmpty message={org.error ? 'Requires a tenancy source' : 'No organizations found'} />
+      </PanelCard>
+    )
+  }
+
+  const agg = view?.agg
+  const hasQuota = !!agg && (agg.cpuHard > 0 || agg.memHard > 0 || agg.storageHard > 0)
+  const created = active.createdAt ? safeFormatRelative(active.createdAt) : null
+
   return (
     <PanelCard>
-      <PanelHead title="Tenant overview" subtitle="Active organization · plan + quotas" to="/settings" />
-      <PanelEmpty message="Requires a tenancy / billing source" />
+      <PanelHead
+        title="Tenant overview"
+        subtitle={`${active.name} · quota consumption`}
+        to="/settings"
+      />
+      <div className="mb-3 flex items-center gap-3">
+        <span className="flex h-10 w-10 flex-none items-center justify-center rounded-lg bg-brand-50 dark:bg-brand-500/10 text-sm font-semibold text-brand-700 dark:text-brand-300 ring-1 ring-brand-200/60">
+          {active.name.slice(0, 2).toUpperCase()}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-semibold text-content">{active.name}</div>
+          <div className="truncate font-mono text-[11px] text-content-subtle">{active.slug}</div>
+        </div>
+        <div className="flex-none text-right">
+          <div className="text-sm font-semibold tabular-nums text-content">{view?.nsCount ?? 0}</div>
+          <div className="text-[10px] uppercase tracking-wider text-content-subtle">namespaces</div>
+        </div>
+      </div>
+
+      {hasQuota && agg ? (
+        <div className="flex-1 space-y-2.5">
+          <QuotaBar
+            label="CPU"
+            usedLabel={`${agg.cpuUsed.toFixed(1)} / ${agg.cpuHard.toFixed(0)} cores`}
+            pct={pct(agg.cpuUsed, agg.cpuHard)}
+            fill="bg-sky-500"
+          />
+          <QuotaBar
+            label="Memory"
+            usedLabel={`${formatStorage(agg.memUsed)} / ${formatStorage(agg.memHard)}`}
+            pct={pct(agg.memUsed, agg.memHard)}
+            fill="bg-violet-500"
+          />
+          <QuotaBar
+            label="Storage"
+            usedLabel={`${formatStorage(agg.storageUsed)} / ${formatStorage(agg.storageHard)}`}
+            pct={pct(agg.storageUsed, agg.storageHard)}
+            fill="bg-emerald-500"
+          />
+          <div className="border-t border-edge-subtle pt-2 text-[10px] text-content-subtle">
+            {agg.quotaCount} ResourceQuota{agg.quotaCount === 1 ? '' : 's'}
+            {created ? ` · created ${created}` : ''}
+          </div>
+        </div>
+      ) : (
+        <PanelEmpty
+          message={
+            view && view.nsCount === 0
+              ? `No namespaces labelled ${ORG_LABEL}=${active.slug}`
+              : 'No quotas configured for this organization'
+          }
+        />
+      )}
     </PanelCard>
+  )
+}
+
+function QuotaBar({
+  label,
+  usedLabel,
+  pct: p,
+  fill,
+}: {
+  label: string
+  usedLabel: string
+  pct: number
+  fill: string
+}) {
+  const tone = p >= 90 ? 'bg-rose-500' : p >= 75 ? 'bg-amber-500' : fill
+  return (
+    <div>
+      <div className="flex items-baseline justify-between text-[11px]">
+        <span className="font-medium text-content">{label}</span>
+        <span className="tabular-nums text-content-muted">
+          {usedLabel}
+          <span className="ml-1.5 font-semibold text-content">{p}%</span>
+        </span>
+      </div>
+      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
+        <div className={cn('h-full rounded-full', tone)} style={{ width: `${Math.min(100, p)}%` }} />
+      </div>
+    </div>
   )
 }
 
@@ -3706,33 +3963,49 @@ interface TenantUsage {
 }
 
 export function TenantUsagePanel() {
+  // Real per-tenant capacity: namespaces labelled `adhar.io/org=<slug>` mapped
+  // to their ResourceQuotas. When no namespace carries the org label we fall
+  // back to per-namespace grouping (still real cluster data, never fabricated).
   const q = useResourceQuotas()
+  const nsQ = useNamespaces()
+  const org = useOrganizations()
 
-  const tenants = useMemo<TenantUsage[]>(() => {
-    const quotas = (q.data ?? []) as Array<
-      Generic & {
-        status?: { used?: Record<string, string>; hard?: Record<string, string> }
-      }
-    >
-    const pick = (m: Record<string, string> | undefined, keys: string[]): string | undefined => {
-      if (!m) return undefined
-      for (const k of keys) if (m[k] != null) return m[k]
-      return undefined
+  const { tenants, grouped } = useMemo(() => {
+    const quotas = (q.data ?? []) as QuotaObject[]
+    const namespaces = (nsQ.data ?? []) as Array<{
+      metadata: { name: string; labels?: Record<string, string> }
+    }>
+    // namespace → org slug (only for labelled namespaces)
+    const nsToOrg = new Map<string, string>()
+    for (const n of namespaces) {
+      const slug = n.metadata.labels?.[ORG_LABEL]
+      if (slug) nsToOrg.set(n.metadata.name, slug)
     }
-    // Aggregate per namespace (a namespace may have >1 quota object).
-    const byNs = new Map<string, TenantUsage>()
+    const useOrgGrouping = nsToOrg.size > 0
+    const slugToName = new Map(org.orgs.map((o) => [o.slug, o.name]))
+
+    const byTenant = new Map<string, TenantUsage>()
     for (const qta of quotas) {
       const ns = qta.metadata.namespace ?? 'default'
+      // Group key: org (when labels exist) — skip unlabelled namespaces — else ns.
+      let key: string
+      if (useOrgGrouping) {
+        const slug = nsToOrg.get(ns)
+        if (!slug) continue
+        key = slugToName.get(slug) ?? slug
+      } else {
+        key = ns
+      }
       const used = qta.status?.used
       const hard = qta.status?.hard
-      const cpu = parseCpu(pick(used, ['requests.cpu', 'cpu', 'limits.cpu']))
-      const cpuLimit = parseCpu(pick(hard, ['requests.cpu', 'cpu', 'limits.cpu']))
-      const mem = parseBytes(pick(used, ['requests.memory', 'memory', 'limits.memory']))
-      const memLimit = parseBytes(pick(hard, ['requests.memory', 'memory', 'limits.memory']))
-      const storage = parseBytes(pick(used, ['requests.storage']))
-      const storageLimit = parseBytes(pick(hard, ['requests.storage']))
-      const cur = byNs.get(ns) ?? {
-        tenant: ns,
+      const cpu = parseCpu(pickQuota(used, ['requests.cpu', 'cpu', 'limits.cpu']))
+      const cpuLimit = parseCpu(pickQuota(hard, ['requests.cpu', 'cpu', 'limits.cpu']))
+      const mem = parseBytes(pickQuota(used, ['requests.memory', 'memory', 'limits.memory']))
+      const memLimit = parseBytes(pickQuota(hard, ['requests.memory', 'memory', 'limits.memory']))
+      const storage = parseBytes(pickQuota(used, ['requests.storage']))
+      const storageLimit = parseBytes(pickQuota(hard, ['requests.storage']))
+      const cur = byTenant.get(key) ?? {
+        tenant: key,
         cpu: 0,
         cpuLimit: 0,
         memGb: 0,
@@ -3746,26 +4019,28 @@ export function TenantUsagePanel() {
       cur.memLimit += memLimit / 1024 ** 3
       cur.storageGb += storage / 1024 ** 3
       cur.storageLimit += storageLimit / 1024 ** 3
-      byNs.set(ns, cur)
+      byTenant.set(key, cur)
     }
-    return Array.from(byNs.values())
+    const list = Array.from(byTenant.values())
       .filter((t) => t.cpuLimit > 0 || t.memLimit > 0 || t.storageLimit > 0)
       .sort((a, b) => b.cpu - a.cpu)
-  }, [q.data])
+    return { tenants: list, grouped: useOrgGrouping ? 'tenants' : 'namespaces' }
+  }, [q.data, nsQ.data, org.orgs])
 
   const aggregateCpu = Math.round(tenants.reduce((s, t) => s + t.cpu, 0))
   const aggregateMem = Math.round(tenants.reduce((s, t) => s + t.memGb, 0))
 
-  if (q.isLoading || q.isError || tenants.length === 0) {
+  const loading = q.isLoading || nsQ.isLoading
+  if (loading || q.isError || tenants.length === 0) {
     return (
       <PanelCard>
-        <PanelHead title="Tenant usage" subtitle="Per-namespace quota consumption" to="/settings" />
-        {q.isLoading ? (
+        <PanelHead title="Tenant usage" subtitle="Per-tenant quota consumption" to="/settings" />
+        {loading ? (
           <PanelLoading />
         ) : q.isError ? (
           <PanelError message="Could not reach the cluster" />
         ) : (
-          <PanelEmpty message="Requires namespace ResourceQuotas" />
+          <PanelEmpty message="No tenants / no quotas configured" />
         )}
       </PanelCard>
     )
@@ -3774,11 +4049,15 @@ export function TenantUsagePanel() {
     <PanelCard>
       <PanelHead
         title="Tenant usage"
-        subtitle={`${tenants.length} namespaces · quota consumption`}
+        subtitle={`${tenants.length} ${grouped} · quota consumption`}
         to="/settings"
       />
       <div className="mb-3 grid grid-cols-3 gap-2">
-        <Stat label="Namespaces" value={tenants.length} tone="emerald" />
+        <Stat
+          label={grouped === 'tenants' ? 'Tenants' : 'Namespaces'}
+          value={tenants.length}
+          tone="emerald"
+        />
         <Stat label="CPU cores" value={aggregateCpu} tone="brand" />
         <Stat label="Memory" value={`${aggregateMem} GB`} tone="violet" />
       </div>

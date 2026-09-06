@@ -648,6 +648,45 @@ function sizeFor(layout: OverviewLayout, def: PanelDef): PanelSize {
 }
 
 /**
+ * Column weight of each size at the primary desktop (lg) breakpoint — matches
+ * the `lg:col-span-*` values in `SIZE_COLSPAN`. A full row is 12.
+ */
+const LG_WEIGHT: Record<PanelSize, number> = { sm: 3, md: 4, lg: 6, xl: 12 }
+
+/**
+ * Pack panels into full 12-column rows (first-fit): walk the ordered list and,
+ * for each row, keep pulling in the next panel that still fits the remaining
+ * columns before opening a new row. This eliminates the trailing whitespace
+ * bands that appear when a category block's spans don't sum to 12 — and it
+ * stays full as the user enables/disables widgets, because packing is derived
+ * from whatever is currently visible rather than a fixed layout. The last row
+ * may be short (unavoidable and expected); every interior row fills.
+ */
+function packToRows(panels: PanelDef[], layout: OverviewLayout): PanelDef[] {
+  const remaining = panels.slice()
+  const out: PanelDef[] = []
+  const ROW = 12
+  while (remaining.length) {
+    let cap = ROW
+    let i = 0
+    while (i < remaining.length && cap > 0) {
+      const w = LG_WEIGHT[sizeFor(layout, remaining[i])]
+      if (w <= cap) {
+        out.push(remaining[i])
+        cap -= w
+        remaining.splice(i, 1)
+      } else {
+        i++
+      }
+    }
+    // No item fit a fresh row (shouldn't happen — max weight is 12 = ROW). Take
+    // the head so we always make progress and never loop forever.
+    if (cap === ROW && remaining.length) out.push(remaining.shift() as PanelDef)
+  }
+  return out
+}
+
+/**
  * Resolve the panels to render (and their order) for the given layout.
  *
  * - `auto` mode: panels in `enabled` are sorted by category priority then
@@ -670,15 +709,17 @@ function resolveOrder(layout: OverviewLayout): PanelDef[] {
      */
     const catRank = new Map(CATEGORY_ORDER.map((c, i) => [c, i]))
     const sizeWeight: Record<PanelSize, number> = { xl: 0, lg: 1, md: 2, sm: 3 }
-    return [...visiblePanels].sort((a, b) => {
+    const sorted = [...visiblePanels].sort((a, b) => {
       const ra = catRank.get(a.category) ?? 99
       const rb = catRank.get(b.category) ?? 99
       if (ra !== rb) return ra - rb
-      const sa = sizeWeight[a.defaultSize]
-      const sb = sizeWeight[b.defaultSize]
+      const sa = sizeWeight[sizeFor(layout, a)]
+      const sb = sizeWeight[sizeFor(layout, b)]
       if (sa !== sb) return sa - sb
       return PANELS.indexOf(a) - PANELS.indexOf(b)
     })
+    // First-fit pack into full 12-col rows so no interior row trails whitespace.
+    return packToRows(sorted, layout)
   }
   // Custom: prefer explicit order, then any newly-enabled panels not yet ordered.
   const ranked = new Map<PanelId, number>()

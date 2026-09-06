@@ -127,6 +127,16 @@ export function useResourceQuotas() {
   return useGeneric('resourcequotas', GVR.resourceQuotas)
 }
 
+/** Cluster namespaces — used to map tenants (adhar.io/org label) to namespaces. */
+export function useNamespaces() {
+  return useQuery({
+    queryKey: ['ov', 'k8s', 'namespaces'],
+    queryFn: () => client.listNamespaces(),
+    refetchInterval: REFRESH_MS,
+    retry: false,
+  })
+}
+
 /* ─────────── CRD-backed sources ─────────── */
 
 export function useCnpgClusters() {

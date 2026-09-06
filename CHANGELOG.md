@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.47] - 2026-09-06
+
 ### Added
 
 - **Onboarding provisions a real, isolated tenant.** Creating an organization now

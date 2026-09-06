@@ -6,6 +6,14 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+
+- **Overview Develop/Deliver widgets queried a non-existent `acme` org/project.**
+  The Overview's Gitea (repos, open PRs) and ArgoCD (applications) signal hooks
+  hardcoded `acme`, so on a real install they returned empty. They now read the
+  configured Gitea org and ArgoCD project from `/api/config` (the same source
+  the catalog, status and DORA hooks use).
+
 ## [0.1.47] - 2026-09-06
 
 ### Added

@@ -10,6 +10,7 @@ import {
   posthog,
   trivy,
 } from '@adhar-console/api-clients'
+import { useArgocdProject, useGiteaOrg } from '@adhar-console/shell-ui'
 
 /**
  * Cross-module signal hooks for the Overview page.
@@ -33,8 +34,8 @@ const metabaseClient = metabase.MetabaseClient.auto({ tool: 'metabase' })
 const airbyteClient = airbyte.AirbyteClient.auto({ tool: 'airbyte' })
 const falcoClient = falco.FalcoClient.auto({ tool: 'falco' })
 
+/** Plane workspace slug (Plane has no per-install config source yet). */
 const PROJECT = 'acme'
-const ORG = 'acme'
 const REFRESH_MS = 30_000
 
 /* ─────────── Define · Plane ─────────── */
@@ -63,13 +64,14 @@ export function useDefineSignals() {
 /* ─────────── Develop · Gitea + Airbyte ─────────── */
 
 export function useDevelopPRs() {
+  const ORG = useGiteaOrg()
   const repos = useQuery({
-    queryKey: ['ov', 'gitea', 'repos'],
+    queryKey: ['ov', 'gitea', 'repos', ORG],
     queryFn: () => giteaClient.listRepos(ORG),
     staleTime: REFRESH_MS,
   })
   return useQuery({
-    queryKey: ['ov', 'gitea', 'prs', repos.data?.length ?? 0],
+    queryKey: ['ov', 'gitea', 'prs', ORG, repos.data?.length ?? 0],
     queryFn: async () => {
       if (!repos.data) return []
       const out: Array<gitea.PullRequest & { repo: string }> = []
@@ -85,8 +87,9 @@ export function useDevelopPRs() {
 }
 
 export function useDevelopRepos() {
+  const ORG = useGiteaOrg()
   return useQuery({
-    queryKey: ['ov', 'gitea', 'repos-summary'],
+    queryKey: ['ov', 'gitea', 'repos-summary', ORG],
     queryFn: () => giteaClient.listRepos(ORG),
     staleTime: REFRESH_MS,
   })
@@ -103,9 +106,10 @@ export function useAirbyteConnections() {
 /* ─────────── Deliver · ArgoCD + Trivy ─────────── */
 
 export function useDeliverApplications() {
+  const project = useArgocdProject()
   return useQuery({
-    queryKey: ['ov', 'argocd', 'apps'],
-    queryFn: () => argocdClient.listApplications(PROJECT),
+    queryKey: ['ov', 'argocd', 'apps', project],
+    queryFn: () => argocdClient.listApplications(project),
     refetchInterval: REFRESH_MS,
   })
 }

@@ -6,6 +6,20 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+
+- **Platform status is fully dynamic and live.** The status page no longer shows
+  a hardcoded "all systems operational" banner — it now derives each backing
+  component's health from the cluster (matching Gitea, ArgoCD, Harbor, Keycloak,
+  Kyverno, the LGTM stack, Crossplane, etc. to their Deployments/StatefulSets/
+  DaemonSets), rolls it into an honest overall summary (healthy / degraded / down
+  counts), shows per-component `ready/desired` replicas, lists anything degraded,
+  and refreshes on an interval with a live-updated indicator.
+- **"What's new" redesigned as a futuristic feature showcase.** A gradient hero,
+  a grid of marquee platform-capability cards (with "New" flags and category
+  tags), a release timeline, and the roadmap — replacing the plain changelog list.
+  Backed by a curated `FEATURE_HIGHLIGHTS` set and a refreshed changelog/version.
+
 ## [0.1.42] - 2026-09-06
 
 ### Added

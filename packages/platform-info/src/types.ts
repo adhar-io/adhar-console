@@ -32,3 +32,25 @@ export interface RoadmapItem {
   status: 'shipped' | 'in-progress' | 'planned'
   target: string
 }
+
+/** A marquee platform capability, showcased on the What's New page. */
+export interface FeatureHighlight {
+  title: string
+  description: string
+  /** Icon key rendered by the UI (see What's New page icon map). */
+  icon:
+    | 'catalog'
+    | 'pipeline'
+    | 'gitops'
+    | 'logs'
+    | 'shell'
+    | 'resources'
+    | 'observability'
+    | 'security'
+    | 'editor'
+    | 'scorecard'
+  /** Short category tag (e.g. "Develop", "Deliver", "Platform"). */
+  category: string
+  /** Highlight as newly shipped. */
+  isNew?: boolean
+}

@@ -3,12 +3,14 @@ import {
   AppShell,
   DataTable,
   PageHeader,
+  Spinner,
   StatusBadge,
   type StatusKind,
 } from '@adhar-console/shell-ui'
 import { BACKING_TOOLS, PLATFORM_VERSION } from '@adhar-console/platform-info'
 import { STUB_USER, useOptionalSession } from '@adhar-console/auth'
 import { getLayoutData } from '~/server/session.ts'
+import { overallHealth, useBackingHealth } from '~/data/backing-health.ts'
 
 export const Route = createFileRoute('/status')({
   loader: () => getLayoutData(),
@@ -24,9 +26,52 @@ const HEALTH_KIND: Record<string, StatusKind> = {
   unknown: 'unknown',
 }
 
+const HEALTH_LABEL: Record<string, string> = {
+  operational: 'Operational',
+  degraded: 'Degraded',
+  'partial-outage': 'Partial outage',
+  outage: 'Outage',
+  unknown: 'Unknown',
+}
+
+function relTime(ms?: number): string {
+  if (!ms) return '—'
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000))
+  if (s < 5) return 'just now'
+  if (s < 60) return `${s}s ago`
+  const m = Math.floor(s / 60)
+  return `${m}m ago`
+}
+
 function StatusPage() {
   const { tenants, activeTenant, notifications } = Route.useLoaderData()
   const user = useOptionalSession()?.user ?? STUB_USER
+  const live = useBackingHealth()
+  const overall = overallHealth(live.byId)
+
+  // Merge live cluster health onto each backing component.
+  const rows = BACKING_TOOLS.map((t) => {
+    const h = live.byId[t.id]
+    return {
+      ...t,
+      liveHealth: h?.health ?? 'unknown',
+      ready: h?.ready ?? 0,
+      desired: h?.desired ?? 0,
+      workloadCount: h?.workloads.length ?? 0,
+    }
+  })
+
+  const overallLabel = live.isLoading
+    ? 'Checking components…'
+    : !live.live
+      ? 'Cluster unreachable'
+      : overall.down > 0
+        ? `${overall.down} down · ${overall.degraded} degraded`
+        : overall.degraded > 0
+          ? `${overall.degraded} degraded · ${overall.healthy} healthy`
+          : `${overall.healthy}/${overall.total} components healthy`
+  const overallKind: StatusKind = live.isLoading || !live.live ? 'unknown' : overall.kind
+
   return (
     <AppShell
       user={user}
@@ -38,7 +83,7 @@ function StatusPage() {
     >
       <PageHeader
         title="Platform status"
-        description="Every component of the Adhar platform — with real versions, source links, and live health. No black boxes."
+        description="Every component of the Adhar platform — with real versions, source links, and live health derived from the cluster. No black boxes."
       />
 
       <section className="mb-8 rounded-lg border border-edge-default bg-surface-raised p-5 shadow-sm">
@@ -53,10 +98,41 @@ function StatusPage() {
               <code>{PLATFORM_VERSION.commit}</code> · built {PLATFORM_VERSION.built}
             </div>
           </div>
-          <div className="flex gap-2">
-            <StatusBadge kind="healthy">All systems operational</StatusBadge>
+          <div className="flex flex-col items-end gap-1.5">
+            <StatusBadge kind={overallKind} pulse={overallKind === 'degraded'}>
+              {live.isLoading ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Spinner size={12} /> {overallLabel}
+                </span>
+              ) : (
+                overallLabel
+              )}
+            </StatusBadge>
+            {live.live ? (
+              <span className="inline-flex items-center gap-1.5 text-[11px] text-content-subtle">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+                Live · updated {relTime(live.updatedAt)}
+              </span>
+            ) : null}
           </div>
         </div>
+        {live.live && (overall.degraded > 0 || overall.down > 0) ? (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {rows
+              .filter((r) => r.liveHealth === 'degraded' || r.liveHealth === 'outage')
+              .map((r) => (
+                <span
+                  key={r.id}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-sunken px-2 py-1 text-[11px]"
+                >
+                  <StatusBadge kind={HEALTH_KIND[r.liveHealth]} className="px-1 py-0 text-[10px]">
+                    {r.ready}/{r.desired}
+                  </StatusBadge>
+                  {r.name}
+                </span>
+              ))}
+          </div>
+        ) : null}
       </section>
 
       <section>
@@ -100,21 +176,35 @@ function StatusPage() {
             },
             {
               key: 'health',
-              header: 'Health',
+              header: 'Live health',
               cell: (t) => (
-                <StatusBadge kind={HEALTH_KIND[t.health] ?? 'unknown'}>{t.health}</StatusBadge>
+                <div className="flex items-center gap-2">
+                  <StatusBadge
+                    kind={HEALTH_KIND[t.liveHealth] ?? 'unknown'}
+                    pulse={t.liveHealth === 'degraded'}
+                  >
+                    {HEALTH_LABEL[t.liveHealth] ?? t.liveHealth}
+                  </StatusBadge>
+                  {t.workloadCount > 0 ? (
+                    <span className="font-mono text-[11px] tabular-nums text-content-subtle">
+                      {t.ready}/{t.desired} ready
+                    </span>
+                  ) : live.live ? (
+                    <span className="text-[11px] text-content-subtle">not detected</span>
+                  ) : null}
+                </div>
               ),
             },
           ]}
-          rows={BACKING_TOOLS}
+          rows={rows}
           rowKey={(t) => t.id}
         />
       </section>
 
       <p className="mt-8 text-xs text-content-subtle">
-        This page is served from the console itself — no third-party status vendor. Health is
-        derived from live probes against each component. Your admin can scope what is shown here
-        per tenant.
+        This page is served from the console itself — no third-party status vendor. Health is derived
+        live from each component&apos;s Deployments/StatefulSets/DaemonSets in the cluster and
+        refreshes automatically. Your admin can scope what is shown here per tenant.
       </p>
     </AppShell>
   )

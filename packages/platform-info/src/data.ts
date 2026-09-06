@@ -1,12 +1,99 @@
-import type { BackingTool, ChangelogEntry, PlatformVersion, RoadmapItem } from './types.ts'
+import type {
+  BackingTool,
+  ChangelogEntry,
+  FeatureHighlight,
+  PlatformVersion,
+  RoadmapItem,
+} from './types.ts'
 
 export const PLATFORM_VERSION: PlatformVersion = {
-  console: '0.1.0',
-  api: '0.1.0',
-  built: '2026-04-19T10:00:00Z',
-  commit: 'stub.local',
-  released: '2026-04-19',
+  console: '0.1.42',
+  api: '0.1.42',
+  built: '2026-09-06T10:00:00Z',
+  commit: 'main',
+  released: '2026-09-06',
 }
+
+/**
+ * Marquee capabilities showcased on the What's New page. Curated (not every
+ * patch) — the headline experiences that define the Adhar platform.
+ */
+export const FEATURE_HIGHLIGHTS: FeatureHighlight[] = [
+  {
+    title: 'Service Catalog',
+    description:
+      'A Backstage-style catalog of every service, API, resource, system and team — with lifecycle, ownership, tech-docs and a deployment drawer wiring repo, GitOps, environments and monitoring together.',
+    icon: 'catalog',
+    category: 'Develop',
+    isNew: true,
+  },
+  {
+    title: 'Blue Ocean pipelines',
+    description:
+      'A Jenkins Blue Ocean-style PipelineRun viewer: a live stage graph with parallel branches and per-stage streaming console — search, follow, per-step log downloads and fullscreen.',
+    icon: 'pipeline',
+    category: 'Deliver',
+    isNew: true,
+  },
+  {
+    title: 'GitOps delivery',
+    description:
+      'ArgoCD applications, sync status, revisions and environments surfaced across the console — from the catalog drawer to the Deliver phase — so what is running is always tied back to Git.',
+    icon: 'gitops',
+    category: 'Deliver',
+  },
+  {
+    title: 'OpenShift-grade logs',
+    description:
+      'Live, streaming pod logs with follow, regex/severity filtering, ANSI colour, timestamps, download — and workload-level aggregation that merges every pod of a Deployment in one view.',
+    icon: 'logs',
+    category: 'Observe',
+    isNew: true,
+  },
+  {
+    title: 'In-browser Cloud Shell',
+    description:
+      'A full terminal into any pod — or a cluster shell with kubectl, helm and k9s — running as you, under your Kubernetes RBAC. No kubeconfig juggling.',
+    icon: 'shell',
+    category: 'Platform',
+  },
+  {
+    title: 'Adhar Resources',
+    description:
+      'Self-service infrastructure via Crossplane composites — provision databases, environments, buckets and more from a schema-driven catalog with a Composition/variant picker.',
+    icon: 'resources',
+    category: 'Platform',
+  },
+  {
+    title: 'Unified observability',
+    description:
+      'Golden-signal metrics, SLOs, alerts, traces and service maps from the LGTM stack — with an incident timeline and platform-health scoring on the overview.',
+    icon: 'observability',
+    category: 'Observe',
+  },
+  {
+    title: 'Policy & supply-chain security',
+    description:
+      'Kyverno policy reports, Trivy image scans and runtime signals fold into a live security score, so drift and vulnerabilities surface where you work.',
+    icon: 'security',
+    category: 'Secure',
+  },
+  {
+    title: 'First-class code editor',
+    description:
+      'A Monaco-powered editor everywhere you touch YAML or JSON — manifests, ConfigMaps, Secrets, pipeline specs — with folding, search, format, diff-ready theming and one-click copy/download.',
+    icon: 'editor',
+    category: 'Platform',
+    isNew: true,
+  },
+  {
+    title: 'Production-readiness scorecards',
+    description:
+      'Every service graded against ownership, docs, delivery, security and observability checks — so teams see exactly what to fix before shipping.',
+    icon: 'scorecard',
+    category: 'Decide',
+  },
+]
 
 export const BACKING_TOOLS: BackingTool[] = [
   {
@@ -183,6 +270,18 @@ export const BACKING_TOOLS: BackingTool[] = [
 ]
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.1.42',
+    date: '2026-09-06',
+    highlights: [
+      'Service Catalog: redesigned entity cards, a Deployment drawer (repo · GitOps · environments · monitoring) and embedded TechDocs',
+      'Pipelines: a Jenkins Blue Ocean-style stage viewer with a live stage graph and per-stage streaming console (search, follow, downloads)',
+      'Logs: OpenShift-grade viewer with workload-level aggregation across every pod of a Deployment/StatefulSet/DaemonSet/Job',
+      'A shared Monaco code editor across every YAML/JSON surface (manifests, ConfigMaps, Secrets, pipeline specs)',
+      'Overview: real storage capacity, live security & performance health, and DORA lead time from Git',
+      'Platform status: fully dynamic, live component health derived from the cluster',
+    ],
+  },
   {
     version: '0.1.0',
     date: '2026-04-19',

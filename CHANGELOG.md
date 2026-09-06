@@ -6,6 +6,36 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.36] - 2026-09-06
+
+### Added
+
+- **Cloud Shell is now a Kubernetes-grade terminal.** Full xterm addon suite
+  (search, web-links, clipboard, unicode, **WebGL** renderer with DOM fallback),
+  theme-aware live re-skinning, a real toolbar (search, copy/paste, clear,
+  font-size, download `.log`, fullscreen, reconnect + status pill), robust
+  resize/reconnect — plus a new **Cluster shell** mode that execs into a
+  `kubectl` + **k9s** + `helm` tools pod (one-click "Launch k9s" + kubectl/helm
+  quick actions; honest fallback when the tools pod isn't deployed).
+- **OpenShift-grade Logs viewer.** Find + show-only filter (plain/regex/case),
+  **severity** parsing with per-line coloring, since/tail time controls,
+  **all-containers** concurrent merge with color prefixes, follow/pause +
+  jump-to-bottom with a "new logs" badge, exponential-backoff reconnect, **ANSI
+  color** rendering, raw + filtered `.log` download, fullscreen, a bounded 10k
+  buffer with a live line-rate meter, and RBAC gating.
+- **Animated CI/CD pipeline canvas.** Redesigned Tekton stage cards with a
+  distinct glyph/tone for every status (succeeded/failed/running/pending/skipped/
+  when-skipped/cancelled/timed-out), flowing dashed edges into running stages +
+  node shimmer/pulse (all `prefers-reduced-motion` aware), zoom/fit-to-width +
+  drag-to-pan, a run progress bar, and all actions (re-run/cancel/delete/logs).
+
+### Changed
+
+- **Marketplace top section consolidated.** The separate stats card is gone — its
+  counts (apps · enabled · disabled · categories · GitOps source) fold into the
+  header as one combined status line, with the single search + status/category
+  filter row beneath, matching the other list pages.
+
 ## [0.1.35] - 2026-09-06
 
 ### Changed

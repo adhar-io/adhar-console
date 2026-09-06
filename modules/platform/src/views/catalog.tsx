@@ -1,64 +1,87 @@
 import { useMemo, useState } from 'react'
-import { useQueries } from '@tanstack/react-query'
+import { createPortal } from 'react-dom'
+import { useQueries, useQueryClient } from '@tanstack/react-query'
 import { Badge, Input, Select, Skeleton, Spinner, StatusBadge } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
-import { client, LOCAL_CLUSTER } from '../data/client.ts'
+import { client, useActiveCluster } from '../data/client.ts'
+import { useHasK8sPermission } from '../data/access.ts'
 import { age } from '../data/format.ts'
-import { PLATFORM_KINDS } from './xr-kinds.tsx'
-import { AUTO_CREATE_KEY, type XR } from './xr-list.tsx'
+import { useXrds, type XrdInfo } from '../data/xrds.ts'
+import {
+  configFromXrd,
+  curationFor,
+  type FamilyId,
+  type GlyphId,
+} from './xr-kinds.tsx'
+import { ClaimFormModal, XrList, type XR } from './xr-list.tsx'
+import { K8sRolePill } from '../components/role-gate.tsx'
 
 /**
- * Adhar Resources — a polished control surface for every Adhar Platform
- * abstraction. Each kind is a Crossplane composite; this dashboard pulls live
- * counts in parallel via TanStack Query, summarises Ready/Synced health, and
- * groups kinds by family so operators can navigate the catalog at a glance.
- *
- * Navigation deep-links into the same `?section=…` flow the rest of the
- * platform module uses (the federated remote does not share the host router, so
- * plain anchors — not <Link> — are the honest cross-section primitive here).
- * "View" opens a kind's list; "Create" deep-links to that list and hands off an
- * intent flag that <XrList/> reads on mount to open its provisioning wizard.
+ * Adhar Resources — the live, schema-driven catalog of every Crossplane
+ * composite (XRD) installed on the cluster. Kinds are discovered dynamically
+ * (no hardcoded list), grouped by family, and each card pulls a live count +
+ * Ready/Synced health. "Create" opens the schema-driven provisioning wizard for
+ * that exact kind in place; "Browse" opens its full list + topology drawer —
+ * both work for every discovered kind, whether or not it has a dedicated nav
+ * section.
  */
 
-type FamilyId = 'compute' | 'data' | 'connectivity' | 'governance'
-
-const FAMILIES: Array<{
-  id: FamilyId
-  label: string
-  description: string
-  tone: string
-}> = [
+const FAMILIES: Array<{ id: FamilyId; label: string; description: string; tone: string }> = [
   {
     id: 'compute',
     label: 'Compute',
-    description: 'Where the work runs — services, functions, jobs.',
+    description: 'Where the work runs — applications, services, pipelines, GitOps.',
     tone: 'from-brand-50 dark:from-brand-500/10 to-brand-100/60 dark:to-brand-500/15',
   },
   {
     id: 'data',
     label: 'Data',
-    description: 'Stateful claims — databases, caches, buckets, topics, pipelines.',
+    description: 'Stateful claims — databases, storage, messaging, secrets, backups.',
     tone: 'from-emerald-50 dark:from-emerald-500/10 to-emerald-100/60 dark:to-emerald-500/15',
   },
   {
     id: 'connectivity',
     label: 'Connectivity',
-    description: 'How the world reaches your services — routes, domains, contracts.',
+    description: 'How things reach each other — networks and ingress.',
     tone: 'from-sky-50 dark:from-sky-500/10 to-sky-100/60 dark:to-sky-500/15',
+  },
+  {
+    id: 'observability',
+    label: 'Observability',
+    description: 'Insight — health, metrics, logs, traces, cost.',
+    tone: 'from-violet-50 dark:from-violet-500/10 to-violet-100/60 dark:to-violet-500/15',
   },
   {
     id: 'governance',
     label: 'Governance',
-    description: 'Guardrails — environments, quotas, access boundaries.',
+    description: 'Guardrails — environments, projects, clusters, policy, auth.',
     tone: 'from-amber-50 dark:from-amber-500/10 to-amber-100/60 dark:to-amber-500/15',
   },
 ]
 
+interface Tile {
+  info: XrdInfo
+  family: FamilyId
+  icon: GlyphId
+  description: string
+  items: XR[]
+  ready: number
+  synced: number
+  degraded: number
+  newest: string | undefined
+  loading: boolean
+  error?: { status?: number; message?: string }
+}
+
 export function PlatformCatalog() {
+  const { cluster } = useActiveCluster()
+  const xrdsQ = useXrds()
+  const kinds = xrdsQ.data ?? []
+
   const queries = useQueries({
-    queries: PLATFORM_KINDS.map((k) => ({
-      queryKey: ['platform', 'catalog', k.id],
-      queryFn: () => client.listGeneric(LOCAL_CLUSTER, k.config.gvr) as Promise<XR[]>,
+    queries: kinds.map((k) => ({
+      queryKey: ['platform', 'catalog', k.plural, cluster],
+      queryFn: () => client.listGeneric(cluster, k.gvr) as Promise<XR[]>,
       staleTime: 30_000,
       retry: false,
     })),
@@ -66,9 +89,9 @@ export function PlatformCatalog() {
 
   const tiles = useMemo(
     () =>
-      PLATFORM_KINDS.map((k, i): Tile => {
+      kinds.map((info, i): Tile => {
         const q = queries[i]
-        const items = ((q.data as XR[] | undefined) ?? []) as XR[]
+        const items = ((q?.data as XR[] | undefined) ?? []) as XR[]
         const ready = items.filter((x) => isCondition(x, 'Ready')).length
         const synced = items.filter((x) => isCondition(x, 'Synced')).length
         const degraded = items.filter(
@@ -79,27 +102,32 @@ export function PlatformCatalog() {
           .filter(Boolean)
           .sort()
           .slice(-1)[0]
-        const error = q.isError ? (q.error as { status?: number; message?: string }) : undefined
+        const cur = curationFor(info.kind)
+        const error = q?.isError ? (q.error as { status?: number; message?: string }) : undefined
         return {
-          id: k.id,
-          family: k.family,
-          config: k.config,
+          info,
+          family: cur.family,
+          icon: cur.icon,
+          description: cur.description ?? `${info.kind} — provisioned via Crossplane.`,
           items,
           ready,
           synced,
           degraded,
           newest,
-          loading: q.isLoading,
+          loading: Boolean(q?.isLoading),
           error,
         }
       }),
-    [queries],
+    [kinds, queries],
   )
 
-  // ── search + filter state ──
   const [search, setSearch] = useState('')
   const [family, setFamily] = useState<'all' | FamilyId>('all')
   const [withResourcesOnly, setWithResourcesOnly] = useState(false)
+  const [createInfo, setCreateInfo] = useState<XrdInfo | null>(null)
+  const [browseInfo, setBrowseInfo] = useState<XrdInfo | null>(null)
+  const canProvision = useHasK8sPermission('crds.write')
+  const qc = useQueryClient()
 
   const query = search.trim().toLowerCase()
   const filtered = useMemo(
@@ -109,11 +137,12 @@ export function PlatformCatalog() {
         if (withResourcesOnly && t.items.length === 0) return false
         if (!query) return true
         const hay = [
-          t.config.singular,
-          t.config.plural,
-          t.config.description,
-          t.config.gvr.group,
-          t.config.gvr.resource,
+          t.info.kind,
+          t.info.humanSingular,
+          t.info.humanPlural,
+          t.description,
+          t.info.group,
+          t.info.plural,
           t.family,
         ]
           .join(' ')
@@ -123,10 +152,8 @@ export function PlatformCatalog() {
     [tiles, family, withResourcesOnly, query],
   )
 
-  const anyLoading = queries.some((q) => q.isLoading)
+  const anyLoading = xrdsQ.isLoading || queries.some((q) => q.isLoading)
 
-  // Totals span the whole catalog — the summary band is a fixed pulse, not a
-  // reflection of the current filter.
   const total = tiles.reduce((acc, t) => acc + t.items.length, 0)
   const totalReady = tiles.reduce((acc, t) => acc + t.ready, 0)
   const totalSynced = tiles.reduce((acc, t) => acc + t.synced, 0)
@@ -134,6 +161,19 @@ export function PlatformCatalog() {
   const errorKinds = tiles.filter((t) => t.error && t.error.status !== 404).length
 
   const visibleFamilies = FAMILIES.filter((f) => filtered.some((t) => t.family === f.id))
+
+  // XRD discovery failed outright (not merely empty) — be honest.
+  if (xrdsQ.isError) {
+    return (
+      <div className="rounded-2xl border border-rose-200 dark:border-rose-500/25 bg-rose-50/70 dark:bg-rose-500/10 px-6 py-12 text-center">
+        <p className="text-sm font-medium text-content">Couldn’t discover Adhar Resources</p>
+        <p className="mt-1 text-[12px] text-content-muted">
+          {(xrdsQ.error as Error).message}. The Crossplane apiextensions API must be reachable to
+          list CompositeResourceDefinitions.
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -158,7 +198,21 @@ export function PlatformCatalog() {
         totalKinds={tiles.length}
       />
 
-      {visibleFamilies.length === 0 ? (
+      {xrdsQ.isLoading ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} height={190} rounded="lg" />
+          ))}
+        </div>
+      ) : tiles.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-edge-default bg-surface-raised px-6 py-12 text-center">
+          <p className="text-sm font-medium text-content">No Adhar Resources installed</p>
+          <p className="mt-1 text-[12px] text-content-muted">
+            No <code className="font-mono">CompositeResourceDefinitions</code> are registered on this
+            cluster yet. Install the Adhar Platform Crossplane stack to populate the catalog.
+          </p>
+        </div>
+      ) : visibleFamilies.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-edge-default bg-surface-raised px-6 py-12 text-center">
           <p className="text-sm font-medium text-content">No kinds match your filters</p>
           <p className="mt-1 text-[12px] text-content-muted">
@@ -186,14 +240,81 @@ export function PlatformCatalog() {
               </header>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                 {inFamily.map((t) => (
-                  <KindCard key={t.id} tile={t} familyTone={f.tone} />
+                  <KindCard
+                    key={t.info.kind}
+                    tile={t}
+                    familyTone={f.tone}
+                    canProvision={canProvision}
+                    onCreate={() => setCreateInfo(t.info)}
+                    onBrowse={() => setBrowseInfo(t.info)}
+                  />
                 ))}
               </div>
             </section>
           )
         })
       )}
+
+      {createInfo ? (
+        <ClaimFormModal
+          config={configFromXrd(createInfo)}
+          mode="create"
+          onClose={() => setCreateInfo(null)}
+          onApplied={() => {
+            qc.invalidateQueries({ queryKey: ['platform', 'catalog', createInfo.plural, cluster] })
+            setCreateInfo(null)
+          }}
+        />
+      ) : null}
+
+      {browseInfo ? (
+        <BrowseModal info={browseInfo} onClose={() => setBrowseInfo(null)} />
+      ) : null}
     </div>
+  )
+}
+
+/* ───── browse overlay — full list + drawer + topology for any kind ───── */
+
+function BrowseModal({ info, onClose }: { info: XrdInfo; onClose(): void }) {
+  if (typeof document === 'undefined') return null
+  const cur = curationFor(info.kind)
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:p-8" role="dialog" aria-modal="true">
+      <button
+        type="button"
+        aria-label="Close"
+        className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px]"
+        onClick={onClose}
+      />
+      <div className="relative w-full max-w-6xl rounded-2xl border border-edge-default bg-surface-app shadow-2xl">
+        <header className="flex items-center justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
+          <div className="min-w-0">
+            <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">
+              {cur.label ?? info.humanPlural}
+            </div>
+            <h2 className="mt-0.5 truncate text-lg font-semibold text-content">
+              {info.kind}
+            </h2>
+            <div className="mt-0.5 font-mono text-[11px] text-content-muted">
+              {info.group}/{info.version}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+          >
+            <IconClose />
+          </button>
+        </header>
+        <div className="p-6">
+          <XrList config={configFromXrd(info)} />
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -218,7 +339,6 @@ function Hero({
 }) {
   return (
     <div className="relative overflow-hidden rounded-2xl border border-edge-default bg-linear-to-br from-brand-50/70 dark:from-brand-500/10 via-surface-raised to-surface-raised p-5 shadow-sm">
-      {/* subtle brand glow — tokens only */}
       <div
         aria-hidden
         className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-brand-400/10 blur-3xl"
@@ -242,21 +362,19 @@ function Hero({
                   {errorKinds} kind{errorKinds === 1 ? '' : 's'} with errors
                 </StatusBadge>
               ) : degraded > 0 ? (
-                <StatusBadge kind="degraded">
-                  {degraded} not ready
-                </StatusBadge>
+                <StatusBadge kind="degraded">{degraded} not ready</StatusBadge>
               ) : (
                 <StatusBadge kind="healthy">all kinds reporting</StatusBadge>
               )}
             </div>
             <p className="mt-0.5 max-w-xl text-[12px] leading-relaxed text-content-muted">
-              Every Adhar abstraction is a Crossplane composite — golden defaults plus the same
-              GitOps lifecycle, RBAC, and observability wiring as any other resource in the cluster.
+              Every kind here is discovered live from the cluster’s Crossplane XRDs — the create
+              form and apply payload are generated from each XRD’s own schema, so they never drift.
             </p>
           </div>
         </div>
         <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
-          <StatTile label="Kinds" value={String(kinds)} hint="installed" loading={false} />
+          <StatTile label="Kinds" value={String(kinds)} hint="discovered" loading={false} />
           <StatTile label="Resources" value={String(total)} hint="composed" loading={loading} />
           <StatTile
             label="Ready"
@@ -388,35 +506,23 @@ function Toolbar({
 
 /* ───── kind card ───── */
 
-interface Tile {
-  id: typeof PLATFORM_KINDS[number]['id']
-  family: FamilyId
-  config: typeof PLATFORM_KINDS[number]['config']
-  items: XR[]
-  ready: number
-  synced: number
-  degraded: number
-  newest: string | undefined
-  loading: boolean
-  error?: { status?: number; message?: string }
-}
-
-function KindCard({ tile, familyTone }: { tile: Tile; familyTone: string }) {
-  const { id, config, items, ready, synced, loading, error } = tile
+function KindCard({
+  tile,
+  familyTone,
+  canProvision,
+  onCreate,
+  onBrowse,
+}: {
+  tile: Tile
+  familyTone: string
+  canProvision: boolean
+  onCreate: () => void
+  onBrowse: () => void
+}) {
+  const { info, items, ready, synced, loading, error, description } = tile
   const total = items.length
   const notInstalled = error?.status === 404
   const failed = Boolean(error) && !notInstalled
-  const href = `?section=${id}`
-
-  const openCreate = () => {
-    // Hand off an intent flag; <XrList/> reads it on mount and opens the wizard.
-    // Wrapped in try/catch — storage can be unavailable (private mode, etc.).
-    try {
-      sessionStorage.setItem(AUTO_CREATE_KEY, config.gvr.resource)
-    } catch {
-      /* deep-link to the section still works without the auto-open */
-    }
-  }
 
   return (
     <article
@@ -424,7 +530,6 @@ function KindCard({ tile, familyTone }: { tile: Tile; familyTone: string }) {
         'group relative flex flex-col rounded-2xl border border-edge-default bg-surface-raised p-4 shadow-sm',
         'transition-[transform,box-shadow,border-color] duration-150 ease-smooth',
         'hover:-translate-y-0.5 hover:border-brand-200 dark:hover:border-brand-500/25 hover:shadow-md',
-        'focus-within:ring-2 focus-within:ring-brand-500/40',
       )}
     >
       <div className="flex items-start justify-between gap-3">
@@ -434,27 +539,26 @@ function KindCard({ tile, familyTone }: { tile: Tile; familyTone: string }) {
             familyTone,
           )}
         >
-          <KindGlyph id={id} />
+          <KindGlyph icon={tile.icon} />
         </div>
-        <span className="font-mono text-[10px] uppercase tracking-wider text-content-subtle transition-colors group-hover:text-brand-700 dark:group-hover:text-brand-300">
-          {config.gvr.namespaced ? 'namespaced' : 'cluster'}
+        <span className="font-mono text-[10px] uppercase tracking-wider text-content-subtle">
+          {info.namespaced ? 'namespaced' : 'cluster'}
         </span>
       </div>
 
       <div className="mt-2 min-w-0">
         <h4 className="truncate text-sm font-semibold text-content">
-          {/* Stretched link — makes the whole card open the kind's list, while
-              staying a real, focusable, keyboard-activatable anchor. */}
-          <a
-            href={href}
+          <button
+            type="button"
+            onClick={onBrowse}
             className="outline-none after:absolute after:inset-0 after:rounded-2xl"
-            aria-label={`View ${config.plural}`}
+            aria-label={`Browse ${info.humanPlural}`}
           >
-            {config.plural}
-          </a>
+            {curationFor(info.kind).label ?? info.humanPlural}
+          </button>
         </h4>
         <p className="mt-0.5 line-clamp-2 text-[12px] leading-relaxed text-content-muted">
-          {config.description}
+          {description}
         </p>
       </div>
 
@@ -467,8 +571,7 @@ function KindCard({ tile, familyTone }: { tile: Tile; familyTone: string }) {
           </div>
         ) : notInstalled ? (
           <div className="rounded-lg border border-amber-200 dark:border-amber-500/25 bg-amber-50/70 dark:bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-900 dark:text-amber-200">
-            <span className="font-semibold">Not installed</span> — this XRD isn’t registered on the
-            cluster yet.
+            <span className="font-semibold">Not installed</span> — this XRD isn’t registered yet.
           </div>
         ) : failed ? (
           <div className="rounded-lg border border-rose-200 dark:border-rose-500/25 bg-rose-50/70 dark:bg-rose-500/10 px-2.5 py-2 text-[11px] text-rose-800 dark:text-rose-300">
@@ -482,23 +585,15 @@ function KindCard({ tile, familyTone }: { tile: Tile; familyTone: string }) {
         ) : (
           <div className="grid grid-cols-3 gap-2 text-center">
             <Counter label="Total" value={total} />
-            <Counter
-              label="Ready"
-              value={`${ready}/${total}`}
-              tone={ready === total ? 'healthy' : 'degraded'}
-            />
-            <Counter
-              label="Synced"
-              value={`${synced}/${total}`}
-              tone={synced === total ? 'healthy' : 'degraded'}
-            />
+            <Counter label="Ready" value={`${ready}/${total}`} tone={ready === total ? 'healthy' : 'degraded'} />
+            <Counter label="Synced" value={`${synced}/${total}`} tone={synced === total ? 'healthy' : 'degraded'} />
           </div>
         )}
       </div>
 
       <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-content-subtle">
-        <code className="truncate font-mono" title={`${config.gvr.group}/${config.gvr.version}`}>
-          {config.gvr.group}/{config.gvr.version}
+        <code className="truncate font-mono" title={`${info.group}/${info.version}`}>
+          {info.group}/{info.version}
         </code>
         {!loading && !notInstalled && !failed && tile.newest ? (
           <span className="shrink-0" title="Most recent claim">
@@ -507,30 +602,31 @@ function KindCard({ tile, familyTone }: { tile: Tile; familyTone: string }) {
         ) : null}
       </div>
 
-      {/* quick actions — relative/z-10 so they sit above the stretched link */}
+      {/* quick actions — relative/z-10 so they sit above the stretched button */}
       <div className="relative z-10 mt-3 flex items-center gap-2 border-t border-edge-subtle pt-3">
-        <a
-          href={href}
+        <button
+          type="button"
+          onClick={onBrowse}
           className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-600 px-3 text-xs font-medium text-white shadow-sm ring-1 ring-inset ring-white/10 outline-none transition-colors hover:bg-brand-700 focus-visible:ring-2 focus-visible:ring-brand-500/40"
         >
-          View
-        </a>
-        {notInstalled ? (
-          <span
-            className="inline-flex h-8 items-center justify-center rounded-md border border-edge-default px-3 text-xs font-medium text-content-subtle"
-            title="Install the XRD to provision this kind"
-          >
-            Create
-          </span>
-        ) : (
-          <a
-            href={href}
-            onClick={openCreate}
+          Browse
+        </button>
+        {canProvision ? (
+          <button
+            type="button"
+            onClick={onCreate}
             className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-edge-default bg-surface-raised px-3 text-xs font-medium text-content shadow-sm outline-none transition-colors hover:border-edge-strong hover:bg-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-500/20"
-            aria-label={`Create ${config.singular}`}
+            aria-label={`Create ${info.humanSingular}`}
           >
             <IconPlus /> Create
-          </a>
+          </button>
+        ) : (
+          <span
+            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-edge-default px-3 text-[11px] text-content-muted"
+            title="Requires crds.write"
+          >
+            Create <K8sRolePill perm="crds.write" />
+          </span>
         )}
       </div>
     </article>
@@ -574,42 +670,54 @@ function isCondition(xr: XR, type: 'Ready' | 'Synced'): boolean {
 
 /* ───── glyphs ───── */
 
-function KindGlyph({ id }: { id: typeof PLATFORM_KINDS[number]['id'] }) {
-  switch (id) {
-    case 'applications':
+function KindGlyph({ icon }: { icon: GlyphId }) {
+  switch (icon) {
+    case 'app':
       return <IconAppBox />
-    case 'functions':
+    case 'bolt':
       return <IconBolt />
-    case 'workflows':
+    case 'route':
       return <IconRoute />
-    case 'pipelines':
+    case 'git':
       return <IconGitBranch />
-    case 'databases':
+    case 'database':
       return <IconDatabase />
-    case 'caches':
+    case 'zap':
       return <IconZap />
-    case 'buckets':
+    case 'archive':
       return <IconArchive />
-    case 'topics':
+    case 'radio':
       return <IconRadio />
-    case 'queues':
+    case 'layers':
       return <IconLayers />
-    case 'data-pipelines':
+    case 'waves':
       return <IconWaves />
-    case 'routes':
+    case 'compass':
       return <IconCompass />
-    case 'domains':
+    case 'globe':
       return <IconGlobe />
-    case 'load-balancers':
+    case 'scale':
       return <IconScale />
-    case 'api-contracts':
+    case 'file':
       return <IconFileCode />
-    case 'environments':
+    case 'shield':
       return <IconShield />
-    case 'certificates':
+    case 'certificate':
       return <IconCertificate />
-    case 'secret-stores':
+    case 'key':
       return <IconKey />
+    case 'gauge':
+      return <IconGauge />
+    case 'eye':
+      return <IconEye />
+    case 'coins':
+      return <IconCoins />
+    case 'network':
+      return <IconNetwork />
+    case 'cluster':
+      return <IconCluster />
+    default:
+      return <IconFileCode />
   }
 }
 
@@ -645,6 +753,19 @@ const IconFileCode = () => <SVG>{<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2
 const IconShield = () => <SVG>{<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />}</SVG>
 const IconCertificate = () => <SVG>{<><circle cx="12" cy="8" r="6" /><path d="M8.5 13.5 7 22l5-3 5 3-1.5-8.5" /></>}</SVG>
 const IconKey = () => <SVG>{<><circle cx="7.5" cy="15.5" r="4.5" /><path d="m10.5 12.5 8-8" /><path d="m16 6 3 3" /><path d="m19 3 2 2" /></>}</SVG>
+const IconGauge = () => <SVG>{<><path d="M12 14 8 10" /><path d="M3.34 19a10 10 0 1 1 17.32 0" /><circle cx="12" cy="14" r="1.5" /></>}</SVG>
+const IconEye = () => <SVG>{<><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></>}</SVG>
+const IconCoins = () => <SVG>{<><ellipse cx="12" cy="6" rx="8" ry="3" /><path d="M4 6v6a8 3 0 0 0 16 0V6" /><path d="M4 12v6a8 3 0 0 0 16 0v-6" /></>}</SVG>
+const IconNetwork = () => <SVG>{<><rect x="9" y="2" width="6" height="6" rx="1" /><rect x="2" y="16" width="6" height="6" rx="1" /><rect x="16" y="16" width="6" height="6" rx="1" /><path d="M12 8v4" /><path d="M5 16v-1a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1" /></>}</SVG>
+const IconCluster = () => <SVG>{<><circle cx="12" cy="5" r="2.5" /><circle cx="5" cy="18" r="2.5" /><circle cx="19" cy="18" r="2.5" /><path d="M12 7.5v4" /><path d="M12 11.5 6.5 16" /><path d="M12 11.5 17.5 16" /></>}</SVG>
 const IconSparkles = () => <SVG>{<><path d="M12 2v6" /><path d="M12 16v6" /><path d="m4.93 4.93 4.24 4.24" /><path d="m14.83 14.83 4.24 4.24" /><path d="M2 12h6" /><path d="M16 12h6" /><path d="m4.93 19.07 4.24-4.24" /><path d="m14.83 9.17 4.24-4.24" /></>}</SVG>
 const IconSearch = () => <SVG>{<><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></>}</SVG>
 const IconPlus = () => <SVG>{<><path d="M12 5v14" /><path d="M5 12h14" /></>}</SVG>
+function IconClose() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
+  )
+}

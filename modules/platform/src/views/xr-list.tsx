@@ -21,6 +21,7 @@ import { useGeneric, useNamespaces } from '../data/hooks.ts'
 import { GVRS } from '../data/gvr.ts'
 import { age } from '../data/format.ts'
 import { useHasK8sPermission } from '../data/access.ts'
+import { useVariantsForKind } from '../data/xrds.ts'
 import { K8sRolePill } from '../components/role-gate.tsx'
 
 /**
@@ -70,7 +71,7 @@ export const AUTO_CREATE_KEY = 'adhar:platform:autocreate'
 export interface XrFormField {
   key: string
   label: string
-  type: 'text' | 'number' | 'select' | 'boolean' | 'textarea'
+  type: 'text' | 'number' | 'select' | 'boolean' | 'textarea' | 'json'
   required?: boolean
   placeholder?: string
   help?: string
@@ -123,6 +124,18 @@ export interface XrKindConfig {
    * when the Secret doesn't exist yet.
    */
   connectionSecret?: { nameFromSpec?: string; nameTemplate?: string }
+  /**
+   * Schema-driven apply shape (populated from the live XRD by `xrds.ts`). When
+   * `parametersMode` is true, form values nest under `spec.parameters` instead
+   * of directly under `spec` — the Adhar `platform.adhar.io` XRD convention.
+   * `supportsCompositionSelector` means the XRD schema declares
+   * `spec.compositionSelector`, so a variant picker is shown and its
+   * `matchLabels` are applied; `compositionSelectorRequired` gates whether a
+   * variant *must* be chosen before apply.
+   */
+  parametersMode?: boolean
+  supportsCompositionSelector?: boolean
+  compositionSelectorRequired?: boolean
 }
 
 export interface XR {
@@ -218,7 +231,45 @@ function buildSpecFromValues(
     const s = typeof raw === 'string' ? raw.trim() : ''
     if (!s) continue
     if (f.type === 'number') setPath(spec, f.key, Number(s))
-    else setPath(spec, f.key, s)
+    else if (f.type === 'json') {
+      // Validated separately; skip anything that doesn't parse so a bad value
+      // never lands in the payload.
+      try {
+        setPath(spec, f.key, JSON.parse(s))
+      } catch {
+        /* ignore — validateFieldValues surfaces the error */
+      }
+    } else setPath(spec, f.key, s)
+  }
+  return spec
+}
+
+/**
+ * Assemble the full `spec` for the apply payload from the built values object,
+ * honouring the live XRD shape:
+ *   - parameters-style XRDs nest all user values under `spec.parameters`;
+ *   - flat-style XRDs keep them directly under `spec`.
+ * A `compositionSelector.matchLabels` is added only when the XRD schema declares
+ * it (so apply never hits "field not declared in schema").
+ */
+function assembleSpec(
+  config: XrKindConfig,
+  built: Record<string, unknown>,
+  matchLabels?: Record<string, string>,
+  existing?: Record<string, unknown>,
+): Record<string, unknown> {
+  const spec: Record<string, unknown> = {}
+  if (config.parametersMode) spec.parameters = built
+  else Object.assign(spec, built)
+  if (config.supportsCompositionSelector && matchLabels && Object.keys(matchLabels).length) {
+    spec.compositionSelector = { matchLabels }
+  } else if (config.supportsCompositionSelector && existing?.compositionSelector) {
+    // Preserve an existing selector on edit when the picker made no change.
+    spec.compositionSelector = existing.compositionSelector
+  }
+  // Carry a pre-existing writeConnectionSecretToRef through edits untouched.
+  if (existing?.writeConnectionSecretToRef) {
+    spec.writeConnectionSecretToRef = existing.writeConnectionSecretToRef
   }
   return spec
 }
@@ -241,6 +292,14 @@ function validateFieldValues(
       if (!Number.isFinite(n)) errors[f.key] = 'Must be a number'
       else if (f.min !== undefined && n < f.min) errors[f.key] = `Must be ≥ ${f.min}`
       else if (f.max !== undefined && n > f.max) errors[f.key] = `Must be ≤ ${f.max}`
+      continue
+    }
+    if (f.type === 'json') {
+      try {
+        JSON.parse(s)
+      } catch {
+        errors[f.key] = 'Must be valid JSON'
+      }
       continue
     }
     if (f.pattern) {
@@ -271,6 +330,14 @@ function initialFieldValues(
           : typeof f.default === 'boolean'
             ? f.default
             : false
+      continue
+    }
+    if (f.type === 'json') {
+      if (existing !== undefined && existing !== null) {
+        out[f.key] = typeof existing === 'string' ? existing : JSON.stringify(existing, null, 2)
+      } else {
+        out[f.key] = typeof f.default === 'string' ? f.default : ''
+      }
       continue
     }
     const v =
@@ -561,7 +628,7 @@ export function XrList({
 
 /* ───── provision / edit modal ───── */
 
-function ClaimFormModal({
+export function ClaimFormModal({
   config,
   mode,
   initial,
@@ -583,11 +650,41 @@ function ClaimFormModal({
   const namespaced = config.gvr.namespaced !== false
   const namespacesQ = useNamespaces()
 
+  // User inputs live under spec.parameters for parameters-style XRDs, else
+  // directly under spec — read the live values from the right sub-object on edit.
+  const existingValueSource = config.parametersMode
+    ? (initial?.spec?.parameters as Record<string, unknown> | undefined)
+    : initial?.spec
+
   const [name, setName] = useState(initial?.metadata.name ?? '')
   const [ns, setNs] = useState(initial?.metadata.namespace ?? defaultNamespace ?? 'default')
   const [values, setValues] = useState<Record<string, string | boolean>>(() =>
-    fields ? initialFieldValues(fields, initial?.spec) : {},
+    fields ? initialFieldValues(fields, existingValueSource) : {},
   )
+
+  // Composition variant picker — discovered live from the cluster's Compositions.
+  const variantsQ = useVariantsForKind(claimKind(config))
+  const showVariants = config.supportsCompositionSelector === true
+  const existingMatch = (initial?.spec?.compositionSelector as
+    | { matchLabels?: Record<string, string> }
+    | undefined)?.matchLabels
+  const [variantName, setVariantName] = useState<string>('')
+
+  // Once variants load, default the selection: keep an existing match on edit,
+  // else prefer provider=local (variants are already sorted local-first).
+  useEffect(() => {
+    if (!showVariants || variantName || variantsQ.variants.length === 0) return
+    if (existingMatch) {
+      const found = variantsQ.variants.find((v) =>
+        Object.entries(v.labels).every(([k, val]) => existingMatch[k] === val),
+      )
+      if (found) {
+        setVariantName(found.name)
+        return
+      }
+    }
+    setVariantName(variantsQ.variants[0].name)
+  }, [showVariants, variantName, variantsQ.variants, existingMatch])
   const [specText, setSpecText] = useState(() =>
     initial?.spec ? JSON.stringify(initial.spec, null, 2) : '{\n\n}',
   )
@@ -638,11 +735,23 @@ function ClaimFormModal({
         errors.__namespace = 'Must be a valid namespace name'
       }
     }
+    // ── variant / compositionSelector ──
+    let matchLabels: Record<string, string> | undefined
+    if (showVariants) {
+      const chosen = variantsQ.variants.find((v) => v.name === variantName)
+      if (chosen) matchLabels = chosen.labels
+      else if (config.compositionSelectorRequired) {
+        errors.__variant = variantsQ.variants.length
+          ? 'Select a variant'
+          : 'No Compositions are installed for this kind'
+      }
+    }
     // ── spec ──
     let spec: Record<string, unknown>
     if (fields) {
       Object.assign(errors, validateFieldValues(fields, values))
-      spec = buildSpecFromValues(fields, values)
+      const built = buildSpecFromValues(fields, values)
+      spec = assembleSpec(config, built, matchLabels, initial?.spec)
     } else {
       const parsed = parseSpecText(specText)
       if (!parsed.ok) {
@@ -751,6 +860,62 @@ function ClaimFormModal({
               </div>
             ) : null}
           </fieldset>
+
+          {/* ── composition variant (spec.compositionSelector.matchLabels) ── */}
+          {showVariants ? (
+            <fieldset className="space-y-3" disabled={applyMut.isPending}>
+              <legend className="text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
+                Variant
+              </legend>
+              {variantsQ.isLoading ? (
+                <div className="flex items-center gap-2 text-[12px] text-content-muted">
+                  <Spinner size={12} /> Discovering compositions…
+                </div>
+              ) : variantsQ.variants.length === 0 ? (
+                <p className="text-[12px] text-content-muted">
+                  No Compositions are installed for{' '}
+                  <code className="font-mono">{claimKind(config)}</code> yet.
+                  {config.compositionSelectorRequired
+                    ? ' This kind requires one before it can be provisioned.'
+                    : ' Crossplane will select a default composition.'}
+                </p>
+              ) : (
+                <div>
+                  <label
+                    className="mb-1 block text-xs font-medium text-content"
+                    htmlFor="xr-form-variant"
+                  >
+                    Composition{config.compositionSelectorRequired ? ' *' : ''}
+                  </label>
+                  <select
+                    id="xr-form-variant"
+                    value={variantName}
+                    onChange={(e) => setVariantName(e.target.value)}
+                    className={cn(
+                      'h-9 w-full rounded-md border border-edge-default bg-surface-raised px-2 text-xs text-content outline-none focus:ring-2 focus:ring-brand-500/30',
+                      fieldErrors.__variant && 'border-rose-400 dark:border-rose-500/60',
+                    )}
+                    aria-invalid={Boolean(fieldErrors.__variant)}
+                  >
+                    {variantsQ.variants.map((v) => (
+                      <option key={v.name} value={v.name}>
+                        {v.summary} — {v.name}
+                      </option>
+                    ))}
+                  </select>
+                  {fieldErrors.__variant ? (
+                    <FieldError text={fieldErrors.__variant} />
+                  ) : (
+                    <p className="mt-1 text-[11px] text-content-muted">
+                      Sets{' '}
+                      <code className="font-mono">spec.compositionSelector.matchLabels</code> so
+                      Crossplane picks this composition.
+                    </p>
+                  )}
+                </div>
+              )}
+            </fieldset>
+          ) : null}
 
           {/* ── spec (generated form or raw fallback) ── */}
           {fields ? (
@@ -898,12 +1063,12 @@ function FormFieldInput({
             </option>
           ))}
         </select>
-      ) : field.type === 'textarea' ? (
+      ) : field.type === 'textarea' || field.type === 'json' ? (
         <textarea
           id={id}
           value={typeof value === 'string' ? value : ''}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={field.placeholder}
+          placeholder={field.placeholder ?? (field.type === 'json' ? '{ }' : undefined)}
           rows={4}
           spellCheck={false}
           className={cn(inputCls, 'p-2 leading-relaxed')}

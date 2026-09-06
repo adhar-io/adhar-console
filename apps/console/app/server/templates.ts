@@ -66,7 +66,13 @@ function toneOf(key: string): (typeof TONES)[number] {
 /** Infer a template family from its name + tags (all are `spec.type: service`). */
 function inferFamily(name: string, tags: string[]): string {
   const hay = `${name} ${tags.join(' ')}`.toLowerCase()
-  if (/\b(web|frontend|spa|site|ui|react|vue|angular|next|tanstack)\b/.test(hay)) return 'website'
+  // Backend services FIRST — otherwise "*-web-service" gets mis-caught by the
+  // frontend "web" match and lands under Frontends & websites (it shouldn't).
+  if (/\b(service|microservice|backend|worker|daemon)\b/.test(hay)) return 'service'
+  // Real frontend signals only (no bare "web", which appears in "web-service").
+  if (/\b(frontend|spa|webapp|website|site|ui|react|vue|angular|svelte|next|nuxt|tanstack|fullstack)\b/.test(hay)) {
+    return 'website'
+  }
   if (/\b(lib|library|sdk|package)\b/.test(hay)) return 'library'
   if (/\b(api|openapi|graphql|grpc|proto|contract)\b/.test(hay)) return 'api'
   if (/\b(mobile|ios|android|expo|flutter)\b/.test(hay)) return 'mobile'

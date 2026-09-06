@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.41] - 2026-09-06
+
 ### Changed
 
 - **PipelineRun viewer redesigned as a Jenkins Blue Ocean-style stage viewer.**

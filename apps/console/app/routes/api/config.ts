@@ -4,6 +4,26 @@ import { env } from '@adhar-console/utils'
 import { publicToolInfo } from '~/server/tool-registry.ts'
 
 /**
+ * Public base domain the app launcher derives tool URLs from (`<tool>.<base>`).
+ * An explicit `ADHAR_BASE_DOMAIN` wins; otherwise it is derived from
+ * `AUTH_PUBLIC_URL` by dropping the console's own first label
+ * (`console.platform.adhar.io` → `platform.adhar.io`), so one immutable image
+ * resolves the right hosts on any cluster/domain without hardcoding. Empty when
+ * neither is set — the client then falls back to its own origin.
+ */
+function publicBaseDomain(): string {
+  const explicit = (env('ADHAR_BASE_DOMAIN') ?? env('BASE_DOMAIN') ?? '').trim()
+  if (explicit) return explicit.replace(/^https?:\/\//, '').replace(/\/$/, '')
+  try {
+    const host = new URL(env('AUTH_PUBLIC_URL') ?? '').host
+    const rest = host.split('.').slice(1).join('.')
+    return rest.includes('.') ? rest : ''
+  } catch {
+    return ''
+  }
+}
+
+/**
  * GET /api/config — non-secret runtime configuration for the browser.
  *
  * This is how a single immutable container image is configured per environment:
@@ -27,6 +47,7 @@ export const Route = createFileRoute('/api/config')({
             giteaOrg: env('GITEA_TEMPLATES_ORG') ?? env('GITEA_ORG') ?? 'adhar',
             argocdProject: env('ARGOCD_PROJECT') ?? 'default',
             docsBaseUrl: env('DOCS_BASE_URL') ?? env('DOCS_URL') ?? 'https://docs.adhar.io',
+            publicBaseDomain: publicBaseDomain(),
           },
           { headers: { 'cache-control': 'no-store' } },
         ),

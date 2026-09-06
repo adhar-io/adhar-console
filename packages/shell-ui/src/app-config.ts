@@ -19,6 +19,12 @@ export interface AppConfig {
   argocdProject: string
   /** Base URL of the platform documentation site (no trailing slash). */
   docsBaseUrl: string
+  /**
+   * Public base domain tools are exposed under (`<tool>.<base>`), e.g.
+   * `platform.adhar.io`. Derived server-side from ADHAR_BASE_DOMAIN or
+   * AUTH_PUBLIC_URL; empty when unknown (the client then uses its own origin).
+   */
+  publicBaseDomain: string
 }
 
 /** Safe defaults matching the real platform install, used until `/api/config`
@@ -31,6 +37,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   giteaOrg: 'adhar',
   argocdProject: 'default',
   docsBaseUrl: 'https://docs.adhar.io',
+  publicBaseDomain: '',
 }
 
 export function useAppConfig() {
@@ -58,4 +65,17 @@ export function useArgocdProject(): string {
 /** The documentation site base URL (no trailing slash). */
 export function useDocsUrl(): string {
   return (useAppConfig().data?.docsBaseUrl || APP_CONFIG_DEFAULTS.docsBaseUrl).replace(/\/$/, '')
+}
+
+/**
+ * Public base domain tools live under (`<tool>.<base>`). Prefers the BFF value;
+ * falls back to the console's own origin minus its first label
+ * (`console.platform.adhar.io` → `platform.adhar.io`); empty if unknowable.
+ */
+export function usePublicBaseDomain(): string {
+  const fromConfig = (useAppConfig().data?.publicBaseDomain ?? '').trim()
+  if (fromConfig) return fromConfig
+  if (typeof window === 'undefined') return ''
+  const rest = window.location.host.split('.').slice(1).join('.')
+  return rest.includes('.') ? rest : ''
 }

@@ -6,6 +6,27 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+
+- **Console lost the cluster on a real (DigitalOcean) install — HTTP/2 pool
+  poisoning.** Every kube-apiserver call from the BFF failed with
+  `http2 error: connection error received` until the pod restarted: a GOAWAY /
+  reset from the apiserver (or its load balancer) killed Deno's shared pooled
+  HTTP/2 connection and every later request reused the dead connection, while
+  brand-new connections worked. The apiserver now goes through a dedicated
+  **HTTP/1.1** client (pools re-open closed connections), with one automatic
+  retry on a fresh client for connection-level errors. Applies to the `/api/k8s`
+  gateway, the `/api/svc/k8s` proxy, and every server-side caller (scaffolder,
+  tenant provisioner, appset, billing, AI tools).
+- **App launcher now discovers every configured app on any domain.** Tool URLs
+  are derived from a real base domain instead of the hardcoded `localtest.me`
+  dev hosts: the BFF reports `publicBaseDomain` (from `ADHAR_BASE_DOMAIN`, else
+  derived from `AUTH_PUBLIC_URL`), the client falls back to its own origin, then
+  to any tool with a public URL. Configured tools that only have in-cluster URLs
+  (`url: ''`) are no longer dropped from dynamic discovery — their public host is
+  derived too. ToolJet, Penpot and OpenSearch are now registered so the launcher
+  can discover them.
+
 ## [0.1.49] - 2026-09-06
 
 ### Fixed

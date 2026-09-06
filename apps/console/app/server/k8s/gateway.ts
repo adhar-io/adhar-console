@@ -236,11 +236,83 @@ function withCookie(res: Response, cookie?: string): Response {
 }
 
 /**
+ * Apiserver transport — a dedicated **HTTP/1.1** client.
+ *
+ * With HTTP/2, a GOAWAY/reset from the apiserver (or a load balancer in front
+ * of it) poisons Deno's shared pooled connection and EVERY later request fails
+ * with "http2 error: connection error received: not a result of an error"
+ * until the process restarts. Observed on a DigitalOcean cluster: the console
+ * lost the cluster entirely while brand-new connections (h1 or h2) worked fine.
+ * HTTP/1.1 pools simply re-open closed connections. On a connection-level error
+ * we additionally rebuild the client once and retry, so a dropped socket costs
+ * one retry instead of an outage. DENO_CERT applies to this client too.
+ *
+ * `Deno` is reached via globalThis (like tool-registry.ts) so this module stays
+ * type-clean wherever it is type-checked; outside Deno it degrades to plain fetch.
+ */
+interface HttpClientLike {
+  close(): void
+}
+const deno = globalThis as unknown as {
+  Deno?: { createHttpClient(opts: { http1?: boolean; http2?: boolean }): HttpClientLike }
+}
+let apiClient: HttpClientLike | null = null
+
+/** The pooled apiserver client (HTTP/1.1). `fresh` discards the current pool. */
+export function apiServerClient(fresh = false): HttpClientLike | undefined {
+  if (!deno.Deno) return undefined
+  if (fresh && apiClient) {
+    try {
+      apiClient.close()
+    } catch {
+      /* already closed */
+    }
+    apiClient = null
+  }
+  apiClient ??= deno.Deno.createHttpClient({ http1: true, http2: false })
+  return apiClient
+}
+
+/** True for transport-level failures that warrant one retry on a fresh connection. */
+export function isConnectionError(e: unknown): boolean {
+  const msg = String((e as { message?: string })?.message ?? e)
+  return /connection|SendRequest|reset|broken pipe|GOAWAY|closed|EOF|hyper|h2/i.test(msg)
+}
+
+function replayable(body: BodyInit | null | undefined): boolean {
+  return (
+    body == null ||
+    typeof body === 'string' ||
+    body instanceof ArrayBuffer ||
+    ArrayBuffer.isView(body) ||
+    body instanceof Blob ||
+    body instanceof URLSearchParams ||
+    body instanceof FormData
+  )
+}
+
+/**
+ * `fetch` through the apiserver client, with one retry on a fresh client when
+ * the pooled connection turns out to be dead. Streams can't be replayed, so a
+ * request with a stream body is never retried (it fails fast instead).
+ */
+export async function fetchWithApiServerClient(url: string, init: RequestInit): Promise<Response> {
+  const withClient = (client: HttpClientLike | undefined) =>
+    fetch(url, client ? ({ ...init, client } as RequestInit) : init)
+  try {
+    return await withClient(apiServerClient())
+  } catch (e) {
+    if (!isConnectionError(e) || !replayable(init.body) || init.signal?.aborted) throw e
+    return await withClient(apiServerClient(true))
+  }
+}
+
+/**
  * Low-level apiserver call with the given bearer token. Returns the raw
  * `Response` (body streamed) so watch/log-follow work without buffering.
  * `cluster` picks a named cluster from `K8S_CLUSTERS`; unset → default base.
  */
-export function apiServerFetch(
+export async function apiServerFetch(
   token: string,
   path: string,
   init: {
@@ -254,14 +326,14 @@ export function apiServerFetch(
 ): Promise<Response> {
   const base = resolveClusterBase(init.cluster)
   if (base === null) {
-    return Promise.reject(new Error(`unknown cluster '${init.cluster}' — not in K8S_CLUSTERS`))
+    throw new Error(`unknown cluster '${init.cluster}' — not in K8S_CLUSTERS`)
   }
   const clean = path.startsWith('/') ? path : `/${path}`
   const url = `${base}${clean}${init.search ?? ''}`
   const headers = new Headers(init.headers)
   headers.set('authorization', `Bearer ${token}`)
   if (!headers.has('accept')) headers.set('accept', 'application/json')
-  return fetch(url, {
+  return fetchWithApiServerClient(url, {
     method: init.method ?? 'GET',
     headers,
     body: init.body ?? undefined,

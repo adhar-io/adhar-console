@@ -393,15 +393,17 @@ function GenericAppIcon(_props: { label: string }) {
  */
 function useResolvedApps(apps: AppLink[]): { apps: ResolvedApp[]; loading: boolean } {
   const [tools, setTools] = useState<Record<string, ToolInfo> | null>(null)
+  const [publicBase, setPublicBase] = useState('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let alive = true
     fetch('/api/config', { credentials: 'include', headers: { accept: 'application/json' } })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { tools?: Record<string, ToolInfo> } | null) => {
+      .then((d: { tools?: Record<string, ToolInfo>; publicBaseDomain?: string } | null) => {
         if (!alive) return
         setTools(d?.tools ?? {})
+        setPublicBase((d?.publicBaseDomain ?? '').trim())
         setLoading(false)
       })
       .catch(() => {
@@ -414,21 +416,35 @@ function useResolvedApps(apps: AppLink[]): { apps: ResolvedApp[]; loading: boole
 
   const resolved = useMemo<ResolvedApp[]>(() => {
     const map = tools ?? {}
-    // Infer the cluster base domain (e.g. adhar.localtest.me:8443) from any
-    // configured tool URL, to build correct URLs for apps whose external URL
-    // the BFF doesn't report.
+    // The cluster base domain apps are exposed under (`<tool>.<base>`), used
+    // to build URLs for every app whose external URL the BFF doesn't report
+    // (in-cluster `.svc` URLs are hidden from the browser). Priority:
+    //   1. `publicBaseDomain` from /api/config (ADHAR_BASE_DOMAIN / AUTH_PUBLIC_URL)
+    //   2. the console's own origin minus its first label
+    //      (console.platform.adhar.io → platform.adhar.io)
+    //   3. any configured tool that does expose a public URL
+    // Never the hardcoded dev hostnames — those are only a last-resort static
+    // fallback when nothing about the running cluster is known at all.
     let base: { protocol: string; host: string } | null = null
-    for (const t of Object.values(map)) {
-      if (!t.configured || !t.url) continue
-      try {
-        const u = new URL(t.url)
-        const rest = u.host.split('.').slice(1).join('.')
-        if (rest) {
-          base = { protocol: u.protocol, host: rest }
-          break
+    const proto = typeof window !== 'undefined' ? window.location.protocol : 'https:'
+    if (publicBase) base = { protocol: proto, host: publicBase }
+    if (!base && typeof window !== 'undefined') {
+      const rest = window.location.host.split('.').slice(1).join('.')
+      if (rest.includes('.')) base = { protocol: proto, host: rest }
+    }
+    if (!base) {
+      for (const t of Object.values(map)) {
+        if (!t.configured || !t.url) continue
+        try {
+          const u = new URL(t.url)
+          const rest = u.host.split('.').slice(1).join('.')
+          if (rest) {
+            base = { protocol: u.protocol, host: rest }
+            break
+          }
+        } catch {
+          /* skip malformed */
         }
-      } catch {
-        /* skip malformed */
       }
     }
 
@@ -463,19 +479,25 @@ function useResolvedApps(apps: AppLink[]): { apps: ResolvedApp[]; loading: boole
     }
     for (const [id, info] of Object.entries(map)) {
       if (covered.has(id) || HIDDEN_TOOL_IDS.has(id)) continue
-      if (!info.configured || !info.url) continue
+      if (!info.configured) continue
+      // Tools reachable only via an in-cluster URL report `url: ''` — derive
+      // their public host from the base domain instead of dropping them, so
+      // every configured platform app is launchable (not just the few whose
+      // public URL the BFF happens to know).
+      const url = info.url || (base ? `${base.protocol}//${id}.${base.host}` : '')
+      if (!url) continue
       out.push({
         id,
         name: titleize(id),
         description: 'Platform service',
-        url: info.url,
+        url,
         category: 'Platform',
         icon: <GenericAppIcon label={id} />,
         configured: true,
       })
     }
     return out
-  }, [apps, tools])
+  }, [apps, tools, publicBase])
 
   return { apps: resolved, loading: loading && tools === null }
 }

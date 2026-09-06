@@ -213,6 +213,12 @@ export function getToolRegistry(): Record<string, ToolDef> {
     hubble: { baseUrl: clean(env('HUBBLE_URL')), authMode: 'none' },
     'kafka-ui': { baseUrl: clean(env('KAFKA_UI_URL')), authMode: 'none' },
     jupyterhub: { baseUrl: clean(env('JUPYTERHUB_URL')), authMode: 'none' },
+    // Browser UIs the platform deploys (set on the console Deployment) that had
+    // no registry entry, so the app launcher could never discover them even
+    // though they were running. `none` auth — they front their own login.
+    tooljet: { baseUrl: clean(env('TOOLJET_URL')), authMode: 'none' },
+    penpot: { baseUrl: clean(env('PENPOT_URL')), authMode: 'none' },
+    opensearch: { baseUrl: clean(env('OPENSEARCH_URL')), authMode: 'none' },
     vault: { baseUrl: clean(env('VAULT_URL')), authMode: 'service', serviceToken: env('VAULT_TOKEN') },
     tekton: { baseUrl: clean(env('TEKTON_URL')), authMode: 'service', serviceToken: env('TEKTON_TOKEN') },
     // RustFS is the platform's S3-compatible store; MINIO_URL kept as the

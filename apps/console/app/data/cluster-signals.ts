@@ -54,8 +54,24 @@ export function useClusterSignals() {
     refetchInterval: REFRESH_MS,
     retry: false,
   })
+  // Kyverno records most results in *namespaced* PolicyReports (one per workload),
+  // not the cluster-scoped ClusterPolicyReports (whose summaries are usually
+  // empty). Read both and aggregate so the Security sub-score reflects the whole
+  // policy surface, not just the handful of cluster-wide rules.
   const policyReports = useQuery({
     queryKey: ['overview', 'policy-reports'],
+    queryFn: () =>
+      client.listGeneric(undefined, {
+        group: 'wgpolicyk8s.io',
+        version: 'v1alpha2',
+        resource: 'policyreports',
+        namespaced: true,
+      }),
+    refetchInterval: REFRESH_MS,
+    retry: false,
+  })
+  const clusterPolicyReports = useQuery({
+    queryKey: ['overview', 'cluster-policy-reports'],
     queryFn: () =>
       client.listGeneric(undefined, {
         group: 'wgpolicyk8s.io',
@@ -66,7 +82,7 @@ export function useClusterSignals() {
     refetchInterval: REFRESH_MS,
     retry: false,
   })
-  return { nodes, deployments, pods, argoApps, rollouts, policyReports }
+  return { nodes, deployments, pods, argoApps, rollouts, policyReports, clusterPolicyReports }
 }
 
 export interface ClusterSummary {
@@ -123,10 +139,16 @@ export function summarizeCluster(
   const rollouts = (data.rollouts.data ?? []) as Array<{ status?: { phase?: string } }>
   const healthyRollouts = rollouts.filter((r) => r.status?.phase === 'Healthy').length
 
-  const policyInstalled = !isNotFound(data.policyReports.error)
-  const reports = (data.policyReports.data ?? []) as Array<{
-    summary?: { pass?: number; fail?: number; warn?: number }
-  }>
+  const policyInstalled =
+    !isNotFound(data.policyReports.error) || !isNotFound(data.clusterPolicyReports.error)
+  const reports = [
+    ...((data.policyReports.data ?? []) as Array<{
+      summary?: { pass?: number; fail?: number; warn?: number }
+    }>),
+    ...((data.clusterPolicyReports.data ?? []) as Array<{
+      summary?: { pass?: number; fail?: number; warn?: number }
+    }>),
+  ]
   const pass = reports.reduce((a, r) => a + (r.summary?.pass ?? 0), 0)
   const fail = reports.reduce((a, r) => a + (r.summary?.fail ?? 0), 0)
   const warn = reports.reduce((a, r) => a + (r.summary?.warn ?? 0), 0)

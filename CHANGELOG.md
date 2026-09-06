@@ -6,6 +6,27 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+
+- **Overview "Resource utilization" storage gauge now shows real capacity.** It
+  used to display a PVC bound-count ratio (e.g. "26/26 bound" → a meaningless
+  100%). It now reads **provisioned storage vs total node disk** — sum of PVC
+  capacity over the cluster's `ephemeral-storage`, with a used/total byte readout
+  (e.g. "110 GiB / 149 GiB") and the bound-PVC count as a sub-line.
+- **Overview "Platform health" — Security sub-score.** It read only cluster-scoped
+  `ClusterPolicyReports` (whose summaries are empty) and so always showed "—". It
+  now aggregates the namespaced Kyverno `PolicyReports` too (the ~350 per-workload
+  reports that hold the real pass/fail counts), so Security reflects the actual
+  policy pass ratio.
+- **Overview "Platform health" — Performance sub-score.** It was "—" whenever
+  Prometheus golden signals weren't wired. It now falls back to live cluster
+  resource headroom from metrics-server (100 − the busier of CPU/memory
+  saturation), so it populates on any metrics-enabled cluster.
+- **Overview "DORA" — Lead time is now real.** Derived from Gitea PR cycle time
+  (median open→merge over the trailing 30 days) instead of the "needs Four Keys"
+  placeholder. MTTR remains an honest "—" until an incident source with
+  open+resolve timestamps is wired (Prometheus `/alerts` only lists active alerts).
+
 ## [0.1.38] - 2026-09-06
 
 ### Changed

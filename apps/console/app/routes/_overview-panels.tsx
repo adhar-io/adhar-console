@@ -55,6 +55,7 @@ import {
   parseBytes,
   parseCpu,
 } from '~/data/platform-signals.ts'
+import { formatLeadTime, leadTimeScore, useDoraFlow } from '~/data/dora-flow.ts'
 import type { Generic } from '@adhar-console/api-clients/k8s'
 
 /**
@@ -998,10 +999,11 @@ function cloudOf(providerID?: string): string {
 
 export function DoraRadarPanel() {
   const q = useDoraApps()
+  const flow = useDoraFlow()
 
-  // Real DORA axes derived from ArgoCD deploy history + sync operations.
-  // Lead time & MTTR are NOT derivable from ArgoCD, so they are flagged as
-  // requiring a source rather than fabricated (see modules/decide dora.ts).
+  // Real DORA axes: deploy frequency + change-failure rate from ArgoCD, lead
+  // time from Gitea PR cycle time (see dora-flow.ts). MTTR still needs an
+  // incident source with resolve timestamps, so it stays honestly "—".
   const { metrics, tier, avgAvailable } = useMemo(() => {
     const apps = q.data ?? []
     const now = Date.now()
@@ -1028,7 +1030,21 @@ export function DoraRadarPanel() {
         target: 1,
         available: true,
       },
-      { label: 'Lead time', value: 0, raw: 'needs Four Keys', target: 1, available: false },
+      flow.leadTimeHours != null
+        ? {
+            label: 'Lead time',
+            value: leadTimeScore(flow.leadTimeHours),
+            raw: formatLeadTime(flow.leadTimeHours),
+            target: 1,
+            available: true,
+          }
+        : {
+            label: 'Lead time',
+            value: 0,
+            raw: flow.isLoading ? '…' : 'no merged PRs',
+            target: 1,
+            available: false,
+          },
       {
         label: 'Change-fail rate',
         value: cfr == null ? 0 : Math.max(0, Math.min(1, 1 - cfr / 0.3)),
@@ -1043,7 +1059,7 @@ export function DoraRadarPanel() {
     const tier: 'Elite' | 'High' | 'Medium' =
       avgAvailable >= 0.85 ? 'Elite' : avgAvailable >= 0.6 ? 'High' : 'Medium'
     return { metrics: list, tier, avgAvailable }
-  }, [q.data])
+  }, [q.data, flow.leadTimeHours, flow.isLoading])
 
   if (q.isLoading || q.isError) {
     return (
@@ -1763,6 +1779,8 @@ export function PlatformHealthPanel() {
   const cluster = useClusterSignals()
   const s = summarizeCluster(cluster)
   const { errors } = useGoldenSignals()
+  const nodesQ = useNodes()
+  const nodeMetricsQ = useNodeMetrics()
 
   // Sub-scores 0–100, each from a real signal — or null (shown as "—") when the
   // source is genuinely absent (CRD not installed / no data). Never a fabricated
@@ -1794,14 +1812,35 @@ export function PlatformHealthPanel() {
     return Math.round((s.policy.pass / evaluated) * 100)
   }, [s.policy.installed, s.policy.pass, s.policy.fail, s.policy.warn])
 
-  // Performance = Prometheus 5xx error rate (golden signals). No series ⇒
-  // unavailable — Prometheus isn't wired — shown honestly as "—".
+  // Performance — prefer Prometheus 5xx error rate (golden signals) when it's
+  // wired; otherwise fall back to live cluster resource headroom from
+  // metrics-server (100 − the busier of CPU / memory saturation), which is a
+  // real, always-reachable performance/capacity signal. Only "—" when neither
+  // source is present.
   const performance = useMemo<number | null>(() => {
     const series = errors.data ?? []
-    if (series.length === 0) return null
-    const errAvg = avgLastValues(series)
-    return Math.min(100, Math.max(40, 100 - Math.round(errAvg * 1000)))
-  }, [errors.data])
+    if (series.length > 0) {
+      const errAvg = avgLastValues(series)
+      return Math.min(100, Math.max(40, 100 - Math.round(errAvg * 1000)))
+    }
+    const nodes = (nodesQ.data ?? []) as Array<{
+      status?: { allocatable?: Record<string, string> }
+    }>
+    const metrics = (nodeMetricsQ.data ?? []) as Array<{
+      usage?: { cpu?: string; memory?: string }
+    }>
+    if (nodes.length === 0 || metrics.length === 0) return null
+    const cpuTotal = nodes.reduce((a, n) => a + parseCpu(n.status?.allocatable?.cpu), 0)
+    const memTotal = nodes.reduce((a, n) => a + parseBytes(n.status?.allocatable?.memory), 0)
+    const cpuUsed = metrics.reduce((a, m) => a + parseCpu(m.usage?.cpu), 0)
+    const memUsed = metrics.reduce((a, m) => a + parseBytes(m.usage?.memory), 0)
+    const util: number[] = []
+    if (cpuTotal > 0) util.push(cpuUsed / cpuTotal)
+    if (memTotal > 0) util.push(memUsed / memTotal)
+    if (util.length === 0) return null
+    const busiest = Math.max(...util)
+    return Math.min(100, Math.max(0, Math.round((1 - busiest) * 100)))
+  }, [errors.data, nodesQ.data, nodeMetricsQ.data])
 
   const available = [reliability, delivery, security, performance].filter(
     (v): v is number => v != null,
@@ -2129,7 +2168,7 @@ export function ResourceUtilizationPanel() {
 
   const gauges = useMemo(() => {
     const nodes = (nodesQ.data ?? []) as Array<{
-      status?: { allocatable?: Record<string, string> }
+      status?: { allocatable?: Record<string, string>; capacity?: Record<string, string> }
     }>
     const nodeMetrics = (metricsQ.data ?? []) as Array<
       Generic & { usage?: { cpu?: string; memory?: string } }
@@ -2147,6 +2186,7 @@ export function ResourceUtilizationPanel() {
       value: number
       used: string
       total: string
+      hint?: string
       icon: React.ReactNode
     }> = []
 
@@ -2178,25 +2218,38 @@ export function ResourceUtilizationPanel() {
         icon: <IconMemory />,
       })
     }
-    // Storage — bound / total PVCs (the same honest, metrics-server-independent
-    // signal the Platform dashboard uses). Provisioned capacity is summed from
-    // status.capacity.storage, falling back to spec.resources.requests.storage.
-    // Always shown (even 0 / 0) as long as the PVC list is reachable.
-    if (!pvcsQ.isError) {
-      const bound = pvcs.filter((p) => p.status?.phase === 'Bound').length
-      const totalPvcs = pvcs.length
-      const provisioned = pvcs.reduce(
-        (s, p) =>
+    // Storage — real capacity, not a PVC count. "Total" is the cluster's
+    // physical disk (sum of node ephemeral-storage capacity); "used" is the
+    // storage actually provisioned by PersistentVolumeClaims (summed from
+    // status.capacity.storage, falling back to the requested size). The gauge
+    // therefore reads "provisioned of total disk" — a metrics-server-independent
+    // signal that populates on any live cluster. If node disk can't be read we
+    // fall back to the total provisioned volume capacity so the gauge still
+    // shows a meaningful used/total instead of a bound-count ratio.
+    if (!pvcsQ.isError || !nodesQ.isError) {
+      const diskTotal = nodes.reduce(
+        (s, n) =>
           s +
-          parseBytes(p.status?.capacity?.storage ?? p.spec?.resources?.requests?.storage),
+          parseBytes(
+            n.status?.capacity?.['ephemeral-storage'] ??
+              n.status?.allocatable?.['ephemeral-storage'],
+          ),
         0,
       )
+      const provisioned = pvcs.reduce(
+        (s, p) =>
+          s + parseBytes(p.status?.capacity?.storage ?? p.spec?.resources?.requests?.storage),
+        0,
+      )
+      const bound = pvcs.filter((p) => p.status?.phase === 'Bound').length
+      const totalSpace = diskTotal > 0 ? diskTotal : provisioned
       out.push({
         key: 'storage',
         label: 'Storage',
-        value: totalPvcs > 0 ? pct(bound, totalPvcs) : 0,
-        used: `${bound} / ${totalPvcs} bound`,
-        total: formatStorage(provisioned),
+        value: totalSpace > 0 ? pct(provisioned, totalSpace) : 0,
+        used: formatStorage(provisioned),
+        total: formatStorage(totalSpace),
+        hint: `${bound} PVC${bound === 1 ? '' : 's'} bound${diskTotal > 0 ? ' · of node disk' : ' provisioned'}`,
         icon: <IconStorage />,
       })
     }
@@ -2225,6 +2278,7 @@ export function ResourceUtilizationPanel() {
               value={g.value}
               used={g.used}
               total={g.total}
+              hint={g.hint}
               icon={g.icon}
             />
           ))}
@@ -2248,12 +2302,14 @@ function ResourceGauge({
   value,
   used,
   total,
+  hint,
   icon,
 }: {
   label: string
   value: number
   used: string
   total: string
+  hint?: string
   icon: React.ReactNode
 }) {
   const tone = value >= 85 ? 'rose' : value >= 70 ? 'amber' : 'emerald'
@@ -2308,6 +2364,7 @@ function ResourceGauge({
         <span className="font-medium text-content">{used}</span>
         <span className="text-content-subtle"> / {total}</span>
       </div>
+      {hint ? <div className="mt-0.5 text-[10px] text-content-subtle">{hint}</div> : null}
     </div>
   )
 }

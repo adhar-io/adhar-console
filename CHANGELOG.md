@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.50] - 2026-09-06
+
 ### Fixed
 
 - **Console lost the cluster on a real (DigitalOcean) install — HTTP/2 pool

@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.39] - 2026-09-06
+
 ### Fixed
 
 - **Overview "Resource utilization" storage gauge now shows real capacity.** It

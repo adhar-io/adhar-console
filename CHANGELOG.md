@@ -6,6 +6,16 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+
+- **Scaffolder output links (Backstage-style task output).** The Create New
+  wizard's success step now surfaces the real artifacts the scaffold produced —
+  "Open repository", the GitOps application (deep link into Deliver), "Open in
+  catalog", and a copy-ready `git clone` command — instead of only a generic
+  "open catalog" button. Completes the golden-path loop from template → running
+  service. (The wizard already provided multi-step parameter forms with
+  per-step validation, a review step, and live task progress.)
+
 ## [0.1.45] - 2026-09-06
 
 ### Added

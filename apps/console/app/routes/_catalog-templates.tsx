@@ -1845,6 +1845,10 @@ function SuccessStep({
   entity: Entity
   onOpenCatalog(): void
 }) {
+  const ann = entity.metadata.annotations ?? {}
+  const repoUrl = ann['adhar.io/git-repo']
+  const appName = ann['argocd/app-name']
+  const cloneUrl = repoUrl ? (repoUrl.endsWith('.git') ? repoUrl : `${repoUrl}.git`) : undefined
   return (
     <div className="space-y-4">
       <div className="flex items-start gap-4 rounded-xl border border-emerald-200 dark:border-emerald-500/25 bg-emerald-50/70 dark:bg-emerald-500/10 p-4">
@@ -1859,6 +1863,39 @@ function SuccessStep({
           </p>
         </div>
       </div>
+
+      {/* Output links — the Backstage-style task output. */}
+      <Card>
+        <CardHeader>
+          <h4 className="text-sm font-semibold text-content">Links</h4>
+        </CardHeader>
+        <CardBody>
+          <div className="flex flex-wrap gap-2">
+            {repoUrl ? (
+              <OutputLink href={repoUrl} label="Open repository" primary />
+            ) : null}
+            {appName ? (
+              <OutputLink href="/deliver?section=apps" label={`GitOps app · ${appName}`} />
+            ) : null}
+            <button
+              type="button"
+              onClick={onOpenCatalog}
+              className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition hover:border-brand-200 hover:text-brand-700 dark:hover:text-brand-300"
+            >
+              Open in catalog
+            </button>
+          </div>
+          {cloneUrl ? (
+            <div className="mt-3 flex items-center gap-2 rounded-lg border border-edge-subtle bg-surface-sunken px-3 py-2">
+              <code className="flex-1 truncate font-mono text-[11px] text-content-muted">
+                git clone {cloneUrl}
+              </code>
+              <CopyIconButton text={`git clone ${cloneUrl}`} />
+            </div>
+          ) : null}
+        </CardBody>
+      </Card>
+
       <Card>
         <CardHeader>
           <h4 className="text-sm font-semibold text-content">Next steps</h4>
@@ -1880,10 +1917,46 @@ function SuccessStep({
           </ul>
         </CardBody>
       </Card>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={onOpenCatalog}>Open in catalog</Button>
-      </div>
     </div>
+  )
+}
+
+function OutputLink({ href, label, primary }: { href: string; label: string; primary?: boolean }) {
+  const external = /^https?:/.test(href)
+  return (
+    <a
+      href={href}
+      {...(external ? { target: '_blank', rel: 'noreferrer' } : {})}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold shadow-sm transition',
+        primary
+          ? 'bg-brand-600 text-white visited:text-white hover:bg-brand-700 hover:text-white'
+          : 'border border-edge-default bg-surface-raised text-content-muted hover:border-brand-200 hover:text-brand-700 dark:hover:text-brand-300',
+      )}
+    >
+      {label}
+    </a>
+  )
+}
+
+function CopyIconButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        try {
+          navigator.clipboard?.writeText(text)
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1500)
+        } catch {
+          /* clipboard blocked */
+        }
+      }}
+      className="shrink-0 rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-[11px] font-medium text-content-muted hover:text-brand-700 dark:hover:text-brand-300"
+    >
+      {copied ? 'Copied' : 'Copy'}
+    </button>
   )
 }
 

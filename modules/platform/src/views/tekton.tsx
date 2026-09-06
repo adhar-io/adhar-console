@@ -17,6 +17,7 @@ import { kube } from '@adhar-console/api-clients/k8s';
 import { cn } from '@adhar-console/utils';
 import { type LiveStatus, useLiveList } from '../data/live.ts';
 import { clusterParam, useActiveCluster } from '../data/client.ts';
+import { CodeEditor } from '../components/code-editor.tsx';
 import { useGeneric } from '../data/hooks.ts';
 import { useHasK8sPermission } from '../data/access.ts';
 import { age } from '../data/format.ts';
@@ -1793,9 +1794,13 @@ function PipelineRunDrawer({ run: initial, onClose }: { run: TektonRun; onClose(
               <div className='text-sm font-semibold text-content'>Raw object</div>
             </CardHeader>
             <CardBody>
-              <pre className='max-h-96 overflow-auto rounded-lg bg-slate-950 p-4 font-mono text-[11px] leading-relaxed text-slate-100'>
-                {JSON.stringify(run, null, 2)}
-              </pre>
+              <CodeEditor
+                value={JSON.stringify(run, null, 2)}
+                language='json'
+                readOnly
+                height={384}
+                filename={`${run.metadata?.name ?? 'pipelinerun'}.json`}
+              />
             </CardBody>
           </Card>
         </div>
@@ -2296,9 +2301,13 @@ function PipelineDrawer({
               <div className='text-sm font-semibold text-content'>Raw object</div>
             </CardHeader>
             <CardBody>
-              <pre className='max-h-96 overflow-auto rounded-lg bg-slate-950 p-4 font-mono text-[11px] leading-relaxed text-slate-100'>
-                {JSON.stringify(pipeline, null, 2)}
-              </pre>
+              <CodeEditor
+                value={JSON.stringify(pipeline, null, 2)}
+                language='json'
+                readOnly
+                height={384}
+                filename={`${pipeline.metadata?.name ?? 'pipeline'}.json`}
+              />
             </CardBody>
           </Card>
         </div>

@@ -12,6 +12,7 @@ import {
 import type { KubeObject } from '@adhar-console/api-clients/k8s'
 import { cn } from '@adhar-console/utils'
 import { age } from '../data/format.ts'
+import { CodeEditor } from '../components/code-editor.tsx'
 import { EventsTimeline } from './events-timeline.tsx'
 import { Topology } from './topology.tsx'
 
@@ -169,9 +170,13 @@ export function ResourceDrawer<T extends Resource>({
               <div className="text-sm font-semibold text-content">Raw object</div>
             </CardHeader>
             <CardBody>
-              <pre className="max-h-96 overflow-auto rounded-lg bg-slate-950 p-4 font-mono text-[11px] leading-relaxed text-slate-100">
-                {JSON.stringify(resource, null, 2)}
-              </pre>
+              <CodeEditor
+                value={JSON.stringify(resource, null, 2)}
+                language="json"
+                readOnly
+                height={384}
+                filename={`${resource.kind ?? 'resource'}-${resource.metadata?.name ?? 'object'}.json`}
+              />
             </CardBody>
           </Card>
         </div>

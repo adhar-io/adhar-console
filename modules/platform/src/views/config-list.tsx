@@ -16,6 +16,26 @@ import { useHasK8sPermission } from '../data/access.ts'
 import { K8sRolePill } from '../components/role-gate.tsx'
 import { DrawerSection, ResourceDrawer } from './resource-drawer.tsx'
 import { ListShell, matchesSearch } from './list-shell.tsx'
+import { CodeEditor, type CodeLanguage } from '../components/code-editor.tsx'
+
+/** Best-effort language for a ConfigMap/Secret entry from its key + content. */
+function guessConfigLang(key: string, value: string): CodeLanguage {
+  const k = key.toLowerCase()
+  if (/\.(ya?ml)$/.test(k)) return 'yaml'
+  if (/\.json$/.test(k)) return 'json'
+  if (/\.(sh|bash)$/.test(k)) return 'shell'
+  if (/dockerfile/.test(k)) return 'dockerfile'
+  if (/\.(toml|ini|conf|cfg|properties|env)$/.test(k) || k === '.env') return 'ini'
+  if (/\.(md|markdown)$/.test(k)) return 'markdown'
+  if (/\.sql$/.test(k)) return 'sql'
+  if (/\.(js|mjs|cjs)$/.test(k)) return 'javascript'
+  if (/\.tsx?$/.test(k)) return 'typescript'
+  if (/\.py$/.test(k)) return 'python'
+  const t = value.trimStart()
+  if (t.startsWith('{') || t.startsWith('[')) return 'json'
+  if (/^[\w.-]+:\s/m.test(t) || t.startsWith('---')) return 'yaml'
+  return 'plaintext'
+}
 
 type Sub = 'configmaps' | 'secrets'
 
@@ -239,13 +259,16 @@ function ConfigMapDrawer({
                   </div>
                   {editing ? (
                     <div className="space-y-2">
-                      <textarea
+                      <CodeEditor
                         value={draft}
-                        onChange={(e) => setDraft(e.target.value)}
-                        rows={Math.min(14, Math.max(3, draft.split('\n').length + 1))}
-                        className="w-full rounded-lg border border-edge-default bg-surface-sunken p-2 font-mono text-[11px] leading-relaxed text-content outline-none focus:ring-2 focus:ring-brand-500/30"
-                        aria-label={`Value for ${k}`}
-                        spellCheck={false}
+                        language={guessConfigLang(k, draft)}
+                        readOnly={false}
+                        onChange={setDraft}
+                        onSave={() =>
+                          draft !== data[k] && saveMut.mutate({ key: k, value: draft })
+                        }
+                        filename={k}
+                        height={260}
                       />
                       <div className="flex justify-end gap-2">
                         <Button
@@ -271,9 +294,13 @@ function ConfigMapDrawer({
                       ) : null}
                     </div>
                   ) : (
-                    <pre className="max-h-48 overflow-auto rounded-lg bg-surface-sunken p-2 font-mono text-[11px] leading-relaxed text-content-muted">
-                      {data[k]}
-                    </pre>
+                    <CodeEditor
+                      value={data[k]}
+                      language={guessConfigLang(k, data[k])}
+                      readOnly
+                      filename={k}
+                      height={220}
+                    />
                   )}
                 </li>
               )
@@ -522,14 +549,16 @@ function SecretDrawer({ secret, onClose }: { secret: SecretObj; onClose(): void 
 
                   {editing ? (
                     <div className="space-y-2">
-                      <textarea
+                      <CodeEditor
                         value={draft}
-                        onChange={(e) => setDraft(e.target.value)}
-                        rows={Math.min(10, Math.max(3, draft.split('\n').length + 1))}
-                        className="w-full rounded-lg border border-amber-300 dark:border-amber-500/40 bg-surface-sunken p-2 font-mono text-[11px] leading-relaxed text-content outline-none focus:ring-2 focus:ring-amber-500/30"
-                        aria-label={`Decoded value for ${k}`}
-                        spellCheck={false}
-                        autoComplete="off"
+                        language={guessConfigLang(k, draft)}
+                        readOnly={false}
+                        onChange={setDraft}
+                        onSave={() =>
+                          draft !== decoded.text && saveMut.mutate({ key: k, value: draft })
+                        }
+                        filename={k}
+                        height={240}
                       />
                       <div className="flex items-center justify-end gap-2">
                         <span className="mr-auto text-[10px] text-content-subtle">
@@ -558,9 +587,13 @@ function SecretDrawer({ secret, onClose }: { secret: SecretObj; onClose(): void 
                       ) : null}
                     </div>
                   ) : isRevealed ? (
-                    <pre className="max-h-48 overflow-auto rounded-lg border border-amber-200/60 dark:border-amber-500/20 bg-surface-sunken p-2 font-mono text-[11px] leading-relaxed text-content">
-                      {decoded.ok ? decoded.text : `${data[k]}  (binary — showing base64)`}
-                    </pre>
+                    <CodeEditor
+                      value={decoded.ok ? decoded.text : `${data[k]}  (binary — showing base64)`}
+                      language={decoded.ok ? guessConfigLang(k, decoded.text) : 'plaintext'}
+                      readOnly
+                      filename={k}
+                      height={200}
+                    />
                   ) : (
                     <div className="flex items-center gap-2 rounded-lg bg-surface-sunken px-2 py-1.5">
                       <span className="font-mono text-xs tracking-widest text-content-subtle">

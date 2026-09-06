@@ -6,6 +6,19 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+
+- **Shared enterprise code editor across the console.** A single Monaco-backed
+  `CodeEditor` component now powers code / YAML / JSON surfaces instead of ad-hoc
+  `<pre>` / `<textarea>` blocks — syntax highlighting, bracket matching, code
+  folding, sticky scroll, minimap, word-wrap, find & replace (⌘F), multi-cursor,
+  a light/dark theme that follows the app, and a toolbar (copy, download, format,
+  wrap/minimap toggles, fullscreen). Editable surfaces get ⌘S to save; if Monaco
+  can't load from the CDN it degrades to a still-copyable plain view. Adopted in
+  the Resource drawer (raw object), Tekton PipelineRun / Pipeline raw views, and
+  ConfigMap **and** Secret value viewers/editors (with language auto-detected
+  from the key), alongside the existing Pod YAML and manifest editors.
+
 ## [0.1.39] - 2026-09-06
 
 ### Fixed

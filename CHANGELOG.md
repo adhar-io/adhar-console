@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.52] - 2026-09-06
+
 ### Added
 
 - **App launcher discovers every app the cluster actually routes.** The BFF now

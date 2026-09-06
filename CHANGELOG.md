@@ -6,6 +6,29 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+
+- **Release CI unblocked (images build again).** The release pipeline had failed
+  to build any image since 0.1.33 — the container build runs
+  `pnpm install --frozen-lockfile`, which errored `ERR_PNPM_OUTDATED_LOCKFILE`
+  because `pnpm-lock.yaml` listed `packages/auth` with no dependencies while its
+  `package.json` declares `jose` + `zod`. Regenerated the lockfile so the frozen
+  install passes; this release carries the accumulated 0.1.34→0.1.36 work into a
+  published image.
+- **Adhar Resources provisioning is schema-driven — no more "field not declared
+  in schema".** Create now reads each XRD's live OpenAPI schema: form fields are
+  the schema-declared `spec.parameters`, the apply payload nests values under
+  `spec.parameters` and adds `spec.compositionSelector.matchLabels` only when the
+  XRD declares the selector, and unknown keys can never be sent. Fixes the
+  `CompositeDatabase .spec.backupRetentionDays` and `CompositeEnvironment
+  .spec.tenant` apply failures (and the whole class) across every kind. All **25**
+  `CompositeResourceDefinitions` are now discovered + registered with a
+  Composition/variant (provider/engine) picker; the resources catalog reflects the
+  full live set.
+- **Create New template categories.** `*-web-service` templates now group under
+  Backend services instead of Frontends & websites (the family inference matched
+  bare `web`, which appears in "web-service").
+
 ## [0.1.36] - 2026-09-06
 
 ### Added

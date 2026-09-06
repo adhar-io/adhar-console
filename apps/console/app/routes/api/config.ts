@@ -26,6 +26,7 @@ export const Route = createFileRoute('/api/config')({
             // 404/empty). Gitea org owns the repos; Argo CD project scopes apps.
             giteaOrg: env('GITEA_TEMPLATES_ORG') ?? env('GITEA_ORG') ?? 'adhar',
             argocdProject: env('ARGOCD_PROJECT') ?? 'default',
+            docsBaseUrl: env('DOCS_BASE_URL') ?? env('DOCS_URL') ?? 'https://docs.adhar.io',
           },
           { headers: { 'cache-control': 'no-store' } },
         ),

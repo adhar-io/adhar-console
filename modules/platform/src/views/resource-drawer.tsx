@@ -13,6 +13,7 @@ import type { KubeObject } from '@adhar-console/api-clients/k8s'
 import { cn } from '@adhar-console/utils'
 import { age } from '../data/format.ts'
 import { CodeEditor } from '../components/code-editor.tsx'
+import { ResourcePlaybooks } from '../components/resource-playbooks.tsx'
 import { EventsTimeline } from './events-timeline.tsx'
 import { Topology } from './topology.tsx'
 
@@ -164,6 +165,12 @@ export function ResourceDrawer<T extends Resource>({
               <Row label="Annotations" value={tagCloud(resource.metadata.annotations, 3)} />
             </CardBody>
           </Card>
+
+          <ResourcePlaybooks
+            kind={resource.kind ?? 'resource'}
+            name={resource.metadata?.name}
+            namespace={resource.metadata?.namespace}
+          />
 
           <Card>
             <CardHeader>

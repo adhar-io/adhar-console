@@ -1,5 +1,6 @@
 import { EmptyState, Spinner } from '@adhar-console/shell-ui'
 import { XrList, type XrKindConfig } from './xr-list.tsx'
+import { ResourcePlaybooks } from '../components/resource-playbooks.tsx'
 import { useXrds, type XrdInfo } from '../data/xrds.ts'
 
 /**
@@ -288,7 +289,16 @@ export function XrListForKind({
     )
   }
 
-  return <XrList config={configFromXrd(info)} namespace={namespace} />
+  return (
+    <div className="space-y-4">
+      <XrList config={configFromXrd(info)} namespace={namespace} />
+      <ResourcePlaybooks
+        kind={info.kind}
+        namespace={namespace}
+        docsPath={`resources/${info.plural}`}
+      />
+    </div>
+  )
 }
 
 /* ───── section views (thin wrappers, keyed by live XR plural resource) ─────

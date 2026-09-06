@@ -17,6 +17,8 @@ export interface AppConfig {
   giteaOrg: string
   /** Argo CD project the platform's Applications live under. */
   argocdProject: string
+  /** Base URL of the platform documentation site (no trailing slash). */
+  docsBaseUrl: string
 }
 
 /** Safe defaults matching the real platform install, used until `/api/config`
@@ -28,6 +30,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   version: '',
   giteaOrg: 'adhar',
   argocdProject: 'default',
+  docsBaseUrl: 'https://docs.adhar.io',
 }
 
 export function useAppConfig() {
@@ -50,4 +53,9 @@ export function useGiteaOrg(): string {
 /** The Argo CD project, with the real default while config loads. */
 export function useArgocdProject(): string {
   return useAppConfig().data?.argocdProject || APP_CONFIG_DEFAULTS.argocdProject
+}
+
+/** The documentation site base URL (no trailing slash). */
+export function useDocsUrl(): string {
+  return (useAppConfig().data?.docsBaseUrl || APP_CONFIG_DEFAULTS.docsBaseUrl).replace(/\/$/, '')
 }

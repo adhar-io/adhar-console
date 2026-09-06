@@ -128,6 +128,7 @@ export {
   useAppConfig,
   useGiteaOrg,
   useArgocdProject,
+  useDocsUrl,
   APP_CONFIG_DEFAULTS,
   type AppConfig,
 } from './app-config.ts'

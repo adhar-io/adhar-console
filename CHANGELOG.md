@@ -6,6 +6,17 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+
+- **Resource playbooks for developers & operators.** Resource pages now carry a
+  "Playbooks" panel — a Developer lane (inspect the live spec/status, describe &
+  events, watch it settle) and an Operator lane (edit in place, re-apply via
+  GitOps, delete) — with copy-paste commands pre-filled with the resource's
+  kind/name/namespace, plus a "Full documentation" link to the platform docs
+  site. Shown in the resource drawer (every resource) and the Adhar Resources
+  kind lists. The docs base URL is configurable via `DOCS_BASE_URL` / `DOCS_URL`
+  (served from `/api/config`, default `https://docs.adhar.io`).
+
 ## [0.1.44] - 2026-09-06
 
 ### Changed

@@ -6,6 +6,19 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+
+- **Logs: workload-level aggregation.** The Logs viewer can now stream logs
+  across *all pods of a workload* — pick **Source: Workload**, a kind
+  (Deployment / StatefulSet / DaemonSet / Job) and a name, and every matching
+  pod's containers stream concurrently, merged in timestamp order with
+  colour-coded `pod/container` prefixes. This complements the existing
+  single-pod mode and sits on top of the viewer's full OpenShift-grade feature
+  set (regex/severity find & filter, follow/pause, reconnect, ANSI colour,
+  timestamps/wrap/line-numbers, download raw/filtered, fullscreen). Pods are
+  resolved live from the workload's label selector; container filtering and all
+  display/output controls work identically in both modes.
+
 ## [0.1.41] - 2026-09-06
 
 ### Changed

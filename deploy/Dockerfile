@@ -1,9 +1,17 @@
 # syntax=docker/dockerfile:1.7
 
 ###############################################################################
-# Build stage
+# Build stage — ALWAYS runs on the build host's native platform.
+#
+# `deno task build` is a V8-heavy Vite build. When the multi-arch release ran
+# this stage per target arch, the arm64 leg executed under QEMU emulation and
+# intermittently died with "qemu: uncaught target signal 4 (Illegal instruction)".
+# The built `apps/console/dist` is static JS/CSS (arch-agnostic), so build it
+# once natively (`--platform=$BUILDPLATFORM`) and copy it into each target-arch
+# runtime image. Only the small, I/O-bound `deno cache` of runtime deps runs on
+# the target platform (see `runtime-deps`) so the cache is arch-correct.
 ###############################################################################
-FROM denoland/deno:2.1.4 AS builder
+FROM --platform=$BUILDPLATFORM denoland/deno:2.1.4 AS builder
 
 # pnpm is needed so Deno's `nodeModulesDir: auto` can resolve workspace packages
 # during Vite builds. Install the statically-linked release binary (pinned to
@@ -55,11 +63,33 @@ RUN pnpm install --frozen-lockfile || pnpm install
 #      serves the host SPA + every remote from a single origin.
 RUN deno task build
 
-# Warm the Deno GLOBAL cache (DENO_DIR) for the standalone server's runtime deps
-# (jose, drizzle, postgres, …) — server-only, not pulled by the client build.
+###############################################################################
+# Runtime-deps stage — runs on the TARGET platform (per arch).
+#
+# Warms the Deno GLOBAL cache (DENO_DIR) for the standalone server's runtime
+# deps (jose, drizzle, postgres, …) — server-only, not pulled by the client
+# build. This is a light, I/O-bound step (no Vite/V8 build), so it is safe under
+# QEMU and it fetches the arch-correct npm packages for the image being built.
 # `--node-modules-dir=none` resolves straight from the global cache so the
 # runtime image can drop the multi-hundred-MB node_modules dir entirely; this
 # also cuts cold-start time dramatically (no giant node_modules to scan).
+###############################################################################
+FROM denoland/deno:2.1.4 AS runtime-deps
+
+ENV DENO_DIR=/deno-dir
+WORKDIR /build
+
+# NOTE: deliberately no `deno.lock` — the repo's lockfile (v5) is newer than the
+# pinned Deno base can parse, and the builder stage never shipped it either.
+COPY deno.json ./
+COPY packages/ packages/
+COPY apps/console/deno.json apps/console/deno.json
+COPY apps/console/server.ts apps/console/server.ts
+COPY apps/console/app apps/console/app
+# Module member configs must exist for the workspace to resolve while caching;
+# only their deno.json is needed (remotes are pre-built into dist/mf).
+COPY modules/ modules/
+
 RUN deno cache --node-modules-dir=none \
     apps/console/server.ts packages/db/src/index.ts packages/auth/src/server-index.ts
 
@@ -84,14 +114,15 @@ ENV PORT=3000
 WORKDIR /build/apps/console
 
 # The global Deno cache (owned by the deno user) holds every runtime dep, so we
-# ship NO node_modules — the image is small and cold-start is fast. Only the
-# server sources + built SPA are copied.
-COPY --from=builder --chown=deno:deno /deno-dir /deno-dir
-COPY --from=builder /build/deno.json /build/deno.lock* /build/
-COPY --from=builder /build/packages /build/packages
-COPY --from=builder /build/apps/console/deno.json ./deno.json
-COPY --from=builder /build/apps/console/server.ts ./server.ts
-COPY --from=builder /build/apps/console/app ./app
+# ship NO node_modules — the image is small and cold-start is fast. Runtime
+# sources + the arch-correct Deno cache come from `runtime-deps` (target
+# platform); the built SPA comes from `builder` (native, arch-agnostic).
+COPY --from=runtime-deps --chown=deno:deno /deno-dir /deno-dir
+COPY --from=runtime-deps /build/deno.json /build/deno.lock* /build/
+COPY --from=runtime-deps /build/packages /build/packages
+COPY --from=runtime-deps /build/apps/console/deno.json ./deno.json
+COPY --from=runtime-deps /build/apps/console/server.ts ./server.ts
+COPY --from=runtime-deps /build/apps/console/app ./app
 COPY --from=builder /build/apps/console/dist ./dist
 
 EXPOSE 3000

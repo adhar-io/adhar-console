@@ -6,6 +6,19 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+
+- **Release build no longer runs the Vite build under QEMU (arm64 flake).** The
+  multi-arch image build ran the V8-heavy `deno task build` once per target
+  arch, so the arm64 leg executed under QEMU emulation and intermittently died
+  with `qemu: uncaught target signal 4 (Illegal instruction)` (v0.1.48's first
+  attempt). The Dockerfile now builds the static SPA/remotes once **natively**
+  (`--platform=$BUILDPLATFORM`) and copies the arch-agnostic `dist/` into each
+  target image; only the light, I/O-bound `deno cache` of server runtime deps
+  runs per target arch (in a new `runtime-deps` stage) so the Deno cache stays
+  arch-correct. Verified locally: image builds, boots, and serves the host SPA +
+  federated remotes with `--cached-only`.
+
 ## [0.1.48] - 2026-09-06
 
 ### Fixed

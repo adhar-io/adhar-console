@@ -36,6 +36,11 @@ import {
 } from '~/data/catalog.ts'
 import { parseApiDefinition, type ParsedApi, type SourceStatus } from '~/data/catalog-live.ts'
 import {
+  type EntityDeployment,
+  type EntityEnvironment,
+  useEntityDeployment,
+} from '~/data/catalog-deployment.ts'
+import {
   CATEGORY_LABEL,
   CHECK_CATEGORIES,
   type Grade,
@@ -2873,6 +2878,15 @@ function EntityCard({
       }}
       className="group relative flex h-full flex-col items-stretch overflow-hidden rounded-xl border border-edge-default bg-surface-raised text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-300/70 hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-500"
     >
+      {entity.spec.lifecycle ? (
+        <span
+          aria-hidden
+          className={cn(
+            'absolute inset-y-0 left-0 w-1',
+            LIFECYCLE_ACCENT[entity.spec.lifecycle],
+          )}
+        />
+      ) : null}
       <button
         type="button"
         onClick={(e) => {
@@ -2893,20 +2907,14 @@ function EntityCard({
       <div className="flex items-start gap-3 p-4 pr-12">
         <KindGlyph kind={entity.kind} type={entity.spec.type} size="lg" />
         <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <h3 className="flex min-w-0 items-center gap-1.5 truncate text-[14px] font-semibold leading-tight text-content">
-              <span className="truncate">{entity.metadata.title ?? entity.metadata.name}</span>
-            </h3>
-            {entity.spec.lifecycle ? (
-              <StatusBadge kind={LIFECYCLE_TONE[entity.spec.lifecycle]}>
-                {entity.spec.lifecycle}
-              </StatusBadge>
-            ) : null}
-          </div>
-          <div className="mt-0.5 flex items-center gap-1.5">
+          <h3 className="truncate text-[14px] font-semibold leading-tight text-content">
+            {entity.metadata.title ?? entity.metadata.name}
+          </h3>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="truncate font-mono text-[11px] text-content-subtle">
               {entity.kind.toLowerCase()}:{entity.metadata.name}
             </span>
+            {entity.spec.lifecycle ? <LifecycleTag lifecycle={entity.spec.lifecycle} /> : null}
             <OriginTag origin={entity.origin} />
           </div>
         </div>
@@ -3050,20 +3058,69 @@ const ORIGIN_LABEL: Record<EntityOrigin, string> = {
   seed: 'Sample',
 }
 
+const ORIGIN_HINT: Record<EntityOrigin, string> = {
+  live: 'Live — discovered from the cluster',
+  registered: 'Registered — added via catalog-info',
+  seed: 'Sample entity',
+}
+
+/**
+ * Provenance is a quiet signal, not a headline — a small coloured dot plus a
+ * normal-case label rather than a loud uppercase pill, so it reads cleanly next
+ * to the entity ref instead of competing with the title.
+ */
 function OriginTag({ origin }: { origin?: EntityOrigin }) {
   if (!origin || origin === 'seed') return null
-  const cls =
-    origin === 'live'
-      ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200'
-      : 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-brand-200'
+  const dot = origin === 'live' ? 'bg-emerald-500' : 'bg-sky-500'
   return (
     <span
+      title={ORIGIN_HINT[origin]}
+      className="inline-flex shrink-0 items-center gap-1 text-[10px] font-medium text-content-subtle"
+    >
+      <span className={cn('h-1.5 w-1.5 rounded-full', dot)} />
+      {ORIGIN_LABEL[origin]}
+    </span>
+  )
+}
+
+/* Lifecycle accent + tag — calm, consistent tones shared by card & drawer. */
+const LIFECYCLE_ACCENT: Record<Lifecycle, string> = {
+  production: 'bg-emerald-400 dark:bg-emerald-500',
+  staging: 'bg-sky-400 dark:bg-sky-500',
+  experimental: 'bg-violet-400 dark:bg-violet-500',
+  deprecated: 'bg-amber-400 dark:bg-amber-500',
+}
+
+const LIFECYCLE_TAG_CLS: Record<Lifecycle, string> = {
+  production:
+    'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/20',
+  staging:
+    'bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/20',
+  experimental:
+    'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-500/10 dark:text-violet-300 dark:ring-violet-500/20',
+  deprecated:
+    'bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/20',
+}
+
+const LIFECYCLE_DOT_CLS: Record<Lifecycle, string> = {
+  production: 'bg-emerald-500',
+  staging: 'bg-sky-500',
+  experimental: 'bg-violet-500',
+  deprecated: 'bg-amber-500',
+}
+
+/** A calm lifecycle chip: coloured dot + lowercase label, subtle ring. */
+function LifecycleTag({ lifecycle }: { lifecycle: Lifecycle }) {
+  return (
+    <span
+      title={`Lifecycle: ${lifecycle}`}
       className={cn(
-        'inline-flex items-center rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wider ring-1',
-        cls,
+        'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium capitalize ring-1 ring-inset',
+        LIFECYCLE_TAG_CLS[lifecycle],
       )}
     >
-      {ORIGIN_LABEL[origin]}
+      <span className={cn('h-1.5 w-1.5 rounded-full', LIFECYCLE_DOT_CLS[lifecycle])} />
+      {lifecycle}
     </span>
   )
 }
@@ -3114,7 +3171,7 @@ function SectionHeader({
 
 /* ─────────── entity drawer ─────────── */
 
-type DrawerTab = 'overview' | 'tech' | 'docs' | 'relations' | 'scorecard' | 'raw'
+type DrawerTab = 'overview' | 'deploy' | 'tech' | 'docs' | 'relations' | 'scorecard' | 'raw'
 
 function EntityDrawer({
   entity,
@@ -3203,8 +3260,31 @@ function EntityDrawer({
   const isTechKind = entity.kind === 'Component' || entity.kind === 'API' || entity.kind === 'Resource'
   const scoreable = score.checks.length > 0
 
+  // Live deployment / GitOps signals (ArgoCD, matched to this entity by name).
+  // Only query ArgoCD for entities that can actually be deployed — Users,
+  // Groups, Domains never hit the proxy.
+  const ann = entityAnnotations(entity)
+  const repoUrl = repoUrlFor(entity)
+  const isDeployable = entity.kind === 'Component' || entity.kind === 'Resource'
+  const wantsDeploy =
+    isDeployable ||
+    Boolean(repoUrl) ||
+    Boolean(ann['adhar.io/argocd-app'] || ann['adhar.io/ci'] || ann['adhar.io/ci-pipeline'])
+  const deployment = useEntityDeployment(entity, wantsDeploy)
+  const showDeploy = wantsDeploy || deployment.apps.length > 0
+  const deployBadge =
+    deployment.apps.length > 0
+      ? { kind: argoHealthKind(deployment.primary?.status.health.status), value: deployment.apps.length }
+      : undefined
+
   const tabs: TabDef<DrawerTab>[] = [
     { id: 'overview', label: 'Overview' },
+    {
+      id: 'deploy',
+      label: 'Deployment',
+      hidden: !showDeploy,
+      badge: deployBadge,
+    },
     { id: 'tech', label: 'Tech stack', hidden: !(stack.length || version || isTechKind) },
     {
       id: 'docs',
@@ -3413,6 +3493,10 @@ function EntityDrawer({
                   </>
                 ) : null}
 
+                {active === 'deploy' ? (
+                  <DeploymentTab entity={entity} deployment={deployment} repoUrl={repoUrl} />
+                ) : null}
+
                 {active === 'tech' ? (
                   <TechStackCard stack={stack} version={version} entity={entity} />
                 ) : null}
@@ -3571,6 +3655,519 @@ function formatDate(iso?: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return '—'
   return d.toISOString().split('T')[0]
+}
+
+/* ─────────── deployment tab (repo · gitops · envs · pipelines · monitoring) ─────────── */
+
+/** Best-known source repository URL for an entity (link or annotation). */
+function repoUrlFor(e: Entity): string | undefined {
+  const fromLink = (e.metadata.links ?? []).find((l) => l.icon === 'repo')?.url
+  const a = entityAnnotations(e)
+  const raw = (
+    fromLink ??
+    a['adhar.io/source-repo'] ??
+    a['adhar.io/git-repo'] ??
+    a['backstage.io/source-location'] ??
+    ''
+  )
+    .trim()
+    .replace(/^url:\s*/, '')
+  return raw && /^https?:/.test(raw) ? raw : undefined
+}
+
+function argoHealthKind(status?: string): StatusKind {
+  switch (status) {
+    case 'Healthy':
+      return 'healthy'
+    case 'Progressing':
+      return 'progressing'
+    case 'Degraded':
+      return 'degraded'
+    case 'Suspended':
+      return 'paused'
+    case 'Missing':
+      return 'failed'
+    default:
+      return 'unknown'
+  }
+}
+
+function argoSyncKind(status?: string): StatusKind {
+  if (status === 'Synced') return 'healthy'
+  if (status === 'OutOfSync') return 'paused'
+  return 'unknown'
+}
+
+function shortSha(rev?: string): string | undefined {
+  if (!rev) return undefined
+  return /^[0-9a-f]{7,40}$/i.test(rev) ? rev.slice(0, 7) : rev
+}
+
+/** A subtle copy-to-clipboard button used for clone commands. */
+function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        try {
+          navigator.clipboard?.writeText(text)
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1500)
+        } catch {
+          /* clipboard blocked — no-op */
+        }
+      }}
+      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-[11px] font-medium text-content-muted transition hover:border-brand-200 hover:text-brand-700 dark:hover:text-brand-300"
+    >
+      {copied ? <IconCheck /> : <IconCopy />}
+      {copied ? 'Copied' : label}
+    </button>
+  )
+}
+
+/** A deep link into another 6D phase view (opens the full-page module view). */
+function PhaseLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <a
+      href={href}
+      className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300"
+    >
+      {children}
+    </a>
+  )
+}
+
+function DeploymentTab({
+  entity,
+  deployment,
+  repoUrl,
+}: {
+  entity: Entity
+  deployment: EntityDeployment
+  repoUrl?: string
+}) {
+  return (
+    <div className="space-y-5">
+      <RepositoryCard entity={entity} repoUrl={repoUrl} primary={deployment.primary} />
+      <EnvironmentsCard entity={entity} deployment={deployment} />
+      <GitOpsCard entity={entity} deployment={deployment} />
+      <PipelinesCard entity={entity} repoUrl={repoUrl} />
+      <MonitoringCard entity={entity} />
+    </div>
+  )
+}
+
+function RepositoryCard({
+  entity,
+  repoUrl,
+  primary,
+}: {
+  entity: Entity
+  repoUrl?: string
+  primary?: EntityDeployment['primary']
+}) {
+  const a = entityAnnotations(entity)
+  const branch =
+    primary?.spec.source.targetRevision ?? a['adhar.io/branch'] ?? a['adhar.io/default-branch']
+  const path = primary?.spec.source.path
+  let host = ''
+  try {
+    if (repoUrl) host = new URL(repoUrl).hostname
+  } catch {
+    host = ''
+  }
+  const cloneUrl = repoUrl ? (repoUrl.endsWith('.git') ? repoUrl : `${repoUrl}.git`) : undefined
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <IconGit />
+            <h3 className="text-sm font-semibold text-content">Repository</h3>
+          </div>
+          {repoUrl ? (
+            <a
+              href={repoUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors visited:text-white hover:bg-brand-700 hover:text-white"
+            >
+              <LinkGlyph icon="repo" />
+              Open repo
+            </a>
+          ) : null}
+        </div>
+      </CardHeader>
+      <CardBody className="space-y-3">
+        {repoUrl ? (
+          <>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <Field label="Provider" value={<span className="text-sm">{host || '—'}</span>} />
+              <Field
+                label="Branch"
+                value={<code className="text-xs text-content-muted">{branch ?? 'main'}</code>}
+              />
+              <Field
+                label="Path"
+                value={<code className="text-xs text-content-muted">{path ?? '/'}</code>}
+              />
+            </div>
+            {cloneUrl ? (
+              <div className="flex items-center gap-2 rounded-lg border border-edge-subtle bg-surface-sunken px-3 py-2">
+                <code className="flex-1 truncate font-mono text-[11px] text-content-muted">
+                  git clone {cloneUrl}
+                </code>
+                <CopyButton text={`git clone ${cloneUrl}`} />
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <EmptyState
+            compact
+            title="No repository linked"
+            description={
+              <>
+                Set the <code>adhar.io/source-repo</code> annotation (or add a <code>repo</code> link)
+                so the source, clone command, and pipelines wire up here.
+              </>
+            }
+          />
+        )}
+      </CardBody>
+    </Card>
+  )
+}
+
+function EnvironmentsCard({
+  entity,
+  deployment,
+}: {
+  entity: Entity
+  deployment: EntityDeployment
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <IconRocket />
+            <h3 className="text-sm font-semibold text-content">Deployment environments</h3>
+            {deployment.environments.length > 0 ? (
+              <span className="rounded-full bg-surface-sunken px-1.5 py-0.5 text-[10px] font-semibold text-content-muted">
+                {deployment.environments.length}
+              </span>
+            ) : null}
+          </div>
+          <a
+            href="/deliver?section=apps"
+            className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-300"
+          >
+            View in GitOps →
+          </a>
+        </div>
+      </CardHeader>
+      <CardBody className="space-y-2">
+        {deployment.isLoading ? (
+          <div className="flex items-center gap-2 text-xs text-content-muted">
+            <Spinner /> Loading rollout state…
+          </div>
+        ) : deployment.environments.length > 0 ? (
+          deployment.environments.map((env) => <EnvironmentRow key={env.app.metadata.name} env={env} />)
+        ) : (
+          <EmptyState
+            compact
+            title={deployment.isError ? 'GitOps unavailable' : 'No environments deployed'}
+            description={
+              deployment.isError ? (
+                'Could not reach ArgoCD. The rollout state will appear once it is reachable.'
+              ) : (
+                <>
+                  No ArgoCD Application matches <code>{entity.metadata.name}</code> yet. Deploy it via
+                  GitOps, or set <code>adhar.io/argocd-app</code> to link an existing app.
+                </>
+              )
+            }
+          />
+        )}
+      </CardBody>
+    </Card>
+  )
+}
+
+function EnvironmentRow({ env }: { env: EntityEnvironment }) {
+  const { app } = env
+  const health = app.status.health.status
+  const sync = app.status.sync.status
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-edge-subtle bg-surface-raised px-3 py-2">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-sunken text-content-muted">
+          <IconRocket />
+        </span>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-content">{env.label}</span>
+            <span className="truncate font-mono text-[10px] text-content-subtle">
+              {app.spec.destination.namespace}
+            </span>
+          </div>
+          <div className="truncate font-mono text-[10px] text-content-subtle">
+            {app.metadata.name}
+            {shortSha(app.status.sync.revision) ? ` · ${shortSha(app.status.sync.revision)}` : ''}
+          </div>
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <StatusBadge kind={argoSyncKind(sync)} className="px-1.5 py-0 text-[10px]" dot={false}>
+          {sync}
+        </StatusBadge>
+        <StatusBadge kind={argoHealthKind(health)} className="px-1.5 py-0 text-[10px]">
+          {health}
+        </StatusBadge>
+      </div>
+    </div>
+  )
+}
+
+function GitOpsCard({ entity, deployment }: { entity: Entity; deployment: EntityDeployment }) {
+  const app = deployment.primary
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <IconSync />
+            <h3 className="text-sm font-semibold text-content">GitOps sync</h3>
+          </div>
+          {app ? (
+            <a
+              href="/deliver?section=apps"
+              className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-300"
+            >
+              Open ArgoCD →
+            </a>
+          ) : null}
+        </div>
+      </CardHeader>
+      <CardBody className="space-y-3">
+        {app ? (
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge kind={argoSyncKind(app.status.sync.status)}>
+                {app.status.sync.status}
+              </StatusBadge>
+              <StatusBadge
+                kind={argoHealthKind(app.status.health.status)}
+                pulse={app.status.health.status === 'Progressing'}
+              >
+                {app.status.health.status}
+              </StatusBadge>
+              {app.status.operationState?.phase ? (
+                <span className="text-[11px] text-content-muted">
+                  last op: {app.status.operationState.phase}
+                </span>
+              ) : null}
+            </div>
+            {app.status.health.message ? (
+              <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+                {app.status.health.message}
+              </p>
+            ) : null}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <Field
+                label="Application"
+                value={<code className="text-xs text-content-muted">{app.metadata.name}</code>}
+              />
+              <Field
+                label="Revision"
+                value={
+                  <code className="text-xs text-content-muted">
+                    {shortSha(app.status.sync.revision) ?? '—'}
+                  </code>
+                }
+              />
+              <Field
+                label="Destination"
+                value={
+                  <code className="text-xs text-content-muted">
+                    {app.spec.destination.namespace}
+                  </code>
+                }
+              />
+            </div>
+          </>
+        ) : deployment.isLoading ? (
+          <div className="flex items-center gap-2 text-xs text-content-muted">
+            <Spinner /> Checking ArgoCD…
+          </div>
+        ) : (
+          <EmptyState
+            compact
+            title="Not managed by GitOps"
+            description={
+              <>
+                No ArgoCD Application is linked to <code>{entity.metadata.name}</code>. Roll it out
+                through GitOps to see sync status, revision, and drift here.
+              </>
+            }
+          />
+        )}
+      </CardBody>
+    </Card>
+  )
+}
+
+function PipelinesCard({ entity, repoUrl }: { entity: Entity; repoUrl?: string }) {
+  const a = entityAnnotations(entity)
+  const ci = a['adhar.io/ci'] ?? a['adhar.io/ci-pipeline']
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <IconPipeline />
+            <h3 className="text-sm font-semibold text-content">Pipeline runs</h3>
+          </div>
+          <a
+            href="/platform?section=ci"
+            className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-300"
+          >
+            Open pipelines →
+          </a>
+        </div>
+      </CardHeader>
+      <CardBody className="space-y-3">
+        {ci || repoUrl ? (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <Field
+                label="CI system"
+                value={<span className="text-sm capitalize">{ci ?? 'Tekton'}</span>}
+              />
+              <Field
+                label="Trigger"
+                value={<span className="text-sm">push · pull request</span>}
+              />
+            </div>
+            <p className="text-xs text-content-muted">
+              Live PipelineRuns for this component stream in the{' '}
+              <a
+                href="/platform?section=ci"
+                className="font-medium text-brand-700 hover:underline dark:text-brand-300"
+              >
+                CI/CD Runs
+              </a>{' '}
+              view — with per-stage status, logs, and re-run.
+            </p>
+          </>
+        ) : (
+          <EmptyState
+            compact
+            title="No CI pipeline linked"
+            description={
+              <>
+                Add an <code>adhar.io/ci</code> annotation, or scaffold the component from a Golden
+                Path template to wire up Tekton PipelineRuns.
+              </>
+            }
+          />
+        )}
+      </CardBody>
+    </Card>
+  )
+}
+
+function MonitoringCard({ entity }: { entity: Entity }) {
+  const a = entityAnnotations(entity)
+  const dashboard =
+    (entity.metadata.links ?? []).find((l) => l.icon === 'dashboard')?.url ??
+    a['adhar.io/dashboard'] ??
+    a['backstage.io/dashboard']
+  const runbook =
+    (entity.metadata.links ?? []).find((l) => l.icon === 'runbook')?.url ??
+    a['adhar.io/runbook'] ??
+    a['backstage.io/runbook']
+  const slo = a['adhar.io/slo']
+  const alerts = a['adhar.io/alerts'] ?? a['adhar.io/alerting']
+  const anyLink = dashboard || runbook
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <IconPulse />
+            <h3 className="text-sm font-semibold text-content">Monitoring &amp; metrics</h3>
+          </div>
+          <a
+            href="/discover?section=metrics"
+            className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-300"
+          >
+            Open metrics →
+          </a>
+        </div>
+      </CardHeader>
+      <CardBody className="space-y-3">
+        <div className="flex flex-wrap gap-2">
+          {dashboard ? (
+            <a
+              href={dashboard}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition hover:border-brand-200 hover:text-brand-700 dark:hover:text-brand-300"
+            >
+              <LinkGlyph icon="dashboard" /> Dashboard
+            </a>
+          ) : null}
+          {runbook ? (
+            <a
+              href={runbook}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition hover:border-brand-200 hover:text-brand-700 dark:hover:text-brand-300"
+            >
+              <LinkGlyph icon="runbook" /> Runbook
+            </a>
+          ) : null}
+          <PhaseLink href="/discover?section=slos">
+            <IconPulse /> SLOs
+          </PhaseLink>
+          <PhaseLink href="/discover?section=alerts">
+            <IconAlert /> Alerts
+          </PhaseLink>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field
+            label="SLO target"
+            value={<span className="text-sm">{slo ?? <span className="text-content-subtle">—</span>}</span>}
+          />
+          <Field
+            label="Alerting"
+            value={
+              <span className="text-sm">
+                {alerts ?? <span className="text-content-subtle">—</span>}
+              </span>
+            }
+          />
+        </div>
+        {!anyLink && !slo && !alerts ? (
+          <p className="text-xs text-content-muted">
+            Golden-signal metrics (rate, errors, duration), SLOs, and alerts for this service live in
+            the{' '}
+            <a
+              href="/discover?section=metrics"
+              className="font-medium text-brand-700 hover:underline dark:text-brand-300"
+            >
+              Discover
+            </a>{' '}
+            observability view. Link a <code>adhar.io/dashboard</code> to pin it here.
+          </p>
+        ) : null}
+      </CardBody>
+    </Card>
+  )
 }
 
 /* ─────────── signals (drawer health card) ─────────── */
@@ -3936,44 +4533,331 @@ function TechStackCard({
   )
 }
 
-/* ─────────── techdocs card (drawer) ─────────── */
+/* ─────────── lightweight markdown renderer (no deps, XSS-safe) ─────────── */
+
+/** Allow only safe link/image targets — http(s), mailto, in-page, relative. */
+function safeHref(url: string): string | undefined {
+  const u = url.trim()
+  return /^(https?:\/\/|mailto:|#|\/|\.\/|\.\.\/)/i.test(u) ? u : undefined
+}
+
+/** Resolve a doc-relative link/image against the document's own URL. */
+function resolveDocUrl(raw: string, base?: string): string | undefined {
+  const safe = safeHref(raw)
+  if (!safe) return undefined
+  if (!base || /^(https?:\/\/|mailto:|#)/i.test(safe)) return safe
+  try {
+    return new URL(safe, new URL(base, globalThis.location?.href ?? 'http://localhost')).toString()
+  } catch {
+    return safe
+  }
+}
+
+/** Parse inline markdown (bold, italic, code, links, images) into React nodes. */
+function inlineMd(text: string, base: string | undefined, keyer: () => number): React.ReactNode[] {
+  const out: React.ReactNode[] = []
+  const re =
+    /(`[^`]+`)|(!\[[^\]]*\]\([^)]+\))|(\[[^\]]+\]\([^)]+\))|(\*\*[^*]+\*\*|__[^_]+__)|(\*[^*]+\*|_[^_]+_)/g
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push(text.slice(last, m.index))
+    const tok = m[0]
+    if (tok.startsWith('`')) {
+      out.push(
+        <code
+          key={keyer()}
+          className="rounded bg-surface-sunken px-1 py-0.5 font-mono text-[0.85em] text-content"
+        >
+          {tok.slice(1, -1)}
+        </code>,
+      )
+    } else if (tok.startsWith('![')) {
+      const mm = /!\[([^\]]*)\]\(([^)]+)\)/.exec(tok)
+      const src = mm ? resolveDocUrl(mm[2], base) : undefined
+      out.push(
+        src ? (
+          <img
+            key={keyer()}
+            src={src}
+            alt={mm![1]}
+            className="my-2 max-h-80 rounded-lg border border-edge-subtle"
+          />
+        ) : (
+          mm?.[1] ?? tok
+        ),
+      )
+    } else if (tok.startsWith('[')) {
+      const mm = /\[([^\]]+)\]\(([^)]+)\)/.exec(tok)
+      const href = mm ? resolveDocUrl(mm[2], base) : undefined
+      out.push(
+        href ? (
+          <a
+            key={keyer()}
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-brand-700 underline decoration-brand-300 underline-offset-2 hover:text-brand-800 dark:text-brand-300"
+          >
+            {mm![1]}
+          </a>
+        ) : (
+          mm?.[1] ?? tok
+        ),
+      )
+    } else if (tok.startsWith('**') || tok.startsWith('__')) {
+      out.push(
+        <strong key={keyer()} className="font-semibold text-content">
+          {tok.slice(2, -2)}
+        </strong>,
+      )
+    } else {
+      out.push(
+        <em key={keyer()} className="italic">
+          {tok.slice(1, -1)}
+        </em>,
+      )
+    }
+    last = re.lastIndex
+  }
+  if (last < text.length) out.push(text.slice(last))
+  return out
+}
+
+/** Block-level markdown → React. Supports headings, lists, quotes, fenced code, tables, hr. */
+function Markdown({ source, base }: { source: string; base?: string }) {
+  const nodes = useMemo(() => {
+    let k = 0
+    const keyer = () => k++
+    const lines = source.replace(/\r\n?/g, '\n').split('\n')
+    const blocks: React.ReactNode[] = []
+    const inline = (t: string) => inlineMd(t, base, keyer)
+    let i = 0
+
+    const HEAD_CLS = [
+      'mt-5 text-xl font-bold text-content',
+      'mt-5 text-lg font-bold text-content',
+      'mt-4 text-base font-semibold text-content',
+      'mt-3 text-sm font-semibold text-content',
+      'mt-3 text-sm font-semibold text-content-muted',
+      'mt-3 text-xs font-semibold uppercase tracking-wide text-content-muted',
+    ]
+
+    while (i < lines.length) {
+      const line = lines[i]
+
+      // fenced code
+      const fence = /^```(\w*)\s*$/.exec(line)
+      if (fence) {
+        const buf: string[] = []
+        i++
+        while (i < lines.length && !/^```\s*$/.test(lines[i])) buf.push(lines[i++])
+        i++ // closing fence
+        blocks.push(
+          <pre
+            key={keyer()}
+            className="my-3 overflow-auto rounded-lg border border-edge-subtle bg-slate-950 p-3 font-mono text-[12px] leading-relaxed text-slate-100"
+          >
+            <code>{buf.join('\n')}</code>
+          </pre>,
+        )
+        continue
+      }
+
+      // heading
+      const h = /^(#{1,6})\s+(.*)$/.exec(line)
+      if (h) {
+        const level = h[1].length
+        const Tag = (`h${Math.min(level + 1, 6)}` as unknown) as keyof React.JSX.IntrinsicElements
+        blocks.push(
+          <Tag key={keyer()} className={HEAD_CLS[level - 1]}>
+            {inline(h[2])}
+          </Tag>,
+        )
+        i++
+        continue
+      }
+
+      // horizontal rule
+      if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+        blocks.push(<hr key={keyer()} className="my-4 border-edge-subtle" />)
+        i++
+        continue
+      }
+
+      // blank
+      if (/^\s*$/.test(line)) {
+        i++
+        continue
+      }
+
+      // table: header row + separator row
+      if (/\|/.test(line) && i + 1 < lines.length && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1])) {
+        const splitRow = (r: string) =>
+          r
+            .trim()
+            .replace(/^\||\|$/g, '')
+            .split('|')
+            .map((c) => c.trim())
+        const header = splitRow(line)
+        i += 2
+        const rows: string[][] = []
+        while (i < lines.length && /\|/.test(lines[i]) && !/^\s*$/.test(lines[i])) {
+          rows.push(splitRow(lines[i]))
+          i++
+        }
+        blocks.push(
+          <div key={keyer()} className="my-3 overflow-x-auto">
+            <table className="w-full border-collapse text-[12px]">
+              <thead>
+                <tr>
+                  {header.map((c, ci) => (
+                    <th
+                      key={ci}
+                      className="border-b border-edge-default px-2 py-1.5 text-left font-semibold text-content"
+                    >
+                      {inline(c)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, ri) => (
+                  <tr key={ri} className="odd:bg-surface-sunken/40">
+                    {header.map((_, ci) => (
+                      <td key={ci} className="border-b border-edge-subtle px-2 py-1.5 text-content-muted">
+                        {inline(r[ci] ?? '')}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>,
+        )
+        continue
+      }
+
+      // blockquote
+      if (/^>\s?/.test(line)) {
+        const buf: string[] = []
+        while (i < lines.length && /^>\s?/.test(lines[i])) buf.push(lines[i++].replace(/^>\s?/, ''))
+        blocks.push(
+          <blockquote
+            key={keyer()}
+            className="my-3 border-l-2 border-brand-300 bg-surface-sunken/50 px-3 py-2 text-content-muted"
+          >
+            {inline(buf.join(' '))}
+          </blockquote>,
+        )
+        continue
+      }
+
+      // lists (unordered / ordered)
+      if (/^\s*([-*+]|\d+\.)\s+/.test(line)) {
+        const ordered = /^\s*\d+\.\s+/.test(line)
+        const items: string[] = []
+        while (i < lines.length && /^\s*([-*+]|\d+\.)\s+/.test(lines[i])) {
+          items.push(lines[i].replace(/^\s*([-*+]|\d+\.)\s+/, ''))
+          i++
+        }
+        const cls = 'my-2 space-y-1 pl-5 text-content-muted'
+        blocks.push(
+          ordered ? (
+            <ol key={keyer()} className={cn(cls, 'list-decimal')}>
+              {items.map((it, ii) => (
+                <li key={ii}>{inline(it)}</li>
+              ))}
+            </ol>
+          ) : (
+            <ul key={keyer()} className={cn(cls, 'list-disc')}>
+              {items.map((it, ii) => (
+                <li key={ii}>{inline(it)}</li>
+              ))}
+            </ul>
+          ),
+        )
+        continue
+      }
+
+      // paragraph (gather until blank / block start)
+      const para: string[] = []
+      while (
+        i < lines.length &&
+        !/^\s*$/.test(lines[i]) &&
+        !/^(#{1,6}\s|```|>\s?|\s*([-*+]|\d+\.)\s+|(-{3,}|\*{3,}|_{3,})\s*$)/.test(lines[i])
+      ) {
+        para.push(lines[i++])
+      }
+      blocks.push(
+        <p key={keyer()} className="my-2 leading-relaxed text-content-muted">
+          {inline(para.join(' '))}
+        </p>,
+      )
+    }
+    return blocks
+  }, [source, base])
+
+  return <div className="text-[13px]">{nodes}</div>
+}
+
+/* ─────────── techdocs card (drawer) — embedded markdown ─────────── */
+
+/** Candidate doc paths to probe when only a repo/base is known. */
+function docCandidates(url: string): string[] {
+  const clean = url.replace(/[?#].*$/, '')
+  if (/\.mdx?$/i.test(clean)) return [url]
+  const baseNoSlash = clean.replace(/\/$/, '')
+  return [`${baseNoSlash}/index.md`, `${baseNoSlash}/README.md`, `${baseNoSlash}/docs/index.md`]
+}
 
 function TechDocsCard({ url }: { url?: string }) {
   const [text, setText] = useState<string | null>(null)
+  const [resolvedUrl, setResolvedUrl] = useState<string | undefined>(url)
   const [state, setState] = useState<'idle' | 'loading' | 'error' | 'external'>('idle')
 
   useEffect(() => {
     setText(null)
+    setResolvedUrl(url)
     if (!url || typeof globalThis.location === 'undefined') {
       setState('idle')
       return
     }
     let sameOrigin = false
-    let isMarkdown = false
     try {
       const u = new URL(url, globalThis.location.href)
       sameOrigin = u.origin === globalThis.location.origin
-      isMarkdown = /\.mdx?($|\?)/i.test(u.pathname)
     } catch {
       sameOrigin = false
     }
-    if (!sameOrigin || !isMarkdown) {
+    // External docs can't be fetched from the browser (CORS) — offer the link.
+    if (!sameOrigin) {
       setState('external')
       return
     }
     let cancelled = false
     setState('loading')
-    fetch(url)
-      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
-      .then((body) => {
-        if (!cancelled) {
-          setText(body)
-          setState('idle')
+    const candidates = docCandidates(url)
+    ;(async () => {
+      for (const cand of candidates) {
+        try {
+          const r = await fetch(cand)
+          if (!r.ok) continue
+          const ct = r.headers.get('content-type') ?? ''
+          if (/text\/html/i.test(ct)) continue // SPA fallback, not a doc
+          const body = await r.text()
+          if (!cancelled) {
+            setText(body)
+            setResolvedUrl(cand)
+            setState('idle')
+          }
+          return
+        } catch {
+          /* try next candidate */
         }
-      })
-      .catch(() => {
-        if (!cancelled) setState('error')
-      })
+      }
+      if (!cancelled) setState('error')
+    })()
     return () => {
       cancelled = true
     }
@@ -4006,20 +4890,27 @@ function TechDocsCard({ url }: { url?: string }) {
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold text-content">TechDocs</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-content">TechDocs</h3>
+            {text != null ? (
+              <StatusBadge kind="healthy" className="px-1.5 py-0 text-[10px]">
+                embedded
+              </StatusBadge>
+            ) : null}
+          </div>
           <a
-            href={url}
+            href={resolvedUrl ?? url}
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors visited:text-white hover:bg-brand-700 hover:text-white"
           >
             <LinkGlyph icon="docs" />
-            Read the docs
+            Open source
           </a>
         </div>
       </CardHeader>
       <CardBody className="space-y-3">
-        <div className="truncate font-mono text-[11px] text-content-muted">{url}</div>
+        <div className="truncate font-mono text-[11px] text-content-muted">{resolvedUrl ?? url}</div>
         {state === 'loading' ? (
           <div className="flex items-center gap-2 text-xs text-content-muted">
             <Spinner /> Loading documentation…
@@ -4027,18 +4918,19 @@ function TechDocsCard({ url }: { url?: string }) {
         ) : null}
         {state === 'error' ? (
           <p className="text-xs text-content-muted">
-            Couldn&apos;t load the document inline — open it with “Read the docs” above.
+            Couldn&apos;t load the document inline — open it with “Open source” above.
           </p>
         ) : null}
         {state === 'external' ? (
           <p className="text-xs text-content-muted">
-            Documentation is hosted externally. Open it with “Read the docs” above.
+            Documentation is hosted externally, so it can&apos;t be embedded here. Open it with
+            “Open source” above.
           </p>
         ) : null}
         {text != null ? (
-          <pre className="max-h-96 overflow-auto rounded-lg border border-edge-subtle bg-surface-sunken p-4 font-mono text-[11px] leading-relaxed text-content">
-            {text}
-          </pre>
+          <div className="max-h-[28rem] overflow-y-auto rounded-lg border border-edge-subtle bg-surface-raised px-4 py-3">
+            <Markdown source={text} base={resolvedUrl ?? url} />
+          </div>
         ) : null}
       </CardBody>
     </Card>
@@ -4281,6 +5173,96 @@ const Svg = ({ children }: { children: React.ReactNode }) => (
     {children}
   </svg>
 )
+
+/* ─────────── deployment-tab icons (14px, currentColor) ─────────── */
+
+const Svg14 = ({ children }: { children: React.ReactNode }) => (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    {children}
+  </svg>
+)
+
+function IconGit() {
+  return (
+    <Svg14>
+      <circle cx="18" cy="18" r="3" />
+      <circle cx="6" cy="6" r="3" />
+      <path d="M6 21V9a9 9 0 0 0 9 9" />
+    </Svg14>
+  )
+}
+
+function IconRocket() {
+  return (
+    <Svg14>
+      <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
+      <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
+      <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
+      <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
+    </Svg14>
+  )
+}
+
+function IconSync() {
+  return (
+    <Svg14>
+      <path d="M21 2v6h-6" />
+      <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+      <path d="M3 22v-6h6" />
+      <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+    </Svg14>
+  )
+}
+
+function IconPipeline() {
+  return (
+    <Svg14>
+      <circle cx="5" cy="6" r="2" />
+      <circle cx="12" cy="6" r="2" />
+      <circle cx="19" cy="6" r="2" />
+      <path d="M7 6h3M14 6h3" />
+      <path d="M5 8v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8" />
+      <path d="M12 14v6" />
+    </Svg14>
+  )
+}
+
+function IconPulse() {
+  return (
+    <Svg14>
+      <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+    </Svg14>
+  )
+}
+
+function IconCopy() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  )
+}
 
 function IconSearchLg() {
   return (

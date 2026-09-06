@@ -6,6 +6,38 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+
+- **Service Catalog entity cards redesigned.** The loud uppercase "EXPERIMENTAL"
+  / "REGISTERED" pills that crowded the card header are gone. Lifecycle now reads
+  as a calm dot-and-label chip plus a slim lifecycle-coloured accent rail down the
+  card's left edge; provenance (Live / Registered) is a quiet coloured dot beside
+  the entity ref. Cleaner hierarchy, same information, all functionality intact
+  (star, score, health, owner, docs, quick links).
+
+### Added
+
+- **Entity drawer "Deployment" tab.** Deployable entities (Components, Resources)
+  get a consolidated CI/CD view: **Repository** (provider, branch, path, one-click
+  `git clone`), **Deployment environments** and **GitOps sync** driven by *live*
+  ArgoCD Applications matched to the entity by name (sync status, health, revision,
+  destination namespace — with honest empty states and deep links when nothing
+  matches), **Pipeline runs** (CI system + deep link into the Tekton CI/CD Runs
+  view), and **Monitoring & metrics** (dashboard / runbook / SLO / alert links into
+  Discover). ArgoCD is only queried for entities that can actually deploy.
+- **Embedded TechDocs.** The TechDocs tab now renders Markdown inline — headings,
+  lists, tables, code blocks, blockquotes, links and images — with a dependency-free,
+  XSS-safe renderer, instead of dumping raw text. Same-origin `.md`/`README.md`/
+  `index.md` are fetched and displayed in place; external docs still offer a link.
+
+### Fixed
+
+- **Sidebar: "Adhar Resources" and its "Catalog" child no longer highlight at the
+  same time.** They share the same route + section (`/platform?catalog`), so both
+  matched the active check. A parent row now defers its solid highlight to an active
+  child (showing the subtle group style instead) — the exact behaviour every other
+  parent group already had.
+
 ## [0.1.37] - 2026-09-06
 
 ### Fixed

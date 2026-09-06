@@ -47,16 +47,22 @@ export function NavItem({
   const search = useRouterState({ select: (s) => s.location.search })
 
   const hasChildren = !!item.children?.length
-  const isActive = useMemo(
-    () => isItemActive(item, pathname, search),
-    [item, pathname, search],
-  )
   const hasActiveDescendant = useMemo(
     () =>
       !!item.children?.some(
         (c) => isItemActive(c, pathname, search) || descendantsActive(c, pathname, search),
       ),
     [item, pathname, search],
+  )
+  // A parent row highlights as active only when it *is* the current route and
+  // none of its children are — otherwise the specific child owns the solid
+  // highlight and the parent shows the subtle "has active descendant" style.
+  // This keeps parents that share a route+section with their first child (e.g.
+  // "Adhar Resources" and its "Catalog" child, both `/platform?catalog`) from
+  // lighting up at the same time — the exact behaviour every other group has.
+  const isActive = useMemo(
+    () => isItemActive(item, pathname, search) && !hasActiveDescendant,
+    [item, pathname, search, hasActiveDescendant],
   )
 
   // Accordion-mode: a single `expandedId` at the sidebar level gates all

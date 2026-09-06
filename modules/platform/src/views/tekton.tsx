@@ -1523,7 +1523,7 @@ function PipelineRunDrawer({ run: initial, onClose }: { run: TektonRun; onClose(
         className='absolute inset-0 bg-slate-900/35 backdrop-blur-[2px]'
         onClick={onClose}
       />
-      <aside className='relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl'>
+      <aside className='relative flex h-full w-full max-w-5xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl'>
         <header className='flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4'>
           <div className='min-w-0'>
             <div className='text-xs font-semibold uppercase tracking-wider text-content-subtle'>
@@ -1674,31 +1674,33 @@ function PipelineRunDrawer({ run: initial, onClose }: { run: TektonRun; onClose(
             />
           </section>
 
-          <DrawerSection title='Pipeline canvas'>
+          <DrawerSection title='Pipeline stages'>
             {taskRunsForbidden
               ? (
                 <div className='mb-2 flex items-center gap-1.5 text-[11px] text-content-muted'>
                   Task status hidden <K8sRolePill perm='crds.read' />{' '}
-                  — the canvas shows structure only.
+                  — the graph shows structure only.
                 </div>
               )
               : null}
-            <TaskGraph
+            <BlueOceanStages
               spec={spec}
               statusFor={statusFor}
               metaFor={metaFor}
               selected={selectedTask}
-              onSelect={(t) => setSelectedTask((s) => (s === t ? null : t))}
+              onSelect={(t) => setSelectedTask(t)}
             />
             <p className='mt-2 text-[11px] text-content-subtle'>
-              Click a stage to inspect its steps and logs below.
+              {selectedTask
+                ? 'Select a step on the left to stream its console. Search, follow, and download from the console toolbar.'
+                : 'Click a stage to open its steps and stream the console — live for running stages.'}
             </p>
           </DrawerSection>
 
           {selectedTask
             ? (
-              <DrawerSection title={`Steps · ${selectedTask}`}>
-                <TaskRunSteps
+              <DrawerSection title={`Console · ${selectedTask}`}>
+                <BlueOceanStageDetail
                   namespace={ns}
                   taskRun={selectedTr}
                   taskName={selectedTask}
@@ -1810,9 +1812,174 @@ function PipelineRunDrawer({ run: initial, onClose }: { run: TektonRun; onClose(
   );
 }
 
-/* ─────────── Per-step logs for the selected task ─────────── */
+function stepKind(s: TektonStepState): StatusKind {
+  if (s.terminated) {
+    return s.terminated.reason === 'Completed' || s.terminated.exitCode === 0
+      ? 'healthy'
+      : 'failed';
+  }
+  if (s.running) return 'progressing';
+  if (s.waiting) return 'unknown';
+  return 'unknown';
+}
 
-function TaskRunSteps({
+/* ═══════════════ Blue Ocean stage viewer ═══════════════ */
+
+/** Strip ANSI colour/control sequences so CI output reads cleanly. */
+function stripAnsi(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/\[[0-9;]*[A-Za-z]/g, '');
+}
+
+/**
+ * Blue Ocean-style pipeline graph — stages flow left→right by DAG level, with
+ * parallel stages stacked in a column and connectors drawn between them. Each
+ * stage is a circular status node with its name + duration; clicking one selects
+ * it and streams that stage's console below (Jenkins Blue Ocean model).
+ */
+function BlueOceanStages({
+  spec,
+  statusFor,
+  metaFor,
+  selected,
+  onSelect,
+}: {
+  spec: TektonPipelineSpec | undefined;
+  statusFor: (t: string) => { kind: StatusKind; label: string };
+  metaFor: (t: string) => TaskNodeMeta | undefined;
+  selected: string | null;
+  onSelect: (t: string) => void;
+}) {
+  const { nodes, edges } = useMemo(() => buildDag(spec, statusFor), [spec, statusFor]);
+
+  const layout = useMemo(() => {
+    // group by level → columns; assign a row within each column
+    const byLevel = new Map<number, DagNode[]>();
+    for (const n of nodes) {
+      const arr = byLevel.get(n.level) ?? [];
+      arr.push(n);
+      byLevel.set(n.level, arr);
+    }
+    const levels = [...byLevel.keys()].sort((a, b) => a - b);
+    const NW = 190;
+    const NH = 56;
+    const CX = 96; // column gap
+    const RY = 20; // row gap
+    const maxRows = Math.max(1, ...[...byLevel.values()].map((a) => a.length));
+    const totalH = maxRows * NH + (maxRows - 1) * RY;
+    const pos = new Map<string, { x: number; y: number }>();
+    levels.forEach((lvl, ci) => {
+      const col = byLevel.get(lvl)!;
+      const colH = col.length * NH + (col.length - 1) * RY;
+      const y0 = (totalH - colH) / 2;
+      col.forEach((n, ri) => {
+        pos.set(n.name, { x: ci * (NW + CX), y: y0 + ri * (NH + RY) });
+      });
+    });
+    return {
+      pos,
+      width: levels.length * NW + (levels.length - 1) * CX,
+      height: totalH,
+      NW,
+      NH,
+    };
+  }, [nodes]);
+
+  if (!nodes.length) {
+    return <EmptyState compact title='No stages' description='This pipeline defines no tasks.' />;
+  }
+
+  return (
+    <div className='overflow-x-auto rounded-xl border border-edge-default bg-surface-sunken/30 p-4'>
+      <div
+        className='relative'
+        style={{ width: layout.width, height: layout.height, minWidth: '100%' }}
+      >
+        {/* connector layer */}
+        <svg
+          className='pointer-events-none absolute inset-0'
+          width={layout.width}
+          height={layout.height}
+        >
+          {edges.map((e) => {
+            const a = layout.pos.get(e.from);
+            const b = layout.pos.get(e.to);
+            if (!a || !b) return null;
+            const x1 = a.x + layout.NW;
+            const y1 = a.y + layout.NH / 2;
+            const x2 = b.x;
+            const y2 = b.y + layout.NH / 2;
+            const mx = (x1 + x2) / 2;
+            const kind = statusFor(e.from).kind;
+            const stroke = kind === 'healthy'
+              ? '#10b981'
+              : kind === 'failed' || kind === 'degraded'
+              ? '#f43f5e'
+              : kind === 'progressing'
+              ? '#6366f1'
+              : '#cbd5e1';
+            return (
+              <path
+                key={`${e.from}-${e.to}`}
+                d={`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`}
+                fill='none'
+                stroke={stroke}
+                strokeWidth={2}
+                strokeOpacity={0.55}
+              />
+            );
+          })}
+        </svg>
+        {/* stage nodes */}
+        {nodes.map((n) => {
+          const p = layout.pos.get(n.name)!;
+          const vis = taskVisual(n.kind, n.label);
+          const meta = metaFor(n.name);
+          const isSel = selected === n.name;
+          return (
+            <button
+              key={n.name}
+              type='button'
+              onClick={() => onSelect(n.name)}
+              title={`${n.name} — ${n.label}`}
+              className={cn(
+                'absolute flex items-center gap-2.5 rounded-full border bg-surface-raised px-3 text-left shadow-sm transition-all',
+                'hover:shadow-md',
+                isSel ? 'border-brand-400 ring-2 ring-brand-400/40' : vis.borderTone,
+                n.isFinally && 'border-dashed',
+              )}
+              style={{ left: p.x, top: p.y, width: layout.NW, height: layout.NH }}
+            >
+              <span
+                className={cn(
+                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
+                  vis.glyphTone,
+                  vis.running && 'animate-pulse',
+                )}
+              >
+                <StatusGlyph id={vis.id} size={16} />
+              </span>
+              <span className='min-w-0 flex-1'>
+                <span className='block truncate text-[12px] font-semibold text-content'>
+                  {n.name}
+                </span>
+                <span className='block truncate text-[10px] text-content-subtle'>
+                  {meta ? duration(meta.start, meta.end) : n.label}
+                  {meta?.stepsTotal
+                    ? ` · ${meta.stepsDone ?? 0}/${meta.stepsTotal} steps`
+                    : ''}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Steps rail + streaming console for the selected stage. */
+function BlueOceanStageDetail({
   namespace,
   taskRun,
   taskName,
@@ -1829,15 +1996,23 @@ function TaskRunSteps({
   const steps = useMemo(() => {
     const s = taskRun?.status?.steps ?? [];
     if (s.length) return s;
-    // Fall back to declared steps (no runtime status yet).
     const decl = taskRun?.status?.taskSpec?.steps ?? [];
     return decl.map((d) =>
       ({ name: d.name, container: d.name ? `step-${d.name}` : undefined }) as TektonStepState
     );
   }, [taskRun]);
 
-  const [active, setActive] = useState(0);
-  useEffect(() => setActive(0), [taskName]);
+  // Auto-select the first running/failed step, else the last.
+  const initialStep = useMemo(() => {
+    const failed = steps.findIndex((s) => stepKind(s) === 'failed');
+    if (failed >= 0) return failed;
+    const runningIdx = steps.findIndex((s) => stepKind(s) === 'progressing');
+    if (runningIdx >= 0) return runningIdx;
+    return Math.max(0, steps.length - 1);
+  }, [steps]);
+
+  const [active, setActive] = useState(initialStep);
+  useEffect(() => setActive(initialStep), [taskName, initialStep]);
   const activeStep = steps[active];
   const podName = taskRun?.status?.podName;
   const container = activeStep?.container ??
@@ -1848,193 +2023,376 @@ function TaskRunSteps({
     return (
       <EmptyState
         compact
-        title={running ? 'Task not started yet' : 'No TaskRun found'}
+        title={running ? 'Stage not started yet' : 'No TaskRun found'}
         description={running
-          ? 'This task has not been scheduled yet — its steps and logs will appear once its TaskRun starts.'
-          : 'No TaskRun exists for this pipeline task (it may have been skipped, or its status is unavailable).'}
+          ? 'This stage has not been scheduled yet — its steps and logs will appear once it starts.'
+          : 'No TaskRun exists for this stage (it may have been skipped, or its status is unavailable).'}
       />
     );
   }
 
   return (
-    <div className='space-y-3'>
-      <div className='flex flex-wrap items-center gap-2'>
+    <div className='overflow-hidden rounded-xl border border-edge-default'>
+      <div className='flex flex-wrap items-center gap-2 border-b border-edge-default bg-surface-sunken/50 px-3 py-2'>
         <StatusBadge kind={tektonKind(cond)}>{tektonLabel(cond)}</StatusBadge>
+        <span className='font-mono text-[12px] font-semibold text-content'>{taskName}</span>
         {taskRun.spec?.taskRef?.name
           ? (
             <code className='text-[11px] text-content-muted'>
-              taskRef: {taskRun.spec.taskRef.name}
+              {taskRun.spec.taskRef.name}
             </code>
           )
           : null}
-        <span className='text-[11px] text-content-subtle'>
+        <span className='ml-auto text-[11px] text-content-subtle'>
           {duration(taskRun.status?.startTime, taskRun.status?.completionTime)}
         </span>
       </div>
-
-      {steps.length
-        ? (
-          <div className='flex flex-wrap gap-1.5'>
-            {steps.map((s, i) => (
-              <button
-                key={s.name ?? i}
-                type='button'
-                onClick={() => setActive(i)}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors',
-                  i === active
-                    ? 'border-brand-300 bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300'
-                    : 'border-edge-default text-content-muted hover:bg-surface-sunken hover:text-content',
-                )}
-              >
-                <span
-                  className='h-1.5 w-1.5 rounded-full'
-                  style={{ backgroundColor: stateColor(stepKind(s)) }}
+      <div className='grid grid-cols-1 sm:grid-cols-[210px_1fr]'>
+        {/* steps rail */}
+        <div className='max-h-[26rem] overflow-y-auto border-b border-edge-default bg-surface-sunken/30 p-2 sm:border-b-0 sm:border-r'>
+          {steps.length
+            ? (
+              <ul className='space-y-0.5'>
+                {steps.map((s, i) => {
+                  const k = stepKind(s);
+                  return (
+                    <li key={s.name ?? i}>
+                      <button
+                        type='button'
+                        onClick={() => setActive(i)}
+                        className={cn(
+                          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] transition-colors',
+                          i === active
+                            ? 'bg-brand-50 font-medium text-brand-800 dark:bg-brand-500/10 dark:text-brand-300'
+                            : 'text-content-muted hover:bg-surface-sunken hover:text-content',
+                        )}
+                      >
+                        <span
+                          className={cn('h-2 w-2 shrink-0 rounded-full', k === 'progressing' && 'animate-pulse')}
+                          style={{ backgroundColor: stateColor(k) }}
+                        />
+                        <span className='min-w-0 flex-1 truncate'>{s.name ?? `step-${i}`}</span>
+                        {s.terminated?.exitCode
+                          ? <span className='font-mono text-[10px] text-rose-600'>×{s.terminated.exitCode}</span>
+                          : s.terminated
+                          ? <span className='font-mono text-[10px] text-content-subtle'>
+                            {duration(s.running?.startedAt ?? s.terminated.startedAt, s.terminated.finishedAt)}
+                          </span>
+                          : null}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )
+            : <div className='px-2 py-3 text-[12px] text-content-subtle'>No steps.</div>}
+        </div>
+        {/* console */}
+        <div className='min-w-0'>
+          {!canLogs
+            ? (
+              <div className='flex items-center gap-1.5 px-3 py-3 text-[12px] text-content-muted'>
+                Streaming step logs requires <K8sRolePill perm='pods.logs' />
+              </div>
+            )
+            : !podName
+            ? (
+              <div className='px-3 py-6'>
+                <EmptyState
+                  compact
+                  title='No pod yet'
+                  description="This stage hasn't been assigned a pod — logs become available once it schedules."
                 />
-                {s.name ?? `step-${i}`}
-                {s.terminated?.exitCode
-                  ? <span className='font-mono text-rose-600'>×{s.terminated.exitCode}</span>
-                  : null}
-              </button>
-            ))}
-          </div>
-        )
-        : null}
-
-      {!canLogs
-        ? (
-          <div className='flex items-center gap-1.5 rounded-lg border border-edge-default bg-surface-sunken/50 px-3 py-2 text-[12px] text-content-muted'>
-            Streaming step logs requires <K8sRolePill perm='pods.logs' />
-          </div>
-        )
-        : !podName
-        ? (
-          <EmptyState
-            compact
-            title='No pod yet'
-            description="This TaskRun hasn't been assigned a pod — logs become available once it schedules."
-          />
-        )
-        : (
-          <StepLog
-            namespace={namespace}
-            pod={podName}
-            container={container}
-            running={running}
-            cluster={cluster}
-          />
-        )}
+              </div>
+            )
+            : (
+              <StageConsole
+                namespace={namespace}
+                pod={podName}
+                container={container}
+                stepName={activeStep?.name ?? `step-${active}`}
+                taskName={taskName}
+                running={running && stepKind(activeStep ?? {}) === 'progressing'}
+                cluster={cluster}
+              />
+            )}
+        </div>
+      </div>
     </div>
   );
 }
 
-function stepKind(s: TektonStepState): StatusKind {
-  if (s.terminated) {
-    return s.terminated.reason === 'Completed' || s.terminated.exitCode === 0
-      ? 'healthy'
-      : 'failed';
-  }
-  if (s.running) return 'progressing';
-  if (s.waiting) return 'unknown';
-  return 'unknown';
-}
-
-function StepLog({
+/** Enterprise console: true live streaming (follow), search, wrap, timestamps,
+ * copy, download, and fullscreen — one step at a time. */
+function StageConsole({
   namespace,
   pod,
   container,
+  stepName,
+  taskName,
   running,
   cluster,
 }: {
   namespace?: string;
   pod: string;
   container?: string;
+  stepName: string;
+  taskName: string;
   running: boolean;
   cluster?: string;
 }) {
-  const logQ = useQuery<string>({
-    queryKey: [
-      'platform',
-      'tekton',
-      'logs',
-      namespace ?? '-',
-      pod,
-      container ?? 'default',
-      cluster ?? '-',
-    ],
-    enabled: Boolean(namespace && pod),
-    refetchInterval: running ? 4000 : false,
-    retry: false,
-    queryFn: () =>
-      kube.logStream(namespace as string, pod, {
-        container,
-        tailLines: 2000,
-        timestamps: false,
-        follow: false,
-        cluster,
-      }),
-  });
+  const [text, setText] = useState('');
+  const [state, setState] = useState<
+    'loading' | 'idle' | 'empty' | 'error' | 'forbidden' | 'notfound'
+  >('loading');
+  const [errMsg, setErrMsg] = useState('');
+  const [follow, setFollow] = useState(true);
+  const [wrap, setWrap] = useState(false);
+  const [timestamps, setTimestamps] = useState(false);
+  const [search, setSearch] = useState('');
+  const [fullscreen, setFullscreen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  const status = (logQ.error as { status?: number } | null)?.status;
-  const preRef = useRef<HTMLPreElement | null>(null);
+  // Stream (follow) while running; one-shot fetch when finished.
   useEffect(() => {
-    if (running && preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight;
-  }, [logQ.data, running]);
+    if (!namespace || !pod) {
+      setState('empty');
+      return;
+    }
+    const ctrl = new AbortController();
+    setText('');
+    setState('loading');
+    let got = false;
+    kube
+      .logStream(
+        namespace,
+        pod,
+        { container, tailLines: 8000, timestamps, follow: running, cluster, signal: ctrl.signal },
+        (chunk) => {
+          got = true;
+          setState('idle');
+          setText((t) => t + chunk);
+        },
+      )
+      .then((full) => {
+        if (ctrl.signal.aborted) return;
+        if (!got) {
+          setText(full);
+          setState(full.trim() ? 'idle' : 'empty');
+        } else if (!full.trim()) {
+          setState('empty');
+        }
+      })
+      .catch((e) => {
+        if (ctrl.signal.aborted) return;
+        const st = (e as { status?: number })?.status;
+        if (st === 403) setState('forbidden');
+        else if (st === 404) setState('notfound');
+        else {
+          setErrMsg((e as Error).message);
+          setState('error');
+        }
+      });
+    return () => ctrl.abort();
+  }, [namespace, pod, container, running, cluster, timestamps]);
 
-  if (logQ.isLoading) {
-    return (
-      <div className='flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-6 text-[12px] text-slate-300'>
-        <Spinner size={14} /> Loading logs…
+  // Auto-scroll to tail while following.
+  useEffect(() => {
+    if (follow && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [text, follow]);
+
+  const lines = useMemo(() => {
+    const raw = stripAnsi(text).replace(/\n$/, '').split('\n');
+    if (!search.trim()) return raw.map((t, i) => ({ n: i + 1, t }));
+    const q = search.toLowerCase();
+    return raw.map((t, i) => ({ n: i + 1, t })).filter((l) => l.t.toLowerCase().includes(q));
+  }, [text, search]);
+
+  const download = () => {
+    const blob = new Blob([stripAnsi(text)], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${taskName}-${stepName}.log`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+  const copy = () => {
+    try {
+      navigator.clipboard?.writeText(stripAnsi(text));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked */
+    }
+  };
+
+  const body = (
+    <div
+      className={cn(
+        'flex flex-col overflow-hidden bg-slate-950',
+        fullscreen ? 'fixed inset-3 z-[60] rounded-xl shadow-2xl' : 'h-[26rem]',
+      )}
+    >
+      {/* toolbar */}
+      <div className='flex flex-wrap items-center gap-1.5 border-b border-slate-800 bg-slate-900/80 px-2 py-1.5'>
+        <span className='mr-1 font-mono text-[11px] text-slate-400'>{stepName}</span>
+        {running
+          ? (
+            <span className='inline-flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300'>
+              <span className='h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400' /> live
+            </span>
+          )
+          : null}
+        <div className='relative ml-auto'>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder='Search logs…'
+            className='h-6 w-36 rounded border border-slate-700 bg-slate-800 px-2 text-[11px] text-slate-100 placeholder:text-slate-500 outline-none focus:border-brand-400'
+          />
+          {search
+            ? (
+              <span className='absolute right-1.5 top-1/2 -translate-y-1/2 font-mono text-[9px] text-slate-500'>
+                {lines.length}
+              </span>
+            )
+            : null}
+        </div>
+        <ConsoleBtn active={follow} onClick={() => setFollow((f) => !f)} label='Follow / auto-scroll'>
+          <IconTail />
+        </ConsoleBtn>
+        <ConsoleBtn active={wrap} onClick={() => setWrap((w) => !w)} label='Wrap lines'>
+          <IconWrapC />
+        </ConsoleBtn>
+        <ConsoleBtn active={timestamps} onClick={() => setTimestamps((t) => !t)} label='Timestamps'>
+          <IconClock2 />
+        </ConsoleBtn>
+        <ConsoleBtn onClick={copy} label={copied ? 'Copied' : 'Copy'}>
+          {copied ? <IconCheckC /> : <IconCopyC />}
+        </ConsoleBtn>
+        <ConsoleBtn onClick={download} label='Download log'>
+          <IconDownloadC />
+        </ConsoleBtn>
+        <ConsoleBtn onClick={() => setFullscreen((f) => !f)} label='Fullscreen'>
+          <IconExpandC />
+        </ConsoleBtn>
       </div>
-    );
-  }
-  if (status === 403) {
-    return (
-      <div className='flex items-center gap-1.5 rounded-lg border border-edge-default bg-surface-sunken/50 px-3 py-2 text-[12px] text-content-muted'>
-        Not authorized to read logs for this pod <K8sRolePill perm='pods.logs' />
+      {/* log body */}
+      <div ref={scrollRef} className='min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-[11px] leading-relaxed'>
+        {state === 'loading'
+          ? (
+            <div className='flex items-center gap-2 py-4 text-slate-300'>
+              <Spinner size={14} /> Streaming logs…
+            </div>
+          )
+          : state === 'forbidden'
+          ? <div className='py-4 text-slate-400'>Not authorized to read logs for this pod.</div>
+          : state === 'notfound'
+          ? <div className='py-4 text-slate-400'>Pod no longer exists — logs have been cleaned up.</div>
+          : state === 'error'
+          ? <div className='py-4 text-rose-300'>Couldn&apos;t load logs: {errMsg}</div>
+          : state === 'empty'
+          ? <div className='py-4 text-slate-500'>No log output {running ? 'yet' : ''}.</div>
+          : lines.length === 0
+          ? <div className='py-4 text-slate-500'>No lines match “{search}”.</div>
+          : (
+            <table className='w-full border-collapse'>
+              <tbody>
+                {lines.map((l) => (
+                  <tr key={l.n} className='align-top hover:bg-slate-900/60'>
+                    <td className='select-none pr-3 text-right font-mono text-[10px] text-slate-600'>
+                      {l.n}
+                    </td>
+                    <td
+                      className={cn(
+                        'text-slate-200',
+                        wrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre',
+                      )}
+                    >
+                      {highlightMatch(l.t, search)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
       </div>
-    );
-  }
-  if (status === 404) {
-    return (
-      <EmptyState
-        compact
-        title='Pod no longer exists'
-        description={`The pod backing this TaskRun (${pod}) has been cleaned up, so its logs are no longer available.`}
-      />
-    );
-  }
-  if (logQ.isError) {
-    return (
-      <div className='rounded-lg border border-rose-200 dark:border-rose-500/25 bg-rose-50/70 dark:bg-rose-500/10 px-3 py-2 text-[12px] text-rose-800 dark:text-rose-300'>
-        Couldn't load logs: {(logQ.error as Error).message}
-      </div>
-    );
-  }
-  const text = logQ.data ?? '';
-  if (!text.trim()) {
-    return (
-      <EmptyState compact title='No log output' description='This step produced no output (yet).' />
-    );
-  }
-  return (
-    <div className='relative'>
-      <pre
-        ref={preRef}
-        className='max-h-80 overflow-auto rounded-lg bg-slate-950 p-4 font-mono text-[11px] leading-relaxed text-slate-100'
-      >
-        {text}
-      </pre>
-      {running
-        ? (
-          <span className='absolute right-2 top-2 inline-flex items-center gap-1 rounded bg-slate-800/80 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300'>
-            <span className='h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400' /> live
-          </span>
-        )
-        : null}
     </div>
   );
+
+  if (fullscreen) {
+    return (
+      <>
+        <div
+          className='fixed inset-0 z-[59] bg-slate-900/50 backdrop-blur-[1px]'
+          onClick={() => setFullscreen(false)}
+        />
+        {body}
+      </>
+    );
+  }
+  return body;
 }
+
+function highlightMatch(line: string, q: string): React.ReactNode {
+  if (!q.trim()) return line;
+  const idx = line.toLowerCase().indexOf(q.toLowerCase());
+  if (idx < 0) return line;
+  return (
+    <>
+      {line.slice(0, idx)}
+      <mark className='rounded bg-amber-400/40 text-amber-100'>{line.slice(idx, idx + q.length)}</mark>
+      {line.slice(idx + q.length)}
+    </>
+  );
+}
+
+function ConsoleBtn({
+  active,
+  onClick,
+  label,
+  children,
+}: {
+  active?: boolean;
+  onClick(): void;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type='button'
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={cn(
+        'inline-flex h-6 w-6 items-center justify-center rounded transition-colors',
+        active
+          ? 'bg-brand-500/25 text-brand-200 ring-1 ring-inset ring-brand-400/40'
+          : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/* console toolbar icons (13px, on dark) */
+const CS = ({ children }: { children: React.ReactNode }) => (
+  <svg width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round' aria-hidden>
+    {children}
+  </svg>
+);
+const IconTail = () => <CS><path d='M12 5v14' /><path d='m19 12-7 7-7-7' /></CS>;
+const IconWrapC = () => <CS><path d='M3 6h18' /><path d='M3 12h15a3 3 0 1 1 0 6h-4' /><path d='m16 16-2 2 2 2' /><path d='M3 18h7' /></CS>;
+const IconClock2 = () => <CS><circle cx='12' cy='12' r='9' /><path d='M12 7v5l3 2' /></CS>;
+const IconCopyC = () => <CS><rect x='9' y='9' width='13' height='13' rx='2' /><path d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1' /></CS>;
+const IconCheckC = () => <CS><path d='M20 6 9 17l-5-5' /></CS>;
+const IconDownloadC = () => <CS><path d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' /><path d='m7 10 5 5 5-5' /><path d='M12 15V3' /></CS>;
+const IconExpandC = () => <CS><path d='M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3' /></CS>;
 
 /* ─────────── Timeline (TaskRuns ordered by start) ─────────── */
 

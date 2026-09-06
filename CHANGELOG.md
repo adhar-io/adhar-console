@@ -6,6 +6,20 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+
+- **PipelineRun viewer redesigned as a Jenkins Blue Ocean-style stage viewer.**
+  The PipelineRun drawer now leads with a horizontal **stage graph** — stages flow
+  left→right by dependency, parallel stages stack, and connectors are coloured by
+  upstream status; each stage is a circular status node showing its name, duration,
+  and step progress. Selecting a stage opens a **console panel**: a steps rail on
+  the left (status, exit code, per-step duration; auto-selects the failed/running
+  step) and a full **streaming console** on the right with **true live tailing**
+  (server `follow`), in-log **search** with highlight + match count, line numbers,
+  wrap and timestamp toggles, copy, per-step **log download**, and fullscreen. The
+  drawer is wider to give the graph and console room. The Pipeline (definition)
+  drawer keeps its DAG graph.
+
 ## [0.1.40] - 2026-09-06
 
 ### Added

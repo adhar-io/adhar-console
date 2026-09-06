@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.43] - 2026-09-06
+
 ### Changed
 
 - **Platform status is fully dynamic and live.** The status page no longer shows

@@ -110,6 +110,10 @@ ENV NODE_ENV=production
 ENV DENO_ENV=production
 ENV DENO_NO_UPDATE_CHECK=1
 ENV PORT=3000
+# Release version baked in by CI (`--build-arg ADHAR_CONSOLE_VERSION=<tag>`) so
+# /api/config reports the real build; a Deployment env override still wins.
+ARG ADHAR_CONSOLE_VERSION=dev
+ENV ADHAR_CONSOLE_VERSION=${ADHAR_CONSOLE_VERSION}
 
 WORKDIR /build/apps/console
 

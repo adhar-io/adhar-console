@@ -151,6 +151,10 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Bake the release version into the image (Dockerfile ARG → ENV) so
+          # /api/config reports the real build instead of a hardcoded fallback.
+          build-args: |
+            ADHAR_CONSOLE_VERSION=${{ steps.version.outputs.version }}
           provenance: true
           sbom: true
           cache-from: type=gha

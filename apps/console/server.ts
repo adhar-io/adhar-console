@@ -27,7 +27,7 @@ import {
   isServerAuthConfigured,
 } from '@adhar-console/auth/server'
 import { proxyToolRequest } from './app/server/proxy.ts'
-import { publicToolInfo } from './app/server/tool-registry.ts'
+import { publicConfigResponse } from './app/server/public-config.ts'
 import { handleDocuments, handleNotifications, handlePreferences } from './app/server/api-handlers.ts'
 import { handleScaffold } from './app/server/scaffolder.ts'
 import { handleAppsetToggle } from './app/server/appset.ts'
@@ -147,16 +147,13 @@ async function readyz(): Promise<Response> {
   )
 }
 
+// Shared with the TanStack route (app/routes/api/config.ts) — see
+// app/server/public-config.ts. The two used to be hand-copied and drifted:
+// this one never gained giteaOrg/argocdProject/docsBaseUrl/publicBaseDomain,
+// so a real install got `null` for all of them, and it hardcoded a bogus
+// '0.2.0' version fallback.
 function apiConfig(): Response {
-  return Response.json(
-    {
-      authConfigured: isServerAuthConfigured(),
-      builderUrl: env('ADHAR_BUILDER_URL') ?? env('VITE_ADHAR_BUILDER_URL') ?? '',
-      tools: publicToolInfo(),
-      version: env('ADHAR_CONSOLE_VERSION') ?? '0.2.0',
-    },
-    { headers: { 'cache-control': 'no-store' } },
-  )
+  return publicConfigResponse()
 }
 
 /**

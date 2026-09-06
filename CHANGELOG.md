@@ -6,6 +6,20 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+
+- **`/api/config` was served by two drifting handlers — production never got
+  the newer fields.** The production Deno server (`server.ts`) and the TanStack
+  route each carried a hand-copied body; the server one never gained
+  `giteaOrg` / `argocdProject` / `docsBaseUrl` / `publicBaseDomain`, so on a real
+  install they were all `null` (the Overview queried default org/project, the
+  app launcher had no base domain, docs links used the default) — and it
+  hardcoded a bogus `0.2.0` version fallback. Both entry points now share one
+  `buildPublicConfig()` (`app/server/public-config.ts`).
+- **Image reports its real version.** CI now bakes the release tag into the
+  image (`--build-arg ADHAR_CONSOLE_VERSION` → `ENV`), so `/api/config` shows the
+  actual build (`0.1.51`, not `0.1.0`/`0.2.0`); a Deployment env override still wins.
+
 ## [0.1.50] - 2026-09-06
 
 ### Fixed

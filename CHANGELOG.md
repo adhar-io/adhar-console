@@ -6,6 +6,29 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.35] - 2026-09-06
+
+### Changed
+
+- **Overview home widgets — cleaner headers + full-width layout.** The per-widget
+  "Open" affordance drops its label to an **arrow only**, offset from the corner
+  so it no longer overlaps the drag handle (one shared header → all widgets). The
+  grid now **auto-packs panels into full rows** (first-fit bin-pack at the lg
+  breakpoint) so rows tile completely instead of leaving right-side gaps, robust
+  as widgets are toggled; mobile stays single-column and drag-and-drop is intact.
+
+### Fixed
+
+- **Overview home widgets now show real data.** **Resource Utilization** gains the
+  missing **Storage** dial (PVC bound/total + provisioned capacity, metrics-server
+  independent). **Platform Health** computes real sub-scores — Reliability
+  (node/pod readiness), Delivery (Argo CD synced+healthy), Security (Kyverno
+  policy pass ratio), Performance (Prometheus) — averaging only the sources that
+  have data, instead of a blanket "no data". **Tenant Overview** and **Tenant
+  Usage** are wired to the real active org (`useOrganizations`) + per-namespace
+  `ResourceQuota` consumption (namespaces labelled `adhar.io/org`), replacing the
+  hardcoded tenant; honest empty states when a source is absent.
+
 ## [0.1.34] - 2026-09-05
 
 ### Changed

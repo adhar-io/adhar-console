@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.42] - 2026-09-06
+
 ### Added
 
 - **Logs: workload-level aggregation.** The Logs viewer can now stream logs

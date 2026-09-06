@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.40] - 2026-09-06
+
 ### Added
 
 - **Shared enterprise code editor across the console.** A single Monaco-backed

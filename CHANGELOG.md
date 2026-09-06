@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.48] - 2026-09-06
+
 ### Fixed
 
 - **Overview Develop/Deliver widgets queried a non-existent `acme` org/project.**

@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.37] - 2026-09-06
+
 ### Fixed
 
 - **Release CI unblocked (images build again).** The release pipeline had failed

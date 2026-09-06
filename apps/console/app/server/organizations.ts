@@ -6,6 +6,7 @@ import {
 } from '@adhar-console/auth/server'
 import { getRequestUser, unauthorized } from './request-user.ts'
 import { originOk } from './k8s/gateway.ts'
+import { provisionTenant } from './tenant-provisioner.ts'
 
 /**
  * Organization (workspace) management — `/api/organizations/*`.
@@ -154,7 +155,24 @@ export async function handleOrganizations(req: Request, subpath: string): Promis
       const nextReg: Registry = { orgs: [...reg.orgs, org], activeId: id }
       await writeRegistry(auth.user.id, auth.user, nextReg)
       const cookie = await activeTenantCookie(req, id)
-      return withCookie(json({ organization: org, activeId: id }, 201), cookie ?? auth.refreshedCookie)
+      // Provision the real tenant (namespace + RBAC, Keycloak group, ArgoCD
+      // project, Gitea org) best-effort. The org record above is the source of
+      // truth and is never rolled back — provisioning results are reported so
+      // onboarding can show honest per-system status.
+      let provisioning: Awaited<ReturnType<typeof provisionTenant>> = []
+      try {
+        provisioning = await provisionTenant({
+          slug: org.slug,
+          name: org.name,
+          userRef: auth.user.email || auth.user.id,
+        })
+      } catch {
+        /* provisioning is best-effort — never blocks org creation */
+      }
+      return withCookie(
+        json({ organization: org, activeId: id, provisioning }, 201),
+        cookie ?? auth.refreshedCookie,
+      )
     }
     // POST /api/organizations/<id>/activate
     if (seg.length === 2 && seg[1] === 'activate' && method === 'POST') {

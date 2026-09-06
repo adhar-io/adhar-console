@@ -77,3 +77,52 @@ subjects:
   - kind: ServiceAccount
     name: adhar-console
     namespace: adhar-console
+---
+# Tenant provisioner — the ELEVATED grant that lets onboarding create a real,
+# isolated tenant (see app/server/tenant-provisioner.ts): a namespace + a
+# RoleBinding of the `org-<slug>` group to the namespaced `admin` ClusterRole,
+# and a scoped ArgoCD AppProject. This is high-privilege (namespace + RBAC
+# creation) — keep it as a SEPARATE role so it can be reviewed/omitted
+# independently of the read-only reader role above. Without it the provisioner
+# degrades honestly (each step reports "failed/permission" and the org is still
+# created). On the platform install the subject is the `console` SA in
+# `adhar-system`; adjust name/namespace to match your deployment.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: adhar-console-tenant-provisioner
+  labels:
+    app.kubernetes.io/name: adhar-console
+    app.kubernetes.io/component: provisioner
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["create", "get", "list", "watch", "update", "patch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings", "roles"]
+    verbs: ["create", "get", "list", "update", "patch"]
+  - apiGroups: ["argoproj.io"]
+    resources: ["appprojects"]
+    verbs: ["create", "get", "list", "update", "patch"]
+  # Required to grant the built-in `admin` ClusterRole via a RoleBinding
+  # (Kubernetes privilege-escalation prevention).
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    verbs: ["bind"]
+    resourceNames: ["admin"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: adhar-console-tenant-provisioner
+  labels:
+    app.kubernetes.io/name: adhar-console
+    app.kubernetes.io/component: provisioner
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: adhar-console-tenant-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: adhar-console
+    namespace: adhar-console

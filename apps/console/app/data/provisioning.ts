@@ -24,6 +24,14 @@ export interface CreatedOrg {
   createdAt?: string
 }
 
+/** Per-system tenant-provisioning result reported by the BFF. */
+export interface ProvisionStepResult {
+  system: 'keycloak' | 'namespace' | 'argocd' | 'gitea'
+  label: string
+  status: 'done' | 'skipped' | 'failed'
+  detail?: string
+}
+
 export interface CreateOrgResult {
   ok: boolean
   org?: CreatedOrg
@@ -34,6 +42,8 @@ export interface CreateOrgResult {
   error?: string
   /** Human-readable detail, shown verbatim. */
   detail?: string
+  /** Real per-system tenant provisioning results (namespace, keycloak, …). */
+  provisioning?: ProvisionStepResult[]
 }
 
 /** Outcome of a single tool toggle. `unavailable` = honestly requested, no backend here. */
@@ -95,7 +105,15 @@ export async function createOrganization(name: string): Promise<CreateOrgResult>
     }
   }
   const org = body.organization as CreatedOrg | undefined
-  return { ok: true, status: res.status, org, activeId: body.activeId as string | undefined }
+  return {
+    ok: true,
+    status: res.status,
+    org,
+    activeId: body.activeId as string | undefined,
+    provisioning: Array.isArray(body.provisioning)
+      ? (body.provisioning as ProvisionStepResult[])
+      : undefined,
+  }
 }
 
 /**

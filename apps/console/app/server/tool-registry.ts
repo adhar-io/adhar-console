@@ -69,6 +69,16 @@ function readK8sToken(): string | undefined {
 }
 
 /**
+ * The console's own Kubernetes service-account bearer token — used for
+ * *privileged* platform operations the signed-in user may not be able to do
+ * themselves (e.g. provisioning a tenant namespace + RBAC during onboarding).
+ * Returns undefined when running outside a cluster with no `K8S_SA_TOKEN`.
+ */
+export function getK8sServiceToken(): string | undefined {
+  return readK8sToken()
+}
+
+/**
  * Build the registry from the runtime environment. Recomputed per call so a
  * Secret/ConfigMap change picked up by a pod restart takes effect without a
  * rebuild. The keys here are the `tool` path segment in `/api/svc/<tool>/…`.

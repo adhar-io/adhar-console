@@ -6,6 +6,29 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+
+- **Onboarding provisions a real, isolated tenant.** Creating an organization now
+  runs a tenant provisioner across the platform's systems, best-effort, with an
+  honest per-system result shown in onboarding:
+  - **Keycloak** — an identity group `org-<slug>` with the creator added.
+  - **Kubernetes** — a namespace `<slug>` (labelled `adhar.io/tenant`) + a
+    RoleBinding granting that group the namespaced `admin` ClusterRole — the
+    isolation boundary.
+  - **ArgoCD** — an AppProject `<slug>` whose destinations are restricted to the
+    tenant namespace, so GitOps can only deploy there.
+  - **Gitea** — a private org `<slug>` for the tenant's repositories.
+  Privileged steps use the console's own service-account token (tenant creation
+  is a platform operation). Every step degrades honestly to "not available" when
+  its admin credentials are absent, and the organization record is created +
+  activated (session re-signed) regardless, so login stays seamless.
+
+  **Operator note:** the provisioner needs the console service account to hold the
+  elevated `adhar-console-tenant-provisioner` ClusterRole (namespace + RBAC +
+  AppProject create) — see `deploy/k8s/rbac.yaml` — and `ARGOCD_NAMESPACE` set to
+  where ArgoCD runs (`adhar-system` on the platform install). Until those are
+  applied, the steps report "not available" rather than failing onboarding.
+
 ## [0.1.46] - 2026-09-06
 
 ### Added

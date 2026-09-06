@@ -26,6 +26,7 @@ import {
   createOrganization,
   toggleTool,
   type CreatedOrg,
+  type ProvisionStepResult,
   type ToggleOutcome,
 } from '~/data/provisioning.ts'
 
@@ -688,6 +689,7 @@ function StepProvision({
 
   const [steps, setSteps] = useState<ProvStep[]>(buildInitialSteps)
   const [phase, setPhase] = useState<'running' | 'done'>('running')
+  const [prov, setProv] = useState<ProvisionStepResult[]>([])
   const createdOrg = useRef<CreatedOrg | null>(null)
   const orgReachable = useRef(false)
   const started = useRef(false)
@@ -703,6 +705,7 @@ function StepProvision({
     if (res.ok && res.org) {
       createdOrg.current = res.org
       orgReachable.current = true
+      setProv(res.provisioning ?? [])
       patch('org', {
         status: 'done',
         detail: `Created and activated · id ${res.org.id}`,
@@ -906,6 +909,40 @@ function StepProvision({
           </li>
         ))}
       </ol>
+
+      {/* Tenant isolation — real per-system provisioning results */}
+      {prov.length > 0 ? (
+        <div className="rounded-xl border border-edge-default bg-surface-raised p-3">
+          <div className="mb-2 flex items-center gap-2">
+            <span className="text-sm font-semibold text-content">Tenant isolation</span>
+            <span className="text-[11px] text-content-subtle">
+              namespace · RBAC · GitOps project · repositories
+            </span>
+          </div>
+          <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+            {prov.map((p) => (
+              <li
+                key={p.system}
+                className="flex items-start gap-2 rounded-lg border border-edge-subtle bg-surface-sunken/40 px-2.5 py-2"
+              >
+                <StatusGlyph status={p.status === 'done' ? 'done' : p.status === 'failed' ? 'failed' : 'unavailable'} />
+                <div className="min-w-0">
+                  <div className="text-[12px] font-medium text-content">{p.label}</div>
+                  {p.detail ? (
+                    <div className="mt-0.5 break-words text-[11px] leading-snug text-content-muted">
+                      {p.detail}
+                    </div>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[11px] text-content-subtle">
+            Steps marked “not available” need the corresponding admin credentials configured on the
+            console; the organization is still created and active.
+          </p>
+        </div>
+      ) : null}
 
       {/* Outcome + actions */}
       {allSettled ? (

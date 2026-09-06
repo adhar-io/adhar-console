@@ -345,13 +345,57 @@ a {
   animation: adhar-pulse-ring 1800ms var(--ease-smooth, cubic-bezier(0.32, 0.72, 0, 1)) infinite;
 }
 
+/*
+ * Pipeline-canvas motion (Tekton task DAG).
+ *
+ *   .dag-edge       — smoothly tween the stroke colour when a task changes
+ *                     status, so edges recolour rather than jump.
+ *   .dag-edge-flow  — a dashed "current flowing into a running task" marching
+ *                     along the edge via stroke-dashoffset (pure CSS, no rAF).
+ *   .dag-node-shimmer — a soft indeterminate sheen sweeping a running node.
+ *   .dag-node-active  — a one-shot lift when a node becomes the active/running
+ *                     stage.
+ */
+@keyframes adhar-dash-flow {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+@keyframes adhar-node-shimmer {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+.dag-edge {
+  transition: stroke 320ms var(--ease-smooth, cubic-bezier(0.32, 0.72, 0, 1));
+}
+.dag-edge-flow {
+  stroke-dasharray: 5 7;
+  animation: adhar-dash-flow 0.7s linear infinite;
+}
+.dag-node-shimmer {
+  animation: adhar-node-shimmer 1.9s var(--ease-smooth, cubic-bezier(0.32, 0.72, 0, 1)) infinite;
+}
+.dag-node-active {
+  animation: adhar-rise-in 240ms var(--ease-smooth, cubic-bezier(0.32, 0.72, 0, 1)) both;
+}
+
 /* Honour the user's reduced-motion preference everywhere these run. */
 @media (prefers-reduced-motion: reduce) {
   .fade-in,
   .rise-in,
   .pop-in,
-  .pulse-ring {
+  .pulse-ring,
+  .dag-edge-flow,
+  .dag-node-shimmer,
+  .dag-node-active {
     animation: none !important;
+  }
+  .dag-edge {
+    transition: none !important;
   }
 }
 

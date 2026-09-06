@@ -145,14 +145,9 @@ export function MarketplaceView() {
 
   return (
     <div className="space-y-4">
-      <StatsStrip
-        total={apps.length}
-        enabled={enabledCount}
-        disabled={apps.length - enabledCount}
-        categories={Object.keys(categoryCounts).length}
-        appsetNames={appsetNames}
-      />
-
+      {/* Combined status folded into the ListShell header (title · total ·
+          enabled/disabled/categories · GitOps source) — one compact top section,
+          then a single search + filter row, matching the other list pages. */}
       <ListShell
         title="Marketplace"
         total={apps.length}
@@ -164,7 +159,18 @@ export function MarketplaceView() {
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search apps, categories, tags…"
-        caption={`${enabledCount} enabled · GitOps via ${appsetNames.join(', ') || 'ApplicationSet'}`}
+        caption={
+          <span className="inline-flex flex-wrap items-center gap-x-1.5">
+            <span className="text-emerald-700 dark:text-emerald-300">{enabledCount} enabled</span>
+            <span aria-hidden>·</span>
+            <span>{apps.length - enabledCount} disabled</span>
+            <span aria-hidden>·</span>
+            <span>{Object.keys(categoryCounts).length} categories</span>
+            <span aria-hidden>·</span>
+            <IconGit size={12} />
+            <span className="truncate">GitOps: {appsetNames.join(', ') || 'ApplicationSet'}</span>
+          </span>
+        }
         filters={
           <div className="flex flex-col gap-1.5">
             <StatusFilterPills<'enabled' | 'disabled'>
@@ -223,67 +229,6 @@ export function MarketplaceView() {
       </ListShell>
 
       {selected ? <AppDrawer app={selected} onClose={() => setSelectedId(null)} /> : null}
-    </div>
-  )
-}
-
-/* ─────────────────────────── stats strip ─────────────────────────── */
-
-function StatsStrip({
-  total,
-  enabled,
-  disabled,
-  categories,
-  appsetNames,
-}: {
-  total: number
-  enabled: number
-  disabled: number
-  categories: number
-  appsetNames: string[]
-}) {
-  return (
-    <Card className="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3">
-      <Stat label="Apps" value={total} />
-      <span className="hidden h-8 w-px bg-edge-subtle sm:block" aria-hidden />
-      <Stat label="Enabled" value={enabled} tone="emerald" />
-      <Stat label="Disabled" value={disabled} tone="muted" />
-      <span className="hidden h-8 w-px bg-edge-subtle sm:block" aria-hidden />
-      <Stat label="Categories" value={categories} />
-      <div className="ml-auto flex min-w-0 items-center gap-2">
-        <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-content-subtle">
-          <IconGit size={13} /> GitOps source
-        </span>
-        <div className="flex min-w-0 flex-wrap items-center gap-1">
-          {appsetNames.length ? (
-            appsetNames.map((n) => (
-              <code
-                key={n}
-                className="truncate rounded-md bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-content-muted"
-              >
-                {n}
-              </code>
-            ))
-          ) : (
-            <span className="text-[11px] text-content-subtle">ApplicationSet</span>
-          )}
-        </div>
-      </div>
-    </Card>
-  )
-}
-
-function Stat({ label, value, tone = 'default' }: { label: string; value: number; tone?: 'default' | 'emerald' | 'muted' }) {
-  const valueCls =
-    tone === 'emerald'
-      ? 'text-emerald-600 dark:text-emerald-400'
-      : tone === 'muted'
-        ? 'text-content-muted'
-        : 'text-content'
-  return (
-    <div className="flex items-baseline gap-1.5">
-      <span className={cn('text-xl font-semibold tabular-nums', valueCls)}>{value}</span>
-      <span className="text-[11px] font-medium uppercase tracking-wide text-content-subtle">{label}</span>
     </div>
   )
 }

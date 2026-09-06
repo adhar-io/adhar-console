@@ -6,6 +6,20 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+
+- **App launcher discovers every app the cluster actually routes.** The BFF now
+  lists the cluster's Gateway API `HTTPRoute`s (via the console service
+  account) and merges every hostname under the platform base domain into
+  `/api/config` — known tools get their **real public URL** (instead of a
+  derived guess), and apps the console never had an env entry for (n8n,
+  dagster, supabase, trino, coder, kargo, plane, metabase, posthog, …) appear
+  as configured, launchable tiles automatically. Cached 30 s, best-effort
+  (discovery only ever adds; it never hides a configured tool), and reported as
+  `discoveredApps` (`id`, `url`, `namespace/route`) so "why isn't app X
+  showing?" is answerable at a glance. Requires the console SA's existing
+  `read-all` ClusterRole; without it the launcher behaves exactly as before.
+
 ## [0.1.51] - 2026-09-06
 
 ### Fixed

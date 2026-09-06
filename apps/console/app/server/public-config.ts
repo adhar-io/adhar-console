@@ -1,6 +1,7 @@
 import { env } from '@adhar-console/utils'
 import { isServerAuthConfigured } from '@adhar-console/auth/server'
 import { publicToolInfo } from './tool-registry.ts'
+import { discoverRoutedApps } from './app-discovery.ts'
 
 /**
  * The single source of truth for `GET /api/config` — non-secret runtime
@@ -36,11 +37,31 @@ export function publicBaseDomain(): string {
   }
 }
 
-export function buildPublicConfig(): Record<string, unknown> {
+/** Public scheme the platform is served on (from AUTH_PUBLIC_URL; https by default). */
+function publicProtocol(): string {
+  try {
+    return new URL(env('AUTH_PUBLIC_URL') ?? '').protocol || 'https:'
+  } catch {
+    return 'https:'
+  }
+}
+
+export async function buildPublicConfig(): Promise<Record<string, unknown>> {
+  const base = publicBaseDomain()
+  // Start from the env-driven registry, then overlay what the cluster's
+  // gateway actually routes: a discovered app gets its REAL public URL (the
+  // registry only knows in-cluster `.svc` URLs, reported as ''), and apps the
+  // registry never heard of are added as configured. Discovery is best-effort
+  // and can only add — it never marks a configured tool unavailable.
+  const tools = publicToolInfo()
+  const discovered = await discoverRoutedApps(base, publicProtocol())
+  for (const app of discovered) {
+    tools[app.id] = { configured: true, url: app.url }
+  }
   return {
     authConfigured: isServerAuthConfigured(),
     builderUrl: env('ADHAR_BUILDER_URL') ?? env('VITE_ADHAR_BUILDER_URL') ?? '',
-    tools: publicToolInfo(),
+    tools,
     // Baked into the image at build time from the release tag (Dockerfile
     // ARG → ENV); an explicit env override still wins. 'dev' = local run.
     version: env('ADHAR_CONSOLE_VERSION') ?? 'dev',
@@ -49,11 +70,14 @@ export function buildPublicConfig(): Record<string, unknown> {
     giteaOrg: env('GITEA_TEMPLATES_ORG') ?? env('GITEA_ORG') ?? 'adhar',
     argocdProject: env('ARGOCD_PROJECT') ?? 'default',
     docsBaseUrl: env('DOCS_BASE_URL') ?? env('DOCS_URL') ?? 'https://docs.adhar.io',
-    publicBaseDomain: publicBaseDomain(),
+    publicBaseDomain: base,
+    // What the gateway exposes under the base domain, for the launcher and
+    // for diagnosing "why isn't app X showing up" (`namespace/route`).
+    discoveredApps: discovered.map(({ id, url, route }) => ({ id, url, route })),
   }
 }
 
 /** `/api/config` response — same headers from either entry point. */
-export function publicConfigResponse(): Response {
-  return Response.json(buildPublicConfig(), { headers: { 'cache-control': 'no-store' } })
+export async function publicConfigResponse(): Promise<Response> {
+  return Response.json(await buildPublicConfig(), { headers: { 'cache-control': 'no-store' } })
 }

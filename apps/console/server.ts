@@ -152,7 +152,7 @@ async function readyz(): Promise<Response> {
 // this one never gained giteaOrg/argocdProject/docsBaseUrl/publicBaseDomain,
 // so a real install got `null` for all of them, and it hardcoded a bogus
 // '0.2.0' version fallback.
-function apiConfig(): Response {
+function apiConfig(): Promise<Response> {
   return publicConfigResponse()
 }
 

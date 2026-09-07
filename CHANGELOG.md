@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.53] - 2026-09-07
+
 ### Added
 
 - **Notification Center.** Every operation, insight and Adhar Assist outcome

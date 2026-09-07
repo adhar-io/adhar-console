@@ -764,7 +764,10 @@ function mergeEntity(list: Entity[], next: Entity): Entity[] {
 export interface CatalogResult {
   /** The merged entity list the UI renders. */
   data: Entity[]
+  /** True only when there is nothing to show yet (no cache, no snapshot). */
   isLoading: boolean
+  /** True while sources refresh behind data that is already on screen. */
+  refreshing: boolean
   /** Per-source health so the UI can render honest banners. */
   sources: SourceStatus[]
   /** True when live cluster/tool data is present (registered-only counts too). */
@@ -787,24 +790,81 @@ export function useCatalog(): CatalogResult {
   const liveCatalog = useLiveCatalog()
 
   const registered = registeredQ.data ?? []
-  const isLoading = registeredQ.isLoading || liveCatalog.isLoading
+  const fetching = registeredQ.isLoading || liveCatalog.isLoading
 
   return useMemo(() => {
     const hasReal = liveCatalog.hasLive || registered.length > 0
-    const offline = !hasReal && !isLoading
+    if (hasReal && liveCatalog.hasLive && !liveCatalog.isLoading) {
+      // Fresh live result — remember it so the next visit / hard reload paints
+      // cards immediately while the sources refresh in the background.
+      saveSnapshot(liveCatalog.entities)
+    }
+    // Still fetching with nothing live yet → show the last snapshot (if any)
+    // instead of a blocking spinner; the list swaps in place once data lands.
+    const snapshot = !liveCatalog.hasLive && fetching ? loadSnapshot() : null
+    const showingSnapshot = !!snapshot && snapshot.length > 0
+    const isLoading = fetching && !hasReal && !showingSnapshot
+    const offline = !hasReal && !fetching
     const data = hasReal
       ? mergeCatalogs(registered, liveCatalog.entities)
-      : offline
-        ? SEED_CATALOG
-        : mergeCatalogs(registered, liveCatalog.entities)
+      : showingSnapshot
+        ? mergeCatalogs(registered, snapshot)
+        : offline
+          ? SEED_CATALOG
+          : mergeCatalogs(registered, liveCatalog.entities)
     return {
       data,
       isLoading,
+      refreshing: !isLoading && (liveCatalog.isFetching || registeredQ.isFetching),
       sources: liveCatalog.sources,
-      live: liveCatalog.hasLive,
+      live: liveCatalog.hasLive || showingSnapshot,
       offline,
     }
-  }, [registered, liveCatalog.entities, liveCatalog.hasLive, liveCatalog.sources, isLoading])
+  }, [
+    registered,
+    registeredQ.isFetching,
+    liveCatalog.entities,
+    liveCatalog.hasLive,
+    liveCatalog.isLoading,
+    liveCatalog.isFetching,
+    liveCatalog.sources,
+    fetching,
+  ])
+}
+
+/* ─────────── last-known-good snapshot (per browser) ─────────── */
+
+const SNAPSHOT_KEY = 'adhar.catalog.snapshot.v1'
+const SNAPSHOT_MAX_AGE_MS = 7 * 24 * 60 * 60_000
+let snapshotCache: Entity[] | null | undefined
+
+function loadSnapshot(): Entity[] | null {
+  if (snapshotCache !== undefined) return snapshotCache
+  snapshotCache = null
+  try {
+    const raw = globalThis.localStorage?.getItem(SNAPSHOT_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { at?: number; entities?: Entity[] }
+    if (!Array.isArray(parsed.entities)) return null
+    if (typeof parsed.at === 'number' && Date.now() - parsed.at > SNAPSHOT_MAX_AGE_MS) return null
+    snapshotCache = parsed.entities
+  } catch {
+    snapshotCache = null
+  }
+  return snapshotCache
+}
+
+let lastSaved = ''
+function saveSnapshot(entities: Entity[]) {
+  try {
+    const body = JSON.stringify({ at: Date.now(), entities })
+    if (body === lastSaved) return
+    lastSaved = body
+    snapshotCache = entities
+    globalThis.localStorage?.setItem(SNAPSHOT_KEY, body)
+  } catch {
+    // Quota / private mode — the snapshot is a convenience only.
+  }
 }
 
 /* ─────────── helpers used by UI ─────────── */

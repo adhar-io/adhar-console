@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { gitea, k8s } from '@adhar-console/api-clients'
 import { useGiteaOrg } from '@adhar-console/shell-ui'
 import {
@@ -36,6 +36,20 @@ const kubeClient = k8s.K8sClient.auto()
 const giteaClient = gitea.GiteaClient.auto({ tool: 'gitea' })
 
 const REFRESH_MS = 30_000
+
+/**
+ * Background-refresh semantics for every live source: cards already on screen
+ * must never be replaced by a spinner. `keepPreviousData` carries data across a
+ * key change (the Gitea org resolving from `/api/config`), and the long
+ * `gcTime` keeps the last result around when the user navigates away for a
+ * while, so coming back paints instantly and refetches quietly.
+ */
+const LIVE_QUERY = {
+  refetchInterval: REFRESH_MS,
+  retry: false,
+  placeholderData: keepPreviousData,
+  gcTime: 24 * 60 * 60_000,
+} as const
 
 /* ─────────── annotation / label helpers ─────────── */
 
@@ -333,6 +347,8 @@ export interface LiveCatalog {
   entities: Entity[]
   sources: SourceStatus[]
   isLoading: boolean
+  /** True while any source is (re)fetching — data on screen stays put. */
+  isFetching: boolean
   /** True when at least one live source returned data. */
   hasLive: boolean
 }
@@ -384,32 +400,27 @@ export function useLiveCatalog(): LiveCatalog {
   const deployments = useQuery({
     queryKey: ['catalog', 'live', 'deployments'],
     queryFn: () => kubeClient.listDeployments(),
-    refetchInterval: REFRESH_MS,
-    retry: false,
+    ...LIVE_QUERY,
   })
   const statefulSets = useQuery({
     queryKey: ['catalog', 'live', 'statefulsets'],
     queryFn: () => kubeClient.listStatefulSets(),
-    refetchInterval: REFRESH_MS,
-    retry: false,
+    ...LIVE_QUERY,
   })
   const services = useQuery({
     queryKey: ['catalog', 'live', 'services'],
     queryFn: () => kubeClient.listServices(),
-    refetchInterval: REFRESH_MS,
-    retry: false,
+    ...LIVE_QUERY,
   })
   const ingresses = useQuery({
     queryKey: ['catalog', 'live', 'ingresses'],
     queryFn: () => kubeClient.listIngresses(),
-    refetchInterval: REFRESH_MS,
-    retry: false,
+    ...LIVE_QUERY,
   })
   const repos = useQuery({
     queryKey: ['catalog', 'live', 'gitea-repos', giteaOrgName],
     queryFn: () => giteaClient.listRepos(giteaOrgName),
-    refetchInterval: REFRESH_MS,
-    retry: false,
+    ...LIVE_QUERY,
   })
 
   return useMemo(() => {
@@ -479,17 +490,30 @@ export function useLiveCatalog(): LiveCatalog {
       ingresses.isLoading ||
       repos.isLoading
 
+    const isFetching =
+      deployments.isFetching ||
+      statefulSets.isFetching ||
+      services.isFetching ||
+      ingresses.isFetching ||
+      repos.isFetching
+
     return {
       entities: Array.from(byRef.values()),
       sources,
       isLoading,
+      isFetching,
       hasLive: byRef.size > 0,
     }
   }, [
     deployments.data,
     deployments.isError,
     deployments.isLoading,
+    deployments.isFetching,
     deployments.error,
+    statefulSets.isFetching,
+    services.isFetching,
+    ingresses.isFetching,
+    repos.isFetching,
     statefulSets.data,
     statefulSets.isLoading,
     statefulSets.isError,

@@ -499,6 +499,7 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
         stars={stars}
         onPick={openEntity}
         loading={q.isLoading}
+        refreshing={q.refreshing}
         searching={isFiltering}
         filterCount={filterCount}
         text={text}
@@ -1143,6 +1144,7 @@ function BrowseAll({
   stars,
   onPick,
   loading,
+  refreshing = false,
   searching,
   filterCount,
   text,
@@ -1173,6 +1175,8 @@ function BrowseAll({
   stars: readonly string[]
   onPick(e: Entity): void
   loading: boolean
+  /** Sources are refetching behind data already on screen — never blocks. */
+  refreshing?: boolean
   searching: boolean
   filterCount: number
   text: string
@@ -1234,6 +1238,7 @@ function BrowseAll({
         onClearSearch={onClearSearch}
         searchInputRef={searchInputRef}
         loading={loading}
+        refreshing={refreshing}
       />
 
       {loading ? (
@@ -1601,6 +1606,7 @@ function Toolbar({
   onClearSearch,
   searchInputRef,
   loading,
+  refreshing = false,
 }: {
   filter: FilterState
   onFilter(next: FilterState): void
@@ -1621,6 +1627,7 @@ function Toolbar({
   onClearSearch(): void
   searchInputRef: React.RefObject<HTMLInputElement | null>
   loading: boolean
+  refreshing?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const anchorRef = useRef<HTMLDivElement>(null)
@@ -1744,6 +1751,14 @@ function Toolbar({
           >
             <Spinner size={11} />
             <span>Loading…</span>
+          </span>
+        ) : refreshing ? (
+          <span
+            className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-content-subtle"
+            title="Refreshing sources in the background"
+          >
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-500" />
+            <span>Refreshing</span>
           </span>
         ) : null}
       </div>

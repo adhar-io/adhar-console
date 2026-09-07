@@ -28,6 +28,49 @@ export const LogEntrySchema = z.object({
 })
 export type LogEntry = z.infer<typeof LogEntrySchema>
 
+const LEVEL_ALIASES: Record<string, LogEntry['level']> = {
+  trace: 'debug',
+  debug: 'debug',
+  dbg: 'debug',
+  verbose: 'debug',
+  info: 'info',
+  information: 'info',
+  informational: 'info',
+  notice: 'info',
+  warn: 'warn',
+  warning: 'warn',
+  error: 'error',
+  err: 'error',
+  fatal: 'fatal',
+  critical: 'fatal',
+  crit: 'fatal',
+  panic: 'fatal',
+  emerg: 'fatal',
+  emergency: 'fatal',
+  alert: 'fatal',
+}
+
+const LEVEL_IN_MESSAGE =
+  /(?:^|[\s\[("'|:=])(?:level|lvl|severity|loglevel)\s*[=:]\s*"?([A-Za-z]+)"?|(?:^|[\s\[|])\[?(TRACE|DEBUG|INFO|NOTICE|WARN(?:ING)?|ERROR|FATAL|CRITICAL|PANIC)\]?(?=[\s\]:|]|$)/
+
+/**
+ * Best-effort log level for a raw Loki line: Loki's own `detected_level`,
+ * common level labels, then a `level=`/`[ERROR]`-style token in the message.
+ * Undefined when nothing recognisable is present (the UI treats it as info).
+ */
+export function detectLogLevel(message: string, labels?: Record<string, string>): LogEntry['level'] {
+  if (labels) {
+    for (const key of ['detected_level', 'level', 'severity', 'lvl', 'loglevel', 'log_level']) {
+      const v = labels[key]
+      if (v && LEVEL_ALIASES[v.toLowerCase()]) return LEVEL_ALIASES[v.toLowerCase()]
+    }
+  }
+  const head = message.length > 400 ? message.slice(0, 400) : message
+  const m = LEVEL_IN_MESSAGE.exec(head)
+  const tok = (m?.[1] ?? m?.[2])?.toLowerCase()
+  return tok ? LEVEL_ALIASES[tok] : undefined
+}
+
 /* ─────────── metrics ─────────── */
 
 export const MetricSeriesSchema = z.object({
@@ -143,7 +186,17 @@ export type Slo = z.infer<typeof SloSchema>
 /* ─────────── client ─────────── */
 
 export interface LgtmClient {
-  queryLogs(query: string, start: Date, end: Date, limit?: number): Promise<LogEntry[]>
+  queryLogs(
+    query: string,
+    start: Date,
+    end: Date,
+    limit?: number,
+    direction?: 'backward' | 'forward',
+  ): Promise<LogEntry[]>
+  /** Loki label names present in the window (for the label browser). */
+  listLogLabels(start: Date, end: Date): Promise<string[]>
+  /** Values of one Loki label in the window, optionally narrowed by a stream selector. */
+  listLogLabelValues(label: string, start: Date, end: Date, selector?: string): Promise<string[]>
   queryMetrics(query: string, start: Date, end: Date, step: string): Promise<MetricSeries[]>
   searchTraces(filter: { service?: string; minDurationMs?: number; status?: 'error' | 'ok' }): Promise<Trace[]>
   getTrace(traceID: string): Promise<Span[]>
@@ -353,20 +406,35 @@ interface LgtmBackends {
 
 function build(be: LgtmBackends, grafanaUrl: string): LgtmClient {
   return {
-    queryLogs: async (query, start, end, limit = 500) => {
+    queryLogs: async (query, start, end, limit = 500, direction = 'backward') => {
       // Loki → `loki` proxy → `/api/svc/loki/loki/api/v1/query_range`.
       const res = await be.loki.get<{
         data: { result: { values: [string, string][]; stream: Record<string, string> }[] }
       }>(
-        `/loki/api/v1/query_range?query=${encodeURIComponent(query)}&start=${start.toISOString()}&end=${end.toISOString()}&limit=${limit}`,
+        `/loki/api/v1/query_range?query=${encodeURIComponent(query)}&start=${start.toISOString()}&end=${end.toISOString()}&limit=${limit}&direction=${direction}`,
       )
       return res.data.result.flatMap((stream) =>
         stream.values.map(([ts, msg]) => ({
           timestamp: new Date(Number(ts) / 1e6).toISOString(),
+          level: detectLogLevel(msg, stream.stream),
           message: msg,
           labels: stream.stream,
         })),
       )
+    },
+    listLogLabels: async (start, end) => {
+      const res = await be.loki.get<{ data?: string[] }>(
+        `/loki/api/v1/labels?start=${start.toISOString()}&end=${end.toISOString()}`,
+      )
+      return (res.data ?? []).filter((l) => !l.startsWith('__')).sort()
+    },
+    listLogLabelValues: async (label, start, end, selector) => {
+      const qs = new URLSearchParams({ start: start.toISOString(), end: end.toISOString() })
+      if (selector) qs.set('query', selector)
+      const res = await be.loki.get<{ data?: string[] }>(
+        `/loki/api/v1/label/${encodeURIComponent(label)}/values?${qs}`,
+      )
+      return (res.data ?? []).sort()
     },
     queryMetrics: async (query, start, end, step) => {
       // Metrics → `prometheus` proxy → `/api/svc/prometheus/api/v1/query_range`.
@@ -490,6 +558,14 @@ function genSeries(opts: {
 }
 
 const SERVICES = ['adhar-console', 'platform-bff', 'billing-service', 'customer-portal', 'auth-service']
+
+function safeRe(src: string): RegExp | null {
+  try {
+    return new RegExp(`^(?:${src})$`)
+  } catch {
+    return null
+  }
+}
 
 const STUB_LOGS: LogEntry[] = (() => {
   const lines: Array<Pick<LogEntry, 'level' | 'message' | 'labels'>> = [
@@ -800,13 +876,50 @@ export const LgtmClient = {
   },
   stub: (): LgtmClient => ({
     queryLogs: async (q) => {
-      const f = q.toLowerCase()
-      return STUB_LOGS.filter(
-        (l) =>
-          !f ||
-          l.message.toLowerCase().includes(f) ||
-          Object.values(l.labels ?? {}).some((v) => v.toLowerCase().includes(f)),
-      )
+      // Honour `{label="value"}` matchers and `|= "text"` line filters so the
+      // demo behaves like Loki for the label browser / filter actions.
+      const matchers = [...q.matchAll(/(\w+)\s*(=|!=|=~|!~)\s*"([^"]*)"/g)].map((m) => ({
+        key: m[1],
+        op: m[2],
+        val: m[3],
+      }))
+      const lineFilters = [...q.matchAll(/\|=\s*"([^"]*)"/g)].map((m) => m[1].toLowerCase())
+      const lineExcludes = [...q.matchAll(/!=\s*"([^"]*)"/g)].map((m) => m[1].toLowerCase())
+      const regexFilters = [...q.matchAll(/\|~\s*"([^"]*)"/g)].map((m) => {
+        try {
+          return new RegExp(m[1], 'i')
+        } catch {
+          return null
+        }
+      })
+      return STUB_LOGS.filter((l) => {
+        const labels = l.labels ?? {}
+        for (const m of matchers) {
+          const v = labels[m.key] ?? ''
+          if (m.op === '=' && v !== m.val) return false
+          if (m.op === '!=' && v === m.val) return false
+          if (m.op === '=~' && !(safeRe(m.val)?.test(v) ?? true)) return false
+          if (m.op === '!~' && (safeRe(m.val)?.test(v) ?? false)) return false
+        }
+        const msg = l.message.toLowerCase()
+        if (lineFilters.some((f) => !msg.includes(f))) return false
+        if (lineExcludes.some((f) => msg.includes(f))) return false
+        if (regexFilters.some((r) => r && !r.test(l.message))) return false
+        return true
+      })
+    },
+    listLogLabels: async () => {
+      const keys = new Set<string>()
+      for (const l of STUB_LOGS) for (const k of Object.keys(l.labels ?? {})) keys.add(k)
+      return [...keys].sort()
+    },
+    listLogLabelValues: async (label) => {
+      const vals = new Set<string>()
+      for (const l of STUB_LOGS) {
+        const v = l.labels?.[label]
+        if (v) vals.add(v)
+      }
+      return [...vals].sort()
     },
     queryMetrics: async (query) => {
       const slug = (query.match(/__name__="([^"]+)"|^\s*([a-zA-Z_:][\w:]*)/) ?? [])[1]

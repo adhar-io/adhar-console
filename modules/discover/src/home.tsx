@@ -39,7 +39,7 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   },
   logs: {
     label: 'Logs',
-    description: 'LogQL streaming from Loki with level chips and label filters.',
+    description: 'LogQL workbench on Loki — label browser, live tail, facets, field parsing and line context.',
   },
   traces: {
     label: 'Traces',

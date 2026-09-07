@@ -6,6 +6,25 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+
+- **Discover → Logs rebuilt as an enterprise LogQL workbench.** Query bar with
+  Run / `⏎`, recent history and starred saved queries, and a **label browser**
+  (Loki `/labels` + `/label/{name}/values`, narrowed by the current selector)
+  that merges matchers into the query. **Live tail** on a sliding window (4 s),
+  quick presets + absolute range, histogram click-to-zoom with reset. Stats
+  strip (lines, errors, warnings, rate, streams, peak), level chips with
+  counts (double-click = only), client-side text filter (plain/regex, case,
+  exclude) with match highlighting, dedup (exact / numbers / signature),
+  order, limit, timestamp format, wrap/labels toggles, fullscreen, export
+  (.txt/.json/.csv). **Facets** sidebar from stream labels and auto-detected
+  JSON/logfmt fields (click to filter, `+` to pin in the query). Row drawer
+  with stream labels (pin/exclude), parsed fields (filter for/out), raw
+  pretty-printed view and **context** (±N lines from the same stream). The
+  Loki client now detects levels (`detected_level`/labels/`level=`/`[ERROR]`
+  tokens) so real streams get coloured and counted, and `queryLogs` slides
+  its window on every refetch.
+
 ### Changed
 
 - **No more hardcoded "Acme Corp".** The shell falls back to a built-in

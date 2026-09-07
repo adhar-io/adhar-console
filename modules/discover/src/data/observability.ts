@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lgtm, posthog } from '@adhar-console/api-clients'
 
 /**
@@ -66,16 +66,57 @@ export function selectionLabel(sel: TimeSelection): string {
 
 /* ─────────── LGTM ─────────── */
 
-export function useLogs(query: string, sel: TimeSelection, limit = 200) {
-  const { start, end } = selectionToWindow(sel)
+export interface LogsOptions {
+  /** Live tail: refetch every few seconds with a window that ends "now". */
+  live?: boolean
+  direction?: 'backward' | 'forward'
+  enabled?: boolean
+}
+
+export const LIVE_REFRESH_MS = 4_000
+
+export function useLogs(query: string, sel: TimeSelection, limit = 200, opts: LogsOptions = {}) {
   // Loki (LogQL) requires a non-empty stream selector — never fire an empty
   // query against a real backend; the view prompts for one instead.
-  const enabled = query.trim().length > 0
+  const enabled = (opts.enabled ?? true) && query.trim().length > 0
   return useQuery({
-    queryKey: ['lgtm', 'logs', query, sel],
-    queryFn: () => lgtmClient.queryLogs(query, start, end, limit),
-    refetchInterval: REFRESH_MS,
+    queryKey: ['lgtm', 'logs', query, sel, limit, opts.direction ?? 'backward'],
+    // The window is computed inside queryFn so a preset like "last 15m"
+    // slides forward on every background refetch (live tail), instead of
+    // freezing at the moment the component last rendered.
+    queryFn: () => {
+      const { start, end } = selectionToWindow(sel)
+      return lgtmClient.queryLogs(query, start, end, limit, opts.direction ?? 'backward')
+    },
+    refetchInterval: opts.live ? LIVE_REFRESH_MS : sel.kind === 'preset' ? REFRESH_MS : false,
+    placeholderData: keepPreviousData,
     enabled,
+  })
+}
+
+/** Loki label names in the selected window — drives the label browser. */
+export function useLogLabels(sel: TimeSelection, enabled = true) {
+  return useQuery({
+    queryKey: ['lgtm', 'log-labels', selectionLabel(sel)],
+    queryFn: () => {
+      const { start, end } = selectionToWindow(sel)
+      return lgtmClient.listLogLabels(start, end)
+    },
+    staleTime: 60_000,
+    enabled,
+  })
+}
+
+/** Values of one label in the window, narrowed by the current selector when given. */
+export function useLogLabelValues(label: string | null, sel: TimeSelection, selector?: string) {
+  return useQuery({
+    queryKey: ['lgtm', 'log-label-values', label, selectionLabel(sel), selector ?? ''],
+    queryFn: () => {
+      const { start, end } = selectionToWindow(sel)
+      return lgtmClient.listLogLabelValues(label!, start, end, selector || undefined)
+    },
+    staleTime: 60_000,
+    enabled: !!label,
   })
 }
 

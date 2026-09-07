@@ -45,7 +45,7 @@ import {
   type MarketplaceChart,
 } from '../data/marketplace.ts'
 import { age } from '../data/format.ts'
-import { ListShell, StatusFilterPills, matchesSearch } from './list-shell.tsx'
+import { matchesSearch, UpdatedChip } from './list-shell.tsx'
 
 /**
  * Adhar Marketplace — the list, categories and enabled state all come from the
@@ -145,46 +145,24 @@ export function MarketplaceView() {
 
   return (
     <div className="space-y-4">
-      {/* Combined status folded into the ListShell header (title · total ·
-          enabled/disabled/categories · GitOps source) — one compact top section,
-          then a single search + filter row, matching the other list pages. */}
-      <ListShell
-        title="Marketplace"
-        total={apps.length}
+      <MarketplaceToolbar
+        apps={apps}
+        appsetNames={appsetNames}
         visible={visible.length}
+        enabledCount={enabledCount}
+        categoryCounts={categoryCounts}
         loading={isLoading}
         isFetching={isFetching}
         lastUpdatedAt={dataUpdatedAt}
         onRefresh={refetch}
         search={search}
         onSearchChange={setSearch}
-        searchPlaceholder="Search apps, categories, tags…"
-        caption={
-          <span className="inline-flex flex-wrap items-center gap-x-1.5">
-            <span className="text-emerald-700 dark:text-emerald-300">{enabledCount} enabled</span>
-            <span aria-hidden>·</span>
-            <span>{apps.length - enabledCount} disabled</span>
-            <span aria-hidden>·</span>
-            <span>{Object.keys(categoryCounts).length} categories</span>
-            <span aria-hidden>·</span>
-            <IconGit size={12} />
-            <span className="truncate">GitOps: {appsetNames.join(', ') || 'ApplicationSet'}</span>
-          </span>
-        }
-        filters={
-          <div className="flex flex-col gap-1.5">
-            <StatusFilterPills<'enabled' | 'disabled'>
-              value={status}
-              onChange={setStatus}
-              pills={[
-                { value: 'enabled', label: 'Enabled', count: enabledCount, tone: 'emerald' },
-                { value: 'disabled', label: 'Disabled', count: apps.length - enabledCount, tone: 'slate' },
-              ]}
-            />
-            <CategoryFilter value={category} onChange={setCategory} counts={categoryCounts} total={apps.length} />
-          </div>
-        }
-      >
+        status={status}
+        onStatusChange={setStatus}
+        category={category}
+        onCategoryChange={setCategory}
+      />
+      <div>
         {isLoading && apps.length === 0 ? (
           <SkeletonGrid />
         ) : visible.length === 0 ? (
@@ -203,7 +181,12 @@ export function MarketplaceView() {
               return (
                 <section key={cat} className="space-y-2.5">
                   <header className="flex items-baseline justify-between gap-2 border-b border-edge-subtle pb-1.5">
-                    <h3 className="flex items-baseline gap-2 text-[13px] font-semibold text-content">
+                    <h3 className="flex items-center gap-2 text-[13px] font-semibold text-content">
+                      <span
+                        aria-hidden
+                        className="h-2 w-2 rounded-full"
+                        style={{ background: `hsl(${categoryHue(cat)} 65% 50%)` }}
+                      />
                       {appCategoryLabel(cat)}
                       <span className="font-mono text-[11px] font-normal tabular-nums text-content-subtle">
                         {items.length}
@@ -226,7 +209,7 @@ export function MarketplaceView() {
             })}
           </div>
         )}
-      </ListShell>
+      </div>
 
       {selected ? <AppDrawer app={selected} onClose={() => setSelectedId(null)} /> : null}
     </div>
@@ -261,62 +244,413 @@ function SkeletonGrid() {
   )
 }
 
-/* ─────────────────────────── category filter ─────────────────────────── */
+/* ─────────────────────────── toolbar (hero · stats · search · filters) ─────────────────────────── */
 
-function CategoryFilter({
-  value,
-  onChange,
-  counts,
-  total,
+type StatusFilter = 'enabled' | 'disabled' | 'all'
+
+function MarketplaceToolbar({
+  apps,
+  appsetNames,
+  visible,
+  enabledCount,
+  categoryCounts,
+  loading,
+  isFetching,
+  lastUpdatedAt,
+  onRefresh,
+  search,
+  onSearchChange,
+  status,
+  onStatusChange,
+  category,
+  onCategoryChange,
 }: {
-  value: string
-  onChange(v: string): void
-  counts: Record<string, number>
-  total: number
+  apps: MarketplaceApp[]
+  appsetNames: string[]
+  visible: number
+  enabledCount: number
+  categoryCounts: Record<string, number>
+  loading: boolean
+  isFetching: boolean
+  lastUpdatedAt?: number
+  onRefresh(): void
+  search: string
+  onSearchChange(q: string): void
+  status: StatusFilter
+  onStatusChange(s: StatusFilter): void
+  category: string
+  onCategoryChange(c: string): void
 }) {
-  const cats = Object.keys(counts).sort()
+  const total = apps.length
+  const disabledCount = total - enabledCount
+  const categories = Object.keys(categoryCounts).sort()
+  // Health of what's switched on — "attention" is anything enabled that isn't
+  // Healthy/Progressing (including enabled apps ArgoCD hasn't materialised yet).
+  const healthy = apps.filter((a) => a.enabled && a.live?.health === 'Healthy').length
+  const attention = apps.filter(
+    (a) => a.enabled && a.live?.health !== 'Healthy' && a.live?.health !== 'Progressing',
+  ).length
+  const enabledPct = total ? Math.round((enabledCount / total) * 100) : 0
+  const isFiltered = !!search || status !== 'all' || category !== 'all'
+
+  // "/" focuses search from anywhere on the page (except while typing).
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      e.preventDefault()
+      inputRef.current?.focus()
+    }
+    globalThis.addEventListener('keydown', onKey)
+    return () => globalThis.removeEventListener('keydown', onKey)
+  }, [])
+
+  function clearAll() {
+    onSearchChange('')
+    onStatusChange('all')
+    onCategoryChange('all')
+  }
+
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-0.5">
-      <FilterButton on={value === 'all'} label="All" count={total} onClick={() => onChange('all')} />
-      {cats.map((c) => (
-        <FilterButton
-          key={c}
-          on={value === c}
-          label={appCategoryLabel(c)}
-          count={counts[c]}
-          onClick={() => onChange(c)}
+    <section className="overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm">
+      {/* ── hero band ── */}
+      <div className="relative border-b border-edge-subtle px-5 pb-4 pt-5">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-70 dark:opacity-40"
+          style={{
+            backgroundImage:
+              'radial-gradient(60% 120% at 0% 0%, color-mix(in oklab, var(--color-brand-500) 14%, transparent), transparent 60%), radial-gradient(40% 100% at 100% 0%, color-mix(in oklab, var(--color-emerald-500, #10b981) 10%, transparent), transparent 60%)',
+          }}
         />
-      ))}
-    </div>
+        <div className="relative flex flex-wrap items-start justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-600 text-white shadow-md shadow-brand-600/25 ring-1 ring-black/10">
+              <IconStore />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold tracking-tight text-content">Marketplace</h2>
+              <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[12px] text-content-muted">
+                <span>Platform apps delivered through GitOps</span>
+                <span aria-hidden>·</span>
+                <span className="inline-flex items-center gap-1 font-mono text-[11px]">
+                  <IconGit size={11} />
+                  {appsetNames.length ? appsetNames.join(', ') : 'ApplicationSet'}
+                </span>
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {lastUpdatedAt ? <UpdatedChip at={lastUpdatedAt} /> : null}
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={loading}
+              className={cn(
+                'inline-flex h-8 items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-2.5 text-[12px] font-medium text-content-muted transition-colors',
+                'hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300 disabled:cursor-not-allowed disabled:opacity-60',
+              )}
+            >
+              {isFetching ? <Spinner size={13} /> : <IconRefresh />}
+              Refresh
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── stats strip ── */}
+      <div className="grid grid-cols-2 border-b border-edge-subtle md:grid-cols-4 md:divide-x md:divide-edge-subtle">
+        <StatTile
+          label="Apps"
+          value={loading && !total ? '—' : total}
+          hint={`in ${appsetNames.length || 1} ApplicationSet${appsetNames.length === 1 ? '' : 's'}`}
+          active={status === 'all' && category === 'all'}
+          onClick={() => {
+            onStatusChange('all')
+            onCategoryChange('all')
+          }}
+        />
+        <StatTile
+          label="Enabled"
+          value={loading && !total ? '—' : enabledCount}
+          tone="emerald"
+          hint={`${enabledPct}% of the catalogue`}
+          bar={total ? enabledCount / total : 0}
+          active={status === 'enabled'}
+          onClick={() => onStatusChange(status === 'enabled' ? 'all' : 'enabled')}
+        />
+        <StatTile
+          label="Healthy"
+          value={loading && !total ? '—' : healthy}
+          tone={attention ? 'amber' : 'sky'}
+          hint={
+            !enabledCount
+              ? 'nothing enabled yet'
+              : attention
+                ? `${attention} need${attention === 1 ? 's' : ''} attention`
+                : 'every enabled app is healthy'
+          }
+          bar={enabledCount ? healthy / enabledCount : 0}
+        />
+        <StatTile
+          label="Disabled"
+          value={loading && !total ? '—' : disabledCount}
+          tone="slate"
+          hint={`${categories.length} categor${categories.length === 1 ? 'y' : 'ies'} available`}
+          active={status === 'disabled'}
+          onClick={() => onStatusChange(status === 'disabled' ? 'all' : 'disabled')}
+        />
+      </div>
+
+      {/* ── search + status ── */}
+      <div className="flex flex-col gap-3 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex min-w-[240px] flex-1 items-center">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-content-subtle">
+              <IconSearch />
+            </span>
+            <input
+              ref={inputRef}
+              type="search"
+              value={search}
+              onChange={(e) => onSearchChange(e.target.value)}
+              placeholder="Search apps, categories, tags…"
+              aria-label="Search marketplace"
+              className={cn(
+                'h-10 w-full rounded-xl border border-edge-default bg-surface-app pl-9 pr-16 text-sm text-content shadow-inner placeholder:text-content-subtle',
+                'transition-colors focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20',
+              )}
+            />
+            <span className="pointer-events-none absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
+              {search ? (
+                <button
+                  type="button"
+                  onClick={() => onSearchChange('')}
+                  aria-label="Clear search"
+                  className="pointer-events-auto flex h-6 w-6 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+                >
+                  <IconClear />
+                </button>
+              ) : (
+                <kbd className="hidden rounded-md border border-edge-default bg-surface-raised px-1.5 py-0.5 font-mono text-[10px] text-content-subtle sm:inline">
+                  /
+                </kbd>
+              )}
+            </span>
+          </div>
+
+          <div
+            role="radiogroup"
+            aria-label="Filter by status"
+            className="inline-flex h-10 items-center rounded-xl border border-edge-default bg-surface-sunken p-1"
+          >
+            {(
+              [
+                { value: 'all', label: 'All', count: total },
+                { value: 'enabled', label: 'Enabled', count: enabledCount, dot: 'bg-emerald-500' },
+                { value: 'disabled', label: 'Disabled', count: disabledCount, dot: 'bg-slate-400' },
+              ] as Array<{ value: StatusFilter; label: string; count: number; dot?: string }>
+            ).map((o) => {
+              const on = status === o.value
+              return (
+                <button
+                  key={o.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => onStatusChange(o.value)}
+                  className={cn(
+                    'inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[12px] font-medium transition-all',
+                    on
+                      ? 'bg-surface-raised text-content shadow-sm ring-1 ring-edge-default'
+                      : 'text-content-muted hover:text-content',
+                  )}
+                >
+                  {o.dot ? <span className={cn('h-1.5 w-1.5 rounded-full', o.dot)} /> : null}
+                  {o.label}
+                  <span className="font-mono text-[11px] tabular-nums opacity-60">{o.count}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* ── category chips ── */}
+        <div className="flex items-center gap-2">
+          <span className="hidden shrink-0 text-[10px] font-semibold uppercase tracking-wider text-content-subtle sm:inline">
+            Category
+          </span>
+          <div className="-mx-1 flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto px-1 py-0.5 [scrollbar-width:thin]">
+            <CategoryChip on={category === 'all'} label="All" count={total} onClick={() => onCategoryChange('all')} />
+            {categories.map((c) => (
+              <CategoryChip
+                key={c}
+                on={category === c}
+                label={appCategoryLabel(c)}
+                count={categoryCounts[c]}
+                hue={categoryHue(c)}
+                onClick={() => onCategoryChange(category === c ? 'all' : c)}
+              />
+            ))}
+          </div>
+        </div>
+
+        {isFiltered ? (
+          <div className="flex flex-wrap items-center gap-2 border-t border-dashed border-edge-subtle pt-2.5 text-[12px] text-content-muted">
+            <span>
+              Showing <span className="font-semibold tabular-nums text-content">{visible}</span> of{' '}
+              <span className="tabular-nums">{total}</span> apps
+            </span>
+            {search ? <FilterToken label={`“${search}”`} onClear={() => onSearchChange('')} /> : null}
+            {status !== 'all' ? (
+              <FilterToken label={status === 'enabled' ? 'Enabled' : 'Disabled'} onClear={() => onStatusChange('all')} />
+            ) : null}
+            {category !== 'all' ? (
+              <FilterToken label={appCategoryLabel(category)} onClear={() => onCategoryChange('all')} />
+            ) : null}
+            <button
+              type="button"
+              onClick={clearAll}
+              className="ml-auto text-[12px] font-medium text-brand-700 hover:underline dark:text-brand-300"
+            >
+              Clear all
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </section>
   )
 }
 
-function FilterButton({
+const STAT_TONE: Record<'brand' | 'emerald' | 'sky' | 'amber' | 'slate', { value: string; bar: string; ring: string }> = {
+  brand: { value: 'text-content', bar: 'bg-brand-500', ring: 'ring-brand-300 dark:ring-brand-500/40' },
+  emerald: { value: 'text-emerald-700 dark:text-emerald-300', bar: 'bg-emerald-500', ring: 'ring-emerald-300 dark:ring-emerald-500/40' },
+  sky: { value: 'text-sky-700 dark:text-sky-300', bar: 'bg-sky-500', ring: 'ring-sky-300 dark:ring-sky-500/40' },
+  amber: { value: 'text-amber-700 dark:text-amber-300', bar: 'bg-amber-500', ring: 'ring-amber-300 dark:ring-amber-500/40' },
+  slate: { value: 'text-content-muted', bar: 'bg-slate-400', ring: 'ring-edge-strong' },
+}
+
+function StatTile({
+  label,
+  value,
+  hint,
+  tone = 'brand',
+  bar,
+  active = false,
+  onClick,
+}: {
+  label: string
+  value: number | string
+  hint: string
+  tone?: keyof typeof STAT_TONE
+  /** 0–1 fill for the thin progress line under the number. */
+  bar?: number
+  active?: boolean
+  onClick?(): void
+}) {
+  const t = STAT_TONE[tone]
+  const Tag = onClick ? 'button' : 'div'
+  return (
+    <Tag
+      type={onClick ? 'button' : undefined}
+      onClick={onClick}
+      aria-pressed={onClick ? active : undefined}
+      className={cn(
+        'group relative flex flex-col gap-1 px-5 py-3.5 text-left transition-colors',
+        onClick && 'hover:bg-surface-sunken/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-400/40',
+        active && onClick && 'bg-surface-sunken/70',
+      )}
+    >
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{label}</span>
+      <span className={cn('text-2xl font-semibold leading-none tabular-nums tracking-tight', t.value)}>{value}</span>
+      <span className="truncate text-[11px] text-content-muted">{hint}</span>
+      {typeof bar === 'number' ? (
+        <span className="mt-1 h-1 w-full overflow-hidden rounded-full bg-surface-sunken">
+          <span
+            className={cn('block h-full rounded-full transition-[width] duration-500', t.bar)}
+            style={{ width: `${Math.max(0, Math.min(100, Math.round(bar * 100)))}%` }}
+          />
+        </span>
+      ) : null}
+      {active && onClick ? (
+        <span aria-hidden className={cn('absolute inset-x-0 bottom-0 h-0.5', t.bar)} />
+      ) : null}
+    </Tag>
+  )
+}
+
+function CategoryChip({
   on,
   label,
   count,
+  hue,
   onClick,
 }: {
   on: boolean
   label: string
   count: number
+  hue?: number
   onClick(): void
 }) {
   return (
     <button
       type="button"
+      aria-pressed={on}
       onClick={onClick}
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+        'inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 text-[11px] font-medium transition-colors',
         on
-          ? 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-1 ring-inset ring-brand-200 dark:ring-brand-500/25'
-          : 'text-content-muted hover:bg-surface-sunken hover:text-content',
+          ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-500/40 dark:bg-brand-500/10 dark:text-brand-300'
+          : 'border-edge-default bg-surface-raised text-content-muted hover:border-edge-strong hover:text-content',
       )}
     >
+      {typeof hue === 'number' ? (
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ background: `hsl(${hue} 65% 50%)` }} />
+      ) : null}
       <span>{label}</span>
-      <span className="font-mono tabular-nums opacity-70">{count}</span>
+      <span className="font-mono tabular-nums opacity-60">{count}</span>
     </button>
   )
+}
+
+function FilterToken({ label, onClear }: { label: string; onClear(): void }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-surface-sunken py-0.5 pl-2 pr-1 text-[11px] font-medium text-content">
+      {label}
+      <button
+        type="button"
+        onClick={onClear}
+        aria-label={`Remove filter ${label}`}
+        className="flex h-4 w-4 items-center justify-center rounded text-content-subtle hover:bg-surface-raised hover:text-content"
+      >
+        <IconClear />
+      </button>
+    </span>
+  )
+}
+
+/** Stable accent hue per category so chips/section headers stay recognisable. */
+function categoryHue(cat: string): number {
+  const known: Record<string, number> = {
+    application: 262,
+    security: 350,
+    observability: 200,
+    ai: 290,
+    data: 170,
+    core: 220,
+    infrastructure: 30,
+    networking: 190,
+    storage: 45,
+    identity: 320,
+    plugins: 90,
+    backup: 15,
+  }
+  if (known[cat] !== undefined) return known[cat]
+  let h = 0
+  for (let i = 0; i < cat.length; i++) h = (h * 31 + cat.charCodeAt(i)) | 0
+  return Math.abs(h) % 360
 }
 
 /* ─────────────────────────── app card ─────────────────────────── */
@@ -1066,6 +1400,44 @@ function IconGit({ size = 13 }: { size?: number }) {
       <circle cx="18" cy="18" r="3" />
       <circle cx="6" cy="6" r="3" />
       <path d="M6 21V9a9 9 0 0 0 9 9" />
+    </svg>
+  )
+}
+
+function IconStore() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3 9.5 4.5 4h15L21 9.5" />
+      <path d="M3 9.5a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0" />
+      <path d="M5 12v8h14v-8" />
+      <path d="M10 20v-5h4v5" />
+    </svg>
+  )
+}
+
+function IconSearch() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m21 21-4.35-4.35" />
+    </svg>
+  )
+}
+
+function IconClear() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
+  )
+}
+
+function IconRefresh() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
+      <path d="M21 3v5h-5" />
     </svg>
   )
 }

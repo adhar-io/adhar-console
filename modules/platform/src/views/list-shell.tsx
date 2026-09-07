@@ -187,7 +187,7 @@ export function StatusFilterPills<T extends string>({
   )
 }
 
-function UpdatedChip({ at }: { at: number }) {
+export function UpdatedChip({ at }: { at: number }) {
   const [, setTick] = useState(0)
   useEffect(() => {
     const id = window.setInterval(() => setTick((n) => n + 1), 1000)

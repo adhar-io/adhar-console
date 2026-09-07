@@ -4,9 +4,9 @@ import {
   serializeCookie,
   signSessionToken,
 } from '@adhar-console/auth/server'
-import { getRequestUser, unauthorized } from './request-user.ts'
+import { requireUser, unauthorized } from './request-user.ts'
 import { originOk } from './k8s/gateway.ts'
-import { provisionTenant } from './tenant-provisioner.ts'
+import { getProvisioningJob, listProvisioningJobs, startProvisioning } from './provisioning-jobs.ts'
 
 /**
  * Organization (workspace) management — `/api/organizations/*`.
@@ -121,8 +121,9 @@ async function activeTenantCookie(req: Request, tenantId: string): Promise<strin
 /* ─────────── handler ─────────── */
 
 export async function handleOrganizations(req: Request, subpath: string): Promise<Response> {
-  const auth = await getRequestUser(req)
-  if (!auth) return unauthorized()
+  const resolved = await requireUser(req)
+  if (!resolved.ok) return unauthorized(resolved.error)
+  const auth = resolved
   const attach = (res: Response) => withCookie(res, auth.refreshedCookie)
 
   const method = req.method.toUpperCase()
@@ -140,7 +141,7 @@ export async function handleOrganizations(req: Request, subpath: string): Promis
     }
     // POST /api/organizations  → create + activate
     if (seg.length === 0 && method === 'POST') {
-      const body = (await req.json().catch(() => ({}))) as { name?: string }
+      const body = (await req.json().catch(() => ({}))) as { name?: string; contactEmail?: string; contactName?: string }
       const name = (body.name ?? '').trim()
       if (!name) return attach(json({ error: 'name_required' }, 400))
       if (name.length > NAME_MAX) return attach(json({ error: 'name_too_long' }, 400))
@@ -155,24 +156,49 @@ export async function handleOrganizations(req: Request, subpath: string): Promis
       const nextReg: Registry = { orgs: [...reg.orgs, org], activeId: id }
       await writeRegistry(auth.user.id, auth.user, nextReg)
       const cookie = await activeTenantCookie(req, id)
-      // Provision the real tenant (namespace + RBAC, Keycloak group, ArgoCD
-      // project, Gitea org) best-effort. The org record above is the source of
-      // truth and is never rolled back — provisioning results are reported so
-      // onboarding can show honest per-system status.
-      let provisioning: Awaited<ReturnType<typeof provisionTenant>> = []
+      // Provisioning (Keycloak group, namespace + RBAC, Argo CD project, Gitea
+      // org) runs ASYNCHRONOUSLY: the org record above is the source of truth
+      // and the response returns at once with a job the caller can watch — or
+      // ignore, since a notification (and an email, when mail is configured)
+      // lands when it finishes. Closing the tab never loses the provisioning.
+      const contactEmail = typeof body.contactEmail === 'string' ? body.contactEmail.trim() : ''
+      const contactName = typeof body.contactName === 'string' ? body.contactName.trim() : ''
+      let job: Awaited<ReturnType<typeof startProvisioning>> | null = null
       try {
-        provisioning = await provisionTenant({
-          slug: org.slug,
-          name: org.name,
-          userRef: auth.user.email || auth.user.id,
+        job = await startProvisioning({
+          tenant: id,
+          orgId: org.id,
+          orgName: org.name,
+          orgSlug: org.slug,
+          user: auth.user,
+          contactEmail: contactEmail || undefined,
+          contactName: contactName || undefined,
         })
-      } catch {
-        /* provisioning is best-effort — never blocks org creation */
+      } catch (e) {
+        console.warn('[organizations] could not start provisioning:', e instanceof Error ? e.message : e)
       }
       return withCookie(
-        json({ organization: org, activeId: id, provisioning }, 201),
+        json(
+          {
+            organization: org,
+            activeId: id,
+            // Legacy field kept for older clients: the live status now comes
+            // from `job` / `GET /api/organizations/provisioning/<jobId>`.
+            provisioning: job?.steps ?? [],
+            job: job ? { id: job.id, status: job.status, startedAt: job.startedAt } : null,
+          },
+          201,
+        ),
         cookie ?? auth.refreshedCookie,
       )
+    }
+    // GET /api/organizations/provisioning[/<jobId>] → live provisioning status
+    if (seg[0] === 'provisioning' && method === 'GET') {
+      if (seg.length === 2) {
+        const job = await getProvisioningJob(auth.activeTenant, seg[1])
+        return attach(job ? json({ job }) : json({ error: 'not_found' }, 404))
+      }
+      if (seg.length === 1) return attach(json({ jobs: await listProvisioningJobs(auth.activeTenant) }))
     }
     // POST /api/organizations/<id>/activate
     if (seg.length === 2 && seg[1] === 'activate' && method === 'POST') {

@@ -81,7 +81,7 @@ export {
   type ThemePreset,
 } from './theme.ts'
 export { ModeToggle } from './mode-toggle.tsx'
-export { AppLauncher, DEFAULT_APP_LINKS, type AppLink } from './app-launcher.tsx'
+export { AppLauncher, DEFAULT_APP_LINKS, usePlatformApps, type AppLink, type ResolvedApp } from './app-launcher.tsx'
 export {
   AirbyteIcon,
   ArgoCDIcon,
@@ -143,6 +143,8 @@ export {
   useDocsUrl,
   usePublicBaseDomain,
   usePlaneWorkspace,
+  useToolPublicUrl,
+  toPublicUrl,
   APP_CONFIG_DEFAULTS,
   type AppConfig,
 } from './app-config.ts'

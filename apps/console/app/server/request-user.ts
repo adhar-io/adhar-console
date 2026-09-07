@@ -26,6 +26,36 @@ export async function getRequestUser(
 }
 
 /** Standard 401 for unauthenticated API calls. */
-export function unauthorized(): Response {
-  return Response.json({ error: 'unauthenticated' }, { status: 401 })
+export function unauthorized(error: 'unauthenticated' | 'session_expired' = 'unauthenticated'): Response {
+  return Response.json(
+    {
+      error,
+      detail:
+        error === 'session_expired'
+          ? 'Your session expired or could not be refreshed. Sign in again to continue — nothing you entered is lost.'
+          : 'Sign in to continue.',
+    },
+    { status: 401 },
+  )
+}
+
+/**
+ * Why authentication failed, so the client can tell "you were never signed in"
+ * apart from "your session aged out mid-flow" — the latter is recoverable with
+ * a silent re-login and must never read as "unauthenticated" to a user who has
+ * been working in the console for the last ten minutes.
+ */
+export async function requireUser(
+  request: Request,
+): Promise<
+  | { ok: true; user: User; activeTenant: string; refreshedCookie?: string }
+  | { ok: false; error: 'unauthenticated' | 'session_expired' }
+> {
+  const auth = await getRequestUser(request)
+  if (auth) return { ok: true, ...auth }
+  const cfg = getServerAuthConfig()
+  // A session cookie was presented but no longer resolves → it expired or its
+  // refresh token was rejected; anything else means there was never a session.
+  const hadCookie = Boolean(cfg && (request.headers.get('cookie') ?? '').includes(`${cfg.cookieName}=`))
+  return { ok: false, error: hadCookie ? 'session_expired' : 'unauthenticated' }
 }

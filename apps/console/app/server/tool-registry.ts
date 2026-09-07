@@ -1,4 +1,5 @@
 import { env } from '@adhar-console/utils'
+import { controlPlaneUrl, subdomainUrl, toolUrl } from './domain.ts'
 
 /**
  * Backing-tool registry — the single source of truth for how the BFF reaches
@@ -94,7 +95,7 @@ export function getToolRegistry(): Record<string, ToolDef> {
     // service host; the console SA token authorizes the call (service mode).
     // `K8S_API_URL` overrides for out-of-cluster / multi-cluster setups.
     k8s: {
-      baseUrl: clean(env('K8S_API_URL') ?? 'https://kubernetes.default.svc'),
+      baseUrl: clean(controlPlaneUrl()),
       authMode: 'service',
       serviceToken: env('K8S_SA_TOKEN'),
     },
@@ -103,7 +104,7 @@ export function getToolRegistry(): Record<string, ToolDef> {
     // break the tile; fall back to the `service`/`GITEA_TOKEN` path when only a
     // token is present. `GITEA_AUTH_MODE` still overrides.
     gitea: {
-      baseUrl: clean(env('GITEA_URL')),
+      baseUrl: toolUrl('gitea', 'GITEA_URL'),
       authMode: (env('GITEA_AUTH_MODE') as AuthMode) ??
         (env('GITEA_USERNAME') && env('GITEA_PASSWORD') ? 'basic' : 'service'),
       serviceToken: env('GITEA_TOKEN'),
@@ -111,7 +112,7 @@ export function getToolRegistry(): Record<string, ToolDef> {
       password: env('GITEA_PASSWORD'),
     },
     plane: {
-      baseUrl: clean(env('PLANE_URL')),
+      baseUrl: toolUrl('plane', 'PLANE_URL'),
       authMode: 'service',
       serviceToken: env('PLANE_TOKEN'),
       headers: env('PLANE_TOKEN') ? { 'x-api-key': env('PLANE_TOKEN')! } : undefined,
@@ -122,7 +123,7 @@ export function getToolRegistry(): Record<string, ToolDef> {
     // `service`/`ARGOCD_TOKEN` path when only a token is present.
     // `ARGOCD_AUTH_MODE` still overrides.
     argocd: {
-      baseUrl: clean(env('ARGOCD_URL')),
+      baseUrl: toolUrl('argocd', 'ARGOCD_URL', 'ARGO_CD_URL'),
       authMode: (env('ARGOCD_AUTH_MODE') as AuthMode) ??
         (env('ARGOCD_USERNAME') && env('ARGOCD_PASSWORD') ? 'login' : 'service'),
       serviceToken: env('ARGOCD_TOKEN'),
@@ -130,26 +131,26 @@ export function getToolRegistry(): Record<string, ToolDef> {
       password: env('ARGOCD_PASSWORD'),
     },
     kargo: {
-      baseUrl: clean(env('KARGO_URL')),
+      baseUrl: toolUrl('kargo', 'KARGO_URL'),
       authMode: (env('KARGO_AUTH_MODE') as AuthMode) ?? 'user',
       serviceToken: env('KARGO_TOKEN'),
     },
     // Harbor's API accepts HTTP Basic (robot or admin creds); a bare token is
     // also accepted. Without either, only public projects list.
     harbor: {
-      baseUrl: clean(env('HARBOR_URL')),
+      baseUrl: toolUrl('harbor', 'HARBOR_URL'),
       authMode: env('HARBOR_USERNAME') && env('HARBOR_PASSWORD') ? 'basic' : 'service',
       serviceToken: env('HARBOR_TOKEN'),
       username: env('HARBOR_USERNAME'),
       password: env('HARBOR_PASSWORD'),
     },
     'argo-workflows': {
-      baseUrl: clean(env('ARGO_WORKFLOWS_URL')),
+      baseUrl: toolUrl('argo-workflows', 'ARGO_WORKFLOWS_URL'),
       authMode: 'service',
       serviceToken: env('ARGO_WORKFLOWS_TOKEN'),
     },
     'argo-rollouts': {
-      baseUrl: clean(env('ARGO_ROLLOUTS_URL')),
+      baseUrl: toolUrl('argo-rollouts', 'ARGO_ROLLOUTS_URL'),
       authMode: 'service',
       serviceToken: env('ARGO_ROLLOUTS_TOKEN'),
     },
@@ -157,14 +158,14 @@ export function getToolRegistry(): Record<string, ToolDef> {
     // (`GRAFANA_USERNAME`/`GRAFANA_PASSWORD` — the chart's admin secret) as
     // HTTP Basic, so dashboards list even before an API token is minted.
     grafana: {
-      baseUrl: clean(env('GRAFANA_URL')),
+      baseUrl: toolUrl('grafana', 'GRAFANA_URL'),
       authMode: env('GRAFANA_TOKEN') ? 'service' : env('GRAFANA_PASSWORD') ? 'basic' : 'none',
       serviceToken: env('GRAFANA_TOKEN'),
       username: env('GRAFANA_USERNAME') ?? 'admin',
       password: env('GRAFANA_PASSWORD'),
     },
     metabase: {
-      baseUrl: clean(env('METABASE_URL')),
+      baseUrl: toolUrl('metabase', 'METABASE_URL'),
       authMode: 'service',
       serviceToken: env('METABASE_TOKEN'),
     },
@@ -174,40 +175,40 @@ export function getToolRegistry(): Record<string, ToolDef> {
     // In-cluster this is usually the opencost svc, e.g.
     // http://opencost.opencost.svc:9003 (its API port).
     opencost: {
-      baseUrl: clean(env('OPENCOST_URL')),
+      baseUrl: toolUrl('opencost', 'OPENCOST_URL'),
       authMode: 'service',
       serviceToken: env('OPENCOST_TOKEN'),
     },
     airbyte: {
-      baseUrl: clean(env('AIRBYTE_URL')),
+      baseUrl: toolUrl('airbyte', 'AIRBYTE_URL'),
       authMode: 'service',
       serviceToken: env('AIRBYTE_TOKEN'),
     },
     // LGTM (Discover): Grafana fronts Loki/Mimir/Tempo via its datasource proxy.
     lgtm: {
-      baseUrl: clean(env('GRAFANA_URL')),
+      baseUrl: toolUrl('grafana', 'GRAFANA_URL'),
       authMode: env('GRAFANA_TOKEN') ? 'service' : env('GRAFANA_PASSWORD') ? 'basic' : 'none',
       serviceToken: env('GRAFANA_TOKEN'),
       username: env('GRAFANA_USERNAME') ?? 'admin',
       password: env('GRAFANA_PASSWORD'),
     },
     posthog: {
-      baseUrl: clean(env('POSTHOG_URL')),
+      baseUrl: toolUrl('posthog', 'POSTHOG_URL'),
       authMode: 'service',
       serviceToken: env('POSTHOG_TOKEN'),
     },
     coder: {
-      baseUrl: clean(env('CODER_URL')),
+      baseUrl: toolUrl('coder', 'CODER_URL'),
       authMode: (env('CODER_AUTH_MODE') as AuthMode) ?? 'user',
       serviceToken: env('CODER_TOKEN'),
     },
     trivy: {
-      baseUrl: clean(env('TRIVY_URL') ?? env('HARBOR_URL')),
+      baseUrl: toolUrl('trivy', 'TRIVY_URL', 'HARBOR_URL'),
       authMode: 'service',
       serviceToken: env('TRIVY_TOKEN') ?? env('HARBOR_TOKEN'),
     },
     falco: {
-      baseUrl: clean(env('FALCO_URL')),
+      baseUrl: toolUrl('falco', 'FALCO_URL'),
       authMode: 'service',
       serviceToken: env('FALCO_TOKEN'),
     },
@@ -215,56 +216,56 @@ export function getToolRegistry(): Record<string, ToolDef> {
     // their data flows through the `k8s` tool. These entries exist only so the
     // proxy returns a clear "not configured" rather than "unknown tool" if a
     // caller ever addresses them directly.
-    kyverno: { baseUrl: clean(env('KYVERNO_URL')), authMode: 'service', serviceToken: env('KYVERNO_TOKEN') },
-    crossplane: { baseUrl: clean(env('CROSSPLANE_URL')), authMode: 'service', serviceToken: env('CROSSPLANE_TOKEN') },
+    kyverno: { baseUrl: toolUrl('kyverno', 'KYVERNO_URL'), authMode: 'service', serviceToken: env('KYVERNO_TOKEN') },
+    crossplane: { baseUrl: toolUrl('crossplane', 'CROSSPLANE_URL'), authMode: 'service', serviceToken: env('CROSSPLANE_TOKEN') },
     // ── Launcher-discoverable tools ──────────────────────────────────────────
     // The entries below primarily back the app launcher's dynamic discovery:
     // `/api/config` (via publicToolInfo) reports configured + external URL so
     // the client can render a real link — or an honest "not set up" tile —
     // per environment. Addressing one through the proxy returns a clear
     // "not configured" 503 instead of "unknown tool".
-    keycloak: { baseUrl: clean(env('KEYCLOAK_URL')), authMode: 'none' },
+    keycloak: { baseUrl: toolUrl('keycloak', 'KEYCLOAK_URL'), authMode: 'none' },
     // Hubble UI (Cilium network flows) + Kafka UI — browser UIs surfaced in the
     // app launcher. Configured when their <TOOL>_URL is set on the deployment.
-    hubble: { baseUrl: clean(env('HUBBLE_URL')), authMode: 'none' },
-    'kafka-ui': { baseUrl: clean(env('KAFKA_UI_URL')), authMode: 'none' },
-    jupyterhub: { baseUrl: clean(env('JUPYTERHUB_URL')), authMode: 'none' },
+    hubble: { baseUrl: toolUrl('hubble', 'HUBBLE_URL'), authMode: 'none' },
+    'kafka-ui': { baseUrl: toolUrl('kafka-ui', 'KAFKA_UI_URL'), authMode: 'none' },
+    jupyterhub: { baseUrl: toolUrl('jupyterhub', 'JUPYTERHUB_URL'), authMode: 'none' },
     // Browser UIs the platform deploys (set on the console Deployment) that had
     // no registry entry, so the app launcher could never discover them even
     // though they were running. `none` auth — they front their own login.
-    tooljet: { baseUrl: clean(env('TOOLJET_URL')), authMode: 'none' },
-    penpot: { baseUrl: clean(env('PENPOT_URL')), authMode: 'none' },
-    opensearch: { baseUrl: clean(env('OPENSEARCH_URL')), authMode: 'none' },
-    vault: { baseUrl: clean(env('VAULT_URL')), authMode: 'service', serviceToken: env('VAULT_TOKEN') },
-    tekton: { baseUrl: clean(env('TEKTON_URL')), authMode: 'service', serviceToken: env('TEKTON_TOKEN') },
+    tooljet: { baseUrl: toolUrl('tooljet', 'TOOLJET_URL'), authMode: 'none' },
+    penpot: { baseUrl: toolUrl('penpot', 'PENPOT_URL'), authMode: 'none' },
+    opensearch: { baseUrl: toolUrl('opensearch', 'OPENSEARCH_URL'), authMode: 'none' },
+    vault: { baseUrl: toolUrl('vault', 'VAULT_URL'), authMode: 'service', serviceToken: env('VAULT_TOKEN') },
+    tekton: { baseUrl: toolUrl('tekton', 'TEKTON_URL'), authMode: 'service', serviceToken: env('TEKTON_TOKEN') },
     // RustFS is the platform's S3-compatible store; MINIO_URL kept as the
     // conventional var name with RUSTFS_URL as an alias.
     minio: {
-      baseUrl: clean(env('MINIO_URL') ?? env('RUSTFS_URL')),
+      baseUrl: toolUrl('minio', 'MINIO_URL', 'RUSTFS_URL'),
       authMode: 'service',
       serviceToken: env('MINIO_TOKEN') ?? env('RUSTFS_TOKEN'),
     },
-    iceberg: { baseUrl: clean(env('ICEBERG_URL')), authMode: 'service', serviceToken: env('ICEBERG_TOKEN') },
-    otel: { baseUrl: clean(env('OTEL_URL')), authMode: 'none' },
+    iceberg: { baseUrl: toolUrl('iceberg', 'ICEBERG_URL'), authMode: 'service', serviceToken: env('ICEBERG_TOKEN') },
+    otel: { baseUrl: toolUrl('otel', 'OTEL_URL'), authMode: 'none' },
     // Raw LGTM endpoints (see .env.example). UI deep-links go through Grafana
     // Explore; these report the API hosts so availability is env-accurate.
     // Loki / Mimir / Tempo run multi-tenant behind their gateways and reject
     // requests without `X-Scope-OrgID`; `<TOOL>_TENANT` (default `anonymous`
     // for Mimir, unset = single-tenant for Loki/Tempo) sets it.
     loki: {
-      baseUrl: clean(env('LOKI_URL')),
+      baseUrl: toolUrl('loki', 'LOKI_URL'),
       authMode: 'service',
       serviceToken: env('LOKI_TOKEN'),
       headers: tenantHeader(env('LOKI_TENANT')),
     },
     mimir: {
-      baseUrl: clean(env('MIMIR_URL')),
+      baseUrl: toolUrl('mimir', 'MIMIR_URL'),
       authMode: 'service',
       serviceToken: env('MIMIR_TOKEN'),
       headers: tenantHeader(env('MIMIR_TENANT') ?? 'anonymous'),
     },
     tempo: {
-      baseUrl: clean(env('TEMPO_URL')),
+      baseUrl: toolUrl('tempo', 'TEMPO_URL'),
       authMode: 'service',
       serviceToken: env('TEMPO_TOKEN'),
       headers: tenantHeader(env('TEMPO_TENANT')),
@@ -274,7 +275,7 @@ export function getToolRegistry(): Record<string, ToolDef> {
     prometheus: env('PROMETHEUS_URL')
       ? { baseUrl: clean(env('PROMETHEUS_URL')), authMode: 'service', serviceToken: env('PROMETHEUS_TOKEN') }
       : {
-          baseUrl: env('MIMIR_URL') ? `${clean(env('MIMIR_URL'))}/prometheus` : '',
+          baseUrl: env('MIMIR_URL') ? `${toolUrl('mimir', 'MIMIR_URL')}/prometheus` : '',
           authMode: 'service',
           serviceToken: env('PROMETHEUS_TOKEN') ?? env('MIMIR_TOKEN'),
           headers: tenantHeader(env('MIMIR_TENANT') ?? 'anonymous'),

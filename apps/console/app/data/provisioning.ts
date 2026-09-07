@@ -44,6 +44,8 @@ export interface CreateOrgResult {
   detail?: string
   /** Real per-system tenant provisioning results (namespace, keycloak, …). */
   provisioning?: ProvisionStepResult[]
+  /** Async provisioning job — watch it, or close the tab and get notified. */
+  job?: ProvisioningJob
 }
 
 /** Outcome of a single tool toggle. `unavailable` = honestly requested, no backend here. */
@@ -72,8 +74,31 @@ async function readJson(res: Response): Promise<Record<string, unknown>> {
   }
 }
 
+/**
+ * Ask the BFF whether the session is still valid. Used to tell a *recoverable*
+ * expiry apart from never having been signed in — mid-onboarding the user is
+ * signed in, so "unauthenticated" must never be the story we tell them.
+ */
+export async function sessionAlive(): Promise<boolean> {
+  try {
+    const res = await fetch('/api/auth/session', { credentials: 'same-origin', headers: { accept: 'application/json' } })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+/** Send the user through a fresh sign-in and come back to where they were. */
+export function reauthenticate(returnTo?: string): void {
+  const target = returnTo ?? globalThis.location.pathname + globalThis.location.search
+  globalThis.location.assign(`/api/auth/login?returnTo=${encodeURIComponent(target)}`)
+}
+
 /** Create + activate a new organization via the real BFF endpoint. */
-export async function createOrganization(name: string): Promise<CreateOrgResult> {
+export async function createOrganization(
+  name: string,
+  contact: { email?: string; name?: string } = {},
+): Promise<CreateOrgResult> {
   const trimmed = name.trim()
   if (!trimmed) return { ok: false, status: 0, error: 'name_required', detail: 'Organization name is required.' }
   let res: Response
@@ -82,7 +107,7 @@ export async function createOrganization(name: string): Promise<CreateOrgResult>
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ name: trimmed }),
+      body: JSON.stringify({ name: trimmed, contactEmail: contact.email, contactName: contact.name }),
     })
   } catch (e) {
     return {
@@ -113,6 +138,39 @@ export async function createOrganization(name: string): Promise<CreateOrgResult>
     provisioning: Array.isArray(body.provisioning)
       ? (body.provisioning as ProvisionStepResult[])
       : undefined,
+    job: (body.job as ProvisioningJob | null) ?? undefined,
+  }
+}
+
+/* ─────────── async provisioning job ─────────── */
+
+export interface ProvisioningJob {
+  id: string
+  orgId?: string
+  orgName?: string
+  status: 'running' | 'succeeded' | 'partial' | 'failed'
+  steps?: ProvisionStepResult[]
+  startedAt?: string
+  finishedAt?: string
+  emailStatus?: 'sent' | 'not_configured' | 'failed' | 'skipped'
+  notifiedEmail?: string
+}
+
+/**
+ * Poll one provisioning job. Provisioning runs server-side, so the user may
+ * close the tab: this is only for the live progress view.
+ */
+export async function getProvisioningJob(id: string): Promise<ProvisioningJob | null> {
+  try {
+    const res = await fetch(`/api/organizations/provisioning/${encodeURIComponent(id)}`, {
+      credentials: 'same-origin',
+      headers: { accept: 'application/json' },
+    })
+    if (!res.ok) return null
+    const body = await readJson(res)
+    return (body.job as ProvisioningJob) ?? null
+  } catch {
+    return null
   }
 }
 

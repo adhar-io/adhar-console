@@ -95,3 +95,70 @@ export function usePlaneWorkspace(): string {
 export function useHarborProject(): string {
   return useAppConfig().data?.harborProject || APP_CONFIG_DEFAULTS.harborProject
 }
+
+/**
+ * Rewrite a URL a backend reported with an IN-CLUSTER host (Gitea's
+ * `html_url`, Harbor's registry host, …) into one the BROWSER can open.
+ *
+ * The BFF reaches tools at `http://<svc>.<ns>.svc.cluster.local:<port>`, so
+ * anything they self-report carries that host — a dead link in the UI. We keep
+ * the path and swap the origin for the tool's public URL (`/api/config.tools`)
+ * or `<tool>.<publicBaseDomain>`. Returns the input unchanged when it is
+ * already public or nothing better is known.
+ */
+export function toPublicUrl(raw: string, opts: { toolUrl?: string; tool?: string; baseDomain?: string; protocol?: string }): string {
+  if (!raw) return raw
+  let u: URL
+  try {
+    u = new URL(raw)
+  } catch {
+    return raw
+  }
+  if (!isInternalHost(u.host)) return raw
+  const proto = opts.protocol ?? (typeof location !== 'undefined' ? location.protocol : 'https:')
+  let origin = ''
+  if (opts.toolUrl) {
+    try {
+      const t = new URL(opts.toolUrl)
+      if (!isInternalHost(t.host)) origin = t.origin
+    } catch {
+      /* ignore malformed */
+    }
+  }
+  if (!origin && opts.tool && opts.baseDomain) origin = `${proto}//${opts.tool}.${opts.baseDomain}`
+  if (!origin) return raw
+  return `${origin.replace(/\/$/, '')}${u.pathname}${u.search}${u.hash}`
+}
+
+/** Service DNS / localhost / bare hostnames a browser can't resolve. */
+function isInternalHost(host: string): boolean {
+  const h = host.split(':')[0]
+  return (
+    h.endsWith('.svc') ||
+    h.endsWith('.svc.cluster.local') ||
+    h.endsWith('.local') ||
+    h === 'localhost' ||
+    h === '127.0.0.1' ||
+    !h.includes('.')
+  )
+}
+
+/**
+ * Public, browser-openable base URL for a backing tool (empty when unknown).
+ * Prefers what `/api/config` reports, else `<tool>.<publicBaseDomain>`.
+ */
+export function useToolPublicUrl(tool: string): string {
+  const cfg = useAppConfig().data
+  const base = usePublicBaseDomain()
+  const reported = cfg?.tools?.[tool]?.url ?? ''
+  if (reported && !isInternalHost(safeHost(reported))) return reported.replace(/\/$/, '')
+  return base ? `${typeof location !== 'undefined' ? location.protocol : 'https:'}//${tool}.${base}` : ''
+}
+
+function safeHost(u: string): string {
+  try {
+    return new URL(u).host
+  } catch {
+    return ''
+  }
+}

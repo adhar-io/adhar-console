@@ -2,6 +2,7 @@ import { env } from '@adhar-console/utils'
 import { isServerAuthConfigured } from '@adhar-console/auth/server'
 import { publicToolInfo } from './tool-registry.ts'
 import { discoverRoutedApps } from './app-discovery.ts'
+import { consolePublicUrl, platformDomain } from './domain.ts'
 
 /**
  * The single source of truth for `GET /api/config` — non-secret runtime
@@ -26,24 +27,14 @@ import { discoverRoutedApps } from './app-discovery.ts'
  * client then falls back to its own origin.
  */
 export function publicBaseDomain(): string {
-  const explicit = (env('ADHAR_BASE_DOMAIN') ?? env('BASE_DOMAIN') ?? '').trim()
-  if (explicit) return explicit.replace(/^https?:\/\//, '').replace(/\/$/, '')
-  try {
-    const host = new URL(env('AUTH_PUBLIC_URL') ?? '').host
-    const rest = host.split('.').slice(1).join('.')
-    return rest.includes('.') ? rest : ''
-  } catch {
-    return ''
-  }
+  // Single source of truth: the platform domain the install was configured
+  // with (ADHAR_DOMAIN, else derived from the control-plane / console URL).
+  return platformDomain()?.host ?? ''
 }
 
 /** Public scheme the platform is served on (from AUTH_PUBLIC_URL; https by default). */
 function publicProtocol(): string {
-  try {
-    return new URL(env('AUTH_PUBLIC_URL') ?? '').protocol || 'https:'
-  } catch {
-    return 'https:'
-  }
+  return platformDomain()?.protocol ?? 'https:'
 }
 
 export async function buildPublicConfig(): Promise<Record<string, unknown>> {
@@ -76,6 +67,9 @@ export async function buildPublicConfig(): Promise<Record<string, unknown>> {
       env('PLANE_WORKSPACE') ?? env('PLANE_WORKSPACE_SLUG') ?? env('GITEA_TEMPLATES_ORG') ?? env('GITEA_ORG') ?? 'adhar',
     docsBaseUrl: env('DOCS_BASE_URL') ?? env('DOCS_URL') ?? 'https://docs.adhar.io',
     publicBaseDomain: base,
+    // The one URL an install configures; the client derives tool hosts from it
+    // exactly the way the server does.
+    consoleUrl: consolePublicUrl(),
     // What the gateway exposes under the base domain, for the launcher and
     // for diagnosing "why isn't app X showing up" (`namespace/route`).
     discoveredApps: discovered.map(({ id, url, route }) => ({ id, url, route })),

@@ -18,12 +18,17 @@ import {
   PrometheusIcon,
   StatusBadge,
   TempoIcon,
+  usePlatformApps,
 } from '@adhar-console/shell-ui'
 import { useAuth, type Session } from '@adhar-console/auth'
 import { BACKING_TOOLS } from '@adhar-console/platform-info'
 import { cn } from '@adhar-console/utils'
 import {
   createOrganization,
+  getProvisioningJob,
+  reauthenticate,
+  sessionAlive,
+  type ProvisioningJob,
   toggleTool,
   type CreatedOrg,
   type ProvisionStepResult,
@@ -40,6 +45,9 @@ type Step = 0 | 1 | 2 | 3 | 4
 interface State {
   orgName: string
   orgDescription: string
+  /** Who we notify when provisioning finishes (also stored on the org). */
+  contactName: string
+  contactEmail: string
   /** Tool ids selected to enable for the org (BACKING_TOOLS ids). */
   selectedTools: Set<string>
 }
@@ -50,6 +58,8 @@ const DEFAULT_SELECTED = new Set(['gitea', 'plane', 'argocd', 'kargo', 'harbor',
 const DEFAULT: State = {
   orgName: '',
   orgDescription: '',
+  contactName: '',
+  contactEmail: '',
   selectedTools: new Set(DEFAULT_SELECTED),
 }
 
@@ -89,7 +99,8 @@ const STEPS: StepDef[] = [
     id: 4,
     eyebrow: 'Provision',
     title: 'Provisioning your workspace',
-    description: 'Watch each step run against the platform in real time.',
+    description:
+      "This runs on the platform, not in your browser — follow along if you like, or close the page and we'll notify you (and email your workspace contact) the moment it's done.",
   },
 ]
 
@@ -133,6 +144,13 @@ function OnboardingWizard() {
   const { session, setSession } = useAuth()
   const [step, setStep] = useState<Step>(0)
   const [state, setState] = useState<State>(DEFAULT)
+
+  // Prefill the workspace contact from the signed-in user — they can change it.
+  useEffect(() => {
+    const u = session?.user
+    if (!u) return
+    setState((s) => (s.contactEmail || s.contactName ? s : { ...s, contactName: u.name ?? '', contactEmail: u.email ?? '' }))
+  }, [session])
 
   const canContinue = useMemo(() => {
     if (step === 1) return state.orgName.trim().length > 0 && state.orgName.trim().length <= 60
@@ -467,6 +485,36 @@ function StepOrg({
         </p>
       </div>
 
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block">
+          <span className="block text-xs font-semibold uppercase tracking-[0.06em] text-content-subtle">
+            Contact name
+          </span>
+          <input
+            value={state.contactName}
+            onChange={(e) => setState((s) => ({ ...s, contactName: e.target.value }))}
+            placeholder="Who owns this workspace?"
+            maxLength={80}
+            className="mt-1.5 w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2.5 text-sm text-content shadow-sm focus:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-400/20"
+          />
+        </label>
+        <label className="block">
+          <span className="block text-xs font-semibold uppercase tracking-[0.06em] text-content-subtle">
+            Contact email
+          </span>
+          <input
+            type="email"
+            value={state.contactEmail}
+            onChange={(e) => setState((s) => ({ ...s, contactEmail: e.target.value }))}
+            placeholder="you@company.com"
+            className="mt-1.5 w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2.5 text-sm text-content shadow-sm focus:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-400/20"
+          />
+          <span className="mt-1 block text-[11px] text-content-subtle">
+            We email this address when provisioning finishes — you don't have to wait on this page.
+          </span>
+        </label>
+      </div>
+
       <label className="block">
         <span className="block text-xs font-semibold uppercase tracking-[0.06em] text-content-subtle">
           Description <span className="font-normal normal-case text-content-subtle">· optional</span>
@@ -499,17 +547,45 @@ function StepConnect({
     })
   }
 
+  // What the cluster actually exposes right now (HTTPRoute discovery +
+  // /api/config), with real brand logos — the same source the app launcher
+  // uses, so onboarding never advertises a tool this platform doesn't have.
+  const { apps: discovered, loading: appsLoading } = usePlatformApps()
+  const installed = useMemo(() => {
+    const m = new Map<string, { name: string; description: string; icon: ReactNode; url: string }>()
+    for (const a of discovered) {
+      if (!a.configured) continue
+      m.set(a.id, { name: a.name, description: a.description, icon: a.icon, url: a.url })
+      for (const t of a.tools ?? []) m.set(t, { name: a.name, description: a.description, icon: a.icon, url: a.url })
+    }
+    return m
+  }, [discovered])
+
+  // Curated capabilities first (they carry purpose/version), then anything the
+  // cluster runs that the curated list doesn't know about.
+  const extras = useMemo(
+    () =>
+      discovered
+        .filter((a) => a.configured && !BACKING_TOOLS.some((t) => t.id === a.id || (a.tools ?? []).includes(t.id)))
+        .map((a) => ({ id: a.id, name: a.name, purpose: a.description, version: '', license: '' })),
+    [discovered],
+  )
+  const catalogue = useMemo(() => [...BACKING_TOOLS, ...extras], [extras])
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between text-xs text-content-muted">
         <span>
           <span className="font-semibold text-content">{state.selectedTools.size}</span> of{' '}
-          {BACKING_TOOLS.length} capabilities selected
+          {catalogue.length} capabilities selected
+          {appsLoading ? null : (
+            <span className="ml-2 text-content-subtle">· {installed.size} already running on your platform</span>
+          )}
         </span>
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => setState((s) => ({ ...s, selectedTools: new Set(BACKING_TOOLS.map((t) => t.id)) }))}
+            onClick={() => setState((s) => ({ ...s, selectedTools: new Set(catalogue.map((t) => t.id)) }))}
             className="font-medium text-brand-700 dark:text-brand-300 hover:text-brand-800 dark:hover:text-brand-300"
           >
             Select all
@@ -524,8 +600,9 @@ function StepConnect({
         </div>
       </div>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {BACKING_TOOLS.map((t) => {
+        {catalogue.map((t) => {
           const on = state.selectedTools.has(t.id)
+          const live = installed.get(t.id)
           return (
             <button
               type="button"
@@ -539,15 +616,22 @@ function StepConnect({
                   : 'border-edge-default bg-surface-raised hover:border-edge-strong hover:shadow-md',
               )}
             >
-              <div className="shrink-0">{toolIcon(t.id, t.name)}</div>
+              {/* Real logo: the discovered app's brand icon when the cluster
+                  runs it, else the curated brand icon, else initials. */}
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center [&>svg]:h-9 [&>svg]:w-9">
+                {live?.icon ?? toolIcon(t.id, t.name)}
+              </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-sm font-semibold text-content">{t.name}</div>
-                  <StatusBadge kind={on ? 'healthy' : 'unknown'}>{on ? 'enable' : 'skip'}</StatusBadge>
+                  <div className="truncate text-sm font-semibold text-content">{t.name}</div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {live ? <StatusBadge kind="healthy" dot={false}>installed</StatusBadge> : null}
+                    <StatusBadge kind={on ? 'healthy' : 'unknown'}>{on ? 'enable' : 'skip'}</StatusBadge>
+                  </div>
                 </div>
-                <div className="truncate text-[11px] text-content-muted">{t.purpose}</div>
-                <div className="mt-1 font-mono text-[10px] text-content-subtle">
-                  v{t.version} · {t.license}
+                <div className="truncate text-[11px] text-content-muted">{live?.description ?? t.purpose}</div>
+                <div className="mt-1 truncate font-mono text-[10px] text-content-subtle">
+                  {live?.url ? new URL(live.url).host : t.version ? `v${t.version} · ${t.license}` : 'discovered on this cluster'}
                 </div>
               </div>
             </button>
@@ -561,6 +645,7 @@ function StepConnect({
 function StepReview({ state, onEdit }: { state: State; onEdit: (s: Step) => void }) {
   const slug = slugPreview(state.orgName.trim())
   const selected = BACKING_TOOLS.filter((t) => state.selectedTools.has(t.id))
+  const extraSelected = [...state.selectedTools].filter((id) => !BACKING_TOOLS.some((t) => t.id === id))
   return (
     <div className="max-w-3xl space-y-5">
       <ReviewRow label="Organization" onEdit={() => onEdit(1)}>
@@ -571,7 +656,7 @@ function StepReview({ state, onEdit }: { state: State; onEdit: (s: Step) => void
         ) : null}
       </ReviewRow>
 
-      <ReviewRow label={`Capabilities (${selected.length})`} onEdit={() => onEdit(2)}>
+      <ReviewRow label={`Capabilities (${state.selectedTools.size})`} onEdit={() => onEdit(2)}>
         {selected.length === 0 ? (
           <div className="text-sm text-content-muted">
             None selected — we'll create the org only. You can enable tools later from the Marketplace.
@@ -583,8 +668,17 @@ function StepReview({ state, onEdit }: { state: State; onEdit: (s: Step) => void
                 key={t.id}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-edge-subtle bg-surface-sunken/60 px-2 py-1 text-[12px] text-content"
               >
-                <span className="flex-none">{toolIcon(t.id, t.name)}</span>
+                <span className="flex-none [&>svg]:h-5 [&>svg]:w-5">{toolIcon(t.id, t.name)}</span>
                 {t.name}
+              </span>
+            ))}
+            {extraSelected.map((id) => (
+              <span
+                key={id}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-edge-subtle bg-surface-sunken/60 px-2 py-1 text-[12px] text-content"
+              >
+                <span className="flex-none [&>svg]:h-5 [&>svg]:w-5">{toolIcon(id, id)}</span>
+                {id}
               </span>
             ))}
           </div>
@@ -693,6 +787,33 @@ function StepProvision({
   const createdOrg = useRef<CreatedOrg | null>(null)
   const orgReachable = useRef(false)
   const started = useRef(false)
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [job, setJob] = useState<ProvisioningJob | null>(null)
+  const [expired, setExpired] = useState(false)
+
+  // Provisioning runs on the server: poll only to *show* progress. The user can
+  // close this page at any time — a notification (and an email) will land when
+  // it finishes.
+  useEffect(() => {
+    if (!jobId) return
+    let alive = true
+    const tick = async () => {
+      const next = await getProvisioningJob(jobId)
+      if (!alive || !next) return
+      setJob(next)
+      if (next.steps?.length) setProv(next.steps)
+      if (next.status !== 'running') {
+        alive = false
+        globalThis.clearInterval(timer)
+      }
+    }
+    const timer = globalThis.setInterval(() => void tick(), 2000)
+    void tick()
+    return () => {
+      alive = false
+      globalThis.clearInterval(timer)
+    }
+  }, [jobId])
 
   function patch(key: string, next: Partial<ProvStep>) {
     setSteps((prev) => prev.map((s) => (s.key === key ? { ...s, ...next } : s)))
@@ -701,18 +822,34 @@ function StepProvision({
   /** Run the org-creation step. Returns true when the org exists (created now or already). */
   async function runOrg(): Promise<boolean> {
     patch('org', { status: 'running', detail: undefined })
-    const res = await createOrganization(state.orgName)
+    const res = await createOrganization(state.orgName, { email: state.contactEmail, name: state.contactName })
     if (res.ok && res.org) {
       createdOrg.current = res.org
       orgReachable.current = true
       setProv(res.provisioning ?? [])
+      setJobId(res.job?.id ?? null)
       patch('org', {
         status: 'done',
         detail: `Created and activated · id ${res.org.id}`,
       })
       return true
     }
-    orgReachable.current = res.status !== 0 && res.status !== 401 && res.status !== 503
+    // A 401 mid-onboarding means the SESSION aged out, not that the user was
+    // never signed in — say so, and offer a one-click reconnect that returns
+    // here with the wizard intact.
+    if (res.status === 401) {
+      const alive = await sessionAlive()
+      setExpired(!alive)
+      patch('org', {
+        status: 'failed',
+        detail: alive
+          ? 'The console rejected the request even though your session is valid — retry, and check the server logs if it persists.'
+          : 'Your sign-in session expired while you were setting things up. Reconnect to continue — nothing you entered is lost.',
+      })
+      orgReachable.current = false
+      return false
+    }
+    orgReachable.current = res.status !== 0 && res.status !== 503
     patch('org', {
       status: 'failed',
       detail: res.detail ?? res.error ?? 'Organization creation failed.',
@@ -831,6 +968,51 @@ function StepProvision({
 
   return (
     <div className="space-y-6">
+      {/* Session aged out mid-flow — recoverable, and NOT "unauthenticated". */}
+      {expired ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-[13px] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+          <IconInfo />
+          <span className="min-w-0 flex-1">
+            Your sign-in session expired while you were setting things up. Reconnect and we'll bring
+            you straight back here — your organization name and capability choices are kept.
+          </span>
+          <Button size="sm" onClick={() => reauthenticate('/onboarding')}>
+            Reconnect
+          </Button>
+        </div>
+      ) : null}
+
+      {/* Provisioning is server-side: the page is a viewer, not the driver. */}
+      {jobId ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-edge-default bg-surface-raised px-4 py-3 text-[13px] text-content-muted">
+          <span className={cn('h-2 w-2 shrink-0 rounded-full', job?.status === 'running' || !job ? 'animate-pulse bg-brand-500' : job.status === 'succeeded' ? 'bg-emerald-500' : job.status === 'partial' ? 'bg-amber-500' : 'bg-rose-500')} />
+          <span className="min-w-0 flex-1">
+            {job?.status === 'running' || !job ? (
+              <>
+                Provisioning is running on the platform. <span className="font-medium text-content">You can close this page</span> — we'll
+                post a notification{state.contactEmail ? <> and email <span className="font-medium text-content">{state.contactEmail}</span></> : null} when it finishes.
+              </>
+            ) : job.status === 'succeeded' ? (
+              <>
+                Provisioning finished.{' '}
+                {job.emailStatus === 'sent'
+                  ? `A confirmation was emailed to ${job.notifiedEmail}.`
+                  : job.emailStatus === 'not_configured'
+                    ? 'Email delivery is not configured on this platform, so nothing was sent.'
+                    : job.emailStatus === 'failed'
+                      ? 'The confirmation email could not be delivered — check the notification for details.'
+                      : ''}
+              </>
+            ) : (
+              <>Provisioning finished with items that need attention — see the steps below and the notification.</>
+            )}
+          </span>
+          <Button size="sm" variant="secondary" onClick={navHome}>
+            Go to the console
+          </Button>
+        </div>
+      ) : null}
+
       {/* Progress header */}
       <div>
         <div className="flex items-center justify-between text-xs">

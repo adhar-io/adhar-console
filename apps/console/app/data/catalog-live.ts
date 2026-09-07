@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { gitea, k8s } from '@adhar-console/api-clients'
-import { useGiteaOrg } from '@adhar-console/shell-ui'
+import { toPublicUrl, useGiteaOrg, usePublicBaseDomain, useToolPublicUrl } from '@adhar-console/shell-ui'
 import {
   type ApiType,
   type ComponentType,
@@ -272,8 +272,12 @@ function repoLanguageType(name?: string): ComponentType {
   return 'service'
 }
 
-function repoToComponent(repo: gitea.Repo): Entity {
+function repoToComponent(repo: gitea.Repo, publicBase: { toolUrl?: string; baseDomain?: string } = {}): Entity {
   const created = repo.updated_at
+  // Gitea reports `html_url` with the host the BFF used to reach it — an
+  // in-cluster Service address the browser cannot open. Rewrite it to the
+  // public Gitea host so "Source" links actually work.
+  const sourceUrl = toPublicUrl(repo.html_url, { tool: 'gitea', toolUrl: publicBase.toolUrl, baseDomain: publicBase.baseDomain })
   return live({
     apiVersion: 'backstage.io/v1alpha1',
     kind: 'Component',
@@ -283,7 +287,7 @@ function repoToComponent(repo: gitea.Repo): Entity {
       title: repo.name,
       description: repo.description || `Repository ${repo.full_name}.`,
       tags: repo.language ? [repo.language.toLowerCase(), 'repo'] : ['repo'],
-      links: [{ url: repo.html_url, title: 'Source', icon: 'repo' }],
+      links: [{ url: sourceUrl, title: 'Source', icon: 'repo' }],
       createdAt: created,
       updatedAt: created,
     },
@@ -397,6 +401,9 @@ function inUserNamespace(obj: { metadata?: { namespace?: string } }): boolean {
 export function useLiveCatalog(): LiveCatalog {
   // Org whose repos are surfaced as Components — runtime config, never hardcoded.
   const giteaOrgName = useGiteaOrg()
+  // Public Gitea origin for browser-facing repo links.
+  const giteaPublicUrl = useToolPublicUrl('gitea')
+  const publicBaseDomain = usePublicBaseDomain()
   const deployments = useQuery({
     queryKey: ['catalog', 'live', 'deployments'],
     queryFn: () => kubeClient.listDeployments(),
@@ -441,7 +448,7 @@ export function useLiveCatalog(): LiveCatalog {
       .filter((s) => s.metadata?.name !== 'kubernetes')
       .map(serviceToResource)
     const apis = ings.map(ingressToApi)
-    const repoComponents = gitRepos.map(repoToComponent)
+    const repoComponents = gitRepos.map((r) => repoToComponent(r, { toolUrl: giteaPublicUrl, baseDomain: publicBaseDomain }))
 
     // De-dupe: a k8s workload and its repo may share a name — k8s wins, but we
     // fold the repo link in so the source URL isn't lost.
@@ -505,6 +512,8 @@ export function useLiveCatalog(): LiveCatalog {
       hasLive: byRef.size > 0,
     }
   }, [
+    giteaPublicUrl,
+    publicBaseDomain,
     deployments.data,
     deployments.isError,
     deployments.isLoading,

@@ -391,6 +391,17 @@ function GenericAppIcon(_props: { label: string }) {
  * the BFF reports configured but that have no client metadata still surface
  * as generic tiles, so discovery is complete in both directions.
  */
+/**
+ * Every platform app the running cluster actually exposes, with real brand
+ * logos: the curated registry below merged with `/api/config` (configured
+ * flag + authoritative URL) and with tools discovered from the cluster's
+ * HTTPRoutes that have no client metadata. Used by the app launcher AND by
+ * onboarding, so both show the same dynamically-discovered list.
+ */
+export function usePlatformApps(apps: AppLink[] = DEFAULT_APP_LINKS): { apps: ResolvedApp[]; loading: boolean } {
+  return useResolvedApps(apps)
+}
+
 function useResolvedApps(apps: AppLink[]): { apps: ResolvedApp[]; loading: boolean } {
   const [tools, setTools] = useState<Record<string, ToolInfo> | null>(null)
   const [publicBase, setPublicBase] = useState('')

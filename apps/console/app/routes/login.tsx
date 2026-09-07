@@ -133,11 +133,20 @@ function LoginPage() {
             </span>
           </div>
 
-          <div className="relative overflow-hidden rounded-2xl border border-edge-default bg-surface-raised/95 p-7 shadow-xl shadow-black/6 ring-1 ring-black/3 backdrop-blur dark:shadow-black/40 dark:ring-white/6 sm:p-8">
-            {/* Top brand accent hairline */}
+          <div className="relative overflow-hidden rounded-3xl border border-edge-default bg-surface-raised/95 p-7 shadow-2xl shadow-black/10 ring-1 ring-black/5 backdrop-blur-xl dark:shadow-black/50 dark:ring-white/8 sm:p-9">
+            {/* Brand accent: a soft top glow plus a hairline, so the card reads
+                as the lit surface of the page rather than a plain box. */}
             <span
               aria-hidden
-              className="pointer-events-none absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-brand-500/60 to-transparent"
+              className="pointer-events-none absolute inset-x-0 -top-24 h-40 opacity-70 blur-2xl"
+              style={{
+                backgroundImage:
+                  'radial-gradient(60% 100% at 50% 100%, color-mix(in oklch, var(--color-brand-500) 28%, transparent), transparent 70%)',
+              }}
+            />
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-brand-500/70 to-transparent"
             />
 
             {/* Seamless redirect overlay — covers the card while we hand off to
@@ -152,17 +161,43 @@ function LoginPage() {
               </div>
             ) : null}
 
-            <div className="space-y-1.5">
+            <div className="relative space-y-2">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-brand-700 ring-1 ring-inset ring-brand-200 dark:bg-brand-500/10 dark:text-brand-300 dark:ring-brand-500/25">
-                Internal Developer Platform
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-400 opacity-70" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-brand-500" />
+                </span>
+                Your platform, one console
               </span>
-              <h1 className="pt-1 text-2xl font-semibold tracking-tight text-content">
-                {configured ? 'Welcome back' : 'Explore the console'}
+              <h1 className="pt-1 text-[27px] font-semibold leading-tight tracking-tight text-content">
+                {configured ? (
+                  <>
+                    Welcome back to <span className="bg-linear-to-r from-brand-600 to-accent-600 bg-clip-text text-transparent">Adhar</span>
+                  </>
+                ) : (
+                  'Explore the console'
+                )}
               </h1>
-              <p className="text-sm text-content-muted">
-                Sign in to ship, operate, and observe — the whole software lifecycle in one
-                Kubernetes-native console.
+              <p className="text-[13.5px] leading-relaxed text-content-muted">
+                Design, build, ship and operate every service from one place — with your
+                Kubernetes clusters, GitOps delivery, policies and telemetry already wired
+                together.
               </p>
+              {/* What sign-in actually gets you — concrete, not marketing filler. */}
+              <ul className="grid gap-1.5 pt-2 text-[12.5px] text-content-muted">
+                {[
+                  'Single sign-on — your Kubernetes RBAC applies everywhere',
+                  'Golden paths, GitOps delivery and live cluster operations',
+                  'Logs, metrics, traces, policy and cost in one lifecycle view',
+                ].map((line) => (
+                  <li key={line} className="flex items-start gap-2">
+                    <span className="mt-[3px] text-brand-600 dark:text-brand-400">
+                      <IconCheckSmall />
+                    </span>
+                    <span>{line}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
 
             {localError ? (
@@ -406,6 +441,14 @@ function IconAlert() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-px shrink-0" aria-hidden>
       <circle cx="12" cy="12" r="10" />
       <path d="M12 8v4M12 16h.01" />
+    </svg>
+  )
+}
+
+function IconCheckSmall() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0">
+      <path d="M20 6 9 17l-5-5" />
     </svg>
   )
 }

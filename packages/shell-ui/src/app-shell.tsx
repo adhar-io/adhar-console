@@ -3,6 +3,7 @@ import { Sidebar } from './sidebar.tsx'
 import { Topbar } from './topbar.tsx'
 import { ErrorBoundary } from './error-boundary.tsx'
 import { CommandPalette, type CommandItem } from './command-palette.tsx'
+import { CLOSE_EVENT, OPEN_EVENT } from './ai-assistant.tsx'
 import { cn } from '@adhar-console/utils'
 import type { NavSection } from './nav-tree.tsx'
 import type { AppLink } from './app-launcher.tsx'
@@ -70,10 +71,33 @@ export function AppShell({
   const [paletteOpen, setPaletteOpen] = useState(false)
   const openPalette = commandPaletteEnabled ? () => setPaletteOpen(true) : undefined
 
+  // Adhar Assist is the ⌘K overlay — any remote can open it via the
+  // `adhar:ai:open` event (the floating launcher, `useAi().ask()`, AiButton).
+  useEffect(() => {
+    if (!commandPaletteEnabled || typeof document === 'undefined') return
+    const onOpen = () => setPaletteOpen(true)
+    const onClose = () => setPaletteOpen(false)
+    // ⌘K / Ctrl+K toggles the overlay from anywhere.
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen((o) => !o)
+      }
+    }
+    globalThis.addEventListener(OPEN_EVENT, onOpen)
+    globalThis.addEventListener(CLOSE_EVENT, onClose)
+    globalThis.addEventListener('keydown', onKey)
+    return () => {
+      globalThis.removeEventListener(OPEN_EVENT, onOpen)
+      globalThis.removeEventListener(CLOSE_EVENT, onClose)
+      globalThis.removeEventListener('keydown', onKey)
+    }
+  }, [commandPaletteEnabled])
+
   // Close the mobile drawer if the viewport grows past lg — the sidebar
   // becomes permanent and the overlay would otherwise trap clicks.
   useEffect(() => {
-    if (typeof window === 'undefined') return
+    if (typeof document === 'undefined') return
     const mq = window.matchMedia('(min-width: 1024px)')
     const onChange = () => {
       if (mq.matches) setMobileOpen(false)
@@ -100,8 +124,8 @@ export function AppShell({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setMobileOpen(false)
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    globalThis.addEventListener('keydown', onKey)
+    return () => globalThis.removeEventListener('keydown', onKey)
   }, [mobileOpen])
 
   return (

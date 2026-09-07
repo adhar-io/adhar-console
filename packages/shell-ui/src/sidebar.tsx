@@ -103,19 +103,7 @@ export function Sidebar({
     else setInternalCollapsed(next)
   }
 
-  // ⌘K listener lives here so it fires even when the Topbar button is
-  // invisible on smaller viewports.
-  useEffect(() => {
-    if (!onOpenCommandPalette) return
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault()
-        onOpenCommandPalette()
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [onOpenCommandPalette])
+  // ⌘K is handled once, in AppShell (it toggles the Adhar Assist overlay).
 
   // Two-key Vim-style shortcut sequences declared on nav items via the
   // `shortcut` field (e.g. "g h"). The dispatcher is global so the user

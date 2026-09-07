@@ -1,7 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { cn } from '@adhar-console/utils'
 import { DEFAULT_NAV, type NavItem, type NavSection } from './nav-tree.tsx'
+import { assistStore, useAssist, type AssistTurn } from './assist-store.ts'
+import { consumePendingAsk, SparkIcon } from './ai-assistant.tsx'
+import { useSelection } from './selection-store.ts'
+import type { AiMode, AiProposal } from './ai.ts'
 
 export interface CommandPaletteProps {
   open: boolean
@@ -19,733 +23,686 @@ export interface CommandItem {
   to?: string
   search?: Record<string, unknown>
   group?: string
-  icon?: React.ReactNode
+  icon?: ReactNode
   /** Custom action — runs instead of navigating. */
   onSelect?(): void
   keywords?: string[]
 }
 
 /**
- * Keyboard-driven command palette with a built-in AI lane.
+ * Adhar Assist — the ⌘K overlay, and the primary way to talk to the platform.
  *
- *   • Search mode (default) — instant fuzzy match across the nav + items.
- *   • Ask AI                — at the top of every result list when there's
- *                              a query; pressing Enter on it streams a
- *                              suggestion with structured next-step
- *                              commands derived from the query.
+ * One large surface with two lanes:
+ *   • Conversation (left) — a real LLM chat over `/api/ai/*`: streamed
+ *     answers rendered as markdown, tool-call chips showing what the model
+ *     read from the cluster (with the user's RBAC), proposals as review-and-
+ *     apply cards, stop / regenerate / copy, modes (Chat · Diagnose · Explain
+ *     · Generate), slash commands (`/go`, `/diagnose`, `/explain`,
+ *     `/generate`, `/new`), context chips (page · cluster · namespace) and a
+ *     conversation history kept in the browser.
+ *   • Navigate (right) — dynamic results for whatever is typed: every page
+ *     and command in the console, ranked live. `⌘⏎` opens the top hit, or
+ *     click any. When AI isn't configured the overlay still works as the
+ *     command palette.
  *
- * Focus UX: the entire modal gets a brand-tinted ring while the input is
- * focused so the user always sees where keyboard focus is, even though the
- * native input outline is suppressed for layout reasons.
+ * The composer has no focus ring/border highlight by design — the surface
+ * itself is the focus.
  */
-export function CommandPalette({
-  open,
-  onClose,
-  items,
-  sections = DEFAULT_NAV,
-}: CommandPaletteProps) {
+export function CommandPalette({ open, onClose, items, sections = DEFAULT_NAV }: CommandPaletteProps) {
+  if (!open) return null
+  return <AssistOverlay onClose={onClose} items={items} sections={sections} />
+}
+
+const MODES: Array<{ id: AiMode; label: string; hint: string }> = [
+  { id: 'chat', label: 'Chat', hint: 'Ask anything about the platform' },
+  { id: 'diagnose', label: 'Diagnose', hint: 'Root-cause a workload' },
+  { id: 'explain', label: 'Explain', hint: 'What is this resource?' },
+  { id: 'generate', label: 'Generate', hint: 'Draft a manifest to review' },
+]
+
+const STARTERS: Array<{ label: string; prompt: string; mode?: AiMode }> = [
+  { label: 'What needs my attention right now?', prompt: 'Scan the cluster for Warning events and unhealthy workloads, group by namespace, and tell me what needs attention first.' },
+  { label: 'Why is a pod crash-looping?', prompt: 'Find pods in CrashLoopBackOff or ImagePullBackOff across the cluster, run diagnostics on the worst one, and explain the root cause.' },
+  { label: 'Are my Argo CD apps in sync?', prompt: 'List Argo CD applications that are OutOfSync or Degraded and explain what is blocking each.' },
+  { label: 'Which policies are being violated?', prompt: 'Summarise Kyverno policy violations: which policies fail most, which namespaces are affected, and what to fix first.' },
+  { label: 'Draft a Deployment', prompt: 'Draft a production-ready Deployment with resource requests/limits, probes, non-root security context and 2 replicas for an image I will name.', mode: 'generate' },
+  { label: 'Explain the current page', prompt: 'Explain what the resource I am looking at does, its current state, and anything an operator should know.', mode: 'explain' },
+]
+
+function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: CommandItem[]; sections: NavSection[] }) {
   const navigate = useNavigate()
-  const [query, setQuery] = useState('')
-  const [active, setActive] = useState(0)
-  const [aiSession, setAiSession] = useState<AiSession | null>(null)
-  const aiHandleRef = useRef<AiStreamHandle | null>(null)
-  const inputRef = useRef<HTMLInputElement | null>(null)
-  const listRef = useRef<HTMLDivElement | null>(null)
-  const lastInput = useRef<'mouse' | 'keyboard'>('keyboard')
+  const state = useAssist()
+  const selection = useSelection()
+  const [input, setInput] = useState('')
+  const [mode, setMode] = useState<AiMode>('chat')
+  const [rail, setRail] = useState<'navigate' | 'history'>('navigate')
+  const [activeNav, setActiveNav] = useState(0)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const threadRef = useRef<HTMLDivElement>(null)
+  const stickToBottom = useRef(true)
 
-  const allItems = useMemo<CommandItem[]>(
-    () => (items && items.length ? items : flattenNav(sections)),
-    [items, sections],
-  )
-  const filtered = useMemo(() => filterItems(allItems, query), [allItems, query])
+  const allItems = useMemo<CommandItem[]>(() => (items && items.length ? items : flattenNav(sections)), [items, sections])
+  const navQuery = input.startsWith('/go ') ? input.slice(4) : input
+  const navResults = useMemo(() => filterItems(allItems, navQuery).slice(0, 12), [allItems, navQuery])
+  const page = typeof location !== 'undefined' ? location.pathname : ''
+  const pageItem = useMemo(() => allItems.find((i) => i.to && page.startsWith(i.to) && i.to !== '/') ?? allItems.find((i) => i.to === page), [allItems, page])
 
-  /**
-   * Combined list shown to the user — the AI suggestion is index 0 when
-   * a query is present so Enter on a fresh palette runs AI by default.
-   */
-  type Row =
-    | { kind: 'ai'; query: string }
-    | { kind: 'cmd'; item: CommandItem }
-  const rows = useMemo<Row[]>(() => {
-    if (aiSession) return [] // AI takes over the body
-    const out: Row[] = []
-    if (query.trim().length > 0) {
-      out.push({ kind: 'ai', query: query.trim() })
-    }
-    for (const item of filtered) out.push({ kind: 'cmd', item })
-    return out
-  }, [aiSession, filtered, query])
-
-  // Reset state whenever open flips. Closing also cancels any in-flight
-  // AI stream so its setTimeout chain doesn't bleed into the next session.
+  // Boot: config, pending ask (from useAi().ask / AiButton), focus.
   useEffect(() => {
-    if (open) {
-      setQuery('')
-      setActive(0)
-      setAiSession(null)
-      lastInput.current = 'keyboard'
-      const id = requestAnimationFrame(() => inputRef.current?.focus())
-      return () => cancelAnimationFrame(id)
+    void assistStore.loadConfig()
+    const pending = consumePendingAsk()
+    if (pending) {
+      const m = pending.mode ?? 'chat'
+      setMode(m)
+      assistStore.run(m, {
+        prompt: pending.prompt,
+        context: pending.context,
+        userLabel: m === 'chat' ? pending.prompt : pending.title ?? MODES.find((x) => x.id === m)?.label,
+        title: pending.title,
+      })
     }
-    aiHandleRef.current?.cancel()
-    aiHandleRef.current = null
-  }, [open])
-
-  // Final-cleanup safety net for unmount.
-  useEffect(() => {
-    return () => {
-      aiHandleRef.current?.cancel()
-      aiHandleRef.current = null
-    }
+    const id = requestAnimationFrame(() => inputRef.current?.focus())
+    return () => cancelAnimationFrame(id)
   }, [])
 
-  // Clamp active index as the list changes.
-  useEffect(() => {
-    setActive((i) => Math.min(Math.max(i, 0), Math.max(rows.length - 1, 0)))
-  }, [rows.length])
+  // Keep the thread pinned to the newest message while streaming.
+  useLayoutEffect(() => {
+    const el = threadRef.current
+    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight
+  }, [state.current.turns])
 
   useEffect(() => {
-    if (!open) return
+    setActiveNav(0)
+  }, [navQuery])
+
+  // Keys: Esc closes, ⌘⏎ opens top nav hit, ↑/↓ moves through nav hits when typing.
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault()
-        if (aiSession) {
-          aiHandleRef.current?.cancel()
-          aiHandleRef.current = null
-          setAiSession(null)
-        } else {
-          onClose()
-        }
-      } else if (e.key === 'ArrowDown' || (e.key === 'n' && e.ctrlKey)) {
-        e.preventDefault()
-        lastInput.current = 'keyboard'
-        setActive((i) => Math.min(i + 1, Math.max(rows.length - 1, 0)))
-      } else if (e.key === 'ArrowUp' || (e.key === 'p' && e.ctrlKey)) {
-        e.preventDefault()
-        lastInput.current = 'keyboard'
-        setActive((i) => Math.max(i - 1, 0))
-      } else if (e.key === 'Home') {
-        e.preventDefault()
-        lastInput.current = 'keyboard'
-        setActive(0)
-      } else if (e.key === 'End') {
-        e.preventDefault()
-        lastInput.current = 'keyboard'
-        setActive(Math.max(rows.length - 1, 0))
-      } else if (e.key === 'Enter') {
-        e.preventDefault()
-        const row = rows[active]
-        if (!row) return
-        if (row.kind === 'ai') runAi(row.query)
-        else runItem(row.item)
+        onClose()
       }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, rows, active, aiSession])
+    globalThis.addEventListener('keydown', onKey)
+    return () => globalThis.removeEventListener('keydown', onKey)
+  }, [onClose])
 
-  // Keep the active row in view when keyboard navigating.
-  useLayoutEffect(() => {
-    if (!open || lastInput.current !== 'keyboard') return
-    const root = listRef.current
-    if (!root) return
-    const el = root.querySelector<HTMLElement>(`[data-cmd-idx="${active}"]`)
-    if (!el) return
-    const top = el.offsetTop
-    const bottom = top + el.offsetHeight
-    const viewTop = root.scrollTop
-    const viewBottom = viewTop + root.clientHeight
-    if (top < viewTop) root.scrollTop = top - 4
-    else if (bottom > viewBottom) root.scrollTop = bottom - root.clientHeight + 4
-  }, [active, open, rows.length])
-
-  function runItem(item: CommandItem) {
+  const runItem = (item: CommandItem) => {
     if (item.onSelect) item.onSelect()
     else if (item.to) navigate({ to: item.to, search: item.search as never })
     onClose()
   }
 
-  function runAi(prompt: string) {
-    // Cancel any prior in-flight stream so resubmits don't interleave.
-    aiHandleRef.current?.cancel()
-    setAiSession({ status: 'thinking', prompt, chunks: [], suggestions: [] })
-    aiHandleRef.current = streamAi(prompt, allItems, (next) => setAiSession(next))
+  const submit = () => {
+    const text = input.trim()
+    if (!text) return
+    // Slash commands.
+    if (text === '/new') {
+      assistStore.newChat()
+      setInput('')
+      return
+    }
+    if (text.startsWith('/go')) {
+      const hit = navResults[activeNav] ?? navResults[0]
+      if (hit) runItem(hit)
+      return
+    }
+    let m = mode
+    let prompt = text
+    const slash = /^\/(diagnose|explain|generate|chat)\b\s*/.exec(text)
+    if (slash) {
+      m = slash[1] as AiMode
+      prompt = text.slice(slash[0].length).trim()
+      setMode(m)
+    }
+    if (!state.configured) {
+      // No LLM — behave as the command palette.
+      const hit = navResults[0]
+      if (hit) runItem(hit)
+      return
+    }
+    if (state.busy) return
+    setInput('')
+    stickToBottom.current = true
+    assistStore.run(m, {
+      prompt: prompt || undefined,
+      userLabel: m === 'chat' ? prompt : `${MODES.find((x) => x.id === m)?.label}${prompt ? `: ${prompt}` : ''}`,
+    })
   }
 
-  if (!open) return null
+  const turns = state.current.turns
+  const hasThread = turns.length > 0
+  const ctxChips = [
+    pageItem ? { k: 'page', v: pageItem.label } : null,
+    { k: 'cluster', v: selection.cluster || 'local' },
+    { k: 'namespace', v: selection.namespace || 'all' },
+    state.context?.name ? { k: state.context.kind ?? state.context.resource, v: state.context.name } : null,
+  ].filter(Boolean) as Array<{ k: string; v: string }>
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Command palette"
-      className="fixed inset-0 z-[70] flex items-start justify-center px-4 pt-[14vh]"
-    >
-      <div
-        className="fade-in absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]"
-        onClick={onClose}
-        aria-hidden
-      />
-      <div
-        className={cn(
-          'pop-in relative w-full max-w-xl overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-[0_30px_60px_-15px_rgba(15,23,42,0.35)]',
-        )}
-        onMouseMove={() => {
-          lastInput.current = 'mouse'
-        }}
-      >
-        <div className="flex items-center gap-3 border-b border-edge-subtle px-4">
-          <span className={cn('shrink-0 transition-colors', aiSession ? 'text-brand-600' : 'text-content-subtle')}>
-            {aiSession ? <AiSparkIcon /> : <SearchIcon />}
+    <div role="dialog" aria-modal="true" aria-label="Adhar Assist" className="fixed inset-0 z-[70] flex items-start justify-center px-3 pt-[6vh] sm:px-6">
+      <div className="fade-in absolute inset-0 bg-slate-950/60 backdrop-blur-[3px]" onClick={onClose} aria-hidden />
+      <div className="pop-in relative flex h-[86vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-app shadow-[0_40px_80px_-20px_rgba(15,23,42,0.5)]">
+        {/* ═══ header ═══ */}
+        <header className="flex items-center gap-3 border-b border-edge-subtle bg-surface-raised px-4 py-2.5">
+          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-linear-to-br from-brand-500 to-accent-500 text-white shadow-sm">
+            <SparkIcon size={15} />
           </span>
-          <input
-            ref={inputRef}
-            type="text"
-            spellCheck={false}
-            autoComplete="off"
-            placeholder={
-              aiSession
-                ? 'Press Esc to return to search'
-                : 'Search anything · or ask AI'
-            }
-            value={aiSession ? aiSession.prompt : query}
-            disabled={Boolean(aiSession)}
-            onChange={(e) => {
-              setQuery(e.target.value)
-              setActive(0)
-              lastInput.current = 'keyboard'
-            }}
-            className={cn(
-              'h-12 w-full border-0 bg-transparent text-[15px] text-content placeholder:text-content-subtle',
-              'outline-none focus:outline-none focus:ring-0',
-              'disabled:cursor-not-allowed disabled:text-content-subtle',
-            )}
-          />
-          {!aiSession && query ? (
-            <button
-              type="button"
-              onClick={() => {
-                setQuery('')
-                inputRef.current?.focus()
-              }}
-              className="rounded-md p-1 text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30"
-              aria-label="Clear search"
-            >
-              <ClearIcon />
-            </button>
-          ) : null}
-          {aiSession ? (
-            <button
-              type="button"
-              onClick={() => {
-                aiHandleRef.current?.cancel()
-                aiHandleRef.current = null
-                setAiSession(null)
-              }}
-              className="rounded-md border border-edge-default px-2 py-0.5 text-[11px] font-medium text-content-muted hover:bg-surface-sunken hover:text-content"
-            >
-              Back to search
-            </button>
-          ) : (
-            <kbd className="hidden h-5 items-center rounded border border-edge-default bg-surface-sunken px-1.5 font-mono text-[10px] font-medium text-content-subtle sm:inline-flex">
-              esc
-            </kbd>
-          )}
-        </div>
+          <div className="min-w-0">
+            <div className="text-[14px] font-semibold tracking-tight text-content">Adhar Assist</div>
+            <div className="truncate text-[11px] text-content-subtle">
+              {state.configured ? `${state.model ? `${state.model} · ` : ''}reads with your RBAC · never applies without approval` : 'AI not configured — search & navigate still work'}
+            </div>
+          </div>
+          <div className="ml-2 hidden flex-wrap items-center gap-1 md:flex">
+            {ctxChips.map((c) => (
+              <span key={c.k} className="inline-flex items-center gap-1 rounded-md bg-surface-sunken px-1.5 py-0.5 text-[10.5px] text-content-muted"><span className="text-content-subtle">{c.k}</span><span className="font-mono text-content">{c.v}</span></span>
+            ))}
+          </div>
+          <div className="ml-auto flex items-center gap-1">
+            <HeaderBtn onClick={() => { assistStore.newChat(); setInput(''); inputRef.current?.focus() }} title="New conversation">
+              <IconPlus /> New
+            </HeaderBtn>
+            <HeaderBtn onClick={() => setRail(rail === 'history' ? 'navigate' : 'history')} title="Conversation history" active={rail === 'history'}>
+              <IconHistory /> History{state.history.length ? ` · ${state.history.length}` : ''}
+            </HeaderBtn>
+            <button type="button" onClick={onClose} aria-label="Close" className="ml-1 flex h-8 w-8 items-center justify-center rounded-lg text-content-subtle hover:bg-surface-sunken hover:text-content"><IconX /></button>
+          </div>
+        </header>
 
-        <div ref={listRef} className="max-h-[60vh] overflow-y-auto py-2">
-          {aiSession ? (
-            <AiPanel
-              session={aiSession}
-              onPick={(item) => runItem(item)}
-              onClose={onClose}
-            />
-          ) : rows.length === 0 ? (
-            <div className="px-6 py-12 text-center">
-              <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-surface-sunken text-content-subtle">
-                <SearchIcon />
-              </div>
-              <div className="text-sm font-medium text-content">Type to search or ask AI</div>
-              <div className="mt-1 text-xs text-content-subtle">
-                Pages, projects, settings — or natural language like
-                <span className="ml-1 inline-block rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-content-muted">
-                  show failing pods in production
+        {/* ═══ body ═══ */}
+        <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(0,1fr)_300px]">
+          {/* ── conversation ── */}
+          <section className="flex min-h-0 flex-col">
+            <div
+              ref={threadRef}
+              onScroll={(e) => {
+                const el = e.currentTarget
+                stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+              }}
+              className="min-h-0 flex-1 overflow-y-auto px-5 py-5"
+            >
+              {!hasThread ? (
+                <Welcome configured={state.configured} onPick={(s) => { if (s.mode) setMode(s.mode); assistStore.run(s.mode ?? 'chat', { prompt: s.prompt, userLabel: s.mode && s.mode !== 'chat' ? `${MODES.find((x) => x.id === s.mode)?.label}: ${s.label}` : s.prompt }) }} navHint={navResults[0]} />
+              ) : (
+                <div className="mx-auto max-w-3xl space-y-5">
+                  {turns.map((t) => (
+                    <TurnView key={t.id} turn={t} canApply={state.canApply} />
+                  ))}
+                  {!state.busy && turns.length ? (
+                    <div className="flex justify-end gap-1">
+                      <SmallBtn onClick={() => assistStore.regenerate()}><IconRefresh /> Regenerate</SmallBtn>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
+
+            {/* composer */}
+            <div className="border-t border-edge-subtle bg-surface-raised px-4 pb-3 pt-2.5">
+              <div className="mb-2 flex flex-wrap items-center gap-1">
+                {MODES.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setMode(m.id)}
+                    title={m.hint}
+                    className={cn('h-7 rounded-md px-2.5 text-[11.5px] font-medium transition-colors', mode === m.id ? 'bg-brand-600 text-white' : 'text-content-muted hover:bg-surface-sunken hover:text-content')}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+                <span className="ml-auto hidden text-[10.5px] text-content-subtle sm:inline">
+                  <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">/go</kbd> navigate · <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">/diagnose</kbd> <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">/explain</kbd> <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">/generate</kbd> <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">/new</kbd>
                 </span>
+              </div>
+              <div className="flex items-end gap-2 rounded-xl bg-surface-app px-3 py-2 ring-1 ring-edge-subtle">
+                <span className="mb-1.5 text-brand-600"><SparkIcon size={16} /></span>
+                <textarea
+                  ref={inputRef}
+                  value={input}
+                  rows={1}
+                  spellCheck={false}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      if (e.metaKey || e.ctrlKey) {
+                        const hit = navResults[activeNav] ?? navResults[0]
+                        if (hit) runItem(hit)
+                        return
+                      }
+                      submit()
+                    } else if (e.key === 'ArrowDown' && navResults.length && input.trim()) {
+                      e.preventDefault()
+                      setActiveNav((i) => Math.min(i + 1, navResults.length - 1))
+                    } else if (e.key === 'ArrowUp' && navResults.length && input.trim()) {
+                      e.preventDefault()
+                      setActiveNav((i) => Math.max(i - 1, 0))
+                    }
+                  }}
+                  placeholder={state.configured ? `Ask Adhar anything, or type a page name to jump there…` : 'Search pages, apps and settings…'}
+                  aria-label="Message Adhar Assist"
+                  className="max-h-40 min-h-[28px] flex-1 resize-none bg-transparent py-1 text-[14px] leading-6 text-content outline-none placeholder:text-content-subtle focus:outline-none focus:ring-0"
+                  style={{ height: 'auto' }}
+                  onInput={(e) => {
+                    const el = e.currentTarget
+                    el.style.height = 'auto'
+                    el.style.height = `${Math.min(el.scrollHeight, 160)}px`
+                  }}
+                />
+                {state.busy ? (
+                  <button type="button" onClick={() => assistStore.stop()} className="mb-0.5 inline-flex h-8 items-center gap-1 rounded-lg bg-surface-sunken px-3 text-[12px] font-semibold text-content-muted hover:text-content">
+                    <IconStop /> Stop
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={submit}
+                    disabled={!input.trim()}
+                    className="mb-0.5 inline-flex h-8 items-center gap-1 rounded-lg bg-brand-600 px-3 text-[12px] font-semibold text-white hover:bg-brand-700 disabled:opacity-40"
+                  >
+                    {state.configured ? 'Send' : 'Go'} <IconReturn />
+                  </button>
+                )}
               </div>
             </div>
-          ) : (
-            <ResultList
-              rows={rows}
-              activeIndex={active}
-              showHeader={!query.trim()}
-              onHover={(i) => {
-                if (lastInput.current === 'mouse') setActive(i)
-              }}
-              onPick={(row) => {
-                if (row.kind === 'ai') runAi(row.query)
-                else runItem(row.item)
-              }}
-            />
-          )}
-        </div>
+          </section>
 
-        <div className="flex items-center justify-between gap-3 border-t border-edge-subtle bg-surface-sunken/80 px-4 py-2 text-[11px] text-content-subtle">
-          <div className="flex items-center gap-3">
-            <KbdHint keys={['↑', '↓']}>navigate</KbdHint>
-            <KbdHint keys={['↵']}>{aiSession ? 'select' : 'open'}</KbdHint>
-            <KbdHint keys={['esc']}>{aiSession ? 'back' : 'close'}</KbdHint>
-            {!aiSession ? (
-              <span className="hidden items-center gap-1 sm:flex">
-                <span className="inline-flex items-center gap-1 rounded-md bg-brand-50 dark:bg-brand-500/10 px-1.5 py-0.5 text-[10px] font-medium text-brand-700 dark:text-brand-300">
-                  <AiSparkIcon /> AI
-                </span>
-                <span>on top result</span>
-              </span>
-            ) : null}
-          </div>
-          <div className="hidden font-mono tabular-nums sm:block">
-            {aiSession
-              ? aiSession.status === 'thinking'
-                ? 'thinking…'
-                : `${aiSession.suggestions.length} action${aiSession.suggestions.length === 1 ? '' : 's'}`
-              : `${rows.filter((r) => r.kind === 'cmd').length} result${rows.filter((r) => r.kind === 'cmd').length === 1 ? '' : 's'}`}
-          </div>
+          {/* ── rail ── */}
+          <aside className="hidden min-h-0 flex-col border-l border-edge-subtle bg-surface-raised/60 md:flex">
+            <div className="flex items-center gap-1 border-b border-edge-subtle p-1.5">
+              {(
+                [
+                  ['navigate', 'Navigate'],
+                  ['history', 'History'],
+                ] as const
+              ).map(([id, label]) => (
+                <button key={id} type="button" onClick={() => setRail(id)} className={cn('h-7 flex-1 rounded-md text-[11.5px] font-medium transition-colors', rail === id ? 'bg-surface-raised text-content shadow-sm ring-1 ring-edge-default' : 'text-content-muted hover:text-content')}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-2">
+              {rail === 'navigate' ? (
+                <NavRail results={navResults} query={navQuery} active={activeNav} onHover={setActiveNav} onPick={runItem} all={allItems} />
+              ) : (
+                <HistoryRail />
+              )}
+            </div>
+            <div className="border-t border-edge-subtle px-3 py-2 text-[10.5px] text-content-subtle">
+              <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">⏎</kbd> send · <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">⌘⏎</kbd> open top result · <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">esc</kbd> close
+            </div>
+          </aside>
         </div>
       </div>
     </div>
   )
 }
 
-/* ───────────────────── result list ───────────────────── */
+/* ─────────── welcome ─────────── */
 
-function ResultList({
-  rows,
-  activeIndex,
-  showHeader,
-  onHover,
-  onPick,
-}: {
-  rows: ({ kind: 'ai'; query: string } | { kind: 'cmd'; item: CommandItem })[]
-  activeIndex: number
-  showHeader: boolean
-  onHover(i: number): void
-  onPick(row: { kind: 'ai'; query: string } | { kind: 'cmd'; item: CommandItem }): void
-}) {
-  const out: React.ReactNode[] = []
-  let lastGroup: string | undefined
-
-  if (showHeader && rows.length) {
-    out.push(
-      <div
-        key="__intro"
-        className="px-4 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle"
-      >
-        Suggested
-      </div>,
-    )
-  }
-
-  rows.forEach((row, i) => {
-    const isActive = i === activeIndex
-    if (row.kind === 'ai') {
-      out.push(
-        <button
-          key="__ai"
-          data-cmd-idx={i}
-          type="button"
-          onMouseEnter={() => onHover(i)}
-          onClick={() => onPick(row)}
-          className={cn(
-            'group relative mx-2 flex w-[calc(100%-1rem)] items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors',
-            isActive
-              ? 'bg-brand-50 dark:bg-brand-500/10 text-brand-900 dark:text-brand-200 ring-1 ring-inset ring-brand-200'
-              : 'text-content-muted hover:bg-surface-sunken',
-          )}
-        >
-          <span
-            aria-hidden
-            className={cn(
-              'absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-brand-600 transition-opacity',
-              isActive ? 'opacity-100' : 'opacity-0',
-            )}
-          />
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-brand-600">
-            <AiSparkIcon />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="text-[13px] font-semibold">Ask AI</div>
-            <div className="truncate text-[11px] text-content-subtle">"{row.query}"</div>
-          </div>
-          <span className="hidden shrink-0 text-[10px] font-medium uppercase tracking-wider text-brand-700 dark:text-brand-300 sm:inline">
-            beta
-          </span>
-          <span
-            className={cn(
-              'shrink-0 text-brand-600 transition-opacity',
-              isActive ? 'opacity-100' : 'opacity-0',
-            )}
-          >
-            <ReturnIcon />
-          </span>
-        </button>,
-      )
-      return
-    }
-
-    const groupLabel = row.item.group
-    if (groupLabel && groupLabel !== lastGroup && !showHeader) {
-      lastGroup = groupLabel
-      out.push(
-        <div
-          key={`__h_${groupLabel}_${i}`}
-          className="px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle first:pt-1"
-        >
-          {groupLabel}
-        </div>,
-      )
-    } else if (groupLabel) {
-      lastGroup = groupLabel
-    }
-
-    out.push(
-      <button
-        key={row.item.id}
-        data-cmd-idx={i}
-        type="button"
-        onMouseEnter={() => onHover(i)}
-        onClick={() => onPick(row)}
-        className={cn(
-          'group relative mx-2 flex w-[calc(100%-1rem)] items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors',
-          isActive ? 'bg-surface-sunken text-content' : 'text-content-muted hover:bg-surface-sunken',
-        )}
-      >
-        <span
-          aria-hidden
-          className={cn(
-            'absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-brand-600 transition-opacity',
-            isActive ? 'opacity-100' : 'opacity-0',
-          )}
-        />
-        <span
-          className={cn(
-            'flex h-6 w-6 shrink-0 items-center justify-center rounded text-content-subtle transition-colors',
-            isActive ? 'text-content' : 'group-hover:text-content-muted',
-            '[&>svg]:h-4 [&>svg]:w-4',
-          )}
-        >
-          {row.item.icon ?? <DotIcon />}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className={cn('truncate text-[13px]', isActive ? 'font-semibold' : 'font-medium')}>
-            {row.item.label}
-          </div>
-          {row.item.description ? (
-            <div className="truncate text-[11px] text-content-subtle">{row.item.description}</div>
-          ) : null}
-        </div>
-        {row.item.group && showHeader ? (
-          <span className="hidden shrink-0 text-[10px] font-medium uppercase tracking-wider text-content-subtle sm:inline">
-            {row.item.group}
-          </span>
-        ) : null}
-        <span
-          className={cn(
-            'shrink-0 text-content-subtle transition-opacity',
-            isActive ? 'opacity-100' : 'opacity-0',
-          )}
-        >
-          <ReturnIcon />
-        </span>
-      </button>,
-    )
-  })
-  return <div className="space-y-px">{out}</div>
-}
-
-/* ───────────────────── AI panel ───────────────────── */
-
-interface AiSession {
-  prompt: string
-  status: 'thinking' | 'streaming' | 'done'
-  /** Tokens streamed so far. */
-  chunks: string[]
-  /** Action suggestions surfaced alongside the answer. */
-  suggestions: CommandItem[]
-}
-
-function AiPanel({
-  session,
-  onPick,
-  onClose,
-}: {
-  session: AiSession
-  onPick(item: CommandItem): void
-  onClose(): void
-}) {
-  const text = session.chunks.join('')
+function Welcome({ configured, onPick, navHint }: { configured: boolean; onPick(s: { label: string; prompt: string; mode?: AiMode }): void; navHint?: CommandItem }) {
   return (
-    <div className="space-y-4 px-4 py-3">
-      <div className="rounded-xl border border-edge-subtle bg-surface-sunken/80 px-3 py-2 text-[12px] text-content-muted">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
-          You
-        </span>
-        <div className="mt-0.5 text-[13px] text-content">{session.prompt}</div>
-      </div>
-
-      <div className="rounded-xl border border-brand-100 bg-brand-50/40 dark:bg-brand-500/10 p-3">
-        <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-brand-300">
-          <AiSparkIcon />
-          AI
-          {session.status === 'thinking' ? (
-            <span className="flex items-center gap-1 text-content-subtle">
-              <ThinkingDots /> thinking
-            </span>
-          ) : null}
+    <div className="mx-auto flex max-w-3xl flex-col items-center pt-6 text-center">
+      <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-linear-to-br from-brand-500 to-accent-500 text-white shadow-lg shadow-brand-600/25">
+        <SparkIcon size={26} />
+      </span>
+      <h2 className="mt-4 text-xl font-semibold tracking-tight text-content">How can I help?</h2>
+      <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-content-muted">
+        {configured
+          ? 'I read your cluster, Argo CD, policies and events with your permissions, explain what I find, and propose changes you approve — nothing is applied on its own.'
+          : 'AI isn’t configured on this cluster yet (set AI_BASE_URL / AI_MODEL). Meanwhile, type any page, app or setting to jump straight to it.'}
+      </p>
+      {configured ? (
+        <div className="mt-6 grid w-full gap-2 sm:grid-cols-2">
+          {STARTERS.map((s) => (
+            <button key={s.label} type="button" onClick={() => onPick(s)} className="group rounded-xl border border-edge-default bg-surface-raised p-3 text-left transition-colors hover:border-brand-300 hover:bg-brand-50/40 dark:hover:border-brand-500/40 dark:hover:bg-brand-500/5">
+              <div className="flex items-center justify-between gap-2 text-[13px] font-medium text-content">
+                {s.label}
+                <span className="text-content-subtle opacity-0 transition-opacity group-hover:opacity-100"><IconReturn /></span>
+              </div>
+              <div className="mt-0.5 line-clamp-2 text-[11.5px] text-content-subtle">{s.prompt}</div>
+            </button>
+          ))}
         </div>
-        <div className="mt-2 whitespace-pre-wrap text-[13px] leading-relaxed text-content">
-          {text || '\u00a0'}
-          {session.status !== 'done' && text ? <span className="ml-0.5 inline-block h-3.5 w-1.5 -translate-y-px animate-pulse bg-brand-500/80 align-middle" /> : null}
-        </div>
-        {session.suggestions.length ? (
-          <div className="mt-3 border-t border-brand-200/60 dark:border-brand-500/25 pt-3">
-            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
-              Suggested actions
-            </div>
-            <div className="space-y-1">
-              {session.suggestions.map((s, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => onPick(s)}
-                  className="flex w-full items-center gap-2.5 rounded-md border border-transparent bg-surface-raised px-2.5 py-1.5 text-left text-[12px] text-content transition-colors hover:border-brand-300 hover:bg-brand-50 dark:hover:bg-brand-500/10"
-                >
-                  <span className="flex h-5 w-5 items-center justify-center text-brand-600 [&>svg]:h-4 [&>svg]:w-4">
-                    {s.icon ?? <DotIcon />}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{s.label}</div>
-                    {s.description ? (
-                      <div className="truncate text-[11px] text-content-subtle">{s.description}</div>
-                    ) : null}
-                  </div>
-                  <span className="text-content-subtle">
-                    <ReturnIcon />
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      {session.status === 'done' ? (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md bg-slate-900 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-slate-800"
-          >
-            Done
-          </button>
-        </div>
+      ) : navHint ? (
+        <div className="mt-6 text-[12px] text-content-muted">Press <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">⏎</kbd> to open <span className="font-medium text-content">{navHint.label}</span></div>
       ) : null}
     </div>
   )
 }
 
+/* ─────────── turns ─────────── */
+
+function TurnView({ turn, canApply }: { turn: AssistTurn; canApply: boolean }) {
+  const [copied, setCopied] = useState(false)
+  if (turn.role === 'user') {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-brand-600 px-4 py-2.5 text-[13.5px] leading-relaxed text-white shadow-sm">
+          {turn.mode && turn.mode !== 'chat' ? <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/70">{turn.mode}</div> : null}
+          <div className="whitespace-pre-wrap">{turn.content}</div>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="flex gap-3">
+      <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-linear-to-br from-brand-500 to-accent-500 text-white"><SparkIcon size={13} /></span>
+      <div className="min-w-0 flex-1 space-y-2">
+        {turn.tools.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {turn.tools.map((t, i) => (
+              <span key={i} className="inline-flex items-center gap-1 rounded-full border border-edge-subtle bg-surface-sunken px-2 py-0.5 text-[11px] text-content-muted" title={JSON.stringify(t.args)}>
+                <IconTool /> {toolLabel(t.name, t.args)}
+              </span>
+            ))}
+          </div>
+        ) : null}
+        {turn.content ? (
+          <div className="group relative rounded-2xl rounded-tl-md bg-surface-raised px-4 py-3 text-[13.5px] leading-relaxed text-content ring-1 ring-edge-subtle">
+            <Markdown text={turn.content} />
+            {turn.streaming ? <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-brand-400 align-middle" /> : null}
+            {!turn.streaming ? (
+              <button
+                type="button"
+                onClick={() => { void navigator.clipboard?.writeText(turn.content); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
+                className="absolute right-2 top-2 rounded-md bg-surface-raised px-1.5 py-0.5 text-[10.5px] text-content-subtle opacity-0 ring-1 ring-edge-default transition-opacity hover:text-content group-hover:opacity-100"
+              >
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            ) : null}
+          </div>
+        ) : turn.streaming ? (
+          <div className="flex items-center gap-2 py-2 text-[13px] text-content-subtle"><Dots /> {turn.tools.length ? 'reading the cluster…' : 'thinking…'}</div>
+        ) : null}
+        {turn.proposals.map((p, i) => (
+          <ProposalCard key={i} proposal={p} canApply={canApply} />
+        ))}
+        {turn.error ? <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300">{turn.error}</div> : null}
+      </div>
+    </div>
+  )
+}
+
+function ProposalCard({ proposal, canApply }: { proposal: AiProposal; canApply: boolean }) {
+  const [state, setState] = useState<'idle' | 'applying' | 'done' | 'error'>('idle')
+  const [msg, setMsg] = useState('')
+  const [showYaml, setShowYaml] = useState(false)
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3 dark:border-amber-500/25 dark:bg-amber-500/10">
+      <div className="flex items-start gap-2">
+        <span className="mt-0.5 text-amber-600"><IconWrench /></span>
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-semibold text-amber-900 dark:text-amber-200">Proposed change — review &amp; apply</div>
+          <div className="mt-0.5 text-[13px] text-content">{proposal.summary}</div>
+        </div>
+      </div>
+      <button type="button" onClick={() => setShowYaml((s) => !s)} className="mt-2 text-[11px] font-medium text-amber-800 underline-offset-2 hover:underline dark:text-amber-300">
+        {showYaml ? 'Hide' : 'View'} manifest
+      </button>
+      {showYaml ? <pre className="mt-1.5 max-h-64 overflow-auto rounded-lg bg-slate-950 p-3 font-mono text-[11px] leading-relaxed text-slate-100">{JSON.stringify(proposal.manifest, null, 2)}</pre> : null}
+      <div className="mt-2.5 flex items-center gap-2">
+        <button
+          type="button"
+          disabled={!canApply || state === 'applying' || state === 'done'}
+          onClick={async () => {
+            setState('applying')
+            try {
+              const r = await assistStore.applyProposal(proposal.manifest)
+              setState(r.ok ? 'done' : 'error')
+              setMsg(r.message)
+            } catch (e) {
+              setState('error')
+              setMsg(e instanceof Error ? e.message : String(e))
+            }
+          }}
+          className="rounded-md bg-amber-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+        >
+          {state === 'applying' ? 'Applying…' : state === 'done' ? 'Applied ✓' : 'Apply'}
+        </button>
+        <button type="button" onClick={() => void navigator.clipboard?.writeText(JSON.stringify(proposal.manifest, null, 2))} className="rounded-md border border-amber-300 px-2.5 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-500/40 dark:text-amber-200 dark:hover:bg-amber-500/10">Copy manifest</button>
+        {msg ? <span className={cn('text-[11px]', state === 'error' ? 'text-rose-700 dark:text-rose-300' : 'text-emerald-700 dark:text-emerald-300')}>{msg}</span> : null}
+      </div>
+      <div className="mt-2 flex items-center gap-1 text-[11px] text-amber-800/80 dark:text-amber-300/80"><IconShield /> Nothing happens until you review and apply.</div>
+    </div>
+  )
+}
+
+function toolLabel(name: string, args: unknown): string {
+  const a = (args ?? {}) as Record<string, string>
+  switch (name) {
+    case 'k8s_list': return `list ${a.resource ?? ''}${a.namespace ? ` · ${a.namespace}` : ''}`
+    case 'k8s_get': return `get ${a.resource ?? ''}/${a.name ?? ''}`
+    case 'k8s_logs': return `logs ${a.pod ?? ''}`
+    case 'k8s_events': return 'events'
+    case 'k8s_discovery': return 'discover API'
+    case 'k8s_describe': return `describe ${a.resource ?? ''}/${a.name ?? ''}${a.namespace ? ` · ${a.namespace}` : ''}`
+    case 'k8s_pod_diagnostics': return `pod diagnostics ${a.pod ?? ''}${a.namespace ? ` · ${a.namespace}` : ''}`
+    case 'k8s_workload_health': return `${a.kind ?? 'workload'} health ${a.name ?? ''}${a.namespace ? ` · ${a.namespace}` : ''}`
+    case 'k8s_events_scan': return `warning scan · ${a.namespace ?? 'cluster'}`
+    case 'argocd_app_status': return `argocd app ${a.name ?? ''}`
+    case 'propose_change': return 'propose change'
+    default: return name
+  }
+}
+
+/* ─────────── rails ─────────── */
+
+function NavRail({ results, query, active, onHover, onPick, all }: { results: CommandItem[]; query: string; active: number; onHover(i: number): void; onPick(i: CommandItem): void; all: CommandItem[] }) {
+  const list = query.trim() ? results : all.slice(0, 12)
+  let lastGroup: string | undefined
+  return (
+    <div>
+      <div className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">{query.trim() ? `Matches · ${results.length}` : 'Go to'}</div>
+      {list.length === 0 ? <p className="px-2 py-3 text-[11.5px] text-content-subtle">No page matches “{query}” — send it to Assist instead.</p> : null}
+      <div className="space-y-px">
+        {list.map((item, i) => {
+          const header = item.group && item.group !== lastGroup && !query.trim() ? item.group : null
+          lastGroup = item.group
+          const isActive = query.trim() ? i === active : false
+          return (
+            <div key={item.id}>
+              {header ? <div className="px-2 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">{header}</div> : null}
+              <button
+                type="button"
+                onMouseEnter={() => onHover(i)}
+                onClick={() => onPick(item)}
+                className={cn('group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors', isActive ? 'bg-brand-50 text-content ring-1 ring-inset ring-brand-200 dark:bg-brand-500/10 dark:ring-brand-500/30' : 'text-content-muted hover:bg-surface-sunken hover:text-content')}
+              >
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center text-content-subtle [&>svg]:h-4 [&>svg]:w-4">{item.icon ?? <IconDot />}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[12.5px] font-medium">{item.label}</span>
+                  {item.description ? <span className="block truncate text-[10.5px] text-content-subtle">{item.description}</span> : null}
+                </span>
+                {query.trim() && item.group ? <span className="shrink-0 text-[9.5px] uppercase tracking-wider text-content-subtle">{item.group}</span> : null}
+                <span className={cn('shrink-0 text-content-subtle transition-opacity', isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')}><IconReturn /></span>
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function HistoryRail() {
+  const state = useAssist()
+  if (!state.history.length) return <p className="px-2 py-4 text-[11.5px] text-content-subtle">Conversations you have with Assist are kept here (in this browser).</p>
+  return (
+    <div>
+      <div className="flex items-center justify-between px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
+        <span>Recent</span>
+        <button type="button" onClick={() => assistStore.clearHistory()} className="font-medium normal-case tracking-normal hover:text-rose-600">clear</button>
+      </div>
+      <div className="space-y-px">
+        {state.history.map((c) => (
+          <div key={c.id} className="group flex items-center gap-1">
+            <button type="button" onClick={() => assistStore.openConversation(c.id)} className={cn('min-w-0 flex-1 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-sunken', state.current.id === c.id ? 'bg-brand-50 dark:bg-brand-500/10' : '')}>
+              <div className="truncate text-[12.5px] font-medium text-content">{c.title}</div>
+              <div className="truncate text-[10.5px] text-content-subtle">{c.turns.length} messages · {relTime(c.updatedAt)}</div>
+            </button>
+            <button type="button" onClick={() => assistStore.deleteConversation(c.id)} aria-label="Delete conversation" className="rounded p-1 text-content-subtle opacity-0 hover:bg-surface-sunken hover:text-rose-600 group-hover:opacity-100"><IconTrash /></button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function relTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime()
+  const m = Math.floor(ms / 60_000)
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 48) return `${h}h ago`
+  return `${Math.floor(h / 24)}d ago`
+}
+
+/* ─────────── markdown-lite ─────────── */
+
 /**
- * Stub LLM — synthesizes a structured "answer" from the prompt by matching
- * keywords against the registered nav items, then streams it as if it were
- * generated. The contract is identical to a real `/api/ai/console` BFF
- * endpoint (prompt → answer text + action commands), so swapping the
- * runtime is one place when the backend lands.
+ * Small, dependency-free renderer for the subset the assistant emits:
+ * fenced code, inline code, headings, bullet / numbered lists, bold, italic,
+ * links and paragraphs. Never injects HTML.
  */
-/** Result of `streamAi` — call `cancel()` to abort an in-flight stream
- *  (e.g. when the palette closes or the user resubmits). All scheduled
- *  ticks are cleared and `onUpdate` will not fire after cancellation. */
-interface AiStreamHandle {
-  cancel(): void
+export function Markdown({ text }: { text: string }) {
+  const blocks = useMemo(() => parseBlocks(text), [text])
+  return (
+    <div className="space-y-2">
+      {blocks.map((b, i) => {
+        if (b.type === 'code') {
+          return (
+            <div key={i} className="group/code relative">
+              <pre className="max-h-96 overflow-auto rounded-lg bg-slate-950 p-3 font-mono text-[11.5px] leading-relaxed text-slate-100">{b.text}</pre>
+              {b.lang ? <span className="absolute right-2 top-1.5 text-[10px] uppercase text-slate-500">{b.lang}</span> : null}
+              <button type="button" onClick={() => void navigator.clipboard?.writeText(b.text)} className="absolute bottom-2 right-2 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-300 opacity-0 transition-opacity hover:text-white group-hover/code:opacity-100">copy</button>
+            </div>
+          )
+        }
+        if (b.type === 'heading') return <div key={i} className={cn('font-semibold text-content', b.level <= 2 ? 'text-[14px]' : 'text-[13px]')}>{inline(b.text)}</div>
+        if (b.type === 'ul') return <ul key={i} className="list-disc space-y-0.5 pl-5">{b.items.map((it, j) => <li key={j}>{inline(it)}</li>)}</ul>
+        if (b.type === 'ol') return <ol key={i} className="list-decimal space-y-0.5 pl-5">{b.items.map((it, j) => <li key={j}>{inline(it)}</li>)}</ol>
+        return <p key={i}>{inline(b.text)}</p>
+      })}
+    </div>
+  )
 }
 
-function streamAi(
-  prompt: string,
-  catalog: CommandItem[],
-  onUpdate: (s: AiSession) => void,
-): AiStreamHandle {
-  const matches = matchActions(prompt, catalog).slice(0, 4)
-  const answer = composeAnswer(prompt, matches)
-  const tokens = tokenize(answer)
+type Block =
+  | { type: 'p'; text: string }
+  | { type: 'heading'; level: number; text: string }
+  | { type: 'code'; lang?: string; text: string }
+  | { type: 'ul'; items: string[] }
+  | { type: 'ol'; items: string[] }
 
-  let cancelled = false
-  let timer: ReturnType<typeof setTimeout> | null = null
-  const chunks: string[] = []
+function parseBlocks(src: string): Block[] {
+  const lines = src.replace(/\r/g, '').split('\n')
+  const out: Block[] = []
   let i = 0
-
-  const tick = () => {
-    if (cancelled) return
-    if (i >= tokens.length) {
-      onUpdate({ prompt, status: 'done', chunks, suggestions: matches })
-      return
+  while (i < lines.length) {
+    const line = lines[i]
+    if (/^```/.test(line)) {
+      const lang = line.slice(3).trim() || undefined
+      const buf: string[] = []
+      i++
+      while (i < lines.length && !/^```/.test(lines[i])) buf.push(lines[i++])
+      i++
+      out.push({ type: 'code', lang, text: buf.join('\n') })
+      continue
     }
-    chunks.push(tokens[i++])
-    onUpdate({
-      prompt,
-      status: 'streaming',
-      chunks: [...chunks],
-      suggestions: matches,
-    })
-    timer = setTimeout(tick, 18 + Math.random() * 22)
-  }
-
-  // Brief "thinking" pause before the first token.
-  timer = setTimeout(() => {
-    if (cancelled) return
-    onUpdate({ prompt, status: 'streaming', chunks: [], suggestions: matches })
-    tick()
-  }, 350)
-
-  return {
-    cancel() {
-      cancelled = true
-      if (timer != null) {
-        clearTimeout(timer)
-        timer = null
-      }
-    },
-  }
-}
-
-function tokenize(s: string): string[] {
-  // Stream a few characters at a time for a typewriter feel.
-  const out: string[] = []
-  let i = 0
-  while (i < s.length) {
-    const len = 2 + Math.floor(Math.random() * 3)
-    out.push(s.slice(i, i + len))
-    i += len
+    const h = /^(#{1,4})\s+(.*)$/.exec(line)
+    if (h) {
+      out.push({ type: 'heading', level: h[1].length, text: h[2] })
+      i++
+      continue
+    }
+    if (/^\s*[-*•]\s+/.test(line)) {
+      const items: string[] = []
+      while (i < lines.length && /^\s*[-*•]\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*[-*•]\s+/, ''))
+      out.push({ type: 'ul', items })
+      continue
+    }
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      const items: string[] = []
+      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*\d+[.)]\s+/, ''))
+      out.push({ type: 'ol', items })
+      continue
+    }
+    if (!line.trim()) {
+      i++
+      continue
+    }
+    const buf: string[] = []
+    while (i < lines.length && lines[i].trim() && !/^```|^#{1,4}\s|^\s*[-*•]\s+|^\s*\d+[.)]\s+/.test(lines[i])) buf.push(lines[i++])
+    out.push({ type: 'p', text: buf.join(' ') })
   }
   return out
 }
 
-function matchActions(prompt: string, catalog: CommandItem[]): CommandItem[] {
-  const q = prompt.toLowerCase()
-  const tokens = q.split(/\W+/).filter((t) => t.length > 2)
-  return catalog
-    .map((item) => {
-      const haystack = `${item.label} ${item.description ?? ''} ${(item.keywords ?? []).join(' ')}`.toLowerCase()
-      let score = 0
-      for (const t of tokens) if (haystack.includes(t)) score += 5
-      if (haystack.includes(q)) score += 50
-      return { item, score }
-    })
-    .filter((x) => x.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .map((x) => x.item)
+function inline(text: string): ReactNode[] {
+  const out: ReactNode[] = []
+  const re = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g
+  let last = 0
+  let k = 0
+  for (const m of text.matchAll(re)) {
+    const idx = m.index ?? 0
+    if (idx > last) out.push(text.slice(last, idx))
+    const tok = m[0]
+    if (tok.startsWith('`')) out.push(<code key={k++} className="rounded bg-surface-sunken px-1 py-0.5 font-mono text-[12px] text-content">{tok.slice(1, -1)}</code>)
+    else if (tok.startsWith('**')) out.push(<strong key={k++} className="font-semibold">{tok.slice(2, -2)}</strong>)
+    else if (tok.startsWith('[')) {
+      const mm = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(tok)
+      if (mm) out.push(<a key={k++} href={mm[2]} target="_blank" rel="noreferrer" className="text-brand-700 underline underline-offset-2 dark:text-brand-300">{mm[1]}</a>)
+    } else out.push(<em key={k++}>{tok.slice(1, -1)}</em>)
+    last = idx + tok.length
+  }
+  if (last < text.length) out.push(text.slice(last))
+  return out
 }
 
-function composeAnswer(prompt: string, matches: CommandItem[]): string {
-  const lines: string[] = []
-  if (matches.length === 0) {
-    lines.push(
-      `I couldn't find a built-in action that matches "${prompt}".`,
-      '',
-      `Try one of the lifecycle phases (Define, Develop, Deliver, Discover) or open the Platform dashboard for cluster-wide actions.`,
-    )
-    return lines.join('\n')
-  }
-  const top = matches[0]
-  lines.push(
-    `Here's what I'd do for "${prompt}":`,
-    '',
-    `1. Open ${top.label}${top.description ? ` — ${top.description.toLowerCase()}` : ''}.`,
-  )
-  if (matches[1]) {
-    lines.push(`2. Cross-reference with ${matches[1].label} to confirm impact.`)
-  }
-  if (matches[2]) {
-    lines.push(`3. If needed, jump to ${matches[2].label} for follow-up.`)
-  }
-  lines.push('', 'Pick a suggested action below to navigate there now.')
-  return lines.join('\n')
-}
+/* ─────────── bits ─────────── */
 
-/* ───────────────────── kbd / icons ───────────────────── */
-
-function KbdHint({ keys, children }: { keys: string[]; children: React.ReactNode }) {
+function HeaderBtn({ children, onClick, title, active = false }: { children: ReactNode; onClick(): void; title: string; active?: boolean }) {
   return (
-    <span className="flex items-center gap-1">
-      {keys.map((k) => (
-        <Kbd key={k}>{k}</Kbd>
-      ))}
-      <span>{children}</span>
-    </span>
-  )
-}
-
-function Kbd({ children }: { children: React.ReactNode }) {
-  return (
-    <kbd className="inline-flex h-4 min-w-4 items-center justify-center rounded border border-edge-default bg-surface-raised px-1 font-sans text-[10px] font-medium leading-none text-content-muted shadow-[0_1px_0_rgba(15,23,42,0.04)]">
+    <button type="button" onClick={onClick} title={title} className={cn('inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium transition-colors', active ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-500/40 dark:bg-brand-500/10 dark:text-brand-300' : 'border-edge-default bg-surface-raised text-content-muted hover:border-edge-strong hover:text-content')}>
       {children}
-    </kbd>
+    </button>
   )
 }
 
-function SearchIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <circle cx="11" cy="11" r="7" />
-      <path d="m21 21-4.35-4.35" />
-    </svg>
-  )
+function SmallBtn({ children, onClick }: { children: ReactNode; onClick(): void }) {
+  return <button type="button" onClick={onClick} className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11.5px] text-content-muted hover:bg-surface-sunken hover:text-content">{children}</button>
 }
 
-function ClearIcon() {
+function Dots() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <circle cx="12" cy="12" r="10" />
-      <path d="m15 9-6 6" />
-      <path d="m9 9 6 6" />
-    </svg>
-  )
-}
-
-function ReturnIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <polyline points="9 10 4 15 9 20" />
-      <path d="M20 4v7a4 4 0 0 1-4 4H4" />
-    </svg>
-  )
-}
-
-function DotIcon() {
-  return (
-    <svg width="6" height="6" viewBox="0 0 6 6" aria-hidden>
-      <circle cx="3" cy="3" r="2" fill="currentColor" />
-    </svg>
-  )
-}
-
-function AiSparkIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M12 2 13.6 8.4 20 10l-6.4 1.6L12 18l-1.6-6.4L4 10l6.4-1.6L12 2Z" />
-      <path d="M19 16 19.6 18 21.5 18.5 19.6 19 19 21 18.4 19 16.5 18.5 18.4 18 19 16Z" />
-    </svg>
-  )
-}
-
-function ThinkingDots() {
-  return (
-    <span className="inline-flex items-center gap-0.5" aria-hidden>
-      <span className="h-1 w-1 animate-bounce rounded-full bg-brand-400 [animation-delay:-0.2s]" />
-      <span className="h-1 w-1 animate-bounce rounded-full bg-brand-400 [animation-delay:-0.1s]" />
-      <span className="h-1 w-1 animate-bounce rounded-full bg-brand-400" />
+    <span className="inline-flex gap-1" aria-hidden>
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand-400 [animation-delay:-0.2s]" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand-400 [animation-delay:-0.1s]" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand-400" />
     </span>
   )
 }
 
-/* ───────────────────── nav flatten + filter ───────────────────── */
+const I = ({ children, size = 14, sw = 2 }: { children: ReactNode; size?: number; sw?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0">{children}</svg>
+)
+const IconX = () => <I size={16}><path d="M18 6 6 18M6 6l12 12" /></I>
+const IconPlus = () => <I size={12} sw={2.5}><path d="M12 5v14M5 12h14" /></I>
+const IconHistory = () => <I size={13}><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l3 2" /></I>
+const IconReturn = () => <I size={12} sw={2.25}><polyline points="9 10 4 15 9 20" /><path d="M20 4v7a4 4 0 0 1-4 4H4" /></I>
+const IconStop = () => <I size={12} sw={2.5}><rect x="6" y="6" width="12" height="12" rx="2" /></I>
+const IconRefresh = () => <I size={12}><path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" /></I>
+const IconTool = () => <I size={11}><path d="M4 6h16M4 12h16M4 18h10" /></I>
+const IconShield = () => <I size={11}><path d="M12 2l8 3v6c0 5-3.4 9.4-8 11-4.6-1.6-8-6-8-11V5l8-3z" /></I>
+const IconWrench = () => <I size={15}><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.1 2.1-2.3-.6-.6-2.3 2.1-2.1z" /></I>
+const IconTrash = () => <I size={12}><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></I>
+const IconDot = () => <svg width="6" height="6" viewBox="0 0 6 6" aria-hidden><circle cx="3" cy="3" r="2" fill="currentColor" /></svg>
+
+/* ─────────── nav flatten + filter ─────────── */
 
 function flattenNav(sections: NavSection[]): CommandItem[] {
   const out: CommandItem[] = []
@@ -783,10 +740,18 @@ function filterItems(items: CommandItem[], q: string): CommandItem[] {
 
 function score(item: CommandItem, needle: string): number {
   const label = item.label.toLowerCase()
-  if (label === needle) return 100
-  if (label.startsWith(needle)) return 50
-  if (label.includes(needle)) return 25
-  if (item.description?.toLowerCase().includes(needle)) return 10
-  if (item.keywords?.some((k) => k.toLowerCase().includes(needle))) return 8
-  return 0
+  let s = 0
+  if (label === needle) s += 100
+  else if (label.startsWith(needle)) s += 50
+  else if (label.includes(needle)) s += 25
+  if (item.group?.toLowerCase().includes(needle)) s += 6
+  if (item.description?.toLowerCase().includes(needle)) s += 10
+  if (item.keywords?.some((k) => k.toLowerCase().includes(needle))) s += 8
+  // Multi-word queries: every word must hit somewhere.
+  const words = needle.split(/\s+/).filter((w) => w.length > 2)
+  if (words.length > 1) {
+    const hay = `${label} ${item.description ?? ''} ${item.group ?? ''}`.toLowerCase()
+    if (words.every((w) => hay.includes(w))) s += 15
+  }
+  return s
 }

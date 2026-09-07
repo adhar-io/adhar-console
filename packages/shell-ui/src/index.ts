@@ -130,6 +130,7 @@ export {
   useArgocdProject,
   useDocsUrl,
   usePublicBaseDomain,
+  usePlaneWorkspace,
   APP_CONFIG_DEFAULTS,
   type AppConfig,
 } from './app-config.ts'

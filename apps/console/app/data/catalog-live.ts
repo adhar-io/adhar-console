@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { gitea, k8s } from '@adhar-console/api-clients'
+import { useGiteaOrg } from '@adhar-console/shell-ui'
 import {
   type ApiType,
   type ComponentType,
@@ -35,16 +36,6 @@ const kubeClient = k8s.K8sClient.auto()
 const giteaClient = gitea.GiteaClient.auto({ tool: 'gitea' })
 
 const REFRESH_MS = 30_000
-
-/** Org whose repos are surfaced as Components. Overridable at build time. */
-function giteaOrg(): string {
-  try {
-    const raw = (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_GITEA_ORG
-    return raw && raw.trim() ? raw.trim() : 'acme'
-  } catch {
-    return 'acme'
-  }
-}
 
 /* ─────────── annotation / label helpers ─────────── */
 
@@ -388,6 +379,8 @@ function inUserNamespace(obj: { metadata?: { namespace?: string } }): boolean {
 }
 
 export function useLiveCatalog(): LiveCatalog {
+  // Org whose repos are surfaced as Components — runtime config, never hardcoded.
+  const giteaOrgName = useGiteaOrg()
   const deployments = useQuery({
     queryKey: ['catalog', 'live', 'deployments'],
     queryFn: () => kubeClient.listDeployments(),
@@ -413,8 +406,8 @@ export function useLiveCatalog(): LiveCatalog {
     retry: false,
   })
   const repos = useQuery({
-    queryKey: ['catalog', 'live', 'gitea-repos', giteaOrg()],
-    queryFn: () => giteaClient.listRepos(giteaOrg()),
+    queryKey: ['catalog', 'live', 'gitea-repos', giteaOrgName],
+    queryFn: () => giteaClient.listRepos(giteaOrgName),
     refetchInterval: REFRESH_MS,
     retry: false,
   })

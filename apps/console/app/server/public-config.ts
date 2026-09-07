@@ -69,6 +69,9 @@ export async function buildPublicConfig(): Promise<Record<string, unknown>> {
     // hardcodes them. Gitea org owns the repos; Argo CD project scopes apps.
     giteaOrg: env('GITEA_TEMPLATES_ORG') ?? env('GITEA_ORG') ?? 'adhar',
     argocdProject: env('ARGOCD_PROJECT') ?? 'default',
+    // Plane workspace the Define phase works in — never a hardcoded company.
+    planeWorkspace:
+      env('PLANE_WORKSPACE') ?? env('PLANE_WORKSPACE_SLUG') ?? env('GITEA_TEMPLATES_ORG') ?? env('GITEA_ORG') ?? 'adhar',
     docsBaseUrl: env('DOCS_BASE_URL') ?? env('DOCS_URL') ?? 'https://docs.adhar.io',
     publicBaseDomain: base,
     // What the gateway exposes under the base domain, for the launcher and

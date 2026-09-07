@@ -276,7 +276,7 @@ function SsoEditor({
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-content">Email domain</span>
-            <TextField mono value={domain} onChange={setDomain} placeholder="acme.com" />
+            <TextField mono value={domain} onChange={setDomain} placeholder="example.com" />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-content">
@@ -286,7 +286,7 @@ function SsoEditor({
               mono
               value={entityId}
               onChange={setEntityId}
-              placeholder={protocol === 'oidc' ? 'https://acme.okta.com' : 'urn:acme:console:saml'}
+              placeholder={protocol === 'oidc' ? 'https://example.okta.com' : 'urn:example:console:saml'}
             />
           </label>
         </div>
@@ -303,7 +303,7 @@ function SsoEditor({
             onChange={setMetadataUrl}
             placeholder={
               protocol === 'oidc'
-                ? 'https://acme.okta.com/.well-known/openid-configuration'
+                ? 'https://example.okta.com/.well-known/openid-configuration'
                 : 'https://login.microsoftonline.com/…/federationmetadata.xml'
             }
           />

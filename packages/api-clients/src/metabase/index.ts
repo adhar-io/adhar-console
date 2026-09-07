@@ -427,7 +427,7 @@ const STUB_QUESTIONS: Question[] = [
         { name: 'status', display_name: 'Status' },
       ],
       rows: [
-        ['INV-4012', 'Acme · enterprise', 14_200, 'paid'],
+        ['INV-4012', 'Default Org · enterprise', 14_200, 'paid'],
         ['INV-4011', 'Globex · team', 3_400, 'paid'],
         ['INV-4010', 'Initech · enterprise', 28_800, 'open'],
         ['INV-4009', 'Stark Industries · team', 4_100, 'paid'],

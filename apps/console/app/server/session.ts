@@ -1,4 +1,4 @@
-import { STUB_TENANTS } from '@adhar-console/tenancy'
+import { DEFAULT_TENANT } from '@adhar-console/tenancy'
 import type { Notification } from '@adhar-console/shell-ui'
 
 /**
@@ -12,9 +12,13 @@ import type { Notification } from '@adhar-console/shell-ui'
  * isomorphic and free of any token handling.
  */
 export function getLayoutData() {
+  // The shell's organization switcher loads the user's REAL organizations from
+  // `/api/organizations` client-side; these are only the fallback shown while
+  // that list loads / when signed out. The built-in default organization is a
+  // real, manageable org (not a demo company) — see @adhar-console/tenancy.
   return {
-    tenants: STUB_TENANTS,
-    activeTenant: STUB_TENANTS[0],
+    tenants: [DEFAULT_TENANT],
+    activeTenant: DEFAULT_TENANT,
     notifications: getSeedNotifications(),
   }
 }
@@ -44,7 +48,7 @@ function getSeedNotifications(): Notification[] {
     {
       id: 'pr-review-request-482',
       title: 'Review requested on #482 — "Add theming presets"',
-      description: 'maya@acme asked for your review in acme/adhar-console.',
+      description: 'maya asked for your review in adhar/adhar-console.',
       at: mins(18),
       kind: 'info',
       href: '/develop?section=prs',

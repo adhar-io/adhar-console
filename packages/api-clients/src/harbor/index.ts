@@ -39,7 +39,7 @@ const STUB_REPOS: Repository[] = [
   {
     id: 1,
     project_id: 1,
-    name: 'acme/adhar-console',
+    name: 'adhar/adhar-console',
     pull_count: 142,
     artifact_count: 18,
     update_time: '2026-04-23T18:14:00Z',
@@ -47,7 +47,7 @@ const STUB_REPOS: Repository[] = [
   {
     id: 2,
     project_id: 1,
-    name: 'acme/billing-service',
+    name: 'adhar/billing-service',
     pull_count: 89,
     artifact_count: 12,
     update_time: '2026-04-22T10:30:00Z',
@@ -55,7 +55,7 @@ const STUB_REPOS: Repository[] = [
   {
     id: 3,
     project_id: 1,
-    name: 'acme/customer-portal',
+    name: 'adhar/customer-portal',
     pull_count: 64,
     artifact_count: 7,
     update_time: '2026-04-23T08:11:00Z',
@@ -63,7 +63,7 @@ const STUB_REPOS: Repository[] = [
   {
     id: 4,
     project_id: 1,
-    name: 'acme/platform-bff',
+    name: 'adhar/platform-bff',
     pull_count: 211,
     artifact_count: 22,
     update_time: '2026-04-23T18:14:00Z',
@@ -71,7 +71,7 @@ const STUB_REPOS: Repository[] = [
 ]
 
 const STUB_ARTIFACTS: Record<string, Artifact[]> = {
-  'acme/adhar-console': [
+  'adhar/adhar-console': [
     {
       digest: 'sha256:abc123def4567890',
       tags: [{ name: 'v0.4.2' }, { name: 'latest' }],
@@ -94,7 +94,7 @@ const STUB_ARTIFACTS: Record<string, Artifact[]> = {
       vulnerabilities: { critical: 2, high: 7, medium: 14, low: 26 },
     },
   ],
-  'acme/billing-service': [
+  'adhar/billing-service': [
     {
       digest: 'sha256:bbcc11223344556677',
       tags: [{ name: 'v1.2.0' }, { name: 'latest' }],
@@ -103,7 +103,7 @@ const STUB_ARTIFACTS: Record<string, Artifact[]> = {
       vulnerabilities: { critical: 0, high: 2, medium: 6, low: 18 },
     },
   ],
-  'acme/customer-portal': [
+  'adhar/customer-portal': [
     {
       digest: 'sha256:ccdd11223344556677',
       tags: [{ name: 'v2.4.0' }, { name: 'latest' }],
@@ -112,7 +112,7 @@ const STUB_ARTIFACTS: Record<string, Artifact[]> = {
       vulnerabilities: { critical: 0, high: 0, medium: 3, low: 9 },
     },
   ],
-  'acme/platform-bff': [
+  'adhar/platform-bff': [
     {
       digest: 'sha256:ee9988776655443322',
       tags: [{ name: 'v0.6.1' }, { name: 'latest' }],

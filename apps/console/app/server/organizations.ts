@@ -84,7 +84,7 @@ async function readRegistry(userId: string, fallbackActive: string): Promise<Reg
   // console data stays associated with the user's first organization.
   const seedId = ID_RE.test(fallbackActive) ? fallbackActive : 'default'
   const seed: Registry = {
-    orgs: [{ id: seedId, name: 'My Organization', slug: seedId, createdAt: new Date().toISOString() }],
+    orgs: [{ id: seedId, name: 'Default Organization', slug: seedId, createdAt: new Date().toISOString() }],
     activeId: seedId,
   }
   return seed

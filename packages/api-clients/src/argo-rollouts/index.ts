@@ -46,12 +46,12 @@ function build(http: HttpClient): ArgoRolloutsClient {
 
 const STUB_ROLLOUTS: Rollout[] = [
   {
-    metadata: { name: 'adhar-console', namespace: 'acme-console' },
+    metadata: { name: 'adhar-console', namespace: 'demo-console' },
     spec: { replicas: 4, strategy: { canary: { steps: [{ setWeight: 25 }, { pause: {} }] } } },
     status: { phase: 'Healthy', currentStepIndex: 2 },
   },
   {
-    metadata: { name: 'billing-service', namespace: 'acme-billing' },
+    metadata: { name: 'billing-service', namespace: 'demo-billing' },
     spec: { replicas: 3, strategy: { canary: { steps: [{ setWeight: 10 }, { pause: {} }] } } },
     status: { phase: 'Paused', currentStepIndex: 1, message: 'Awaiting manual promotion' },
   },

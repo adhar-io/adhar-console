@@ -123,7 +123,7 @@ function ArtifactsPane({ repoName }: { repoName: string | null }) {
       </Card>
     )
   }
-  // Harbor expects the path component after the project (acme/<repo> → <repo>).
+  // Harbor expects the path component after the project (<project>/<repo> → <repo>).
   const repoPath = repoName.split('/').slice(1).join('/') || repoName
   return <ArtifactsList repoName={repoName} repoPath={repoPath} />
 }

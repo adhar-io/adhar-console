@@ -10,7 +10,7 @@ import {
   posthog,
   trivy,
 } from '@adhar-console/api-clients'
-import { useArgocdProject, useGiteaOrg } from '@adhar-console/shell-ui'
+import { useArgocdProject, useGiteaOrg, usePlaneWorkspace } from '@adhar-console/shell-ui'
 
 /**
  * Cross-module signal hooks for the Overview page.
@@ -34,15 +34,16 @@ const metabaseClient = metabase.MetabaseClient.auto({ tool: 'metabase' })
 const airbyteClient = airbyte.AirbyteClient.auto({ tool: 'airbyte' })
 const falcoClient = falco.FalcoClient.auto({ tool: 'falco' })
 
-/** Plane workspace slug (Plane has no per-install config source yet). */
-const PROJECT = 'acme'
 const REFRESH_MS = 30_000
 
 /* ─────────── Define · Plane ─────────── */
 
 export function useDefineSignals() {
+  // Plane workspace slug comes from `/api/config.planeWorkspace` — never a
+  // hardcoded company.
+  const PROJECT = usePlaneWorkspace()
   const projects = useQuery({
-    queryKey: ['ov', 'plane', 'projects'],
+    queryKey: ['ov', 'plane', 'projects', PROJECT],
     queryFn: () => planeClient.listProjects(PROJECT),
     staleTime: REFRESH_MS,
   })

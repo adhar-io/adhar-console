@@ -205,7 +205,7 @@ function Editor({ routes, saved }: { routes: NotificationRoutes; saved: boolean 
                         onChange={(v) => update(c.id, { target: v })}
                         placeholder={
                           r.channel === 'email'
-                            ? 'platform-alerts@acme.com'
+                            ? 'platform-alerts@example.com'
                             : 'https://hooks.slack.com/services/…'
                         }
                       />

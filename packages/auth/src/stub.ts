@@ -6,7 +6,7 @@ export const STUB_USER: User = {
   name: 'Tapas Jena',
   roles: ['platform-admin', 'developer'],
   groups: ['platform-admin'],
-  tenants: ['acme', 'globex'],
+  tenants: ['default'],
 }
 
 export const STUB_SESSION: Session = {
@@ -14,7 +14,7 @@ export const STUB_SESSION: Session = {
   accessToken: 'stub.access.token',
   refreshToken: 'stub.refresh.token',
   expiresAt: Date.now() + 60 * 60 * 1000,
-  activeTenant: 'acme',
+  activeTenant: 'default',
 }
 
 /**

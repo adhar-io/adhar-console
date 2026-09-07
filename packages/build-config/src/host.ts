@@ -66,7 +66,7 @@ export function defineHostConfig(opts: HostOpts) {
      * convention for running the builder locally (`pnpm dev` on its repo
      * binds to that port). Override with:
      *
-     *     VITE_ADHAR_BUILDER_URL=https://builder.acme.io pnpm dev
+     *     VITE_ADHAR_BUILDER_URL=https://builder.example.com pnpm dev
      *
      * The external app must:
      *   1. Expose `./BuilderApp` via @module-federation/vite as `name: 'builder'`.

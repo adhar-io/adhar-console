@@ -435,7 +435,7 @@ function StepOrg({
           autoFocus
           value={state.orgName}
           onChange={(e) => setState((s) => ({ ...s, orgName: e.target.value }))}
-          placeholder="Acme Corp"
+          placeholder="Your organization name"
           maxLength={80}
           className={cn(
             'mt-1.5 w-full rounded-lg border bg-surface-raised px-3 py-2.5 text-sm text-content shadow-sm focus:outline-none focus-visible:ring-2',

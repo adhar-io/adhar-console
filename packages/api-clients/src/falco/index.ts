@@ -80,12 +80,12 @@ const SEED_EVENTS: FalcoEvent[] = [
     rule: 'Terminal shell in container',
     priority: 'Warning',
     output:
-      'A shell was spawned in a container with an attached terminal (user=root container_id=abc12 image=harbor.adhar.local/acme/billing-service:v1.2.0 shell=bash)',
+      'A shell was spawned in a container with an attached terminal (user=root container_id=abc12 image=harbor.adhar.local/library/billing-service:v1.2.0 shell=bash)',
     timestamp: minutesAgo(8),
     source: 'syscall',
     hostname: 'node-prod-3',
     tags: ['container', 'shell', 'mitre_execution'],
-    output_fields: { 'k8s.ns.name': 'acme-billing', 'k8s.pod.name': 'billing-service-7f4c-xkn5p' },
+    output_fields: { 'k8s.ns.name': 'demo-billing', 'k8s.pod.name': 'billing-service-7f4c-xkn5p' },
   },
   {
     id: 'evt-002',
@@ -97,7 +97,7 @@ const SEED_EVENTS: FalcoEvent[] = [
     source: 'syscall',
     hostname: 'node-prod-1',
     tags: ['filesystem', 'mitre_persistence'],
-    output_fields: { 'k8s.ns.name': 'acme-platform', 'k8s.pod.name': 'platform-bff-78a-c12kk' },
+    output_fields: { 'k8s.ns.name': 'demo-platform', 'k8s.pod.name': 'platform-bff-78a-c12kk' },
   },
   {
     id: 'evt-003',
@@ -109,7 +109,7 @@ const SEED_EVENTS: FalcoEvent[] = [
     source: 'syscall',
     hostname: 'node-prod-5',
     tags: ['network', 'mitre_command_and_control'],
-    output_fields: { 'k8s.ns.name': 'acme-portal', 'k8s.pod.name': 'customer-portal-d4-p9lkm' },
+    output_fields: { 'k8s.ns.name': 'demo-portal', 'k8s.pod.name': 'customer-portal-d4-p9lkm' },
   },
   {
     id: 'evt-004',
@@ -133,7 +133,7 @@ const SEED_EVENTS: FalcoEvent[] = [
     source: 'syscall',
     hostname: 'node-prod-4',
     tags: ['filesystem', 'mitre_credential_access'],
-    output_fields: { 'k8s.ns.name': 'acme-billing', 'k8s.pod.name': 'billing-service-7f4c-zwqvb' },
+    output_fields: { 'k8s.ns.name': 'demo-billing', 'k8s.pod.name': 'billing-service-7f4c-zwqvb' },
   },
   {
     id: 'evt-006',
@@ -145,7 +145,7 @@ const SEED_EVENTS: FalcoEvent[] = [
     source: 'k8s_audit',
     hostname: 'apiserver-2',
     tags: ['k8s', 'mitre_credential_access'],
-    output_fields: { 'k8s.ns.name': 'acme-platform' },
+    output_fields: { 'k8s.ns.name': 'demo-platform' },
   },
 ]
 

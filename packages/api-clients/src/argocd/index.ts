@@ -61,13 +61,13 @@ const STUB_APPS: Application[] = [
   {
     metadata: { name: 'adhar-console', namespace: 'argocd' },
     spec: {
-      project: 'acme',
+      project: 'default',
       source: {
-        repoURL: 'https://gitea.adhar.local/acme/gitops',
+        repoURL: 'https://gitea.adhar.local/adhar/gitops',
         path: 'envs/prod/adhar-console',
         targetRevision: 'main',
       },
-      destination: { server: 'https://kubernetes.default.svc', namespace: 'acme-console' },
+      destination: { server: 'https://kubernetes.default.svc', namespace: 'demo-console' },
     },
     status: {
       sync: { status: 'Synced', revision: 'abc123' },
@@ -77,13 +77,13 @@ const STUB_APPS: Application[] = [
   {
     metadata: { name: 'billing-service', namespace: 'argocd' },
     spec: {
-      project: 'acme',
+      project: 'default',
       source: {
-        repoURL: 'https://gitea.adhar.local/acme/gitops',
+        repoURL: 'https://gitea.adhar.local/adhar/gitops',
         path: 'envs/prod/billing',
         targetRevision: 'main',
       },
-      destination: { server: 'https://kubernetes.default.svc', namespace: 'acme-billing' },
+      destination: { server: 'https://kubernetes.default.svc', namespace: 'demo-billing' },
     },
     status: {
       sync: { status: 'OutOfSync', revision: 'def456' },

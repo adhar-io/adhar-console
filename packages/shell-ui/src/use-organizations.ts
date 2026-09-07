@@ -14,7 +14,7 @@ export interface OrgSummary {
   createdAt?: string
 }
 
-export type OrgAction = 'switch' | 'create' | 'delete' | null
+export type OrgAction = 'switch' | 'create' | 'rename' | 'delete' | null
 
 export interface UseOrganizations {
   orgs: OrgSummary[]
@@ -26,7 +26,10 @@ export interface UseOrganizations {
   error: string | null
   switchOrg(id: string): Promise<void>
   createOrg(name: string): Promise<OrgSummary | null>
-  deleteOrg(id: string): Promise<void>
+  /** Rename in place (no reload) — resolves true on success. */
+  renameOrg(id: string, name: string): Promise<boolean>
+  /** Resolves true on success (the page reloads if the active org was deleted). */
+  deleteOrg(id: string): Promise<boolean>
   refresh(): void
 }
 
@@ -141,9 +144,41 @@ export function useOrganizations(): UseOrganizations {
     [busy],
   )
 
+  const renameOrg = useCallback(
+    async (id: string, name: string): Promise<boolean> => {
+      const trimmed = name.trim()
+      if (!trimmed || busy) return false
+      setBusy('rename')
+      setError(null)
+      try {
+        const res = await fetch(`/api/organizations/${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify({ name: trimmed }),
+        })
+        if (!res.ok) throw new Error(await readError(res))
+        const data = (await res.json()) as { organization: OrgSummary }
+        if (alive.current) {
+          // Name-only change — patch the local list instead of reloading.
+          setOrgs((prev) => prev.map((o) => (o.id === id ? { ...o, ...data.organization } : o)))
+          setBusy(null)
+        }
+        return true
+      } catch (e) {
+        if (alive.current) {
+          setError(e instanceof Error ? e.message : 'Could not rename organization')
+          setBusy(null)
+        }
+        return false
+      }
+    },
+    [busy],
+  )
+
   const deleteOrg = useCallback(
-    async (id: string) => {
-      if (busy) return
+    async (id: string): Promise<boolean> => {
+      if (busy) return false
       setBusy('delete')
       setError(null)
       try {
@@ -156,21 +191,23 @@ export function useOrganizations(): UseOrganizations {
         const data = (await res.json()) as { switched?: boolean }
         if (data.switched) {
           globalThis.location.assign('/')
-          return
+          return true
         }
         if (alive.current) {
           setBusy(null)
           refresh()
         }
+        return true
       } catch (e) {
         if (alive.current) {
           setError(e instanceof Error ? e.message : 'Could not delete organization')
           setBusy(null)
         }
+        return false
       }
     },
     [busy, refresh],
   )
 
-  return { orgs, activeId, ready, loading, busy, error, switchOrg, createOrg, deleteOrg, refresh }
+  return { orgs, activeId, ready, loading, busy, error, switchOrg, createOrg, renameOrg, deleteOrg, refresh }
 }

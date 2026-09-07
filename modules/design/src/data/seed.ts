@@ -10,7 +10,7 @@ export const SEED_ADRS: Adr[] = [
     status: 'accepted',
     authors: ['tapas'],
     updated_at: '2026-04-05T10:00:00Z',
-    repo: 'acme/docs',
+    repo: 'adhar/docs',
     context:
       'The console needs streaming-friendly SSR, file-based routing, and excellent DX. Next.js was considered but locks us into Vercel-flavoured edge runtimes.',
     decision:
@@ -26,7 +26,7 @@ export const SEED_ADRS: Adr[] = [
     status: 'accepted',
     authors: ['tapas', 'maya'],
     updated_at: '2026-04-12T10:00:00Z',
-    repo: 'acme/docs',
+    repo: 'adhar/docs',
     context:
       'Eight phase modules ship on different cadences. A single monorepo bundle would couple their release timelines.',
     decision:
@@ -42,7 +42,7 @@ export const SEED_ADRS: Adr[] = [
     status: 'accepted',
     authors: ['tapas'],
     updated_at: '2026-04-14T10:00:00Z',
-    repo: 'acme/docs',
+    repo: 'adhar/docs',
     context:
       'The BFF talks to Plane, ArgoCD, Kargo, and Harbor. We want first-class TypeScript without a build step.',
     decision: 'Deno 2 with Hono. Native ESM, native TS, npm: specifiers for compatibility.',
@@ -57,7 +57,7 @@ export const SEED_ADRS: Adr[] = [
     status: 'proposed',
     authors: ['maya'],
     updated_at: '2026-04-22T10:00:00Z',
-    repo: 'acme/docs',
+    repo: 'adhar/docs',
     context:
       'The Plane REST surface forces us to fan out N+1 calls when rendering project dashboards.',
     decision:
@@ -72,7 +72,7 @@ export const SEED_ADRS: Adr[] = [
     status: 'accepted',
     authors: ['tapas'],
     updated_at: '2026-04-08T10:00:00Z',
-    repo: 'acme/docs',
+    repo: 'adhar/docs',
     context:
       'Need a token system that any module can opt into without a JS theming runtime.',
     decision:

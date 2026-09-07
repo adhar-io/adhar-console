@@ -32,9 +32,13 @@ export function TenantSwitcher({
   const org = useOrganizations()
   const [open, setOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const [renameFor, setRenameFor] = useState<OrgItem | null>(null)
+  const [deleteFor, setDeleteFor] = useState<OrgItem | null>(null)
 
   // Live data once loaded, else the props passed by the shell (keeps the
-  // switcher populated during the initial fetch / when signed out).
+  // switcher populated during the initial fetch / when signed out). The
+  // fallback is the built-in Default Organization — real orgs always come
+  // from the server so nothing about a company is ever hardcoded.
   const usingLive = org.ready
   const items: OrgItem[] = usingLive
     ? org.orgs.map((o) => ({ id: o.id, name: o.name, subtitle: `${o.slug}.*` }))
@@ -96,24 +100,67 @@ export function TenantSwitcher({
           collapsed={collapsed}
           items={items}
           activeId={activeId}
+          manageable={usingLive}
+          canDelete={usingLive && items.length > 1}
           onSelect={select}
           onClose={() => setOpen(false)}
           onNew={() => {
             setOpen(false)
             setCreateOpen(true)
           }}
+          onRename={(item) => {
+            setOpen(false)
+            setRenameFor(item)
+          }}
+          onDelete={(item) => {
+            setOpen(false)
+            setDeleteFor(item)
+          }}
         />
       ) : null}
       {createOpen ? (
-        <NewOrgDialog
-          creating={org.busy === 'create'}
+        <OrgNameDialog
+          title="New organization"
+          description="Organizations keep each team’s catalog, workspace, and settings separate. You can switch between them anytime."
+          submitLabel="Create organization"
+          busyLabel="Creating…"
+          busy={org.busy === 'create'}
           error={org.busy === 'create' ? null : org.error}
           onClose={() => setCreateOpen(false)}
-          onCreate={async (name) => {
+          onSubmit={async (name) => {
             const created = await org.createOrg(name)
             // On success the page reloads into the new org; only close on failure.
-            if (!created) return false
-            return true
+            return !!created
+          }}
+        />
+      ) : null}
+      {renameFor ? (
+        <OrgNameDialog
+          title="Rename organization"
+          description="The new name shows everywhere this organization appears. Its slug and provisioned resources are unchanged."
+          initial={renameFor.name}
+          submitLabel="Save name"
+          busyLabel="Saving…"
+          busy={org.busy === 'rename'}
+          error={org.busy === 'rename' ? null : org.error}
+          onClose={() => setRenameFor(null)}
+          onSubmit={async (name) => {
+            const ok = await org.renameOrg(renameFor.id, name)
+            if (ok) setRenameFor(null)
+            return ok
+          }}
+        />
+      ) : null}
+      {deleteFor ? (
+        <ConfirmDeleteDialog
+          name={deleteFor.name}
+          isActive={deleteFor.id === activeId}
+          busy={org.busy === 'delete'}
+          error={org.busy === 'delete' ? null : org.error}
+          onClose={() => setDeleteFor(null)}
+          onConfirm={async () => {
+            // Deleting the active org reloads; otherwise the list refreshes.
+            if (await org.deleteOrg(deleteFor.id)) setDeleteFor(null)
           }}
         />
       ) : null}
@@ -126,17 +173,26 @@ function Menu({
   collapsed = false,
   items,
   activeId,
+  manageable,
+  canDelete,
   onSelect,
   onClose,
   onNew,
+  onRename,
+  onDelete,
 }: {
   placement: 'top' | 'bottom'
   collapsed?: boolean
   items: OrgItem[]
   activeId: string
+  /** Rename/delete are only offered on the live server-backed list. */
+  manageable: boolean
+  canDelete: boolean
   onSelect(id: string): void
   onClose(): void
   onNew(): void
+  onRename(item: OrgItem): void
+  onDelete(item: OrgItem): void
 }) {
   return (
     <>
@@ -156,7 +212,7 @@ function Menu({
           {items.map((t) => {
             const isActive = t.id === activeId
             return (
-              <li key={t.id}>
+              <li key={t.id} className="group relative">
                 <button
                   type="button"
                   role="option"
@@ -165,6 +221,7 @@ function Menu({
                   className={cn(
                     'flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors',
                     isActive ? 'bg-surface-sunken' : 'hover:bg-surface-sunken',
+                    manageable && 'pr-16',
                   )}
                 >
                   <OrgAvatar name={t.name} />
@@ -176,6 +233,30 @@ function Menu({
                     <div className="truncate text-[11px] text-content-subtle">{t.subtitle}</div>
                   </div>
                 </button>
+                {manageable ? (
+                  <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                    <button
+                      type="button"
+                      title={`Rename ${t.name}`}
+                      aria-label={`Rename ${t.name}`}
+                      onClick={() => onRename(t)}
+                      className="rounded-md p-1.5 text-content-subtle transition-colors hover:bg-surface-raised hover:text-content"
+                    >
+                      <IconPencil />
+                    </button>
+                    {canDelete ? (
+                      <button
+                        type="button"
+                        title={`Delete ${t.name}`}
+                        aria-label={`Delete ${t.name}`}
+                        onClick={() => onDelete(t)}
+                        className="rounded-md p-1.5 text-content-subtle transition-colors hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
+                      >
+                        <IconTrash />
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
               </li>
             )
           })}
@@ -195,31 +276,93 @@ function Menu({
   )
 }
 
-/* ─────────── create dialog ─────────── */
+/* ─────────── dialogs ─────────── */
 
-function NewOrgDialog({
-  creating,
+/** Shared shell for the small modal dialogs (backdrop, escape-to-close, card). */
+function DialogFrame({
+  label,
+  busy,
+  onClose,
+  children,
+}: {
+  label: string
+  busy: boolean
+  onClose(): void
+  children: React.ReactNode
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !busy) onClose()
+    }
+    globalThis.addEventListener('keydown', onKey)
+    return () => globalThis.removeEventListener('keydown', onKey)
+  }, [busy, onClose])
+
+  return createPortal(
+    <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={() => !busy && onClose()}
+        className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-edge-default bg-surface-raised p-6 shadow-2xl ring-1 ring-black/5 dark:ring-white/10"
+      >
+        {children}
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+function ErrorNote({ text }: { text: string | null }) {
+  if (!text) return null
+  return (
+    <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300">
+      {text}
+    </p>
+  )
+}
+
+const CANCEL_BTN =
+  'inline-flex h-9 items-center rounded-lg border border-edge-default bg-surface-raised px-3 text-sm font-medium text-content-muted transition-colors hover:bg-surface-sunken hover:text-content disabled:opacity-60'
+
+/** Name form used for both "New organization" and "Rename organization". */
+function OrgNameDialog({
+  title,
+  description,
+  initial = '',
+  submitLabel,
+  busyLabel,
+  busy,
   error,
   onClose,
-  onCreate,
+  onSubmit,
 }: {
-  creating: boolean
+  title: string
+  description: string
+  initial?: string
+  submitLabel: string
+  busyLabel: string
+  busy: boolean
   error: string | null
   onClose(): void
-  onCreate(name: string): Promise<boolean>
+  onSubmit(name: string): Promise<boolean>
 }) {
-  const [name, setName] = useState('')
+  const [name, setName] = useState(initial)
   const [localError, setLocalError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     inputRef.current?.focus()
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !creating) onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [creating, onClose])
+    inputRef.current?.select()
+  }, [])
+
+  const unchanged = !!initial && name.trim() === initial.trim()
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -228,75 +371,95 @@ function NewOrgDialog({
       setLocalError('Give your organization a name.')
       return
     }
+    if (unchanged) {
+      onClose()
+      return
+    }
     setLocalError(null)
-    await onCreate(trimmed)
-    // Success reloads the page; on failure the hook's `error` surfaces below.
+    await onSubmit(trimmed)
+    // Failure surfaces through the hook's `error` below.
   }
 
-  const shown = localError ?? error
+  return (
+    <DialogFrame label={title} busy={busy} onClose={onClose}>
+      <h2 className="text-base font-semibold tracking-tight text-content">{title}</h2>
+      <p className="mt-1 text-[13px] text-content-muted">{description}</p>
+      <form onSubmit={submit} className="mt-4 space-y-3">
+        <div>
+          <label htmlFor="org-name" className="mb-1 block text-[12px] font-medium text-content-muted">
+            Organization name
+          </label>
+          <input
+            id="org-name"
+            ref={inputRef}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={60}
+            placeholder="Your organization name"
+            disabled={busy}
+            className="h-10 w-full rounded-lg border border-edge-default bg-surface-app px-3 text-sm text-content shadow-sm outline-none transition-colors placeholder:text-content-subtle focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 disabled:opacity-60"
+          />
+        </div>
+        <ErrorNote text={localError ?? error} />
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <button type="button" onClick={onClose} disabled={busy} className={CANCEL_BTN}>
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={busy || !name.trim() || unchanged}
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-brand-600 px-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 disabled:opacity-60"
+          >
+            {busy ? <MiniSpinner light /> : null}
+            {busy ? busyLabel : submitLabel}
+          </button>
+        </div>
+      </form>
+    </DialogFrame>
+  )
+}
 
-  return createPortal(
-    <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
-      <button
-        type="button"
-        aria-label="Close"
-        onClick={() => !creating && onClose()}
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Create organization"
-        className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-edge-default bg-surface-raised p-6 shadow-2xl ring-1 ring-black/5 dark:ring-white/10"
-      >
-        <h2 className="text-base font-semibold tracking-tight text-content">New organization</h2>
-        <p className="mt-1 text-[13px] text-content-muted">
-          Organizations keep each team’s catalog, workspace, and settings separate. You can switch
-          between them anytime.
-        </p>
-        <form onSubmit={submit} className="mt-4 space-y-3">
-          <div>
-            <label htmlFor="org-name" className="mb-1 block text-[12px] font-medium text-content-muted">
-              Organization name
-            </label>
-            <input
-              id="org-name"
-              ref={inputRef}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              maxLength={60}
-              placeholder="Acme Corp"
-              disabled={creating}
-              className="h-10 w-full rounded-lg border border-edge-default bg-surface-app px-3 text-sm text-content shadow-sm outline-none transition-colors placeholder:text-content-subtle focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 disabled:opacity-60"
-            />
-          </div>
-          {shown ? (
-            <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300">
-              {shown}
-            </p>
-          ) : null}
-          <div className="flex items-center justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={creating}
-              className="inline-flex h-9 items-center rounded-lg border border-edge-default bg-surface-raised px-3 text-sm font-medium text-content-muted transition-colors hover:bg-surface-sunken hover:text-content disabled:opacity-60"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={creating || !name.trim()}
-              className="inline-flex h-9 items-center gap-2 rounded-lg bg-brand-600 px-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 disabled:opacity-60"
-            >
-              {creating ? <MiniSpinner light /> : null}
-              {creating ? 'Creating…' : 'Create organization'}
-            </button>
-          </div>
-        </form>
+function ConfirmDeleteDialog({
+  name,
+  isActive,
+  busy,
+  error,
+  onClose,
+  onConfirm,
+}: {
+  name: string
+  isActive: boolean
+  busy: boolean
+  error: string | null
+  onClose(): void
+  onConfirm(): Promise<void>
+}) {
+  return (
+    <DialogFrame label="Delete organization" busy={busy} onClose={onClose}>
+      <h2 className="text-base font-semibold tracking-tight text-content">Delete organization</h2>
+      <p className="mt-1 text-[13px] text-content-muted">
+        <span className="font-medium text-content">{name}</span> will be removed from your
+        organization list{isActive ? ' and you will be switched to another organization' : ''}.
+        Resources provisioned on the platform for it are not deleted.
+      </p>
+      <div className="mt-4 space-y-3">
+        <ErrorNote text={error} />
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <button type="button" onClick={onClose} disabled={busy} className={CANCEL_BTN}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void onConfirm()}
+            disabled={busy}
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-rose-600 px-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-rose-700 disabled:opacity-60"
+          >
+            {busy ? <MiniSpinner light /> : null}
+            {busy ? 'Deleting…' : 'Delete organization'}
+          </button>
+        </div>
       </div>
-    </div>,
-    document.body,
+    </DialogFrame>
   )
 }
 
@@ -367,6 +530,26 @@ function IconPlus() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0">
       <path d="M12 5v14M5 12h14" />
+    </svg>
+  )
+}
+
+function IconPencil() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  )
+}
+
+function IconTrash() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0">
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <path d="M19 6l-1 14H6L5 6" />
+      <path d="M10 11v6M14 11v6" />
     </svg>
   )
 }

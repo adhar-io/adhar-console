@@ -62,11 +62,11 @@ function build(http: HttpClient): CrossplaneClient {
 const STUB_COMPOSITIONS: Composition[] = [
   {
     metadata: { name: 'xeks-standard' },
-    spec: { compositeTypeRef: { apiVersion: 'acme.io/v1alpha1', kind: 'XEKS' } },
+    spec: { compositeTypeRef: { apiVersion: 'example.io/v1alpha1', kind: 'XEKS' } },
   },
   {
     metadata: { name: 'xrds-postgres' },
-    spec: { compositeTypeRef: { apiVersion: 'acme.io/v1alpha1', kind: 'XPostgres' } },
+    spec: { compositeTypeRef: { apiVersion: 'example.io/v1alpha1', kind: 'XPostgres' } },
   },
 ]
 

@@ -42,11 +42,11 @@ export const STUB_CLUSTERS: Cluster[] = [
 
 export const STUB_NAMESPACES: Namespace[] = [
   {
-    metadata: { name: 'acme-console', labels: { 'adhar.io/tenant': 'acme' } },
+    metadata: { name: 'demo-console', labels: { 'adhar.io/tenant': 'default' } },
     status: { phase: 'Active' },
   },
   {
-    metadata: { name: 'acme-billing', labels: { 'adhar.io/tenant': 'acme' } },
+    metadata: { name: 'demo-billing', labels: { 'adhar.io/tenant': 'default' } },
     status: { phase: 'Active' },
   },
   {
@@ -96,13 +96,13 @@ export const STUB_PODS: Pod[] = [
   {
     metadata: {
       name: 'adhar-console-7f8b8d5c4-xq2ws',
-      namespace: 'acme-console',
+      namespace: 'demo-console',
       creationTimestamp: '2026-04-19T04:55:00Z',
       labels: { app: 'adhar-console' },
     },
     spec: {
       nodeName: 'ip-10-0-2-45.ec2.internal',
-      containers: [{ name: 'app', image: 'harbor.adhar.local/acme/adhar-console:v0.2.0' }],
+      containers: [{ name: 'app', image: 'harbor.adhar.local/library/adhar-console:v0.2.0' }],
     },
     status: {
       phase: 'Running',
@@ -113,13 +113,13 @@ export const STUB_PODS: Pod[] = [
   {
     metadata: {
       name: 'billing-service-5b4c6d8e9-k7fvr',
-      namespace: 'acme-billing',
+      namespace: 'demo-billing',
       creationTimestamp: '2026-04-18T22:10:00Z',
       labels: { app: 'billing-service' },
     },
     spec: {
       nodeName: 'ip-10-0-2-45.ec2.internal',
-      containers: [{ name: 'api', image: 'harbor.adhar.local/acme/billing-service:v1.4.0' }],
+      containers: [{ name: 'api', image: 'harbor.adhar.local/library/billing-service:v1.4.0' }],
     },
     status: {
       phase: 'Running',
@@ -130,13 +130,13 @@ export const STUB_PODS: Pod[] = [
   {
     metadata: {
       name: 'billing-service-5b4c6d8e9-wvx4l',
-      namespace: 'acme-billing',
+      namespace: 'demo-billing',
       creationTimestamp: '2026-04-19T02:14:00Z',
       labels: { app: 'billing-service' },
     },
     spec: {
       nodeName: 'ip-10-0-2-45.ec2.internal',
-      containers: [{ name: 'api', image: 'harbor.adhar.local/acme/billing-service:v1.4.0' }],
+      containers: [{ name: 'api', image: 'harbor.adhar.local/library/billing-service:v1.4.0' }],
     },
     status: {
       phase: 'Pending',
@@ -149,7 +149,7 @@ export const STUB_DEPLOYMENTS: Deployment[] = [
   {
     metadata: {
       name: 'adhar-console',
-      namespace: 'acme-console',
+      namespace: 'demo-console',
       creationTimestamp: '2026-03-02T09:00:00Z',
       labels: { app: 'adhar-console' },
     },
@@ -163,7 +163,7 @@ export const STUB_DEPLOYMENTS: Deployment[] = [
   {
     metadata: {
       name: 'billing-service',
-      namespace: 'acme-billing',
+      namespace: 'demo-billing',
       creationTimestamp: '2026-02-14T09:00:00Z',
       labels: { app: 'billing-service' },
     },
@@ -185,7 +185,7 @@ export const STUB_DEPLOYMENTS: Deployment[] = [
 
 export const STUB_SERVICES: Service[] = [
   {
-    metadata: { name: 'adhar-console', namespace: 'acme-console' },
+    metadata: { name: 'adhar-console', namespace: 'demo-console' },
     spec: {
       type: 'ClusterIP',
       clusterIP: '10.96.32.12',
@@ -194,7 +194,7 @@ export const STUB_SERVICES: Service[] = [
     },
   },
   {
-    metadata: { name: 'billing-service', namespace: 'acme-billing' },
+    metadata: { name: 'billing-service', namespace: 'demo-billing' },
     spec: {
       type: 'ClusterIP',
       clusterIP: '10.96.48.7',
@@ -206,12 +206,12 @@ export const STUB_SERVICES: Service[] = [
 
 export const STUB_INGRESSES: Ingress[] = [
   {
-    metadata: { name: 'adhar-console', namespace: 'acme-console' },
+    metadata: { name: 'adhar-console', namespace: 'demo-console' },
     spec: {
       ingressClassName: 'nginx',
       rules: [
         {
-          host: 'console.acme.adhar.local',
+          host: 'console.adhar.local',
           http: {
             paths: [
               {
@@ -229,22 +229,22 @@ export const STUB_INGRESSES: Ingress[] = [
 
 export const STUB_EVENTS: Event[] = [
   {
-    metadata: { name: 'billing-service.abc1', namespace: 'acme-billing' },
+    metadata: { name: 'billing-service.abc1', namespace: 'demo-billing' },
     type: 'Warning',
     reason: 'CrashLoopBackOff',
     message: 'Back-off restarting failed container',
     count: 4,
     lastTimestamp: '2026-04-19T06:05:00Z',
-    involvedObject: { kind: 'Pod', name: 'billing-service-5b4c6d8e9-k7fvr', namespace: 'acme-billing' },
+    involvedObject: { kind: 'Pod', name: 'billing-service-5b4c6d8e9-k7fvr', namespace: 'demo-billing' },
   },
   {
-    metadata: { name: 'adhar-console.def2', namespace: 'acme-console' },
+    metadata: { name: 'adhar-console.def2', namespace: 'demo-console' },
     type: 'Normal',
     reason: 'Scheduled',
     message: 'Successfully assigned to ip-10-0-2-45',
     count: 1,
     lastTimestamp: '2026-04-19T04:55:00Z',
-    involvedObject: { kind: 'Pod', name: 'adhar-console-7f8b8d5c4-xq2ws', namespace: 'acme-console' },
+    involvedObject: { kind: 'Pod', name: 'adhar-console-7f8b8d5c4-xq2ws', namespace: 'demo-console' },
   },
 ]
 
@@ -258,7 +258,7 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
       apiVersion: 'argoproj.io/v1alpha1',
       kind: 'Application',
       metadata: { name: 'adhar-console', namespace: 'argocd' },
-      spec: { project: 'acme' },
+      spec: { project: 'default' },
       status: { health: { status: 'Healthy' }, sync: { status: 'Synced' } },
     },
   ],
@@ -266,7 +266,7 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
     {
       apiVersion: 'kargo.akuity.io/v1alpha1',
       kind: 'Stage',
-      metadata: { name: 'prod', namespace: 'kargo-acme' },
+      metadata: { name: 'prod', namespace: 'kargo-default' },
       spec: {},
       status: { phase: 'Steady' },
     },
@@ -276,7 +276,7 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
       apiVersion: 'apiextensions.crossplane.io/v1',
       kind: 'Composition',
       metadata: { name: 'xeks-standard' },
-      spec: { compositeTypeRef: { apiVersion: 'acme.io/v1alpha1', kind: 'XEKS' } },
+      spec: { compositeTypeRef: { apiVersion: 'example.io/v1alpha1', kind: 'XEKS' } },
     },
   ],
   'kyverno.io/v1/clusterpolicies': [
@@ -300,30 +300,30 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
     {
       apiVersion: 'argoproj.io/v1alpha1',
       kind: 'Rollout',
-      metadata: { name: 'adhar-console', namespace: 'acme-console' },
+      metadata: { name: 'adhar-console', namespace: 'demo-console' },
       spec: {},
       status: { phase: 'Healthy' },
     },
   ],
   /* ───── Adhar Platform composites ──────────────────────────────────── */
   'platform.adhar.io/v1alpha1/applications': [
-    xr('Application', 'web', 'acme-console', {
-      repo: 'github.com/acme/web',
-      image: 'ghcr.io/acme/web:1.4.2',
+    xr('Application', 'web', 'demo-console', {
+      repo: 'github.com/example/web',
+      image: 'ghcr.io/example/web:1.4.2',
       replicas: 3,
       environment: 'prod',
       compositionRef: { name: 'application-standard' },
     }, ['Deployment/web', 'Service/web', 'Ingress/web']),
-    xr('Application', 'api', 'acme-console', {
-      repo: 'github.com/acme/api',
-      image: 'ghcr.io/acme/api:2.0.0-rc.3',
+    xr('Application', 'api', 'demo-console', {
+      repo: 'github.com/example/api',
+      image: 'ghcr.io/example/api:2.0.0-rc.3',
       replicas: 2,
       environment: 'staging',
       compositionRef: { name: 'application-standard' },
     }, ['Deployment/api', 'Service/api']),
   ],
   'platform.adhar.io/v1alpha1/databases': [
-    xr('Database', 'orders-pg', 'acme-data', {
+    xr('Database', 'orders-pg', 'demo-data', {
       engine: 'postgres',
       version: '15.4',
       size: 'db.t3.medium',
@@ -331,7 +331,7 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
       backupRetentionDays: 14,
       compositionRef: { name: 'database-postgres-aws' },
     }, ['RDSInstance/orders-pg', 'SecurityGroup/orders-pg']),
-    xr('Database', 'audit-mongo', 'acme-data', {
+    xr('Database', 'audit-mongo', 'demo-data', {
       engine: 'mongodb',
       version: '7.0',
       size: 'M30',
@@ -341,14 +341,14 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
     }, ['MongoCluster/audit-mongo']),
   ],
   'platform.adhar.io/v1alpha1/datapipelines': [
-    xr('DataPipeline', 'salesforce-to-warehouse', 'acme-data', {
+    xr('DataPipeline', 'salesforce-to-warehouse', 'demo-data', {
       source: { type: 'airbyte', name: 'salesforce' },
       destination: { type: 'iceberg', name: 'sales-cold' },
       schedule: '0 */6 * * *',
       mode: 'batch',
       compositionRef: { name: 'datapipeline-airbyte' },
     }, ['AirbyteConnection/sf-cold', 'IcebergTable/sales']),
-    xr('DataPipeline', 'events-to-lake', 'acme-data', {
+    xr('DataPipeline', 'events-to-lake', 'demo-data', {
       source: { type: 'kafka', name: 'events' },
       destination: { type: 'minio', name: 'lake-bronze' },
       mode: 'streaming',
@@ -356,14 +356,14 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
     }, ['KafkaConnect/events-bronze']),
   ],
   'platform.adhar.io/v1alpha1/pipelines': [
-    xr('Pipeline', 'web-ci', 'acme-console', {
+    xr('Pipeline', 'web-ci', 'demo-console', {
       trigger: 'push:main',
       template: 'argo-build-test-deploy',
       parallelism: 4,
       timeoutSeconds: 1800,
       compositionRef: { name: 'pipeline-argo-default' },
     }, ['WorkflowTemplate/web-ci']),
-    xr('Pipeline', 'nightly-e2e', 'acme-console', {
+    xr('Pipeline', 'nightly-e2e', 'demo-console', {
       trigger: 'cron:@daily',
       template: 'argo-e2e',
       parallelism: 2,
@@ -372,16 +372,16 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
     }, ['CronWorkflow/nightly-e2e']),
   ],
   'platform.adhar.io/v1alpha1/routes': [
-    xr('Route', 'web-public', 'acme-console', {
-      host: 'app.acme.io',
+    xr('Route', 'web-public', 'demo-console', {
+      host: 'app.example.com',
       path: '/',
       target: 'web',
       tls: { enabled: true, issuer: 'letsencrypt-prod' },
       rateLimit: '500r/s',
       compositionRef: { name: 'route-public-https' },
-    }, ['Ingress/web-public', 'Certificate/app-acme-io']),
-    xr('Route', 'api-internal', 'acme-console', {
-      host: 'api.internal.acme',
+    }, ['Ingress/web-public', 'Certificate/app-example-com']),
+    xr('Route', 'api-internal', 'demo-console', {
+      host: 'api.internal.example',
       path: '/v1',
       target: 'api',
       tls: { enabled: true, issuer: 'mesh-ca' },
@@ -390,7 +390,7 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
     }, ['Ingress/api-internal']),
   ],
   'platform.adhar.io/v1alpha1/caches': [
-    xr('Cache', 'session-store', 'acme-console', {
+    xr('Cache', 'session-store', 'demo-console', {
       engine: 'redis',
       version: '7.2',
       size: 'cache.t3.small',
@@ -400,7 +400,7 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
       tls: true,
       compositionRef: { name: 'cache-redis-ha' },
     }, ['ElastiCache/session-store']),
-    xr('Cache', 'rate-limit', 'acme-edge', {
+    xr('Cache', 'rate-limit', 'demo-edge', {
       engine: 'dragonfly',
       version: '1.20',
       size: 'small',
@@ -412,7 +412,7 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
     }, ['StatefulSet/rate-limit']),
   ],
   'platform.adhar.io/v1alpha1/buckets': [
-    xr('Bucket', 'web-assets', 'acme-console', {
+    xr('Bucket', 'web-assets', 'demo-console', {
       provider: 'aws-s3',
       region: 'eu-west-1',
       visibility: 'private',
@@ -420,8 +420,8 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
       encryption: 'aws:kms',
       lifecycleDays: 365,
       compositionRef: { name: 'bucket-s3' },
-    }, ['Bucket/acme-web-assets']),
-    xr('Bucket', 'public-downloads', 'acme-console', {
+    }, ['Bucket/demo-web-assets']),
+    xr('Bucket', 'public-downloads', 'demo-console', {
       provider: 'aws-s3',
       region: 'eu-west-1',
       visibility: 'public',
@@ -429,8 +429,8 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
       encryption: 'aes-256',
       lifecycleDays: 30,
       compositionRef: { name: 'bucket-s3' },
-    }, ['Bucket/acme-public-downloads']),
-    xr('Bucket', 'lake-bronze', 'acme-data', {
+    }, ['Bucket/demo-public-downloads']),
+    xr('Bucket', 'lake-bronze', 'demo-data', {
       provider: 'minio',
       region: 'on-prem',
       visibility: 'private',
@@ -441,7 +441,7 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
     }, ['MinioBucket/lake-bronze']),
   ],
   'platform.adhar.io/v1alpha1/topics': [
-    xr('Topic', 'orders.events.v1', 'acme-events', {
+    xr('Topic', 'orders.events.v1', 'demo-events', {
       broker: 'kafka.platform.svc',
       partitions: 12,
       replicationFactor: 3,
@@ -450,7 +450,7 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
       schema: 'avro://schema-registry/orders-events-v1',
       compositionRef: { name: 'topic-kafka' },
     }, ['KafkaTopic/orders-events-v1']),
-    xr('Topic', 'audit.events.v2', 'acme-events', {
+    xr('Topic', 'audit.events.v2', 'demo-events', {
       broker: 'kafka.platform.svc',
       partitions: 6,
       replicationFactor: 3,
@@ -459,7 +459,7 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
       schema: 'avro://schema-registry/audit-events-v2',
       compositionRef: { name: 'topic-kafka' },
     }, ['KafkaTopic/audit-events-v2']),
-    xr('Topic', 'notifications', 'acme-events', {
+    xr('Topic', 'notifications', 'demo-events', {
       broker: 'nats.platform.svc',
       partitions: 4,
       replicationFactor: 2,
@@ -469,18 +469,18 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
     }, ['NatsStream/notifications']),
   ],
   'platform.adhar.io/v1alpha1/functions': [
-    xr('Function', 'image-thumbnail', 'acme-console', {
+    xr('Function', 'image-thumbnail', 'demo-console', {
       runtime: 'node20',
-      image: 'ghcr.io/acme/fn-thumb:1.0.3',
+      image: 'ghcr.io/example/fn-thumb:1.0.3',
       minScale: 0,
       maxScale: 50,
       timeoutSeconds: 30,
       eventSource: 'bucket://web-assets/uploads/*',
       compositionRef: { name: 'function-knative' },
     }, ['Service/image-thumbnail']),
-    xr('Function', 'order-webhook', 'acme-console', {
+    xr('Function', 'order-webhook', 'demo-console', {
       runtime: 'go1.22',
-      image: 'ghcr.io/acme/fn-orders:2.4.1',
+      image: 'ghcr.io/example/fn-orders:2.4.1',
       minScale: 1,
       maxScale: 20,
       timeoutSeconds: 15,
@@ -489,7 +489,7 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
     }, ['Service/order-webhook', 'Trigger/order-webhook']),
   ],
   'platform.adhar.io/v1alpha1/workflows': [
-    xr('Workflow', 'monthly-billing', 'acme-finance', {
+    xr('Workflow', 'monthly-billing', 'demo-finance', {
       engine: 'temporal',
       template: 'billing/monthly',
       schedule: '0 4 1 * *',
@@ -497,7 +497,7 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
       retries: 3,
       compositionRef: { name: 'workflow-temporal' },
     }, ['TemporalSchedule/monthly-billing']),
-    xr('Workflow', 'data-quality-scan', 'acme-data', {
+    xr('Workflow', 'data-quality-scan', 'demo-data', {
       engine: 'argo-workflows',
       template: 'argo/dq-scan',
       schedule: '0 */4 * * *',
@@ -507,62 +507,62 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
     }, ['CronWorkflow/data-quality-scan']),
   ],
   'platform.adhar.io/v1alpha1/environments': [
-    xr('Environment', 'acme-prod', undefined, {
+    xr('Environment', 'demo-prod', undefined, {
       tier: 'prod',
       cluster: 'eu-west-1',
-      tenant: 'acme',
+      tenant: 'default',
       cpuQuota: '64',
       memoryQuota: '256Gi',
       observability: 'lgtm-tier-1',
       compositionRef: { name: 'environment-tier-1' },
-    }, ['Namespace/acme-prod', 'ResourceQuota/acme-prod', 'NetworkPolicy/default-deny']),
-    xr('Environment', 'acme-staging', undefined, {
+    }, ['Namespace/demo-prod', 'ResourceQuota/demo-prod', 'NetworkPolicy/default-deny']),
+    xr('Environment', 'demo-staging', undefined, {
       tier: 'staging',
       cluster: 'eu-west-1',
-      tenant: 'acme',
+      tenant: 'default',
       cpuQuota: '32',
       memoryQuota: '128Gi',
       observability: 'lgtm-tier-2',
       compositionRef: { name: 'environment-tier-2' },
-    }, ['Namespace/acme-staging']),
-    xr('Environment', 'acme-dev', undefined, {
+    }, ['Namespace/demo-staging']),
+    xr('Environment', 'demo-dev', undefined, {
       tier: 'dev',
       cluster: 'eu-west-1',
-      tenant: 'acme',
+      tenant: 'default',
       cpuQuota: '16',
       memoryQuota: '64Gi',
       observability: 'lgtm-tier-3',
       compositionRef: { name: 'environment-tier-3' },
-    }, ['Namespace/acme-dev']),
+    }, ['Namespace/demo-dev']),
   ],
   'platform.adhar.io/v1alpha1/domains': [
-    xr('Domain', 'app-acme-io', 'acme-console', {
-      fqdn: 'app.acme.io',
-      zone: 'acme.io',
+    xr('Domain', 'app-example-com', 'demo-console', {
+      fqdn: 'app.example.com',
+      zone: 'example.io',
       certIssuer: 'letsencrypt-prod',
       compositionRef: { name: 'domain-public' },
-    }, ['DNSRecord/app.acme.io', 'Certificate/app-acme-io']),
-    xr('Domain', 'api-internal-acme', 'acme-console', {
-      fqdn: 'api.internal.acme',
-      zone: 'internal.acme',
+    }, ['DNSRecord/app.example.com', 'Certificate/app-example-com']),
+    xr('Domain', 'api-internal-example', 'demo-console', {
+      fqdn: 'api.internal.example',
+      zone: 'internal.example',
       certIssuer: 'mesh-ca',
       geo: 'eu-only',
       compositionRef: { name: 'domain-internal' },
-    }, ['DNSRecord/api.internal.acme']),
+    }, ['DNSRecord/api.internal.example']),
   ],
   'platform.adhar.io/v1alpha1/apicontracts': [
-    xr('APIContract', 'orders-v1', 'acme-console', {
+    xr('APIContract', 'orders-v1', 'demo-console', {
       kind: 'OpenAPI',
-      specRef: 'git://acme/contracts/orders-v1.yaml',
+      specRef: 'git://adhar/contracts/orders-v1.yaml',
       version: '1.4.0',
       owner: 'team-orders',
       visibility: 'tenant',
       sloMs: 250,
       compositionRef: { name: 'apicontract-openapi' },
     }, ['ConfigMap/orders-v1-spec']),
-    xr('APIContract', 'audit-events', 'acme-console', {
+    xr('APIContract', 'audit-events', 'demo-console', {
       kind: 'AsyncAPI',
-      specRef: 'git://acme/contracts/audit-events.yaml',
+      specRef: 'git://adhar/contracts/audit-events.yaml',
       version: '2.0.0',
       owner: 'team-platform',
       visibility: 'public',

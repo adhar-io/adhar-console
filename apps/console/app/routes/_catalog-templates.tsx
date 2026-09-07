@@ -2364,7 +2364,7 @@ function RegisterTemplateModal({
                 <Input
                   ref={firstFieldRef}
                   type="url"
-                  placeholder="https://gitea.acme.io/team/templates/blob/main/template.yaml"
+                  placeholder="https://gitea.example.com/team/templates/blob/main/template.yaml"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
                   className="flex-1"

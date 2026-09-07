@@ -5692,7 +5692,7 @@ function RegisterExistingModal({
       }
     } catch {
       setError(
-        'That URL doesn’t look right — paste a full repo URL like https://gitea.acme.io/team/svc.',
+        'That URL doesn’t look right — paste a full repo URL like https://gitea.example.com/team/svc.',
       )
     }
   }
@@ -5774,7 +5774,7 @@ function RegisterExistingModal({
             <Input
               ref={firstFieldRef}
               type="url"
-              placeholder="https://gitea.acme.io/team/service-name"
+              placeholder="https://gitea.example.com/team/service-name"
               value={repoUrl}
               onChange={(e) => setRepoUrl(e.target.value)}
               className="flex-1"

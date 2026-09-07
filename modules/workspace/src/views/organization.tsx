@@ -97,7 +97,7 @@ export function Organization() {
                   <TextField
                     value={dirty.domain ?? o?.domain ?? ''}
                     onChange={(v) => setDirty((d) => ({ ...d, domain: v }))}
-                    placeholder="acme.com"
+                    placeholder="example.com"
                   />
                 </SettingsRow>
               </SettingsCard>

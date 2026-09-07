@@ -35,7 +35,7 @@ export interface Selection {
   namespace: string
   /**
    * Kubernetes label selector restricting which namespaces belong to the active
-   * organization (e.g. `adhar.io/org=acme`), or `''` when the default / no-org
+   * organization (e.g. `adhar.io/org=default`), or `''` when the default / no-org
    * case is active and every namespace is in scope.
    */
   namespaceScope: string

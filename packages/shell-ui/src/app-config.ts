@@ -25,6 +25,8 @@ export interface AppConfig {
    * AUTH_PUBLIC_URL; empty when unknown (the client then uses its own origin).
    */
   publicBaseDomain: string
+  /** Plane workspace slug the Define phase works in (PLANE_WORKSPACE, else the Gitea org). */
+  planeWorkspace: string
 }
 
 /** Safe defaults matching the real platform install, used until `/api/config`
@@ -38,6 +40,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   argocdProject: 'default',
   docsBaseUrl: 'https://docs.adhar.io',
   publicBaseDomain: '',
+  planeWorkspace: 'adhar',
 }
 
 export function useAppConfig() {
@@ -78,4 +81,9 @@ export function usePublicBaseDomain(): string {
   if (typeof window === 'undefined') return ''
   const rest = window.location.host.split('.').slice(1).join('.')
   return rest.includes('.') ? rest : ''
+}
+
+/** The Plane workspace slug the Define phase works in, with the real default while config loads. */
+export function usePlaneWorkspace(): string {
+  return useAppConfig().data?.planeWorkspace || APP_CONFIG_DEFAULTS.planeWorkspace
 }

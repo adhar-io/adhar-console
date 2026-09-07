@@ -157,7 +157,7 @@ export function PaymentMethods() {
                     <TextField
                       value={form.holder ?? ''}
                       onChange={(holder) => setForm((f) => ({ ...f, holder }))}
-                      placeholder="ACME Finance"
+                      placeholder="Finance team"
                     />
                   </SettingsRow>
                 </>

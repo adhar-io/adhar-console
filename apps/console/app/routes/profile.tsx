@@ -435,7 +435,7 @@ function ProfileSection({
             <Field label="Company / organization">
               <Input
                 value={identity.company}
-                placeholder="e.g. Acme Corp"
+                placeholder="Your organization name"
                 maxLength={120}
                 onChange={(e) => patch({ company: e.target.value })}
               />

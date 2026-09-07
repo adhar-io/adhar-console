@@ -280,7 +280,7 @@ const STUB_POLICIES: Policy[] = [
   {
     name: 'disallow-latest-tag',
     kind: 'Policy',
-    namespace: 'acme-portal',
+    namespace: 'demo-portal',
     validationFailureAction: 'Audit',
     category: 'Best Practices',
     severity: 'medium',
@@ -318,8 +318,8 @@ const STUB_REPORTS: PolicyReport[] = [
         message: 'spec.containers[0].resources.limits.cpu missing',
         timestamp: ts,
         resources: [
-          { kind: 'Pod', name: 'billing-service-xyz', namespace: 'acme-billing' },
-          { kind: 'Pod', name: 'platform-bff-9d', namespace: 'acme-platform' },
+          { kind: 'Pod', name: 'billing-service-xyz', namespace: 'demo-billing' },
+          { kind: 'Pod', name: 'platform-bff-9d', namespace: 'demo-platform' },
         ],
       },
       {
@@ -328,7 +328,7 @@ const STUB_REPORTS: PolicyReport[] = [
         result: 'fail',
         severity: 'critical',
         category: 'Supply Chain',
-        message: 'image harbor.adhar.local/acme/legacy-tool:v0.1 not signed by trusted root',
+        message: 'image harbor.adhar.local/library/legacy-tool:v0.1 not signed by trusted root',
         timestamp: ts,
         resources: [{ kind: 'Pod', name: 'legacy-tool-7c', namespace: 'kube-system' }],
       },
@@ -350,20 +350,20 @@ const STUB_REPORTS: PolicyReport[] = [
         category: 'Best Practices',
         message: 'Container "web" uses image tag :latest',
         timestamp: ts,
-        resources: [{ kind: 'Deployment', name: 'customer-portal', namespace: 'acme-portal' }],
+        resources: [{ kind: 'Deployment', name: 'customer-portal', namespace: 'demo-portal' }],
       },
     ],
   },
   {
-    metadata: { name: 'acme-billing', namespace: 'acme-billing', creationTimestamp: ts },
+    metadata: { name: 'demo-billing', namespace: 'demo-billing', creationTimestamp: ts },
     summary: { pass: 84, fail: 2, warn: 0, error: 0, skip: 4 },
   },
   {
-    metadata: { name: 'acme-portal', namespace: 'acme-portal', creationTimestamp: ts },
+    metadata: { name: 'demo-portal', namespace: 'demo-portal', creationTimestamp: ts },
     summary: { pass: 38, fail: 1, warn: 1, error: 0, skip: 2 },
   },
   {
-    metadata: { name: 'acme-platform', namespace: 'acme-platform', creationTimestamp: ts },
+    metadata: { name: 'demo-platform', namespace: 'demo-platform', creationTimestamp: ts },
     summary: { pass: 96, fail: 1, warn: 0, error: 0, skip: 6 },
   },
 ]

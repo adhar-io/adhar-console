@@ -112,7 +112,7 @@ export function Adrs() {
             id: newId('adr'),
             number: (adrs.reduce((m, a) => Math.max(m, a.number), 0) ?? 0) + 1,
             updated_at: new Date().toISOString(),
-            repo: 'acme/docs',
+            repo: 'adhar/docs',
             ...input,
           }
           createAdr.mutate(next, { onSuccess: (created) => setOpenId(created.id) })

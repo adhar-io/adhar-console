@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { plane } from '@adhar-console/api-clients'
+import { usePlaneWorkspace } from '@adhar-console/shell-ui'
 
 /**
  * Plane.so client + per-resource hooks for the Define module.
@@ -15,7 +16,12 @@ import { plane } from '@adhar-console/api-clients'
 
 export const planeClient = plane.PlaneClient.auto({ tool: 'plane' })
 
-export const WORKSPACE_SLUG = 'acme'
+/**
+ * The Plane workspace slug is RUNTIME configuration — `/api/config.planeWorkspace`
+ * (PLANE_WORKSPACE / PLANE_WORKSPACE_SLUG, defaulting to the Gitea org) — never a
+ * hardcoded company. Every hook below reads it through usePlaneWorkspace(), so the
+ * whole Define phase follows the real organization.
+ */
 
 const REFRESH_MS = 30_000
 
@@ -36,6 +42,7 @@ export function setStoredProjectId(id: string) {
 /* ───── queries ───── */
 
 export function useProjects() {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   return useQuery({
     queryKey: ['plane', 'projects', WORKSPACE_SLUG],
     queryFn: () => planeClient.listProjects(WORKSPACE_SLUG),
@@ -44,6 +51,7 @@ export function useProjects() {
 }
 
 export function useProject(id?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   return useQuery({
     queryKey: ['plane', 'project', WORKSPACE_SLUG, id],
     queryFn: () => planeClient.getProject(WORKSPACE_SLUG, id!),
@@ -53,6 +61,7 @@ export function useProject(id?: string) {
 }
 
 export function useStates(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   return useQuery({
     queryKey: ['plane', 'states', WORKSPACE_SLUG, projectId],
     queryFn: () => planeClient.listStates(WORKSPACE_SLUG, projectId!),
@@ -62,6 +71,7 @@ export function useStates(projectId?: string) {
 }
 
 export function useLabels(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   return useQuery({
     queryKey: ['plane', 'labels', WORKSPACE_SLUG, projectId],
     queryFn: () => planeClient.listLabels(WORKSPACE_SLUG, projectId!),
@@ -71,6 +81,7 @@ export function useLabels(projectId?: string) {
 }
 
 export function useIssues(projectId?: string, params?: plane.IssueListParams) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   return useQuery({
     queryKey: ['plane', 'issues', WORKSPACE_SLUG, projectId, params],
     queryFn: () => planeClient.listIssues(WORKSPACE_SLUG, projectId!, params),
@@ -80,6 +91,7 @@ export function useIssues(projectId?: string, params?: plane.IssueListParams) {
 }
 
 export function useCycles(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   return useQuery({
     queryKey: ['plane', 'cycles', WORKSPACE_SLUG, projectId],
     queryFn: () => planeClient.listCycles(WORKSPACE_SLUG, projectId!),
@@ -89,6 +101,7 @@ export function useCycles(projectId?: string) {
 }
 
 export function useModules(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   return useQuery({
     queryKey: ['plane', 'modules', WORKSPACE_SLUG, projectId],
     queryFn: () => planeClient.listModules(WORKSPACE_SLUG, projectId!),
@@ -98,6 +111,7 @@ export function useModules(projectId?: string) {
 }
 
 export function usePages(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   return useQuery({
     queryKey: ['plane', 'pages', WORKSPACE_SLUG, projectId],
     queryFn: () => planeClient.listPages(WORKSPACE_SLUG, projectId!),
@@ -107,6 +121,7 @@ export function usePages(projectId?: string) {
 }
 
 export function useViews(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   return useQuery({
     queryKey: ['plane', 'views', WORKSPACE_SLUG, projectId],
     queryFn: () => planeClient.listViews(WORKSPACE_SLUG, projectId!),
@@ -116,6 +131,7 @@ export function useViews(projectId?: string) {
 }
 
 export function useMembers() {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   return useQuery({
     queryKey: ['plane', 'members', WORKSPACE_SLUG],
     queryFn: () => planeClient.listMembers(WORKSPACE_SLUG),
@@ -124,6 +140,7 @@ export function useMembers() {
 }
 
 export function useIssue(projectId?: string, issueId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   return useQuery({
     queryKey: ['plane', 'issue', WORKSPACE_SLUG, projectId, issueId],
     queryFn: () => planeClient.getIssue(WORKSPACE_SLUG, projectId!, issueId!),
@@ -133,6 +150,7 @@ export function useIssue(projectId?: string, issueId?: string) {
 }
 
 export function useComments(projectId?: string, issueId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   return useQuery({
     queryKey: ['plane', 'comments', WORKSPACE_SLUG, projectId, issueId],
     queryFn: () => planeClient.listComments(WORKSPACE_SLUG, projectId!, issueId!),
@@ -142,6 +160,7 @@ export function useComments(projectId?: string, issueId?: string) {
 }
 
 export function useActivities(projectId?: string, issueId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   return useQuery({
     queryKey: ['plane', 'activities', WORKSPACE_SLUG, projectId, issueId],
     queryFn: () => planeClient.listActivities(WORKSPACE_SLUG, projectId!, issueId!),
@@ -151,6 +170,7 @@ export function useActivities(projectId?: string, issueId?: string) {
 }
 
 export function useSubIssues(projectId?: string, issueId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   return useQuery({
     queryKey: ['plane', 'sub-issues', WORKSPACE_SLUG, projectId, issueId],
     queryFn: () => planeClient.listSubIssues(WORKSPACE_SLUG, projectId!, issueId!),
@@ -162,6 +182,7 @@ export function useSubIssues(projectId?: string, issueId?: string) {
 /* ───── mutations ───── */
 
 export function useUpdateIssue(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: Partial<plane.Issue> }) =>
@@ -175,6 +196,7 @@ export function useUpdateIssue(projectId?: string) {
 }
 
 export function useCreateIssue(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (body: Partial<plane.Issue>) =>
@@ -186,6 +208,7 @@ export function useCreateIssue(projectId?: string) {
 }
 
 export function useDeleteIssue(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => planeClient.deleteIssue(WORKSPACE_SLUG, projectId!, id),
@@ -198,6 +221,7 @@ export function useDeleteIssue(projectId?: string) {
 /* ───── workspace + project mutations ───── */
 
 export function useCreateProject() {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (body: Partial<plane.Project>) => planeClient.createProject(WORKSPACE_SLUG, body),
@@ -206,6 +230,7 @@ export function useCreateProject() {
 }
 
 export function useUpdateProject() {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: Partial<plane.Project> }) =>
@@ -215,6 +240,7 @@ export function useUpdateProject() {
 }
 
 export function useDeleteProject() {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => planeClient.deleteProject(WORKSPACE_SLUG, id),
@@ -223,6 +249,7 @@ export function useDeleteProject() {
 }
 
 export function useInviteMember() {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (body: { email: string; role: number }) =>
@@ -232,6 +259,7 @@ export function useInviteMember() {
 }
 
 export function useUpdateMemberRole() {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, role }: { id: string; role: number }) =>
@@ -241,6 +269,7 @@ export function useUpdateMemberRole() {
 }
 
 export function useRemoveMember() {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => planeClient.removeMember(WORKSPACE_SLUG, id),
@@ -251,6 +280,7 @@ export function useRemoveMember() {
 /* ───── cycle / module / view mutations ───── */
 
 export function useCreateCycle(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (body: Partial<plane.Cycle>) =>
@@ -260,6 +290,7 @@ export function useCreateCycle(projectId?: string) {
   })
 }
 export function useDeleteCycle(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => planeClient.deleteCycle(WORKSPACE_SLUG, projectId!, id),
@@ -269,6 +300,7 @@ export function useDeleteCycle(projectId?: string) {
 }
 
 export function useCreateModule(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (body: Partial<plane.Module>) =>
@@ -278,6 +310,7 @@ export function useCreateModule(projectId?: string) {
   })
 }
 export function useDeleteModule(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => planeClient.deleteModule(WORKSPACE_SLUG, projectId!, id),
@@ -287,6 +320,7 @@ export function useDeleteModule(projectId?: string) {
 }
 
 export function useCreateView(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (body: Partial<plane.View>) =>
@@ -296,6 +330,7 @@ export function useCreateView(projectId?: string) {
   })
 }
 export function useDeleteView(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => planeClient.deleteView(WORKSPACE_SLUG, projectId!, id),
@@ -305,6 +340,7 @@ export function useDeleteView(projectId?: string) {
 }
 
 export function useUpdatePage(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: Partial<plane.Page> }) =>
@@ -316,6 +352,7 @@ export function useUpdatePage(projectId?: string) {
 }
 
 export function useCreatePage(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (body: Partial<plane.Page>) =>
@@ -327,6 +364,7 @@ export function useCreatePage(projectId?: string) {
 }
 
 export function useDeletePage(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => planeClient.deletePage(WORKSPACE_SLUG, projectId!, id),
@@ -337,6 +375,7 @@ export function useDeletePage(projectId?: string) {
 }
 
 export function useCreateComment(projectId?: string, issueId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (body: { comment_html: string }) =>

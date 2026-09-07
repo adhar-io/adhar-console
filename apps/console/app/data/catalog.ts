@@ -246,13 +246,13 @@ export const SEED_CATALOG: Entity[] = [
   ),
 
   /* ─── Users ─── */
-  entity('User', 'tapas', { email: 'tapas@acme.com' }, { title: 'Tapas Jena' }),
-  entity('User', 'olivia', { email: 'olivia@acme.com' }, { title: 'Olivia Park' }),
-  entity('User', 'rohan', { email: 'rohan@acme.com' }, { title: 'Rohan Mehta' }),
-  entity('User', 'sara', { email: 'sara@acme.com' }, { title: 'Sara Liu' }),
-  entity('User', 'nik', { email: 'nik@acme.com' }, { title: 'Niklas Berg' }),
-  entity('User', 'lin', { email: 'lin@acme.com' }, { title: 'Lin Tanaka' }),
-  entity('User', 'vivek', { email: 'vivek@acme.com' }, { title: 'Vivek Rao' }),
+  entity('User', 'tapas', { email: 'tapas@example.com' }, { title: 'Tapas Jena' }),
+  entity('User', 'olivia', { email: 'olivia@example.com' }, { title: 'Olivia Park' }),
+  entity('User', 'rohan', { email: 'rohan@example.com' }, { title: 'Rohan Mehta' }),
+  entity('User', 'sara', { email: 'sara@example.com' }, { title: 'Sara Liu' }),
+  entity('User', 'nik', { email: 'nik@example.com' }, { title: 'Niklas Berg' }),
+  entity('User', 'lin', { email: 'lin@example.com' }, { title: 'Lin Tanaka' }),
+  entity('User', 'vivek', { email: 'vivek@example.com' }, { title: 'Vivek Rao' }),
 
   /* ─── Components: services / websites / libraries ─── */
   entity(
@@ -271,9 +271,9 @@ export const SEED_CATALOG: Entity[] = [
       description: 'Next.js 15 storefront — SSR, edge cache, fully internationalised.',
       tags: ['react', 'next', 'typescript'],
       links: [
-        { url: 'https://github.com/acme/web', title: 'Source', icon: 'repo' },
-        { url: 'https://app.acme.io', title: 'Production', icon: 'dashboard' },
-        { url: 'https://docs.acme.io/web', title: 'Docs', icon: 'docs' },
+        { url: 'https://github.com/example/web', title: 'Source', icon: 'repo' },
+        { url: 'https://app.example.com', title: 'Production', icon: 'dashboard' },
+        { url: 'https://docs.example.com/web', title: 'Docs', icon: 'docs' },
       ],
     },
   ),
@@ -310,8 +310,8 @@ export const SEED_CATALOG: Entity[] = [
       description: 'Stateless service backed by Redis — cart hold, coupon engine.',
       tags: ['go', 'grpc'],
       links: [
-        { url: 'https://github.com/acme/cart', title: 'Source', icon: 'repo' },
-        { url: 'https://runbooks.acme.io/cart', title: 'Runbook', icon: 'runbook' },
+        { url: 'https://github.com/example/cart', title: 'Source', icon: 'repo' },
+        { url: 'https://runbooks.example.com/cart', title: 'Runbook', icon: 'runbook' },
       ],
     },
   ),
@@ -425,7 +425,7 @@ export const SEED_CATALOG: Entity[] = [
       owner: 'group:team-platform',
     },
     {
-      title: '@acme/metrics',
+      title: '@example/metrics',
       description: 'Shared OpenTelemetry instrumentation library used by every service.',
       tags: ['opentelemetry', 'library'],
     },
@@ -439,7 +439,7 @@ export const SEED_CATALOG: Entity[] = [
       owner: 'group:team-platform',
     },
     {
-      title: '@acme/auth',
+      title: '@example/auth',
       description: 'OIDC client + middleware shared across all services.',
       tags: ['library', 'oidc'],
     },

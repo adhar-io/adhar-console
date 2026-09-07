@@ -37,21 +37,21 @@ function build(http: HttpClient): KargoClient {
 const STUB_STAGES: Stage[] = [
   {
     name: 'dev',
-    project: 'acme',
+    project: 'default',
     currentFreight: 'fr-1',
     lastPromoted: '2026-04-19T05:00:00Z',
     phase: 'Steady',
   },
   {
     name: 'staging',
-    project: 'acme',
+    project: 'default',
     currentFreight: 'fr-0',
     lastPromoted: '2026-04-17T12:00:00Z',
     phase: 'Promoting',
   },
   {
     name: 'prod',
-    project: 'acme',
+    project: 'default',
     currentFreight: 'fr-0',
     lastPromoted: '2026-04-15T16:30:00Z',
     phase: 'Steady',
@@ -61,14 +61,14 @@ const STUB_STAGES: Stage[] = [
 const STUB_FREIGHT: Freight[] = [
   {
     id: 'fr-1',
-    project: 'acme',
-    images: [{ repoURL: 'harbor.adhar.local/acme/adhar-console', tag: 'v0.2.0' }],
+    project: 'default',
+    images: [{ repoURL: 'harbor.adhar.local/library/adhar-console', tag: 'v0.2.0' }],
     created: '2026-04-19T04:55:00Z',
   },
   {
     id: 'fr-0',
-    project: 'acme',
-    images: [{ repoURL: 'harbor.adhar.local/acme/adhar-console', tag: 'v0.1.9' }],
+    project: 'default',
+    images: [{ repoURL: 'harbor.adhar.local/library/adhar-console', tag: 'v0.1.9' }],
     created: '2026-04-15T16:00:00Z',
   },
 ]

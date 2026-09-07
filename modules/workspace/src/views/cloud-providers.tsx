@@ -469,7 +469,7 @@ function AddConnectionForm({ onClose }: { onClose(): void }) {
           <TextField mono value={accountId} onChange={setAccountId} placeholder="e.g. 123456789012" />
         </FieldShell>
         <FieldShell label="Owner email">
-          <TextField type="email" value={owner} onChange={setOwner} placeholder="ops@acme.com" />
+          <TextField type="email" value={owner} onChange={setOwner} placeholder="ops@example.com" />
         </FieldShell>
         <FieldShell label="Auth modality" hint={`This cloud uses ${cloud.auth}.`}>
           <TextField mono readOnly value={cloud.auth} />

@@ -174,7 +174,7 @@ function Editor({ doc }: { doc: GeneralSettingsDoc }) {
               mono
               value={branding.logoUrl}
               onChange={(v) => setBranding((b) => ({ ...b, logoUrl: v }))}
-              placeholder="https://acme.com/logo.svg"
+              placeholder="https://example.com/logo.svg"
             />
             {logoInvalid ? (
               <p className="text-[11px] text-rose-700 dark:text-rose-400">Enter an http(s) URL.</p>
@@ -234,7 +234,7 @@ function Editor({ doc }: { doc: GeneralSettingsDoc }) {
             type="email"
             value={contact.supportEmail}
             onChange={(v) => setContact((c) => ({ ...c, supportEmail: v }))}
-            placeholder="support@acme.com"
+            placeholder="support@example.com"
           />
           {emailInvalid ? (
             <p className="mt-1 text-[11px] text-rose-700 dark:text-rose-400">
@@ -248,7 +248,7 @@ function Editor({ doc }: { doc: GeneralSettingsDoc }) {
             mono
             value={contact.homepageUrl}
             onChange={(v) => setContact((c) => ({ ...c, homepageUrl: v }))}
-            placeholder="https://acme.com"
+            placeholder="https://example.com"
           />
           {homepageInvalid ? (
             <p className="mt-1 text-[11px] text-rose-700 dark:text-rose-400">

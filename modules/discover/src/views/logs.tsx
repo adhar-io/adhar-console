@@ -31,7 +31,7 @@ const LEVELS: Array<lgtm.LogEntry['level']> = ['debug', 'info', 'warn', 'error',
 /** One-click LogQL starters shown before a query is entered. */
 const EXAMPLE_QUERIES: Array<{ label: string; query: string }> = [
   { label: 'all errors', query: '{namespace=~".+"} |= "error"' },
-  { label: 'by namespace', query: '{namespace="acme-billing"}' },
+  { label: 'by namespace', query: '{namespace="demo-billing"}' },
   { label: 'by app', query: '{app="platform-bff"}' },
   { label: 'rate limited', query: '{namespace=~".+"} |~ "rate limit"' },
 ]
@@ -108,7 +108,7 @@ export function Logs() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder='{namespace="acme-billing"} |~ "error"'
+            placeholder='{namespace="demo-billing"} |~ "error"'
             className="block min-w-0 flex-1 rounded-md border border-edge-default bg-surface-raised px-2 py-1 font-mono text-[12px] focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </div>

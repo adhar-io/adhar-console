@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.54] - 2026-09-07
+
 ### Fixed
 
 - **Deliver and Discover sub-pages now talk to the real cluster.**

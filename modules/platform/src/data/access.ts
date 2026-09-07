@@ -167,6 +167,7 @@ export const K8S_PERMISSION_LABEL: Record<K8sPermission, string> = {
 const CONSOLE_ROLE_TO_K8S: Record<ConsoleRole, K8sRole> = {
   'super-admin': 'platform-admin',
   'platform-admin': 'platform-admin',
+  'platform-engineer': 'platform-admin',
   'application-admin': 'tenant-admin',
   developer: 'developer',
   viewer: 'viewer',

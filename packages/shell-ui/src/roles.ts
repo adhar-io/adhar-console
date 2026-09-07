@@ -129,6 +129,14 @@ export function useOptionalConsoleRole(): ConsoleRole | null {
   return resolveConsoleRole(session.user)
 }
 
+/** The signed-in user's identity (display-safe subset), or null when signed out. */
+export function useOptionalUser(): { id: string; name: string; email: string; groups: string[] } | null {
+  const session = useOptionalSession()
+  const u = session?.user
+  if (!u) return null
+  return { id: u.id, name: u.name, email: u.email, groups: u.groups ?? [] }
+}
+
 /** Where each persona lands right after login. */
 export const ROLE_LANDING: Record<ConsoleRole, string> = {
   'super-admin': '/platform',

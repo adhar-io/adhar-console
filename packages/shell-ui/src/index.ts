@@ -52,6 +52,7 @@ export {
   useCan,
   useConsoleRole,
   useOptionalConsoleRole,
+  useOptionalUser,
   type Capability,
   type ConsoleRole,
   type RoleSource,

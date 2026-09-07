@@ -18,6 +18,7 @@ import {
   SettingsRow,
   StatTile,
   TextField,
+  ViewActions,
   ViewShell,
 } from '../components/section-shell.tsx'
 import { LoadingBlock, StoreErrorBlock } from '../components/async-states.tsx'
@@ -167,12 +168,15 @@ function Editor({ doc }: { doc: GeneralSettingsDoc }) {
     </div>
   )
 
+  // Page-level actions belong in the ViewShell header (right side).
+  const headerActions = <ViewActions>{saveBar}</ViewActions>
+
   return (
     <>
+      {headerActions}
       <SettingsCard
         title="Brand"
         description="Shown on invites, notification emails, and the org switcher."
-        actions={saveBar}
       >
         <SettingsRow
           label="Logo URL"

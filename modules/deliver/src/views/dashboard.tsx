@@ -236,6 +236,9 @@ export function Dashboard() {
 function AppRow({ app: a }: { app: argocd.Application }) {
   const sync = a.status.sync.status
   const health = a.status.health.status
+  // ArgoCD supports single `spec.source` and multi-source `spec.sources[]`;
+  // an Application mid-creation can have neither — never crash the dashboard.
+  const source = a.spec?.source ?? a.spec?.sources?.[0]
   return (
     <li className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-brand-50/40">
       <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white ${syncBg(sync)}`}>
@@ -248,8 +251,8 @@ function AppRow({ app: a }: { app: argocd.Application }) {
           <StatusBadge kind={healthTone(health)}>{health}</StatusBadge>
         </div>
         <div className="mt-0.5 truncate text-[11px] text-content-subtle">
-          {a.spec.destination.namespace} · {a.spec.source.path ?? '—'}
-          {a.spec.source.targetRevision ? ` @ ${a.spec.source.targetRevision}` : ''}
+          {a.spec?.destination?.namespace ?? '—'} · {source?.path ?? source?.chart ?? '—'}
+          {source?.targetRevision ? ` @ ${source.targetRevision}` : ''}
         </div>
       </div>
       {a.status.operationState?.finishedAt ? (

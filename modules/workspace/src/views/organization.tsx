@@ -16,6 +16,7 @@ import {
   StatTile,
   TextField,
   ToggleField,
+  ViewActions,
   ViewShell,
 } from '../components/section-shell.tsx'
 import { RequirePermission } from '../components/role-gate.tsx'
@@ -32,12 +33,26 @@ export function Organization() {
   const isDirty = Object.keys(dirty).length > 0
   const ssoEnforced = dirty.ssoEnforced ?? o?.ssoEnforced ?? false
 
+  const headerActions = (
+    <ViewActions>
+      <RequirePermission perm="org.write" required={['admin', 'owner']} readOnly>
+        <SecondaryButton onClick={() => setDirty({})} disabled={!isDirty}>
+          Reset
+        </SecondaryButton>
+        <PrimaryButton form="org-settings-form" type="submit" disabled={!isDirty || save.isPending || q.isLoading}>
+          {save.isPending ? 'Saving…' : 'Save changes'}
+        </PrimaryButton>
+      </RequirePermission>
+    </ViewActions>
+  )
+
   return (
     <ViewShell
       title="General"
       description="Organization identity, region, and SSO posture. Changes persist to the console database and are audit-logged."
       required={['admin', 'owner']}
     >
+      {headerActions}
       {q.isError ? (
         <StoreErrorState error={q.error} retry={() => q.refetch()} />
       ) : (
@@ -75,6 +90,7 @@ export function Organization() {
                   onError: (e) => toast.error('Could not save the organization', { description: (e as Error)?.message }),
                 })
               }}
+              id="org-settings-form"
               className="space-y-6"
             >
               <SettingsCard title="Identity">
@@ -145,16 +161,6 @@ export function Organization() {
                   />
                 </SettingsRow>
               </SettingsCard>
-
-
-              <div className="flex justify-end gap-2">
-                <SecondaryButton onClick={() => setDirty({})} disabled={!isDirty}>
-                  Reset
-                </SecondaryButton>
-                <PrimaryButton type="submit" disabled={!isDirty || save.isPending || q.isLoading}>
-                  {save.isPending ? 'Saving…' : 'Save changes'}
-                </PrimaryButton>
-              </div>
             </form>
           </RequirePermission>
         </>

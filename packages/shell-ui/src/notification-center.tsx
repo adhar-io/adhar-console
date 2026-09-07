@@ -19,9 +19,9 @@ import { EmptyState } from './empty-state.tsx'
  * Notification Center — the full page (`/notifications`).
  *
  * Everything the platform tells you, in one inbox: workspace operations,
- * platform insights (events, GitOps drift, policy, certificates), Adhar Assist
+ * platform insights (events, GitOps drift, policy, certificates), Adhar AI
  * outcomes and your own notices. Filters by kind / source / unread, search,
- * paging, bulk mark-read / dismiss, insight cards with **Ask Assist**, and a
+ * paging, bulk mark-read / dismiss, insight cards with **Ask Adhar AI**, and a
  * one-click **Scan for insights** that reads the cluster with your RBAC.
  */
 
@@ -40,7 +40,7 @@ const SOURCES: Array<{ id: NotificationSource | ''; label: string }> = [
   { id: 'gitops', label: 'GitOps' },
   { id: 'policy', label: 'Policy' },
   { id: 'security', label: 'Security' },
-  { id: 'ai', label: 'Adhar Assist' },
+  { id: 'ai', label: 'Adhar AI' },
   { id: 'user', label: 'You' },
 ]
 const PAGE_SIZE = 25
@@ -104,12 +104,12 @@ export function NotificationCenter() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-content">Notifications</h1>
-          <p className="mt-1 text-[13px] text-content-muted">Every operation, insight and Assist outcome across the platform — {api.unreadCount ? <span className="font-medium text-content">{api.unreadCount} unread</span> : 'all caught up'}{total ? ` · ${total.toLocaleString()} matching` : ''}.</p>
+          <p className="mt-1 text-[13px] text-content-muted">Every operation, insight and Adhar AI outcome across the platform — {api.unreadCount ? <span className="font-medium text-content">{api.unreadCount} unread</span> : 'all caught up'}{total ? ` · ${total.toLocaleString()} matching` : ''}.</p>
         </div>
         <div className="flex items-center gap-2">
           <ActionBtn onClick={runScan} disabled={api.scanning || !live}>{api.scanning ? <Spinner /> : <IconRadar />} Scan for insights</ActionBtn>
           <ActionBtn onClick={() => { api.markAllRead(); toast.success('All notifications marked as read') }} disabled={!api.unreadCount}><IconCheck /> Mark all read</ActionBtn>
-          <ActionBtn onClick={() => ai.open()} primary><IconSpark /> Ask Assist</ActionBtn>
+          <ActionBtn onClick={() => ai.open()} primary><IconSpark /> Ask Adhar AI</ActionBtn>
         </div>
       </div>
 
@@ -242,7 +242,7 @@ export function NotificationCard({
           {n.target ? <span className="truncate font-mono">{n.target.type}/{n.target.label}</span> : null}
           {n.actor && n.source === 'workspace' ? <span>by {n.actor.label}</span> : null}
           {onAsk ? (
-            <button type="button" onClick={onAsk} className="ml-auto inline-flex items-center gap-1 rounded-md bg-brand-50 px-2 py-0.5 font-medium text-brand-700 hover:bg-brand-100 dark:bg-brand-500/10 dark:text-brand-300 dark:hover:bg-brand-500/15"><IconSpark /> Ask Assist</button>
+            <button type="button" onClick={onAsk} className="ml-auto inline-flex items-center gap-1 rounded-md bg-brand-50 px-2 py-0.5 font-medium text-brand-700 hover:bg-brand-100 dark:bg-brand-500/10 dark:text-brand-300 dark:hover:bg-brand-500/15"><IconSpark /> Ask Adhar AI</button>
           ) : null}
         </div>
       </div>

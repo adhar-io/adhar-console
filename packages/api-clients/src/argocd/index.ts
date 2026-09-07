@@ -11,30 +11,97 @@ export const HealthStatusSchema = z.enum([
   'Unknown',
 ])
 
-export const ApplicationSchema = z.object({
+export const SourceSchema = z.object({
+  repoURL: z.string(),
+  path: z.string().optional(),
+  chart: z.string().optional(),
+  targetRevision: z.string().optional(),
+})
+export type Source = z.infer<typeof SourceSchema>
+
+/**
+ * The wire shape. Argo CD ≥ 2.6 Applications may declare a single
+ * `spec.source` OR a `spec.sources[]` array (multi-source Helm/Git), an
+ * Application mid-creation carries neither, and `status` is empty until the
+ * controller first reconciles. Everything optional here is filled in by
+ * `normalizeApplication` so views never touch `undefined` — that was the
+ * "Cannot read properties of undefined (reading 'path')" crash on the
+ * Deliver dashboard.
+ */
+const RawApplicationSchema = z.object({
   metadata: z.object({
     name: z.string(),
     namespace: z.string(),
     creationTimestamp: z.string().optional(),
   }),
-  spec: z.object({
-    project: z.string(),
-    source: z.object({
-      repoURL: z.string(),
-      path: z.string().optional(),
-      targetRevision: z.string().optional(),
-    }),
-    destination: z.object({ server: z.string(), namespace: z.string() }),
-  }),
-  status: z.object({
-    sync: z.object({ status: SyncStatusSchema, revision: z.string().optional() }),
-    health: z.object({ status: HealthStatusSchema, message: z.string().optional() }),
-    operationState: z
-      .object({ phase: z.string(), finishedAt: z.string().optional() })
-      .optional(),
-  }),
+  spec: z
+    .object({
+      project: z.string().optional(),
+      source: SourceSchema.optional(),
+      sources: z.array(SourceSchema).optional(),
+      destination: z
+        .object({ server: z.string().optional(), name: z.string().optional(), namespace: z.string().optional() })
+        .optional(),
+    })
+    .optional(),
+  status: z
+    .object({
+      sync: z.object({ status: SyncStatusSchema.optional(), revision: z.string().optional() }).optional(),
+      health: z.object({ status: HealthStatusSchema.optional(), message: z.string().optional() }).optional(),
+      operationState: z.object({ phase: z.string(), finishedAt: z.string().optional() }).optional(),
+    })
+    .optional(),
 })
-export type Application = z.infer<typeof ApplicationSchema>
+export type RawApplication = z.infer<typeof RawApplicationSchema>
+
+/** Normalized Application — every field views read is guaranteed present. */
+export interface Application {
+  metadata: { name: string; namespace: string; creationTimestamp?: string }
+  spec: {
+    project: string
+    /** Resolved from `source`, else the first of `sources`, else an empty ref. */
+    source: Source
+    /** All sources (single-source apps report one). */
+    sources: Source[]
+    destination: { server: string; name?: string; namespace: string }
+  }
+  status: {
+    sync: { status: z.infer<typeof SyncStatusSchema>; revision?: string }
+    health: { status: z.infer<typeof HealthStatusSchema>; message?: string }
+    operationState?: { phase: string; finishedAt?: string }
+  }
+}
+
+const EMPTY_SOURCE: Source = { repoURL: '' }
+
+/** Fill in every optional the apiserver may omit. Total, never throws. */
+export function normalizeApplication(raw: RawApplication): Application {
+  const spec = raw.spec ?? {}
+  const sources = spec.sources?.length ? spec.sources : spec.source ? [spec.source] : []
+  const dest = spec.destination ?? {}
+  const st = raw.status ?? {}
+  return {
+    metadata: raw.metadata,
+    spec: {
+      project: spec.project ?? 'default',
+      source: sources[0] ?? EMPTY_SOURCE,
+      sources,
+      destination: {
+        server: dest.server ?? dest.name ?? 'in-cluster',
+        name: dest.name,
+        namespace: dest.namespace ?? '',
+      },
+    },
+    status: {
+      sync: { status: st.sync?.status ?? 'Unknown', revision: st.sync?.revision },
+      health: { status: st.health?.status ?? 'Unknown', message: st.health?.message },
+      operationState: st.operationState,
+    },
+  }
+}
+
+/** Back-compat alias for callers importing the schema. */
+export const ApplicationSchema = RawApplicationSchema
 
 export interface ArgoCDClient {
   listApplications(project?: string): Promise<Application[]>
@@ -45,19 +112,19 @@ export interface ArgoCDClient {
 function build(http: HttpClient): ArgoCDClient {
   return {
     listApplications: async (project) => {
-      const res = await http.get<{ items: Application[] }>(
-        `/api/v1/applications${project ? `?projects=${project}` : ''}`,
+      const res = await http.get<{ items: RawApplication[] }>(
+        `/api/v1/applications${project ? `?projects=${encodeURIComponent(project)}` : ''}`,
       )
-      return res.items
+      return (res.items ?? []).map(normalizeApplication)
     },
-    getApplication: (name) => http.get<Application>(`/api/v1/applications/${name}`),
+    getApplication: async (name) => normalizeApplication(await http.get<RawApplication>(`/api/v1/applications/${encodeURIComponent(name)}`)),
     syncApplication: async (name) => {
       await http.post<void>(`/api/v1/applications/${name}/sync`, {})
     },
   }
 }
 
-const STUB_APPS: Application[] = [
+const STUB_APPS: Application[] = ([
   {
     metadata: { name: 'adhar-console', namespace: 'argocd' },
     spec: {
@@ -90,7 +157,7 @@ const STUB_APPS: Application[] = [
       health: { status: 'Degraded', message: 'Pod crash looping' },
     },
   },
-]
+] as RawApplication[]).map(normalizeApplication)
 
 export const ArgoCDClient = defineClient<ArgoCDClient>(build, () => ({
   listApplications: async () => STUB_APPS,

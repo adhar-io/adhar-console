@@ -71,7 +71,7 @@ export function AppShell({
   const [paletteOpen, setPaletteOpen] = useState(false)
   const openPalette = commandPaletteEnabled ? () => setPaletteOpen(true) : undefined
 
-  // Adhar Assist is the ⌘K overlay — any remote can open it via the
+  // Adhar AI is the ⌘K overlay — any remote can open it via the
   // `adhar:ai:open` event (the floating launcher, `useAi().ask()`, AiButton).
   useEffect(() => {
     if (!commandPaletteEnabled || typeof document === 'undefined') return

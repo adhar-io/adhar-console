@@ -8,7 +8,7 @@ import { useLiveInvalidate, usePollingInterval } from './live.ts'
  *
  * The feed is server-backed (`/api/notifications`): every workspace mutation,
  * platform insight (Warning-event bursts, Argo CD drift, policy failures,
- * expiring certificates), Adhar Assist proposal / diagnosis and any
+ * expiring certificates), Adhar AI proposal / diagnosis and any
  * client-created notice lands there, per tenant, with per-user read /
  * dismissed state. The hook polls, exposes actions, and toasts NEW
  * high-signal items as they arrive (once per browser, however many
@@ -35,7 +35,7 @@ export interface Notification {
   href?: string
   /** Dismissing a notification removes it from the list permanently. */
   dismissed?: boolean
-  /** Suggested Adhar Assist prompt. */
+  /** Suggested Adhar AI prompt. */
   prompt?: string
   target?: { type: string; id: string; label: string }
   actor?: { id: string; label: string }
@@ -336,7 +336,7 @@ export const NOTIFICATION_SOURCE_LABEL: Record<NotificationSource, string> = {
   gitops: 'GitOps',
   policy: 'Policy',
   security: 'Security',
-  ai: 'Adhar Assist',
+  ai: 'Adhar AI',
   system: 'System',
   user: 'You',
 }

@@ -14,6 +14,7 @@ import {
   StatTile,
   TextField,
   ToggleField,
+  ViewActions,
   ViewShell,
 } from '../components/section-shell.tsx'
 import { LoadingBlock, StoreErrorBlock } from '../components/async-states.tsx'
@@ -125,12 +126,15 @@ function PolicyEditor({ policy }: { policy: SecurityPolicyDoc }) {
     </div>
   )
 
+  // Page-level actions belong in the ViewShell header (right side).
+  const headerActions = <ViewActions>{saveBar}</ViewActions>
+
   return (
     <>
+      {headerActions}
       <SettingsCard
         title="Password & sign-in"
         description="Members on SSO inherit the IdP's policy; these rules apply only to break-glass passwords."
-        actions={saveBar}
       >
         <SettingsRow label="Minimum length" description="Recommended: 14+ for break-glass owners.">
           <TextField

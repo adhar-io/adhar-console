@@ -22,6 +22,7 @@ import {
   StatTile,
   TextField,
   ToggleField,
+  ViewActions,
   ViewShell,
 } from '../components/section-shell.tsx'
 import { LoadingBlock, StoreErrorBlock } from '../components/async-states.tsx'
@@ -154,12 +155,15 @@ function Editor({ routes, saved }: { routes: NotificationRoutes; saved: boolean 
     </div>
   )
 
+  // Page-level actions belong in the ViewShell header (right side).
+  const headerActions = <ViewActions>{saveBar}</ViewActions>
+
   return (
     <>
+      {headerActions}
       <SettingsCard
         title="Routing table"
         description="One route per category. Disabled categories stay silent everywhere."
-        actions={saveBar}
       >
         <div className="space-y-2">
           {NOTIFICATION_CATEGORIES.map((c) => {

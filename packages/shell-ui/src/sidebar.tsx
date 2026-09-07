@@ -103,7 +103,7 @@ export function Sidebar({
     else setInternalCollapsed(next)
   }
 
-  // ⌘K is handled once, in AppShell (it toggles the Adhar Assist overlay).
+  // ⌘K is handled once, in AppShell (it toggles the Adhar AI overlay).
 
   // Two-key Vim-style shortcut sequences declared on nav items via the
   // `shortcut` field (e.g. "g h"). The dispatcher is global so the user

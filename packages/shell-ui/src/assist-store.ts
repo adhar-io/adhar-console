@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { getAiConfig, streamAi, type AiContext, type AiMode, type AiProposal } from './ai.ts'
 
 /**
- * Adhar Assist conversation store — one module-level store shared by every
+ * Adhar AI conversation store — one module-level store shared by every
  * surface that talks to the assistant (the ⌘K overlay, the floating button,
  * inline "Ask AI" affordances in remotes). Module Federation shares shell-ui
  * as a singleton, so the store is a singleton too.

@@ -31,7 +31,7 @@ export interface CommandItem {
 }
 
 /**
- * Adhar Assist — the ⌘K overlay, and the primary way to talk to the platform.
+ * Adhar AI — the ⌘K overlay, and the primary way to talk to the platform.
  *
  * One large surface with two lanes:
  *   • Conversation (left) — a real LLM chat over `/api/ai/*`: streamed
@@ -61,6 +61,14 @@ const MODES: Array<{ id: AiMode; label: string; hint: string }> = [
   { id: 'generate', label: 'Generate', hint: 'Draft a manifest to review' },
 ]
 
+const SLASH: Array<{ cmd: string; hint: string }> = [
+  { cmd: '/go', hint: 'Jump to a page instead of asking' },
+  { cmd: '/diagnose', hint: 'Root-cause the focused workload' },
+  { cmd: '/explain', hint: 'Explain the focused resource' },
+  { cmd: '/generate', hint: 'Draft a manifest to review' },
+  { cmd: '/new', hint: 'Start a fresh conversation' },
+]
+
 const STARTERS: Array<{ label: string; prompt: string; mode?: AiMode }> = [
   { label: 'What needs my attention right now?', prompt: 'Scan the cluster for Warning events and unhealthy workloads, group by namespace, and tell me what needs attention first.' },
   { label: 'Why is a pod crash-looping?', prompt: 'Find pods in CrashLoopBackOff or ImagePullBackOff across the cluster, run diagnostics on the worst one, and explain the root cause.' },
@@ -77,6 +85,7 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
   const [input, setInput] = useState('')
   const [mode, setMode] = useState<AiMode>('chat')
   const [rail, setRail] = useState<'navigate' | 'history'>('navigate')
+  const [attachContext, setAttachContext] = useState(true)
   const [activeNav, setActiveNav] = useState(0)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const threadRef = useRef<HTMLDivElement>(null)
@@ -165,6 +174,8 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
     if (state.busy) return
     setInput('')
     stickToBottom.current = true
+    // "Context" off → ask without the page/resource focus.
+    if (!attachContext) assistStore.setContext(undefined)
     assistStore.run(m, {
       prompt: prompt || undefined,
       userLabel: m === 'chat' ? prompt : `${MODES.find((x) => x.id === m)?.label}${prompt ? `: ${prompt}` : ''}`,
@@ -173,7 +184,7 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
 
   const turns = state.current.turns
   const hasThread = turns.length > 0
-  const ctxChips = [
+  const ctxChips = !attachContext ? [] : [
     pageItem ? { k: 'page', v: pageItem.label } : null,
     { k: 'cluster', v: selection.cluster || 'local' },
     { k: 'namespace', v: selection.namespace || 'all' },
@@ -181,7 +192,7 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
   ].filter(Boolean) as Array<{ k: string; v: string }>
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Adhar Assist" className="fixed inset-0 z-[70] flex items-start justify-center px-3 pt-[6vh] sm:px-6">
+    <div role="dialog" aria-modal="true" aria-label="Adhar AI" className="fixed inset-0 z-[70] flex items-start justify-center px-3 pt-[6vh] sm:px-6">
       <div className="fade-in absolute inset-0 bg-slate-950/60 backdrop-blur-[3px]" onClick={onClose} aria-hidden />
       <div className="pop-in relative flex h-[86vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-app shadow-[0_40px_80px_-20px_rgba(15,23,42,0.5)]">
         {/* ═══ header ═══ */}
@@ -190,9 +201,11 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
             <SparkIcon size={15} />
           </span>
           <div className="min-w-0">
-            <div className="text-[14px] font-semibold tracking-tight text-content">Adhar Assist</div>
+            <div className="text-[14px] font-semibold tracking-tight text-content">Adhar AI</div>
             <div className="truncate text-[11px] text-content-subtle">
-              {state.configured ? `${state.model ? `${state.model} · ` : ''}reads with your RBAC · never applies without approval` : 'AI not configured — search & navigate still work'}
+              {state.configured
+                ? `${state.model ? `${state.model} · ` : ''}reads with your RBAC · never applies without approval${attachContext ? '' : ' · context off'}`
+                : 'AI not configured — search & navigate still work'}
             </div>
           </div>
           <div className="ml-2 hidden flex-wrap items-center gap-1 md:flex">
@@ -253,11 +266,36 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
                     {m.label}
                   </button>
                 ))}
-                <span className="ml-auto hidden text-[10.5px] text-content-subtle sm:inline">
-                  <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">/go</kbd> navigate · <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">/diagnose</kbd> <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">/explain</kbd> <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">/generate</kbd> <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">/new</kbd>
+                <span className="ml-auto flex items-center gap-1">
+                  <button
+                    type="button"
+                    aria-pressed={attachContext}
+                    onClick={() => setAttachContext((v) => !v)}
+                    title="Send the page you're on (cluster, namespace, focused resource) with your question"
+                    className={cn(
+                      'inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium transition-colors',
+                      attachContext ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300' : 'text-content-subtle hover:bg-surface-sunken hover:text-content',
+                    )}
+                  >
+                    <IconPin /> Context
+                  </button>
+                  {SLASH.map((c) => (
+                    <button
+                      key={c.cmd}
+                      type="button"
+                      title={c.hint}
+                      onClick={() => {
+                        setInput((v) => (v.startsWith('/') ? v.replace(/^\/\w+\s*/, `${c.cmd} `) : `${c.cmd} ${v}`))
+                        inputRef.current?.focus()
+                      }}
+                      className="hidden h-7 items-center rounded-md px-1.5 font-mono text-[10.5px] text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content lg:inline-flex"
+                    >
+                      {c.cmd}
+                    </button>
+                  ))}
                 </span>
               </div>
-              <div className="flex items-end gap-2 rounded-xl bg-surface-app px-3 py-2 ring-1 ring-edge-subtle">
+              <div className="flex items-end gap-2 rounded-xl bg-surface-app px-3 py-2">
                 <span className="mb-1.5 text-brand-600"><SparkIcon size={16} /></span>
                 <textarea
                   ref={inputRef}
@@ -283,7 +321,7 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
                     }
                   }}
                   placeholder={state.configured ? `Ask Adhar anything, or type a page name to jump there…` : 'Search pages, apps and settings…'}
-                  aria-label="Message Adhar Assist"
+                  aria-label="Message Adhar AI"
                   className="max-h-40 min-h-[28px] flex-1 resize-none bg-transparent py-1 text-[14px] leading-6 text-content outline-none placeholder:text-content-subtle focus:outline-none focus:ring-0"
                   style={{ height: 'auto' }}
                   onInput={(e) => {
@@ -719,6 +757,7 @@ const IconRefresh = () => <I size={12}><path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><
 const IconTool = () => <I size={11}><path d="M4 6h16M4 12h16M4 18h10" /></I>
 const IconShield = () => <I size={11}><path d="M12 2l8 3v6c0 5-3.4 9.4-8 11-4.6-1.6-8-6-8-11V5l8-3z" /></I>
 const IconWrench = () => <I size={15}><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.1 2.1-2.3-.6-.6-2.3 2.1-2.1z" /></I>
+const IconPin = () => <I size={12}><path d="M12 17v5" /><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" /></I>
 const IconTrash = () => <I size={12}><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></I>
 const IconDot = () => <svg width="6" height="6" viewBox="0 0 6 6" aria-hidden><circle cx="3" cy="3" r="2" fill="currentColor" /></svg>
 

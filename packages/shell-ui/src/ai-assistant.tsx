@@ -1,11 +1,11 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import type { AiContext, AiMode } from './ai.ts'
 import { assistStore, useAssist, type AskOptions } from './assist-store.ts'
 
 export type { AskOptions } from './assist-store.ts'
 
 /**
- * Adhar Assist — wiring.
+ * Adhar AI — wiring.
  *
  * The assistant UI is the ⌘K overlay (`command-palette.tsx`, rendered by
  * AppShell inside the router). This file owns the cross-remote plumbing:
@@ -60,9 +60,6 @@ export interface AiProviderProps {
 }
 
 export function AiProvider({ children, onApplyProposal }: AiProviderProps) {
-  const { configured, busy } = useAssist()
-  const [overlayOpen, setOverlayOpen] = useState(false)
-
   useEffect(() => {
     void assistStore.loadConfig()
   }, [])
@@ -72,45 +69,19 @@ export function AiProvider({ children, onApplyProposal }: AiProviderProps) {
     return () => assistStore.setApplyHandler(null)
   }, [onApplyProposal])
 
-  // ask → queue the request and open the overlay (AppShell shows it).
+  // `ask()` from any remote → queue the request and open the ⌘K overlay
+  // (AppShell renders it). There is no floating launcher: the topbar search
+  // field IS the entry point to Adhar AI.
   useEffect(() => {
     const onAsk = (e: Event) => {
       pendingAsk = (e as CustomEvent<AskOptions>).detail ?? {}
       emit(OPEN_EVENT)
     }
-    const onOpen = () => setOverlayOpen(true)
-    const onClose = () => setOverlayOpen(false)
     globalThis.addEventListener(ASK_EVENT, onAsk)
-    globalThis.addEventListener(OPEN_EVENT, onOpen)
-    globalThis.addEventListener(CLOSE_EVENT, onClose)
-    return () => {
-      globalThis.removeEventListener(ASK_EVENT, onAsk)
-      globalThis.removeEventListener(OPEN_EVENT, onOpen)
-      globalThis.removeEventListener(CLOSE_EVENT, onClose)
-    }
+    return () => globalThis.removeEventListener(ASK_EVENT, onAsk)
   }, [])
 
-  return (
-    <>
-      {children}
-      {!overlayOpen ? (
-        <button
-          type="button"
-          onClick={() => emit(OPEN_EVENT)}
-          className="group fixed bottom-5 right-5 z-50 flex h-12 items-center gap-2 rounded-full bg-linear-to-br from-brand-500 to-accent-500 pl-3 pr-4 text-white shadow-lg ring-1 ring-black/10 transition-transform hover:scale-[1.03]"
-          aria-label="Open Adhar Assist"
-          title="Adhar Assist (⌘K)"
-        >
-          <span className="relative flex h-6 w-6 items-center justify-center">
-            <SparkIcon />
-            {busy ? <span className="absolute inset-0 animate-ping rounded-full bg-white/40" /> : null}
-          </span>
-          <span className="text-[13px] font-semibold">Assist</span>
-          {!configured ? <span className="rounded-full bg-white/20 px-1.5 text-[10px]">search</span> : null}
-        </button>
-      ) : null}
-    </>
-  )
+  return <>{children}</>
 }
 
 /* ─────────────── inline trigger ─────────────── */

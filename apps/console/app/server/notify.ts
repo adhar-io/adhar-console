@@ -6,7 +6,7 @@ import type { AuditDoc, Store } from './workspace/store.ts'
  *
  *   • every workspace mutation (via `writeAudit` → `notifyFromAudit`)
  *   • the insights scanner (`notifications.ts` → cluster signals)
- *   • Adhar Assist (proposals / finished diagnoses, `ai/handlers.ts`)
+ *   • Adhar AI (proposals / finished diagnoses, `ai/handlers.ts`)
  *   • any client through `POST /api/notifications` (`useNotifications().notify`)
  *
  * Documents live in the generic document store under `console.notification`;
@@ -32,7 +32,7 @@ export interface NotificationDoc {
   target?: { type: string; id: string; label: string }
   /** User ids allowed to see it; everyone in the tenant when omitted. */
   audience?: string[]
-  /** Suggested Adhar Assist prompt ("Ask Assist"). */
+  /** Suggested Adhar AI prompt ("Ask Adhar AI"). */
   prompt?: string
   at: string
   [k: string]: unknown

@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react'
+import { createContext, useContext, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { cn } from '@adhar-console/utils'
 import { RequiredRolePill } from './role-gate.tsx'
 import type { Role } from '../data/access.ts'
@@ -8,6 +9,15 @@ import type { Role } from '../data/access.ts'
  * H1, description, action slot, and optional required-role pill so the
  * subviews stay focused on their forms / tables.
  */
+/**
+ * Header action slot. Every settings page keeps its title + description on the
+ * LEFT and its buttons on the RIGHT of the same row — including forms whose
+ * Save/Reset controls live deep inside a nested editor: those render
+ * `<ViewActions>` and are portalled up here. (See the UI conventions: actions
+ * belong in the page header, never stranded at the bottom of a card.)
+ */
+const ActionSlotContext = createContext<HTMLDivElement | null>(null)
+
 export function ViewShell({
   title,
   description,
@@ -22,25 +32,37 @@ export function ViewShell({
   required?: Role[]
   children: ReactNode
 }) {
+  const [slot, setSlot] = useState<HTMLDivElement | null>(null)
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold tracking-tight text-content">{title}</h2>
-            {required ? <RequiredRolePill required={required} /> : null}
+    <ActionSlotContext.Provider value={slot}>
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold tracking-tight text-content">{title}</h2>
+              {required ? <RequiredRolePill required={required} /> : null}
+            </div>
+            {description ? (
+              <p className="mt-1 max-w-3xl text-sm leading-relaxed text-content-muted">
+                {description}
+              </p>
+            ) : null}
           </div>
-          {description ? (
-            <p className="mt-1 max-w-3xl text-sm leading-relaxed text-content-muted">
-              {description}
-            </p>
-          ) : null}
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {actions}
+            <div ref={setSlot} className="contents" />
+          </div>
         </div>
-        {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+        {children}
       </div>
-      {children}
-    </div>
+    </ActionSlotContext.Provider>
   )
+}
+
+/** Render page-level actions into the enclosing ViewShell header (right side). */
+export function ViewActions({ children }: { children: ReactNode }) {
+  const slot = useContext(ActionSlotContext)
+  return slot ? createPortal(children, slot) : null
 }
 
 /** Card / grouped form section with a title row. */
@@ -225,14 +247,18 @@ export function PrimaryButton({
   type = 'button',
   disabled,
   onClick,
+  form,
 }: {
   children: ReactNode
   type?: 'button' | 'submit'
   disabled?: boolean
   onClick?(): void
+  /** Submit a form rendered elsewhere in the tree (header actions ↔ page form). */
+  form?: string
 }) {
   return (
     <button
+      form={form}
       type={type}
       onClick={onClick}
       disabled={disabled}

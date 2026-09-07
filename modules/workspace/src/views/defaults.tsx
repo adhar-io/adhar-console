@@ -20,6 +20,7 @@ import {
   SettingsRow,
   StatTile,
   TextField,
+  ViewActions,
   ViewShell,
 } from '../components/section-shell.tsx'
 import { LoadingBlock, StoreErrorBlock } from '../components/async-states.tsx'
@@ -166,12 +167,15 @@ function Editor({ doc }: { doc: DefaultsDoc }) {
     </div>
   )
 
+  // Page-level actions belong in the ViewShell header (right side).
+  const headerActions = <ViewActions>{saveBar}</ViewActions>
+
   return (
     <>
+      {headerActions}
       <SettingsCard
         title="Naming & placement"
         description="Where new workloads land and how their namespaces are named."
-        actions={saveBar}
       >
         <SettingsRow
           label="Namespace prefix"

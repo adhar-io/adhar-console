@@ -103,8 +103,8 @@ export const DEFAULT_NAV: NavSection[] = [
         label: 'Notifications',
         to: '/notifications',
         icon: <IconBellNav />,
-        description: 'Operations, insights & Assist outcomes',
-        shortcut: 'g n',
+        description: 'Operations, insights & Adhar AI outcomes',
+        shortcut: 'g i',
       },
       {
         id: 'catalog',

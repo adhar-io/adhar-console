@@ -126,7 +126,7 @@ export async function handleAi(req: Request, name: string): Promise<Response> {
           }
         }
         if (name === 'diagnose' && focusLabel) {
-          void notify({ kind: 'info', title: `Diagnosis ready for ${focusLabel}`, description: 'Open Adhar Assist to read the findings.', prompt: `Summarise your last diagnosis of ${focusLabel}.` })
+          void notify({ kind: 'info', title: `Diagnosis ready for ${focusLabel}`, description: 'Open Adhar AI to read the findings.', prompt: `Summarise your last diagnosis of ${focusLabel}.` })
         }
         sse(controller, { type: 'done' })
       } catch (e) {

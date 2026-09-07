@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.55] - 2026-09-07
+
 ### Added
 
 - **One control-plane domain.** `ADHAR_DOMAIN` (or `ADHAR_CONTROL_PLANE_URL` /

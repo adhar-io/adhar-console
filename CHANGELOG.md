@@ -8,6 +8,63 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ### Added
 
+- **Notification Center.** Every operation, insight and Adhar Assist outcome
+  now lands in one tenant-scoped feed (`/api/notifications`, backed by the
+  console database): each workspace mutation becomes a notification, an
+  RBAC-scoped **insights scan** turns Warning-event bursts, Argo CD drift,
+  Kyverno failures and expiring / not-ready certificates into actionable
+  items, and Assist proposals / diagnoses post their own. New `/notifications`
+  page (filters by kind / source / unread, search, paging, bulk mark-read /
+  dismiss, day grouping, **Ask Assist** on insights), redesigned topbar menu
+  (All / Unread / Insights, scan, link to the center), nav entry (`g n`),
+  toasts for newly arrived high-signal items, and `useNotifications().notify`
+  for any module to publish.
+- **Adhar Assist — the ⌘K overlay is now a full AI workbench.** Large two-lane
+  surface: a real LLM conversation (streamed markdown, tool-call chips showing
+  what was read from the cluster, review-and-apply proposals, stop /
+  regenerate / copy, Chat · Diagnose · Explain · Generate modes, slash
+  commands, context chips, conversation history) beside a dynamic **Navigate**
+  rail (`⌘⏎` opens the top hit). One shared conversation across the launcher,
+  inline "Ask AI" buttons and the overlay; the composer has no focus ring; it
+  still works as the command palette when AI isn't configured.
+- **Cloud Shell rebuilt as a terminal workbench.** Identity / cluster /
+  tools-pod header, sidebar (Launch · Snippets · Recent), tabbed panes with
+  split view, broadcast-to-all-sessions bar, status bar (state, target, shell,
+  cols×rows, uptime); pod-exec wizard with pod search; snippet library with
+  `{{namespace}}`/`{{pod}}`/`{{container}}` placeholders and user snippets;
+  restore-on-return of the last open sessions; preferences; `Alt+1…9/T/W/B`
+  shortcuts; fullscreen. Platform engineers can now exec.
+- **Policy page with real Kyverno detail.** ClusterPolicies / Policies as
+  cards (mode, category, severity, rules, background, pass / fail / warn bars
+  from live PolicyReports), a **Violations** tab (one row per failing result ×
+  resource with the exact rule and message; filters; search) and an
+  **Exceptions** tab; drawers with rule definitions, conditions and actions —
+  Edit YAML, Policy Reporter, Explore, Kyverno docs, copy kubectl.
+- **Gateway API under Networking.** Gateways (listeners, addresses,
+  conditions, attached routes), Routes (HTTP + gRPC: hostnames, parents,
+  rules → backends / weights / filters, per-parent status, open-host links)
+  and Gateway Classes tabs; Ingress and NetworkPolicy drawers.
+- **Audit log built for millions of events.** Filters, free-text search,
+  ordering and counts run in Postgres (JSONB paths); facets endpoint;
+  debounced search; quick / absolute time ranges; actor / action / type
+  filters; click-any-cell-to-filter; detail drawer; live tail; page-size and
+  jump-to-page; CSV / JSON export of the page or all matching (≤ 50k).
+- **Toasts.** Shared `useToast` (success / error / warning / info / loading,
+  actions, promise tracking) mounted app-wide; workspace saves and team
+  mutations use it instead of inline "Changes saved." text.
+
+### Changed
+
+- **Teams** renders a card grid directly (no "All teams" wrapper) with accent,
+  stats, RBAC state and manage / delete actions.
+- **Overview** ships the curated custom arrangement as the default layout;
+  the widget open-arrow sits in the header row beside the drag handle; the
+  drag engine coalesces to animation frames, auto-scrolls at the viewport
+  edges and re-targets as content slides under the pointer.
+- **Service catalog** refreshes in the background: queries keep previous data
+  across key changes, a last-known-good snapshot paints cards on hard reload,
+  and a subtle "Refreshing" indicator replaces the blocking spinner.
+
 - **Discover → Logs rebuilt as an enterprise LogQL workbench.** Query bar with
   Run / `⏎`, recent history and starred saved queries, and a **label browser**
   (Loki `/labels` + `/label/{name}/values`, narrowed by the current selector)
@@ -24,8 +81,6 @@ All notable changes to Adhar Console are documented here. Format based on
   Loki client now detects levels (`detected_level`/labels/`level=`/`[ERROR]`
   tokens) so real streams get coloured and counted, and `queryLogs` slides
   its window on every refetch.
-
-### Changed
 
 - **No more hardcoded "Acme Corp".** The shell falls back to a built-in
   **Default Organization** (`default`) only until `/api/organizations` loads;

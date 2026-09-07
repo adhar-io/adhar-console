@@ -203,6 +203,8 @@ function configuredAuthMode(): K8sAuthMode {
 
 /** Set once the apiserver has proven it won't accept user OIDC tokens. */
 let userTokensRejected = false
+/** Set once the apiserver has refused an impersonation attempt (missing RBAC). */
+let impersonationDenied = false
 
 /** True when calls should authenticate as the console SA and impersonate. */
 function impersonating(): boolean {
@@ -213,10 +215,29 @@ function impersonating(): boolean {
 }
 
 /** Diagnostics for `/api/k8s/-/health` and the connection banner. */
-export function k8sAuthState(): { mode: K8sAuthMode; effective: 'user' | 'impersonate' | 'service'; userTokensRejected: boolean; serviceAccount: boolean } {
+export function k8sAuthState(): {
+  mode: K8sAuthMode
+  effective: 'user' | 'impersonate' | 'service'
+  userTokensRejected: boolean
+  serviceAccount: boolean
+  impersonationDenied: boolean
+  hint?: string
+} {
   const mode = configuredAuthMode()
   const effective = mode === 'service' ? 'service' : impersonating() ? 'impersonate' : 'user'
-  return { mode, effective, userTokensRejected, serviceAccount: Boolean(getK8sServiceToken()) }
+  const hint = impersonationDenied
+    ? 'The console ServiceAccount lacks the `impersonate` verb on users/groups — apply the console-impersonator ClusterRole from the platform manifests.'
+    : effective !== 'user' && !getK8sServiceToken()
+      ? 'No ServiceAccount token available; run the console in-cluster or set K8S_SA_TOKEN.'
+      : undefined
+  return {
+    mode,
+    effective,
+    userTokensRejected,
+    serviceAccount: Boolean(getK8sServiceToken()),
+    impersonationDenied,
+    hint,
+  }
 }
 
 const USER_PREFIX = () => env('K8S_IMPERSONATE_USER_PREFIX') ?? 'oidc:'
@@ -472,6 +493,22 @@ export async function apiServerFetch(
 
   const res = await send()
   const retryable = typeof init.body !== 'object' || init.body === null || typeof init.body === 'string'
+
+  // Impersonation is on but the ServiceAccount isn't allowed to impersonate:
+  // the console image is ahead of the platform manifests. Say exactly that
+  // once, instead of leaving an opaque 403 on every page.
+  if (res.status === 403 && typeof auth !== 'string' && impersonating() && !impersonationDenied) {
+    const body = await res.clone().text().catch(() => '')
+    if (/impersonate/i.test(body)) {
+      impersonationDenied = true
+      console.error(
+        '[k8s] the console ServiceAccount is not permitted to impersonate users/groups. Apply the ' +
+          '`console-impersonator` ClusterRole + binding from the platform\'s adhar-console manifests ' +
+          '(rules: apiGroups [""], resources ["users","groups"], verbs ["impersonate"]).',
+      )
+    }
+  }
+
   if (
     res.status === 401 &&
     typeof auth !== 'string' &&

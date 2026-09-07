@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useToast } from './toast.tsx'
+import { useLiveInvalidate, usePollingInterval } from './live.ts'
 
 /**
  * Notification Center — client side.
@@ -187,10 +188,13 @@ export function useNotifications(seed: Notification[] = []): NotificationsApi {
   const prod = isProdBuild()
   const storedRef = useRef<StoredState>(loadStored())
 
+  // Server pushes `invalidate` over /api/live when the tenant's newest
+  // notification changes; the 30 s poll only runs while the socket is down.
+  useLiveInvalidate('notifications', {}, [FEED_KEY as unknown as string[]], prod)
   const feed = useQuery<NotificationPage>({
     queryKey: [...FEED_KEY, { limit: 50 }],
     queryFn: () => fetchFeed({ limit: 50 }),
-    refetchInterval: POLL_MS,
+    refetchInterval: usePollingInterval(POLL_MS),
     staleTime: 10_000,
     retry: 1,
     enabled: prod || typeof fetch !== 'undefined',
@@ -310,7 +314,7 @@ export function useNotificationFeed(params: FeedParams) {
     queryKey: [...FEED_KEY, 'page', params],
     queryFn: () => fetchFeed(params),
     placeholderData: (prev) => prev,
-    refetchInterval: POLL_MS,
+    refetchInterval: usePollingInterval(POLL_MS),
     staleTime: 10_000,
     retry: 1,
   })

@@ -147,6 +147,7 @@ export {
   type AppConfig,
 } from './app-config.ts'
 export { notifyUnauthorized, subscribeUnauthorized, UNAUTHORIZED_EVENT } from './unauthorized.ts'
+export { liveClient, useLiveInvalidate, useLiveK8sList, useLivePoll, useLiveStatus, usePollingInterval, type LiveListState, type LiveStatus as LiveHubStatus, type LiveTopic } from './live.ts'
 export { ToastProvider, useToast, type Toast, type ToastApi, type ToastKind, type ToastOptions } from './toast.tsx'
 
 /* ─ Primitives (new polish layer) ─ */

@@ -6,6 +6,20 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+
+- **Live hub — polling replaced by one multiplexed WebSocket.** `/api/live`
+  carries every real-time need per tab: Kubernetes **watches** (list + watch
+  with the signed-in user's token; the Platform module's live lists, Argo CD
+  Applications, Kargo, Rollouts and Trivy reports now refresh on deltas
+  instead of on a timer), **server-side change detection** for pull-only
+  backends (Prometheus metrics / alerts, Loki logs — the BFF re-runs the
+  sliding query and pushes only when the result changes, de-duplicated across
+  subscribers), and **notification** pushes when the tenant's feed changes.
+  Client hooks (`useLiveK8sList`, `useLiveInvalidate`, `useLivePoll`,
+  `usePollingInterval`, `useLiveStatus`) reconnect with backoff and fall back
+  to the old polling intervals only while the socket is down.
+
 ## [0.1.54] - 2026-09-07
 
 ### Fixed

@@ -45,6 +45,7 @@ import { registerDbSessionStore, sessionStoreStatus } from './app/server/session
 registerDbSessionStore()
 import { apiServerFetch, handleK8s, resolveIdentity } from './app/server/k8s/gateway.ts'
 import { handleExec } from './app/server/k8s/exec.ts'
+import { handleLive } from './app/server/live.ts'
 import { handleAi } from './app/server/ai/handlers.ts'
 
 const PORT = Number(env('PORT') ?? 3000)
@@ -300,6 +301,8 @@ async function route(req: Request): Promise<Response> {
 
   // Pod exec/attach terminal (WebSocket upgrade).
   if (path === '/api/k8s/exec') return handleExec(req)
+  // Live hub: one multiplexed WebSocket for watches, change-detection and notifications.
+  if (path === '/api/live') return handleLive(req)
 
   // AI assistant (SSE chat + diagnose/explain/generate).
   const ai = path.match(/^\/api\/ai\/(.*)$/)

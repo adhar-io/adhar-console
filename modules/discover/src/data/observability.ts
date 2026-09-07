@@ -1,5 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lgtm, posthog } from '@adhar-console/api-clients'
+import { useLiveInvalidate, useLivePoll, usePollingInterval } from '@adhar-console/shell-ui'
 
 /**
  * Discover hooks layer — wraps the LGTM stack (Loki / Mimir / Tempo /
@@ -79,8 +80,20 @@ export function useLogs(query: string, sel: TimeSelection, limit = 200, opts: Lo
   // Loki (LogQL) requires a non-empty stream selector — never fire an empty
   // query against a real backend; the view prompts for one instead.
   const enabled = (opts.enabled ?? true) && query.trim().length > 0
+  const queryKey = ['lgtm', 'logs', query, sel, limit, opts.direction ?? 'backward']
+  // Live tail / presets: the BFF re-runs the sliding query_range server-side
+  // and pushes only when the result changes — the browser stops polling.
+  const presetMs = sel.kind === 'preset' ? (TIME_RANGES.find((r) => r.id === sel.id)?.ms ?? 0) : 0
+  useLivePoll(
+    'loki',
+    `/loki/api/v1/query_range?query=${encodeURIComponent(query)}&start={start}&end={end}&limit=${limit}&direction=${opts.direction ?? 'backward'}`,
+    opts.live ? LIVE_REFRESH_MS : REFRESH_MS,
+    queryKey,
+    { windowMs: presetMs, enabled: enabled && sel.kind === 'preset', map: lokiToEntries },
+  )
+  const pollMs = usePollingInterval(opts.live ? LIVE_REFRESH_MS : REFRESH_MS)
   return useQuery({
-    queryKey: ['lgtm', 'logs', query, sel, limit, opts.direction ?? 'backward'],
+    queryKey,
     // The window is computed inside queryFn so a preset like "last 15m"
     // slides forward on every background refetch (live tail), instead of
     // freezing at the moment the component last rendered.
@@ -88,10 +101,23 @@ export function useLogs(query: string, sel: TimeSelection, limit = 200, opts: Lo
       const { start, end } = selectionToWindow(sel)
       return lgtmClient.queryLogs(query, start, end, limit, opts.direction ?? 'backward')
     },
-    refetchInterval: opts.live ? LIVE_REFRESH_MS : sel.kind === 'preset' ? REFRESH_MS : false,
+    refetchInterval: sel.kind === 'preset' ? pollMs : false,
     placeholderData: keepPreviousData,
     enabled,
   })
+}
+
+/** Raw Loki query_range body → LogEntry[] (same mapping as the client). */
+function lokiToEntries(body: unknown): lgtm.LogEntry[] {
+  const res = body as { data?: { result?: Array<{ values: [string, string][]; stream: Record<string, string> }> } }
+  return (res?.data?.result ?? []).flatMap((stream) =>
+    stream.values.map(([ts, msg]) => ({
+      timestamp: new Date(Number(ts) / 1e6).toISOString(),
+      level: lgtm.detectLogLevel(msg, stream.stream),
+      message: msg,
+      labels: stream.stream,
+    })),
+  )
 }
 
 /** Loki label names in the selected window — drives the label browser. */
@@ -211,11 +237,26 @@ export function seriesLabel(metric: Record<string, string | undefined>): string 
 }
 
 export function useMetrics(query: string, range: TimeRangeId, step = '1m') {
-  const { start, end } = rangeToWindow(range)
+  const queryKey = ['lgtm', 'metrics', query, range, step]
+  const windowMs = TIME_RANGES.find((r) => r.id === range)?.ms ?? 60 * 60_000
+  // Prometheus is pull-only: the BFF runs the sliding range query and pushes
+  // the series only when they change, so the tab itself never polls.
+  useLivePoll<lgtm.MetricSeries[]>(
+    'prometheus',
+    `/api/v1/query_range?query=${encodeURIComponent(query)}&start={start}&end={end}&step=${step}`,
+    REFRESH_MS,
+    queryKey,
+    { windowMs, enabled: !!query, map: (b) => ((b as { data?: { result?: lgtm.MetricSeries[] } })?.data?.result ?? []) },
+  )
+  const pollMs = usePollingInterval(REFRESH_MS)
   return useQuery({
-    queryKey: ['lgtm', 'metrics', query, range, step],
-    queryFn: () => lgtmClient.queryMetrics(query, start, end, step),
-    refetchInterval: REFRESH_MS,
+    queryKey,
+    queryFn: () => {
+      const { start, end } = rangeToWindow(range)
+      return lgtmClient.queryMetrics(query, start, end, step)
+    },
+    refetchInterval: pollMs,
+    placeholderData: keepPreviousData,
   })
 }
 
@@ -262,10 +303,14 @@ export function useServices() {
 }
 
 export function useAlerts() {
+  const pollMs = usePollingInterval(REFRESH_MS)
+  // Alertmanager/Prometheus are pull-only: the BFF watches `/api/v1/alerts`
+  // for changes and we refetch (the client mapping enriches with rule exprs).
+  useLiveInvalidate('poll', { tool: 'prometheus', path: '/api/v1/alerts', intervalMs: REFRESH_MS }, [['lgtm', 'alerts']])
   return useQuery({
     queryKey: ['lgtm', 'alerts'],
     queryFn: () => lgtmClient.listAlerts(),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: pollMs,
   })
 }
 

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { argocd, argoRollouts, falco, harbor, kargo, trivy } from '@adhar-console/api-clients'
-import { useArgocdProject, useHarborProject } from '@adhar-console/shell-ui'
+import { useArgocdProject, useHarborProject, useLiveInvalidate, usePollingInterval } from '@adhar-console/shell-ui'
 import {
   fetchManagedResources,
   fetchRevisionHistory,
@@ -46,12 +46,18 @@ const REFRESH_MS = 15_000
 
 /* ─────────── ArgoCD ─────────── */
 
+/** Argo CD Applications are CRDs — a watch on them drives refreshes; polling only while the live socket is down. */
+const ARGO_APPS_WATCH = { group: 'argoproj.io', version: 'v1alpha1', resource: 'applications' }
+const KARGO = 'kargo.akuity.io'
+const TRIVY = 'aquasecurity.github.io'
+
 export function useApplications() {
   const project = useArgocdProject()
+  useLiveInvalidate('k8s', ARGO_APPS_WATCH, [['argocd', 'apps'], ['argocd', 'app'], ['argocd', 'resources'], ['argocd', 'history']])
   return useQuery({
     queryKey: ['argocd', 'apps', project],
     queryFn: () => argocdClient.listApplications(project),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: usePollingInterval(REFRESH_MS),
   })
 }
 
@@ -60,7 +66,7 @@ export function useApplication(name?: string) {
     queryKey: ['argocd', 'app', name],
     queryFn: () => argocdClient.getApplication(name!),
     enabled: !!name,
-    refetchInterval: REFRESH_MS,
+    refetchInterval: usePollingInterval(REFRESH_MS),
   })
 }
 
@@ -91,7 +97,7 @@ export function useAppResources(name?: string) {
     queryKey: ['argocd', 'resources', name],
     queryFn: () => fetchManagedResources(name!),
     enabled: !!name,
-    refetchInterval: REFRESH_MS,
+    refetchInterval: usePollingInterval(REFRESH_MS),
   })
 }
 
@@ -134,19 +140,21 @@ export function useRollbackApplication() {
 
 export function useStages() {
   const project = useArgocdProject()
+  useLiveInvalidate('k8s', { group: KARGO, version: 'v1alpha1', resource: 'stages' }, [['kargo', 'stages']])
   return useQuery({
     queryKey: ['kargo', 'stages', project],
     queryFn: () => kargoClient.listStages(project),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: usePollingInterval(REFRESH_MS),
   })
 }
 
 export function useFreight() {
   const project = useArgocdProject()
+  useLiveInvalidate('k8s', { group: KARGO, version: 'v1alpha1', resource: 'freights' }, [['kargo', 'freight']])
   return useQuery({
     queryKey: ['kargo', 'freight', project],
     queryFn: () => kargoClient.listFreight(project),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: usePollingInterval(REFRESH_MS),
   })
 }
 
@@ -163,10 +171,11 @@ export function usePromote() {
 /* ─────────── Argo Rollouts ─────────── */
 
 export function useRollouts() {
+  useLiveInvalidate('k8s', { group: 'argoproj.io', version: 'v1alpha1', resource: 'rollouts' }, [['rollouts']])
   return useQuery({
     queryKey: ['rollouts', 'all'],
     queryFn: () => rolloutsClient.listRollouts(),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: usePollingInterval(REFRESH_MS),
   })
 }
 
@@ -216,6 +225,7 @@ export function useArtifacts(repo?: string) {
 /* ─────────── Trivy ─────────── */
 
 export function useScans(filter?: { target?: trivy.ScanTarget; namespace?: string }) {
+  useLiveInvalidate('k8s', { group: TRIVY, version: 'v1alpha1', resource: 'vulnerabilityreports' }, [['trivy']])
   return useQuery({
     queryKey: ['trivy', 'reports', filter?.target ?? 'all', filter?.namespace ?? 'all'],
     queryFn: () => trivyClient.listReports(filter),

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { kube } from '@adhar-console/api-clients/k8s'
+import { useLiveK8sList } from '@adhar-console/shell-ui'
 import type { GatewayGVR as GVR, KubeObject } from '@adhar-console/api-clients/k8s'
 import { clusterParam, useActiveCluster, useActiveNamespace } from './client.ts'
 
@@ -27,11 +27,6 @@ export interface LiveList<T> {
   refetch: () => void
 }
 
-function keyOf(obj: KubeObject): string {
-  return obj.metadata?.uid ?? `${obj.metadata?.namespace ?? ''}/${obj.metadata?.name ?? ''}`
-}
-
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 export function useLiveList<T extends KubeObject = KubeObject>(
   gvr: GVR,
@@ -51,96 +46,14 @@ export function useLiveList<T extends KubeObject = KubeObject>(
   // (the top-bar Namespace picker) when no explicit namespace is given;
   // cluster-scoped resources (nodes, namespaces, PVs, …) stay cluster-wide.
   const namespace = gvr.namespaced ? (explicitNamespace ?? activeNamespace) : explicitNamespace
-  // Undefined for the gateway default cluster → requests stay byte-identical
-  // to single-cluster operation; switching clusters changes `depKey`, which
-  // tears down the watch and relists against the newly selected cluster.
   const cluster = clusterParam(opts.cluster ?? activeCluster)
-  const [map, setMap] = useState<Map<string, T>>(() => new Map())
-  const [isLoading, setLoading] = useState(true)
-  const [status, setStatus] = useState<LiveStatus>('connecting')
-  const [error, setError] = useState<Error | null>(null)
-  const [nonce, setNonce] = useState(0)
-  const refetch = useCallback(() => setNonce((n) => n + 1), [])
-  const lastClusterRef = useRef(cluster)
-
-  // Stable key so the effect only re-runs on real input changes.
-  const depKey = `${gvr.group}/${gvr.version}/${gvr.resource}|${namespace ?? '*'}|${labelSelector ?? ''}|${fieldSelector ?? ''}|${cluster ?? ''}|${enabled}|${nonce}`
-
-  useEffect(() => {
-    if (!enabled) {
-      setLoading(false)
-      return
-    }
-    let cancelled = false
-
-    // Cluster switch: drop the previous cluster's objects immediately so the
-    // views never mix data from two clusters while the new list is in flight.
-    if (lastClusterRef.current !== cluster) {
-      lastClusterRef.current = cluster
-      setMap(new Map())
-    }
-
-    const ac = new AbortController()
-    setLoading(true)
-    setStatus('connecting')
-
-    ;(async () => {
-      let backoff = 1000
-      while (!cancelled) {
-        try {
-          const list = await kube.list<T>(gvr, { namespace, labelSelector, fieldSelector, cluster })
-          if (cancelled) return
-          const seeded = new Map<string, T>()
-          for (const it of list.items) seeded.set(keyOf(it), it)
-          setMap(seeded)
-          setLoading(false)
-          setError(null)
-          setStatus('live')
-          backoff = 1000
-          let rv = list.metadata?.resourceVersion ?? ''
-
-          await kube.watch<T>(
-            gvr,
-            { namespace, labelSelector, fieldSelector, cluster, resourceVersion: rv, signal: ac.signal },
-            (e) => {
-              const obj = e.object as T & { metadata?: { resourceVersion?: string } }
-              if (e.type === 'BOOKMARK') {
-                if (obj.metadata?.resourceVersion) rv = obj.metadata.resourceVersion
-                return
-              }
-              if (e.type === 'ERROR') throw new Error('watch stream error')
-              setMap((prev) => {
-                const next = new Map(prev)
-                const k = keyOf(obj)
-                if (e.type === 'DELETED') next.delete(k)
-                else next.set(k, obj)
-                return next
-              })
-              if (obj.metadata?.resourceVersion) rv = obj.metadata.resourceVersion
-            },
-          )
-          // Watch closed cleanly (server timeout) → immediately relist + rewatch.
-          if (cancelled) return
-          setStatus('reconnecting')
-        } catch (err) {
-          if (cancelled || ac.signal.aborted) return
-          setError(err as Error)
-          setStatus('error')
-          await sleep(backoff)
-          backoff = Math.min(backoff * 2, 15_000)
-        }
-      }
-    })()
-
-    return () => {
-      cancelled = true
-      ac.abort()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [depKey])
-
-  const data = useMemo(() => [...map.values()], [map])
-  return { data, isLoading, isError: status === 'error', error, status, refetch }
+  // All watches ride the single `/api/live` WebSocket (server-side list +
+  // watch with the user's token) instead of one HTTP stream per list.
+  const live = useLiveK8sList<T>(
+    { group: gvr.group, version: gvr.version, resource: gvr.resource },
+    { namespace, labelSelector, fieldSelector, cluster, enabled },
+  )
+  return live
 }
 
 /* ─────────── discovery + access review ─────────── */

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { DataTable, EmptyState, Modal, StatusBadge } from '@adhar-console/shell-ui'
+import { EmptyState, Modal, StatusBadge, useToast } from '@adhar-console/shell-ui'
 import { formatRelative } from '@adhar-console/utils'
 import {
   isDbUnavailable,
@@ -16,7 +16,6 @@ import {
   PrimaryButton,
   SecondaryButton,
   SelectField,
-  SettingsCard,
   StatTile,
   TextField,
   ViewShell,
@@ -28,6 +27,7 @@ export function Teams() {
   const teams = useTeams()
   const members = useMembers()
   const deleteTeam = useDeleteTeam()
+  const toast = useToast()
 
   const [createOpen, setCreateOpen] = useState(false)
   const [managing, setManaging] = useState<WsTeam | null>(null)
@@ -73,71 +73,34 @@ export function Teams() {
             />
           </div>
 
-          <SettingsCard title="All teams">
-            {deleteTeam.isError ? (
-              <p className="mb-3 text-[12px] text-rose-700 dark:text-rose-400">
-                {(deleteTeam.error as Error)?.message}
-              </p>
-            ) : null}
-            <DataTable
-              loading={teams.isLoading}
-              rows={all}
-              rowKey={(t) => t.id}
-              empty={
-                <EmptyState
-                  title="No teams yet"
-                  description="Create a team to group members and grant project-scoped access."
-                />
-              }
-              columns={[
-                {
-                  key: 'name',
-                  header: 'Team',
-                  cell: (t) => (
-                    <div>
-                      <div className="font-medium text-content">{t.name}</div>
-                      <div className="text-[11px] text-content-muted">{t.description ?? '—'}</div>
-                    </div>
-                  ),
-                },
-                {
-                  key: 'slug',
-                  header: 'Slug',
-                  cell: (t) => (
-                    <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px]">
-                      {t.slug}
-                    </code>
-                  ),
-                },
-                {
-                  key: 'rbac',
-                  header: 'Cluster RBAC',
-                  cell: (t) => (
-                    <StatusBadge kind={t.keycloakSynced ? 'healthy' : 'paused'}>
-                      {t.keycloakSynced ? `synced · ${t.keycloakGroup}` : 'console-only'}
-                    </StatusBadge>
-                  ),
-                },
-                { key: 'members', header: 'Members', numeric: true, cell: (t) => t.memberCount },
-                { key: 'projects', header: 'Projects', numeric: true, cell: (t) => t.projectCount },
-                { key: 'created', header: 'Created', cell: (t) => formatRelative(t.createdAt) },
-                {
-                  key: 'actions',
-                  header: '',
-                  cell: (t) => (
-                    <RequirePermission perm="teams.write" required={['admin', 'owner']} fallback={<span />}>
-                      <div className="flex justify-end gap-1.5">
-                        <SecondaryButton onClick={() => setManaging(t)}>Manage</SecondaryButton>
-                        <SecondaryButton tone="rose" onClick={() => setPendingDelete(t)}>
-                          Delete
-                        </SecondaryButton>
-                      </div>
-                    </RequirePermission>
-                  ),
-                },
-              ]}
-            />
-          </SettingsCard>
+          {all.length === 0 && !teams.isLoading ? (
+            <div className="rounded-2xl border border-dashed border-edge-default bg-surface-raised p-10">
+              <EmptyState
+                title="No teams yet"
+                description="Create a team to group members and grant project-scoped access."
+                action={
+                  <RequirePermission perm="teams.write" required={['admin', 'owner']} readOnly>
+                    <PrimaryButton onClick={() => setCreateOpen(true)}>
+                      <IconPlus /> New team
+                    </PrimaryButton>
+                  </RequirePermission>
+                }
+              />
+            </div>
+          ) : (
+            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
+              {teams.isLoading && all.length === 0
+                ? Array.from({ length: 6 }).map((_, i) => <TeamCardSkeleton key={i} />)
+                : all.map((t) => (
+                    <TeamCard
+                      key={t.id}
+                      team={t}
+                      onManage={() => setManaging(t)}
+                      onDelete={() => setPendingDelete(t)}
+                    />
+                  ))}
+            </div>
+          )}
         </>
       )}
 
@@ -149,7 +112,14 @@ export function Teams() {
         onCancel={() => setPendingDelete(null)}
         onConfirm={() => {
           if (!pendingDelete) return
-          deleteTeam.mutate(pendingDelete.id, { onSuccess: () => setPendingDelete(null) })
+          const name = pendingDelete.name
+          deleteTeam.mutate(pendingDelete.id, {
+            onSuccess: () => {
+              setPendingDelete(null)
+              toast.success(`Deleted ${name}`, { description: 'Members keep their projects; only the grouping is gone.' })
+            },
+            onError: (e) => toast.error(`Could not delete ${name}`, { description: (e as Error)?.message }),
+          })
         }}
       />
     </ViewShell>
@@ -160,6 +130,7 @@ export function Teams() {
 
 function CreateTeamModal({ open, onClose }: { open: boolean; onClose(): void }) {
   const create = useCreateTeam()
+  const toast = useToast()
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const [description, setDescription] = useState('')
@@ -177,7 +148,14 @@ function CreateTeamModal({ open, onClose }: { open: boolean; onClose(): void }) 
   const submit = () =>
     create.mutate(
       { name: name.trim(), slug: slug.trim() || undefined, description: description.trim() || undefined },
-      { onSuccess: (r) => setResult({ synced: r.keycloakSynced }) },
+      {
+        onSuccess: (r) => {
+          setResult({ synced: r.keycloakSynced })
+          if (r.keycloakSynced) toast.success(`Team ${name.trim()} created`, { description: 'Keycloak group synced for cluster RBAC.' })
+          else toast.warning(`Team ${name.trim()} created (console-only)`, { description: 'Group sync will apply once a Keycloak admin credential is configured.' })
+        },
+        onError: (e) => toast.error('Could not create the team', { description: (e as Error)?.message }),
+      },
     )
 
   return (
@@ -240,6 +218,7 @@ function ManageTeamModal({ team, onClose }: { team: WsTeam | null; onClose(): vo
   const members = useMembers()
   const add = useAddTeamMember()
   const remove = useRemoveTeamMember()
+  const toast = useToast()
   const [candidate, setCandidate] = useState('')
   const [lastSync, setLastSync] = useState<boolean | null>(null)
 
@@ -289,7 +268,9 @@ function ManageTeamModal({ team, onClose }: { team: WsTeam | null; onClose(): vo
                     onSuccess: (r) => {
                       setCandidate('')
                       setLastSync(r.keycloakSynced)
+                      toast.success('Member added', { description: r.keycloakSynced ? 'Mirrored to the Keycloak group.' : 'Console-only until Keycloak sync is configured.' })
                     },
+                    onError: (e) => toast.error('Could not add member', { description: (e as Error)?.message }),
                   },
                 )
               }
@@ -325,7 +306,13 @@ function ManageTeamModal({ team, onClose }: { team: WsTeam | null; onClose(): vo
                     onClick={() =>
                       remove.mutate(
                         { teamId: team.id, userId: m.userId },
-                        { onSuccess: (r) => setLastSync(r.keycloakSynced) },
+                        {
+                          onSuccess: (r) => {
+                            setLastSync(r.keycloakSynced)
+                            toast.success(`Removed ${m.name}`)
+                          },
+                          onError: (e) => toast.error(`Could not remove ${m.name}`, { description: (e as Error)?.message }),
+                        },
                       )
                     }
                   >
@@ -375,6 +362,86 @@ function ConfirmDeleteModal({
       ) : null}
     </Modal>
   )
+}
+
+/* ─────────────────── team card ─────────────────── */
+
+function TeamCard({ team, onManage, onDelete }: { team: WsTeam; onManage(): void; onDelete(): void }) {
+  const hue = hashHue(team.slug)
+  return (
+    <article className="group relative flex flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-md dark:hover:border-brand-500/30">
+      <div aria-hidden className="h-1.5 w-full" style={{ background: `linear-gradient(90deg, hsl(${hue} 65% 52%), hsl(${(hue + 40) % 360} 65% 45%))` }} />
+      <div className="flex flex-1 flex-col gap-3 p-4">
+        <div className="flex items-start gap-3">
+          <span
+            aria-hidden
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[13px] font-semibold text-white shadow-sm ring-1 ring-black/10"
+            style={{ backgroundImage: `linear-gradient(135deg, hsl(${hue} 60% 45%), hsl(${(hue + 40) % 360} 60% 32%))` }}
+          >
+            {team.name.slice(0, 2).toUpperCase()}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[15px] font-semibold text-content">{team.name}</div>
+            <code className="font-mono text-[11px] text-content-subtle">{team.slug}</code>
+          </div>
+          <StatusBadge kind={team.keycloakSynced ? 'healthy' : 'paused'} dot={false}>
+            {team.keycloakSynced ? 'RBAC' : 'console-only'}
+          </StatusBadge>
+        </div>
+        <p className="line-clamp-2 min-h-[2.5rem] text-[12.5px] leading-relaxed text-content-muted">
+          {team.description || 'No description yet.'}
+        </p>
+        <dl className="grid grid-cols-3 gap-2">
+          <Fact label="Members" value={team.memberCount} />
+          <Fact label="Projects" value={team.projectCount} />
+          <Fact label="Created" value={formatRelative(team.createdAt)} small />
+        </dl>
+        {team.keycloakGroup ? (
+          <div className="truncate rounded-md bg-surface-sunken px-2 py-1 font-mono text-[10.5px] text-content-subtle" title={team.keycloakGroup}>
+            group · {team.keycloakGroup}
+          </div>
+        ) : null}
+        <RequirePermission perm="teams.write" required={['admin', 'owner']} fallback={<span />}>
+          <div className="mt-auto flex items-center justify-end gap-1.5 pt-1">
+            <SecondaryButton onClick={onManage}>Manage members</SecondaryButton>
+            <SecondaryButton tone="rose" onClick={onDelete}>Delete</SecondaryButton>
+          </div>
+        </RequirePermission>
+      </div>
+    </article>
+  )
+}
+
+function Fact({ label, value, small = false }: { label: string; value: string | number; small?: boolean }) {
+  return (
+    <div className="rounded-lg border border-edge-subtle bg-surface-sunken/50 px-2.5 py-2">
+      <dt className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{label}</dt>
+      <dd className={small ? 'mt-0.5 truncate text-[12px] font-medium text-content' : 'mt-0.5 text-lg font-semibold tabular-nums text-content'}>{value}</dd>
+    </div>
+  )
+}
+
+function TeamCardSkeleton() {
+  return (
+    <div className="animate-pulse overflow-hidden rounded-2xl border border-edge-default bg-surface-raised">
+      <div className="h-1.5 w-full bg-surface-sunken" />
+      <div className="space-y-3 p-4">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-xl bg-surface-sunken" />
+          <div className="flex-1 space-y-1.5"><div className="h-3.5 w-1/2 rounded bg-surface-sunken" /><div className="h-2.5 w-1/3 rounded bg-surface-sunken" /></div>
+        </div>
+        <div className="h-2.5 w-full rounded bg-surface-sunken" />
+        <div className="h-2.5 w-3/4 rounded bg-surface-sunken" />
+        <div className="grid grid-cols-3 gap-2">{[0, 1, 2].map((i) => <div key={i} className="h-12 rounded-lg bg-surface-sunken" />)}</div>
+      </div>
+    </div>
+  )
+}
+
+function hashHue(s: string): number {
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0
+  return Math.abs(h) % 360
 }
 
 /** DB-unavailable / fetch-error state — no fake data, ever. */

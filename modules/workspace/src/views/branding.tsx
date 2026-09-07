@@ -1,3 +1,4 @@
+import { useToast } from '@adhar-console/shell-ui'
 import { useEffect, useMemo, useState } from 'react'
 import { formatRelative } from '@adhar-console/utils'
 import {
@@ -99,6 +100,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 function Editor({ doc }: { doc: GeneralSettingsDoc }) {
   const save = useSaveGeneralSettings()
+  const toast = useToast()
   const [branding, setBranding] = useState(doc.branding)
   const [contact, setContact] = useState(doc.contact)
   const [locale, setLocale] = useState(doc.locale)
@@ -150,7 +152,15 @@ function Editor({ doc }: { doc: GeneralSettingsDoc }) {
       </SecondaryButton>
       <PrimaryButton
         disabled={!dirty || invalid || save.isPending}
-        onClick={() => save.mutate({ branding, contact, locale })}
+        onClick={() =>
+          save.mutate(
+            { branding, contact, locale },
+            {
+              onSuccess: () => toast.success('Branding & locale saved'),
+              onError: (e) => toast.error('Could not save branding & locale', { description: (e as Error)?.message }),
+            },
+          )
+        }
       >
         {save.isPending ? 'Saving…' : 'Save changes'}
       </PrimaryButton>
@@ -282,14 +292,6 @@ function Editor({ doc }: { doc: GeneralSettingsDoc }) {
         </SettingsRow>
       </SettingsCard>
 
-      {save.isError ? (
-        <p className="text-[12px] text-rose-700 dark:text-rose-400">
-          {(save.error as Error)?.message ?? 'Could not save branding & locale.'}
-        </p>
-      ) : null}
-      {save.isSuccess && !dirty ? (
-        <p className="text-[12px] text-emerald-700 dark:text-emerald-400">Changes saved.</p>
-      ) : null}
     </>
   )
 }

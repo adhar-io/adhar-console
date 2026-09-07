@@ -140,6 +140,7 @@ function route(ctx: Ctx, method: string, seg: string[]): Promise<Response> | Res
       break
     case 'audit':
       if (!id && method === 'GET') return listAudit(ctx)
+      if (id === 'facets' && method === 'GET') return auditFacets(ctx)
       break
     case 'approvals':
       if (!id && method === 'GET') return listApprovals(ctx)
@@ -984,30 +985,64 @@ async function revokeToken(ctx: Ctx, id: string): Promise<Response> {
 
 async function listAudit(ctx: Ctx): Promise<Response> {
   const url = new URL(ctx.req.url)
-  const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 50) || 50, 1), 200)
-  const offset = Math.max(Number(url.searchParams.get('offset') ?? 0) || 0, 0)
-  const q = (url.searchParams.get('q') ?? '').trim().toLowerCase()
-  const outcome = url.searchParams.get('outcome')
-  const action = (url.searchParams.get('action') ?? '').trim().toLowerCase()
+  const p = url.searchParams
+  const limit = Math.min(Math.max(Number(p.get('limit') ?? 50) || 50, 1), 500)
+  const offset = Math.max(Number(p.get('offset') ?? 0) || 0, 0)
+  const q = (p.get('q') ?? '').trim()
+  const outcome = p.get('outcome')
+  const action = (p.get('action') ?? '').trim()
+  const actor = (p.get('actor') ?? '').trim()
+  const actorType = (p.get('actorType') ?? '').trim()
+  const targetType = (p.get('targetType') ?? '').trim()
+  const from = (p.get('from') ?? '').trim()
+  const to = (p.get('to') ?? '').trim()
+  const sort = p.get('sort') === 'asc' ? 'asc' : 'desc'
 
-  const docs = await ctx.store.list<AuditDoc>(KIND.audit)
-  let events = docs.map((d) => ({ id: d.id, ...d.data }))
-  if (outcome === 'success' || outcome === 'failure') {
-    events = events.filter((e) => e.outcome === outcome)
+  // Everything runs in Postgres — filters, search, ordering and the total —
+  // so the audit trail scales to millions of rows without loading them.
+  const equals: Array<{ path: string; value: string }> = []
+  if (outcome === 'success' || outcome === 'failure') equals.push({ path: 'outcome', value: outcome })
+  if (actorType) equals.push({ path: 'actor.type', value: actorType })
+  if (targetType) equals.push({ path: 'target.type', value: targetType })
+  if (actor) equals.push({ path: 'actor.id', value: actor })
+  const page = await ctx.store.query<AuditDoc>(KIND.audit, {
+    search: q ? { text: q, paths: ['action', 'actor.label', 'actor.id', 'target.label', 'target.id', 'ip'] } : undefined,
+    equals,
+    startsWith: action ? [{ path: 'action', value: action }] : undefined,
+    range: from || to ? { path: 'at', from: from || undefined, to: to || undefined } : undefined,
+    sort: { path: 'at', direction: sort },
+    limit,
+    offset,
+  })
+  const items = page.items.map((d) => ({ id: d.id, ...d.data }))
+  return json({ items, total: page.total, limit, offset })
+}
+
+/** Distinct action / actor-type / target-type values for the filter menus (bounded sample). */
+async function auditFacets(ctx: Ctx): Promise<Response> {
+  const sample = await ctx.store.query<AuditDoc>(KIND.audit, { limit: 2000, offset: 0, sort: { path: 'at', direction: 'desc' } })
+  const actions = new Map<string, number>()
+  const actorTypes = new Map<string, number>()
+  const targetTypes = new Map<string, number>()
+  const actors = new Map<string, { id: string; label: string; n: number }>()
+  for (const d of sample.items) {
+    const e = d.data
+    actions.set(e.action, (actions.get(e.action) ?? 0) + 1)
+    actorTypes.set(e.actor.type, (actorTypes.get(e.actor.type) ?? 0) + 1)
+    targetTypes.set(e.target.type, (targetTypes.get(e.target.type) ?? 0) + 1)
+    const a = actors.get(e.actor.id) ?? { id: e.actor.id, label: e.actor.label, n: 0 }
+    a.n += 1
+    actors.set(e.actor.id, a)
   }
-  if (action) events = events.filter((e) => e.action.toLowerCase().startsWith(action))
-  if (q) {
-    events = events.filter(
-      (e) =>
-        e.action.toLowerCase().includes(q) ||
-        e.actor.label.toLowerCase().includes(q) ||
-        e.target.label.toLowerCase().includes(q) ||
-        (e.ip ?? '').includes(q),
-    )
-  }
-  events.sort((a, b) => (a.at < b.at ? 1 : -1))
-  const total = events.length
-  return json({ items: events.slice(offset, offset + limit), total, limit, offset })
+  const top = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1]).map(([value, n]) => ({ value, n }))
+  return json({
+    sampled: sample.items.length,
+    total: sample.total,
+    actions: top(actions),
+    actorTypes: top(actorTypes),
+    targetTypes: top(targetTypes),
+    actors: [...actors.values()].sort((a, b) => b.n - a.n).slice(0, 50),
+  })
 }
 
 /* ─────────────────── approvals queue ─────────────────── */

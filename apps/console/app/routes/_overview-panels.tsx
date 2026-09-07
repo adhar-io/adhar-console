@@ -1597,14 +1597,16 @@ function PanelHead({
         <div className="text-sm font-semibold text-content">{title}</div>
         {subtitle ? <div className="mt-0.5 truncate text-[11px] text-content-subtle">{subtitle}</div> : null}
       </div>
-      {/* Arrow-only "open" affordance (no "Open" label). Offset from the very
-          top-right corner so it never sits under the drag-handle indicator that
-          draggable-grid renders at `right-3 top-3`. */}
+      {/* Arrow-only "open" affordance. It sits in the SAME row as the drag
+          handle that draggable-grid renders at the card's top-right (`right-5
+          top-5`, 24px wide) — the right margin reserves that slot plus a small
+          gap so the two read as one aligned control group. */}
       <Link
         to={to}
         aria-label={`Open ${title}`}
         title={`Open ${title}`}
-        className="mr-6 -mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-sunken hover:text-brand-700 dark:hover:text-brand-300"
+        data-no-drag
+        className="mr-8 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-sunken hover:text-brand-700 dark:hover:text-brand-300"
       >
         <svg
           width="15"

@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, lte, sql, type SQL } from 'drizzle-orm'
 import type { Db } from './client.ts'
 import { documents, notificationState, userPreferences, users } from './schema.ts'
 import type { DocumentRow } from './schema.ts'
@@ -146,6 +146,79 @@ export async function listDocuments(
     .where(and(eq(documents.tenant, tenant), eq(documents.kind, kind)))
     .orderBy(asc(documents.createdAt))
   return rows.map(toStored)
+}
+
+export interface DocumentQuery {
+  /** Case-insensitive substring match against the given JSON paths (`a.b.c`) OR'd together. */
+  search?: { text: string; paths: string[] }
+  /** Exact-match filters on JSON paths (`a.b` = value). */
+  equals?: Array<{ path: string; value: string }>
+  /** Prefix match on a JSON path (e.g. action starts with "team."). */
+  startsWith?: Array<{ path: string; value: string }>
+  /** ISO bounds on a JSON timestamp path (defaults to `created_at` when path is omitted). */
+  range?: { path?: string; from?: string; to?: string }
+  /** Sort by a JSON path or the row's created_at. */
+  sort?: { path?: string; direction: 'asc' | 'desc' }
+  limit: number
+  offset: number
+}
+
+export interface DocumentPage {
+  items: StoredDocument[]
+  total: number
+}
+
+/** `data->'a'->>'b'` for a dotted path. */
+function jsonPath(path: string): SQL {
+  const parts = path.split('.').filter(Boolean)
+  if (!parts.length) return sql`${documents.data}::text`
+  let expr: SQL = sql`${documents.data}`
+  parts.forEach((part, i) => {
+    expr = i === parts.length - 1 ? sql`${expr}->>${part}` : sql`${expr}->${part}`
+  })
+  return expr
+}
+
+/**
+ * Server-side paginated query over documents of one kind — filters, search
+ * and ordering run in Postgres so a kind with millions of rows (the audit
+ * trail) never gets loaded into memory. Returns the page plus the total
+ * matching count for the pager.
+ */
+export async function queryDocuments(
+  db: Db,
+  tenant: string,
+  kind: string,
+  q: DocumentQuery,
+): Promise<DocumentPage> {
+  const where: SQL[] = [eq(documents.tenant, tenant), eq(documents.kind, kind)]
+  if (q.search?.text.trim()) {
+    const needle = `%${q.search.text.trim().replace(/[%_\\]/g, (c) => `\\${c}`)}%`
+    const ors = q.search.paths.map((path) => sql`${jsonPath(path)} ILIKE ${needle}`)
+    if (ors.length) where.push(sql`(${sql.join(ors, sql` OR `)})`)
+  }
+  for (const f of q.equals ?? []) where.push(sql`${jsonPath(f.path)} = ${f.value}`)
+  for (const f of q.startsWith ?? []) {
+    const prefix = `${f.value.replace(/[%_\\]/g, (c) => `\\${c}`)}%`
+    where.push(sql`${jsonPath(f.path)} ILIKE ${prefix}`)
+  }
+  if (q.range?.from || q.range?.to) {
+    if (q.range.path) {
+      if (q.range.from) where.push(sql`${jsonPath(q.range.path)} >= ${q.range.from}`)
+      if (q.range.to) where.push(sql`${jsonPath(q.range.path)} <= ${q.range.to}`)
+    } else {
+      if (q.range.from) where.push(gte(documents.createdAt, new Date(q.range.from)))
+      if (q.range.to) where.push(lte(documents.createdAt, new Date(q.range.to)))
+    }
+  }
+  const cond = and(...where)
+  const orderExpr = q.sort?.path ? jsonPath(q.sort.path) : documents.createdAt
+  const order = q.sort?.direction === 'asc' ? asc(orderExpr) : desc(orderExpr)
+  const [rows, counted] = await Promise.all([
+    db.select().from(documents).where(cond).orderBy(order, desc(documents.createdAt)).limit(q.limit).offset(q.offset),
+    db.select({ n: sql<number>`count(*)::int` }).from(documents).where(cond),
+  ])
+  return { items: rows.map(toStored), total: counted[0]?.n ?? 0 }
 }
 
 /** One document by (tenant, kind, id). Null when absent. */

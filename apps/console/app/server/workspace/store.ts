@@ -144,6 +144,7 @@ export interface AuditDoc {
 /* ─────────────────── db access ─────────────────── */
 
 type DbModule = typeof import('@adhar-console/db')
+export type DocumentQuery = import('@adhar-console/db').DocumentQuery
 type Conn = NonNullable<Awaited<ReturnType<DbModule['getMigratedDb']>>>
 
 export interface StoredDoc<T> {
@@ -161,6 +162,8 @@ export interface Store {
   mod: DbModule
   tenant: string
   list<T>(kind: string): Promise<StoredDoc<T>[]>
+  /** Server-side filtered + paginated page of a kind (see db `queryDocuments`). */
+  query<T>(kind: string, q: DocumentQuery): Promise<{ items: StoredDoc<T>[]; total: number }>
   get<T>(kind: string, id: string): Promise<StoredDoc<T> | null>
   put<T extends Record<string, unknown>>(
     kind: string,
@@ -182,6 +185,8 @@ export async function openStore(tenant: string): Promise<Store | null> {
     tenant,
     list: async <T>(kind: string) =>
       (await mod.listDocuments(conn, tenant, kind)) as unknown as StoredDoc<T>[],
+    query: async <T>(kind: string, q: DocumentQuery) =>
+      (await mod.queryDocuments(conn, tenant, kind, q)) as unknown as { items: StoredDoc<T>[]; total: number },
     get: async <T>(kind: string, id: string) =>
       (await mod.getDocument(conn, tenant, kind, id)) as unknown as StoredDoc<T> | null,
     put: async <T extends Record<string, unknown>>(

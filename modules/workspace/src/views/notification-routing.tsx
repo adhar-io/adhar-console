@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { StatusBadge } from '@adhar-console/shell-ui'
+import { StatusBadge, useToast } from '@adhar-console/shell-ui'
 import { formatRelative } from '@adhar-console/utils'
 import {
   NOTIFICATION_CATEGORIES,
@@ -109,6 +109,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 function Editor({ routes, saved }: { routes: NotificationRoutes; saved: boolean }) {
   const save = useSaveNotificationRouting()
+  const toast = useToast()
   const test = useTestNotificationRoute()
   const [draft, setDraft] = useState<NotificationRoutes>(routes)
   const [lastResult, setLastResult] = useState<
@@ -141,7 +142,12 @@ function Editor({ routes, saved }: { routes: NotificationRoutes; saved: boolean 
       </SecondaryButton>
       <PrimaryButton
         disabled={!dirty || invalid || save.isPending}
-        onClick={() => save.mutate(draft)}
+        onClick={() =>
+          save.mutate(draft, {
+            onSuccess: () => toast.success('Routing table saved'),
+            onError: (e) => toast.error('Could not save the routing table', { description: (e as Error)?.message }),
+          })
+        }
       >
         {save.isPending ? 'Saving…' : 'Save routing'}
       </PrimaryButton>
@@ -273,14 +279,6 @@ function Editor({ routes, saved }: { routes: NotificationRoutes; saved: boolean 
         <p className="text-[12px] text-rose-700 dark:text-rose-400">
           {(test.error as Error)?.message ?? 'The reachability test failed to run.'}
         </p>
-      ) : null}
-      {save.isError ? (
-        <p className="text-[12px] text-rose-700 dark:text-rose-400">
-          {(save.error as Error)?.message ?? 'Could not save the routing table.'}
-        </p>
-      ) : null}
-      {save.isSuccess && !dirty ? (
-        <p className="text-[12px] text-emerald-700 dark:text-emerald-400">Routing saved.</p>
       ) : null}
     </>
   )

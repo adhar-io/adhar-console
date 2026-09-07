@@ -454,25 +454,79 @@ export interface AuditParams {
   offset?: number
   q?: string
   outcome?: 'success' | 'failure'
+  /** Action prefix, e.g. `team.` or `team.create`. */
   action?: string
+  /** Actor id (exact). */
+  actor?: string
+  actorType?: 'user' | 'token' | 'system'
+  targetType?: string
+  /** ISO bounds on the event time. */
+  from?: string
+  to?: string
+  sort?: 'asc' | 'desc'
+}
+
+export interface AuditFacets {
+  sampled: number
+  total: number
+  actions: Array<{ value: string; n: number }>
+  actorTypes: Array<{ value: string; n: number }>
+  targetTypes: Array<{ value: string; n: number }>
+  actors: Array<{ id: string; label: string; n: number }>
+}
+
+export function auditQueryString(params: AuditParams): string {
+  const search = new URLSearchParams()
+  const set = (k: string, v: string | number | undefined) => {
+    if (v !== undefined && v !== '') search.set(k, String(v))
+  }
+  set('limit', params.limit)
+  set('offset', params.offset)
+  set('q', params.q)
+  set('outcome', params.outcome)
+  set('action', params.action)
+  set('actor', params.actor)
+  set('actorType', params.actorType)
+  set('targetType', params.targetType)
+  set('from', params.from)
+  set('to', params.to)
+  set('sort', params.sort)
+  return search.toString()
 }
 
 export function useAuditEvents(params: AuditParams) {
   return useQuery({
     queryKey: K.audit(params),
     queryFn: () => {
-      const search = new URLSearchParams()
-      if (params.limit) search.set('limit', String(params.limit))
-      if (params.offset) search.set('offset', String(params.offset))
-      if (params.q) search.set('q', params.q)
-      if (params.outcome) search.set('outcome', params.outcome)
-      if (params.action) search.set('action', params.action)
-      const qs = search.toString()
+      const qs = auditQueryString(params)
       return wsFetch<AuditPage>(`audit${qs ? `?${qs}` : ''}`)
     },
     placeholderData: (prev) => prev,
     retry: (count, err) => !isDbUnavailable(err) && count < 2,
   })
+}
+
+/** Distinct values for the audit filter menus (sampled from the newest 2k events). */
+export function useAuditFacets() {
+  return useQuery({
+    queryKey: ['ws', 'audit', 'facets'] as const,
+    queryFn: () => wsFetch<AuditFacets>('audit/facets'),
+    staleTime: 60_000,
+    retry: (count, err) => !isDbUnavailable(err) && count < 2,
+  })
+}
+
+/** Fetch every matching event page-by-page for a full export (bounded). */
+export async function fetchAllAuditEvents(params: AuditParams, max = 50_000): Promise<WsAuditEvent[]> {
+  const out: WsAuditEvent[] = []
+  const limit = 500
+  for (let offset = 0; offset < max; offset += limit) {
+    const qs = auditQueryString({ ...params, limit, offset })
+    const page = await wsFetch<AuditPage>(`audit?${qs}`)
+    out.push(...page.items)
+    if (page.items.length < limit || out.length >= page.total) break
+  }
+  return out
 }
 
 /* ─────────────────── approvals queue ─────────────────── */

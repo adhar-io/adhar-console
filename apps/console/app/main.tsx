@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client'
 import { RouterProvider } from '@tanstack/react-router'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from '@adhar-console/auth'
-import { AiProvider, bootTheme } from '@adhar-console/shell-ui'
+import { AiProvider, bootTheme, ToastProvider } from '@adhar-console/shell-ui'
 import { kube } from '@adhar-console/api-clients/k8s'
 import { getRouter, queryClient } from './router.tsx'
 import './styles.css'
@@ -34,9 +34,11 @@ const router = await getRouter()
 createRoot(rootEl).render(
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
-      <AiProvider onApplyProposal={applyAiProposal}>
-        <RouterProvider router={router} />
-      </AiProvider>
+      <ToastProvider>
+        <AiProvider onApplyProposal={applyAiProposal}>
+          <RouterProvider router={router} />
+        </AiProvider>
+      </ToastProvider>
     </AuthProvider>
   </QueryClientProvider>,
 )

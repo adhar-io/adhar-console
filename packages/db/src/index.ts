@@ -11,10 +11,13 @@ export {
   getPreferences,
   listDocuments,
   putDocument,
+  queryDocuments,
   setNotificationState,
   setNotificationStateBulk,
   setPreferences,
   touchUser,
+  type DocumentPage,
+  type DocumentQuery,
   type NotificationStateEntry,
   type StoredDocument,
 } from './repo.ts'

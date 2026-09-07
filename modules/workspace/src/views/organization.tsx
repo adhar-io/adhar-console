@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { EmptyState, StatusBadge } from '@adhar-console/shell-ui'
+import { EmptyState, StatusBadge, useToast } from '@adhar-console/shell-ui'
 import {
   isDbUnavailable,
   useMembers,
@@ -25,6 +25,7 @@ export function Organization() {
   const me = useWorkspaceMe()
   const members = useMembers()
   const save = useUpdateOrg()
+  const toast = useToast()
   const [dirty, setDirty] = useState<OrgPatch>({})
 
   const o = q.data
@@ -66,7 +67,13 @@ export function Organization() {
               onSubmit={(e) => {
                 e.preventDefault()
                 if (!o || !isDirty) return
-                save.mutate(dirty, { onSuccess: () => setDirty({}) })
+                save.mutate(dirty, {
+                  onSuccess: () => {
+                    setDirty({})
+                    toast.success('Organization settings saved')
+                  },
+                  onError: (e) => toast.error('Could not save the organization', { description: (e as Error)?.message }),
+                })
               }}
               className="space-y-6"
             >
@@ -139,16 +146,6 @@ export function Organization() {
                 </SettingsRow>
               </SettingsCard>
 
-              {save.isError ? (
-                <p className="text-[12px] text-rose-700 dark:text-rose-400">
-                  {(save.error as Error)?.message ?? 'Could not save the organization.'}
-                </p>
-              ) : null}
-              {save.isSuccess && !isDirty ? (
-                <p className="text-[12px] text-emerald-700 dark:text-emerald-400">
-                  Changes saved.
-                </p>
-              ) : null}
 
               <div className="flex justify-end gap-2">
                 <SecondaryButton onClick={() => setDirty({})} disabled={!isDirty}>

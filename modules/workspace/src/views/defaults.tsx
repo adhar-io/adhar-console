@@ -1,3 +1,4 @@
+import { useToast } from '@adhar-console/shell-ui'
 import { useEffect, useState } from 'react'
 import { formatRelative } from '@adhar-console/utils'
 import {
@@ -100,6 +101,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 function Editor({ doc }: { doc: DefaultsDoc }) {
   const save = useSaveWorkspaceDefaults()
+  const toast = useToast()
   const [namespacePrefix, setNamespacePrefix] = useState(doc.namespacePrefix)
   const [defaultEnvironment, setDefaultEnvironment] = useState(doc.defaultEnvironment)
   const [defaultCloud, setDefaultCloud] = useState<DefaultCloud>(doc.defaultCloud)
@@ -152,7 +154,12 @@ function Editor({ doc }: { doc: DefaultsDoc }) {
       </SecondaryButton>
       <PrimaryButton
         disabled={!dirty || invalid || save.isPending}
-        onClick={() => save.mutate(next)}
+        onClick={() =>
+          save.mutate(next, {
+            onSuccess: () => toast.success('Resource defaults saved'),
+            onError: (e) => toast.error('Could not save the resource defaults', { description: (e as Error)?.message }),
+          })
+        }
       >
         {save.isPending ? 'Saving…' : 'Save defaults'}
       </PrimaryButton>
@@ -313,14 +320,6 @@ function Editor({ doc }: { doc: DefaultsDoc }) {
         )}
       </SettingsCard>
 
-      {save.isError ? (
-        <p className="text-[12px] text-rose-700 dark:text-rose-400">
-          {(save.error as Error)?.message ?? 'Could not save the resource defaults.'}
-        </p>
-      ) : null}
-      {save.isSuccess && !dirty ? (
-        <p className="text-[12px] text-emerald-700 dark:text-emerald-400">Defaults saved.</p>
-      ) : null}
     </>
   )
 }

@@ -20,6 +20,7 @@ import {
   Textarea,
 } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
+import { EntityMetrics, MonitorButton, useGrafanaMonitorUrl, type RangeId } from '~/components/entity-observability.tsx'
 import {
   type Entity,
   type EntityKind,
@@ -2871,6 +2872,11 @@ function EntityCard({
 }) {
   const ref = entityRef(entity)
   const links = entity.metadata.links ?? []
+  // "Monitor" — the workload's Grafana dashboard, alongside Source/Docs.
+  const { url: monitorUrl } = useGrafanaMonitorUrl(
+    { name: entityAnnotations(entity)['adhar.io/workload'] ?? entity.metadata.name, namespace: entity.metadata.namespace !== 'default' ? entity.metadata.namespace : undefined },
+    entityAnnotations(entity)['adhar.io/grafana-dashboard'],
+  )
   const ageLabel = relativeTime(entity.metadata.updatedAt ?? entity.metadata.createdAt)
   const score = scoreEntity(entity)
   const stack = techStack(entity)
@@ -2999,7 +3005,7 @@ function EntityCard({
         ) : null}
       </div>
       <div className="mt-auto flex items-center justify-between gap-3 border-t border-edge-subtle bg-surface-sunken/40 px-3 py-2 text-[11px]">
-        <QuickLinks links={links} />
+        <QuickLinks links={links} monitorUrl={entity.kind === 'Component' || entity.kind === 'Resource' ? monitorUrl : undefined} />
         <div className="flex shrink-0 items-center gap-2">
           <ScoreBadge score={score} />
           <span className="font-mono text-[10px] uppercase tracking-wider text-content-subtle opacity-0 transition-opacity group-hover:text-brand-700 dark:group-hover:text-brand-300 group-hover:opacity-100">
@@ -3011,13 +3017,14 @@ function EntityCard({
   )
 }
 
-function QuickLinks({ links }: { links: Entity['metadata']['links'] }) {
-  if (!links || !links.length) {
+function QuickLinks({ links, monitorUrl }: { links: Entity['metadata']['links']; monitorUrl?: string }) {
+  if ((!links || !links.length) && !monitorUrl) {
     return <span className="text-content-subtle">no links</span>
   }
   return (
     <div className="flex flex-wrap items-center gap-1">
-      {links.slice(0, 4).map((l) => (
+      {monitorUrl ? <MonitorButton url={monitorUrl} compact /> : null}
+      {(links ?? []).slice(0, 4).map((l) => (
         <a
           key={l.url}
           href={l.url}
@@ -3186,7 +3193,7 @@ function SectionHeader({
 
 /* ─────────── entity drawer ─────────── */
 
-type DrawerTab = 'overview' | 'deploy' | 'tech' | 'docs' | 'relations' | 'scorecard' | 'raw'
+type DrawerTab = 'overview' | 'deploy' | 'tech' | 'docs' | 'metrics' | 'relations' | 'scorecard' | 'raw'
 
 function EntityDrawer({
   entity,
@@ -3208,6 +3215,7 @@ function EntityDrawer({
   const activity = buildActivity(entity)
   const apiDef = entity.kind === 'API' ? parseApiDefinition(entity.spec.definition) : null
   const closeBtnRef = useRef<HTMLButtonElement>(null)
+  const [metricRange, setMetricRange] = useState<RangeId>('1h')
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -3262,6 +3270,20 @@ function EntityDrawer({
   const version = entityVersion(entity)
   const health = entityHealth(entity, score)
   const docsUrl = techDocsUrl(entity)
+  // Live metrics apply to anything that actually runs: a Component or Resource
+  // the catalog resolved to a workload. `adhar.io/grafana-dashboard` pins a
+  // dashboard when the team has one.
+  const metricTarget = useMemo(() => {
+    if (entity.kind !== 'Component' && entity.kind !== 'Resource') return null
+    const ann = entityAnnotations(entity)
+    const name = ann['adhar.io/workload'] ?? entity.metadata.name
+    const namespace = ann['adhar.io/namespace'] ?? entity.metadata.namespace
+    return name ? { name, namespace: namespace && namespace !== 'default' ? namespace : undefined } : null
+  }, [entity])
+  const { url: monitorUrl, grafanaBase } = useGrafanaMonitorUrl(
+    metricTarget ?? { name: entity.metadata.name },
+    entityAnnotations(entity)['adhar.io/grafana-dashboard'],
+  )
   const relationCount =
     provides.length +
     consumes.length +
@@ -3306,6 +3328,12 @@ function EntityDrawer({
       label: 'TechDocs',
       hidden: !(docsUrl || entity.kind === 'Component'),
       badge: docsUrl ? { kind: 'healthy', value: '✓' } : undefined,
+    },
+    {
+      id: 'metrics',
+      label: 'Metrics',
+      hidden: !metricTarget,
+      badge: monitorUrl ? { kind: 'healthy', value: 'live' } : undefined,
     },
     {
       id: 'relations',
@@ -3516,7 +3544,10 @@ function EntityDrawer({
                   <TechStackCard stack={stack} version={version} entity={entity} />
                 ) : null}
 
-                {active === 'docs' ? <TechDocsCard url={docsUrl} /> : null}
+                {active === 'docs' ? <TechDocsCard url={docsUrl} entity={entity} monitorUrl={monitorUrl} /> : null}
+                {active === 'metrics' && metricTarget ? (
+                  <EntityMetrics target={metricTarget} range={metricRange} onRange={setMetricRange} grafanaUrl={monitorUrl || grafanaBase} />
+                ) : null}
 
                 {active === 'relations' ? (
                   <>
@@ -4684,8 +4715,10 @@ function Markdown({ source, base }: { source: string; base?: string }) {
       if (h) {
         const level = h[1].length
         const Tag = (`h${Math.min(level + 1, 6)}` as unknown) as keyof React.JSX.IntrinsicElements
+        // Anchor ids let the TechDocs table of contents scroll to a section.
+        const anchor = slugifyHeading(h[2].replace(/[*_`]/g, ''))
         blocks.push(
-          <Tag key={keyer()} className={HEAD_CLS[level - 1]}>
+          <Tag key={keyer()} id={anchor} className={cn(HEAD_CLS[level - 1], 'scroll-mt-4')}>
             {inline(h[2])}
           </Tag>,
         )
@@ -4826,10 +4859,24 @@ function docCandidates(url: string): string[] {
   return [`${baseNoSlash}/index.md`, `${baseNoSlash}/README.md`, `${baseNoSlash}/docs/index.md`]
 }
 
-function TechDocsCard({ url }: { url?: string }) {
+/**
+ * TechDocs — a real documentation reader, not a link with a preview.
+ *
+ * Layout: a sticky action bar (Source · Docs · **Monitor**), a generated
+ * table of contents from the document's own headings, the rendered Markdown
+ * in a readable measure, and honest states when docs aren't registered,
+ * can't be embedded (external origin / CORS) or fail to load. Reading
+ * position and heading anchors work, so long runbooks are navigable.
+ */
+function TechDocsCard({ url, entity, monitorUrl }: { url?: string; entity?: Entity; monitorUrl?: string }) {
   const [text, setText] = useState<string | null>(null)
   const [resolvedUrl, setResolvedUrl] = useState<string | undefined>(url)
   const [state, setState] = useState<'idle' | 'loading' | 'error' | 'external'>('idle')
+  const [query, setQuery] = useState('')
+  const bodyRef = useRef<HTMLDivElement>(null)
+
+  const sourceUrl = (entity?.metadata.links ?? []).find((l) => l.icon === 'repo')?.url
+  const runbookUrl = (entity?.metadata.links ?? []).find((l) => l.icon === 'runbook')?.url
 
   useEffect(() => {
     setText(null)
@@ -4878,11 +4925,49 @@ function TechDocsCard({ url }: { url?: string }) {
     }
   }, [url])
 
+  // Table of contents straight from the document's headings.
+  const toc = useMemo(() => {
+    if (!text) return [] as Array<{ level: number; title: string; id: string }>
+    const out: Array<{ level: number; title: string; id: string }> = []
+    let inFence = false
+    for (const line of text.split('\n')) {
+      if (/^\s*```/.test(line)) inFence = !inFence
+      if (inFence) continue
+      const m = /^(#{1,3})\s+(.+?)\s*#*$/.exec(line)
+      if (!m) continue
+      const title = m[2].replace(/[*_`]/g, '').trim()
+      out.push({ level: m[1].length, title, id: slugifyHeading(title) })
+    }
+    return out
+  }, [text])
+
+  const filtered = useMemo(() => {
+    if (!text || !query.trim()) return text
+    // Keep sections whose heading or body matches, so search reads as an
+    // outline filter rather than a highlight-only toy.
+    const q = query.trim().toLowerCase()
+    const blocks = text.split(/\n(?=#{1,3}\s)/)
+    const hits = blocks.filter((b) => b.toLowerCase().includes(q))
+    return hits.length ? hits.join('\n\n') : text
+  }, [text, query])
+
+  const actions = (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {sourceUrl ? <DocAction href={sourceUrl} icon="repo" label="Source" /> : null}
+      {runbookUrl ? <DocAction href={runbookUrl} icon="runbook" label="Runbook" /> : null}
+      {url ? <DocAction href={resolvedUrl ?? url} icon="docs" label="Docs" primary /> : null}
+      {monitorUrl ? <MonitorButton url={monitorUrl} compact /> : null}
+    </div>
+  )
+
   if (!url) {
     return (
       <Card>
         <CardHeader>
-          <h3 className="text-sm font-semibold text-content">TechDocs</h3>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-content">TechDocs</h3>
+            {actions}
+          </div>
         </CardHeader>
         <CardBody>
           <EmptyState
@@ -4892,7 +4977,8 @@ function TechDocsCard({ url }: { url?: string }) {
               <>
                 Add a <code>docs</code> link to <code>metadata.links</code> or set the{' '}
                 <code>backstage.io/techdocs-ref</code> / <code>adhar.io/docs</code> annotation to
-                publish documentation here.
+                publish documentation here. Markdown in the repo renders inline; an external docs
+                site opens in a new tab.
               </>
             }
           />
@@ -4901,54 +4987,135 @@ function TechDocsCard({ url }: { url?: string }) {
     )
   }
 
+  const words = text ? text.split(/\s+/).length : 0
+
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <h3 className="text-sm font-semibold text-content">TechDocs</h3>
             {text != null ? (
               <StatusBadge kind="healthy" className="px-1.5 py-0 text-[10px]">
                 embedded
               </StatusBadge>
             ) : null}
+            {words > 0 ? (
+              <span className="font-mono text-[10px] text-content-subtle">
+                {words.toLocaleString()} words · ~{Math.max(1, Math.round(words / 220))} min read
+              </span>
+            ) : null}
           </div>
-          <a
-            href={resolvedUrl ?? url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors visited:text-white hover:bg-brand-700 hover:text-white"
-          >
-            <LinkGlyph icon="docs" />
-            Open source
-          </a>
+          {actions}
         </div>
       </CardHeader>
       <CardBody className="space-y-3">
-        <div className="truncate font-mono text-[11px] text-content-muted">{resolvedUrl ?? url}</div>
+        {text != null ? (
+          <div className="relative flex items-center">
+            <span className="pointer-events-none absolute left-2.5 text-content-subtle">
+              <DocSearchGlyph />
+            </span>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Filter sections…"
+              className="h-8 w-full rounded-lg border border-edge-default bg-surface-app pl-8 pr-2 text-[12px] text-content placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+            />
+          </div>
+        ) : null}
+
         {state === 'loading' ? (
           <div className="flex items-center gap-2 text-xs text-content-muted">
             <Spinner /> Loading documentation…
           </div>
         ) : null}
         {state === 'error' ? (
-          <p className="text-xs text-content-muted">
-            Couldn&apos;t load the document inline — open it with “Open source” above.
-          </p>
-        ) : null}
-        {state === 'external' ? (
-          <p className="text-xs text-content-muted">
-            Documentation is hosted externally, so it can&apos;t be embedded here. Open it with
-            “Open source” above.
-          </p>
-        ) : null}
-        {text != null ? (
-          <div className="max-h-[28rem] overflow-y-auto rounded-lg border border-edge-subtle bg-surface-raised px-4 py-3">
-            <Markdown source={text} base={resolvedUrl ?? url} />
+          <div className="rounded-lg border border-dashed border-edge-default px-3 py-2.5 text-xs text-content-muted">
+            Couldn&apos;t load the document inline (it may need auth, or the path doesn&apos;t serve
+            raw Markdown). Use <span className="font-medium text-content">Docs</span> above to open it.
           </div>
         ) : null}
+        {state === 'external' ? (
+          <div className="rounded-lg border border-dashed border-edge-default px-3 py-2.5 text-xs text-content-muted">
+            Documentation is hosted on another origin, so the browser can&apos;t embed it. Use{' '}
+            <span className="font-medium text-content">Docs</span> to open it in a new tab.
+          </div>
+        ) : null}
+
+        {text != null ? (
+          <div className={cn('grid gap-4', toc.length > 2 ? 'lg:grid-cols-[180px_minmax(0,1fr)]' : '')}>
+            {toc.length > 2 ? (
+              <nav className="hidden max-h-[28rem] overflow-y-auto lg:block">
+                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+                  On this page
+                </div>
+                <ul className="space-y-0.5 border-l border-edge-subtle">
+                  {toc.map((h, i) => (
+                    <li key={`${h.id}-${i}`}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const el = bodyRef.current?.querySelector(`#${CSS.escape(h.id)}`)
+                          el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                        }}
+                        className={cn(
+                          '-ml-px block w-full border-l-2 border-transparent py-0.5 pl-2.5 text-left text-[11.5px] text-content-muted transition-colors hover:border-brand-400 hover:text-content',
+                          h.level === 1 && 'font-medium text-content',
+                          h.level === 3 && 'pl-5 text-[11px]',
+                        )}
+                      >
+                        {h.title}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </nav>
+            ) : null}
+            <div
+              ref={bodyRef}
+              className="max-h-[32rem] overflow-y-auto rounded-lg border border-edge-subtle bg-surface-raised px-5 py-4"
+            >
+              <Markdown source={filtered ?? text} base={resolvedUrl ?? url} />
+            </div>
+          </div>
+        ) : null}
+
+        <div className="truncate font-mono text-[10.5px] text-content-subtle">{resolvedUrl ?? url}</div>
       </CardBody>
     </Card>
+  )
+}
+
+/** GitHub-style heading anchor, matching what `Markdown` renders. */
+function slugifyHeading(t: string): string {
+  return t.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-')
+}
+
+function DocAction({ href, icon, label, primary = false }: { href: string; icon: 'repo' | 'docs' | 'runbook'; label: string; primary?: boolean }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-md font-semibold transition-colors',
+        primary
+          ? 'bg-brand-600 px-3 py-1.5 text-xs text-white shadow-sm visited:text-white hover:bg-brand-700 hover:text-white'
+          : 'bg-surface-raised px-1.5 py-1 text-[10px] text-content-muted ring-1 ring-edge-default hover:text-brand-700 dark:hover:text-brand-300',
+      )}
+    >
+      <LinkGlyph icon={icon} />
+      {label}
+    </a>
+  )
+}
+
+function DocSearchGlyph() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m21 21-4.35-4.35" />
+    </svg>
   )
 }
 

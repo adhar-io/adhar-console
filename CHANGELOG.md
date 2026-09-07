@@ -8,6 +8,58 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ### Added
 
+- **One control-plane domain.** `ADHAR_DOMAIN` (or `ADHAR_CONTROL_PLANE_URL` /
+  `AUTH_PUBLIC_URL`) is the single address an install configures: every
+  `<TOOL>_URL`, the public base domain and the Kubernetes control-plane URL
+  derive from it as `<tool>.<domain>`, with an explicit variable still winning.
+  A fresh install on a real domain now comes up connected instead of needing
+  ~25 URLs set by hand.
+- **Asynchronous workspace provisioning.** Creating an organization returns
+  immediately with a job; Keycloak, namespace + RBAC, Argo CD project and Gitea
+  org are provisioned server-side, progress is persisted, and a notification —
+  plus an **email to the workspace contact** — lands when it finishes. You can
+  close the page; the onboarding screen says so. Contact name/email are
+  collected during onboarding. Email ships as a dependency-free SMTP client or
+  an HTTP relay (`SMTP_*` / `MAIL_API_URL`), and says so honestly when neither
+  is configured.
+- **Entity Metrics tab + Monitor button.** Catalog entities gain live
+  Prometheus panels (CPU, memory, network, ready replicas, restarts) scoped to
+  the workload, with 1h/6h/24h ranges and per-panel "open in Grafana", plus a
+  **Monitor** action on cards and in TechDocs that opens the workload's Grafana
+  dashboard (`adhar.io/grafana-dashboard` pins a specific one).
+- **TechDocs redesigned**: action bar (Source · Runbook · Docs · Monitor),
+  generated table of contents with heading anchors, section filter, read-time,
+  and honest states for unregistered / external / unloadable docs.
+
+### Fixed
+
+- **Provisioning no longer reports "unauthenticated" to a signed-in user.** The
+  BFF distinguishes a missing session from one that aged out mid-flow
+  (`session_expired`), and onboarding offers a one-click reconnect that returns
+  to the wizard instead of a dead error.
+- **Service catalog opened in-cluster Gitea URLs.** Repository links are
+  rewritten from the Service address the BFF used to the public host
+  (`toPublicUrl` / `useToolPublicUrl`).
+- Deliver dashboard crashed with *Cannot read properties of undefined (reading
+  'path')* on multi-source or freshly-created Argo CD Applications — the client
+  now normalizes every Application.
+
+### Changed
+
+- **Adhar Assist is now Adhar AI**, and the floating launcher is gone — the
+  topbar search field is the single entry point. The overlay composer has no
+  border/ring highlight and gains a Context toggle and clickable slash
+  commands.
+- Workspace settings keep the title/description on the left and **all actions
+  on the right** of the same header row, including form Save/Reset controls
+  that previously sat at the bottom of a card.
+- Onboarding lists the apps the cluster actually exposes, with real logos.
+- Login page copy and card redesign.
+- Notifications shortcut is now `g i`; cluster/namespace pickers lost their
+  drop shadow to match the header bar.
+
+### Added
+
 - **Live hub — polling replaced by one multiplexed WebSocket.** `/api/live`
   carries every real-time need per tab: Kubernetes **watches** (list + watch
   with the signed-in user's token; the Platform module's live lists, Argo CD

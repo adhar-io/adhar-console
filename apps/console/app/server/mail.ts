@@ -225,7 +225,6 @@ function buildMime(from: string, msg: MailMessage): string {
 
 /** RFC 2047 encode a header value when it isn't plain ASCII. */
 function encodeHeader(v: string): string {
-  // deno-lint-ignore no-control-regex
   return /^[\x20-\x7E]*$/.test(v) ? v : `=?UTF-8?B?${btoa(unescape(encodeURIComponent(v)))}?=`
 }
 

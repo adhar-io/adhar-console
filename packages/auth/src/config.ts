@@ -1,4 +1,4 @@
-import { env } from '@adhar-console/utils'
+import { derivedUrl, env } from '@adhar-console/utils'
 
 /**
  * Server-side auth configuration, read from the runtime environment.
@@ -65,7 +65,11 @@ function isDev(): boolean {
  * server routes degrade gracefully instead of crashing the container.
  */
 export function getServerAuthConfig(): ServerAuthConfig | null {
-  const url = env('KEYCLOAK_URL')?.replace(/\/$/, '')
+  // KEYCLOAK_URL when set, else `https://keycloak.<ADHAR_DOMAIN>`. Deriving it
+  // is what lets one install-time domain configure the whole platform — a
+  // hardcoded value in a shipped manifest otherwise sends every cluster to the
+  // domain that manifest was written for.
+  const url = derivedUrl('keycloak', 'KEYCLOAK_URL') || undefined
   const clientSecret = env('AUTH_CLIENT_SECRET') ?? env('KEYCLOAK_CLIENT_SECRET')
   const cookieSecret = env('AUTH_COOKIE_SECRET')
   if (!url || !clientSecret || !cookieSecret) {
@@ -74,7 +78,7 @@ export function getServerAuthConfig(): ServerAuthConfig | null {
     // client-minted "demo" admin session. Dev may run stubbed.
     if (!isDev()) {
       const missing = [
-        !url && 'KEYCLOAK_URL',
+        !url && 'KEYCLOAK_URL (or ADHAR_DOMAIN)',
         !clientSecret && 'AUTH_CLIENT_SECRET',
         !cookieSecret && 'AUTH_COOKIE_SECRET',
       ].filter(Boolean).join(', ')
@@ -109,7 +113,9 @@ export function getServerAuthConfig(): ServerAuthConfig | null {
     cookieSecret,
     cookieName,
     cookieSecure,
-    publicUrl: env('AUTH_PUBLIC_URL')?.replace(/\/$/, ''),
+    // Same story for the console's own public origin: AUTH_PUBLIC_URL, else
+    // `https://console.<ADHAR_DOMAIN>`.
+    publicUrl: derivedUrl('console', 'AUTH_PUBLIC_URL') || undefined,
     scopes: env('AUTH_SCOPES') ?? DEFAULT_SCOPES,
     sessionTtlSeconds: Number(env('AUTH_SESSION_TTL_SECONDS') ?? DEFAULT_SESSION_TTL),
     sessionAbsoluteTtlSeconds: Number(

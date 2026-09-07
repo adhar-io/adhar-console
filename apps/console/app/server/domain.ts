@@ -1,4 +1,4 @@
-import { env } from '@adhar-console/utils'
+import { derivedUrl, env, subdomainUrl } from '@adhar-console/utils'
 
 /**
  * ONE control-plane URL, everything else derived.
@@ -22,58 +22,8 @@ import { env } from '@adhar-console/utils'
  * right answer for server-side calls when the platform sets them.
  */
 
-export interface PlatformDomain {
-  /** Bare host (may include a port), e.g. `platform.adhar.io` or `adhar.localtest.me:8443`. */
-  host: string
-  /** `https:` unless the configured entry URL says otherwise. */
-  protocol: string
-}
-
-function fromUrl(raw: string | undefined): PlatformDomain | null {
-  if (!raw) return null
-  try {
-    const u = new URL(raw.includes('://') ? raw : `https://${raw}`)
-    const labels = u.hostname.split('.')
-    // Drop the leading label (console/keycloak/…) when there is a domain left.
-    const rest = labels.length > 2 ? labels.slice(1).join('.') : u.hostname
-    const port = u.port ? `:${u.port}` : ''
-    return { host: `${rest}${port}`, protocol: u.protocol }
-  } catch {
-    return null
-  }
-}
-
-function fromBare(raw: string | undefined): PlatformDomain | null {
-  if (!raw) return null
-  const cleaned = raw.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '')
-  if (!cleaned) return null
-  return { host: cleaned, protocol: (env('ADHAR_DOMAIN_PROTOCOL') ?? 'https:').replace(/:?$/, ':') }
-}
-
-let cached: PlatformDomain | null | undefined
-
-/** The platform's base domain, or null when nothing identifies it. */
-export function platformDomain(): PlatformDomain | null {
-  if (cached !== undefined) return cached
-  cached =
-    fromBare(env('ADHAR_DOMAIN') ?? env('ADHAR_BASE_DOMAIN') ?? env('BASE_DOMAIN')) ??
-    fromUrl(env('ADHAR_CONTROL_PLANE_URL')) ??
-    fromUrl(env('AUTH_PUBLIC_URL')) ??
-    fromUrl(env('KEYCLOAK_URL')) ??
-    null
-  return cached
-}
-
-/** Test seam — re-read the environment. */
-export function resetPlatformDomain(): void {
-  cached = undefined
-}
-
-/** `https://<sub>.<domain>` for the platform's domain, or '' when unknown. */
-export function subdomainUrl(sub: string): string {
-  const d = platformDomain()
-  return d ? `${d.protocol}//${sub}.${d.host}` : ''
-}
+export type { PlatformDomain } from '@adhar-console/utils'
+export { platformDomain, resetPlatformDomain, subdomainUrl } from '@adhar-console/utils'
 
 /**
  * Resolve a tool's base URL: the first explicit env var that is set, else the
@@ -81,16 +31,12 @@ export function subdomainUrl(sub: string): string {
  * work — every tile, proxy and deep link resolves without per-tool config.
  */
 export function toolUrl(sub: string, ...envKeys: string[]): string {
-  for (const k of envKeys) {
-    const v = env(k)
-    if (v && v.trim()) return v.trim().replace(/\/$/, '')
-  }
-  return subdomainUrl(sub)
+  return derivedUrl(sub, ...envKeys)
 }
 
 /** The console's own public URL (`AUTH_PUBLIC_URL`, else `console.<domain>`). */
 export function consolePublicUrl(): string {
-  return (env('AUTH_PUBLIC_URL') ?? env('ADHAR_CONSOLE_URL') ?? subdomainUrl('console')).replace(/\/$/, '')
+  return derivedUrl('console', 'AUTH_PUBLIC_URL', 'ADHAR_CONSOLE_URL')
 }
 
 /**

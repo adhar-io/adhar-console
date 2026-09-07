@@ -123,13 +123,12 @@ function ArtifactsPane({ repoName }: { repoName: string | null }) {
       </Card>
     )
   }
-  // Harbor expects the path component after the project (<project>/<repo> → <repo>).
-  const repoPath = repoName.split('/').slice(1).join('/') || repoName
-  return <ArtifactsList repoName={repoName} repoPath={repoPath} />
+  return <ArtifactsList repoName={repoName} />
 }
 
-function ArtifactsList({ repoName, repoPath }: { repoName: string; repoPath: string }) {
-  const q = useArtifacts(repoPath)
+function ArtifactsList({ repoName }: { repoName: string }) {
+  // Full Harbor name (`<project>/<path>`) — the hook derives the project.
+  const q = useArtifacts(repoName)
   const list = q.data ?? []
 
   return (

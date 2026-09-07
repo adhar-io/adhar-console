@@ -17,6 +17,8 @@ export interface AppConfig {
   giteaOrg: string
   /** Argo CD project the platform's Applications live under. */
   argocdProject: string
+  /** Harbor project the platform's images are pushed to. */
+  harborProject: string
   /** Base URL of the platform documentation site (no trailing slash). */
   docsBaseUrl: string
   /**
@@ -38,6 +40,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   version: '',
   giteaOrg: 'adhar',
   argocdProject: 'default',
+  harborProject: 'library',
   docsBaseUrl: 'https://docs.adhar.io',
   publicBaseDomain: '',
   planeWorkspace: 'adhar',
@@ -86,4 +89,9 @@ export function usePublicBaseDomain(): string {
 /** The Plane workspace slug the Define phase works in, with the real default while config loads. */
 export function usePlaneWorkspace(): string {
   return useAppConfig().data?.planeWorkspace || APP_CONFIG_DEFAULTS.planeWorkspace
+}
+
+/** The Harbor project (registry namespace), with the real default while config loads. */
+export function useHarborProject(): string {
+  return useAppConfig().data?.harborProject || APP_CONFIG_DEFAULTS.harborProject
 }

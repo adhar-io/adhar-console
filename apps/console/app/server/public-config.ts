@@ -69,6 +69,8 @@ export async function buildPublicConfig(): Promise<Record<string, unknown>> {
     // hardcodes them. Gitea org owns the repos; Argo CD project scopes apps.
     giteaOrg: env('GITEA_TEMPLATES_ORG') ?? env('GITEA_ORG') ?? 'adhar',
     argocdProject: env('ARGOCD_PROJECT') ?? 'default',
+    // Harbor project the platform pushes images to (Harbor's default is `library`).
+    harborProject: env('HARBOR_PROJECT') ?? 'library',
     // Plane workspace the Define phase works in — never a hardcoded company.
     planeWorkspace:
       env('PLANE_WORKSPACE') ?? env('PLANE_WORKSPACE_SLUG') ?? env('GITEA_TEMPLATES_ORG') ?? env('GITEA_ORG') ?? 'adhar',

@@ -11,6 +11,8 @@ import {
 import { formatRelative } from '@adhar-console/utils'
 import type { lgtm, posthog } from '@adhar-console/api-clients'
 import {
+  PROMQL,
+  seriesLabel,
   seriesToPoints,
   useAlerts,
   useAnalyticsEvents,
@@ -29,10 +31,10 @@ import { LoadingCard, SourceError } from './states.tsx'
  * Design / Develop / Deliver dashboards.
  */
 export function Dashboard() {
-  const rps = useMetrics('http_requests_per_second', '1h')
-  const err = useMetrics('http_5xx_rate', '1h')
-  const p95 = useMetrics('http_request_duration_p95_ms', '1h')
-  const cpu = useMetrics('container_cpu_usage_seconds_total:rate1m', '1h')
+  const rps = useMetrics(PROMQL.rps, '1h')
+  const err = useMetrics(PROMQL.errorRate, '1h')
+  const p95 = useMetrics(PROMQL.latencyP95, '1h')
+  const cpu = useMetrics(PROMQL.cpu, '1h')
   const alerts = useAlerts()
   const slos = useSlos()
   const services = useServiceMap()
@@ -326,15 +328,13 @@ function ServiceTable({
   err: lgtm.MetricSeries[]
   p95: lgtm.MetricSeries[]
 }) {
-  const services = Array.from(
-    new Set([...rps, ...err, ...p95].map((s) => s.metric.service).filter(Boolean)),
-  )
+  const services = Array.from(new Set([...rps, ...err, ...p95].map((s) => seriesLabel(s.metric)).filter(Boolean)))
   return (
     <ul className="divide-y divide-edge-subtle">
       {services.map((svc) => {
-        const rpsSeries = rps.find((s) => s.metric.service === svc)
-        const errSeries = err.find((s) => s.metric.service === svc)
-        const p95Series = p95.find((s) => s.metric.service === svc)
+        const rpsSeries = rps.find((s) => seriesLabel(s.metric) === svc)
+        const errSeries = err.find((s) => seriesLabel(s.metric) === svc)
+        const p95Series = p95.find((s) => seriesLabel(s.metric) === svc)
         const rpsLatest = rpsSeries ? lastNum(rpsSeries) : 0
         const errLatest = errSeries ? lastNum(errSeries) : 0
         const p95Latest = p95Series ? lastNum(p95Series) : 0

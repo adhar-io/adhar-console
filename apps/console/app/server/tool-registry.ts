@@ -48,6 +48,11 @@ function clean(url: string | undefined): string {
   return (url ?? '').replace(/\/$/, '')
 }
 
+/** `X-Scope-OrgID` for multi-tenant LGTM gateways; undefined when single-tenant. */
+function tenantHeader(tenant: string | undefined): Record<string, string> | undefined {
+  return tenant ? { 'X-Scope-OrgID': tenant } : undefined
+}
+
 const SA_TOKEN_PATH = '/var/run/secrets/kubernetes.io/serviceaccount/token'
 
 /**
@@ -129,10 +134,14 @@ export function getToolRegistry(): Record<string, ToolDef> {
       authMode: (env('KARGO_AUTH_MODE') as AuthMode) ?? 'user',
       serviceToken: env('KARGO_TOKEN'),
     },
+    // Harbor's API accepts HTTP Basic (robot or admin creds); a bare token is
+    // also accepted. Without either, only public projects list.
     harbor: {
       baseUrl: clean(env('HARBOR_URL')),
-      authMode: 'service',
+      authMode: env('HARBOR_USERNAME') && env('HARBOR_PASSWORD') ? 'basic' : 'service',
       serviceToken: env('HARBOR_TOKEN'),
+      username: env('HARBOR_USERNAME'),
+      password: env('HARBOR_PASSWORD'),
     },
     'argo-workflows': {
       baseUrl: clean(env('ARGO_WORKFLOWS_URL')),
@@ -144,10 +153,15 @@ export function getToolRegistry(): Record<string, ToolDef> {
       authMode: 'service',
       serviceToken: env('ARGO_ROLLOUTS_TOKEN'),
     },
+    // Grafana: a service token when provided, else durable admin creds
+    // (`GRAFANA_USERNAME`/`GRAFANA_PASSWORD` — the chart's admin secret) as
+    // HTTP Basic, so dashboards list even before an API token is minted.
     grafana: {
       baseUrl: clean(env('GRAFANA_URL')),
-      authMode: 'service',
+      authMode: env('GRAFANA_TOKEN') ? 'service' : env('GRAFANA_PASSWORD') ? 'basic' : 'none',
       serviceToken: env('GRAFANA_TOKEN'),
+      username: env('GRAFANA_USERNAME') ?? 'admin',
+      password: env('GRAFANA_PASSWORD'),
     },
     metabase: {
       baseUrl: clean(env('METABASE_URL')),
@@ -172,8 +186,10 @@ export function getToolRegistry(): Record<string, ToolDef> {
     // LGTM (Discover): Grafana fronts Loki/Mimir/Tempo via its datasource proxy.
     lgtm: {
       baseUrl: clean(env('GRAFANA_URL')),
-      authMode: 'service',
+      authMode: env('GRAFANA_TOKEN') ? 'service' : env('GRAFANA_PASSWORD') ? 'basic' : 'none',
       serviceToken: env('GRAFANA_TOKEN'),
+      username: env('GRAFANA_USERNAME') ?? 'admin',
+      password: env('GRAFANA_PASSWORD'),
     },
     posthog: {
       baseUrl: clean(env('POSTHOG_URL')),
@@ -232,14 +248,37 @@ export function getToolRegistry(): Record<string, ToolDef> {
     otel: { baseUrl: clean(env('OTEL_URL')), authMode: 'none' },
     // Raw LGTM endpoints (see .env.example). UI deep-links go through Grafana
     // Explore; these report the API hosts so availability is env-accurate.
-    loki: { baseUrl: clean(env('LOKI_URL')), authMode: 'service', serviceToken: env('LOKI_TOKEN') },
-    mimir: { baseUrl: clean(env('MIMIR_URL')), authMode: 'service', serviceToken: env('MIMIR_TOKEN') },
-    tempo: { baseUrl: clean(env('TEMPO_URL')), authMode: 'service', serviceToken: env('TEMPO_TOKEN') },
-    prometheus: {
-      baseUrl: clean(env('PROMETHEUS_URL') ?? env('MIMIR_URL')),
+    // Loki / Mimir / Tempo run multi-tenant behind their gateways and reject
+    // requests without `X-Scope-OrgID`; `<TOOL>_TENANT` (default `anonymous`
+    // for Mimir, unset = single-tenant for Loki/Tempo) sets it.
+    loki: {
+      baseUrl: clean(env('LOKI_URL')),
       authMode: 'service',
-      serviceToken: env('PROMETHEUS_TOKEN') ?? env('MIMIR_TOKEN'),
+      serviceToken: env('LOKI_TOKEN'),
+      headers: tenantHeader(env('LOKI_TENANT')),
     },
+    mimir: {
+      baseUrl: clean(env('MIMIR_URL')),
+      authMode: 'service',
+      serviceToken: env('MIMIR_TOKEN'),
+      headers: tenantHeader(env('MIMIR_TENANT') ?? 'anonymous'),
+    },
+    tempo: {
+      baseUrl: clean(env('TEMPO_URL')),
+      authMode: 'service',
+      serviceToken: env('TEMPO_TOKEN'),
+      headers: tenantHeader(env('TEMPO_TENANT')),
+    },
+    // Prometheus-compatible query API. Falls back to Mimir's gateway, whose
+    // Prometheus API is mounted under `/prometheus` and needs the tenant header.
+    prometheus: env('PROMETHEUS_URL')
+      ? { baseUrl: clean(env('PROMETHEUS_URL')), authMode: 'service', serviceToken: env('PROMETHEUS_TOKEN') }
+      : {
+          baseUrl: env('MIMIR_URL') ? `${clean(env('MIMIR_URL'))}/prometheus` : '',
+          authMode: 'service',
+          serviceToken: env('PROMETHEUS_TOKEN') ?? env('MIMIR_TOKEN'),
+          headers: tenantHeader(env('MIMIR_TENANT') ?? 'anonymous'),
+        },
   }
 }
 

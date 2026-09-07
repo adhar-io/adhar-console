@@ -139,6 +139,7 @@ export {
   useAppConfig,
   useGiteaOrg,
   useArgocdProject,
+  useHarborProject,
   useDocsUrl,
   usePublicBaseDomain,
   usePlaneWorkspace,

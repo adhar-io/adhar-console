@@ -58,18 +58,149 @@ export interface TrivyClient {
   rescan(id: string): Promise<void>
 }
 
-function build(http: HttpClient): TrivyClient {
+/* ─────────── trivy-operator CRDs (aquasecurity.github.io/v1alpha1) ─────────── */
+
+const API = '/apis/aquasecurity.github.io/v1alpha1'
+
+/** report resource → console scan target */
+const FAMILIES: Array<{ resource: string; kind: string; target: ScanTarget }> = [
+  { resource: 'vulnerabilityreports', kind: 'VulnerabilityReport', target: 'image' },
+  { resource: 'configauditreports', kind: 'ConfigAuditReport', target: 'config' },
+  { resource: 'exposedsecretreports', kind: 'ExposedSecretReport', target: 'secret' },
+  { resource: 'rbacassessmentreports', kind: 'RbacAssessmentReport', target: 'rbac' },
+  { resource: 'clustercompliancereports', kind: 'ClusterComplianceReport', target: 'compliance' },
+]
+
+interface RawReport {
+  metadata: { name: string; namespace?: string; creationTimestamp?: string; labels?: Record<string, string> }
+  report?: {
+    updateTimestamp?: string
+    scanner?: { name?: string; vendor?: string; version?: string }
+    artifact?: { repository?: string; tag?: string; digest?: string }
+    registry?: { server?: string }
+    summary?: Record<string, number | undefined>
+    vulnerabilities?: Array<{
+      vulnerabilityID?: string
+      resource?: string
+      installedVersion?: string
+      fixedVersion?: string
+      severity?: string
+      title?: string
+      description?: string
+      score?: number
+      primaryLink?: string
+      publishedDate?: string
+    }>
+    checks?: Array<{ checkID?: string; title?: string; severity?: string; success?: boolean; description?: string; messages?: string[]; category?: string }>
+    secrets?: Array<{ ruleID?: string; title?: string; severity?: string; category?: string; target?: string; match?: string }>
+  }
+}
+
+function sev(s?: string): Severity {
+  const u = (s ?? '').toUpperCase()
+  return u === 'CRITICAL' || u === 'HIGH' || u === 'MEDIUM' || u === 'LOW' ? u : 'UNKNOWN'
+}
+
+function encodeId(ns: string | undefined, resource: string, name: string): string {
+  return `${ns ?? '-'}/${resource}/${name}`
+}
+function decodeId(id: string): { ns?: string; resource: string; name: string } | null {
+  const [ns, resource, ...rest] = id.split('/')
+  if (!resource || !rest.length) return null
+  return { ns: ns === '-' ? undefined : ns, resource, name: rest.join('/') }
+}
+
+function toReport(raw: RawReport, fam: (typeof FAMILIES)[number], withDetail: boolean): ScanReport {
+  const r = raw.report ?? {}
+  const l = raw.metadata.labels ?? {}
+  const kind = l['trivy-operator.resource.kind']
+  const wname = l['trivy-operator.resource.name']
+  const container = l['trivy-operator.container.name']
+  const workload = kind && wname ? `${kind}/${wname}${container ? ` · ${container}` : ''}` : undefined
+  const artifact =
+    fam.target === 'image'
+      ? `${r.registry?.server ? `${r.registry.server}/` : ''}${r.artifact?.repository ?? raw.metadata.name}${r.artifact?.tag ? `:${r.artifact.tag}` : r.artifact?.digest ? `@${r.artifact.digest.slice(0, 19)}` : ''}`
+      : workload
+        ? `${raw.metadata.namespace ?? 'cluster'}/${workload}`
+        : raw.metadata.name
+  const sum = r.summary ?? {}
+  const vulns: Vulnerability[] = []
+  if (withDetail) {
+    for (const v of r.vulnerabilities ?? []) {
+      vulns.push({
+        vulnerability_id: v.vulnerabilityID ?? 'unknown',
+        resource: v.resource ?? '',
+        installed_version: v.installedVersion,
+        fixed_version: v.fixedVersion,
+        severity: sev(v.severity),
+        title: v.title ?? v.vulnerabilityID ?? 'Vulnerability',
+        description: v.description,
+        cvss_score: v.score,
+        primary_link: v.primaryLink,
+        published_date: v.publishedDate,
+      })
+    }
+    for (const c of r.checks ?? []) {
+      if (c.success) continue
+      vulns.push({ vulnerability_id: c.checkID ?? 'check', resource: c.category ?? 'config', severity: sev(c.severity), title: c.title ?? c.checkID ?? 'Check failed', description: [c.description, ...(c.messages ?? [])].filter(Boolean).join(' ') })
+    }
+    for (const x of r.secrets ?? []) {
+      vulns.push({ vulnerability_id: x.ruleID ?? 'secret', resource: x.target ?? x.category ?? 'secret', severity: sev(x.severity), title: x.title ?? 'Exposed secret', description: x.match })
+    }
+  }
+  return {
+    id: encodeId(raw.metadata.namespace, fam.resource, raw.metadata.name),
+    target: fam.target,
+    artifact,
+    workload,
+    namespace: raw.metadata.namespace,
+    scanner: [r.scanner?.name ?? 'Trivy', r.scanner?.version].filter(Boolean).join(' '),
+    scanned_at: r.updateTimestamp ?? raw.metadata.creationTimestamp ?? new Date(0).toISOString(),
+    summary: {
+      critical: sum.criticalCount ?? 0,
+      high: sum.highCount ?? 0,
+      medium: sum.mediumCount ?? 0,
+      low: sum.lowCount ?? 0,
+      unknown: sum.unknownCount ?? sum.noneCount ?? 0,
+    },
+    vulnerabilities: withDetail ? vulns.slice(0, 500) : undefined,
+  }
+}
+
+function build(_http: HttpClient): TrivyClient {
+  // Reports are CRDs written by trivy-operator — read them through the k8s
+  // gateway (user RBAC). A missing CRD family (404) is simply skipped.
+  const k8s = new HttpClient({ baseUrl: '/api/k8s', credentials: 'include' })
   return {
     listReports: async (filter) => {
-      const qs = new URLSearchParams()
-      if (filter?.target) qs.set('target', filter.target)
-      if (filter?.namespace) qs.set('namespace', filter.namespace)
-      const res = await http.get<{ items: ScanReport[] }>(`/api/v1/trivy/reports?${qs}`)
-      return res.items
+      const fams = FAMILIES.filter((f) => !filter?.target || f.target === filter.target)
+      const pages = await Promise.all(
+        fams.map(async (fam) => {
+          const ns = filter?.namespace && fam.target !== 'compliance' ? `/namespaces/${encodeURIComponent(filter.namespace)}` : ''
+          try {
+            const res = await k8s.get<{ items: RawReport[] }>(`${API}${ns}/${fam.resource}?limit=500`)
+            return (res.items ?? []).map((r) => toReport(r, fam, false))
+          } catch (e) {
+            const status = (e as { status?: number }).status
+            if (status === 404 || status === 403) return []
+            throw e
+          }
+        }),
+      )
+      return pages.flat().sort((a, b) => b.summary.critical * 1000 + b.summary.high * 50 - (a.summary.critical * 1000 + a.summary.high * 50) || b.scanned_at.localeCompare(a.scanned_at))
     },
-    getReport: (id) => http.get<ScanReport>(`/api/v1/trivy/reports/${id}`),
+    getReport: async (id) => {
+      const d = decodeId(id)
+      if (!d) throw new Error(`invalid report id ${id}`)
+      const fam = FAMILIES.find((f) => f.resource === d.resource) ?? FAMILIES[0]
+      const raw = await k8s.get<RawReport>(`${API}${d.ns ? `/namespaces/${encodeURIComponent(d.ns)}` : ''}/${d.resource}/${encodeURIComponent(d.name)}`)
+      return toReport(raw, fam, true)
+    },
+    // trivy-operator re-creates a deleted report on its next reconcile — that IS the rescan.
     rescan: async (id) => {
-      await http.post<void>(`/api/v1/trivy/reports/${id}/rescan`, {})
+      const d = decodeId(id)
+      if (!d) throw new Error(`invalid report id ${id}`)
+      await k8s.delete<unknown>(`${API}${d.ns ? `/namespaces/${encodeURIComponent(d.ns)}` : ''}/${d.resource}/${encodeURIComponent(d.name)}`)
     },
   }
 }

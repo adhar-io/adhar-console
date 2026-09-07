@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { argocd, argoRollouts, falco, harbor, kargo, trivy } from '@adhar-console/api-clients'
-import { useArgocdProject } from '@adhar-console/shell-ui'
+import { useArgocdProject, useHarborProject } from '@adhar-console/shell-ui'
 import {
   fetchManagedResources,
   fetchRevisionHistory,
@@ -191,7 +191,7 @@ export function useAbortRollout() {
 /* ─────────── Harbor ─────────── */
 
 export function useRepositories() {
-  const project = useArgocdProject()
+  const project = useHarborProject()
   return useQuery({
     queryKey: ['harbor', 'repos', project],
     queryFn: () => harborClient.listRepositories(project),
@@ -199,12 +199,16 @@ export function useRepositories() {
   })
 }
 
+/** `repo` is Harbor's full name (`<project>/<path>`); the project is taken from it. */
 export function useArtifacts(repo?: string) {
-  const project = useArgocdProject()
+  const fallback = useHarborProject()
+  const slash = repo?.indexOf('/') ?? -1
+  const project = slash > 0 ? repo!.slice(0, slash) : fallback
+  const path = slash > 0 ? repo!.slice(slash + 1) : repo
   return useQuery({
-    queryKey: ['harbor', 'artifacts', project, repo],
-    queryFn: () => harborClient.listArtifacts(project, repo!),
-    enabled: !!repo,
+    queryKey: ['harbor', 'artifacts', project, path],
+    queryFn: () => harborClient.listArtifacts(project, path!),
+    enabled: !!path,
     staleTime: 30_000,
   })
 }

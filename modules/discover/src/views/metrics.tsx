@@ -12,6 +12,8 @@ import {
 import type { lgtm } from '@adhar-console/api-clients'
 import {
   DEFAULT_RANGE,
+  PROMQL,
+  seriesLabel,
   seriesToPoints,
   TIME_RANGES,
   useMetrics,
@@ -26,11 +28,11 @@ const QUICK_PANELS: Array<{
   unit: 'rps' | 'percent' | 'ms' | 'cpu' | 'bytes'
   color: string
 }> = [
-  { id: 'rps', label: 'Requests / sec', query: 'http_requests_per_second', unit: 'rps', color: 'var(--color-brand-500)' },
-  { id: 'errors', label: 'Error rate (5xx)', query: 'http_5xx_rate', unit: 'percent', color: 'var(--color-rose-500)' },
-  { id: 'latency', label: 'Latency p95', query: 'http_request_duration_p95_ms', unit: 'ms', color: 'var(--color-amber-500)' },
-  { id: 'cpu', label: 'CPU (rate1m)', query: 'container_cpu_usage_seconds_total:rate1m', unit: 'cpu', color: 'var(--color-violet-500)' },
-  { id: 'memory', label: 'Memory working set', query: 'container_memory_working_set_bytes', unit: 'bytes', color: 'var(--color-emerald-500)' },
+  { id: 'rps', label: 'Requests / sec', query: PROMQL.rps, unit: 'rps', color: 'var(--color-brand-500)' },
+  { id: 'errors', label: 'Error rate (5xx)', query: PROMQL.errorRate, unit: 'percent', color: 'var(--color-rose-500)' },
+  { id: 'latency', label: 'Latency p95', query: PROMQL.latencyP95, unit: 'ms', color: 'var(--color-amber-500)' },
+  { id: 'cpu', label: 'CPU by namespace (cores)', query: PROMQL.cpu, unit: 'cpu', color: 'var(--color-violet-500)' },
+  { id: 'memory', label: 'Memory working set by namespace', query: PROMQL.memory, unit: 'bytes', color: 'var(--color-emerald-500)' },
 ]
 
 /**
@@ -237,10 +239,7 @@ function SeriesGrid({
 }
 
 function labelFor(s: lgtm.MetricSeries): string {
-  if (s.metric.service) return s.metric.service
-  if (s.metric.pod) return s.metric.pod
-  if (s.metric.__name__) return s.metric.__name__
-  return JSON.stringify(s.metric)
+  return seriesLabel(s.metric)
 }
 
 function peakValue(series: lgtm.MetricSeries[]): number {

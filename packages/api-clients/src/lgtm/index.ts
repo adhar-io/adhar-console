@@ -922,7 +922,13 @@ export const LgtmClient = {
       return [...vals].sort()
     },
     queryMetrics: async (query) => {
-      const slug = (query.match(/__name__="([^"]+)"|^\s*([a-zA-Z_:][\w:]*)/) ?? [])[1]
+      const q = query.toLowerCase()
+      const slug =
+        q.includes('cpu') ? 'container_cpu_usage_seconds_total:rate1m'
+        : q.includes('memory') ? 'container_memory_working_set_bytes'
+        : q.includes('5..') || q.includes('_xx') || q.includes('5xx') ? 'http_5xx_rate'
+        : q.includes('duration') || q.includes('rq_time') || q.includes('quantile') ? 'http_request_duration_p95_ms'
+        : (query.match(/__name__="([^"]+)"|^\s*([a-zA-Z_:][\w:]*)/) ?? [])[1]
       const map: Record<string, keyof typeof STUB_METRICS_SERIES> = {
         http_requests_per_second: 'rps',
         http_5xx_rate: 'errorRate',

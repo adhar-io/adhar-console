@@ -6,6 +6,39 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+
+- **Deliver and Discover sub-pages now talk to the real cluster.**
+  - *Kargo* (Stages / Freight / Promote): Kargo's API is Connect-RPC, not
+    REST, so the old client always failed. It now reads the `kargo.akuity.io`
+    CRDs (stages, freights, promotions, warehouses) through the console's
+    RBAC-scoped k8s gateway and promotes by creating a `Promotion` — exactly
+    what the Kargo CLI does. Falls back from the configured project to every
+    project the user can see.
+  - *Argo Rollouts*: rollouts are listed from the `argoproj.io` CRDs (the
+    dashboard REST API was never exposed); promote / promote-full / abort /
+    retry are merge-patches on the `status` subresource, mirroring
+    `kubectl argo rollouts`.
+  - *Trivy scans*: reads trivy-operator's `VulnerabilityReport` /
+    `ConfigAuditReport` / `ExposedSecretReport` / `RbacAssessmentReport` /
+    `ClusterComplianceReport` CRDs (the `/api/v1/trivy/...` REST paths never
+    existed); rescan deletes the report so the operator regenerates it.
+  - *Harbor registry*: lists the configured project (`HARBOR_PROJECT`,
+    default `library`) and falls back to every repository the credential can
+    see; artifacts include tags and the scan overview; Basic auth via
+    `HARBOR_USERNAME`/`HARBOR_PASSWORD`.
+  - *Discover Metrics / Dashboard*: the presets sent stub metric names
+    (`http_requests_per_second`, …) that no Prometheus has. They now use real
+    PromQL that unions the metric families the platform exposes (Envoy /
+    Gateway API, NGINX ingress, Hubble L7, plain `http_*`) plus cAdvisor
+    CPU / memory by namespace; series are labelled by service → namespace →
+    job.
+  - *Grafana dashboards*: Basic auth from `GRAFANA_USERNAME`/`GRAFANA_PASSWORD`
+    when no API token is set (previously always unauthenticated → 401).
+  - *Mimir / Loki / Tempo*: `X-Scope-OrgID` tenant header (`MIMIR_TENANT`,
+    default `anonymous`; `LOKI_TENANT`, `TEMPO_TENANT`); the Prometheus
+    fallback to Mimir now targets its `/prometheus` API prefix.
+
 ## [0.1.53] - 2026-09-07
 
 ### Added

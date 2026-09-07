@@ -172,6 +172,44 @@ export function bucketLogsByLevel(
   return out
 }
 
+/**
+ * Golden-signal PromQL that works on a real cluster. Each expression unions
+ * (`or`) the metric families the platform may expose — Gateway API / Envoy
+ * (Cilium, Envoy Gateway), NGINX ingress, Hubble L7, plain `http_*` app
+ * metrics — so whichever exists answers, grouped by `service` (falling back
+ * to the label the family provides). Saturation uses cAdvisor, which every
+ * kubelet exposes.
+ */
+export const PROMQL = {
+  rps: [
+    'sum by (service) (label_replace(rate(envoy_cluster_upstream_rq_total[5m]), "service", "$1", "envoy_cluster_name", "(.+)"))',
+    'sum by (service) (label_replace(rate(nginx_ingress_controller_requests[5m]), "service", "$1", "service", "(.+)"))',
+    'sum by (service) (label_replace(rate(hubble_http_requests_total[5m]), "service", "$1", "destination", "(.+)"))',
+    'sum by (service) (label_replace(rate(http_requests_total[5m]), "service", "$1", "service", "(.+)"))',
+    'sum by (service) (label_replace(rate(http_server_requests_seconds_count[5m]), "service", "$1", "job", "(.+)"))',
+  ].join(' or '),
+  errorRate: [
+    '100 * sum by (service) (label_replace(rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class="5"}[5m]), "service", "$1", "envoy_cluster_name", "(.+)")) / sum by (service) (label_replace(rate(envoy_cluster_upstream_rq_total[5m]), "service", "$1", "envoy_cluster_name", "(.+)"))',
+    '100 * sum by (service) (rate(nginx_ingress_controller_requests{status=~"5.."}[5m])) / sum by (service) (rate(nginx_ingress_controller_requests[5m]))',
+    '100 * sum by (service) (label_replace(rate(hubble_http_requests_total{status=~"5.."}[5m]), "service", "$1", "destination", "(.+)")) / sum by (service) (label_replace(rate(hubble_http_requests_total[5m]), "service", "$1", "destination", "(.+)"))',
+    '100 * sum by (service) (rate(http_requests_total{status=~"5.."}[5m])) / sum by (service) (rate(http_requests_total[5m]))',
+  ].join(' or '),
+  latencyP95: [
+    '1000 * histogram_quantile(0.95, sum by (le, service) (label_replace(rate(envoy_cluster_upstream_rq_time_bucket[5m]), "service", "$1", "envoy_cluster_name", "(.+)"))) / 1000',
+    '1000 * histogram_quantile(0.95, sum by (le, service) (rate(nginx_ingress_controller_request_duration_seconds_bucket[5m])))',
+    '1000 * histogram_quantile(0.95, sum by (le, service) (label_replace(rate(hubble_http_request_duration_seconds_bucket[5m]), "service", "$1", "destination", "(.+)")))',
+    '1000 * histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_seconds_bucket[5m])))',
+  ].join(' or '),
+  cpu: 'sum by (namespace) (rate(container_cpu_usage_seconds_total{container!="", container!="POD"}[5m]))',
+  memory: 'sum by (namespace) (container_memory_working_set_bytes{container!="", container!="POD"})',
+  podRestarts: 'sum by (namespace) (increase(kube_pod_container_status_restarts_total[1h]))',
+} as const
+
+/** Best display label for a series: service → namespace → job/pod/instance → __name__. */
+export function seriesLabel(metric: Record<string, string | undefined>): string {
+  return metric.service || metric.namespace || metric.job || metric.pod || metric.instance || metric.__name__ || 'series'
+}
+
 export function useMetrics(query: string, range: TimeRangeId, step = '1m') {
   const { start, end } = rangeToWindow(range)
   return useQuery({

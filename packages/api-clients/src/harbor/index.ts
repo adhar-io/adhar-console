@@ -27,11 +27,46 @@ export interface HarborClient {
   listArtifacts(project: string, repo: string): Promise<Artifact[]>
 }
 
+interface RawArtifact extends Omit<Artifact, 'vulnerabilities'> {
+  scan_overview?: Record<string, { summary?: { summary?: Record<string, number> } }>
+}
+
+function withScan(a: RawArtifact): Artifact {
+  const ov = a.scan_overview ? Object.values(a.scan_overview)[0]?.summary?.summary : undefined
+  const { scan_overview: _drop, ...rest } = a
+  return {
+    ...rest,
+    vulnerabilities: ov
+      ? { critical: ov.Critical ?? 0, high: ov.High ?? 0, medium: ov.Medium ?? 0, low: ov.Low ?? 0 }
+      : rest.vulnerabilities,
+  }
+}
+
 function build(http: HttpClient): HarborClient {
   return {
-    listRepositories: (p) => http.get<Repository[]>(`/api/v2.0/projects/${p}/repositories`),
-    listArtifacts: (p, r) =>
-      http.get<Artifact[]>(`/api/v2.0/projects/${p}/repositories/${r}/artifacts`),
+    // The configured project first; when it doesn't exist (404) or is empty,
+    // list every repository the credential can see (Harbor ≥ 2.1 global
+    // endpoint) so the registry page reflects the whole instance.
+    listRepositories: async (p) => {
+      if (p) {
+        try {
+          const mine = await http.get<Repository[]>(`/api/v2.0/projects/${encodeURIComponent(p)}/repositories?page_size=100&sort=-update_time`)
+          if (mine.length) return mine
+        } catch (e) {
+          const status = (e as { status?: number }).status
+          if (status !== 404 && status !== 403) throw e
+        }
+      }
+      return http.get<Repository[]>(`/api/v2.0/repositories?page_size=100&sort=-update_time`)
+    },
+    listArtifacts: async (p, r) => {
+      // Harbor wants the repo path double-encoded when it contains slashes.
+      const repo = encodeURIComponent(encodeURIComponent(r))
+      const list = await http.get<RawArtifact[]>(
+        `/api/v2.0/projects/${encodeURIComponent(p)}/repositories/${repo}/artifacts?page_size=50&with_tag=true&with_scan_overview=true&sort=-push_time`,
+      )
+      return list.map(withScan)
+    },
   }
 }
 

@@ -5,6 +5,7 @@ import { DEFAULT_NAV, type NavItem, type NavSection } from './nav-tree.tsx'
 import { assistStore, useAssist, type AssistTurn } from './assist-store.ts'
 import { consumePendingAsk, SparkIcon } from './ai-assistant.tsx'
 import { useSelection } from './selection-store.ts'
+import { useNotifications } from './notifications.ts'
 import type { AiMode, AiProposal } from './ai.ts'
 
 export interface CommandPaletteProps {
@@ -343,8 +344,27 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
 /* ─────────── welcome ─────────── */
 
 function Welcome({ configured, onPick, navHint }: { configured: boolean; onPick(s: { label: string; prompt: string; mode?: AiMode }): void; navHint?: CommandItem }) {
+  const notif = useNotifications()
+  const insights = notif.items.filter((n) => !n.read && n.prompt).slice(0, 4)
   return (
     <div className="mx-auto flex max-w-3xl flex-col items-center pt-6 text-center">
+      {insights.length ? (
+        <div className="mb-5 w-full rounded-xl border border-violet-200 bg-violet-50/60 p-3 text-left dark:border-violet-500/30 dark:bg-violet-500/10">
+          <div className="mb-1.5 flex items-center justify-between text-[10.5px] font-semibold uppercase tracking-wider text-violet-700 dark:text-violet-300">
+            <span>Needs attention · {insights.length}</span>
+            <span className="font-normal normal-case tracking-normal text-content-subtle">from your Notification Center</span>
+          </div>
+          <div className="space-y-1">
+            {insights.map((n) => (
+              <button key={n.id} type="button" onClick={() => { notif.markRead(n.id); onPick({ label: n.title, prompt: n.prompt! }) }} className="group flex w-full items-center gap-2 rounded-lg bg-surface-raised px-2.5 py-1.5 text-left ring-1 ring-edge-subtle transition-colors hover:ring-violet-300">
+                <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', n.kind === 'error' ? 'bg-rose-500' : n.kind === 'warning' ? 'bg-amber-500' : 'bg-violet-500')} />
+                <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-content">{n.title}</span>
+                <span className="shrink-0 text-[11px] text-violet-700 opacity-0 transition-opacity group-hover:opacity-100 dark:text-violet-300">Ask →</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-linear-to-br from-brand-500 to-accent-500 text-white shadow-lg shadow-brand-600/25">
         <SparkIcon size={26} />
       </span>

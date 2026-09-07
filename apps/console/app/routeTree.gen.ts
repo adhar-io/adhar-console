@@ -15,6 +15,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ScorecardsRouteImport } from './routes/scorecards'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
+import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as HelpRouteImport } from './routes/help'
 import { Route as ChangelogRouteImport } from './routes/changelog'
@@ -71,6 +72,11 @@ const OnboardingRoute = OnboardingRouteImport.update({
   path: '/onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NotificationsRoute = NotificationsRouteImport.update({
+  id: '/notifications',
+  path: '/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -117,6 +123,7 @@ export interface FileRoutesByFullPath {
   '/changelog': typeof ChangelogRoute
   '/help': typeof HelpRoute
   '/login': typeof LoginRoute
+  '/notifications': typeof NotificationsRoute
   '/onboarding': typeof OnboardingRoute
   '/profile': typeof ProfileRoute
   '/scorecards': typeof ScorecardsRoute
@@ -134,6 +141,7 @@ export interface FileRoutesByTo {
   '/changelog': typeof ChangelogRoute
   '/help': typeof HelpRoute
   '/login': typeof LoginRoute
+  '/notifications': typeof NotificationsRoute
   '/onboarding': typeof OnboardingRoute
   '/profile': typeof ProfileRoute
   '/scorecards': typeof ScorecardsRoute
@@ -153,6 +161,7 @@ export interface FileRoutesById {
   '/changelog': typeof ChangelogRoute
   '/help': typeof HelpRoute
   '/login': typeof LoginRoute
+  '/notifications': typeof NotificationsRoute
   '/onboarding': typeof OnboardingRoute
   '/profile': typeof ProfileRoute
   '/scorecards': typeof ScorecardsRoute
@@ -173,6 +182,7 @@ export interface FileRouteTypes {
     | '/changelog'
     | '/help'
     | '/login'
+    | '/notifications'
     | '/onboarding'
     | '/profile'
     | '/scorecards'
@@ -190,6 +200,7 @@ export interface FileRouteTypes {
     | '/changelog'
     | '/help'
     | '/login'
+    | '/notifications'
     | '/onboarding'
     | '/profile'
     | '/scorecards'
@@ -208,6 +219,7 @@ export interface FileRouteTypes {
     | '/changelog'
     | '/help'
     | '/login'
+    | '/notifications'
     | '/onboarding'
     | '/profile'
     | '/scorecards'
@@ -227,6 +239,7 @@ export interface RootRouteChildren {
   ChangelogRoute: typeof ChangelogRoute
   HelpRoute: typeof HelpRoute
   LoginRoute: typeof LoginRoute
+  NotificationsRoute: typeof NotificationsRoute
   OnboardingRoute: typeof OnboardingRoute
   ProfileRoute: typeof ProfileRoute
   ScorecardsRoute: typeof ScorecardsRoute
@@ -298,6 +311,13 @@ declare module '@tanstack/react-router' {
       path: '/onboarding'
       fullPath: '/onboarding'
       preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/notifications': {
+      id: '/notifications'
+      path: '/notifications'
+      fullPath: '/notifications'
+      preLoaderRoute: typeof NotificationsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -372,6 +392,7 @@ const rootRouteChildren: RootRouteChildren = {
   ChangelogRoute: ChangelogRoute,
   HelpRoute: HelpRoute,
   LoginRoute: LoginRoute,
+  NotificationsRoute: NotificationsRoute,
   OnboardingRoute: OnboardingRoute,
   ProfileRoute: ProfileRoute,
   ScorecardsRoute: ScorecardsRoute,

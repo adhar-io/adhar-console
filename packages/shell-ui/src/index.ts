@@ -120,11 +120,20 @@ export {
   type SeriesPoint,
 } from './charts.tsx'
 export {
+  NOTIFICATION_KIND_LABEL,
+  NOTIFICATION_SOURCE_LABEL,
+  notificationTone,
+  useNotificationFeed,
   useNotifications,
+  type FeedParams,
   type Notification,
+  type NotificationInput,
+  type NotificationPage,
   type NotificationsApi,
   type NotificationKind,
+  type NotificationSource,
 } from './notifications.ts'
+export { KindIcon as NotificationKindIcon, NotificationCard, NotificationCenter } from './notification-center.tsx'
 export { docStore, DocStoreError, type StoredDoc } from './doc-store.ts'
 export {
   useAppConfig,

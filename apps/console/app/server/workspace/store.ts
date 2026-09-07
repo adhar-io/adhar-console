@@ -1,3 +1,4 @@
+import { notifyFromAudit } from '../notify.ts'
 /**
  * Workspace persistence layer — tenant-scoped documents in Postgres via the
  * console's generic docStore (`documents` table, no schema migration needed).
@@ -229,6 +230,8 @@ export async function writeAudit(
   } catch (e) {
     console.warn('[workspace] failed to write audit event:', e)
   }
+  // Every privileged mutation also lands in the Notification Center.
+  void notifyFromAudit(store, doc)
 }
 
 /* ─────────────────── secrets ─────────────────── */

@@ -6,6 +6,8 @@ import { Kbd } from './primitives.tsx'
 import { AppLauncher, type AppLink } from './app-launcher.tsx'
 import { ModeToggle } from './mode-toggle.tsx'
 import { useNotifications, type Notification } from './notifications.ts'
+import { NotificationCard } from './notification-center.tsx'
+import { useAi } from './ai-assistant.tsx'
 import type { User } from '@adhar-console/auth'
 
 interface Props {
@@ -174,15 +176,18 @@ function HelpMenu() {
   )
 }
 
-type Filter = 'all' | 'unread'
+type Filter = 'all' | 'unread' | 'insight'
 
 function NotificationsMenu({ seed }: { seed: Notification[] }) {
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState<Filter>('all')
-  const { items, unreadCount, markRead, markAllRead, dismiss, dismissAll } = useNotifications(seed)
+  const api = useNotifications(seed)
+  const ai = useAi()
   const ref = useRef<HTMLButtonElement>(null)
+  const { items, unreadCount, markRead, markAllRead, dismiss, dismissAll } = api
 
-  const visible = filter === 'unread' ? items.filter((n) => !n.read) : items
+  const visible = filter === 'unread' ? items.filter((n) => !n.read) : filter === 'insight' ? items.filter((n) => n.kind === 'insight') : items
+  const insightCount = items.filter((n) => n.kind === 'insight' && !n.read).length
 
   return (
     <>
@@ -196,204 +201,69 @@ function NotificationsMenu({ seed }: { seed: Notification[] }) {
         <IconBell />
       </IconButton>
       {open ? (
-        <Dropdown onClose={() => setOpen(false)} anchorRef={ref} widthClass="w-96">
+        <Dropdown onClose={() => setOpen(false)} anchorRef={ref} widthClass="w-[26rem]">
           <div className="flex items-center justify-between gap-2 border-b border-edge-subtle px-3 py-2.5">
             <div>
               <div className="text-sm font-semibold text-content">Notifications</div>
               <div className="text-[11px] text-content-muted">
-                {unreadCount
-                  ? `${unreadCount} unread · ${items.length} total`
-                  : items.length
-                    ? `${items.length} recent`
-                    : 'All caught up'}
+                {unreadCount ? `${unreadCount} unread · ${items.length} recent` : items.length ? `${items.length} recent` : 'All caught up'}
+                {!api.live ? ' · offline' : ''}
               </div>
             </div>
             <div className="flex items-center gap-1 rounded-md bg-surface-sunken p-0.5 text-[11px] font-medium">
-              <FilterTab active={filter === 'all'} onClick={() => setFilter('all')}>
-                All
-              </FilterTab>
-              <FilterTab active={filter === 'unread'} onClick={() => setFilter('unread')}>
-                Unread {unreadCount > 0 ? `(${unreadCount})` : ''}
-              </FilterTab>
+              <FilterTab active={filter === 'all'} onClick={() => setFilter('all')}>All</FilterTab>
+              <FilterTab active={filter === 'unread'} onClick={() => setFilter('unread')}>Unread{unreadCount ? ` ${unreadCount}` : ''}</FilterTab>
+              <FilterTab active={filter === 'insight'} onClick={() => setFilter('insight')}>Insights{insightCount ? ` ${insightCount}` : ''}</FilterTab>
             </div>
           </div>
 
           {visible.length === 0 ? (
             <div className="px-3 py-10 text-center">
-              <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600">
-                <IconCheck />
-              </div>
-              <div className="text-sm font-medium text-content">
-                {filter === 'unread' ? 'Nothing unread' : "You're all caught up"}
-              </div>
-              <div className="mt-0.5 text-xs text-content-muted">
-                {filter === 'unread'
-                  ? 'Switch to All to see older items.'
-                  : 'New events land here as they happen.'}
-              </div>
+              <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10"><IconCheck /></div>
+              <div className="text-sm font-medium text-content">{filter === 'unread' ? 'Nothing unread' : filter === 'insight' ? 'No insights yet' : "You're all caught up"}</div>
+              <div className="mt-0.5 text-xs text-content-muted">{filter === 'insight' ? 'Run a scan to look for warnings, drift, policy failures and expiring certs.' : 'Operations, insights and Assist outcomes land here as they happen.'}</div>
+              {filter === 'insight' && api.live ? (
+                <button type="button" onClick={() => void api.scan(true)} disabled={api.scanning} className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-3 text-[12px] font-medium text-content-muted hover:border-brand-300 hover:text-content disabled:opacity-50">
+                  {api.scanning ? 'Scanning…' : 'Scan for insights'}
+                </button>
+              ) : null}
             </div>
           ) : (
-            <ul className="max-h-96 divide-y divide-edge-subtle overflow-y-auto">
+            <ul className="max-h-[28rem] overflow-y-auto">
               {visible.map((n) => (
-                <NotificationRow
+                <NotificationCard
                   key={n.id}
                   n={n}
+                  compact
                   onRead={() => markRead(n.id)}
                   onDismiss={() => dismiss(n.id)}
-                  onOpen={() => {
-                    markRead(n.id)
-                    if (n.href) setOpen(false)
-                  }}
+                  onAsk={n.prompt ? () => { markRead(n.id); setOpen(false); ai.ask({ prompt: n.prompt, title: n.title }) } : undefined}
                 />
               ))}
             </ul>
           )}
 
-          {items.length > 0 ? (
-            <div className="flex items-center justify-between gap-2 border-t border-edge-subtle bg-surface-sunken/60 px-3 py-2 text-[11px]">
-              <button
-                type="button"
-                onClick={markAllRead}
-                disabled={unreadCount === 0}
-                className={cn(
-                  'rounded px-2 py-1 font-medium transition-colors',
-                  unreadCount === 0
-                    ? 'cursor-not-allowed text-content-subtle'
-                    : 'text-content-muted hover:bg-surface-raised hover:text-content',
-                )}
-              >
-                Mark all as read
-              </button>
-              <button
-                type="button"
-                onClick={dismissAll}
-                className="rounded px-2 py-1 font-medium text-content-muted transition-colors hover:bg-surface-raised hover:text-content"
-              >
-                Clear all
-              </button>
+          <div className="flex items-center justify-between gap-2 border-t border-edge-subtle bg-surface-sunken/60 px-3 py-2 text-[11px]">
+            <div className="flex items-center gap-1">
+              <button type="button" onClick={markAllRead} disabled={unreadCount === 0} className={cn('rounded px-2 py-1 font-medium transition-colors', unreadCount === 0 ? 'cursor-not-allowed text-content-subtle' : 'text-content-muted hover:bg-surface-raised hover:text-content')}>Mark all read</button>
+              <button type="button" onClick={dismissAll} disabled={items.length === 0} className="rounded px-2 py-1 font-medium text-content-muted transition-colors hover:bg-surface-raised hover:text-content disabled:cursor-not-allowed disabled:text-content-subtle">Clear</button>
+              {api.live ? <button type="button" onClick={() => void api.scan(true)} disabled={api.scanning} className="rounded px-2 py-1 font-medium text-content-muted transition-colors hover:bg-surface-raised hover:text-content disabled:opacity-50">{api.scanning ? 'Scanning…' : 'Scan'}</button> : null}
             </div>
-          ) : null}
+            <Link to="/notifications" onClick={() => setOpen(false)} className="inline-flex items-center gap-1 rounded px-2 py-1 font-semibold text-brand-700 hover:bg-surface-raised dark:text-brand-300">
+              Notification Center <IconArrowRight />
+            </Link>
+          </div>
         </Dropdown>
       ) : null}
     </>
   )
 }
 
-function FilterTab({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean
-  onClick(): void
-  children: React.ReactNode
-}) {
+function FilterTab({ active, onClick, children }: { active: boolean; onClick(): void; children: React.ReactNode }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'rounded px-2 py-1 transition-colors',
-        active ? 'bg-surface-raised text-content shadow-sm' : 'text-content-muted hover:text-content',
-      )}
-    >
+    <button type="button" onClick={onClick} className={cn('rounded px-2 py-1 transition-colors', active ? 'bg-surface-raised text-content shadow-sm' : 'text-content-muted hover:text-content')}>
       {children}
     </button>
-  )
-}
-
-function NotificationRow({
-  n,
-  onRead,
-  onDismiss,
-  onOpen,
-}: {
-  n: Notification
-  onRead(): void
-  onDismiss(): void
-  onOpen(): void
-}) {
-  const body = (
-    <div className="flex items-start gap-2.5">
-      <span
-        aria-hidden
-        className={cn(
-          'mt-1.5 h-2 w-2 shrink-0 rounded-full',
-          n.kind === 'error'
-            ? 'bg-rose-500'
-            : n.kind === 'warning'
-              ? 'bg-amber-500'
-              : n.kind === 'success'
-                ? 'bg-emerald-500'
-                : 'bg-sky-500',
-        )}
-      />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <div
-            className={cn(
-              'text-sm leading-snug',
-              n.read ? 'text-content-muted' : 'font-medium text-content',
-            )}
-          >
-            {n.title}
-          </div>
-          {!n.read ? (
-            <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" aria-label="Unread" />
-          ) : null}
-        </div>
-        {n.description ? (
-          <div className="mt-0.5 line-clamp-2 text-xs text-content-muted">{n.description}</div>
-        ) : null}
-        <div className="mt-1 flex items-center gap-2 text-[11px] text-content-subtle">
-          <span>{safeRelative(n.at)}</span>
-          {n.href ? <IconArrowRight /> : null}
-        </div>
-      </div>
-    </div>
-  )
-
-  const Wrap = ({ children }: { children: React.ReactNode }) =>
-    n.href ? (
-      <a
-        href={n.href}
-        target={n.href.startsWith('http') ? '_blank' : undefined}
-        rel={n.href.startsWith('http') ? 'noreferrer' : undefined}
-        onClick={onOpen}
-        className="block"
-      >
-        {children}
-      </a>
-    ) : (
-      <button type="button" onClick={onRead} className="block w-full text-left">
-        {children}
-      </button>
-    )
-
-  return (
-    <li
-      className={cn(
-        'group relative transition-colors',
-        !n.read && 'bg-surface-sunken/60',
-        'hover:bg-surface-sunken',
-      )}
-    >
-      <Wrap>
-        <div className="px-3 py-2.5">{body}</div>
-      </Wrap>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation()
-          e.preventDefault()
-          onDismiss()
-        }}
-        aria-label="Dismiss"
-        className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded text-content-subtle opacity-0 transition-opacity hover:bg-surface-raised hover:text-content-muted group-hover:opacity-100"
-      >
-        <IconX />
-      </button>
-    </li>
   )
 }
 

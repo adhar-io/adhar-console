@@ -1,6 +1,9 @@
 import { resolveIdentity } from '../k8s/gateway.ts'
 import { getAiConfig, isAiConfigured, streamChat, type ChatMessage } from './provider.ts'
 import { executeTool, TOOL_DEFS } from './tools.ts'
+import { getRequestUser } from '../request-user.ts'
+import { openStore } from '../workspace/store.ts'
+import { emitNotification } from '../notify.ts'
 
 /**
  * AI assistant endpoints (`/api/ai/*`). All responses to the browser are SSE
@@ -67,6 +70,29 @@ export async function handleAi(req: Request, name: string): Promise<Response> {
   const messages = await buildMessages(name as ChatBody['mode'], body)
   const cfg = getAiConfig()!
   const token = id.token
+  const auth = await getRequestUser(req)
+  const focusLabel = body.context?.name ? `${body.context.kind ?? body.context.resource} ${body.context.name}` : undefined
+  const notify = async (doc: { kind: 'insight' | 'info'; title: string; description?: string; prompt?: string }) => {
+    if (!auth) return
+    try {
+      const store = await openStore(auth.activeTenant)
+      if (!store) return
+      await emitNotification(
+        store,
+        {
+          ...doc,
+          source: 'ai',
+          href: '/',
+          audience: [auth.user.id],
+          at: new Date().toISOString(),
+          target: body.context?.name ? { type: body.context.kind ?? body.context.resource, id: body.context.name, label: body.context.name } : undefined,
+        },
+        auth.user.id,
+      )
+    } catch {
+      // never fail the stream over a notification
+    }
+  }
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -89,9 +115,18 @@ export async function handleAi(req: Request, name: string): Promise<Response> {
             const result = await executeTool(tc.function.name, tc.function.arguments, token)
             if (result.proposal) {
               sse(controller, { type: 'proposal', summary: result.proposal.summary, manifest: result.proposal.manifest })
+              void notify({
+                kind: 'insight',
+                title: `Assist proposed a change${focusLabel ? ` for ${focusLabel}` : ''}`,
+                description: result.proposal.summary,
+                prompt: `Show me the change you proposed${focusLabel ? ` for ${focusLabel}` : ''} and how to apply it safely.`,
+              })
             }
             convo.push({ role: 'tool', tool_call_id: tc.id, name: tc.function.name, content: result.content })
           }
+        }
+        if (name === 'diagnose' && focusLabel) {
+          void notify({ kind: 'info', title: `Diagnosis ready for ${focusLabel}`, description: 'Open Adhar Assist to read the findings.', prompt: `Summarise your last diagnosis of ${focusLabel}.` })
         }
         sse(controller, { type: 'done' })
       } catch (e) {

@@ -28,7 +28,8 @@ import {
 } from '@adhar-console/auth/server'
 import { proxyToolRequest } from './app/server/proxy.ts'
 import { publicConfigResponse } from './app/server/public-config.ts'
-import { handleDocuments, handleNotifications, handlePreferences } from './app/server/api-handlers.ts'
+import { handleDocuments, handlePreferences } from './app/server/api-handlers.ts'
+import { handleNotificationsApi } from './app/server/notifications.ts'
 import { handleScaffold } from './app/server/scaffolder.ts'
 import { handleAppsetToggle } from './app/server/appset.ts'
 import { handleListTemplates } from './app/server/templates.ts'
@@ -317,8 +318,9 @@ async function route(req: Request): Promise<Response> {
   const prefs = path.match(/^\/api\/prefs\/([^/]+)$/)
   if (prefs) return handlePreferences(req, prefs[1])
 
-  // Notifications state.
-  if (path === '/api/notifications') return handleNotifications(req)
+  // Notification Center: feed, state, create, insights scan.
+  const notif = path.match(/^\/api\/notifications(\/.*)?$/)
+  if (notif) return handleNotificationsApi(req, notif[1] ?? '')
 
   // Console-owned document store: /api/store/<kind>[/<id>]
   const store = path.match(/^\/api\/store\/([^/]+)(?:\/(.+))?$/)

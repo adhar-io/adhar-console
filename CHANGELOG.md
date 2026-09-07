@@ -6,6 +6,25 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+
+- **No more hardcoded "Acme Corp".** The shell falls back to a built-in
+  **Default Organization** (`default`) only until `/api/organizations` loads;
+  after onboarding the switcher shows the user's real organizations. Every
+  organization — the default included — is fully manageable from the switcher:
+  create, **rename** (new `PATCH` hook `renameOrg`, no reload) and **delete**
+  (confirm dialog; the last remaining org can't be deleted). The Plane
+  workspace slug is now runtime config (`/api/config.planeWorkspace`,
+  `PLANE_WORKSPACE`, defaulting to the Gitea org) read through
+  `usePlaneWorkspace()` in every Define hook, the overview signals and the
+  live catalog. All `acme` fixture data / placeholders were neutralised
+  (`example.com`, `adhar/<repo>`, `demo-…`, `org-default`).
+- **Marketplace top section redesigned** — hero header with GitOps source and
+  live "updated" chip, clickable stat tiles (Apps / Enabled / Healthy /
+  Disabled, with progress lines) that drive the status filter, a full-width
+  search (press `/` to focus), a segmented status control, scrollable
+  colour-coded category chips and an active-filter row with removable tokens.
+
 ## [0.1.52] - 2026-09-06
 
 ### Added

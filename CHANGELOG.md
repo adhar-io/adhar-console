@@ -34,6 +34,23 @@ All notable changes to Adhar Console are documented here. Format based on
   Requires the `console-impersonator` ClusterRole added to the platform's
   console manifests (`users`/`groups`: `impersonate`).
 
+  Verified against the DigitalOcean cluster: impersonating a member of
+  `oidc:platform-admin` lists pods and nodes, `oidc:platform-viewer` lists pods
+  but is denied secrets, and the ServiceAccount alone stays unprivileged.
+
+- **A DigitalOcean install redirected to a `*.localtest.me` Keycloak.** The
+  Keycloak and console URLs were pinned per-deployment rather than derived, so
+  any manifest carrying the local host convention pinned the whole install to
+  it. The single-domain resolver moved into `@adhar-console/utils` where auth
+  can reach it, and both URLs now resolve through it: an install configures one
+  domain and every public URL follows as `<name>.<domain>`, inheriting scheme
+  and port. An explicit `<TOOL>_URL` still wins.
+
+### Changed
+
+- The sign-in benefits moved into the login page's left brand panel, so the
+  sign-in card carries only the form.
+
 ## [0.1.55] - 2026-09-07
 
 ### Added

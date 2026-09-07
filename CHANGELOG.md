@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.56] - 2026-09-07
+
 ### Fixed
 
 - **The console could not reach the control plane on managed Kubernetes (401

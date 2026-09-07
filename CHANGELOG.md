@@ -6,6 +6,34 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+
+- **The console could not reach the control plane on managed Kubernetes (401
+  Unauthorized).** The console authenticates to the API server *as the
+  signed-in user* by forwarding their Keycloak token — which only works when
+  the API server runs with `--oidc-*` flags. Managed control planes
+  (DigitalOcean DOKS, EKS, GKE, AKS) don't allow those flags, so every cluster
+  call came back 401.
+
+  The gateway now supports **user impersonation**: it authenticates with the
+  console's own ServiceAccount and sets `Impersonate-User` /
+  `Impersonate-Group`, so the API server still evaluates the *user's* RBAC
+  against the same `oidc:`-prefixed ClusterRoleBindings the platform already
+  ships. `K8S_AUTH_MODE=auto` (default) forwards the user token and latches
+  onto impersonation the first time the API server rejects it, so a managed
+  cluster works with no configuration change; `impersonate`, `user` and
+  `service` pin the behaviour. Username claim and prefixes are configurable
+  (`K8S_IMPERSONATE_*`) and default to the platform's own convention.
+
+  Pod exec/attach cannot carry impersonation headers over a WebSocket, so it
+  now runs a SelfSubjectAccessReview **as the user** and only then opens the
+  stream with the ServiceAccount credential — authorization stays the user's,
+  and the audit record still names them. `/api/k8s/-/whoami` reports the
+  effective mode and impersonated identity for diagnosis.
+
+  Requires the `console-impersonator` ClusterRole added to the platform's
+  console manifests (`users`/`groups`: `impersonate`).
+
 ## [0.1.55] - 2026-09-07
 
 ### Added

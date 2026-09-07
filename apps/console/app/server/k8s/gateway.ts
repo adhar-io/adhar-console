@@ -1,4 +1,5 @@
 import { env } from '@adhar-console/utils'
+import { getK8sServiceToken } from '../tool-registry.ts'
 import { getServerAuthConfig, getValidSession } from '@adhar-console/auth/server'
 
 /**
@@ -165,8 +166,118 @@ function apiServerBaseUrl(): string {
 
 export interface K8sIdentity {
   token: string
-  user: { id: string; name: string; email: string }
+  user: { id: string; name: string; email: string; username?: string; groups?: string[] }
   refreshedCookie?: string
+}
+
+/* ─────────────── how the console authenticates to the apiserver ───────────────
+ *
+ * Two models, because clusters differ:
+ *
+ *   **user**        Forward the signed-in user's Keycloak access token as the
+ *                   Bearer. Requires the API server to be started with OIDC
+ *                   flags (`--oidc-issuer-url`, `--oidc-username-claim`, …).
+ *                   Self-managed clusters (kind, kubeadm, RKE2) can do this.
+ *
+ *   **impersonate** Authenticate with the console's OWN ServiceAccount token
+ *                   and set `Impersonate-User` / `Impersonate-Group`, so the
+ *                   API server evaluates the *user's* RBAC. This is the only
+ *                   option on MANAGED control planes — DigitalOcean DOKS, EKS,
+ *                   GKE, AKS — where apiserver flags cannot be set and a
+ *                   Keycloak token is therefore rejected with **401
+ *                   Unauthorized**. The impersonated identity uses the same
+ *                   `oidc:` prefixes the platform's ClusterRoleBindings expect,
+ *                   so a single RBAC definition covers both models.
+ *
+ * `K8S_AUTH_MODE=auto` (the default) starts in `user` mode and switches to
+ * impersonation the first time the apiserver rejects a user token, which makes
+ * a managed cluster work without any configuration change. `user`, `impersonate`
+ * and `service` pin the behaviour explicitly.
+ */
+export type K8sAuthMode = 'auto' | 'user' | 'impersonate' | 'service'
+
+function configuredAuthMode(): K8sAuthMode {
+  const raw = (env('K8S_AUTH_MODE') ?? 'auto').toLowerCase()
+  return raw === 'user' || raw === 'impersonate' || raw === 'service' ? raw : 'auto'
+}
+
+/** Set once the apiserver has proven it won't accept user OIDC tokens. */
+let userTokensRejected = false
+
+/** True when calls should authenticate as the console SA and impersonate. */
+function impersonating(): boolean {
+  const mode = configuredAuthMode()
+  if (mode === 'impersonate' || mode === 'service') return true
+  if (mode === 'user') return false
+  return userTokensRejected
+}
+
+/** Diagnostics for `/api/k8s/-/health` and the connection banner. */
+export function k8sAuthState(): { mode: K8sAuthMode; effective: 'user' | 'impersonate' | 'service'; userTokensRejected: boolean; serviceAccount: boolean } {
+  const mode = configuredAuthMode()
+  const effective = mode === 'service' ? 'service' : impersonating() ? 'impersonate' : 'user'
+  return { mode, effective, userTokensRejected, serviceAccount: Boolean(getK8sServiceToken()) }
+}
+
+const USER_PREFIX = () => env('K8S_IMPERSONATE_USER_PREFIX') ?? 'oidc:'
+const GROUP_PREFIX = () => env('K8S_IMPERSONATE_GROUP_PREFIX') ?? 'oidc:'
+
+/**
+ * The Kubernetes username for a session, matching the apiserver's
+ * `--oidc-username-claim` (default `preferred_username`, as the platform's
+ * ClusterRoleBindings assume) plus its prefix.
+ */
+function impersonatedUser(id: K8sIdentity): string {
+  const claim = (env('K8S_IMPERSONATE_USERNAME_CLAIM') ?? 'preferred_username').toLowerCase()
+  const raw =
+    claim === 'sub' ? id.user.id
+    : claim === 'email' ? id.user.email
+    : id.user.username || id.user.email || id.user.id
+  return `${USER_PREFIX()}${raw}`
+}
+
+function impersonatedGroups(id: K8sIdentity): string[] {
+  const prefix = GROUP_PREFIX()
+  return (id.user.groups ?? []).filter(Boolean).map((g) => `${prefix}${g}`)
+}
+
+/**
+ * Bearer + impersonation headers for one call. In impersonation mode a missing
+ * ServiceAccount token is fatal for user calls — we refuse rather than silently
+ * fall back to the user's (rejected) token or to unauthenticated access.
+ */
+function apiServerAuthHeaders(auth: K8sIdentity | string): Record<string, string> {
+  if (typeof auth === 'string') return { authorization: `Bearer ${auth}` }
+  if (!impersonating()) return { authorization: `Bearer ${auth.token}` }
+  const sa = getK8sServiceToken()
+  if (!sa) {
+    throw new Error(
+      'The API server rejected the user token and no ServiceAccount token is available to impersonate with. ' +
+        'Run the console in-cluster, or set K8S_SA_TOKEN.',
+    )
+  }
+  const headers: Record<string, string> = { authorization: `Bearer ${sa}` }
+  if (configuredAuthMode() !== 'service') {
+    headers['Impersonate-User'] = impersonatedUser(auth)
+    const groups = impersonatedGroups(auth)
+    // `system:authenticated` keeps the impersonated identity in the same
+    // implicit group a real OIDC login would land in.
+    for (const [i, g] of [...groups, 'system:authenticated'].entries()) {
+      headers[i === 0 ? 'Impersonate-Group' : `Impersonate-Group-${i}`] = g
+    }
+  }
+  return headers
+}
+
+/**
+ * Kubernetes accepts repeated `Impersonate-Group` headers; `Headers` collapses
+ * duplicates, so build them with `append` from the numbered map above.
+ */
+function applyAuthHeaders(headers: Headers, auth: K8sIdentity | string): void {
+  for (const [k, v] of Object.entries(apiServerAuthHeaders(auth))) {
+    if (/^Impersonate-Group(-\d+)?$/.test(k)) headers.append('Impersonate-Group', v)
+    else headers.set(k, v)
+  }
 }
 
 /**
@@ -203,6 +314,9 @@ export async function resolveIdentity(req: Request): Promise<K8sIdentity | null>
       id: result.session.user.id,
       name: result.session.user.name,
       email: result.session.user.email,
+      // Needed to impersonate as the same identity an OIDC login would produce.
+      username: result.session.user.username,
+      groups: result.session.user.groups,
     },
     refreshedCookie: result.refreshedCookie,
   }
@@ -312,8 +426,20 @@ export async function fetchWithApiServerClient(url: string, init: RequestInit): 
  * `Response` (body streamed) so watch/log-follow work without buffering.
  * `cluster` picks a named cluster from `K8S_CLUSTERS`; unset → default base.
  */
+/**
+ * One authenticated call to the API server.
+ *
+ * `auth` is either a resolved user identity (preferred — the auth model above
+ * decides between the user's token and SA + impersonation) or a raw bearer
+ * token for calls the console makes as itself (discovery, provisioning).
+ *
+ * In `auto` mode a 401 while using the user's token is the signal that this
+ * cluster has no OIDC configured (managed control planes: DOKS/EKS/GKE/AKS):
+ * we latch impersonation on and retry the same request once, so the user sees
+ * a working console instead of "401 Unauthorized" from every page.
+ */
 export async function apiServerFetch(
-  token: string,
+  auth: K8sIdentity | string,
   path: string,
   init: {
     method?: string
@@ -330,16 +456,40 @@ export async function apiServerFetch(
   }
   const clean = path.startsWith('/') ? path : `/${path}`
   const url = `${base}${clean}${init.search ?? ''}`
-  const headers = new Headers(init.headers)
-  headers.set('authorization', `Bearer ${token}`)
-  if (!headers.has('accept')) headers.set('accept', 'application/json')
-  return fetchWithApiServerClient(url, {
-    method: init.method ?? 'GET',
-    headers,
-    body: init.body ?? undefined,
-    redirect: 'manual',
-    signal: init.signal,
-  })
+
+  const send = async () => {
+    const headers = new Headers(init.headers)
+    applyAuthHeaders(headers, auth)
+    if (!headers.has('accept')) headers.set('accept', 'application/json')
+    return fetchWithApiServerClient(url, {
+      method: init.method ?? 'GET',
+      headers,
+      body: init.body ?? undefined,
+      redirect: 'manual',
+      signal: init.signal,
+    })
+  }
+
+  const res = await send()
+  const retryable = typeof init.body !== 'object' || init.body === null || typeof init.body === 'string'
+  if (
+    res.status === 401 &&
+    typeof auth !== 'string' &&
+    configuredAuthMode() === 'auto' &&
+    !userTokensRejected &&
+    getK8sServiceToken()
+  ) {
+    userTokensRejected = true
+    console.warn(
+      '[k8s] the API server rejected the user OIDC token (401). This cluster has no OIDC ' +
+        'authenticator configured — common on managed control planes. Switching to ServiceAccount ' +
+        '+ user impersonation; per-user RBAC is still enforced. Set K8S_AUTH_MODE=impersonate to ' +
+        'skip this probe.',
+    )
+    await res.body?.cancel()
+    if (retryable) return send()
+  }
+  return res
 }
 
 /**
@@ -410,7 +560,7 @@ class UpstreamHttpError extends Error {
   }
 }
 
-function groupListing(token: string, subpath: 'api' | 'apis', cluster?: string): Promise<string> {
+function groupListing(auth: K8sIdentity, subpath: 'api' | 'apis', cluster?: string): Promise<string> {
   const key = `${cluster ?? ''}:${subpath}`
   const hit = groupListCache.get(key)
   if (hit && Date.now() - hit.at < GROUP_LIST_TTL_MS) return Promise.resolve(hit.body)
@@ -418,7 +568,7 @@ function groupListing(token: string, subpath: 'api' | 'apis', cluster?: string):
   if (inflight) return inflight
   // Deliberately NOT tied to the caller's req.signal — the fetch is shared, so
   // one departing client must not abort everyone else's request.
-  const p = apiServerFetch(token, `/${subpath}`, {
+  const p = apiServerFetch(auth, `/${subpath}`, {
     cluster,
     signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   })
@@ -489,7 +639,7 @@ export async function handleK8s(req: Request, subpath: string): Promise<Response
   // Cached, de-duplicated API group listings (`/api`, `/apis` with no query).
   if (method === 'GET' && (subpath === 'api' || subpath === 'apis') && !search) {
     try {
-      const body = await groupListing(id.token, subpath, clusterParam)
+      const body = await groupListing(id, subpath, clusterParam)
       return withCookie(
         new Response(body, { headers: { 'content-type': 'application/json' } }),
         id.refreshedCookie,
@@ -537,7 +687,7 @@ export async function handleK8s(req: Request, subpath: string): Promise<Response
   const started = Date.now()
   let upstream: Response
   try {
-    upstream = await apiServerFetch(id.token, `/${subpath}`, {
+    upstream = await apiServerFetch(id, `/${subpath}`, {
       method,
       headers,
       search,
@@ -587,15 +737,21 @@ async function handleMeta(
 ): Promise<Response> {
   switch (name) {
     case 'discovery':
-      return discoveryResponse(id.token, cluster)
+      return discoveryResponse(id, cluster)
     case 'access':
-      return accessReview(req, id.token, cluster)
+      return accessReview(req, id, cluster)
     case 'rules':
-      return rulesReview(req, id.token, cluster)
+      return rulesReview(req, id, cluster)
     case 'apply':
-      return apply(req, id.token, id.user, cluster)
+      return apply(req, id, cluster)
     case 'whoami':
-      return Response.json({ user: id.user })
+      // Includes how the console authenticates to THIS cluster, so a support
+      // question ("why 401?") is answerable from the browser.
+      return Response.json({
+        user: id.user,
+        auth: k8sAuthState(),
+        impersonatedAs: usingServiceAccountAuth() ? impersonatedUser(id) : undefined,
+      })
     case 'clusters':
       return clustersMeta()
     default:
@@ -642,7 +798,7 @@ const discoveryCache = new Map<string, { at: number; data: DiscoveredResource[] 
 /** In-flight de-dupe — N concurrent cold-cache callers → one upstream sweep. */
 const discoveryInflight = new Map<string, Promise<DiscoveredResource[]>>()
 
-async function loadDiscovery(token: string, cluster?: string): Promise<DiscoveredResource[]> {
+async function loadDiscovery(auth: K8sIdentity, cluster?: string): Promise<DiscoveredResource[]> {
   const key = cluster ?? ''
   const hit = discoveryCache.get(key)
   if (hit && Date.now() - hit.at < DISCOVERY_TTL_MS) return hit.data
@@ -655,8 +811,8 @@ async function loadDiscovery(token: string, cluster?: string): Promise<Discovere
       return r.json()
     }
     const [coreRes, groupsRes] = await Promise.all([
-      apiServerFetch(token, '/api/v1', { cluster }).then(okJson),
-      apiServerFetch(token, '/apis', { cluster }).then(okJson),
+      apiServerFetch(auth, '/api/v1', { cluster }).then(okJson),
+      apiServerFetch(auth, '/apis', { cluster }).then(okJson),
     ])
     const groupVersions: string[] = ['v1']
     for (const g of (groupsRes.groups ?? []) as Array<{ preferredVersion?: { groupVersion: string } }>) {
@@ -664,7 +820,7 @@ async function loadDiscovery(token: string, cluster?: string): Promise<Discovere
     }
     const lists = await Promise.all(
       groupVersions.map((gv) =>
-        apiServerFetch(token, gv === 'v1' ? '/api/v1' : `/apis/${gv}`, { cluster })
+        apiServerFetch(auth, gv === 'v1' ? '/api/v1' : `/apis/${gv}`, { cluster })
           .then((r) => (r.ok ? r.json() : { resources: [] }))
           .then((body) => ({ gv, resources: (body.resources ?? []) as RawApiResource[] }))
           .catch(() => ({ gv, resources: [] as RawApiResource[] })),
@@ -700,12 +856,12 @@ async function loadDiscovery(token: string, cluster?: string): Promise<Discovere
   return p
 }
 
-async function discoveryResponse(token: string, cluster?: string): Promise<Response> {
+async function discoveryResponse(auth: K8sIdentity, cluster?: string): Promise<Response> {
   const key = cluster ?? ''
   const hit = discoveryCache.get(key)
   const cached = Boolean(hit && Date.now() - hit.at < DISCOVERY_TTL_MS)
   try {
-    const resources = await loadDiscovery(token, cluster)
+    const resources = await loadDiscovery(auth, cluster)
     return Response.json({ resources, cached })
   } catch (e) {
     const detailMsg = e instanceof Error ? e.message : String(e)
@@ -730,7 +886,7 @@ interface RawApiResource {
 
 /* ─────────────── access review ─────────────── */
 
-async function accessReview(req: Request, token: string, cluster?: string): Promise<Response> {
+async function accessReview(req: Request, auth: K8sIdentity, cluster?: string): Promise<Response> {
   let body: {
     verb?: string
     group?: string
@@ -758,7 +914,7 @@ async function accessReview(req: Request, token: string, cluster?: string): Prom
       },
     },
   }
-  const res = await apiServerFetch(token, '/apis/authorization.k8s.io/v1/selfsubjectaccessreviews', {
+  const res = await apiServerFetch(auth, '/apis/authorization.k8s.io/v1/selfsubjectaccessreviews', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(review),
@@ -768,7 +924,7 @@ async function accessReview(req: Request, token: string, cluster?: string): Prom
   return Response.json({ allowed: Boolean(out?.status?.allowed), status: out?.status })
 }
 
-async function rulesReview(req: Request, token: string, cluster?: string): Promise<Response> {
+async function rulesReview(req: Request, auth: K8sIdentity, cluster?: string): Promise<Response> {
   let body: { namespace?: string }
   try {
     body = await req.json()
@@ -780,7 +936,7 @@ async function rulesReview(req: Request, token: string, cluster?: string): Promi
     kind: 'SelfSubjectRulesReview',
     spec: { namespace: body.namespace ?? 'default' },
   }
-  const res = await apiServerFetch(token, '/apis/authorization.k8s.io/v1/selfsubjectrulesreviews', {
+  const res = await apiServerFetch(auth, '/apis/authorization.k8s.io/v1/selfsubjectrulesreviews', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(review),
@@ -797,12 +953,8 @@ async function rulesReview(req: Request, token: string, cluster?: string): Promi
  * plural resource name, so we consult discovery. PATCH with
  * `application/apply-patch+yaml` + fieldManager.
  */
-async function apply(
-  req: Request,
-  token: string,
-  user: K8sIdentity['user'],
-  cluster?: string,
-): Promise<Response> {
+async function apply(req: Request, auth: K8sIdentity, cluster?: string): Promise<Response> {
+  const user = auth.user
   let body: { manifest?: KubeObject; dryRun?: boolean; force?: boolean }
   try {
     body = await req.json()
@@ -820,7 +972,7 @@ async function apply(
   // Resolve the plural resource name from discovery (cache-warm on first apply).
   let resources: DiscoveredResource[]
   try {
-    resources = await loadDiscovery(token, cluster)
+    resources = await loadDiscovery(auth, cluster)
   } catch {
     return Response.json({ error: 'discovery_failed' }, { status: 502 })
   }
@@ -843,7 +995,7 @@ async function apply(
   const started = Date.now()
   let res: Response
   try {
-    res = await apiServerFetch(token, path, {
+    res = await apiServerFetch(auth, path, {
       method: 'PATCH',
       headers: { 'content-type': 'application/apply-patch+yaml' },
       search: `?${params}`,
@@ -893,4 +1045,53 @@ interface KubeObject {
   kind?: string
   metadata?: { name?: string; namespace?: string; [k: string]: unknown }
   [k: string]: unknown
+}
+
+/**
+ * Authorize one action **as the signed-in user**, whatever the auth model.
+ *
+ * A SelfSubjectAccessReview sent with impersonation headers is evaluated
+ * against the impersonated user, so this answers "may this person do it?" on
+ * managed clusters exactly as it does with OIDC tokens. Used by the exec
+ * bridge, which authenticates its upstream WebSocket with the ServiceAccount
+ * token (a WebSocket cannot carry `Impersonate-*` headers) and therefore MUST
+ * check the user's own permission first.
+ */
+export async function canI(
+  auth: K8sIdentity,
+  attrs: { verb: string; resource: string; group?: string; namespace?: string; subresource?: string; name?: string },
+  cluster?: string,
+): Promise<{ allowed: boolean; reason?: string }> {
+  const review = {
+    apiVersion: 'authorization.k8s.io/v1',
+    kind: 'SelfSubjectAccessReview',
+    spec: {
+      resourceAttributes: {
+        verb: attrs.verb,
+        group: attrs.group ?? '',
+        resource: attrs.resource,
+        subresource: attrs.subresource,
+        namespace: attrs.namespace,
+        name: attrs.name,
+      },
+    },
+  }
+  try {
+    const res = await apiServerFetch(auth, '/apis/authorization.k8s.io/v1/selfsubjectaccessreviews', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(review),
+      cluster,
+    })
+    if (!res.ok) return { allowed: false, reason: `access review failed (HTTP ${res.status})` }
+    const body = (await res.json()) as { status?: { allowed?: boolean; reason?: string } }
+    return { allowed: Boolean(body.status?.allowed), reason: body.status?.reason }
+  } catch (e) {
+    return { allowed: false, reason: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/** True when upstream calls authenticate as the console ServiceAccount. */
+export function usingServiceAccountAuth(): boolean {
+  return impersonating()
 }

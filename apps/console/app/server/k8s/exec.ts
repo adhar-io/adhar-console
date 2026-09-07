@@ -1,4 +1,5 @@
-import { audit, originOk, resolveIdentity } from './gateway.ts'
+import { audit, canI, originOk, resolveIdentity, usingServiceAccountAuth } from './gateway.ts'
+import { getK8sServiceToken } from '../tool-registry.ts'
 import { env } from '@adhar-console/utils'
 
 /**
@@ -83,7 +84,39 @@ export async function handleExec(req: Request): Promise<Response> {
     command: verb === 'exec' ? command.join(' ') : undefined,
   })
 
-  const tokenProto = `base64url.bearer.authorization.k8s.io.${b64url(id.token)}`
+  /*
+   * Which credential opens the upstream socket.
+   *
+   * With apiserver OIDC the user's own token is used and the apiserver applies
+   * their RBAC directly. On a managed control plane the console authenticates
+   * with its ServiceAccount and impersonates for REST — but a WebSocket cannot
+   * carry `Impersonate-*` headers, so we cannot impersonate here. Instead we
+   * ask the apiserver, as the user, whether they may `create pods/exec` in this
+   * namespace and only then open the socket with the SA token. Authorization is
+   * still the user's; only the transport credential differs, and the audit
+   * record above already names the real user.
+   */
+  let upstreamToken = id.token
+  if (usingServiceAccountAuth()) {
+    const sa = getK8sServiceToken()
+    if (!sa) {
+      clientWs.close(1011, 'no service account token available for exec')
+      return response
+    }
+    const allowed = await canI(
+      id,
+      { verb: 'create', resource: 'pods', subresource: verb, namespace, name: pod },
+      q.get('cluster') ?? undefined,
+    )
+    if (!allowed.allowed) {
+      audit({ user: id.user.id, action: `${verb}.denied`, namespace, pod, reason: allowed.reason ?? 'forbidden' })
+      clientWs.close(1008, `not authorized to ${verb} in ${namespace}${allowed.reason ? `: ${allowed.reason}` : ''}`)
+      return response
+    }
+    upstreamToken = sa
+  }
+
+  const tokenProto = `base64url.bearer.authorization.k8s.io.${b64url(upstreamToken)}`
   const apiWs = new WebSocket(execUrl, [CHANNEL_PROTOCOL, tokenProto])
   apiWs.binaryType = 'arraybuffer'
   clientWs.binaryType = 'arraybuffer'

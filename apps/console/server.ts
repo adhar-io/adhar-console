@@ -244,7 +244,7 @@ async function diagnostics(req: Request): Promise<Response> {
   } else {
     try {
       const res = await Promise.race([
-        apiServerFetch(id.token, '/version'),
+        apiServerFetch(id, '/version'),
         new Promise<never>((_, rej) => setTimeout(() => rej(new Error('apiserver timeout after 8s')), 8000)),
       ])
       if (res.ok) {

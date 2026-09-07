@@ -209,7 +209,7 @@ async function discoverAppsetSource(
   // 1) Read the ApplicationSet resource for a tracking-id annotation.
   let trackingApp: string | undefined
   try {
-    const r = await apiServerFetch(id.token, `${argoRoot}/applicationsets/${encodeURIComponent(appsetName)}`)
+    const r = await apiServerFetch(id, `${argoRoot}/applicationsets/${encodeURIComponent(appsetName)}`)
     if (r.ok) {
       const obj = (await r.json()) as {
         metadata?: { annotations?: Record<string, string>; ownerReferences?: Array<{ kind?: string; name?: string }> }
@@ -229,7 +229,7 @@ async function discoverAppsetSource(
   // 2) If an owning/tracking Application is known, read its source.
   if (trackingApp) {
     try {
-      const r = await apiServerFetch(id.token, `${argoRoot}/applications/${encodeURIComponent(trackingApp)}`)
+      const r = await apiServerFetch(id, `${argoRoot}/applications/${encodeURIComponent(trackingApp)}`)
       if (r.ok) {
         const app = await r.json()
         const src = sourceOf(app)

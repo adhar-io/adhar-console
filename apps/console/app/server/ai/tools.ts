@@ -1,5 +1,6 @@
 import { env } from '@adhar-console/utils'
 import { apiServerFetch } from '../k8s/gateway.ts'
+import type { K8sIdentity } from '../k8s/gateway.ts'
 import type { ToolDef } from './provider.ts'
 
 /**
@@ -201,7 +202,7 @@ export interface ToolResult {
 }
 
 /** Execute a tool call with the user's token. Never throws — returns an error string. */
-export async function executeTool(name: string, argsJson: string, token: string): Promise<ToolResult> {
+export async function executeTool(name: string, argsJson: string, token: K8sIdentity | string): Promise<ToolResult> {
   let args: Record<string, unknown>
   try {
     args = JSON.parse(argsJson || '{}')
@@ -372,7 +373,7 @@ function trim(o: KObj): KObj {
 
 /* ─────────── diagnostic-tool helpers (all read-only) ─────────── */
 
-async function fetchEvents(token: string, namespace?: string, name?: string, kind?: string): Promise<KEvent[]> {
+async function fetchEvents(token: K8sIdentity | string, namespace?: string, name?: string, kind?: string): Promise<KEvent[]> {
   const ns = namespace ? `/namespaces/${namespace}` : ''
   const sel: string[] = []
   if (name) sel.push(`involvedObject.name=${name}`)
@@ -510,7 +511,7 @@ interface KWorkload extends KObj {
 
 /** Desired-vs-actual rollout state + diagnostics for owned pods with problems. */
 async function workloadHealth(
-  token: string,
+  token: K8sIdentity | string,
   plural: string,
   namespace: string,
   w: KWorkload,

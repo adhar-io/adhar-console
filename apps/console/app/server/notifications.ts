@@ -159,7 +159,7 @@ async function scan(req: Request, auth: Auth): Promise<Response> {
   const store = await openStore(auth.activeTenant)
   if (!id || !store) return Response.json({ ok: false, persisted: false }, { status: 503 })
 
-  const token = id.token
+  const token = id
   const created: string[] = []
   interface Insight {
     kind: NotificationDoc['kind']

@@ -74,6 +74,7 @@ export function claimsToUser(claims: Claims, clientId?: string): User {
     id: claims.sub,
     email: claims.email,
     name: claims.name,
+    username: claims.preferred_username,
     roles: mapRoles([...realmRoles, ...clientRoles, ...groups]),
     groups,
     tenants: claims.tenants ?? [],

@@ -150,7 +150,7 @@ function watchK8s(sid: string, id: K8sIdentity, params: Json, send: (m: Json) =>
         // 1. list → resync snapshot
         const lq = new URLSearchParams(base)
         lq.set('limit', '2000')
-        const list = await apiServerFetch(id.token, path, { search: `?${lq}`, signal: ac.signal, cluster })
+        const list = await apiServerFetch(id, path, { search: `?${lq}`, signal: ac.signal, cluster })
         if (!list.ok) {
           const body = await list.text().catch(() => '')
           send({ op: 'error', id: sid, status: list.status, message: body.slice(0, 300) || `list failed (${list.status})` })
@@ -167,7 +167,7 @@ function watchK8s(sid: string, id: K8sIdentity, params: Json, send: (m: Json) =>
         wq.set('watch', '1')
         wq.set('allowWatchBookmarks', 'true')
         if (rv) wq.set('resourceVersion', rv)
-        const res = await apiServerFetch(id.token, path, { search: `?${wq}`, signal: ac.signal, cluster })
+        const res = await apiServerFetch(id, path, { search: `?${wq}`, signal: ac.signal, cluster })
         if (!res.ok || !res.body) {
           if (res.status === 410) continue // relist
           throw new Error(`watch ${res.status}`)

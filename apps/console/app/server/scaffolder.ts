@@ -324,7 +324,7 @@ export async function handleScaffold(req: Request): Promise<Response> {
       const image = buildKpackImage({ name, cloneUrl, subPath })
       try {
         const r = await apiServerFetch(
-          id.token,
+          id,
           `/apis/kpack.io/v1alpha2/namespaces/${encodeURIComponent(buildNs)}/images`,
           { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(image) },
         )
@@ -373,7 +373,7 @@ export async function handleScaffold(req: Request): Promise<Response> {
       })
       try {
         const r = await apiServerFetch(
-          id.token,
+          id,
           `/apis/argoproj.io/v1alpha1/namespaces/${encodeURIComponent(argoNs)}/applications`,
           { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(app) },
         )

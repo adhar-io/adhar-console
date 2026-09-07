@@ -19,6 +19,12 @@ export const UserSchema = z.object({
   id: z.string(),
   email: z.string().email(),
   name: z.string(),
+  /**
+   * Keycloak `preferred_username`. This is the identity the API server derives
+   * from an OIDC token (`--oidc-username-claim=preferred_username`), so it is
+   * also what the console impersonates as on clusters without OIDC.
+   */
+  username: z.string().optional(),
   avatarUrl: z.string().url().optional(),
   roles: z.array(RoleSchema),
   // Raw Keycloak group memberships (path-stripped, e.g. `platform-admin`). The

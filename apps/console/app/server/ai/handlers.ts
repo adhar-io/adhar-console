@@ -69,7 +69,9 @@ export async function handleAi(req: Request, name: string): Promise<Response> {
 
   const messages = await buildMessages(name as ChatBody['mode'], body)
   const cfg = getAiConfig()!
-  const token = id.token
+  // Pass the identity: cluster reads then use the user's token, or the SA
+  // with impersonation on clusters without OIDC — the model is identical.
+  const token = id
   const auth = await getRequestUser(req)
   const focusLabel = body.context?.name ? `${body.context.kind ?? body.context.resource} ${body.context.name}` : undefined
   const notify = async (doc: { kind: 'insight' | 'info'; title: string; description?: string; prompt?: string }) => {

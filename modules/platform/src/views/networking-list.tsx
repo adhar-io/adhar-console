@@ -10,13 +10,17 @@ import {
 import { age } from '../data/format.ts'
 import { DrawerSection, ResourceDrawer, Row } from './resource-drawer.tsx'
 import { ListShell, matchesSearch } from './list-shell.tsx'
+import { GatewayClassesTable, GatewaysTable, IngressDrawer, NetworkPolicyDrawer, RoutesTable } from './networking-gateway.tsx'
 
-type Sub = 'services' | 'endpoints' | 'ingresses' | 'networkpolicies'
+type Sub = 'services' | 'endpoints' | 'ingresses' | 'gateways' | 'routes' | 'gatewayclasses' | 'networkpolicies'
 
 const SUB_TABS: readonly TabDef<Sub>[] = [
   { id: 'services', label: 'Services' },
   { id: 'endpoints', label: 'Endpoints' },
   { id: 'ingresses', label: 'Ingresses' },
+  { id: 'gateways', label: 'Gateways' },
+  { id: 'routes', label: 'Routes' },
+  { id: 'gatewayclasses', label: 'Gateway Classes' },
   { id: 'networkpolicies', label: 'Network Policies' },
 ]
 
@@ -28,6 +32,9 @@ export function NetworkingView({ namespace }: { namespace?: string }) {
           {active === 'services' && <ServicesTable namespace={namespace} />}
           {active === 'endpoints' && <EndpointsTable namespace={namespace} />}
           {active === 'ingresses' && <IngressesTable namespace={namespace} />}
+          {active === 'gateways' && <GatewaysTable namespace={namespace} />}
+          {active === 'routes' && <RoutesTable namespace={namespace} />}
+          {active === 'gatewayclasses' && <GatewayClassesTable />}
           {active === 'networkpolicies' && <NetworkPoliciesTable namespace={namespace} />}
         </>
       )}
@@ -239,6 +246,7 @@ function ServiceDrawer({ service, onClose }: { service: k8s.Service; onClose(): 
 function IngressesTable({ namespace }: { namespace?: string }) {
   const q = useIngresses(namespace)
   const [search, setSearch] = useState('')
+  const [selected, setSelected] = useState<k8s.Ingress | null>(null)
   const all = q.data ?? []
   const rows = useMemo(
     () =>
@@ -267,6 +275,7 @@ function IngressesTable({ namespace }: { namespace?: string }) {
     >
       <DataTable
         loading={q.isLoading}
+        onRowClick={(i) => setSelected(i)}
         columns={[
           {
             key: 'name',
@@ -333,6 +342,7 @@ function IngressesTable({ namespace }: { namespace?: string }) {
         rowKey={(i) => `${i.metadata.namespace}/${i.metadata.name}`}
         empty={<EmptyState title="No ingresses" />}
       />
+      {selected ? <IngressDrawer ingress={selected} onClose={() => setSelected(null)} /> : null}
     </ListShell>
   )
 }
@@ -446,7 +456,7 @@ function EndpointsTable({ namespace }: { namespace?: string }) {
   )
 }
 
-interface NetworkPolicyObject {
+export interface NetworkPolicyObject {
   metadata: { name: string; namespace?: string; creationTimestamp?: string }
   spec?: {
     podSelector?: { matchLabels?: Record<string, string> }
@@ -460,6 +470,7 @@ function NetworkPoliciesTable({ namespace }: { namespace?: string }) {
   const q = useNetworkPolicies(namespace)
   const [search, setSearch] = useState('')
   const all = (q.data ?? []) as unknown as NetworkPolicyObject[]
+  const [selected, setSelected] = useState<NetworkPolicyObject | null>(null)
   const rows = useMemo(
     () =>
       all.filter(
@@ -482,6 +493,7 @@ function NetworkPoliciesTable({ namespace }: { namespace?: string }) {
     >
       <DataTable
         loading={q.isLoading}
+        onRowClick={(p) => setSelected(p)}
         columns={[
           {
             key: 'name',
@@ -538,6 +550,7 @@ function NetworkPoliciesTable({ namespace }: { namespace?: string }) {
         rowKey={(p) => `${p.metadata.namespace}/${p.metadata.name}`}
         empty={<EmptyState title="No network policies" />}
       />
+      {selected ? <NetworkPolicyDrawer policy={selected} onClose={() => setSelected(null)} /> : null}
     </ListShell>
   )
 }

@@ -34,6 +34,14 @@ export const GVRS = {
 
   storageclasses: { group: 'storage.k8s.io', version: 'v1', resource: 'storageclasses', namespaced: false },
 
+  // Gateway API (gateway.networking.k8s.io) — present when a Gateway
+  // controller (Cilium, Envoy Gateway, Istio, NGINX Gateway Fabric…) is installed.
+  gatewayclasses: { group: 'gateway.networking.k8s.io', version: 'v1', resource: 'gatewayclasses', namespaced: false },
+  gateways: { group: 'gateway.networking.k8s.io', version: 'v1', resource: 'gateways', namespaced: true },
+  httproutes: { group: 'gateway.networking.k8s.io', version: 'v1', resource: 'httproutes', namespaced: true },
+  grpcroutes: { group: 'gateway.networking.k8s.io', version: 'v1', resource: 'grpcroutes', namespaced: true },
+  referencegrants: { group: 'gateway.networking.k8s.io', version: 'v1beta1', resource: 'referencegrants', namespaced: true },
+
   roles: { group: 'rbac.authorization.k8s.io', version: 'v1', resource: 'roles', namespaced: true },
   rolebindings: { group: 'rbac.authorization.k8s.io', version: 'v1', resource: 'rolebindings', namespaced: true },
   clusterroles: { group: 'rbac.authorization.k8s.io', version: 'v1', resource: 'clusterroles', namespaced: false },

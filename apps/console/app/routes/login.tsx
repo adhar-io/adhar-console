@@ -38,6 +38,9 @@ const HIGHLIGHTS = [
   'One console for the whole delivery lifecycle — plan, build, ship, observe.',
   'GitOps delivery, progressive rollouts, and policy guardrails built in.',
   'Self-hosted and multi-tenant. 100% open source — no black boxes, no lock-in.',
+  'Single sign-on — your Kubernetes RBAC applies everywhere.',
+  'Golden paths, GitOps delivery and live cluster operations.',
+  'Logs, metrics, traces, policy and cost in one lifecycle view.',
 ]
 
 /**
@@ -183,21 +186,6 @@ function LoginPage() {
                 Kubernetes clusters, GitOps delivery, policies and telemetry already wired
                 together.
               </p>
-              {/* What sign-in actually gets you — concrete, not marketing filler. */}
-              <ul className="grid gap-1.5 pt-2 text-[12.5px] text-content-muted">
-                {[
-                  'Single sign-on — your Kubernetes RBAC applies everywhere',
-                  'Golden paths, GitOps delivery and live cluster operations',
-                  'Logs, metrics, traces, policy and cost in one lifecycle view',
-                ].map((line) => (
-                  <li key={line} className="flex items-start gap-2">
-                    <span className="mt-[3px] text-brand-600 dark:text-brand-400">
-                      <IconCheckSmall />
-                    </span>
-                    <span>{line}</span>
-                  </li>
-                ))}
-              </ul>
             </div>
 
             {localError ? (
@@ -372,9 +360,9 @@ function BrandPanel() {
           </p>
 
           {/* Clean, professional highlights — no logo wall */}
-          <ul className="mt-9 space-y-4">
+          <ul className="mt-8 space-y-3">
             {HIGHLIGHTS.map((h) => (
-              <li key={h} className="flex items-start gap-3 text-[15px] leading-relaxed text-white/75">
+              <li key={h} className="flex items-start gap-3 text-[14.5px] leading-relaxed text-white/75">
                 <span className="mt-0.5 flex-none text-white/50">
                   <IconCheck />
                 </span>
@@ -441,14 +429,6 @@ function IconAlert() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-px shrink-0" aria-hidden>
       <circle cx="12" cy="12" r="10" />
       <path d="M12 8v4M12 16h.01" />
-    </svg>
-  )
-}
-
-function IconCheckSmall() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0">
-      <path d="M20 6 9 17l-5-5" />
     </svg>
   )
 }

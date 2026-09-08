@@ -867,10 +867,19 @@ async function defaultClusterDisplayName(fallback = 'default'): Promise<string> 
       })
       if (res.ok) {
         const body = (await res.json()) as {
-          items?: Array<{ metadata?: { name?: string }; spec?: { clusterName?: string } }>
+          items?: Array<{
+            metadata?: { name?: string }
+            // The installer records the chosen name under buildCustomization
+            // (`spec.buildCustomization.clusterName: dev`); a top-level
+            // clusterName is accepted too, then the CR's own name.
+            spec?: { clusterName?: string; buildCustomization?: { clusterName?: string } }
+          }>
         }
         const cr = body.items?.[0]
-        name = cr?.spec?.clusterName?.trim() || cr?.metadata?.name?.trim() || ''
+        name = cr?.spec?.buildCustomization?.clusterName?.trim() ||
+          cr?.spec?.clusterName?.trim() ||
+          cr?.metadata?.name?.trim() ||
+          ''
       } else {
         await res.body?.cancel()
       }

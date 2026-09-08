@@ -16,7 +16,15 @@
     "vite": "npm:vite@^7.1.12",
     "zod": "npm:zod@^3.23.0",
     "clsx": "npm:clsx@^2.1.1",
-    "tailwind-merge": "npm:tailwind-merge@^2.5.0"
+    "tailwind-merge": "npm:tailwind-merge@^2.5.0",
+    "@xterm/xterm": "npm:@xterm/xterm@^5.5.0",
+    "@xterm/xterm/css/xterm.css": "npm:@xterm/xterm@^5.5.0/css/xterm.css",
+    "@xterm/addon-fit": "npm:@xterm/addon-fit@^0.10.0",
+    "@xterm/addon-search": "npm:@xterm/addon-search@^0.15.0",
+    "@xterm/addon-web-links": "npm:@xterm/addon-web-links@^0.11.0",
+    "@xterm/addon-clipboard": "npm:@xterm/addon-clipboard@^0.1.0",
+    "@xterm/addon-unicode11": "npm:@xterm/addon-unicode11@^0.8.0",
+    "@xterm/addon-webgl": "npm:@xterm/addon-webgl@^0.18.0"
   },
   "compilerOptions": { "jsx": "react-jsx", "jsxImportSource": "react" }
 }

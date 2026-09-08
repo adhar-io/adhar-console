@@ -13,6 +13,13 @@
     "npm:@tanstack/react-start@^1.167.0": "1.167.42_react@19.2.5_react-dom@19.2.5__react@19.2.5_vite@7.3.2__picomatch@4.0.4_@tanstack+react-router@1.168.23__react@19.2.5__react-dom@19.2.5___react@19.2.5",
     "npm:@tanstack/router-plugin@^1.167.0": "1.167.22_@tanstack+react-router@1.168.23__react@19.2.5__react-dom@19.2.5___react@19.2.5_vite@7.3.2__picomatch@4.0.4_@babel+core@7.29.0_react@19.2.5_react-dom@19.2.5__react@19.2.5",
     "npm:@vitejs/plugin-react@^4.3.0": "4.7.0_vite@7.3.2__picomatch@4.0.4_@babel+core@7.29.0",
+    "npm:@xterm/addon-clipboard@0.1": "0.1.0_@xterm+xterm@5.5.0",
+    "npm:@xterm/addon-fit@0.10": "0.10.0_@xterm+xterm@5.5.0",
+    "npm:@xterm/addon-search@0.15": "0.15.0_@xterm+xterm@5.5.0",
+    "npm:@xterm/addon-unicode11@0.8": "0.8.0_@xterm+xterm@5.5.0",
+    "npm:@xterm/addon-web-links@0.11": "0.11.0_@xterm+xterm@5.5.0",
+    "npm:@xterm/addon-webgl@0.18": "0.18.0_@xterm+xterm@5.5.0",
+    "npm:@xterm/xterm@^5.5.0": "5.5.0",
     "npm:clsx@^2.1.1": "2.1.1",
     "npm:drizzle-kit@~0.28.1": "0.28.1_esbuild@0.19.12",
     "npm:drizzle-orm@~0.36.4": "0.36.4_postgres@3.4.9_react@19.2.5",
@@ -1192,6 +1199,46 @@
         "vite"
       ]
     },
+    "@xterm/addon-clipboard@0.1.0_@xterm+xterm@5.5.0": {
+      "integrity": "sha512-zdoM7p53T5sv/HbRTyp4hY0kKmEQ3MZvAvEtiXqNIHc/JdpqwByCtsTaQF5DX2n4hYdXRPO4P/eOS0QEhX1nPw==",
+      "dependencies": [
+        "@xterm/xterm",
+        "js-base64"
+      ]
+    },
+    "@xterm/addon-fit@0.10.0_@xterm+xterm@5.5.0": {
+      "integrity": "sha512-UFYkDm4HUahf2lnEyHvio51TNGiLK66mqP2JoATy7hRZeXaGMRDr00JiSF7m63vR5WKATF605yEggJKsw0JpMQ==",
+      "dependencies": [
+        "@xterm/xterm"
+      ]
+    },
+    "@xterm/addon-search@0.15.0_@xterm+xterm@5.5.0": {
+      "integrity": "sha512-ZBZKLQ+EuKE83CqCmSSz5y1tx+aNOCUaA7dm6emgOX+8J9H1FWXZyrKfzjwzV+V14TV3xToz1goIeRhXBS5qjg==",
+      "dependencies": [
+        "@xterm/xterm"
+      ]
+    },
+    "@xterm/addon-unicode11@0.8.0_@xterm+xterm@5.5.0": {
+      "integrity": "sha512-LxinXu8SC4OmVa6FhgwsVCBZbr8WoSGzBl2+vqe8WcQ6hb1r6Gj9P99qTNdPiFPh4Ceiu2pC8xukZ6+2nnh49Q==",
+      "dependencies": [
+        "@xterm/xterm"
+      ]
+    },
+    "@xterm/addon-web-links@0.11.0_@xterm+xterm@5.5.0": {
+      "integrity": "sha512-nIHQ38pQI+a5kXnRaTgwqSHnX7KE6+4SVoceompgHL26unAxdfP6IPqUTSYPQgSwM56hsElfoNrrW5V7BUED/Q==",
+      "dependencies": [
+        "@xterm/xterm"
+      ]
+    },
+    "@xterm/addon-webgl@0.18.0_@xterm+xterm@5.5.0": {
+      "integrity": "sha512-xCnfMBTI+/HKPdRnSOHaJDRqEpq2Ugy8LEj9GiY4J3zJObo3joylIFaMvzBwbYRg8zLtkO0KQaStCeSfoaI2/w==",
+      "dependencies": [
+        "@xterm/xterm"
+      ]
+    },
+    "@xterm/xterm@5.5.0": {
+      "integrity": "sha512-hqJHYaQb5OptNunnyAnkHyM8aCjZ1MEIDTQu1iIbbTD/xops91NB5yq1ZK/dC2JDbVWtF23zUtl9JE2NqwT87A=="
+    },
     "acorn@8.16.0": {
       "integrity": "sha512-UVJyE9MttOsBQIDKw1skb9nAwQuR5wuGD3+82K6JgJlm/Y+KI92oNsMNGZCYdDsVtRHSak0pcV5Dno5+4jh9sw==",
       "bin": true
@@ -1691,6 +1738,9 @@
     },
     "jose@5.10.0": {
       "integrity": "sha512-s+3Al/p9g32Iq+oqXxkW//7jk2Vig6FF1CFqzVXoTUXt2qz89YWbL+OwS17NFYEvxC35n0FKeGO2LGYSxeM2Gg=="
+    },
+    "js-base64@3.9.3": {
+      "integrity": "sha512-uwYQp+VJ38FVvtim6qNbit6e9uT6dwWQ4Y1+H9TxhW5hcHjpHwoxlR0nMpqUmIFOmu4VqMxwdJA88gIVuZJQ/g=="
     },
     "js-tokens@4.0.0": {
       "integrity": "sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ=="
@@ -2249,6 +2299,13 @@
           "npm:@tailwindcss/vite@4",
           "npm:@tanstack/react-query@^5.59.0",
           "npm:@vitejs/plugin-react@^4.3.0",
+          "npm:@xterm/addon-clipboard@0.1",
+          "npm:@xterm/addon-fit@0.10",
+          "npm:@xterm/addon-search@0.15",
+          "npm:@xterm/addon-unicode11@0.8",
+          "npm:@xterm/addon-web-links@0.11",
+          "npm:@xterm/addon-webgl@0.18",
+          "npm:@xterm/xterm@^5.5.0",
           "npm:clsx@^2.1.1",
           "npm:react-dom@^19.2.0",
           "npm:react@^19.2.0",

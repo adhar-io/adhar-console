@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.57] - 2026-09-08
+
 ### Fixed
 
 - **"Cluster unreachable" for every signed-in user on clusters that use

@@ -11,6 +11,7 @@ import {
 import { cn } from '@adhar-console/utils'
 import {
   useApiSurface,
+  useClusters,
   useConnection,
   useCronJobs,
   useDaemonSets,
@@ -53,7 +54,13 @@ export function PlatformDashboard() {
   const podMetrics = usePodMetrics()
   const pvcs = usePersistentVolumeClaims()
 
-  const clusterLabel = cluster === LOCAL_CLUSTER ? 'Local cluster' : cluster
+  // The gateway resolves the real cluster name (the platform's clusterName)
+  // for every entry; the routing key (`local`/`default`) is never shown.
+  const clusters = useClusters()
+  const activeEntry = clusters.data?.find((c) =>
+    cluster === LOCAL_CLUSTER ? c.isDefault : c.name === cluster,
+  )
+  const clusterLabel = activeEntry?.displayName || activeEntry?.name || (cluster === LOCAL_CLUSTER ? 'cluster' : cluster)
 
   if (version.isLoading || nodes.isLoading) {
     return (

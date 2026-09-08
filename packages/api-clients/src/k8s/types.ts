@@ -36,7 +36,10 @@ export const ObjectMetaSchema = z.object({
 export type ObjectMeta = z.infer<typeof ObjectMetaSchema>
 
 export const ClusterSchema = z.object({
+  /** Routing key on the gateway (`default` for the cluster the console runs in). */
   name: z.string(),
+  /** Human name resolved server-side (the platform's clusterName); shown instead of `name`. */
+  displayName: z.string().optional(),
   server: z.string(),
   version: z.string(),
   platform: z.string(),

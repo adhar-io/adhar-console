@@ -128,7 +128,7 @@ const gatewayClient: K8sClient = {
    * show it instead of silently hiding it.
    */
   listClusters: async () => {
-    let configured: Array<{ name: string; default: boolean }> = []
+    let configured: Array<{ name: string; default: boolean; displayName?: string }> = []
     try {
       configured = (await kube.clusters()).clusters
     } catch {
@@ -149,6 +149,7 @@ const gatewayClient: K8sClient = {
           ])
           return {
             name: c.name,
+            displayName: c.displayName,
             server,
             version: version.gitVersion ?? '',
             platform: version.platform ?? '',
@@ -160,6 +161,7 @@ const gatewayClient: K8sClient = {
         } catch {
           return {
             name: c.name,
+            displayName: c.displayName,
             server,
             version: '',
             platform: '',

@@ -292,8 +292,13 @@ export const kube = {
     return req(`/-/discovery${clusterQ(opts.cluster)}`)
   },
 
-  /** Clusters configured on the gateway (`K8S_CLUSTERS`) — single default when unset. */
-  clusters(): Promise<{ clusters: Array<{ name: string; default: boolean }> }> {
+  /**
+   * Clusters configured on the gateway (`K8S_CLUSTERS`) — single default when
+   * unset. `displayName` is the human name the gateway resolved for the entry
+   * (the platform's clusterName for the default cluster); `name` stays the
+   * routing key.
+   */
+  clusters(): Promise<{ clusters: Array<{ name: string; default: boolean; displayName?: string }> }> {
     return req(`/-/clusters`)
   },
 

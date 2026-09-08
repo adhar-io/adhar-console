@@ -41,10 +41,18 @@ function clusterQuery(name: string): string {
 }
 
 interface ClusterEntry {
+  /** Routing key on the gateway. */
   name: string
+  /** Human name resolved by the gateway (the platform's clusterName). */
+  displayName?: string
   isDefault: boolean
   healthy: boolean
   version: string
+}
+
+/** What to print for a cluster: the resolved human name, never the routing key when one exists. */
+function clusterLabel(c: { name: string; displayName?: string }): string {
+  return c.displayName || c.name
 }
 
 /** Configured clusters from the gateway meta endpoint, each health-probed. */
@@ -55,14 +63,15 @@ function useClusterList(): { clusters: ClusterEntry[]; loading: boolean } {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      let configured: Array<{ name: string; default: boolean }> = []
+      type Configured = { name: string; default: boolean; displayName?: string }
+      let configured: Configured[] = []
       try {
         const res = await fetch('/api/k8s/-/clusters', {
           credentials: 'include',
           headers: { accept: 'application/json' },
         })
         if (res.ok) {
-          const body = (await res.json()) as { clusters?: Array<{ name: string; default: boolean }> }
+          const body = (await res.json()) as { clusters?: Configured[] }
           configured = body.clusters ?? []
         }
       } catch {
@@ -72,15 +81,16 @@ function useClusterList(): { clusters: ClusterEntry[]; loading: boolean } {
 
       const probed = await Promise.all(
         configured.map(async (c): Promise<ClusterEntry> => {
+          const base = { name: c.name, displayName: c.displayName, isDefault: c.default }
           try {
             const res = await fetch(`/api/k8s/version${clusterQuery(c.default ? '' : c.name)}`, {
               credentials: 'include',
               headers: { accept: 'application/json' },
             })
             const body = res.ok ? ((await res.json()) as { gitVersion?: string }) : null
-            return { name: c.name, isDefault: c.default, healthy: res.ok, version: body?.gitVersion ?? '' }
+            return { ...base, healthy: res.ok, version: body?.gitVersion ?? '' }
           } catch {
-            return { name: c.name, isDefault: c.default, healthy: false, version: '' }
+            return { ...base, healthy: false, version: '' }
           }
         }),
       )
@@ -189,9 +199,9 @@ function ClusterDropdown() {
         open={open}
         onClick={() => setOpen((o) => !o)}
         icon={<IconCluster />}
-        label={loading ? 'Cluster' : (active?.name ?? 'Cluster')}
+        label={loading ? 'Cluster' : active ? clusterLabel(active) : 'Cluster'}
         trailing={!loading && active ? <HealthDot healthy={active.healthy} /> : <Spinner />}
-        title={active ? `Cluster: ${active.name}${active.version ? ` · ${active.version}` : ''}` : 'Cluster'}
+        title={active ? `Cluster: ${clusterLabel(active)}${active.version ? ` · ${active.version}` : ''}` : 'Cluster'}
         disabled={loading}
       />
       {open && !loading ? (
@@ -210,7 +220,7 @@ function ClusterDropdown() {
                     leading={<HealthDot healthy={c.healthy} />}
                     title={
                       <span className="flex items-center gap-1.5">
-                        <span className="truncate text-xs font-semibold text-content">{c.name}</span>
+                        <span className="truncate text-xs font-semibold text-content">{clusterLabel(c)}</span>
                         {c.isDefault ? <DefaultBadge /> : null}
                       </span>
                     }

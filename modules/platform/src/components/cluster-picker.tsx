@@ -96,10 +96,10 @@ export function ClusterPicker() {
           'inline-flex items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-2.5 py-1.5 text-xs font-medium text-content shadow-sm transition-colors',
           'hover:bg-surface-sunken focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-500',
         )}
-        title={`Active cluster: ${active.name}`}
+        title={`Active cluster: ${active.displayName || active.name}`}
       >
         <IconCluster />
-        <span className="max-w-36 truncate">{active.name}</span>
+        <span className="max-w-36 truncate">{active.displayName || active.name}</span>
         <HealthDot healthy={active.healthy} />
         <IconChevron open={open} />
       </button>
@@ -142,7 +142,7 @@ export function ClusterPicker() {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-1.5">
-                        <span className="truncate text-xs font-semibold text-content">{c.name}</span>
+                        <span className="truncate text-xs font-semibold text-content">{c.displayName || c.name}</span>
                         {c.isDefault ? (
                           <span className="rounded-full border border-edge-subtle bg-surface-sunken px-1.5 py-px text-[9px] font-medium text-content-subtle">
                             default

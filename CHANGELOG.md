@@ -6,6 +6,18 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+
+- **Platform dashboard and cluster pickers no longer call the cluster "Local
+  cluster".** That label was invented client-side for the gateway's default
+  routing key. The gateway now resolves the cluster's real name — the
+  platform's `clusterName` from the AdharPlatform CR the installer created,
+  read once with the console's ServiceAccount and cached — and reports it as
+  `displayName` on `/api/k8s/-/clusters`. `ADHAR_CLUSTER_NAME` overrides it;
+  the platform domain is the fallback. The dashboard heading, the top-bar
+  selector and the Platform cluster picker all show that name; `default`
+  stays the routing key so nothing about requests changes.
+
 ## [0.1.57] - 2026-09-08
 
 ### Fixed

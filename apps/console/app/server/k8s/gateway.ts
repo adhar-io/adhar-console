@@ -1,4 +1,4 @@
-import { env } from '@adhar-console/utils'
+import { env, platformDomain } from '@adhar-console/utils'
 import { getK8sServiceToken } from '../tool-registry.ts'
 import { getServerAuthConfig, getValidSession } from '@adhar-console/auth/server'
 
@@ -807,25 +807,81 @@ async function handleMeta(
         impersonatedAs: usingServiceAccountAuth() ? impersonatedUser(id) : undefined,
       })
     case 'clusters':
-      return clustersMeta()
+      return await clustersMeta()
     default:
       return Response.json({ error: 'unknown_meta', name }, { status: 404 })
   }
 }
 
-/** Clusters configured via K8S_CLUSTERS — names only, apiUrls stay server-side. */
-function clustersMeta(): Response {
+/**
+ * Clusters configured via K8S_CLUSTERS — names only, apiUrls stay server-side.
+ * The cluster the console runs in keeps `default` as its routing key but
+ * carries the platform's real cluster name as `displayName`, so the UI never
+ * has to invent a label like "Local cluster" for it.
+ */
+async function clustersMeta(): Promise<Response> {
   const configured = parseClusters()
   if (!configured.length) {
-    return Response.json({ clusters: [{ name: 'default', default: true }] })
+    return Response.json({
+      clusters: [{ name: 'default', default: true, displayName: await defaultClusterDisplayName() }],
+    })
   }
   const hasExplicitDefault = configured.some((c) => c.default)
-  return Response.json({
-    clusters: configured.map((c, i) => ({
-      name: c.name,
-      default: c.default || (!hasExplicitDefault && i === 0),
-    })),
-  })
+  const clusters = await Promise.all(
+    configured.map(async (c, i) => {
+      const isDefault = c.default || (!hasExplicitDefault && i === 0)
+      return {
+        name: c.name,
+        default: isDefault,
+        displayName: isDefault ? await defaultClusterDisplayName(c.name) : c.name,
+      }
+    }),
+  )
+  return Response.json({ clusters })
+}
+
+const CLUSTER_NAME_TTL_MS = 5 * 60_000
+let clusterNameCache: { at: number; name: string } | null = null
+
+/**
+ * The human name of the cluster the console runs in. Resolution order:
+ *   1. `ADHAR_CLUSTER_NAME` — an explicit override.
+ *   2. The AdharPlatform CR the installer created (`spec.clusterName`, else
+ *      the CR's own name) — read with the console's ServiceAccount, so it is
+ *      the same answer for every user and needs no RBAC on their side.
+ *   3. The platform domain (`platform.adhar.io`), which every install has.
+ *   4. `fallback` (the routing key) — never a made-up word like "Local".
+ */
+async function defaultClusterDisplayName(fallback = 'default'): Promise<string> {
+  const explicit = env('ADHAR_CLUSTER_NAME')?.trim()
+  if (explicit) return explicit
+  if (clusterNameCache && Date.now() - clusterNameCache.at < CLUSTER_NAME_TTL_MS) {
+    return clusterNameCache.name
+  }
+  let name = ''
+  const sa = getK8sServiceToken()
+  if (sa) {
+    try {
+      const res = await apiServerFetch(sa, '/apis/platform.adhar.io/v1alpha1/adharplatforms', {
+        search: '?limit=1',
+      })
+      if (res.ok) {
+        const body = (await res.json()) as {
+          items?: Array<{ metadata?: { name?: string }; spec?: { clusterName?: string } }>
+        }
+        const cr = body.items?.[0]
+        name = cr?.spec?.clusterName?.trim() || cr?.metadata?.name?.trim() || ''
+      } else {
+        await res.body?.cancel()
+      }
+    } catch {
+      /* CRD absent or apiserver unreachable — fall through */
+    }
+  }
+  if (!name) name = platformDomain()?.host ?? ''
+  if (!name) name = fallback
+  clusterNameCache = { at: Date.now(), name }
+  return name
 }
 
 /* ─────────────── discovery ─────────────── */

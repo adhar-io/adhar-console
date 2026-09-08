@@ -6,6 +6,29 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+
+- **"Cluster unreachable" for every signed-in user on clusters that use
+  impersonation (403 on all namespaced/cluster-scoped reads).** The gateway
+  sent the impersonated groups with `Headers.append`, and Deno serialises
+  repeated headers as ONE comma-joined line —
+  `Impersonate-Group: oidc:platform-admin, system:authenticated` — which the
+  API server reads as a single, nonexistent group, so RBAC matched nothing.
+  `/version` and `whoami` still worked (no group needed), which is why the
+  cluster looked half-reachable. Upstream headers are now built as a pair
+  list, the one form Deno writes as separate lines (verified on the wire), and
+  `system:authenticated` is no longer sent because the API server adds it to
+  every impersonated user itself. Reproduced and verified against the
+  DigitalOcean cluster as the real signed-in user.
+
+### Changed
+
+- **Overview: the curated layout is the default and there is no "Reset to
+  auto".** `auto` mode now renders the curated panel order exactly as
+  arranged (no category sort, no row packing) and is the mode a fresh user
+  starts in. Dragging a card still switches that user to their own order; the
+  reset control and its category-driven packing are gone.
+
 ## [0.1.56] - 2026-09-07
 
 ### Fixed

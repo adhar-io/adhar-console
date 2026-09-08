@@ -16,9 +16,8 @@ import { summarizeCluster, useClusterSignals } from '~/data/cluster-signals.ts'
 import { useDoraApps } from '~/data/platform-signals.ts'
 import {
   ALL_PANEL_IDS,
-  CATEGORY_ORDER,
+  DEFAULT_ORDER,
   DEFAULT_LAYOUT as DEFAULT_OVERVIEW_LAYOUT,
-  type ArrangeMode,
   type OverviewLayout,
   type PanelCategory,
   type PanelId,
@@ -648,82 +647,23 @@ function sizeFor(layout: OverviewLayout, def: PanelDef): PanelSize {
 }
 
 /**
- * Column weight of each size at the primary desktop (lg) breakpoint — matches
- * the `lg:col-span-*` values in `SIZE_COLSPAN`. A full row is 12.
- */
-const LG_WEIGHT: Record<PanelSize, number> = { sm: 3, md: 4, lg: 6, xl: 12 }
-
-/**
- * Pack panels into full 12-column rows (first-fit): walk the ordered list and,
- * for each row, keep pulling in the next panel that still fits the remaining
- * columns before opening a new row. This eliminates the trailing whitespace
- * bands that appear when a category block's spans don't sum to 12 — and it
- * stays full as the user enables/disables widgets, because packing is derived
- * from whatever is currently visible rather than a fixed layout. The last row
- * may be short (unavoidable and expected); every interior row fills.
- */
-function packToRows(panels: PanelDef[], layout: OverviewLayout): PanelDef[] {
-  const remaining = panels.slice()
-  const out: PanelDef[] = []
-  const ROW = 12
-  while (remaining.length) {
-    let cap = ROW
-    let i = 0
-    while (i < remaining.length && cap > 0) {
-      const w = LG_WEIGHT[sizeFor(layout, remaining[i])]
-      if (w <= cap) {
-        out.push(remaining[i])
-        cap -= w
-        remaining.splice(i, 1)
-      } else {
-        i++
-      }
-    }
-    // No item fit a fresh row (shouldn't happen — max weight is 12 = ROW). Take
-    // the head so we always make progress and never loop forever.
-    if (cap === ROW && remaining.length) out.push(remaining.shift() as PanelDef)
-  }
-  return out
-}
-
-/**
  * Resolve the panels to render (and their order) for the given layout.
  *
- * - `auto` mode: panels in `enabled` are sorted by category priority then
- *   their position in the registry. Stable, predictable, no manual control.
- * - `custom` mode: respects `layout.order` (falling back to `enabled` for
- *   panels not yet seen in the saved order — usually freshly-enabled ones).
+ * - `auto` mode: the curated platform layout (`DEFAULT_ORDER`), exactly as
+ *   the platform owner arranged it. Nothing is re-sorted or re-packed, so what
+ *   every user sees first is that arrangement, widget for widget. Panels a
+ *   user enables that the curated list doesn't know yet trail it in registry
+ *   order.
+ * - `custom` mode: the user's own drag order (`layout.order`), falling back
+ *   to `enabled` for panels not yet seen in the saved order.
  */
 function resolveOrder(layout: OverviewLayout): PanelDef[] {
   const enabled = new Set(layout.enabled)
   const visiblePanels = PANELS.filter((p) => enabled.has(p.id))
-  if (layout.mode === 'auto') {
-    /*
-     * Auto-arrange picks an order that *also packs nicely* on a 12-col
-     * grid. We sort by category priority first, then by size DESC so each
-     * row anchors with a wider card and the smaller cards trail it. Combined
-     * with `grid-flow-row-dense` on the wrapper, gaps from odd colspan
-     * combinations get back-filled by later small cards in the same
-     * category — eliminating the awkward whitespace bands that the simple
-     * registry-order sort produced.
-     */
-    const catRank = new Map(CATEGORY_ORDER.map((c, i) => [c, i]))
-    const sizeWeight: Record<PanelSize, number> = { xl: 0, lg: 1, md: 2, sm: 3 }
-    const sorted = [...visiblePanels].sort((a, b) => {
-      const ra = catRank.get(a.category) ?? 99
-      const rb = catRank.get(b.category) ?? 99
-      if (ra !== rb) return ra - rb
-      const sa = sizeWeight[sizeFor(layout, a)]
-      const sb = sizeWeight[sizeFor(layout, b)]
-      if (sa !== sb) return sa - sb
-      return PANELS.indexOf(a) - PANELS.indexOf(b)
-    })
-    // First-fit pack into full 12-col rows so no interior row trails whitespace.
-    return packToRows(sorted, layout)
-  }
-  // Custom: prefer explicit order, then any newly-enabled panels not yet ordered.
+  const explicit = layout.mode === 'auto' ? DEFAULT_ORDER : (layout.order ?? [])
+  // Prefer the explicit order, then any newly-enabled panels not yet ordered.
   const ranked = new Map<PanelId, number>()
-  ;(layout.order ?? []).forEach((id, i) => ranked.set(id, i))
+  explicit.forEach((id, i) => ranked.set(id, i))
   const ordered = visiblePanels
     .slice()
     .sort((a, b) => {
@@ -760,17 +700,11 @@ function LandingPage() {
   /**
    * Drag commits implicitly switch the layout to "custom" mode and freeze
    * the new order — no explicit toggle needed. From that point on the user's
-   * arrangement takes precedence over auto-arrange. They can opt back into
-   * auto via the "Reset to auto" affordance in the Hero.
+   * arrangement takes precedence over the curated default.
    */
   const onReorder = (next: PanelDef[]) => {
     const order = next.map((p) => p.id)
     updateLayout({ ...layout, mode: 'custom', order })
-  }
-
-  const resetToAuto = () => {
-    if (layout.mode === 'auto') return
-    updateLayout({ ...layout, mode: 'auto' })
   }
 
   return (
@@ -787,8 +721,6 @@ function LandingPage() {
         <Hero
           firstName={firstName}
           orgName={activeTenant.name}
-          mode={layout.mode}
-          onResetAuto={resetToAuto}
           isSaving={saveLayout.isPending}
           savedHint={savedHint}
           onCustomize={() => setCustomizeOpen(true)}
@@ -826,41 +758,23 @@ function LandingPage() {
 /* ───────────────────── arrange controls (rendered inside Hero) ───────────────────── */
 
 /**
- * No explicit auto/drag toggle — the panel grid is always drag-enabled and
- * panels are auto-arranged by default. The first time a user reorders a
- * card, that custom order is persisted as their preference and takes over
- * from auto. A single contextual "Reset to auto" affordance gives them a
- * one-click way out — and it's only mounted when there's something to
- * reset.
+ * No arrange toggle of any kind — the panel grid is always drag-enabled and
+ * opens in the curated platform layout. The first time a user reorders a
+ * card, that order is persisted as their preference and takes over. The only
+ * thing rendered here is the save state.
  *
  * "Customize panels" sits beside it as a tertiary action because that
  * concern (visibility) is orthogonal to arrangement.
  */
 function HeroArrangeControls({
-  mode,
-  onResetAuto,
   isSaving,
   savedHint,
 }: {
-  mode: ArrangeMode
-  onResetAuto(): void
   isSaving: boolean
   savedHint: boolean
 }) {
-  const isCustom = mode === 'custom'
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      {isCustom ? (
-        <button
-          type="button"
-          onClick={onResetAuto}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-surface-raised px-2.5 text-[12px] font-semibold text-content ring-1 ring-inset ring-slate-900/10 transition-shadow hover:shadow-md"
-        >
-          <IconReset />
-          <span>Reset to auto</span>
-        </button>
-      ) : null}
-
       <span
         className={cn(
           'inline-flex items-center gap-1 pl-1 text-[11px] transition-opacity duration-300',
@@ -892,15 +806,6 @@ function SpinnerDot() {
   )
 }
 
-function IconReset() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
-      <path d="M21 3v5h-5" />
-    </svg>
-  )
-}
-
 // Legacy `<Panel>` wrapper kept for callers that wrap their children in a
 // titled section. The new grid renders panel components directly — each
 // panel is responsible for its own card chrome via `_overview-panels.tsx`.
@@ -921,16 +826,12 @@ const _PanelKept = Panel
 function Hero({
   firstName,
   orgName,
-  mode,
-  onResetAuto,
   isSaving,
   savedHint,
   onCustomize,
 }: {
   firstName: string
   orgName: string
-  mode: ArrangeMode
-  onResetAuto(): void
   isSaving: boolean
   savedHint: boolean
   onCustomize(): void
@@ -967,8 +868,6 @@ function Hero({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-xs uppercase tracking-[0.18em] text-white/60">{orgName}</div>
           <HeroArrangeControls
-            mode={mode}
-            onResetAuto={onResetAuto}
             isSaving={isSaving}
             savedHint={savedHint}
           />

@@ -267,9 +267,9 @@ function impersonatedGroups(id: K8sIdentity): string[] {
  * ServiceAccount token is fatal for user calls — we refuse rather than silently
  * fall back to the user's (rejected) token or to unauthenticated access.
  */
-function apiServerAuthHeaders(auth: K8sIdentity | string): Record<string, string> {
-  if (typeof auth === 'string') return { authorization: `Bearer ${auth}` }
-  if (!impersonating()) return { authorization: `Bearer ${auth.token}` }
+function apiServerAuthHeaders(auth: K8sIdentity | string): Array<[string, string]> {
+  if (typeof auth === 'string') return [['authorization', `Bearer ${auth}`]]
+  if (!impersonating()) return [['authorization', `Bearer ${auth.token}`]]
   const sa = getK8sServiceToken()
   if (!sa) {
     throw new Error(
@@ -277,28 +277,46 @@ function apiServerAuthHeaders(auth: K8sIdentity | string): Record<string, string
         'Run the console in-cluster, or set K8S_SA_TOKEN.',
     )
   }
-  const headers: Record<string, string> = { authorization: `Bearer ${sa}` }
+  const headers: Array<[string, string]> = [['authorization', `Bearer ${sa}`]]
   if (configuredAuthMode() !== 'service') {
-    headers['Impersonate-User'] = impersonatedUser(auth)
-    const groups = impersonatedGroups(auth)
-    // `system:authenticated` keeps the impersonated identity in the same
-    // implicit group a real OIDC login would land in.
-    for (const [i, g] of [...groups, 'system:authenticated'].entries()) {
-      headers[i === 0 ? 'Impersonate-Group' : `Impersonate-Group-${i}`] = g
-    }
+    headers.push(['Impersonate-User', impersonatedUser(auth)])
+    // One header LINE per group — see buildUpstreamHeaders. The apiserver adds
+    // `system:authenticated` to every impersonated non-anonymous user itself,
+    // so it is deliberately not sent here.
+    for (const g of impersonatedGroups(auth)) headers.push(['Impersonate-Group', g])
   }
   return headers
 }
 
 /**
- * Kubernetes accepts repeated `Impersonate-Group` headers; `Headers` collapses
- * duplicates, so build them with `append` from the numbered map above.
+ * The upstream header list for one call: the caller's content-negotiation
+ * headers plus identity.
+ *
+ * This is a list, not a `Headers` object, on purpose. Kubernetes reads each
+ * `Impersonate-Group` as its own header line and never splits on commas.
+ * `Headers.append` (and `node:http` array values) serialise duplicates as ONE
+ * comma-joined line — `Impersonate-Group: oidc:platform-admin, system:authenticated`
+ * — which the apiserver takes as a single, nonexistent group, so every
+ * impersonated call came back 403 and the UI reported "Cluster unreachable".
+ * Passing an array of pairs to `fetch` is the one form Deno writes as separate
+ * lines (verified on the wire).
  */
-function applyAuthHeaders(headers: Headers, auth: K8sIdentity | string): void {
-  for (const [k, v] of Object.entries(apiServerAuthHeaders(auth))) {
-    if (/^Impersonate-Group(-\d+)?$/.test(k)) headers.append('Impersonate-Group', v)
-    else headers.set(k, v)
+function buildUpstreamHeaders(
+  init: Record<string, string> | undefined,
+  auth: K8sIdentity | string,
+): Array<[string, string]> {
+  const list: Array<[string, string]> = []
+  let hasAccept = false
+  for (const [k, v] of Object.entries(init ?? {})) {
+    const name = k.toLowerCase()
+    // Identity is ours to set; never let a caller-supplied header shadow it.
+    if (name === 'authorization' || name.startsWith('impersonate-')) continue
+    if (name === 'accept') hasAccept = true
+    list.push([k, v])
   }
+  list.push(...apiServerAuthHeaders(auth))
+  if (!hasAccept) list.push(['accept', 'application/json'])
+  return list
 }
 
 /**
@@ -478,10 +496,9 @@ export async function apiServerFetch(
   const clean = path.startsWith('/') ? path : `/${path}`
   const url = `${base}${clean}${init.search ?? ''}`
 
-  const send = async () => {
-    const headers = new Headers(init.headers)
-    applyAuthHeaders(headers, auth)
-    if (!headers.has('accept')) headers.set('accept', 'application/json')
+  const send = () => {
+    // A pair list, never `new Headers(...)` — see buildUpstreamHeaders.
+    const headers = buildUpstreamHeaders(init.headers, auth)
     return fetchWithApiServerClient(url, {
       method: init.method ?? 'GET',
       headers,

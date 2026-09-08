@@ -238,9 +238,11 @@ export const DEFAULT_ENABLED: PanelId[] = [
 ]
 
 export const DEFAULT_LAYOUT: OverviewLayout = {
-  // Ships in "custom" mode so the curated order above is what everyone sees
-  // first; "Reset to auto" still switches to category-driven packing.
-  mode: 'custom',
+  // "auto" IS the curated order above — the page renders DEFAULT_ORDER as-is
+  // in auto mode (no category sort, no row packing), so a fresh user sees the
+  // platform owner's arrangement widget for widget. Dragging a card switches
+  // the user to "custom" with their own order; there is no reset control.
+  mode: 'auto',
   enabled: DEFAULT_ENABLED,
   sizes: {},
   order: DEFAULT_ORDER,

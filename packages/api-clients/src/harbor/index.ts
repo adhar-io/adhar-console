@@ -13,37 +13,170 @@ export type Repository = z.infer<typeof RepositorySchema>
 
 export const ArtifactSchema = z.object({
   digest: z.string(),
-  tags: z.array(z.object({ name: z.string() })).optional(),
+  tags: z.array(z.object({ name: z.string(), push_time: z.string().optional(), immutable: z.boolean().optional() })).optional(),
   size: z.number(),
   push_time: z.string(),
+  pull_time: z.string().optional(),
+  /** `IMAGE`, `CHART`, `SBOM`, … */
+  type: z.string().optional(),
+  media_type: z.string().optional(),
+  /** From the manifest config — `linux/amd64`, `linux/arm64`, … */
+  platform: z.string().optional(),
+  labels: z.array(z.object({ name: z.string(), color: z.string().optional() })).optional(),
   vulnerabilities: z
     .object({ critical: z.number(), high: z.number(), medium: z.number(), low: z.number() })
+    .optional(),
+  /** Scanner verdict for this artifact (absent = never scanned). */
+  scan: z
+    .object({
+      status: z.string(),
+      scanner: z.string().optional(),
+      endTime: z.string().optional(),
+      total: z.number().optional(),
+      fixable: z.number().optional(),
+    })
     .optional(),
 })
 export type Artifact = z.infer<typeof ArtifactSchema>
 
-export interface HarborClient {
-  listRepositories(project: string): Promise<Repository[]>
-  listArtifacts(project: string, repo: string): Promise<Artifact[]>
+export interface Project {
+  id: number
+  name: string
+  public: boolean
+  repoCount: number
+  /** Bytes used / quota (quota -1 = unlimited). */
+  storageUsed?: number
+  storageQuota?: number
+  createdAt?: string
 }
 
-interface RawArtifact extends Omit<Artifact, 'vulnerabilities'> {
-  scan_overview?: Record<string, { summary?: { summary?: Record<string, number> } }>
+export interface Vulnerability {
+  id: string
+  severity: 'Critical' | 'High' | 'Medium' | 'Low' | 'Negligible' | 'Unknown'
+  package: string
+  version: string
+  fixVersion?: string
+  description?: string
+  links: string[]
+  cvssScore?: number
+}
+
+export interface HarborClient {
+  listProjects(): Promise<Project[]>
+  listRepositories(project: string): Promise<Repository[]>
+  listArtifacts(project: string, repo: string): Promise<Artifact[]>
+  /** Full vulnerability report for one artifact (`ref` = digest or tag). */
+  listVulnerabilities(project: string, repo: string, ref: string): Promise<Vulnerability[]>
+  scanArtifact(project: string, repo: string, ref: string): Promise<void>
+  deleteArtifact(project: string, repo: string, ref: string): Promise<void>
+  addTag(project: string, repo: string, ref: string, tag: string): Promise<void>
+  deleteTag(project: string, repo: string, ref: string, tag: string): Promise<void>
+  /** External registry hostname for `docker pull` commands. */
+  registryHost(): Promise<string>
+}
+
+interface RawArtifact {
+  digest: string
+  tags?: Array<{ name: string; push_time?: string; immutable?: boolean }>
+  size: number
+  push_time: string
+  pull_time?: string
+  type?: string
+  media_type?: string
+  extra_attrs?: { os?: string; architecture?: string; variant?: string }
+  labels?: Array<{ name: string; color?: string }>
+  scan_overview?: Record<
+    string,
+    {
+      scan_status?: string
+      scanner?: { name?: string; version?: string }
+      end_time?: string
+      summary?: { total?: number; fixable?: number; summary?: Record<string, number> }
+    }
+  >
 }
 
 function withScan(a: RawArtifact): Artifact {
-  const ov = a.scan_overview ? Object.values(a.scan_overview)[0]?.summary?.summary : undefined
-  const { scan_overview: _drop, ...rest } = a
+  const scan = a.scan_overview ? Object.values(a.scan_overview)[0] : undefined
+  const ov = scan?.summary?.summary
+  const os = a.extra_attrs?.os
+  const arch = a.extra_attrs?.architecture
   return {
-    ...rest,
+    digest: a.digest,
+    tags: a.tags,
+    size: a.size,
+    push_time: a.push_time,
+    pull_time: a.pull_time,
+    type: a.type,
+    media_type: a.media_type,
+    platform: os || arch ? [os, arch, a.extra_attrs?.variant].filter(Boolean).join('/') : undefined,
+    labels: a.labels,
     vulnerabilities: ov
       ? { critical: ov.Critical ?? 0, high: ov.High ?? 0, medium: ov.Medium ?? 0, low: ov.Low ?? 0 }
-      : rest.vulnerabilities,
+      : undefined,
+    scan: scan?.scan_status
+      ? {
+          status: scan.scan_status,
+          scanner: scan.scanner?.name ? `${scan.scanner.name}${scan.scanner.version ? ` ${scan.scanner.version}` : ''}` : undefined,
+          endTime: scan.end_time,
+          total: scan.summary?.total,
+          fixable: scan.summary?.fixable,
+        }
+      : undefined,
   }
 }
 
+interface RawProject {
+  project_id: number
+  name: string
+  repo_count?: number
+  creation_time?: string
+  metadata?: { public?: string }
+}
+
+interface RawVulnReport {
+  vulnerabilities?: Array<{
+    id: string
+    severity?: string
+    package?: string
+    version?: string
+    fix_version?: string
+    description?: string
+    links?: string[]
+    preferred_cvss?: { score_v3?: number; score_v2?: number }
+  }>
+}
+
+const SEVERITIES = ['Critical', 'High', 'Medium', 'Low', 'Negligible'] as const
+
+/** Harbor wants the repo path double-encoded when it contains slashes. */
+const repoRef = (p: string, r: string) => `/api/v2.0/projects/${encodeURIComponent(p)}/repositories/${encodeURIComponent(encodeURIComponent(r))}`
+
 function build(http: HttpClient): HarborClient {
   return {
+    listProjects: async () => {
+      const projects = await http.get<RawProject[]>('/api/v2.0/projects?page_size=100&with_detail=true')
+      // Quota + usage come from the per-project summary; missing (403 on a
+      // project the credential can list but not read) is reported as unknown.
+      return Promise.all(
+        projects.map(async (p): Promise<Project> => {
+          let storageUsed: number | undefined
+          let storageQuota: number | undefined
+          let repoCount = p.repo_count ?? 0
+          try {
+            const s = await http.get<{ repo_count?: number; quota?: { hard?: { storage?: number }; used?: { storage?: number } } }>(
+              `/api/v2.0/projects/${p.project_id}/summary`,
+            )
+            repoCount = s.repo_count ?? repoCount
+            storageUsed = s.quota?.used?.storage
+            storageQuota = s.quota?.hard?.storage
+          } catch {
+            /* summary not readable — keep the list values */
+          }
+          return { id: p.project_id, name: p.name, public: p.metadata?.public === 'true', repoCount, storageUsed, storageQuota, createdAt: p.creation_time }
+        }),
+      )
+    },
     // The configured project first; when it doesn't exist (404) or is empty,
     // list every repository the credential can see (Harbor ≥ 2.1 global
     // endpoint) so the registry page reflects the whole instance.
@@ -60,12 +193,46 @@ function build(http: HttpClient): HarborClient {
       return http.get<Repository[]>(`/api/v2.0/repositories?page_size=100&sort=-update_time`)
     },
     listArtifacts: async (p, r) => {
-      // Harbor wants the repo path double-encoded when it contains slashes.
-      const repo = encodeURIComponent(encodeURIComponent(r))
       const list = await http.get<RawArtifact[]>(
-        `/api/v2.0/projects/${encodeURIComponent(p)}/repositories/${repo}/artifacts?page_size=50&with_tag=true&with_scan_overview=true&sort=-push_time`,
+        `${repoRef(p, r)}/artifacts?page_size=100&with_tag=true&with_scan_overview=true&with_label=true&sort=-push_time`,
       )
       return list.map(withScan)
+    },
+    listVulnerabilities: async (p, r, ref) => {
+      const report = await http.get<Record<string, RawVulnReport>>(`${repoRef(p, r)}/artifacts/${encodeURIComponent(ref)}/additions/vulnerabilities`)
+      const first = Object.values(report ?? {})[0]
+      return (first?.vulnerabilities ?? [])
+        .map((v): Vulnerability => ({
+          id: v.id,
+          severity: (SEVERITIES as readonly string[]).includes(v.severity ?? '') ? (v.severity as Vulnerability['severity']) : 'Unknown',
+          package: v.package ?? '',
+          version: v.version ?? '',
+          fixVersion: v.fix_version || undefined,
+          description: v.description,
+          links: v.links ?? [],
+          cvssScore: v.preferred_cvss?.score_v3 ?? v.preferred_cvss?.score_v2,
+        }))
+        .sort((a, b) => SEVERITIES.indexOf(a.severity as never) - SEVERITIES.indexOf(b.severity as never))
+    },
+    scanArtifact: async (p, r, ref) => {
+      await http.post<void>(`${repoRef(p, r)}/artifacts/${encodeURIComponent(ref)}/scan`, {})
+    },
+    deleteArtifact: async (p, r, ref) => {
+      await http.delete<void>(`${repoRef(p, r)}/artifacts/${encodeURIComponent(ref)}`)
+    },
+    addTag: async (p, r, ref, tag) => {
+      await http.post<void>(`${repoRef(p, r)}/artifacts/${encodeURIComponent(ref)}/tags`, { name: tag })
+    },
+    deleteTag: async (p, r, ref, tag) => {
+      await http.delete<void>(`${repoRef(p, r)}/artifacts/${encodeURIComponent(ref)}/tags/${encodeURIComponent(tag)}`)
+    },
+    registryHost: async () => {
+      try {
+        const info = await http.get<{ registry_url?: string; external_url?: string }>('/api/v2.0/systeminfo')
+        return info.registry_url ?? info.external_url?.replace(/^https?:\/\//, '') ?? ''
+      } catch {
+        return ''
+      }
     },
   }
 }
@@ -159,6 +326,16 @@ const STUB_ARTIFACTS: Record<string, Artifact[]> = {
 }
 
 export const HarborClient = defineClient<HarborClient>(build, () => ({
+  listProjects: async () => [{ id: 1, name: 'adhar', public: false, repoCount: STUB_REPOS.length, storageUsed: 4_200_000_000, storageQuota: 53_687_091_200, createdAt: '2026-04-01T00:00:00Z' }],
   listRepositories: async () => STUB_REPOS,
   listArtifacts: async (_p, repo) => STUB_ARTIFACTS[repo] ?? [],
+  listVulnerabilities: async () => [
+    { id: 'CVE-2026-1001', severity: 'Critical', package: 'openssl', version: '3.0.2', fixVersion: '3.0.14', description: 'Stub finding.', links: [], cvssScore: 9.8 },
+    { id: 'CVE-2026-2002', severity: 'High', package: 'zlib', version: '1.2.11', fixVersion: '1.2.13', description: 'Stub finding.', links: [], cvssScore: 7.5 },
+  ],
+  scanArtifact: async () => {},
+  deleteArtifact: async () => {},
+  addTag: async () => {},
+  deleteTag: async () => {},
+  registryHost: async () => 'harbor.adhar.local',
 }))

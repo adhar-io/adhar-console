@@ -294,6 +294,68 @@ export function useArtifacts(repo?: string) {
   })
 }
 
+export function useHarborProjects() {
+  return useQuery({
+    queryKey: ['harbor', 'projects'],
+    queryFn: () => harborClient.listProjects(),
+    staleTime: 60_000,
+  })
+}
+
+/** Repositories of one explicit project (the registry page's project selector). */
+export function useProjectRepositories(project?: string) {
+  return useQuery({
+    queryKey: ['harbor', 'repos', project ?? '*'],
+    queryFn: () => harborClient.listRepositories(project ?? ''),
+    staleTime: 30_000,
+  })
+}
+
+function splitRepo(repo: string, fallback: string): { project: string; path: string } {
+  const slash = repo.indexOf('/')
+  return slash > 0 ? { project: repo.slice(0, slash), path: repo.slice(slash + 1) } : { project: fallback, path: repo }
+}
+
+/** Full CVE report for one artifact (`repo` is the full Harbor name). */
+export function useArtifactVulnerabilities(repo?: string, ref?: string) {
+  const fallback = useHarborProject()
+  const { project, path } = splitRepo(repo ?? '', fallback)
+  return useQuery({
+    queryKey: ['harbor', 'vulns', project, path, ref],
+    queryFn: () => harborClient.listVulnerabilities(project, path, ref!),
+    enabled: !!repo && !!ref,
+    staleTime: 60_000,
+  })
+}
+
+function useHarborMutation<V extends { repo: string }>(fn: (project: string, path: string, v: V) => Promise<void>) {
+  const fallback = useHarborProject()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: V) => {
+      const { project, path } = splitRepo(v.repo, fallback)
+      return fn(project, path, v)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['harbor'] }),
+  })
+}
+
+export function useScanArtifact() {
+  return useHarborMutation((p, r, { ref }: { repo: string; ref: string }) => harborClient.scanArtifact(p, r, ref))
+}
+export function useDeleteArtifact() {
+  return useHarborMutation((p, r, { ref }: { repo: string; ref: string }) => harborClient.deleteArtifact(p, r, ref))
+}
+export function useAddTag() {
+  return useHarborMutation((p, r, { ref, tag }: { repo: string; ref: string; tag: string }) => harborClient.addTag(p, r, ref, tag))
+}
+export function useDeleteTag() {
+  return useHarborMutation((p, r, { ref, tag }: { repo: string; ref: string; tag: string }) => harborClient.deleteTag(p, r, ref, tag))
+}
+export function useRegistryHost() {
+  return useQuery({ queryKey: ['harbor', 'host'], queryFn: () => harborClient.registryHost(), staleTime: Infinity })
+}
+
 /* ─────────── Trivy ─────────── */
 
 export function useScans(filter?: { target?: trivy.ScanTarget; namespace?: string }) {

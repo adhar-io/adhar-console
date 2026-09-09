@@ -8,6 +8,19 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ### Changed
 
+- **Image Registry is a full Harbor console.** Stats strip (projects,
+  repositories, artifacts and pulls, storage used against the project quota,
+  registry host, last push), a project selector with quota per project,
+  repository search and sort, and an artifact table with tags (add / remove
+  inline), digest (click to copy), platform, size, push and last-pull times,
+  labels, and the scan status with severity bar and fixable count. Per
+  artifact: copy the pull command, scan now, delete with confirmation. Click a
+  severity bar for the full CVE report — severity, package, installed → fixed
+  version, CVSS and advisory links — with severity, fixable-only and text
+  filters. The Harbor client gained projects with quota summaries,
+  vulnerability reports, scan, tag add / delete, artifact delete and the
+  registry host.
+
 - **Kargo Stages page covers the whole promotion workflow.** A stats strip
   (steady / promoting / needs attention, freight, running and failed
   promotions) that filters the pipeline; the pipeline laid out by dependency

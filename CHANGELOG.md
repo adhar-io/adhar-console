@@ -23,6 +23,15 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ### Fixed
 
+- **App drawer: official logos for every routed app.** Eighteen apps fell back
+  to the generic Kubernetes mark (chaos-mesh, dagster, faro, kubeflow, lakefs,
+  loki, mimir, n8n, oncall, open-metadata, opensearch, penpot, prefect,
+  pyroscope, rabbitmq, rustfs, tempo, trino) and Plane showed the Kubernetes
+  mark too. Each now carries its project's own artwork, taken verbatim from the
+  project (CNCF artwork, the project repositories, simple-icons for
+  single-colour marks, and plane.so's published mark for Plane), with
+  wordmarks cropped to the mark and bitmaps downscaled to 96px.
+
 - **Cloud Shell: "xterm loaded but window.Terminal is undefined".** xterm.js
   was fetched from a CDN as a UMD global, and its wrapper registers as an AMD
   module whenever a global `define.amd` exists — which Monaco's loader

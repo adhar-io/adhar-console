@@ -8,6 +8,38 @@
  */
 
 import { CILIUM_MARKUP, CILIUM_VIEWBOX, HEADLAMP_PNG_URI, KARGO_PNG_URI } from './brand-assets.ts'
+import {
+  CHAOSMESH_MARKUP,
+  CHAOSMESH_VIEWBOX,
+  DAGSTER_MARKUP,
+  DAGSTER_VIEWBOX,
+  FARO_PNG_URI,
+  KUBEFLOW_MARKUP,
+  KUBEFLOW_VIEWBOX,
+  LAKEFS_MARKUP,
+  LAKEFS_VIEWBOX,
+  MIMIR_PNG_URI,
+  N8N_D,
+  N8N_HEX,
+  ONCALL_MARKUP,
+  ONCALL_VIEWBOX,
+  OPENMETADATA_MARKUP,
+  OPENMETADATA_VIEWBOX,
+  OPENSEARCH_D,
+  OPENSEARCH_HEX,
+  PENPOT_D,
+  PENPOT_HEX,
+  PLANE_PNG_URI,
+  PREFECT_D,
+  PREFECT_HEX,
+  PYROSCOPE_MARKUP,
+  PYROSCOPE_VIEWBOX,
+  RABBITMQ_D,
+  RABBITMQ_HEX,
+  RUSTFS_PNG_URI,
+  TRINO_D,
+  TRINO_HEX,
+} from './brand-assets-more.ts'
 
 type BrandProps = { size?: number; className?: string }
 
@@ -217,8 +249,60 @@ export function CrossplaneIcon(props: BrandProps) {
   return <LogoTile {...props} viewBox="0 0 900 900" markup={CROSSPLANE_SVG} />
 }
 
+/** Plane's mark as published on plane.so (favicon-256): navy tile, three white strokes. */
 export function PlaneIcon(props: BrandProps) {
-  return <KubernetesIcon {...props} />
+  return <RasterTile {...props} src={PLANE_PNG_URI} alt="Plane" />
+}
+
+/* ── official marks for the remaining routed apps (see brand-assets-more.ts for sources) ── */
+
+export function DagsterIcon(props: BrandProps) {
+  return <LogoTile {...props} viewBox={DAGSTER_VIEWBOX} markup={DAGSTER_MARKUP} />
+}
+export function ChaosMeshIcon(props: BrandProps) {
+  return <LogoTile {...props} viewBox={CHAOSMESH_VIEWBOX} markup={CHAOSMESH_MARKUP} />
+}
+export function KubeflowIcon(props: BrandProps) {
+  return <LogoTile {...props} viewBox={KUBEFLOW_VIEWBOX} markup={KUBEFLOW_MARKUP} />
+}
+export function OnCallIcon(props: BrandProps) {
+  return <LogoTile {...props} viewBox={ONCALL_VIEWBOX} markup={ONCALL_MARKUP} />
+}
+export function PyroscopeIcon(props: BrandProps) {
+  return <LogoTile {...props} viewBox={PYROSCOPE_VIEWBOX} markup={PYROSCOPE_MARKUP} />
+}
+export function OpenMetadataIcon(props: BrandProps) {
+  return <LogoTile {...props} viewBox={OPENMETADATA_VIEWBOX} markup={OPENMETADATA_MARKUP} />
+}
+export function LakeFSIcon(props: BrandProps) {
+  return <LogoTile {...props} viewBox={LAKEFS_VIEWBOX} markup={LAKEFS_MARKUP} />
+}
+export function MimirIcon(props: BrandProps) {
+  return <RasterTile {...props} src={MIMIR_PNG_URI} alt="Grafana Mimir" />
+}
+export function FaroIcon(props: BrandProps) {
+  return <RasterTile {...props} src={FARO_PNG_URI} alt="Grafana Faro" />
+}
+export function RustFSIcon(props: BrandProps) {
+  return <RasterTile {...props} src={RUSTFS_PNG_URI} alt="RustFS" />
+}
+export function N8nIcon(props: BrandProps) {
+  return <MonoTile {...props} hex={N8N_HEX} d={N8N_D} />
+}
+export function OpenSearchIcon(props: BrandProps) {
+  return <MonoTile {...props} hex={OPENSEARCH_HEX} d={OPENSEARCH_D} />
+}
+export function PenpotIcon(props: BrandProps) {
+  return <MonoTile {...props} hex={PENPOT_HEX} d={PENPOT_D} />
+}
+export function PrefectIcon(props: BrandProps) {
+  return <MonoTile {...props} hex={PREFECT_HEX} d={PREFECT_D} />
+}
+export function RabbitMQIcon(props: BrandProps) {
+  return <MonoTile {...props} hex={RABBITMQ_HEX} d={RABBITMQ_D} />
+}
+export function TrinoIcon(props: BrandProps) {
+  return <MonoTile {...props} hex={TRINO_HEX} d={TRINO_D} />
 }
 
 export function GrafanaIcon(props: BrandProps) {

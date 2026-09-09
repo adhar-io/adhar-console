@@ -8,6 +8,38 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ### Changed
 
+- **Repositories is a full Gitea management page.** Stats strip (total,
+  private / public, open issues, open PRs across the org, templates, archived,
+  storage) that doubles as filters, search over name / description / topics /
+  language, visibility, state (active, archived, templates, forks, mirrors,
+  empty) and language filters, six sort orders, grid and table layouts
+  (remembered), and a **New repository** dialog (visibility, default branch,
+  README / .gitignore / licence init, template flag). Every card has an
+  actions menu — details, copy HTTPS / SSH clone URL, open in Gitea, archive /
+  unarchive, delete with confirmation. The repository drawer now has ten
+  tabs: Overview (rendered README, topics editor, language bar, clone URLs),
+  Files, Branches (create, delete, set default, protect / unprotect with
+  required approvals), Commits (branch picker, load more, copy SHA), PRs and
+  Issues (open / closed / all), Releases and Tags (create, delete), People
+  (collaborators with permission, user search), Webhooks (add with events and
+  branch filter, test, pause / resume, delete) and Settings (general, feature
+  toggles, merge strategies, archive, delete-with-typed-confirmation). The
+  Gitea client gained create / update / delete / fork repo, topics,
+  languages, branch create / delete / protection rules, collaborators and
+  user search, releases, tags, webhooks and labels, and pages through
+  Gitea's 50-per-page listings.
+
+### Fixed
+
+- **Real Gitea payloads render correctly.** The contents API reports
+  `file` / `dir` (not git's `blob` / `tree`), so every folder in the file
+  browser rendered as a leaf; commits arrive nested under `commit` with a
+  null `author` for unmatched emails, which left the Commits page blank;
+  base64 file contents were decoded as Latin-1 (mojibake for emoji and
+  box-drawing). All three are normalised in the client. Self-reported
+  `html_url` / `clone_url` values (built from the in-cluster service host the
+  BFF uses) are rewritten to the public Gitea URL.
+
 - **Image Registry is a full Harbor console.** Stats strip (projects,
   repositories, artifacts and pulls, storage used against the project quota,
   registry host, last push), a project selector with quota per project,

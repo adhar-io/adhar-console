@@ -246,9 +246,13 @@ function FileView({
   );
 }
 
+/** Base64 → UTF-8 text (plain `atob` yields Latin-1 mojibake for emoji / box-drawing). */
 function safeAtob(s: string): string {
   try {
-    return typeof atob === 'function' ? atob(s) : s;
+    if (typeof atob !== 'function') return s;
+    const bin = atob(s.replace(/\s/g, ''));
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
   } catch {
     return s;
   }

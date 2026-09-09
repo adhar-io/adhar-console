@@ -20,14 +20,184 @@ export const RepoSchema = z.object({
   private: z.boolean(),
   default_branch: z.string(),
   updated_at: z.string(),
+  created_at: z.string().optional(),
   stars_count: z.number(),
   forks_count: z.number(),
+  watchers_count: z.number().optional(),
   open_issues_count: z.number(),
+  open_pr_counter: z.number().optional(),
+  release_counter: z.number().optional(),
   size: z.number().optional(),
   language: z.string().optional(),
   html_url: z.string().url(),
+  clone_url: z.string().optional(),
+  ssh_url: z.string().optional(),
+  website: z.string().optional(),
+  owner: z.object({ login: z.string(), avatar_url: z.string().optional() }).optional(),
+  archived: z.boolean().optional(),
+  archived_at: z.string().optional(),
+  fork: z.boolean().optional(),
+  template: z.boolean().optional(),
+  mirror: z.boolean().optional(),
+  empty: z.boolean().optional(),
+  internal: z.boolean().optional(),
+  topics: z.array(z.string()).nullable().optional(),
+  has_issues: z.boolean().optional(),
+  has_pull_requests: z.boolean().optional(),
+  has_wiki: z.boolean().optional(),
+  has_projects: z.boolean().optional(),
+  has_actions: z.boolean().optional(),
+  has_packages: z.boolean().optional(),
+  has_releases: z.boolean().optional(),
+  allow_merge_commits: z.boolean().optional(),
+  allow_rebase: z.boolean().optional(),
+  allow_rebase_explicit: z.boolean().optional(),
+  allow_squash_merge: z.boolean().optional(),
+  allow_fast_forward_only_merge: z.boolean().optional(),
+  default_merge_style: z.string().optional(),
+  default_delete_branch_after_merge: z.boolean().optional(),
+  permissions: z.object({ admin: z.boolean(), push: z.boolean(), pull: z.boolean() }).optional(),
+  parent: z.object({ full_name: z.string(), html_url: z.string().optional() }).nullable().optional(),
 })
 export type Repo = z.infer<typeof RepoSchema>
+
+/** `POST /orgs/{org}/repos` body. */
+export interface CreateRepoBody {
+  name: string
+  description?: string
+  private?: boolean
+  auto_init?: boolean
+  default_branch?: string
+  gitignores?: string
+  license?: string
+  readme?: string
+  template?: boolean
+  issue_labels?: string
+  trust_model?: 'default' | 'collaborator' | 'committer' | 'collaboratorcommitter'
+}
+
+/** `PATCH /repos/{owner}/{repo}` body — every field optional. */
+export interface UpdateRepoBody {
+  name?: string
+  description?: string
+  website?: string
+  private?: boolean
+  template?: boolean
+  archived?: boolean
+  default_branch?: string
+  has_issues?: boolean
+  has_pull_requests?: boolean
+  has_wiki?: boolean
+  has_projects?: boolean
+  has_actions?: boolean
+  has_packages?: boolean
+  has_releases?: boolean
+  allow_merge_commits?: boolean
+  allow_rebase?: boolean
+  allow_rebase_explicit?: boolean
+  allow_squash_merge?: boolean
+  allow_fast_forward_only_merge?: boolean
+  default_merge_style?: string
+  default_delete_branch_after_merge?: boolean
+}
+
+export const CollaboratorSchema = z.object({
+  id: z.number(),
+  login: z.string(),
+  full_name: z.string().optional(),
+  email: z.string().optional(),
+  avatar_url: z.string().optional(),
+  is_admin: z.boolean().optional(),
+})
+export type Collaborator = z.infer<typeof CollaboratorSchema>
+export type CollaboratorPermission = 'read' | 'write' | 'admin'
+
+export const ReleaseSchema = z.object({
+  id: z.number(),
+  tag_name: z.string(),
+  target_commitish: z.string().optional(),
+  name: z.string().optional(),
+  body: z.string().optional(),
+  draft: z.boolean().optional(),
+  prerelease: z.boolean().optional(),
+  created_at: z.string(),
+  published_at: z.string().optional(),
+  html_url: z.string().optional(),
+  tarball_url: z.string().optional(),
+  zipball_url: z.string().optional(),
+  author: z.object({ login: z.string(), avatar_url: z.string().optional() }).optional(),
+  assets: z.array(z.object({ id: z.number(), name: z.string(), size: z.number().optional(), download_count: z.number().optional(), browser_download_url: z.string().optional() })).optional(),
+})
+export type Release = z.infer<typeof ReleaseSchema>
+
+export const TagSchema = z.object({
+  name: z.string(),
+  message: z.string().optional(),
+  commit: z.object({ sha: z.string(), url: z.string().optional(), created: z.string().optional() }).optional(),
+  zipball_url: z.string().optional(),
+  tarball_url: z.string().optional(),
+})
+export type Tag = z.infer<typeof TagSchema>
+
+export const WebhookSchema = z.object({
+  id: z.number(),
+  type: z.string(),
+  active: z.boolean(),
+  events: z.array(z.string()),
+  config: z.object({ url: z.string().optional(), content_type: z.string().optional() }).passthrough(),
+  created_at: z.string().optional(),
+  updated_at: z.string().optional(),
+})
+export type Webhook = z.infer<typeof WebhookSchema>
+
+export interface CreateWebhookBody {
+  type: 'gitea' | 'slack' | 'discord' | 'dingtalk' | 'telegram' | 'msteams' | 'feishu' | 'matrix' | 'wechatwork' | 'packagist'
+  config: { url: string; content_type: 'json' | 'form'; secret?: string }
+  events: string[]
+  active: boolean
+  branch_filter?: string
+}
+
+export const BranchProtectionSchema = z.object({
+  rule_name: z.string().optional(),
+  branch_name: z.string().optional(),
+  enable_push: z.boolean().optional(),
+  enable_push_whitelist: z.boolean().optional(),
+  push_whitelist_usernames: z.array(z.string()).nullable().optional(),
+  required_approvals: z.number().optional(),
+  enable_status_check: z.boolean().optional(),
+  status_check_contexts: z.array(z.string()).nullable().optional(),
+  block_on_rejected_reviews: z.boolean().optional(),
+  block_on_outdated_branch: z.boolean().optional(),
+  dismiss_stale_approvals: z.boolean().optional(),
+  require_signed_commits: z.boolean().optional(),
+  protected_file_patterns: z.string().optional(),
+  created_at: z.string().optional(),
+  updated_at: z.string().optional(),
+})
+export type BranchProtection = z.infer<typeof BranchProtectionSchema>
+
+export interface CreateBranchProtectionBody {
+  /** Gitea ≥ 1.21 uses glob rule names; older versions use `branch_name`. We send both. */
+  rule_name: string
+  branch_name?: string
+  enable_push?: boolean
+  required_approvals?: number
+  block_on_rejected_reviews?: boolean
+  block_on_outdated_branch?: boolean
+  dismiss_stale_approvals?: boolean
+  require_signed_commits?: boolean
+  enable_status_check?: boolean
+  status_check_contexts?: string[]
+}
+
+export const LabelSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  color: z.string(),
+  description: z.string().optional(),
+})
+export type Label = z.infer<typeof LabelSchema>
 
 export const PullRequestSchema = z.object({
   id: z.number(),
@@ -130,17 +300,114 @@ export interface GiteaClient {
     path: string,
     body: { content: string; message: string; sha?: string },
   ): Promise<{ commit: { sha: string } }>
+
+  /* ── repository management ── */
+  createRepo(org: string, body: CreateRepoBody): Promise<Repo>
+  updateRepo(org: string, repo: string, body: UpdateRepoBody): Promise<Repo>
+  deleteRepo(org: string, repo: string): Promise<void>
+  forkRepo(org: string, repo: string, targetOrg: string, name?: string): Promise<Repo>
+  /** Bytes per language, e.g. `{ TypeScript: 12345, Go: 678 }`. */
+  listLanguages(org: string, repo: string): Promise<Record<string, number>>
+  listTopics(org: string, repo: string): Promise<string[]>
+  setTopics(org: string, repo: string, topics: string[]): Promise<void>
+
+  /* ── branches ── */
+  createBranch(org: string, repo: string, name: string, from: string): Promise<Branch>
+  deleteBranch(org: string, repo: string, name: string): Promise<void>
+  listBranchProtections(org: string, repo: string): Promise<BranchProtection[]>
+  createBranchProtection(org: string, repo: string, body: CreateBranchProtectionBody): Promise<BranchProtection>
+  deleteBranchProtection(org: string, repo: string, ruleName: string): Promise<void>
+
+  /* ── collaborators ── */
+  listCollaborators(org: string, repo: string): Promise<Collaborator[]>
+  addCollaborator(org: string, repo: string, user: string, permission: CollaboratorPermission): Promise<void>
+  removeCollaborator(org: string, repo: string, user: string): Promise<void>
+  /** Users matching a query — for the add-collaborator picker. */
+  searchUsers(q: string, limit?: number): Promise<Collaborator[]>
+
+  /* ── releases + tags ── */
+  listReleases(org: string, repo: string): Promise<Release[]>
+  createRelease(
+    org: string,
+    repo: string,
+    body: { tag_name: string; target_commitish?: string; name?: string; body?: string; draft?: boolean; prerelease?: boolean },
+  ): Promise<Release>
+  deleteRelease(org: string, repo: string, id: number): Promise<void>
+  listTags(org: string, repo: string): Promise<Tag[]>
+  createTag(org: string, repo: string, body: { tag_name: string; target?: string; message?: string }): Promise<Tag>
+  deleteTag(org: string, repo: string, tag: string): Promise<void>
+
+  /* ── webhooks ── */
+  listWebhooks(org: string, repo: string): Promise<Webhook[]>
+  createWebhook(org: string, repo: string, body: CreateWebhookBody): Promise<Webhook>
+  updateWebhook(org: string, repo: string, id: number, body: Partial<CreateWebhookBody>): Promise<Webhook>
+  deleteWebhook(org: string, repo: string, id: number): Promise<void>
+  testWebhook(org: string, repo: string, id: number): Promise<void>
+
+  /* ── labels ── */
+  listLabels(org: string, repo: string): Promise<Label[]>
 }
+
+const PAGE = 50
+
+/** Wire shape of `GET /repos/{o}/{r}/commits` — nested `commit`, nullable `author`. */
+interface RawCommit {
+  sha: string
+  created?: string
+  html_url?: string
+  commit?: {
+    message?: string
+    author?: { name?: string; email?: string; date?: string }
+    committer?: { name?: string; email?: string; date?: string }
+  }
+  author?: { login?: string; avatar_url?: string } | null
+  committer?: { login?: string; avatar_url?: string } | null
+  stats?: { additions?: number; deletions?: number; total?: number } | null
+  // Already-flat (stub / older console) shape.
+  message?: string
+  short_sha?: string
+}
+
+function toCommit(c: RawCommit): Commit {
+  const login = c.author?.login ?? c.committer?.login ?? c.commit?.author?.name ?? c.commit?.committer?.name ?? 'unknown'
+  const avatar = c.author?.avatar_url ?? c.committer?.avatar_url
+  return {
+    sha: c.sha,
+    short_sha: c.short_sha ?? c.sha.slice(0, 7),
+    message: c.commit?.message ?? c.message ?? '',
+    author: { login, ...(avatar ? { avatar_url: avatar } : {}) },
+    created: c.created ?? c.commit?.author?.date ?? c.commit?.committer?.date ?? new Date(0).toISOString(),
+    ...(c.stats ? { stats: { additions: c.stats.additions ?? 0, deletions: c.stats.deletions ?? 0 } } : {}),
+  }
+}
+
+/** Walk Gitea's `page`/`limit` pagination until a short page comes back. */
+async function paginate<T>(http: HttpClient, path: string, maxPages = 20): Promise<T[]> {
+  const sep = path.includes('?') ? '&' : '?'
+  const out: T[] = []
+  for (let page = 1; page <= maxPages; page++) {
+    const chunk = await http.get<T[]>(`${path}${sep}limit=${PAGE}&page=${page}`)
+    out.push(...chunk)
+    if (chunk.length < PAGE) break
+  }
+  return out
+}
+
+const enc = encodeURIComponent
 
 function build(http: HttpClient): GiteaClient {
   return {
-    listRepos: (org) => http.get<Repo[]>(`/api/v1/orgs/${org}/repos`),
+    listRepos: (org) => paginate<Repo>(http, `/api/v1/orgs/${org}/repos`),
     getRepo: (org, name) => http.get<Repo>(`/api/v1/repos/${org}/${name}`),
     listBranches: (org, repo) => http.get<Branch[]>(`/api/v1/repos/${org}/${repo}/branches`),
-    listCommits: (org, repo, ref = '', limit = 50) =>
-      http.get<Commit[]>(
-        `/api/v1/repos/${org}/${repo}/commits?limit=${limit}${ref ? `&sha=${ref}` : ''}`,
-      ),
+    // Gitea nests the message under `commit` and leaves `author` null for
+    // commits whose email isn't a Gitea user — flatten to the UI's Commit.
+    listCommits: async (org, repo, ref = '', limit = 50) => {
+      const raw = await http.get<RawCommit[]>(
+        `/api/v1/repos/${org}/${repo}/commits?limit=${limit}&files=false&verification=false${ref ? `&sha=${encodeURIComponent(ref)}` : ''}`,
+      )
+      return raw.map(toCommit)
+    },
     listPullRequests: (org, repo, state = 'open') =>
       http.get<PullRequest[]>(`/api/v1/repos/${org}/${repo}/pulls?state=${state}`),
     getPullRequest: (org, repo, number) =>
@@ -152,10 +419,20 @@ function build(http: HttpClient): GiteaClient {
       }),
     listIssues: (org, repo, state = 'open') =>
       http.get<Issue[]>(`/api/v1/repos/${org}/${repo}/issues?type=issues&state=${state}`),
-    listTree: (org, repo, ref, path = '') =>
-      http.get<TreeEntry[]>(
+    // Gitea's contents API reports `file | dir | symlink | submodule`; the UI
+    // speaks git's `blob | tree`, so normalise here (a bare `file` would render
+    // every folder as a leaf).
+    listTree: async (org, repo, ref, path = '') => {
+      const raw = await http.get<Array<{ path: string; type: string; size?: number; sha?: string }>>(
         `/api/v1/repos/${org}/${repo}/contents/${path}?ref=${encodeURIComponent(ref)}`,
-      ),
+      )
+      return raw.map((e) => ({
+        path: e.path,
+        type: e.type === 'dir' || e.type === 'tree' ? 'tree' : 'blob',
+        size: e.size,
+        sha: e.sha,
+      }))
+    },
     getFile: (org, repo, ref, path) =>
       http.get<FileContents>(
         `/api/v1/repos/${org}/${repo}/contents/${path}?ref=${encodeURIComponent(ref)}&raw=false`,
@@ -165,6 +442,73 @@ function build(http: HttpClient): GiteaClient {
         `/api/v1/repos/${org}/${repo}/contents/${path}`,
         { ...body, branch: ref },
       ),
+
+    createRepo: (org, body) => http.post<Repo>(`/api/v1/orgs/${org}/repos`, body),
+    updateRepo: (org, repo, body) => http.patch<Repo>(`/api/v1/repos/${org}/${repo}`, body),
+    deleteRepo: async (org, repo) => {
+      await http.delete(`/api/v1/repos/${org}/${repo}`, { response: 'raw' })
+    },
+    forkRepo: (org, repo, targetOrg, name) =>
+      http.post<Repo>(`/api/v1/repos/${org}/${repo}/forks`, { organization: targetOrg, ...(name ? { name } : {}) }),
+    listLanguages: (org, repo) => http.get<Record<string, number>>(`/api/v1/repos/${org}/${repo}/languages`),
+    listTopics: async (org, repo) => {
+      const r = await http.get<{ topics: string[] | null }>(`/api/v1/repos/${org}/${repo}/topics`)
+      return r.topics ?? []
+    },
+    setTopics: async (org, repo, topics) => {
+      await http.put(`/api/v1/repos/${org}/${repo}/topics`, { topics }, { response: 'raw' })
+    },
+
+    createBranch: (org, repo, name, from) =>
+      http.post<Branch>(`/api/v1/repos/${org}/${repo}/branches`, { new_branch_name: name, old_branch_name: from }),
+    deleteBranch: async (org, repo, name) => {
+      await http.delete(`/api/v1/repos/${org}/${repo}/branches/${enc(name)}`, { response: 'raw' })
+    },
+    listBranchProtections: (org, repo) =>
+      http.get<BranchProtection[]>(`/api/v1/repos/${org}/${repo}/branch_protections`),
+    createBranchProtection: (org, repo, body) =>
+      http.post<BranchProtection>(`/api/v1/repos/${org}/${repo}/branch_protections`, {
+        branch_name: body.rule_name,
+        ...body,
+      }),
+    deleteBranchProtection: async (org, repo, ruleName) => {
+      await http.delete(`/api/v1/repos/${org}/${repo}/branch_protections/${enc(ruleName)}`, { response: 'raw' })
+    },
+
+    listCollaborators: (org, repo) => paginate<Collaborator>(http, `/api/v1/repos/${org}/${repo}/collaborators`),
+    addCollaborator: async (org, repo, user, permission) => {
+      await http.put(`/api/v1/repos/${org}/${repo}/collaborators/${enc(user)}`, { permission }, { response: 'raw' })
+    },
+    removeCollaborator: async (org, repo, user) => {
+      await http.delete(`/api/v1/repos/${org}/${repo}/collaborators/${enc(user)}`, { response: 'raw' })
+    },
+    searchUsers: async (q, limit = 10) => {
+      const r = await http.get<{ data: Collaborator[] }>(`/api/v1/users/search?q=${enc(q)}&limit=${limit}`)
+      return r.data ?? []
+    },
+
+    listReleases: (org, repo) => paginate<Release>(http, `/api/v1/repos/${org}/${repo}/releases`, 4),
+    createRelease: (org, repo, body) => http.post<Release>(`/api/v1/repos/${org}/${repo}/releases`, body),
+    deleteRelease: async (org, repo, id) => {
+      await http.delete(`/api/v1/repos/${org}/${repo}/releases/${id}`, { response: 'raw' })
+    },
+    listTags: (org, repo) => paginate<Tag>(http, `/api/v1/repos/${org}/${repo}/tags`, 4),
+    createTag: (org, repo, body) => http.post<Tag>(`/api/v1/repos/${org}/${repo}/tags`, body),
+    deleteTag: async (org, repo, tag) => {
+      await http.delete(`/api/v1/repos/${org}/${repo}/tags/${enc(tag)}`, { response: 'raw' })
+    },
+
+    listWebhooks: (org, repo) => paginate<Webhook>(http, `/api/v1/repos/${org}/${repo}/hooks`, 2),
+    createWebhook: (org, repo, body) => http.post<Webhook>(`/api/v1/repos/${org}/${repo}/hooks`, body),
+    updateWebhook: (org, repo, id, body) => http.patch<Webhook>(`/api/v1/repos/${org}/${repo}/hooks/${id}`, body),
+    deleteWebhook: async (org, repo, id) => {
+      await http.delete(`/api/v1/repos/${org}/${repo}/hooks/${id}`, { response: 'raw' })
+    },
+    testWebhook: async (org, repo, id) => {
+      await http.post(`/api/v1/repos/${org}/${repo}/hooks/${id}/tests`, undefined, { response: 'raw' })
+    },
+
+    listLabels: (org, repo) => paginate<Label>(http, `/api/v1/repos/${org}/${repo}/labels`, 2),
   }
 }
 
@@ -632,4 +976,157 @@ export const GiteaClient = defineClient<GiteaClient>(build, () => ({
     STUB_FILES[path] = body.content
     return { commit: { sha: 'stub-' + Date.now().toString(36) } }
   },
+
+  createRepo: async (org, body) => {
+    const r: Repo = {
+      id: Date.now(),
+      name: body.name,
+      full_name: `${org}/${body.name}`,
+      description: body.description,
+      private: !!body.private,
+      default_branch: body.default_branch || 'main',
+      updated_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+      stars_count: 0,
+      forks_count: 0,
+      open_issues_count: 0,
+      empty: !body.auto_init,
+      template: !!body.template,
+      html_url: `https://gitea.adhar.local/${org}/${body.name}`,
+    }
+    STUB_REPOS.push(r)
+    return r
+  },
+  updateRepo: async (_, repo, body) => {
+    const r = STUB_REPOS.find((x) => x.name === repo)
+    if (!r) throw new Error(`Stub: repo ${repo} not found`)
+    Object.assign(r, body, { updated_at: new Date().toISOString() })
+    return r
+  },
+  deleteRepo: async (_, repo) => {
+    const i = STUB_REPOS.findIndex((x) => x.name === repo)
+    if (i >= 0) STUB_REPOS.splice(i, 1)
+  },
+  forkRepo: async (org, repo, targetOrg, name) => {
+    const src = STUB_REPOS.find((x) => x.name === repo)
+    if (!src) throw new Error(`Stub: repo ${repo} not found`)
+    return { ...src, id: Date.now(), name: name ?? src.name, full_name: `${targetOrg}/${name ?? src.name}`, fork: true, parent: { full_name: `${org}/${repo}` } }
+  },
+  listLanguages: async (_, repo) => {
+    const r = STUB_REPOS.find((x) => x.name === repo)
+    return r?.language ? { [r.language]: 100_000, Shell: 4_000 } : {}
+  },
+  listTopics: async (_, repo) => STUB_TOPICS[repo] ?? [],
+  setTopics: async (_, repo, topics) => {
+    STUB_TOPICS[repo] = topics
+  },
+
+  createBranch: async (_, repo, name, from) => {
+    const base = (STUB_BRANCHES[repo] ?? []).find((b) => b.name === from) ?? STUB_BRANCHES['adhar-console'][0]
+    const b: Branch = { name, commit: base.commit }
+    STUB_BRANCHES[repo] = [...(STUB_BRANCHES[repo] ?? []), b]
+    return b
+  },
+  deleteBranch: async (_, repo, name) => {
+    STUB_BRANCHES[repo] = (STUB_BRANCHES[repo] ?? []).filter((b) => b.name !== name)
+  },
+  listBranchProtections: async (_, repo) => STUB_PROTECTIONS[repo] ?? [],
+  createBranchProtection: async (_, repo, body) => {
+    const p: BranchProtection = { ...body, branch_name: body.rule_name, created_at: new Date().toISOString() }
+    STUB_PROTECTIONS[repo] = [...(STUB_PROTECTIONS[repo] ?? []), p]
+    return p
+  },
+  deleteBranchProtection: async (_, repo, ruleName) => {
+    STUB_PROTECTIONS[repo] = (STUB_PROTECTIONS[repo] ?? []).filter((p) => p.rule_name !== ruleName)
+  },
+
+  listCollaborators: async (_, repo) => STUB_COLLABORATORS[repo] ?? [],
+  addCollaborator: async (_, repo, user) => {
+    const list = STUB_COLLABORATORS[repo] ?? []
+    if (!list.some((c) => c.login === user)) {
+      STUB_COLLABORATORS[repo] = [...list, { id: Date.now(), login: user, avatar_url: `https://i.pravatar.cc/64?u=${user}` }]
+    }
+  },
+  removeCollaborator: async (_, repo, user) => {
+    STUB_COLLABORATORS[repo] = (STUB_COLLABORATORS[repo] ?? []).filter((c) => c.login !== user)
+  },
+  searchUsers: async (q) =>
+    ['tapas', 'maya', 'priya', 'release-bot']
+      .filter((u) => u.includes(q.toLowerCase()))
+      .map((u, i) => ({ id: i + 1, login: u, avatar_url: `https://i.pravatar.cc/64?u=${u}` })),
+
+  listReleases: async (_, repo) => STUB_RELEASES[repo] ?? [],
+  createRelease: async (_, repo, body) => {
+    const r: Release = { id: Date.now(), ...body, created_at: new Date().toISOString(), published_at: new Date().toISOString(), author: { login: 'tapas' } }
+    STUB_RELEASES[repo] = [r, ...(STUB_RELEASES[repo] ?? [])]
+    return r
+  },
+  deleteRelease: async (_, repo, id) => {
+    STUB_RELEASES[repo] = (STUB_RELEASES[repo] ?? []).filter((r) => r.id !== id)
+  },
+  listTags: async (_, repo) => STUB_TAGS[repo] ?? [],
+  createTag: async (_, repo, body) => {
+    const t: Tag = { name: body.tag_name, message: body.message, commit: { sha: 'a1b2c3d4e5f60718', created: new Date().toISOString() } }
+    STUB_TAGS[repo] = [t, ...(STUB_TAGS[repo] ?? [])]
+    return t
+  },
+  deleteTag: async (_, repo, tag) => {
+    STUB_TAGS[repo] = (STUB_TAGS[repo] ?? []).filter((t) => t.name !== tag)
+  },
+
+  listWebhooks: async (_, repo) => STUB_HOOKS[repo] ?? [],
+  createWebhook: async (_, repo, body) => {
+    const h: Webhook = { id: Date.now(), type: body.type, active: body.active, events: body.events, config: { url: body.config.url, content_type: body.config.content_type }, created_at: new Date().toISOString() }
+    STUB_HOOKS[repo] = [...(STUB_HOOKS[repo] ?? []), h]
+    return h
+  },
+  updateWebhook: async (_, repo, id, body) => {
+    const h = (STUB_HOOKS[repo] ?? []).find((x) => x.id === id)
+    if (!h) throw new Error(`Stub: hook ${id} not found`)
+    if (body.active !== undefined) h.active = body.active
+    if (body.events) h.events = body.events
+    return h
+  },
+  deleteWebhook: async (_, repo, id) => {
+    STUB_HOOKS[repo] = (STUB_HOOKS[repo] ?? []).filter((h) => h.id !== id)
+  },
+  testWebhook: async () => {},
+
+  listLabels: async () => [
+    { id: 1, name: 'bug', color: 'e11d48' },
+    { id: 2, name: 'enhancement', color: '10b981' },
+    { id: 3, name: 'a11y', color: '8b5cf6' },
+  ],
 }))
+
+const STUB_TOPICS: Record<string, string[]> = {
+  'adhar-console': ['platform', 'react', 'deno', 'module-federation'],
+  'billing-service': ['go', 'payments'],
+  'adhar-ui': ['design-system', 'react'],
+}
+const STUB_PROTECTIONS: Record<string, BranchProtection[]> = {
+  'adhar-console': [{ rule_name: 'main', branch_name: 'main', enable_push: false, required_approvals: 1, block_on_rejected_reviews: true, created_at: '2026-04-01T00:00:00Z' }],
+}
+const STUB_COLLABORATORS: Record<string, Collaborator[]> = {
+  'adhar-console': [
+    { id: 2, login: 'maya', full_name: 'Maya R', avatar_url: 'https://i.pravatar.cc/64?u=maya' },
+    { id: 3, login: 'priya', full_name: 'Priya S', avatar_url: 'https://i.pravatar.cc/64?u=priya' },
+  ],
+}
+const STUB_RELEASES: Record<string, Release[]> = {
+  'adhar-console': [
+    { id: 9001, tag_name: 'v0.1.57', target_commitish: 'main', name: 'v0.1.57', body: 'Cluster reachability + overview default layout.', created_at: '2026-09-02T10:00:00Z', published_at: '2026-09-02T10:00:00Z', author: { login: 'tapas' } },
+    { id: 9000, tag_name: 'v0.1.56', target_commitish: 'main', name: 'v0.1.56', body: 'Impersonation headers fix.', created_at: '2026-08-30T10:00:00Z', published_at: '2026-08-30T10:00:00Z', author: { login: 'tapas' } },
+  ],
+}
+const STUB_TAGS: Record<string, Tag[]> = {
+  'adhar-console': [
+    { name: 'v0.1.57', commit: { sha: 'a1b2c3d4e5f60718', created: '2026-09-02T10:00:00Z' } },
+    { name: 'v0.1.56', commit: { sha: 'b2c3d4e5f6a17182', created: '2026-08-30T10:00:00Z' } },
+  ],
+}
+const STUB_HOOKS: Record<string, Webhook[]> = {
+  'adhar-console': [
+    { id: 11, type: 'gitea', active: true, events: ['push', 'pull_request'], config: { url: 'https://tekton.adhar.local/hooks/adhar-console', content_type: 'json' }, created_at: '2026-04-10T00:00:00Z' },
+  ],
+}

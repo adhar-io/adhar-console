@@ -29,8 +29,40 @@ export const StageSchema = z.object({
   upstream: z.array(z.string()).optional(),
   warehouse: z.string().optional(),
   message: z.string().optional(),
+  /** Promotion currently running against this stage, if any. */
+  currentPromotion: z.string().optional(),
+  /** Outcome of the last promotion (Succeeded / Failed / …). */
+  lastPromotionPhase: z.string().optional(),
+  /** Latest verification (Argo Rollouts AnalysisRun) of the current freight. */
+  verification: z
+    .object({ phase: z.string(), message: z.string().optional(), startTime: z.string().optional(), finishTime: z.string().optional() })
+    .optional(),
+  /** Controller conditions that are not True (e.g. Reconciling, Healthy=False). */
+  issues: z.array(z.string()).optional(),
 })
 export type Stage = z.infer<typeof StageSchema>
+
+export const WarehouseSchema = z.object({
+  name: z.string(),
+  project: z.string(),
+  /** Artifact subscriptions this warehouse watches. */
+  subscriptions: z.array(
+    z.object({
+      kind: z.enum(['image', 'git', 'chart']),
+      repoURL: z.string(),
+      /** Semver constraint / tag selection / branch — whatever the kind uses. */
+      selector: z.string().optional(),
+    }),
+  ),
+  /** Freight most recently produced by this warehouse. */
+  lastFreight: z.string().optional(),
+  lastDiscovered: z.string().optional(),
+  /** Discovery interval (e.g. "5m0s") when set. */
+  interval: z.string().optional(),
+  issues: z.array(z.string()).optional(),
+  created: z.string(),
+})
+export type Warehouse = z.infer<typeof WarehouseSchema>
 
 export const FreightSchema = z.object({
   id: z.string(),
@@ -61,7 +93,16 @@ export interface KargoClient {
   listStages(project: string): Promise<Stage[]>
   listFreight(project: string): Promise<Freight[]>
   listPromotions(project: string): Promise<Promotion[]>
+  listWarehouses(project: string): Promise<Warehouse[]>
   promote(project: string, stage: string, freight: string): Promise<void>
+  /** Abort a running promotion (Kargo honours the `kargo.akuity.io/abort` annotation). */
+  abortPromotion(project: string, promotion: string): Promise<void>
+  /** Manually approve freight for a stage that it has not been verified in. */
+  approveFreight(project: string, freight: string, stage: string): Promise<void>
+  /** Ask the warehouse to discover artifacts now (`kargo.akuity.io/refresh`). */
+  refreshWarehouse(project: string, warehouse: string): Promise<void>
+  /** Force the stage to reconcile now. */
+  refreshStage(project: string, stage: string): Promise<void>
 }
 
 /* ─────────── raw CRD shapes (subset) ─────────── */
@@ -83,9 +124,30 @@ interface RawStage {
     message?: string
     health?: { status?: string; issues?: string[] }
     currentFreight?: { name?: string; id?: string }
-    freightHistory?: Array<{ items?: Record<string, { name?: string; origin?: { kind?: string; name?: string } }> }>
+    freightHistory?: Array<{
+      items?: Record<string, { name?: string; origin?: { kind?: string; name?: string } }>
+      verificationHistory?: Array<{ phase?: string; message?: string; startTime?: string; finishTime?: string }>
+    }>
     lastPromotion?: { name?: string; finishedAt?: string; status?: { phase?: string } }
     currentPromotion?: { name?: string }
+    conditions?: Array<{ type?: string; status?: string; reason?: string; message?: string }>
+  }
+}
+interface RawWarehouse {
+  metadata: KMeta
+  spec?: {
+    interval?: string
+    subscriptions?: Array<{
+      image?: { repoURL: string; semverConstraint?: string; allowTags?: string; imageSelectionStrategy?: string }
+      git?: { repoURL: string; branch?: string; semverConstraint?: string; commitSelectionStrategy?: string }
+      chart?: { repoURL: string; name?: string; semverConstraint?: string }
+    }>
+  }
+  status?: {
+    lastFreightID?: string
+    lastHandledRefresh?: string
+    conditions?: Array<{ type?: string; status?: string; reason?: string; message?: string; lastTransitionTime?: string }>
+    discoveredArtifacts?: { discoveredAt?: string }
   }
 }
 interface RawFreight {
@@ -105,6 +167,8 @@ interface RawPromotion {
 }
 
 const API = '/apis/kargo.akuity.io/v1alpha1'
+/** Annotation/status updates go as JSON merge patches so the rest of the object is untouched. */
+const MERGE_PATCH = { 'content-type': 'application/merge-patch+json' }
 
 function toStage(s: RawStage): Stage {
   const st = s.status ?? {}
@@ -118,6 +182,13 @@ function toStage(s: RawStage): Stage {
     ...(s.spec?.requestedFreight ?? []).flatMap((r) => r.sources?.stages ?? []),
   ]
   const warehouse = s.spec?.subscriptions?.warehouse ?? s.spec?.requestedFreight?.find((r) => r.origin?.kind === 'Warehouse')?.origin?.name
+  const verification = st.freightHistory?.[0]?.verificationHistory?.[0]
+  const issues = [
+    ...(st.health?.issues ?? []),
+    ...(st.conditions ?? [])
+      .filter((c) => c.status === 'False' && c.type === 'Healthy' || c.type === 'Reconciling' && c.status === 'True' || c.status === 'False' && c.type === 'Ready')
+      .map((c) => `${c.type}${c.reason ? ` (${c.reason})` : ''}${c.message ? `: ${c.message}` : ''}`),
+  ]
   return {
     name: s.metadata.name,
     project: s.metadata.namespace ?? '',
@@ -128,6 +199,34 @@ function toStage(s: RawStage): Stage {
     upstream: [...new Set(upstream)],
     warehouse,
     message: st.message ?? st.health?.issues?.[0],
+    currentPromotion: st.currentPromotion?.name,
+    lastPromotionPhase: st.lastPromotion?.status?.phase,
+    verification: verification?.phase
+      ? { phase: verification.phase, message: verification.message, startTime: verification.startTime, finishTime: verification.finishTime }
+      : undefined,
+    issues: issues.length ? [...new Set(issues)] : undefined,
+  }
+}
+
+function toWarehouse(w: RawWarehouse): Warehouse {
+  const subs = (w.spec?.subscriptions ?? []).flatMap((s): Warehouse['subscriptions'] => {
+    if (s.image) return [{ kind: 'image', repoURL: s.image.repoURL, selector: s.image.semverConstraint ?? s.image.allowTags ?? s.image.imageSelectionStrategy }]
+    if (s.git) return [{ kind: 'git', repoURL: s.git.repoURL, selector: s.git.branch ?? s.git.semverConstraint ?? s.git.commitSelectionStrategy }]
+    if (s.chart) return [{ kind: 'chart', repoURL: s.chart.repoURL, selector: [s.chart.name, s.chart.semverConstraint].filter(Boolean).join(' ') || undefined }]
+    return []
+  })
+  const issues = (w.status?.conditions ?? [])
+    .filter((c) => (c.type === 'Healthy' && c.status === 'False') || (c.type === 'Ready' && c.status === 'False'))
+    .map((c) => `${c.type}${c.reason ? ` (${c.reason})` : ''}${c.message ? `: ${c.message}` : ''}`)
+  return {
+    name: w.metadata.name,
+    project: w.metadata.namespace ?? '',
+    subscriptions: subs,
+    lastFreight: w.status?.lastFreightID,
+    lastDiscovered: w.status?.discoveredArtifacts?.discoveredAt ?? w.status?.conditions?.find((c) => c.type === 'Healthy')?.lastTransitionTime,
+    interval: w.spec?.interval,
+    issues: issues.length ? issues : undefined,
+    created: w.metadata.creationTimestamp ?? new Date(0).toISOString(),
   }
 }
 
@@ -190,6 +289,8 @@ function build(_http: HttpClient): KargoClient {
       (await listScoped<RawFreight>(k8s, 'freights', project)).map(toFreight).sort((a, b) => bySort(a.created, b.created)),
     listPromotions: async (project) =>
       (await listScoped<RawPromotion>(k8s, 'promotions', project)).map(toPromotion).sort((a, b) => bySort(a.created, b.created)).slice(0, 100),
+    listWarehouses: async (project) =>
+      (await listScoped<RawWarehouse>(k8s, 'warehouses', project)).map(toWarehouse).sort((a, b) => a.name.localeCompare(b.name)),
     promote: async (project, stage, freight) => {
       await k8s.post<unknown>(`${API}/namespaces/${encodeURIComponent(project)}/promotions`, {
         apiVersion: 'kargo.akuity.io/v1alpha1',
@@ -197,6 +298,39 @@ function build(_http: HttpClient): KargoClient {
         metadata: { generateName: `${stage}-`, namespace: project },
         spec: { stage, freight },
       })
+    },
+    // Kargo's controllers act on annotations for these (same as `kargo` CLI):
+    // abort = `kargo.akuity.io/abort: <promotion name>`, refresh =
+    // `kargo.akuity.io/refresh: <any new value>`. JSON merge patches keep the
+    // rest of the object untouched.
+    abortPromotion: async (project, promotion) => {
+      await k8s.patch<unknown>(
+        `${API}/namespaces/${encodeURIComponent(project)}/promotions/${encodeURIComponent(promotion)}`,
+        { metadata: { annotations: { 'kargo.akuity.io/abort': promotion } } },
+        { headers: MERGE_PATCH },
+      )
+    },
+    approveFreight: async (project, freight, stage) => {
+      // Approval lives in Freight status; the status subresource takes a merge patch.
+      await k8s.patch<unknown>(
+        `${API}/namespaces/${encodeURIComponent(project)}/freights/${encodeURIComponent(freight)}/status`,
+        { status: { approvedFor: { [stage]: { approvedAt: new Date().toISOString() } } } },
+        { headers: MERGE_PATCH },
+      )
+    },
+    refreshWarehouse: async (project, warehouse) => {
+      await k8s.patch<unknown>(
+        `${API}/namespaces/${encodeURIComponent(project)}/warehouses/${encodeURIComponent(warehouse)}`,
+        { metadata: { annotations: { 'kargo.akuity.io/refresh': new Date().toISOString() } } },
+        { headers: MERGE_PATCH },
+      )
+    },
+    refreshStage: async (project, stage) => {
+      await k8s.patch<unknown>(
+        `${API}/namespaces/${encodeURIComponent(project)}/stages/${encodeURIComponent(stage)}`,
+        { metadata: { annotations: { 'kargo.akuity.io/refresh': new Date().toISOString() } } },
+        { headers: MERGE_PATCH },
+      )
     },
   }
 }
@@ -216,5 +350,12 @@ export const KargoClient = defineClient<KargoClient>(build, () => ({
   listStages: async () => STUB_STAGES,
   listFreight: async () => STUB_FREIGHT,
   listPromotions: async () => [],
+  listWarehouses: async () => [
+    { name: 'main', project: 'default', subscriptions: [{ kind: 'image', repoURL: 'harbor.adhar.local/library/adhar-console', selector: '^0.x' }], lastFreight: 'fr-1', interval: '5m0s', created: '2026-04-01T00:00:00Z' },
+  ],
   promote: async () => {},
+  abortPromotion: async () => {},
+  approveFreight: async () => {},
+  refreshWarehouse: async () => {},
+  refreshStage: async () => {},
 }))

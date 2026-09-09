@@ -8,6 +8,20 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ### Changed
 
+- **Kargo Stages page covers the whole promotion workflow.** A stats strip
+  (steady / promoting / needs attention, freight, running and failed
+  promotions) that filters the pipeline; the pipeline laid out by dependency
+  tier from warehouse-fed stages downstream, each stage showing health, phase,
+  the current freight with its images, commits and charts, the verification
+  result, the last promotion outcome and any controller issues, with Promote,
+  Abort (while a promotion runs) and Refresh; a Warehouses section with
+  subscriptions, discovery interval, last freight and "Discover now"; the
+  freight inventory with search and warehouse filter, live / verified /
+  approved badges per stage and manual approval for a stage; and the
+  promotion history with abort. The Kargo client gained warehouses, abort,
+  approve and refresh, all through the Kubernetes gateway under the user's
+  RBAC.
+
 - **ArgoCD Apps page redesigned.** A stats strip (applications, synced, out
   of sync, healthy, degraded, progressing, auto-sync share, running/failed
   operations) whose tiles double as filters; search across name, namespace,

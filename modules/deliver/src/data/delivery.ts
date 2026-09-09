@@ -198,6 +198,48 @@ export function usePromote() {
   })
 }
 
+export function usePromotions() {
+  const project = useArgocdProject()
+  useLiveInvalidate('k8s', { group: KARGO, version: 'v1alpha1', resource: 'promotions' }, [['kargo', 'promotions'], ['kargo', 'stages']])
+  return useQuery({
+    queryKey: ['kargo', 'promotions', project],
+    queryFn: () => kargoClient.listPromotions(project),
+    refetchInterval: usePollingInterval(REFRESH_MS),
+  })
+}
+
+export function useWarehouses() {
+  const project = useArgocdProject()
+  useLiveInvalidate('k8s', { group: KARGO, version: 'v1alpha1', resource: 'warehouses' }, [['kargo', 'warehouses']])
+  return useQuery({
+    queryKey: ['kargo', 'warehouses', project],
+    queryFn: () => kargoClient.listWarehouses(project),
+    refetchInterval: usePollingInterval(REFRESH_MS),
+  })
+}
+
+function useKargoMutation<V>(fn: (project: string, v: V) => Promise<void>) {
+  const project = useArgocdProject()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: V) => fn(project, v),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['kargo'] }),
+  })
+}
+
+export function useAbortPromotion() {
+  return useKargoMutation((project, { promotion }: { promotion: string }) => kargoClient.abortPromotion(project, promotion))
+}
+export function useApproveFreight() {
+  return useKargoMutation((project, { freight, stage }: { freight: string; stage: string }) => kargoClient.approveFreight(project, freight, stage))
+}
+export function useRefreshWarehouse() {
+  return useKargoMutation((project, { warehouse }: { warehouse: string }) => kargoClient.refreshWarehouse(project, warehouse))
+}
+export function useRefreshStage() {
+  return useKargoMutation((project, { stage }: { stage: string }) => kargoClient.refreshStage(project, stage))
+}
+
 /* ─────────── Argo Rollouts ─────────── */
 
 export function useRollouts() {

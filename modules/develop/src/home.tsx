@@ -1,7 +1,6 @@
 import { PageHeader } from '@adhar-console/shell-ui'
 import { Dashboard } from './views/dashboard.tsx'
 import { RepoList } from './views/repo-list.tsx'
-import { Ide } from './views/ide.tsx'
 import { Branches } from './views/branches.tsx'
 import { Commits } from './views/commits.tsx'
 import { PullRequestList } from './views/pr-list.tsx'
@@ -14,7 +13,6 @@ import { Pipelines } from './views/pipelines.tsx'
 type Section =
   | 'dashboard'
   | 'repos'
-  | 'ide'
   | 'branches'
   | 'commits'
   | 'prs'
@@ -32,10 +30,6 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   repos: {
     label: 'Repositories',
     description: 'Every repository in the active org — backed by Gitea.',
-  },
-  ide: {
-    label: 'Visual Studio Code',
-    description: 'Full Visual Studio Code in the browser — extensions, terminal, debugger. Backed by code-server (or vscode.dev fallback).',
   },
   branches: {
     label: 'Branches',
@@ -55,7 +49,7 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   },
   environments: {
     label: 'Cloud Dev Environments',
-    description: 'Coder workspaces — spin up an IDE, terminal, and preview from any template.',
+    description: 'Coder workspaces — code-server, terminal and previews on the cluster, from any template.',
   },
   workflows: {
     label: 'CI Workflows',
@@ -79,7 +73,6 @@ export default function DevelopHome({ section }: { section?: string } = {}) {
       <PageHeader title={def.label} description={def.description} />
       {active === 'dashboard' && <Dashboard />}
       {active === 'repos' && <RepoList />}
-      {active === 'ide' && <Ide />}
       {active === 'branches' && <Branches />}
       {active === 'commits' && <Commits />}
       {active === 'prs' && <PullRequestList />}

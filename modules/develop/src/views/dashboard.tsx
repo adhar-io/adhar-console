@@ -172,10 +172,10 @@ export function Dashboard() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <QuickStartCard
             title="Code"
-            description="Browse repos, edit files in the in-browser IDE, manage branches and commits."
+            description="Browse repos, spin up a cloud dev environment, manage branches and commits."
             links={[
               { label: 'Repositories', href: '?repos' },
-              { label: 'Browser IDE', href: '?ide' },
+              { label: 'Cloud Envs', href: '?environments' },
               { label: 'Branches', href: '?branches' },
               { label: 'Commits', href: '?commits' },
             ]}

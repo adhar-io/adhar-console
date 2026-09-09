@@ -43,6 +43,17 @@ export interface ToolDef {
   headers?: Record<string, string>
   /** Strip this prefix from the proxied path before forwarding. */
   stripPrefix?: string
+  /**
+   * How `login` mode mints its session token. Defaults to the ArgoCD shape
+   * (`POST /api/v1/session` `{username,password}` → `{token}`); tools with a
+   * different login endpoint (Coder: `/api/v2/users/login` `{email,password}`
+   * → `{session_token}`) override it here.
+   */
+  login?: {
+    path: string
+    body(username: string, password: string): unknown
+    tokenField: string
+  }
 }
 
 function clean(url: string | undefined): string {
@@ -197,10 +208,23 @@ export function getToolRegistry(): Record<string, ToolDef> {
       authMode: 'service',
       serviceToken: env('POSTHOG_TOKEN'),
     },
+    // Coder only accepts its own session tokens / API keys — a Keycloak access
+    // token is rejected with 401 — so `user` mode can never work. Prefer a
+    // long-lived API key (`CODER_TOKEN`), else sign in with the bootstrap
+    // owner (`CODER_USERNAME`/`CODER_PASSWORD`, the `coder-credentials` Secret)
+    // and cache the session token. `CODER_AUTH_MODE` still overrides.
     coder: {
       baseUrl: toolUrl('coder', 'CODER_URL'),
-      authMode: (env('CODER_AUTH_MODE') as AuthMode) ?? 'user',
+      authMode: (env('CODER_AUTH_MODE') as AuthMode) ??
+        (env('CODER_TOKEN') ? 'service' : env('CODER_USERNAME') && env('CODER_PASSWORD') ? 'login' : 'user'),
       serviceToken: env('CODER_TOKEN'),
+      username: env('CODER_USERNAME'),
+      password: env('CODER_PASSWORD'),
+      login: {
+        path: '/api/v2/users/login',
+        body: (email, password) => ({ email, password }),
+        tokenField: 'session_token',
+      },
     },
     trivy: {
       baseUrl: toolUrl('trivy', 'TRIVY_URL', 'HARBOR_URL'),

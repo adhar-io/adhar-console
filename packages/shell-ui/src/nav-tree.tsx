@@ -196,7 +196,6 @@ export const DEFAULT_NAV: NavSection[] = [
         children: [
           { id: 'develop.dashboard', label: 'Dashboard', to: '/develop', search: 'dashboard' },
           { id: 'develop.repos', label: 'Repositories', to: '/develop', search: 'repos' },
-          { id: 'develop.ide', label: 'VS Code', to: '/develop', search: 'ide' },
           { id: 'develop.branches', label: 'Branches', to: '/develop', search: 'branches' },
           { id: 'develop.commits', label: 'Commits', to: '/develop', search: 'commits' },
           { id: 'develop.prs', label: 'Pull Requests', to: '/develop', search: 'prs', badge: 5 },

@@ -8,6 +8,21 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ### Changed
 
+- **ArgoCD Apps page redesigned.** A stats strip (applications, synced, out
+  of sync, healthy, degraded, progressing, auto-sync share, running/failed
+  operations) whose tiles double as filters; search across name, namespace,
+  repo, path, image and labels; sync / health / policy / project / namespace
+  filters; sort by attention, name, namespace or last reconcile; card or table
+  layout (remembered); multi-select with bulk sync. Cards carry the health
+  rail, auto-sync policy (self-heal / prune), source and revision, resource
+  counts with drift and unhealthy figures, image and deployment counts, last
+  reconcile, the last operation with its initiator and failure message, and
+  controller conditions. Per-app actions: sync, refresh, hard refresh,
+  terminate a running operation, and delete with or without cascade — all
+  through ArgoCD's REST API. The application model now exposes the auto-sync
+  policy, operation state, conditions, images, deployment history size,
+  reconcile time and resource summary.
+
 - **Logs page: two toolbar rows, and the stream takes the rest of the
   screen.** Row one is the LogQL query with labels, history, save, Run and
   Live; row two is the time range, level chips, the in-result filter with its

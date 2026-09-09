@@ -2,10 +2,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { argocd, argoRollouts, falco, harbor, kargo, trivy } from '@adhar-console/api-clients'
 import { useArgocdProject, useHarborProject, useLiveInvalidate, usePollingInterval } from '@adhar-console/shell-ui'
 import {
+  deleteApplication,
   fetchManagedResources,
   fetchRevisionHistory,
+  refreshApplication,
   rollbackApplication,
   syncApplication,
+  terminateOperation,
   type ArgoHealthState,
   type ArgoSyncState,
   type ResourceNode,
@@ -79,6 +82,33 @@ export function useSyncApplication() {
   return useMutation({
     mutationFn: ({ name, options }: { name: string; options?: SyncOptions }) =>
       syncApplication(name, options),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['argocd'] }),
+  })
+}
+
+/** Re-compare against git (`hard` also drops the manifest cache). */
+export function useRefreshApplication() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, hard }: { name: string; hard?: boolean }) => refreshApplication(name, hard),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['argocd'] }),
+  })
+}
+
+/** Stop the running sync/rollback operation. */
+export function useTerminateOperation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name }: { name: string }) => terminateOperation(name),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['argocd'] }),
+  })
+}
+
+/** Delete the Application (cascade removes its managed resources). */
+export function useDeleteApplication() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, cascade }: { name: string; cascade?: boolean }) => deleteApplication(name, cascade),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['argocd'] }),
   })
 }

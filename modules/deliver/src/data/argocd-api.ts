@@ -264,3 +264,35 @@ export async function syncApplication(name: string, options?: SyncOptions): Prom
 export async function rollbackApplication(name: string, id: number): Promise<void> {
   await argoPost<void>(`/api/v1/applications/${encodeURIComponent(name)}/rollback`, { id })
 }
+
+/**
+ * Ask ArgoCD to re-compare the app against git. `hard` also drops the
+ * repo-server manifest cache (what the ArgoCD UI calls "Hard Refresh").
+ */
+export async function refreshApplication(name: string, hard = false): Promise<void> {
+  await argoGet<unknown>(
+    `/api/v1/applications/${encodeURIComponent(name)}?refresh=${hard ? 'hard' : 'normal'}`,
+  )
+}
+
+/** Stop the sync/rollback operation currently running on the app. */
+export async function terminateOperation(name: string): Promise<void> {
+  await argoDelete(`/api/v1/applications/${encodeURIComponent(name)}/operation`)
+}
+
+/**
+ * Delete the Application. `cascade` (ArgoCD's default) also deletes the
+ * resources it manages; `false` leaves them in the cluster (orphan).
+ */
+export async function deleteApplication(name: string, cascade = true): Promise<void> {
+  await argoDelete(`/api/v1/applications/${encodeURIComponent(name)}?cascade=${cascade}`)
+}
+
+async function argoDelete(path: string): Promise<void> {
+  const res = await fetch(`${ARGOCD_BASE}${path}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: { accept: 'application/json' },
+  })
+  if (!res.ok) throw await argoError(res, path)
+}

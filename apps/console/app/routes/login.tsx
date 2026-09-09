@@ -100,7 +100,11 @@ function LoginPage() {
   function continueAsDemo() {
     setBusy('demo')
     setSession(getStubSession())
-    nav({ to: returnTo ?? '/', replace: true })
+    // `returnTo` may carry a query string (`/deliver?section=flow`); the router
+    // wants path and search separately, so split them instead of dropping it.
+    const [path, query = ''] = (returnTo ?? '/').split('?')
+    const search = Object.fromEntries(new URLSearchParams(query))
+    nav({ to: path || '/', search: search as never, replace: true })
   }
 
   const redirecting = busy === 'login' || busy === 'register'

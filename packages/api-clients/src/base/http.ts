@@ -98,6 +98,24 @@ export class NetworkError extends Error {
  * shell listens for the same `adhar:unauthorized` event and redirects to login.
  */
 let lastUnauthorizedAt = 0
+/**
+ * Only a 401 from the console's OWN endpoints means the user's session is
+ * gone. `/api/svc/<tool>/…` is a reverse proxy: a 401 there is the backing
+ * tool rejecting the credential the console injected (or a tool that needs
+ * its own login) — that is a tool error to show in place, not a reason to
+ * throw the user out to the sign-in page. Doing so was how one unhappy Coder
+ * or Gitea call could bounce the whole console through /login and land the
+ * user on a different section than they asked for.
+ */
+function isConsoleSessionScoped(url: string): boolean {
+  try {
+    const path = new URL(url, 'http://local').pathname
+    return !path.startsWith('/api/svc/')
+  } catch {
+    return true
+  }
+}
+
 function signalUnauthorized(): void {
   if (typeof document === 'undefined') return
   const g = globalThis as unknown as {
@@ -178,7 +196,7 @@ export class HttpClient {
     // Response handling branches by opts.response + content-type.
     if (opts.response === 'raw') {
       if (!res.ok) {
-        if (res.status === 401) signalUnauthorized()
+        if (res.status === 401 && isConsoleSessionScoped(url)) signalUnauthorized()
         throw new HttpError(res.status, res.statusText, await safeBody(res), url, method)
       }
       return res as unknown as T
@@ -192,7 +210,7 @@ export class HttpClient {
     const parsed = wantText ? text : text ? safeJson(text) : undefined
 
     if (!res.ok) {
-      if (res.status === 401) signalUnauthorized()
+      if (res.status === 401 && isConsoleSessionScoped(url)) signalUnauthorized()
       throw new HttpError(res.status, res.statusText, parsed ?? text, url, method)
     }
     return parsed as T

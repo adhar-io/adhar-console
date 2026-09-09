@@ -23,6 +23,15 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ### Fixed
 
+- **Deliver → "Delivery Flow" opened the Deliver dashboard.** Reproduced in a
+  browser: the flow view's first backing-tool call answered 401, the HTTP
+  client treated every 401 as a lost console session and bounced through
+  `/login`, whose return path kept only the pathname — so the user came back
+  to `/deliver` with no section. Two fixes: a 401 from a `/api/svc/<tool>`
+  proxy is now a tool error shown in place (only the console's own endpoints
+  signal a lost session), and the sign-in return path carries the full
+  location including its query string, on both the server and the demo path.
+
 - **App drawer: official logos for every routed app.** Eighteen apps fell back
   to the generic Kubernetes mark (chaos-mesh, dagster, faro, kubeflow, lakefs,
   loki, mimir, n8n, oncall, open-metadata, opensearch, penpot, prefect,

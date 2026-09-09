@@ -62,26 +62,37 @@ function RootComponent() {
     nav({ to, replace: true })
   }, [status, pathname, search, nav])
 
+  // The full location the user wanted, query string included. Phase pages
+  // select their section with `?section=…`, so a `returnTo` of the bare
+  // pathname sends someone who asked for "Delivery Flow" back to the Deliver
+  // dashboard after signing in.
+  const hereWithQuery = () => {
+    const loc = globalThis.location
+    const p = loc?.pathname ?? pathname
+    const q = loc?.search ?? ''
+    return p === '/' && !q ? undefined : `${p}${q}`
+  }
+
   // Unauthenticated → bounce to /login (preserving the path the user wanted).
   useEffect(() => {
     if (status !== 'anonymous' || isPublic) return
     nav({
       to: '/login',
-      search: { returnTo: pathname === '/' ? undefined : pathname },
+      search: { returnTo: hereWithQuery() },
       replace: true,
     })
   }, [status, isPublic, pathname, nav])
 
-  // A 401 from any BFF call means the session expired mid-use — data layers emit
-  // `adhar:unauthorized`; send the user to sign in again (unless already on a
-  // public page), preserving where they were.
+  // A 401 from the console's OWN endpoints means the session expired mid-use —
+  // data layers emit `adhar:unauthorized`; send the user to sign in again
+  // (unless already on a public page), preserving where they were.
   useEffect(() => {
     return subscribeUnauthorized(() => {
       if (isPublicPath(globalThis.location?.pathname ?? pathname)) return
       nav({
         to: '/login',
         search: {
-          returnTo: pathname === '/' ? undefined : pathname,
+          returnTo: hereWithQuery(),
           error: 'Your session expired. Please sign in again.',
         },
         replace: true,

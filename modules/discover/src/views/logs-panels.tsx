@@ -132,9 +132,9 @@ export function Histogram({
                 />
               ))}
               {hover === i ? (
-                <span className="pointer-events-none absolute -top-7 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] font-medium text-white shadow-md">
+                <span className="pointer-events-none absolute -top-7 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] font-medium text-white shadow-md dark:bg-slate-100 dark:text-slate-900">
                   {fmtBucket(b)} · {total} line{total === 1 ? '' : 's'}
-                  {b.error ? <span className="ml-1 text-rose-300">{b.error} err</span> : null}
+                  {b.error ? <span className="ml-1 text-rose-300 dark:text-rose-600">{b.error} err</span> : null}
                 </span>
               ) : null}
             </button>
@@ -329,7 +329,7 @@ export function LogDetailDrawer({
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Log line details">
-      <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-slate-900/35 backdrop-blur-[2px]" />
+      <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-slate-900/35 backdrop-blur-[2px] dark:bg-black/60" />
       <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
         <header className="border-b border-edge-default bg-surface-raised px-5 py-4">
           <div className="flex items-start justify-between gap-4">
@@ -412,7 +412,7 @@ export function LogDetailDrawer({
             </div>
           ) : tab === 'raw' ? (
             <div className="p-5">
-              <pre className="whitespace-pre-wrap break-all rounded-xl border border-edge-default bg-slate-950 p-4 font-mono text-[12px] leading-relaxed text-slate-100">
+              <pre className="whitespace-pre-wrap break-all rounded-xl border border-edge-default bg-surface-sunken p-4 font-mono text-[12px] leading-relaxed text-content">
                 {parsed.pretty ?? entry.message}
               </pre>
             </div>

@@ -6,7 +6,29 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+
+- **Logs page: two toolbar rows, and the stream takes the rest of the
+  screen.** Row one is the LogQL query with labels, history, save, Run and
+  Live; row two is the time range, level chips, the in-result filter with its
+  regex/case/exclude toggles, a View options popover (volume strip, facets,
+  wrap, labels, sort, timestamp format, dedup, limit), export and fullscreen.
+  The six stat tiles and the tall histogram became one compact strip that can
+  be hidden. The page is a fixed-height column: the log list scrolls inside
+  its own pane instead of growing the page, so the stream area is as large as
+  the viewport allows. Live tail now follows the newest line, pauses when you
+  scroll away, and shows a "N new lines" pill to jump back. Dark mode: the
+  histogram tooltip, the detail overlay and the raw-line panel use theme
+  tokens instead of hardcoded light colours.
+
 ### Fixed
+
+- **Cloud Shell: "xterm loaded but window.Terminal is undefined".** xterm.js
+  was fetched from a CDN as a UMD global, and its wrapper registers as an AMD
+  module whenever a global `define.amd` exists — which Monaco's loader
+  installs — so the shell broke after any editor view had loaded. xterm and
+  its addons are now bundled workspace dependencies loaded lazily; no CDN, no
+  CSP dependence, and a failed load is no longer cached.
 
 - **Platform dashboard and cluster pickers no longer call the cluster "Local
   cluster".** That label was invented client-side for the gateway's default

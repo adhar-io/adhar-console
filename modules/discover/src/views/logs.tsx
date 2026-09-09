@@ -47,15 +47,12 @@ import {
   IconDownload,
   IconExpand,
   IconHistory,
-  IconLabels,
   IconPlay,
   IconReset,
   IconSearch,
-  IconSidebar,
   IconStar,
   IconTag,
   IconTrash,
-  IconWrap,
   IconX,
   LEVELS,
   LEVEL_BAR,
@@ -112,10 +109,12 @@ interface Prefs {
   dedup: DedupMode
   limit: number
   facets: boolean
+  /** Show the compact stats + volume strip above the stream. */
+  volume: boolean
 }
 
-const DEFAULT_PREFS: Prefs = { wrap: true, showLabels: true, ts: 'time', order: 'newest', dedup: 'none', limit: 500, facets: true }
-const PREFS_KEY = 'adhar.discover.logs.prefs.v1'
+const DEFAULT_PREFS: Prefs = { wrap: true, showLabels: true, ts: 'time', order: 'newest', dedup: 'none', limit: 500, facets: false, volume: true }
+const PREFS_KEY = 'adhar.discover.logs.prefs.v2'
 
 function loadPrefs(): Prefs {
   try {
@@ -165,9 +164,18 @@ export function Logs() {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [saveOpen, setSaveOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
+  const [viewOpen, setViewOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [selected, setSelected] = useState<lgtm.LogEntry | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  /* ── streaming: the log list scrolls inside its own pane; while tailing we
+     keep it pinned to the newest line unless the reader scrolled away, in
+     which case new arrivals are counted into a "jump to newest" pill. ── */
+  const streamRef = useRef<HTMLOListElement>(null)
+  const [following, setFollowing] = useState(true)
+  const [unseen, setUnseen] = useState(0)
+  const seenCountRef = useRef(0)
 
   const hasQuery = query.trim().length > 0
   const q = useLogs(query, sel, prefs.limit, { live })
@@ -263,6 +271,46 @@ export function Logs() {
   const hidden = all.length - rows.length - rows.reduce((s, r) => s + r.repeats, 0)
   const refining = levels.size !== LEVELS.length || facet.size > 0 || !!text.text.trim()
 
+  // Newest lines sit at the top in "newest first" order and at the bottom in
+  // "oldest first"; "pinned" means the pane shows that edge.
+  const newestEdge = prefs.order === 'newest' ? 'top' : 'bottom'
+  const scrollToNewest = useCallback(() => {
+    const el = streamRef.current
+    if (!el) return
+    el.scrollTop = newestEdge === 'top' ? 0 : el.scrollHeight
+    setUnseen(0)
+    setFollowing(true)
+  }, [newestEdge])
+
+  // Track whether the reader is at the newest edge; leaving it pauses follow.
+  const onStreamScroll = useCallback(() => {
+    const el = streamRef.current
+    if (!el) return
+    const atEdge = newestEdge === 'top' ? el.scrollTop < 8 : el.scrollHeight - el.scrollTop - el.clientHeight < 8
+    setFollowing(atEdge)
+    if (atEdge) setUnseen(0)
+  }, [newestEdge])
+
+  // On every new batch: stay pinned when following, else count what arrived.
+  useEffect(() => {
+    const delta = Math.max(0, rows.length - seenCountRef.current)
+    seenCountRef.current = rows.length
+    if (!live) return
+    if (following) {
+      const el = streamRef.current
+      if (el) el.scrollTop = newestEdge === 'top' ? 0 : el.scrollHeight
+    } else if (delta > 0) {
+      setUnseen((n) => n + delta)
+    }
+  }, [rows.length, live, following, newestEdge])
+
+  // A new query or leaving live mode resets the counters.
+  useEffect(() => {
+    seenCountRef.current = 0
+    setUnseen(0)
+    setFollowing(true)
+  }, [query, live])
+
   const zoomTo = (b: HistogramBucket) => {
     setLive(false)
     setSel({ kind: 'absolute', from: new Date(b.start).toISOString(), to: new Date(b.end).toISOString() })
@@ -293,11 +341,19 @@ export function Logs() {
   }
 
   return (
-    <div className={cn('space-y-3', fullscreen && 'fixed inset-0 z-40 overflow-y-auto bg-surface-app p-4')}>
-      {/* ═══════════ query bar ═══════════ */}
-      <section className="relative rounded-2xl border border-edge-default bg-surface-raised shadow-sm">
-        <div className="flex items-start gap-2 p-2.5">
-          <div className="flex h-10 shrink-0 items-center gap-1.5 rounded-lg bg-surface-sunken px-2.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+    <div
+      className={cn(
+        // A full-height column: the two toolbar rows and the (optional) volume
+        // strip take what they need, the stream pane takes everything else and
+        // scrolls internally — the page itself never grows with the log count.
+        'flex min-h-0 flex-col gap-2',
+        fullscreen ? 'fixed inset-0 z-40 bg-surface-app p-3' : 'h-[calc(100vh-10.5rem)] min-h-[520px]',
+      )}
+    >
+      {/* ═══════════ query bar (row 1) + range · levels · filter · view (row 2) ═══════════ */}
+      <section className="relative shrink-0 rounded-2xl border border-edge-default bg-surface-raised shadow-sm">
+        <div className="flex items-start gap-2 p-2">
+          <div className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-surface-sunken px-2.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
             <LokiIcon size={13} /> LogQL
           </div>
           <div className="relative min-w-0 flex-1">
@@ -319,7 +375,7 @@ export function Logs() {
               placeholder='{namespace="my-app"} |= "error"  — press / to focus, Enter to run'
               aria-label="LogQL query"
               className={cn(
-                'block max-h-32 min-h-10 w-full resize-y rounded-lg border border-edge-default bg-surface-app px-3 py-2.5 pr-8 font-mono text-[12.5px] leading-5 text-content shadow-inner placeholder:text-content-subtle',
+                'block max-h-32 min-h-9 w-full resize-y rounded-lg border border-edge-default bg-surface-app px-3 py-2 pr-8 font-mono text-[12.5px] leading-5 text-content shadow-inner placeholder:text-content-subtle',
                 'focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20',
               )}
             />
@@ -374,7 +430,7 @@ export function Logs() {
             <button
               type="button"
               onClick={() => run()}
-              className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 text-[12px] font-semibold text-white shadow-sm transition-colors hover:bg-brand-700"
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 text-[12px] font-semibold text-white shadow-sm transition-colors hover:bg-brand-700"
             >
               <IconPlay /> Run
             </button>
@@ -385,7 +441,7 @@ export function Logs() {
               title={sel.kind === 'absolute' ? 'Live tail needs a relative range' : live ? 'Pause live tail' : 'Start live tail'}
               onClick={() => setLive((v) => !v)}
               className={cn(
-                'inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                'inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50',
                 live
                   ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300'
                   : 'border-edge-default bg-surface-raised text-content-muted hover:border-edge-strong hover:text-content',
@@ -408,8 +464,8 @@ export function Logs() {
           </div>
         </div>
 
-        {/* time · levels · view */}
-        <div className="flex flex-wrap items-center gap-2 border-t border-edge-subtle px-2.5 py-2">
+        {/* row 2: range · levels · in-result filter · view/export/fullscreen */}
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-edge-subtle px-2 py-1.5">
           <RangeSelect sel={sel} onPreset={(id) => setSel(presetSelection(id))} />
           <CustomRange sel={sel} onApply={(from, to) => { setLive(false); setSel({ kind: 'absolute', from, to }) }} />
           {sel.kind === 'absolute' ? (
@@ -417,15 +473,52 @@ export function Logs() {
               <IconReset /> reset
             </button>
           ) : null}
-          <span className="mx-1 hidden h-5 w-px bg-edge-subtle sm:block" />
+          <span className="mx-0.5 hidden h-5 w-px bg-edge-subtle sm:block" />
           <LevelChips levels={levels} counts={counts} onChange={setLevels} />
-          <span className="ml-auto flex items-center gap-1.5">
+          <span className="mx-0.5 hidden h-5 w-px bg-edge-subtle md:block" />
+          {/* in-result filter (no re-query) */}
+          <div className="relative flex min-w-44 flex-1 items-center">
+            <span className="pointer-events-none absolute left-2.5 text-content-subtle"><IconSearch /></span>
+            <input
+              value={text.text}
+              onChange={(e) => setText({ ...text, text: e.target.value })}
+              placeholder="Filter lines in this result"
+              aria-label="Filter lines"
+              className={cn(
+                'h-8 w-full rounded-lg border border-edge-default bg-surface-app pl-8 pr-2 text-[12px] text-content placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20',
+                text.regex && 'font-mono',
+                matcher === null && text.text.trim() && text.regex && 'border-rose-400',
+              )}
+            />
+          </div>
+          <Toggle on={text.regex} onClick={() => setText({ ...text, regex: !text.regex })} title="Regular expression">.*</Toggle>
+          <Toggle on={text.caseSensitive} onClick={() => setText({ ...text, caseSensitive: !text.caseSensitive })} title="Match case">Aa</Toggle>
+          <Toggle on={text.exclude} onClick={() => setText({ ...text, exclude: !text.exclude })} title="Hide matching lines">¬</Toggle>
+          <span className="flex items-center gap-1.5">
             {q.isFetching && hasQuery ? (
               <span className="mr-1 inline-flex items-center gap-1 text-[10px] text-content-subtle"><Spinner size={10} /> {live ? 'tailing' : 'refreshing'}</span>
             ) : null}
-            <IconBtn label={prefs.facets ? 'Hide facets' : 'Show facets'} active={prefs.facets} onClick={() => setPrefs({ facets: !prefs.facets })}><IconSidebar /></IconBtn>
-            <IconBtn label={prefs.wrap ? 'Disable line wrap' : 'Wrap long lines'} active={prefs.wrap} onClick={() => setPrefs({ wrap: !prefs.wrap })}><IconWrap /></IconBtn>
-            <IconBtn label={prefs.showLabels ? 'Hide labels' : 'Show labels'} active={prefs.showLabels} onClick={() => setPrefs({ showLabels: !prefs.showLabels })}><IconLabels /></IconBtn>
+            <div className="relative">
+              <IconBtn label="View options" active={viewOpen} onClick={() => setViewOpen((o) => !o)}><IconSliders /></IconBtn>
+              {viewOpen ? (
+                <Popover onClose={() => setViewOpen(false)} className="right-0 w-64">
+                  <div className="space-y-1 p-1">
+                    <div className="px-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Layout</div>
+                    <ViewSwitch on={prefs.volume} onClick={() => setPrefs({ volume: !prefs.volume })}>Stats &amp; volume strip</ViewSwitch>
+                    <ViewSwitch on={prefs.facets} onClick={() => setPrefs({ facets: !prefs.facets })}>Facets sidebar</ViewSwitch>
+                    <ViewSwitch on={prefs.wrap} onClick={() => setPrefs({ wrap: !prefs.wrap })}>Wrap long lines</ViewSwitch>
+                    <ViewSwitch on={prefs.showLabels} onClick={() => setPrefs({ showLabels: !prefs.showLabels })}>Show labels on lines</ViewSwitch>
+                    <div className="px-1.5 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Stream</div>
+                    <div className="grid grid-cols-2 gap-1 px-1">
+                      <Select value={prefs.order} onChange={(v) => setPrefs({ order: v as Prefs['order'] })} title="Sort order" options={[['newest', 'Newest first'], ['oldest', 'Oldest first']]} />
+                      <Select value={prefs.ts} onChange={(v) => setPrefs({ ts: v as TsFormat })} title="Timestamp format" options={[['time', 'HH:mm:ss.SSS'], ['iso', 'ISO 8601'], ['relative', 'Relative']]} />
+                      <Select value={prefs.dedup} onChange={(v) => setPrefs({ dedup: v as DedupMode })} title="Deduplicate repeated lines" options={[['none', 'Dedup: off'], ['exact', 'Dedup: exact'], ['numbers', 'Dedup: numbers'], ['signature', 'Dedup: signature']]} />
+                      <Select value={String(prefs.limit)} onChange={(v) => setPrefs({ limit: Number(v) })} title="Max lines fetched" options={LIMITS.map((n) => [String(n), `Limit ${fmtNum(n)}`])} />
+                    </div>
+                  </div>
+                </Popover>
+              ) : null}
+            </div>
             <div className="relative">
               <IconBtn label="Export visible lines" active={exportOpen} onClick={() => setExportOpen((o) => !o)}><IconDownload /></IconBtn>
               {exportOpen ? (
@@ -461,84 +554,35 @@ export function Logs() {
         </div>
       ) : (
         <>
-          {/* ═══════════ stats + volume ═══════════ */}
-          <section className="overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm">
-            <div className="grid grid-cols-2 divide-y divide-edge-subtle border-b border-edge-subtle sm:grid-cols-3 sm:divide-y-0 lg:grid-cols-6 lg:divide-x">
-              <Stat label="Lines" value={fmtNum(all.length)} hint={all.length >= prefs.limit ? `capped at ${fmtNum(prefs.limit)} — narrow the query` : selectionLabel(sel)} warn={all.length >= prefs.limit} />
-              <Stat label="Errors" value={fmtNum(counts.error + counts.fatal)} hint={`${stats.errorPct}% of lines`} tone={counts.error + counts.fatal ? 'rose' : undefined} />
-              <Stat label="Warnings" value={fmtNum(counts.warn)} hint={`${stats.warnPct}% of lines`} tone={counts.warn ? 'amber' : undefined} />
-              <Stat label="Rate" value={`${stats.perMin}`} hint="lines / min" />
-              <Stat label="Streams" value={fmtNum(stats.streams)} hint="distinct label sets" />
-              <Stat label="Peak" value={stats.peak ? fmtNum(stats.peak.n) : '—'} hint={stats.peak ? `at ${stats.peak.at}` : 'no volume'} />
-            </div>
-            <div className="px-4 pb-3 pt-3">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-[11px] text-content-subtle">
-                  <span className="font-semibold uppercase tracking-wider">Volume</span>
-                  <span>{selectionLabel(sel)}</span>
-                  <span className="hidden sm:inline">· click a bar to zoom</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <LegendDot color={HIST_COLOR.error}>error</LegendDot>
-                  <LegendDot color={HIST_COLOR.warn}>warn</LegendDot>
-                  <LegendDot color={HIST_COLOR.info}>info</LegendDot>
-                </div>
+          {/* ═══════════ compact stats + volume strip (toggle in View options) ═══════════ */}
+          {prefs.volume ? (
+            <section className="flex shrink-0 items-stretch gap-3 overflow-hidden rounded-2xl border border-edge-default bg-surface-raised px-3 py-1.5 shadow-sm">
+              <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-0.5">
+                <MiniStat label="lines" value={fmtNum(all.length)} warn={all.length >= prefs.limit} title={all.length >= prefs.limit ? `capped at ${fmtNum(prefs.limit)} — narrow the query` : selectionLabel(sel)} />
+                <MiniStat label="errors" value={fmtNum(counts.error + counts.fatal)} tone={counts.error + counts.fatal ? 'rose' : undefined} title={`${stats.errorPct}% of lines`} />
+                <MiniStat label="warn" value={fmtNum(counts.warn)} tone={counts.warn ? 'amber' : undefined} title={`${stats.warnPct}% of lines`} />
+                <MiniStat label="/min" value={`${stats.perMin}`} title="lines per minute" />
+                <MiniStat label="streams" value={fmtNum(stats.streams)} title="distinct label sets" />
+                <MiniStat label="peak" value={stats.peak ? fmtNum(stats.peak.n) : '—'} title={stats.peak ? `at ${stats.peak.at}` : 'no volume'} />
               </div>
-              <Histogram buckets={buckets} levels={levels} onZoom={zoomTo} />
-            </div>
-          </section>
+              <div className="min-w-0 flex-1" title="Volume over the selected window — click a bar to zoom">
+                <Histogram buckets={buckets} levels={levels} onZoom={zoomTo} height={34} />
+              </div>
+              <div className="hidden shrink-0 items-center gap-2 xl:flex">
+                <LegendDot color={HIST_COLOR.error}>error</LegendDot>
+                <LegendDot color={HIST_COLOR.warn}>warn</LegendDot>
+                <LegendDot color={HIST_COLOR.info}>info</LegendDot>
+              </div>
+            </section>
+          ) : null}
 
-          {/* ═══════════ facets + stream ═══════════ */}
-          <div className={cn('grid gap-3', prefs.facets && 'lg:grid-cols-[240px_minmax(0,1fr)]')}>
+          {/* ═══════════ facets + stream — fills the remaining height ═══════════ */}
+          <div className={cn('grid min-h-0 flex-1 gap-2', prefs.facets && 'lg:grid-cols-[240px_minmax(0,1fr)]')}>
             {prefs.facets ? (
               <Facets facets={facets} active={facet} onToggle={toggleFacet} onPin={(k, v) => run(withMatcher(draft || query, k, v))} onClear={() => setFacet(new Map())} />
             ) : null}
 
-            <section className="min-w-0 overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm">
-              {/* stream toolbar */}
-              <div className="flex flex-wrap items-center gap-2 border-b border-edge-subtle px-3 py-2">
-                <div className="relative flex min-w-56 flex-1 items-center">
-                  <span className="pointer-events-none absolute left-2.5 text-content-subtle"><IconSearch /></span>
-                  <input
-                    value={text.text}
-                    onChange={(e) => setText({ ...text, text: e.target.value })}
-                    placeholder="Filter lines in this result (no re-query)"
-                    aria-label="Filter lines"
-                    className={cn(
-                      'h-8 w-full rounded-lg border border-edge-default bg-surface-app pl-8 pr-2 text-[12px] text-content placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20',
-                      text.regex && 'font-mono',
-                      matcher === null && text.text.trim() && text.regex && 'border-rose-400',
-                    )}
-                  />
-                </div>
-                <Toggle on={text.regex} onClick={() => setText({ ...text, regex: !text.regex })} title="Regular expression">.*</Toggle>
-                <Toggle on={text.caseSensitive} onClick={() => setText({ ...text, caseSensitive: !text.caseSensitive })} title="Match case">Aa</Toggle>
-                <Toggle on={text.exclude} onClick={() => setText({ ...text, exclude: !text.exclude })} title="Hide matching lines">¬</Toggle>
-                <span className="mx-0.5 hidden h-5 w-px bg-edge-subtle md:block" />
-                <Select value={prefs.dedup} onChange={(v) => setPrefs({ dedup: v as DedupMode })} title="Deduplicate repeated lines" options={[['none', 'Dedup: off'], ['exact', 'Dedup: exact'], ['numbers', 'Dedup: numbers'], ['signature', 'Dedup: signature']]} />
-                <Select value={prefs.order} onChange={(v) => setPrefs({ order: v as Prefs['order'] })} title="Sort order" options={[['newest', 'Newest first'], ['oldest', 'Oldest first']]} />
-                <Select value={String(prefs.limit)} onChange={(v) => setPrefs({ limit: Number(v) })} title="Max lines fetched" options={LIMITS.map((n) => [String(n), `Limit ${fmtNum(n)}`])} />
-                <Select value={prefs.ts} onChange={(v) => setPrefs({ ts: v as TsFormat })} title="Timestamp format" options={[['time', 'HH:mm:ss.SSS'], ['iso', 'ISO 8601'], ['relative', 'Relative']]} />
-              </div>
-
-              {/* result summary */}
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-edge-subtle bg-surface-sunken/50 px-3 py-1.5 text-[11px] text-content-muted">
-                <span>
-                  <span className="font-semibold tabular-nums text-content">{fmtNum(rows.length)}</span> shown
-                  {hidden > 0 ? <> · <span className="tabular-nums">{fmtNum(hidden)}</span> hidden by filters</> : null}
-                  {prefs.dedup !== 'none' ? <> · <span className="tabular-nums">{fmtNum(rows.reduce((s, r) => s + r.repeats, 0))}</span> collapsed</> : null}
-                </span>
-                {refining ? (
-                  <button type="button" onClick={() => { setLevels(new Set(LEVELS)); setFacet(new Map()); setText(EMPTY_TEXT_FILTER) }} className="font-medium text-brand-700 hover:underline dark:text-brand-300">
-                    Clear refinements
-                  </button>
-                ) : null}
-                <span className="ml-auto inline-flex items-center gap-2">
-                  <LokiBadge />
-                  <span className="font-mono text-[10px] text-content-subtle">{prefs.order === 'newest' ? '↓ newest' : '↑ oldest'}</span>
-                </span>
-              </div>
-
+            <section className="relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm">
               {/* stream */}
               {q.isLoading ? (
                 <StreamSkeleton />
@@ -551,7 +595,11 @@ export function Logs() {
                   />
                 </div>
               ) : (
-                <ol className={cn('divide-y divide-edge-subtle font-mono text-[12px]', !prefs.wrap && 'overflow-x-auto')}>
+                <ol
+                  ref={streamRef}
+                  onScroll={onStreamScroll}
+                  className={cn('min-h-0 flex-1 divide-y divide-edge-subtle overflow-y-auto font-mono text-[12px]', !prefs.wrap && 'overflow-x-auto')}
+                >
                   {rows.map((r, i) => (
                     <LogRow
                       key={`${r.entry.timestamp}-${i}`}
@@ -566,6 +614,44 @@ export function Logs() {
                   ))}
                 </ol>
               )}
+
+              {/* jump to newest — shown while tailing once the reader scrolled away */}
+              {live && !following && rows.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={scrollToNewest}
+                  className={cn(
+                    'absolute left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-brand-600 px-3 py-1 text-[11px] font-semibold text-white shadow-lg transition-colors hover:bg-brand-700',
+                    newestEdge === 'top' ? 'top-2' : 'bottom-9',
+                  )}
+                >
+                  {newestEdge === 'top' ? '↑' : '↓'} {unseen > 0 ? `${fmtNum(unseen)} new line${unseen === 1 ? '' : 's'}` : 'Jump to newest'}
+                </button>
+              ) : null}
+
+              {/* slim footer: result summary + stream state */}
+              <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-edge-subtle bg-surface-sunken/50 px-3 py-1 text-[11px] text-content-muted">
+                <span>
+                  <span className="font-semibold tabular-nums text-content">{fmtNum(rows.length)}</span> shown
+                  {hidden > 0 ? <> · <span className="tabular-nums">{fmtNum(hidden)}</span> hidden by filters</> : null}
+                  {prefs.dedup !== 'none' ? <> · <span className="tabular-nums">{fmtNum(rows.reduce((s, r) => s + r.repeats, 0))}</span> collapsed</> : null}
+                </span>
+                {refining ? (
+                  <button type="button" onClick={() => { setLevels(new Set(LEVELS)); setFacet(new Map()); setText(EMPTY_TEXT_FILTER) }} className="font-medium text-brand-700 hover:underline dark:text-brand-300">
+                    Clear refinements
+                  </button>
+                ) : null}
+                <span className="ml-auto inline-flex items-center gap-2">
+                  {live ? (
+                    <span className={cn('inline-flex items-center gap-1 font-medium', following ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300')}>
+                      <span className={cn('h-1.5 w-1.5 rounded-full', following ? 'bg-emerald-500' : 'bg-amber-500')} />
+                      {following ? 'following' : 'paused — scrolled away'}
+                    </span>
+                  ) : null}
+                  <LokiBadge />
+                  <span className="font-mono text-[10px] text-content-subtle">{prefs.order === 'newest' ? '↓ newest' : '↑ oldest'}</span>
+                </span>
+              </div>
             </section>
           </div>
         </>
@@ -744,7 +830,7 @@ function Facets({
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const activeCount = [...active.values()].reduce((s, v) => s + v.size, 0)
   return (
-    <aside className="hidden self-start overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm lg:block">
+    <aside className="hidden min-h-0 flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm lg:flex">
       <div className="flex items-center justify-between border-b border-edge-subtle px-3 py-2">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Facets</span>
         {activeCount ? (
@@ -754,7 +840,7 @@ function Facets({
       {facets.length === 0 ? (
         <p className="px-3 py-4 text-[11px] text-content-subtle">Facets appear once results have labels or structured fields.</p>
       ) : (
-        <div className="max-h-[70vh] divide-y divide-edge-subtle overflow-y-auto">
+        <div className="min-h-0 flex-1 divide-y divide-edge-subtle overflow-y-auto">
           {facets.map((g) => {
             const max = Math.max(1, ...g.values.map((v) => v.n))
             const isCollapsed = collapsed.has(g.key)
@@ -965,16 +1051,6 @@ function computeStats(all: lgtm.LogEntry[], buckets: HistogramBucket[], sel: Tim
     streams: streams.size,
     peak,
   }
-}
-
-function Stat({ label, value, hint, tone, warn = false }: { label: string; value: string; hint: string; tone?: 'rose' | 'amber'; warn?: boolean }) {
-  return (
-    <div className="flex flex-col gap-0.5 px-4 py-2.5">
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{label}</span>
-      <span className={cn('text-xl font-semibold leading-none tabular-nums tracking-tight', tone === 'rose' ? 'text-rose-600 dark:text-rose-300' : tone === 'amber' ? 'text-amber-600 dark:text-amber-300' : 'text-content')}>{value}</span>
-      <span className={cn('truncate text-[10.5px]', warn ? 'text-amber-600 dark:text-amber-300' : 'text-content-subtle')} title={hint}>{hint}</span>
-    </div>
-  )
 }
 
 /* ─────────── level chips ─────────── */
@@ -1200,6 +1276,43 @@ function Popover({ children, onClose, className }: { children: ReactNode; onClos
       <div className="fixed inset-0 z-30" aria-hidden onClick={onClose} />
       <div className={cn('absolute top-full z-40 mt-1.5 rounded-xl border border-edge-default bg-surface-raised p-1 shadow-xl ring-1 ring-black/5 dark:ring-white/10', className)}>{children}</div>
     </>
+  )
+}
+
+/** One line of the View options popover: a labelled on/off switch. */
+function ViewSwitch({ on, onClick, children }: { on: boolean; onClick(): void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      onClick={onClick}
+      className="flex w-full items-center justify-between gap-3 rounded-md px-1.5 py-1.5 text-left text-[12px] text-content-muted hover:bg-surface-sunken hover:text-content"
+    >
+      <span>{children}</span>
+      <span className={cn('relative inline-flex h-4 w-7 shrink-0 rounded-full transition-colors', on ? 'bg-brand-600' : 'bg-edge-strong')}>
+        <span className={cn('absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform', on ? 'translate-x-3.5' : 'translate-x-0.5')} />
+      </span>
+    </button>
+  )
+}
+
+/** A compact inline statistic for the volume strip. */
+function MiniStat({ label, value, tone, warn = false, title }: { label: string; value: string; tone?: 'rose' | 'amber'; warn?: boolean; title?: string }) {
+  return (
+    <span className="inline-flex items-baseline gap-1" title={title}>
+      <span className={cn('text-[13px] font-semibold tabular-nums leading-none', tone === 'rose' ? 'text-rose-600 dark:text-rose-300' : tone === 'amber' ? 'text-amber-600 dark:text-amber-300' : warn ? 'text-amber-600 dark:text-amber-300' : 'text-content')}>{value}</span>
+      <span className="text-[10px] uppercase tracking-wider text-content-subtle">{label}</span>
+    </span>
+  )
+}
+
+function IconSliders() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3" />
+      <path d="M1 14h6M9 8h6M17 16h6" />
+    </svg>
   )
 }
 

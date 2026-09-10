@@ -8,6 +8,29 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ### Changed
 
+- **Cloud Dev Environments work against a real Coder.** The console now
+  authenticates to Coder the only way Coder accepts — with a Coder session
+  minted from the bootstrap owner (`CODER_USERNAME` / `CODER_PASSWORD`, the
+  new `coder-credentials` Secret) or a `CODER_TOKEN` API key — instead of
+  forwarding the Keycloak token Coder rejected with 401. The page is rebuilt:
+  stats strip (running / stopped / building / failed / outdated, templates,
+  Coder version) that doubles as filters, Mine / Everyone toggle, search,
+  status + template filters, sort, grid and table layouts, and a template
+  catalogue with one-click create. **New environment** resolves the owner
+  (your Coder account, matched by e-mail), asks the template's rich
+  parameters, auto-stop TTL and automatic updates, and creates through
+  Coder's org-member endpoint. Cards offer Start / Stop / Restart / Update to
+  latest template / favourite / delete, and open code-server and the terminal
+  through the Coder dashboard route. The drawer shows agents with lifecycle
+  state and app health, live provisioner logs while a build runs, build
+  history with cancel, auto-stop settings and a danger zone. The platform
+  seeds Coder's Kubernetes starter template (`templates-seed.yaml`) so the
+  catalogue is never empty.
+
+- **VS Code section removed.** The embedded vscode.dev / code-server page and
+  its nav entry are gone; the cloud environments carry code-server per
+  workspace, and the dashboard quick link points at Cloud Envs instead.
+
 - **Repositories is a full Gitea management page.** Stats strip (total,
   private / public, open issues, open PRs across the org, templates, archived,
   storage) that doubles as filters, search over name / description / topics /

@@ -487,7 +487,7 @@ export const TEMPLATES: CatalogTemplate[] = [
     ],
     actions: [
       { title: 'Render scaffold from template', duration: 0.6 },
-      { title: 'Create repository', duration: 0.9, detail: 'github.com/example/{{name}}' },
+      { title: 'Create repository', duration: 0.9, detail: 'Gitea · {{name}}' },
       { title: 'Push initial commit', duration: 0.8, detail: 'main · main_v1' },
       { title: 'Open release branch + protections', duration: 0.4 },
       { title: 'Provision CI workflow', duration: 1.2, detail: 'GitHub Actions · build / test / scan' },
@@ -871,7 +871,7 @@ export const TEMPLATES: CatalogTemplate[] = [
     ],
     actions: [
       { title: 'Render Spring Boot scaffold', duration: 0.7 },
-      { title: 'Create repository', duration: 0.8, detail: 'github.com/example/{{name}}' },
+      { title: 'Create repository', duration: 0.8, detail: 'Gitea · {{name}}' },
       { title: 'Configure build', duration: 0.6, detail: 'Maven · Java 21' },
       { title: 'Provision CI workflow', duration: 1.2, detail: 'GitHub Actions · build / test / scan' },
       { title: 'Wire Helm chart', duration: 0.7, detail: 'platform-helm/charts/{{name}}' },
@@ -1936,6 +1936,13 @@ export function buildCustomTemplate(input: {
 export function entityFromTemplate(
   template: CatalogTemplate,
   values: Record<string, unknown>,
+  /**
+   * Browser-facing URLs produced by the real scaffold run (`/api/scaffold`).
+   * `sourceUrl` is the Gitea repository the scaffolder just created; when the
+   * run produced nothing (dry run, failure) no link is fabricated — a link that
+   * points at a host the platform does not own is worse than no link.
+   */
+  produced: { sourceUrl?: string } = {},
 ): Entity {
   const name = String(values.name ?? '').trim()
   const title = String(values.title ?? '').trim() || name
@@ -1955,10 +1962,9 @@ export function entityFromTemplate(
       title,
       description,
       tags,
-      links: [
-        { url: `https://github.com/example/${name}`, title: 'Source', icon: 'repo' },
-        { url: `https://docs.example.com/${name}`, title: 'Docs', icon: 'docs' },
-      ],
+      links: produced.sourceUrl
+        ? [{ url: produced.sourceUrl, title: 'Source', icon: 'repo' }]
+        : [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     },

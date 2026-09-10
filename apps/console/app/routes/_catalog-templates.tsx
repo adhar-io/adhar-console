@@ -1300,7 +1300,10 @@ function ScaffoldWizard({
     runScaffoldReal(template, values, setRun, async (result) => {
       // The scaffolder created the real repo + GitOps app; also add a catalog
       // entry so it shows immediately (the live catalog will reconcile it too).
-      const entity = entityFromTemplate(template, values)
+      // The Source link must be the Gitea repo the scaffolder created — never a
+      // placeholder host. `repoUrl` is Gitea's html_url (ROOT_URL is the public
+      // host), the same URL the "Open repository" button uses.
+      const entity = entityFromTemplate(template, values, { sourceUrl: result?.repoUrl })
       if (result?.repoUrl) {
         entity.metadata.annotations = {
           ...(entity.metadata.annotations ?? {}),

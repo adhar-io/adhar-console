@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.58] - 2026-09-11
+
 ### Changed
 
 - **Cloud Dev Environments work against a real Coder.** The console now

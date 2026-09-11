@@ -74,6 +74,8 @@ export function Projects() {
               </p>
             ) : null}
             <DataTable
+              tableId="workspace.projects"
+              features
               loading={q.isLoading}
               rows={all}
               rowKey={(p) => p.id}

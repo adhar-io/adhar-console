@@ -89,6 +89,8 @@ export function Tokens() {
               </p>
             ) : null}
             <DataTable
+              tableId="workspace.tokens"
+              features
               loading={q.isLoading}
               rows={all}
               rowKey={(t) => t.id}

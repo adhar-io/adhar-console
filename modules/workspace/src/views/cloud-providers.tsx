@@ -164,6 +164,8 @@ export function CloudProviders() {
         description="Recorded configuration — a connection stays pending until the platform verifies its credentials; the console never marks one connected on its own."
       >
         <DataTable
+              tableId="workspace.cloud-providers"
+              features
           loading={conns.isLoading}
           rows={allConns}
           rowKey={(c) => c.id}

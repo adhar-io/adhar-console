@@ -265,7 +265,7 @@ export function SpendSummary() {
           <h3 className="text-sm font-semibold text-content">By namespace</h3>
           <span className="text-[11px] text-content-subtle">{cost.namespaces.length} namespaces</span>
         </div>
-        <DataTable columns={columns} rows={cost.namespaces} rowKey={(r) => r.namespace} striped />
+        <DataTable tableId="decide.spend.namespaces" features columns={columns} rows={cost.namespaces} rowKey={(r) => r.namespace} striped />
       </div>
 
       {/* Top workloads. */}

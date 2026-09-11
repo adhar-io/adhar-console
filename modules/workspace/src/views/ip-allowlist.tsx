@@ -82,6 +82,8 @@ export function IpAllowlist() {
           description="Empty list = open to the world; adding any entry switches the recorded policy to deny-by-default."
         >
           <DataTable
+              tableId="workspace.ip-allowlist"
+              features
             rows={all}
             rowKey={(e) => e.id}
             empty={

@@ -83,6 +83,8 @@ export function Members() {
           </CardHeader>
           <CardBody className="p-0">
             <DataTable
+              tableId="define.members"
+              features
               columns={[
                 {
                   key: 'who',

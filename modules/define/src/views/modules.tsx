@@ -394,6 +394,8 @@ function ModuleDetail({
             </CardHeader>
             <CardBody className="p-0">
               <DataTable
+              tableId="define.modules"
+              features
                 loading={issues.isLoading}
                 onRowClick={(i) => setOpenIssue(i.id)}
                 columns={[

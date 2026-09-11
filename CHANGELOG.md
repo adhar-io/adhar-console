@@ -6,6 +6,32 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+
+- **Logs is a three-band LogQL workbench.** A query band, a stats band that
+  doubles as the filter control, and a full-height explorer split into a
+  persistent discovery rail and the result pane — the result pane is always
+  the biggest thing on screen. Three readings of the same result set:
+  **Stream** (level gutter, timestamps, label pills, match highlighting,
+  repeat counters), **Table** (JSON/logfmt fields promoted to columns, chosen
+  by coverage so plain-text results don't get an invented schema), and
+  **Patterns** — lines collapsed by structural signature and ranked by volume
+  with a per-pattern sparkline, level mix and first/last seen, so one error
+  repeating behind the noise is obvious. The label browser is now a permanent
+  rail with **Labels** (real Loki matchers that change the query) and
+  **Fields** (client-side facets over what came back) instead of a modal.
+  Also: shareable permalinks (query + window live in the URL and are read
+  back on load), `/` to focus the query box, and a low-volume rate that reads
+  per-hour instead of a flat 0/min.
+
+- **Cloud Shell opens with a status band** — who the exec runs as and with
+  which role, the active cluster, whether the tools pod is actually Running,
+  the active shell and its uptime — replacing the chip-strip card header.
+  Actions moved to their own row (launch left, workbench controls right),
+  "Cluster shell" is now one click instead of a trip through the sidebar, and
+  the empty state is a real choice between a cluster shell and a pod shell
+  with the keyboard map.
+
 ### Added
 
 - **Adhar AI runs on AG-UI, with generative UI.** The assistant is now an

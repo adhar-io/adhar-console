@@ -7,6 +7,7 @@ import { client, useActiveCluster } from '../data/client.ts'
 import { useHasK8sPermission } from '../data/access.ts'
 import { age } from '../data/format.ts'
 import { useXrds, type XrdInfo } from '../data/xrds.ts'
+import { isManaged, useManagedKinds } from '../data/managed-kinds.ts'
 import {
   configFromXrd,
   curationFor,
@@ -17,13 +18,23 @@ import { ClaimFormModal, XrList, type XR } from './xr-list.tsx'
 import { K8sRolePill } from '../components/role-gate.tsx'
 
 /**
- * Adhar Resources — the live, schema-driven catalog of every Crossplane
- * composite (XRD) installed on the cluster. Kinds are discovered dynamically
- * (no hardcoded list), grouped by family, and each card pulls a live count +
- * Ready/Synced health. "Create" opens the schema-driven provisioning wizard for
- * that exact kind in place; "Browse" opens its full list + topology drawer —
- * both work for every discovered kind, whether or not it has a dedicated nav
- * section.
+ * Adhar Resources — the live catalog of everything this platform can hold.
+ *
+ * Two sources, both discovered from the cluster rather than hardcoded:
+ *
+ *   1. **Crossplane composites** (XRDs) — the abstractions a team can *claim*.
+ *      Schema-driven: "Create" generates the provisioning form from the live
+ *      XRD, so it can never drift from the cluster.
+ *   2. **Operator-managed resources** — the databases, caches, brokers, object
+ *      stores and certificates that real workloads actually run on, each read
+ *      from its own operator's API (CloudNativePG, Strimzi, the Redis operator,
+ *      MinIO, cert-manager…). Only kinds whose CRD is installed appear.
+ *
+ * The second source matters: with no composite claimed anywhere, this page was
+ * empty while the cluster was full of exactly the resources an operator came
+ * here to find. Managed kinds are read-only here — creating one belongs to its
+ * operator — so their cards offer Browse (list + topology + health) but no
+ * claim form.
  */
 
 const FAMILIES: Array<{ id: FamilyId; label: string; description: string; tone: string }> = [
@@ -76,7 +87,11 @@ interface Tile {
 export function PlatformCatalog() {
   const { cluster } = useActiveCluster()
   const xrdsQ = useXrds()
-  const kinds = xrdsQ.data ?? []
+  const managedQ = useManagedKinds()
+  const kinds = useMemo(
+    () => [...(xrdsQ.data ?? []), ...(managedQ.data ?? [])],
+    [xrdsQ.data, managedQ.data],
+  )
 
   const queries = useQueries({
     queries: kinds.map((k) => ({
@@ -103,12 +118,15 @@ export function PlatformCatalog() {
           .sort()
           .slice(-1)[0]
         const cur = curationFor(info.kind)
+        const managed = isManaged(info)
         const error = q?.isError ? (q.error as { status?: number; message?: string }) : undefined
         return {
           info,
-          family: cur.family,
-          icon: cur.icon,
-          description: cur.description ?? `${info.kind} — provisioned via Crossplane.`,
+          family: managed ? info.managedFamily : cur.family,
+          icon: managed ? info.managedIcon : cur.icon,
+          description: managed
+            ? info.managedDescription
+            : cur.description ?? `${info.kind} — provisioned via Crossplane.`,
           items,
           ready,
           synced,
@@ -244,7 +262,7 @@ export function PlatformCatalog() {
                     key={t.info.kind}
                     tile={t}
                     familyTone={f.tone}
-                    canProvision={canProvision}
+                    canProvision={canProvision && !isManaged(t.info)}
                     onCreate={() => setCreateInfo(t.info)}
                     onBrowse={() => setBrowseInfo(t.info)}
                   />
@@ -520,6 +538,7 @@ function KindCard({
   onBrowse: () => void
 }) {
   const { info, items, ready, synced, loading, error, description } = tile
+  const managed = isManaged(info)
   const total = items.length
   const notInstalled = error?.status === 404
   const failed = Boolean(error) && !notInstalled
@@ -611,7 +630,15 @@ function KindCard({
         >
           Browse
         </button>
-        {canProvision ? (
+        {managed ? (
+          // Operator-owned: creating one is the operator's concern, not a claim.
+          <span
+            className="inline-flex h-8 max-w-[9rem] items-center justify-center truncate rounded-md border border-edge-default px-2.5 text-[10.5px] text-content-muted"
+            title={`Managed by ${isManaged(info) ? info.provider : 'an operator'}`}
+          >
+            {isManaged(info) ? info.provider : 'operator-managed'}
+          </span>
+        ) : canProvision ? (
           <button
             type="button"
             onClick={onCreate}

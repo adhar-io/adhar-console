@@ -6,6 +6,53 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+
+- **Cloud Shell could not be typed into.** The platform module is built as a
+  Module Federation remote, so Vite hoisted xterm's stylesheet into the
+  remote's own `style.css` and expected the *consumer* to include it — the
+  host never does, and the file shipped referenced by nothing. Without it
+  `.xterm-helper-textarea` loses its off-screen positioning, and that hidden
+  textarea is the element xterm focuses and reads keystrokes from: the
+  terminal rendered but swallowed every keystroke, and the rows were unstyled,
+  which is why it did not look like a real shell. The stylesheet is now
+  injected by the loader, which behaves identically in dev, in a host build
+  and inside the remote. Clicking the padding around the canvas also focuses
+  the shell now.
+
+### Changed
+
+- **The grid gained advanced features, everywhere.** `DataTable` backs ~38
+  views, so sorting (click to cycle, shift-click for multi-column, with
+  numeric-aware collation so `node-2` precedes `node-10`), column resizing and
+  column reordering are now built in and on by default — additive, so no table
+  changed shape. An opt-in toolbar adds search across all columns, a
+  per-column filter row (text, or a picker for low-cardinality columns), a
+  show/hide Columns menu with pinning, density and CSV export, with column
+  order, widths, visibility, density and sort persisted per table. The trick
+  was that a column declares `cell(row): ReactNode`, not a value: values now
+  resolve from the column's own `value(row)`, else `row[key]`, else the text
+  walked out of the rendered cell — which is what makes sort and search work
+  on existing tables without touching a single call site.
+
+- **Logs controls take half the space.** The stats band is gone (its numbers
+  live in the level chips and the footer) and the result pane's header folded
+  into the control row, with dedup, order, limit, wrap, labels, timestamps,
+  histogram and rail moving into one view-options popover — log content starts
+  ~160px higher. The stream is now virtualised
+  (`@tanstack/react-virtual`), so a 5,000-line result mounts ~40 rows and
+  tailing stays smooth.
+
+- **Cloud Shell sheds two rows of chrome.** The status band and separate
+  action row fold into the tab strip and the status bar, and the terminal's
+  own footer is hidden when embedded — about 6rem more terminal.
+
+- **CI/CD pipeline stages are drawn on a canvas.** Nodes laid out by
+  dependency level on a dotted ground, joined by status-coloured edges that
+  animate in the direction of flow while a stage runs — green behind, indigo
+  moving, red where it broke. Zoom, a full-page view and a legend; all motion
+  respects `prefers-reduced-motion`.
+
 ## [0.1.60] - 2026-09-11
 
 ### Changed

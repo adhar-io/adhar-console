@@ -33,6 +33,7 @@ import { handleNotificationsApi } from './app/server/notifications.ts'
 import { handleScaffold } from './app/server/scaffolder.ts'
 import { handleAppsetToggle } from './app/server/appset.ts'
 import { handleListTemplates } from './app/server/templates.ts'
+import { handleScorecards } from './app/server/scorecards.ts'
 import { handleListTeams } from './app/server/teams.ts'
 import { handleWorkspace } from './app/server/workspace/handlers.ts'
 import { handleBilling } from './app/server/billing/handlers.ts'
@@ -331,6 +332,10 @@ async function route(req: Request): Promise<Response> {
 
   // Software templates for Catalog → Create New — discovered from Gitea.
   if (path === '/api/templates') return handleListTemplates(req)
+
+  // Production-readiness scorecards published by the platform's in-cluster
+  // scorer (the `scorecards` package) — `configured: false` when it isn't installed.
+  if (path === '/api/scorecards') return handleScorecards(req)
 
   // Owner/team (Group entity) picker for Catalog → Create New — discovered
   // from the adhar/adhar-templates Gitea repo, always incl. the two defaults.

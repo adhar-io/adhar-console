@@ -24,17 +24,35 @@ import {
   type Check,
   type CheckCategory,
   type Grade,
+  PLATFORM_CATEGORIES,
+  PLATFORM_CATEGORY_LABEL,
+  type PlatformScorecardsState,
+  type PlatformService,
+  platformCategoryAverages,
+  platformSignalLabel,
+  SCORE_SOURCE_LABEL,
   SCOREABLE_KINDS,
   type Scorecard,
-  useScorecards,
+  type ScoreSource,
+  useLiveScorecards,
 } from '~/data/scorecard.ts'
 
 /**
  * Scorecards — per-service production-readiness scoring.
  *
- * Everything here derives from the same live catalog entities the Service
- * Catalog renders (k8s workloads, Gitea repos, registered entities) through
- * the shared `scoreEntity` engine — one score, one grade, everywhere.
+ * Two scorers feed this page and the source of every number is stated on it:
+ *
+ *   • **platform scorer** (authoritative) — the `application/scorecards`
+ *     package's in-cluster CronJob grades each service from signals only the
+ *     cluster can see (Argo CD health/sync, probes + requests/limits, image not
+ *     `:latest`, Kyverno pass rate, HTTPRoute exposure, backup coverage) and
+ *     publishes `adhar-system/adhar-scorecards`. Read via `GET /api/scorecards`.
+ *   • **catalog-derived** (fallback) — the console's own `scoreEntity` engine
+ *     over the live catalog entity's real metadata, for services the scorer has
+ *     not graded (or when the package is not installed).
+ *
+ * When the ConfigMap is absent the page says so and explains how to enable the
+ * package; it never shows a platform grade it did not receive.
  */
 
 export const Route = createFileRoute('/scorecards')({
@@ -68,13 +86,15 @@ const GRADES: readonly Grade[] = ['A', 'B', 'C', 'D', 'F']
 type GradeFilter = 'all' | Grade
 type KindFilter = 'all' | EntityKind
 type CategoryFilter = 'all' | CheckCategory
+type SourceFilter = 'all' | ScoreSource
 type SortKey = 'score-asc' | 'score-desc' | 'name' | 'owner'
 
 function ScorecardsDashboard() {
-  const { scorecards, isLoading, offline, live } = useScorecards()
+  const { scorecards, isLoading, offline, live, platform } = useLiveScorecards()
   const [grade, setGrade] = useState<GradeFilter>('all')
   const [kind, setKind] = useState<KindFilter>('all')
   const [category, setCategory] = useState<CategoryFilter>('all')
+  const [source, setSource] = useState<SourceFilter>('all')
   const [sort, setSort] = useState<SortKey>('score-asc')
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<Scorecard | null>(null)
@@ -122,10 +142,15 @@ function ScorecardsDashboard() {
     [scorecards],
   )
 
+  // Fleet averages from the PLATFORM scorer's own categories — a different,
+  // in-cluster view than the catalog-derived categories above.
+  const platformAverages = useMemo(() => platformCategoryAverages(scorecards), [scorecards])
+
   const filtered = useMemo(() => {
     const lower = query.trim().toLowerCase()
     const out = scorecards.filter((s) => {
       if (grade !== 'all' && s.grade !== grade) return false
+      if (source !== 'all' && s.source !== source) return false
       if (kind !== 'all' && s.entity.kind !== kind) return false
       if (category !== 'all') {
         const bucket = s.byCategory[category]
@@ -142,7 +167,7 @@ function ScorecardsDashboard() {
       )
     })
     return sortCards(out, sort)
-  }, [scorecards, grade, kind, category, sort, query])
+  }, [scorecards, grade, kind, category, source, sort, query])
 
   const columns = useMemo<Column<Scorecard>[]>(
     () => [
@@ -180,9 +205,19 @@ function ScorecardsDashboard() {
             <span className="text-[12px] font-medium text-content">
               {parseRef(s.entity.spec.owner).name}
             </span>
+          ) : s.platformOnly ? (
+            // Scored by the platform, absent from the catalog — "no owner" would
+            // be a claim we cannot make, so say what we actually know.
+            <span className="text-[12px] text-content-subtle">not in catalog</span>
           ) : (
             <span className="text-[12px] text-amber-700 dark:text-amber-300">no owner</span>
           ),
+      },
+      {
+        key: 'source',
+        header: 'Scored by',
+        width: 130,
+        cell: (s) => <SourceBadge source={s.source} />,
       },
       {
         key: 'score',
@@ -210,6 +245,11 @@ function ScorecardsDashboard() {
         numeric: true,
         width: 80,
         cell: (s) => {
+          // No catalog entity → no derived checks were run. "0 failing" would
+          // read as "everything passes"; the truth is "nothing was checked".
+          if (!s.checks.length) {
+            return <span className="text-content-subtle" title="No catalog checks apply">—</span>
+          }
           const failing = s.checks.filter((c) => !c.pass).length
           return failing === 0 ? (
             <span className="text-emerald-700 dark:text-emerald-300">0</span>
@@ -222,21 +262,35 @@ function ScorecardsDashboard() {
     [],
   )
 
-  const filtering = grade !== 'all' || kind !== 'all' || category !== 'all' || query.trim() !== ''
+  const filtering =
+    grade !== 'all' || kind !== 'all' || category !== 'all' || source !== 'all' || query.trim() !== ''
 
   return (
     <>
       <PageHeader
         title="Scorecards"
         badge={
-          !isLoading && scorecards.length ? (
-            <StatusBadge kind={live ? 'healthy' : offline ? 'paused' : 'info'}>
-              {live ? 'live catalog' : offline ? 'sample data' : 'registered only'}
-            </StatusBadge>
-          ) : null
+          <span className="flex flex-wrap items-center gap-1.5">
+            {platform.configured ? (
+              <StatusBadge kind="healthy">platform scorer</StatusBadge>
+            ) : platform.isLoading ? null : (
+              <StatusBadge kind="paused">catalog-derived only</StatusBadge>
+            )}
+            {!isLoading && scorecards.length ? (
+              <StatusBadge kind={live ? 'healthy' : offline ? 'paused' : 'info'}>
+                {live ? 'live catalog' : offline ? 'sample data' : 'registered only'}
+              </StatusBadge>
+            ) : null}
+          </span>
         }
-        description="Production-readiness grading for every service in the catalog — ownership, delivery, reliability, security, and observability checks derived from the entity's real metadata."
+        description={
+          platform.configured
+            ? "Production-readiness grading. Scores come from the platform's in-cluster scorer (Argo CD health/sync, probes + resources, image tags, Kyverno pass rate, exposure, backups); services it hasn't graded fall back to checks derived from the catalog entity's real metadata."
+            : "Production-readiness grading for every service in the catalog — ownership, delivery, reliability, security, and observability checks derived from the entity's real metadata."
+        }
       />
+
+      <PlatformStrip platform={platform} averages={platformAverages} />
 
       <section className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
         <SummaryTile
@@ -345,6 +399,17 @@ function ScorecardsDashboard() {
           ]}
         />
         <Select
+          aria-label="Filter by scorer"
+          value={source}
+          onChange={(e) => setSource(e.target.value as SourceFilter)}
+          className="h-9 w-auto py-0 text-[13px]"
+          options={[
+            { value: 'all', label: 'Any scorer' },
+            { value: 'platform', label: 'Platform scorer' },
+            { value: 'catalog', label: 'Catalog-derived' },
+          ]}
+        />
+        <Select
           aria-label="Filter by category gap"
           value={category}
           onChange={(e) => setCategory(e.target.value as CategoryFilter)}
@@ -388,7 +453,9 @@ function ScorecardsDashboard() {
             description={
               filtering
                 ? 'No scorecard matches the current filters — clear them to see the full fleet.'
-                : 'Connect a cluster or register entities in the Service Catalog to generate scorecards.'
+                : platform.configured
+                  ? 'The platform scorer has not graded any service yet, and no catalog entity is scoreable. Connect a cluster or register entities in the Service Catalog.'
+                  : `Enable the "scorecards" package to get authoritative in-cluster grading (it publishes ${platform.namespace}/${platform.configMap}), or connect a cluster / register entities in the Service Catalog for catalog-derived scores.`
             }
           />
         }
@@ -595,11 +662,14 @@ function ScorecardDrawer({ card, onClose }: { card: Scorecard; onClose(): void }
                 <span className={cn('font-mono font-semibold tabular-nums', scoreTextTone(card.score))}>
                   {card.score}/100
                 </span>
-                <StatusBadge kind={failing.length ? 'degraded' : 'healthy'}>
-                  {failing.length
-                    ? `${failing.length} ${failing.length === 1 ? 'check' : 'checks'} failing`
-                    : 'all checks passing'}
-                </StatusBadge>
+                <SourceBadge source={card.source} />
+                {card.checks.length ? (
+                  <StatusBadge kind={failing.length ? 'degraded' : 'healthy'}>
+                    {failing.length
+                      ? `${failing.length} ${failing.length === 1 ? 'check' : 'checks'} failing`
+                      : 'all checks passing'}
+                  </StatusBadge>
+                ) : null}
                 {card.entity.spec.owner ? (
                   <span>owner: {parseRef(card.entity.spec.owner).name}</span>
                 ) : null}
@@ -618,6 +688,8 @@ function ScorecardDrawer({ card, onClose }: { card: Scorecard; onClose(): void }
         </header>
 
         <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+          {card.platform ? <PlatformPanel service={card.platform} card={card} /> : null}
+
           {topFixes.length ? (
             <Card>
               <CardHeader>
@@ -723,6 +795,275 @@ function CheckRow({ check }: { check: Check }) {
   )
 }
 
+/* ─────────── platform scorer surface ─────────── */
+
+function SourceBadge({ source }: { source: ScoreSource }) {
+  const platform = source === 'platform'
+  return (
+    <span
+      title={
+        platform
+          ? 'Graded by the platform scorer (in-cluster signals: Argo CD health/sync, probes, resources, image tags, Kyverno, exposure, backups)'
+          : "Derived by the console from the catalog entity's own metadata — the platform scorer has not graded this service"
+      }
+      className={cn(
+        'inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset',
+        platform
+          ? 'bg-brand-50 text-brand-700 ring-brand-600/20 dark:bg-brand-500/10 dark:text-brand-300 dark:ring-brand-500/30'
+          : 'bg-surface-sunken text-content-muted ring-edge-subtle',
+      )}
+    >
+      {SCORE_SOURCE_LABEL[source]}
+    </span>
+  )
+}
+
+/** "3 minutes ago" for the scorer's last run — absolute value stays in `title`. */
+function formatWhen(iso: string | undefined): { label: string; title: string } | null {
+  if (!iso) return null
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return { label: iso, title: iso }
+  const mins = Math.max(0, Math.round((Date.now() - t) / 60_000))
+  const label =
+    mins < 1 ? 'just now'
+    : mins < 60 ? `${mins} min ago`
+    : mins < 60 * 24 ? `${Math.round(mins / 60)} h ago`
+    : `${Math.round(mins / (60 * 24))} d ago`
+  return { label, title: new Date(t).toLocaleString() }
+}
+
+/**
+ * The platform scorer's own header strip: its per-category fleet averages and
+ * weights, when it last ran, and — when its ConfigMap is absent — exactly how
+ * to turn it on. No numbers are shown unless the scorer published them.
+ */
+function PlatformStrip({
+  platform,
+  averages,
+}: {
+  platform: PlatformScorecardsState
+  averages: Array<{ cat: (typeof PLATFORM_CATEGORIES)[number]; score: number | null; count: number }>
+}) {
+  if (platform.isLoading && !platform.configured) return null
+
+  if (!platform.configured) {
+    return (
+      <section className="mb-6 rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30">
+            <IconAlert />
+          </span>
+          <div className="min-w-0">
+            <div className="text-[13px] font-medium text-content">
+              Platform scorer not available — showing catalog-derived scores
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed text-content-muted">
+              Enable the <span className="font-mono text-content">scorecards</span> package
+              (Marketplace → Application) to grade services from real in-cluster signals — Argo CD
+              health and sync, readiness/liveness probes, resource requests and limits, container
+              images that are not <span className="font-mono">:latest</span>, Kyverno policy-report
+              pass rate, HTTPRoute exposure and backup coverage. Its CronJob publishes{' '}
+              <span className="font-mono text-content">
+                {platform.namespace}/{platform.configMap}
+              </span>{' '}
+              every 30 minutes; the console reads it the moment it appears.
+            </p>
+            {platform.error && platform.error !== 'not_installed' ? (
+              <p className="mt-1.5 rounded-md bg-surface-sunken px-2 py-1 font-mono text-[10px] text-content-muted">
+                {platform.error}
+                {platform.detail ? `: ${platform.detail}` : ''}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  const when = formatWhen(platform.lastRun)
+  const weightTotal = platform.weights
+    ? PLATFORM_CATEGORIES.reduce((sum, c) => sum + (platform.weights?.[c] ?? 0), 0)
+    : 0
+
+  return (
+    <section
+      aria-label="Platform scorer"
+      className="mb-6 rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm"
+    >
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <div className="flex flex-wrap items-baseline gap-2">
+          <h2 className="text-[13px] font-semibold text-content">Platform scorer</h2>
+          <span className="text-[11px] text-content-muted">
+            {platform.serviceCount} {platform.serviceCount === 1 ? 'service' : 'services'} graded
+            {platform.matched ? ` · ${platform.matched} matched to the catalog` : ''}
+            {typeof platform.averageScore === 'number' ? ' · avg ' : ''}
+          </span>
+          {typeof platform.averageScore === 'number' ? (
+            <span className={cn('font-mono text-[12px] font-semibold tabular-nums', scoreTextTone(platform.averageScore))}>
+              {platform.averageScore}
+            </span>
+          ) : null}
+        </div>
+        <span className="text-[11px] text-content-subtle" title={when?.title}>
+          {when ? `last run ${when.label}` : 'last run unknown'}
+          {platform.gradeThresholds
+            ? ` · A ≥ ${platform.gradeThresholds.A} · B ≥ ${platform.gradeThresholds.B} · C ≥ ${platform.gradeThresholds.C} · D ≥ ${platform.gradeThresholds.D}`
+            : ''}
+        </span>
+      </div>
+      <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
+        {averages.map(({ cat, score, count }) => {
+          const weight = platform.weights?.[cat]
+          return (
+            <div key={cat} className="flex flex-col gap-1.5">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="truncate text-[12px] font-medium text-content-muted">
+                  {PLATFORM_CATEGORY_LABEL[cat]}
+                  {weight !== undefined && weightTotal > 0 ? (
+                    <span className="ml-1 font-mono text-[10px] text-content-subtle">
+                      {Math.round((weight / weightTotal) * 100)}%
+                    </span>
+                  ) : null}
+                </span>
+                <span
+                  className={cn(
+                    'font-mono text-[13px] font-semibold tabular-nums',
+                    score === null ? 'text-content-subtle' : scoreTextTone(score),
+                  )}
+                  title={count ? `${count} scored ${count === 1 ? 'service' : 'services'}` : 'no data'}
+                >
+                  {score === null ? '—' : score}
+                </span>
+              </div>
+              <span className="block h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
+                <span
+                  className={cn('block h-full rounded-full transition-all', barTone(score ?? 0))}
+                  style={{ width: `${score ?? 0}%` }}
+                />
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+/** The scorer's per-service breakdown: categories, then its signal ledger. */
+function PlatformPanel({ service, card }: { service: PlatformService; card: Scorecard }) {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-content">Platform scorer</h3>
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-content-muted">
+            <span className="font-mono">
+              {service.namespace ? `${service.namespace}/` : ''}
+              {service.name}
+            </span>
+            <StatusBadge kind={service.health === 'Healthy' ? 'healthy' : 'degraded'}>
+              {service.health}
+            </StatusBadge>
+            <StatusBadge kind={service.sync === 'Synced' ? 'healthy' : 'info'}>
+              {service.sync}
+            </StatusBadge>
+            {service.stateful ? (
+              <span className="rounded-full bg-surface-sunken px-1.5 py-0.5 text-[10px]">stateful</span>
+            ) : null}
+          </div>
+        </div>
+      </CardHeader>
+      <CardBody className="space-y-4">
+        <div className="grid grid-cols-2 gap-x-5 gap-y-2 sm:grid-cols-4">
+          {PLATFORM_CATEGORIES.map((cat) => {
+            const v = service.categories[cat] ?? 0
+            return (
+              <div key={cat} className="flex flex-col gap-1">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="truncate text-[11px] text-content-muted">
+                    {PLATFORM_CATEGORY_LABEL[cat]}
+                  </span>
+                  <span className={cn('font-mono text-[12px] font-semibold tabular-nums', scoreTextTone(v))}>
+                    {v}
+                  </span>
+                </div>
+                <span className="block h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
+                  <span className={cn('block h-full rounded-full', barTone(v))} style={{ width: `${v}%` }} />
+                </span>
+              </div>
+            )
+          })}
+        </div>
+
+        {service.signals.length ? (
+          <div className="divide-y divide-edge-subtle">
+            {service.signals.map((sig) => {
+              const pct = Math.round(sig.score * 100)
+              const passed = sig.applicable && pct >= 100
+              return (
+                <div key={sig.name} className="flex items-start gap-3 py-2 first:pt-0 last:pb-0">
+                  <span
+                    className={cn(
+                      'mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full ring-1',
+                      !sig.applicable
+                        ? 'bg-surface-sunken text-content-subtle ring-edge-subtle'
+                        : passed
+                          ? 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30'
+                          : 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30',
+                    )}
+                  >
+                    {!sig.applicable ? <IconDash /> : passed ? <IconCheck /> : <IconX />}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-[13px] font-medium text-content">
+                        {platformSignalLabel(sig.name)}
+                      </span>
+                      <span className="shrink-0 font-mono text-[10px] tabular-nums text-content-subtle">
+                        {PLATFORM_CATEGORY_LABEL[sig.category]}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-content-muted">
+                      {!sig.applicable
+                        ? 'Not applicable — dropped from this category, never counted as a failure'
+                        : pct >= 100
+                          ? 'Pass'
+                          : `${pct}%`}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <p className="text-[11px] text-content-muted">
+            The scorer published a grade for this service but no signal breakdown.
+          </p>
+        )}
+
+        {card.platformOnly ? (
+          <p className="rounded-md bg-surface-sunken px-2 py-1 text-[11px] leading-relaxed text-content-muted">
+            This service is graded by the platform but is not in the Service Catalog, so no
+            ownership / delivery / documentation checks were run. Register it in the catalog (or
+            annotate its workload with{' '}
+            <span className="font-mono text-content">adhar.io/scorecard: {service.name}</span>) to
+            see both scores side by side.
+          </p>
+        ) : typeof card.derivedScore === 'number' ? (
+          <p className="text-[11px] text-content-muted">
+            Catalog-derived score for the same service:{' '}
+            <span className={cn('font-mono font-semibold tabular-nums', scoreTextTone(card.derivedScore))}>
+              {card.derivedScore}
+            </span>{' '}
+            ({card.derivedGrade}) — a different question (is it owned and documented?), kept
+            separate rather than blended.
+          </p>
+        ) : null}
+      </CardBody>
+    </Card>
+  )
+}
+
 /* ─────────── icons ─────────── */
 
 function IconCheck() {
@@ -746,6 +1087,14 @@ function IconAlert() {
     <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path d="M8 2 15 14H1L8 2Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
       <path d="M8 6.5v3.25M8 11.75v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function IconDash() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M4 8h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   )
 }

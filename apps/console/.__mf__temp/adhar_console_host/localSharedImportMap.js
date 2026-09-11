@@ -161,7 +161,7 @@
                   entryGlobalName: "define",
                   name: "define",
                   type: "module",
-                  entry: "http://localhost:5101/mf/remoteEntry.js",
+                  entry: "/mf/define/remoteEntry.js",
                   shareScope: "default",
                 }
           ,
@@ -169,7 +169,7 @@
                   entryGlobalName: "design",
                   name: "design",
                   type: "module",
-                  entry: "http://localhost:5102/mf/remoteEntry.js",
+                  entry: "/mf/design/remoteEntry.js",
                   shareScope: "default",
                 }
           ,
@@ -177,7 +177,7 @@
                   entryGlobalName: "develop",
                   name: "develop",
                   type: "module",
-                  entry: "http://localhost:5103/mf/remoteEntry.js",
+                  entry: "/mf/develop/remoteEntry.js",
                   shareScope: "default",
                 }
           ,
@@ -185,7 +185,7 @@
                   entryGlobalName: "deliver",
                   name: "deliver",
                   type: "module",
-                  entry: "http://localhost:5104/mf/remoteEntry.js",
+                  entry: "/mf/deliver/remoteEntry.js",
                   shareScope: "default",
                 }
           ,
@@ -193,7 +193,7 @@
                   entryGlobalName: "discover",
                   name: "discover",
                   type: "module",
-                  entry: "http://localhost:5105/mf/remoteEntry.js",
+                  entry: "/mf/discover/remoteEntry.js",
                   shareScope: "default",
                 }
           ,
@@ -201,7 +201,7 @@
                   entryGlobalName: "decide",
                   name: "decide",
                   type: "module",
-                  entry: "http://localhost:5106/mf/remoteEntry.js",
+                  entry: "/mf/decide/remoteEntry.js",
                   shareScope: "default",
                 }
           ,
@@ -209,7 +209,7 @@
                   entryGlobalName: "platform",
                   name: "platform",
                   type: "module",
-                  entry: "http://localhost:5107/mf/remoteEntry.js",
+                  entry: "/mf/platform/remoteEntry.js",
                   shareScope: "default",
                 }
           ,
@@ -217,7 +217,7 @@
                   entryGlobalName: "workspace",
                   name: "workspace",
                   type: "module",
-                  entry: "http://localhost:5108/mf/remoteEntry.js",
+                  entry: "/mf/workspace/remoteEntry.js",
                   shareScope: "default",
                 }
           ,

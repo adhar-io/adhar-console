@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import {
   type Entity,
   type EntityKind,
@@ -8,6 +9,17 @@ import {
   parseRef,
   useCatalog,
 } from './catalog.ts'
+// Type-only (erased at build, no server code reaches the browser bundle) — the
+// wire contract of `GET /api/scorecards`, owned by the handler that emits it.
+// Relative, not `~/`: the alias is Vite-only and does not resolve under `deno check`.
+import type {
+  PlatformCategory,
+  PlatformScorecards,
+  PlatformService,
+  PlatformSignal,
+} from '../server/scorecards.ts'
+
+export type { PlatformCategory, PlatformScorecards, PlatformService, PlatformSignal }
 
 /**
  * Production-readiness scorecards.
@@ -23,6 +35,19 @@ import {
  * It fails with a `hint` explaining how to surface it (usually an annotation
  * on the workload), so the score can only improve by actually wiring the
  * signal up — the engine never fabricates readiness.
+ *
+ * ── Two scorers, one authoritative ──────────────────────────────────────────
+ * The platform's `application/scorecards` package runs an in-cluster CronJob
+ * that grades services from signals the browser simply cannot see (Argo CD
+ * health/sync, container probes + requests/limits, image not `:latest`, Kyverno
+ * PolicyReport pass rate, HTTPRoute exposure, Velero/CNPG backup coverage) and
+ * publishes them to the `adhar-system/adhar-scorecards` ConfigMap. That scorer
+ * is **authoritative**: `useLiveScorecards()` reads it through
+ * `GET /api/scorecards` and uses its score/grade whenever it has graded a
+ * service, falling back to the catalog derivation above otherwise. Every card
+ * records which scorer produced it (`source`) so the UI can say so out loud,
+ * and both numbers are kept (`score`/`grade` vs `derivedScore`/`derivedGrade`)
+ * — nothing is averaged, blended, or invented.
  */
 
 export type CheckCategory =
@@ -67,15 +92,40 @@ export interface CategoryScore {
   total: number
 }
 
+/** Which scorer produced a card's headline `score` / `grade`. */
+export type ScoreSource = 'platform' | 'catalog'
+
+export const SCORE_SOURCE_LABEL: Record<ScoreSource, string> = {
+  platform: 'platform scorer',
+  catalog: 'catalog-derived',
+}
+
 export interface Scorecard {
   entityRef: EntityRef
-  /** Weighted pass ratio, 0–100. */
+  /** Headline score, 0–100 — the platform scorer's when it graded this service. */
   score: number
   grade: Grade
   checks: Check[]
   byCategory: Record<CheckCategory, CategoryScore>
   /** The scored entity — handy for tables (name / kind / owner columns). */
   entity: Entity
+  /** Where `score` / `grade` came from. */
+  source: ScoreSource
+  /** The in-cluster scorer's record, when it graded this service. */
+  platform?: PlatformService
+  /**
+   * The console's own catalog derivation — kept alongside the platform score so
+   * both are visible. Absent on a platform-only card: there is no catalog
+   * entity to derive from, and a placeholder number would be a fabrication.
+   */
+  derivedScore?: number
+  derivedGrade?: Grade
+  /**
+   * True when the platform scorer graded a service the catalog does not know
+   * about. Such a card carries NO derived checks (there is no entity metadata
+   * to check) — the entity below holds only what the scorer itself reported.
+   */
+  platformOnly: boolean
 }
 
 /* ─────────── annotation access (optional, never fabricated) ─────────── */
@@ -451,6 +501,10 @@ export function scoreEntity(entity: Entity): Scorecard {
     checks,
     byCategory,
     entity,
+    source: 'catalog',
+    derivedScore: score,
+    derivedGrade: gradeOf(score),
+    platformOnly: false,
   }
 }
 
@@ -485,4 +539,243 @@ export function useScorecards(): ScorecardsResult {
     offline: catalog.offline,
     live: catalog.live,
   }
+}
+
+/* ─────────── platform scorer (authoritative, in-cluster) ─────────── */
+
+export const PLATFORM_CATEGORIES: readonly PlatformCategory[] = [
+  'reliability',
+  'security',
+  'observability',
+  'operations',
+]
+
+export const PLATFORM_CATEGORY_LABEL: Record<PlatformCategory, string> = {
+  reliability: 'Reliability',
+  security: 'Security',
+  observability: 'Observability',
+  operations: 'Operations',
+}
+
+/**
+ * Human labels for the scorer's signal ledger. An unknown signal name (the
+ * platform package gained one and this build has not caught up) is humanised
+ * from the key rather than dropped — the number is still real.
+ */
+const PLATFORM_SIGNAL_LABEL: Record<string, string> = {
+  argocd_healthy: 'Argo CD application Healthy',
+  probes: 'Readiness + liveness probe on every container',
+  resources: 'CPU/memory requests AND limits on every container',
+  image_not_latest: 'No :latest or untagged container image',
+  kyverno_pass_rate: 'Kyverno policy-report pass rate',
+  argocd_synced: 'Argo CD application Synced with Git',
+  httproute_exposed: 'Reachable through an HTTPRoute',
+  backup: 'Backup coverage (Velero Schedule / CNPG)',
+}
+
+export function platformSignalLabel(name: string): string {
+  return PLATFORM_SIGNAL_LABEL[name] ?? name.replace(/[_-]+/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
+}
+
+/** The entity annotation the `scorecards` package defines as its join key. */
+export const SCORECARD_ANNOTATION = 'adhar.io/scorecard'
+
+/** Endpoint state, as the UI needs to talk about it. */
+export interface PlatformScorecardsState {
+  /** True only when the scorer's ConfigMap exists and parsed. */
+  configured: boolean
+  isLoading: boolean
+  lastRun?: string
+  weights?: Record<PlatformCategory, number>
+  gradeThresholds?: Record<'A' | 'B' | 'C' | 'D', number>
+  /** Services the scorer graded (whether or not the catalog knows them). */
+  serviceCount: number
+  averageScore?: number
+  /** Of those, how many matched a catalog entity. */
+  matched: number
+  namespace: string
+  configMap: string
+  error?: string
+  detail?: string
+}
+
+const UNCONFIGURED: PlatformScorecards = {
+  configured: false,
+  source: 'platform-scorer',
+  namespace: 'adhar-system',
+  configMap: 'adhar-scorecards',
+  serviceCount: 0,
+  services: [],
+}
+
+/**
+ * Read the platform scorer's results. Never throws and never invents: any
+ * failure (no BFF in a dev SPA, 403, unparseable body) resolves to
+ * `configured: false` with the machine `error` code the server reported.
+ */
+export async function fetchPlatformScorecards(): Promise<PlatformScorecards> {
+  let res: Response
+  try {
+    res = await fetch('/api/scorecards', {
+      credentials: 'same-origin',
+      headers: { accept: 'application/json' },
+    })
+  } catch (e) {
+    return { ...UNCONFIGURED, error: 'unreachable', detail: e instanceof Error ? e.message : String(e) }
+  }
+  const ct = res.headers.get('content-type') ?? ''
+  if (!ct.includes('application/json')) {
+    // No BFF here (static dev SPA) — honest "not configured", not an error box.
+    return { ...UNCONFIGURED, error: 'no_bff' }
+  }
+  let body: PlatformScorecards
+  try {
+    body = (await res.json()) as PlatformScorecards
+  } catch {
+    return { ...UNCONFIGURED, error: 'unreadable' }
+  }
+  if (res.status === 401) return { ...UNCONFIGURED, error: 'unauthenticated' }
+  return {
+    ...UNCONFIGURED,
+    ...body,
+    configured: body.configured === true,
+    services: Array.isArray(body.services) ? body.services : [],
+    serviceCount: typeof body.serviceCount === 'number' ? body.serviceCount : 0,
+  }
+}
+
+/** `GET /api/scorecards`, refreshed on the scorer's own cadence (30 min job). */
+export function usePlatformScorecards() {
+  return useQuery({
+    queryKey: ['platform-scorecards'],
+    queryFn: fetchPlatformScorecards,
+    refetchInterval: 120_000,
+    staleTime: 60_000,
+    retry: false,
+    placeholderData: keepPreviousData,
+  })
+}
+
+/**
+ * Build the synthetic entity for a service only the platform scorer knows
+ * about. It carries EXACTLY what the scorer reported (name, namespace) and
+ * nothing else — no owner, no description, no links — because nothing else is
+ * known. Its scorecard has zero derived checks, so the catalog checks can
+ * never read as "failing" for a service the catalog has never seen.
+ */
+function platformOnlyCard(rec: PlatformService): Scorecard {
+  const namespace = rec.namespace || 'default'
+  const entity: Entity = {
+    apiVersion: 'backstage.io/v1alpha1',
+    kind: 'Component',
+    metadata: {
+      name: rec.name,
+      namespace,
+      annotations: { [SCORECARD_ANNOTATION]: rec.name },
+    },
+    spec: { type: 'service' },
+    origin: 'live',
+  }
+  const byCategory = {} as Record<CheckCategory, CategoryScore>
+  for (const cat of CHECK_CATEGORIES) byCategory[cat] = { score: 0, pass: 0, total: 0 }
+  return {
+    entityRef: entityRef(entity),
+    score: rec.score,
+    grade: rec.grade,
+    checks: [],
+    byCategory,
+    entity,
+    source: 'platform',
+    platform: rec,
+    // No catalog entity → no derivation at all (the UI shows "—").
+    platformOnly: true,
+  }
+}
+
+/** The key a catalog entity joins the platform scorer on. */
+function scorecardKey(e: Entity): string {
+  return ann(e, SCORECARD_ANNOTATION) ?? e.metadata.name
+}
+
+export interface LiveScorecardsResult extends ScorecardsResult {
+  platform: PlatformScorecardsState
+}
+
+/**
+ * Scorecards for the whole fleet, platform scorer first.
+ *
+ *   • catalog entity + platform record → the platform score/grade wins, the
+ *     catalog checks stay available in the drawer (they answer a different
+ *     question: is this service *documented and owned*).
+ *   • catalog entity only             → the console's own derivation, labelled.
+ *   • platform record only            → a platform-only card (no derived checks).
+ *
+ * Nothing is merged numerically: one card shows one scorer's number, and says
+ * which scorer it was.
+ */
+export function useLiveScorecards(): LiveScorecardsResult {
+  const catalog = useScorecards()
+  const q = usePlatformScorecards()
+  const platform = q.data
+
+  return useMemo(() => {
+    const records = platform?.configured ? platform.services : []
+    const byName = new Map(records.map((r) => [r.name, r]))
+    const used = new Set<string>()
+
+    const merged = catalog.scorecards.map((card) => {
+      const rec = byName.get(scorecardKey(card.entity))
+      if (!rec) return card
+      used.add(rec.name)
+      return {
+        ...card,
+        score: rec.score,
+        grade: rec.grade,
+        source: 'platform' as const,
+        platform: rec,
+      }
+    })
+
+    const orphans = records.filter((r) => !used.has(r.name)).map(platformOnlyCard)
+    const scorecards = [...merged, ...orphans].sort(
+      (a, b) => a.score - b.score || a.entityRef.localeCompare(b.entityRef),
+    )
+
+    return {
+      scorecards,
+      isLoading: catalog.isLoading,
+      offline: catalog.offline,
+      live: catalog.live,
+      platform: {
+        configured: platform?.configured === true,
+        isLoading: q.isLoading,
+        lastRun: platform?.lastRun,
+        weights: platform?.weights,
+        gradeThresholds: platform?.gradeThresholds,
+        serviceCount: records.length,
+        averageScore: platform?.averageScore,
+        matched: used.size,
+        namespace: platform?.namespace ?? UNCONFIGURED.namespace,
+        configMap: platform?.configMap ?? UNCONFIGURED.configMap,
+        error: platform?.error,
+        detail: platform?.detail,
+      },
+    }
+  }, [catalog.scorecards, catalog.isLoading, catalog.offline, catalog.live, platform, q.isLoading])
+}
+
+/** Fleet average per platform category, over the services the scorer graded. */
+export function platformCategoryAverages(
+  cards: Scorecard[],
+): Array<{ cat: PlatformCategory; score: number | null; count: number }> {
+  return PLATFORM_CATEGORIES.map((cat) => {
+    const vals = cards
+      .map((c) => c.platform?.categories?.[cat])
+      .filter((v): v is number => typeof v === 'number')
+    return {
+      cat,
+      score: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null,
+      count: vals.length,
+    }
+  })
 }

@@ -295,86 +295,6 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
 
   return (
     <div className={cn('flex flex-col gap-3', fullscreen && 'fixed inset-0 z-40 overflow-hidden bg-surface-app p-3')}>
-      {/* ═══════════ status band ═══════════
-          The page title lives in the module PageHeader, so this band carries
-          the state an operator needs before they type a command: who they are
-          acting as, which cluster, whether the tools pod is actually up, and
-          what is already running. */}
-      {!fullscreen ? (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
-          <ShellStat
-            label="Sessions"
-            value={String(sessions.length)}
-            hint={sessions.length ? `${connected} connected` : 'none open'}
-            tone={sessions.length ? undefined : 'muted'}
-          />
-          <ShellStat
-            label="Acting as"
-            value={user?.name || user?.email || 'you'}
-            hint={roles.length ? K8S_ROLE_LABEL[roles[0]] : 'every exec is audited'}
-          />
-          <ShellStat label="Cluster" value={clusterName ?? 'local'} hint="change it in the top bar" mono />
-          <ShellStat
-            label="Tools pod"
-            value={toolPods.isLoading ? 'checking…' : toolsPod ? 'ready' : 'missing'}
-            hint={toolsPod ? `${TOOLS_NAMESPACE}/${toolsPod.metadata?.name}` : `no Running pod labeled ${TOOLS_LABEL}`}
-            tone={toolPods.isLoading ? 'warn' : toolsPod ? 'ok' : 'bad'}
-          />
-          <ShellStat
-            label="Active shell"
-            value={active ? active.shell : '—'}
-            hint={active ? `${active.namespace}/${active.pod}` : 'no active session'}
-            mono
-          />
-          <ShellStat
-            label="Uptime"
-            value={active ? fmtUptime(now - active.startedAt) : '—'}
-            hint={active ? active.status : 'start a session to begin'}
-            tone={active?.status === 'error' ? 'bad' : active?.status === 'connected' ? 'ok' : undefined}
-          />
-        </div>
-      ) : null}
-
-      {/* ═══════════ actions — left: launch, right: workbench controls ═══════════ */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Button
-          size="sm"
-          variant="primary"
-          disabled={!toolsPod}
-          title={toolsPod ? 'Open a kubectl / k9s / helm shell on the cluster' : `No Running pod labeled ${TOOLS_LABEL} in ${TOOLS_NAMESPACE}`}
-          onClick={() => launchCluster()}
-        >
-          <IconPrompt /> Cluster shell
-        </Button>
-        <Button
-          size="sm"
-          variant="secondary"
-          title="Pick a pod and container to exec into"
-          onClick={() => { setSidebarTab('launch'); setPrefs({ sidebar: true }) }}
-        >
-          <IconPlus /> Pod shell
-        </Button>
-        {active ? (
-          <Button size="sm" variant="ghost" title="Open the active session beside itself" onClick={() => setSplitId((cur) => (cur === activeId ? null : activeId))}>
-            Split
-          </Button>
-        ) : null}
-
-        <div className="ml-auto flex items-center gap-1">
-          <IconBtn label="Broadcast a command to every session (Alt+B)" active={broadcastOpen} onClick={() => setBroadcastOpen((o) => !o)} disabled={sessions.length === 0}>
-            <IconBroadcast />
-          </IconBtn>
-          <IconBtn label={prefs.sidebar ? 'Hide sidebar' : 'Show sidebar'} active={prefs.sidebar} onClick={() => setPrefs({ sidebar: !prefs.sidebar })}>
-            <IconSidebar />
-          </IconBtn>
-          <SettingsMenu prefs={prefs} onChange={setPrefs} />
-          <ShortcutsMenu />
-          <IconBtn label={fullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen workbench'} active={fullscreen} onClick={() => setFullscreen((f) => !f)}>
-            {fullscreen ? <IconCollapse /> : <IconExpand />}
-          </IconBtn>
-        </div>
-      </div>
-
       {restorable.length && sessions.length === 0 ? (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-brand-200 bg-brand-50/60 px-3 py-2 text-[12px] text-brand-900 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-100">
           <IconHistory />
@@ -391,7 +311,7 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
 
       {/* ═══════════ body ═══════════ */}
       <div
-        className={cn('grid min-h-0 gap-3', prefs.sidebar && 'lg:grid-cols-[300px_minmax(0,1fr)]', fullscreen ? 'flex-1' : 'h-[calc(100vh-17rem)] min-h-[560px]')}
+        className={cn('grid min-h-0 gap-3', prefs.sidebar && 'lg:grid-cols-[300px_minmax(0,1fr)]', fullscreen ? 'flex-1' : 'h-[calc(100vh-11rem)] min-h-[560px]')}
       >
         {prefs.sidebar ? (
           <Sidebar
@@ -412,7 +332,8 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
         ) : null}
 
         <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm">
-          {/* tab strip */}
+          {/* tab strip — also carries launch and the workbench controls, so the
+              workbench costs exactly one row of chrome above the terminal */}
           <div className="flex items-center gap-1 border-b border-edge-default bg-surface-sunken px-1.5 py-1">
             <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
               {sessions.map((s, i) => (
@@ -437,15 +358,37 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
               ))}
               <button
                 type="button"
+                onClick={() => launchCluster()}
+                disabled={!toolsPod}
+                title={toolsPod ? 'Open a kubectl / k9s / helm shell on the cluster' : `No Running pod labeled ${TOOLS_LABEL} in ${TOOLS_NAMESPACE}`}
+                className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-content-muted hover:bg-surface-raised hover:text-content disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <IconPrompt /> Cluster
+              </button>
+              <button
+                type="button"
                 onClick={() => {
                   setSidebarTab('launch')
                   setPrefs({ sidebar: true })
                 }}
-                title="New session (Alt+T)"
+                title="New pod session (Alt+T)"
                 className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-content-muted hover:bg-surface-raised hover:text-content"
               >
-                <IconPlus /> New
+                <IconPlus /> Pod
               </button>
+            </div>
+            <div className="flex shrink-0 items-center gap-0.5">
+              <IconBtn label="Broadcast a command to every session (Alt+B)" active={broadcastOpen} onClick={() => setBroadcastOpen((o) => !o)} disabled={sessions.length === 0}>
+                <IconBroadcast />
+              </IconBtn>
+              <IconBtn label={prefs.sidebar ? 'Hide sidebar' : 'Show sidebar'} active={prefs.sidebar} onClick={() => setPrefs({ sidebar: !prefs.sidebar })}>
+                <IconSidebar />
+              </IconBtn>
+              <SettingsMenu prefs={prefs} onChange={setPrefs} />
+              <ShortcutsMenu />
+              <IconBtn label={fullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen workbench'} active={fullscreen} onClick={() => setFullscreen((f) => !f)}>
+                {fullscreen ? <IconCollapse /> : <IconExpand />}
+              </IconBtn>
             </div>
             {split ? (
               <button type="button" onClick={() => setSplitId(null)} className="shrink-0 rounded-md px-2 py-1 text-[10px] font-medium text-content-subtle hover:bg-surface-raised hover:text-content" title="Close split pane">
@@ -510,7 +453,15 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
             ) : (
               <span>no active session</span>
             )}
-            <span className="ml-auto hidden items-center gap-1 sm:inline-flex"><IconShield /> exec runs as {user?.email ?? 'you'} · audited</span>
+            <span className="hidden items-center gap-1 md:inline-flex">
+              <span className={cn('h-1.5 w-1.5 rounded-full', toolPods.isLoading ? 'animate-pulse bg-amber-400' : toolsPod ? 'bg-emerald-500' : 'bg-rose-500')} />
+              tools {toolPods.isLoading ? 'checking' : toolsPod ? 'ready' : 'missing'}
+            </span>
+            <span className="hidden md:inline">cluster {clusterName ?? 'local'}</span>
+            <span className="ml-auto hidden items-center gap-1 sm:inline-flex">
+              <IconShield /> exec runs as {user?.name || user?.email || 'you'}
+              {roles.length ? ` (${K8S_ROLE_LABEL[roles[0]]})` : ''} · audited
+            </span>
           </div>
         </section>
       </div>
@@ -1214,41 +1165,6 @@ function WorkbenchEmpty({
           <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">B</kbd> broadcast
         </p>
       </div>
-    </div>
-  )
-}
-
-/** One tile in the status band. */
-function ShellStat({
-  label,
-  value,
-  hint,
-  tone,
-  mono = false,
-}: {
-  label: string
-  value: string
-  hint?: string
-  tone?: 'ok' | 'warn' | 'bad' | 'muted'
-  mono?: boolean
-}) {
-  const color =
-    tone === 'bad'
-      ? 'text-rose-600 dark:text-rose-400'
-      : tone === 'warn'
-        ? 'text-amber-600 dark:text-amber-400'
-        : tone === 'ok'
-          ? 'text-emerald-600 dark:text-emerald-400'
-          : tone === 'muted'
-            ? 'text-content-muted'
-            : 'text-content'
-  return (
-    <div className="flex flex-col gap-0.5 rounded-xl border border-edge-default bg-surface-raised px-3 py-2">
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{label}</span>
-      <span className={cn('truncate text-[15px] font-semibold leading-tight tracking-tight', mono && 'font-mono text-[13px]', color)} title={value}>
-        {value}
-      </span>
-      <span className="truncate text-[10.5px] text-content-subtle" title={hint}>{hint ?? ' '}</span>
     </div>
   )
 }

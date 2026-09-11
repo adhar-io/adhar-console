@@ -19,6 +19,18 @@
  *
  * The resolved API is cached module-wide so every terminal instance shares
  * one runtime; a failed load is NOT cached, so the next mount retries.
+ *
+ * **Why the stylesheet is injected by hand.** This module is built as a Module
+ * Federation remote (library output), so Vite hoists any imported CSS into the
+ * remote's own `style.css` and expects *the consumer* to include it — but the
+ * host never does, because the host has no idea the remote imported CSS. The
+ * emitted file ends up orphaned: present in `dist/assets`, referenced by
+ * nothing. Without it `.xterm-helper-textarea` loses its absolute
+ * off-screen positioning, which is the element xterm focuses and reads
+ * keystrokes from — so the terminal renders but you cannot type into it, and
+ * the rows are unstyled. Importing the CSS `?inline` gives us the text instead
+ * of an emitted file, and we put it in a `<style>` ourselves. That works
+ * identically in dev, in a production host build and inside the remote.
  */
 
 export interface XtermApi {
@@ -30,6 +42,18 @@ export interface XtermApi {
   ClipboardAddon?: typeof import('@xterm/addon-clipboard').ClipboardAddon
   Unicode11Addon?: typeof import('@xterm/addon-unicode11').Unicode11Addon
   WebglAddon?: typeof import('@xterm/addon-webgl').WebglAddon
+}
+
+const STYLE_ID = 'adhar-xterm-css'
+
+/** Put xterm's stylesheet in the document exactly once. */
+function injectStyles(css: string): void {
+  if (typeof document === 'undefined') return
+  if (document.getElementById(STYLE_ID)) return
+  const el = document.createElement('style')
+  el.id = STYLE_ID
+  el.textContent = css
+  document.head.appendChild(el)
 }
 
 let cached: Promise<XtermApi> | null = null
@@ -50,12 +74,14 @@ export function loadXterm(): Promise<XtermApi> {
   if (cached) return cached
 
   cached = (async (): Promise<XtermApi> => {
-    // Core + fit are required; the stylesheet rides along with the core chunk.
-    const [{ Terminal }, { FitAddon }] = await Promise.all([
+    // Core + fit are required. The stylesheet comes in as text and is injected
+    // by hand — see the note above on Module Federation and orphaned CSS.
+    const [{ Terminal }, { FitAddon }, css] = await Promise.all([
       import('@xterm/xterm'),
       import('@xterm/addon-fit'),
-      import('@xterm/xterm/css/xterm.css'),
+      import('@xterm/xterm/css/xterm.css?inline').then((m) => m.default as string),
     ])
+    injectStyles(css)
 
     // Best-effort addons — in parallel; a failure just omits the addon.
     const [search, weblinks, clipboard, unicode11, webgl] = await Promise.all([

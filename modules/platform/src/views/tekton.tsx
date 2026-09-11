@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -1837,6 +1837,33 @@ function stripAnsi(s: string): string {
  * stage is a circular status node with its name + duration; clicking one selects
  * it and streams that stage's console below (Jenkins Blue Ocean model).
  */
+/** Stroke colour for an edge leaving a stage in the given state. */
+function edgeStroke(kind: StatusKind): string {
+  return kind === 'healthy'
+    ? '#10b981'
+    : kind === 'failed' || kind === 'degraded'
+    ? '#f43f5e'
+    : kind === 'progressing'
+    ? '#6366f1'
+    : kind === 'paused'
+    ? '#f59e0b'
+    : '#94a3b8';
+}
+
+const ZOOM_STEPS = [0.6, 0.75, 0.9, 1, 1.15, 1.35, 1.6];
+
+/**
+ * The pipeline DAG, drawn on a canvas.
+ *
+ * Presented the way a pipeline actually reads: nodes laid out by dependency
+ * level on a dotted canvas ground, connected by status-coloured bezier edges.
+ * Edges leaving a running stage animate their dashes in the direction of flow,
+ * so at a glance you can see where the pipeline currently *is* — green behind,
+ * indigo moving, grey ahead, red where it broke.
+ *
+ * Canvas affordances: zoom in/out/reset and a full-page view, because real
+ * pipelines outgrow a drawer section quickly.
+ */
 function BlueOceanStages({
   spec,
   statusFor,
@@ -1851,6 +1878,18 @@ function BlueOceanStages({
   onSelect: (t: string) => void;
 }) {
   const { nodes, edges } = useMemo(() => buildDag(spec, statusFor), [spec, statusFor]);
+  const [zoomIdx, setZoomIdx] = useState(3);
+  const [full, setFull] = useState(false);
+  const zoom = ZOOM_STEPS[zoomIdx];
+
+  useEffect(() => {
+    if (!full) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFull(false);
+    };
+    globalThis.addEventListener('keydown', onKey);
+    return () => globalThis.removeEventListener('keydown', onKey);
+  }, [full]);
 
   const layout = useMemo(() => {
     // group by level → columns; assign a row within each column
@@ -1889,92 +1928,229 @@ function BlueOceanStages({
     return <EmptyState compact title='No stages' description='This pipeline defines no tasks.' />;
   }
 
+  const running = nodes.some((n) => statusFor(n.name).kind === 'progressing');
+
   return (
-    <div className='overflow-x-auto rounded-xl border border-edge-default bg-surface-sunken/30 p-4'>
+    <div
+      className={cn(
+        'relative overflow-hidden rounded-xl border border-edge-default',
+        full ? 'fixed inset-3 z-50 shadow-2xl' : '',
+      )}
+    >
+      {/* canvas ground — the dotted grid you expect to be able to pan around */}
       <div
-        className='relative'
-        style={{ width: layout.width, height: layout.height, minWidth: '100%' }}
-      >
-        {/* connector layer */}
-        <svg
-          className='pointer-events-none absolute inset-0'
-          width={layout.width}
-          height={layout.height}
+        aria-hidden
+        className='pointer-events-none absolute inset-0 bg-surface-sunken/40 [--dot:rgb(100_116_139_/_0.35)] dark:[--dot:rgb(148_163_184_/_0.20)]'
+        style={{
+          backgroundImage: 'radial-gradient(circle, var(--dot) 1px, transparent 1px)',
+          backgroundSize: '16px 16px',
+        }}
+      />
+
+      {/* canvas controls */}
+      <div className='absolute right-2 top-2 z-20 flex items-center gap-1 rounded-lg border border-edge-default bg-surface-raised/90 p-0.5 shadow-sm backdrop-blur'>
+        <CanvasBtn
+          label='Zoom out'
+          disabled={zoomIdx === 0}
+          onClick={() => setZoomIdx((i) => Math.max(0, i - 1))}
         >
-          {edges.map((e) => {
-            const a = layout.pos.get(e.from);
-            const b = layout.pos.get(e.to);
-            if (!a || !b) return null;
-            const x1 = a.x + layout.NW;
-            const y1 = a.y + layout.NH / 2;
-            const x2 = b.x;
-            const y2 = b.y + layout.NH / 2;
-            const mx = (x1 + x2) / 2;
-            const kind = statusFor(e.from).kind;
-            const stroke = kind === 'healthy'
-              ? '#10b981'
-              : kind === 'failed' || kind === 'degraded'
-              ? '#f43f5e'
-              : kind === 'progressing'
-              ? '#6366f1'
-              : '#cbd5e1';
-            return (
-              <path
-                key={`${e.from}-${e.to}`}
-                d={`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`}
-                fill='none'
-                stroke={stroke}
-                strokeWidth={2}
-                strokeOpacity={0.55}
-              />
-            );
-          })}
-        </svg>
-        {/* stage nodes */}
-        {nodes.map((n) => {
-          const p = layout.pos.get(n.name)!;
-          const vis = taskVisual(n.kind, n.label);
-          const meta = metaFor(n.name);
-          const isSel = selected === n.name;
-          return (
-            <button
-              key={n.name}
-              type='button'
-              onClick={() => onSelect(n.name)}
-              title={`${n.name} — ${n.label}`}
-              className={cn(
-                'absolute flex items-center gap-2.5 rounded-full border bg-surface-raised px-3 text-left shadow-sm transition-all',
-                'hover:shadow-md',
-                isSel ? 'border-brand-400 ring-2 ring-brand-400/40' : vis.borderTone,
-                n.isFinally && 'border-dashed',
-              )}
-              style={{ left: p.x, top: p.y, width: layout.NW, height: layout.NH }}
-            >
-              <span
-                className={cn(
-                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
-                  vis.glyphTone,
-                  vis.running && 'animate-pulse',
-                )}
-              >
-                <StatusGlyph id={vis.id} size={16} />
-              </span>
-              <span className='min-w-0 flex-1'>
-                <span className='block truncate text-[12px] font-semibold text-content'>
-                  {n.name}
-                </span>
-                <span className='block truncate text-[10px] text-content-subtle'>
-                  {meta ? duration(meta.start, meta.end) : n.label}
-                  {meta?.stepsTotal
-                    ? ` · ${meta.stepsDone ?? 0}/${meta.stepsTotal} steps`
-                    : ''}
-                </span>
-              </span>
-            </button>
-          );
-        })}
+          −
+        </CanvasBtn>
+        <button
+          type='button'
+          onClick={() => setZoomIdx(3)}
+          title='Reset zoom'
+          className='px-1.5 text-[10px] font-semibold tabular-nums text-content-muted hover:text-content'
+        >
+          {Math.round(zoom * 100)}%
+        </button>
+        <CanvasBtn
+          label='Zoom in'
+          disabled={zoomIdx === ZOOM_STEPS.length - 1}
+          onClick={() => setZoomIdx((i) => Math.min(ZOOM_STEPS.length - 1, i + 1))}
+        >
+          +
+        </CanvasBtn>
+        <span className='mx-0.5 h-4 w-px bg-edge-subtle' />
+        <CanvasBtn label={full ? 'Exit full page (Esc)' : 'Full page'} onClick={() => setFull((f) => !f)}>
+          {full ? '⤡' : '⤢'}
+        </CanvasBtn>
       </div>
+
+      {/* legend */}
+      <div className='absolute bottom-2 left-2 z-20 flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-surface-raised/90 px-2 py-1 text-[10px] text-content-muted shadow-sm backdrop-blur'>
+        {(
+          [
+            ['healthy', 'passed'],
+            ['progressing', 'running'],
+            ['failed', 'failed'],
+            ['unknown', 'pending'],
+          ] as Array<[StatusKind, string]>
+        ).map(([k, label]) => (
+          <span key={label} className='inline-flex items-center gap-1'>
+            <span className='h-1.5 w-1.5 rounded-full' style={{ background: edgeStroke(k) }} />
+            {label}
+          </span>
+        ))}
+      </div>
+
+      <div className={cn('relative overflow-auto p-4', full ? 'h-full' : 'max-h-[60vh]')}>
+        <div
+          className='relative'
+          style={{
+            width: layout.width * zoom,
+            height: layout.height * zoom,
+            minWidth: '100%',
+          }}
+        >
+          <div
+            className='relative origin-top-left transition-transform duration-200'
+            style={{ width: layout.width, height: layout.height, transform: `scale(${zoom})` }}
+          >
+            {/* connector layer */}
+            <svg
+              className='pointer-events-none absolute inset-0 overflow-visible'
+              width={layout.width}
+              height={layout.height}
+            >
+              {edges.map((e) => {
+                const a = layout.pos.get(e.from);
+                const b = layout.pos.get(e.to);
+                if (!a || !b) return null;
+                const x1 = a.x + layout.NW;
+                const y1 = a.y + layout.NH / 2;
+                const x2 = b.x;
+                const y2 = b.y + layout.NH / 2;
+                const mx = (x1 + x2) / 2;
+                const kind = statusFor(e.from).kind;
+                const stroke = edgeStroke(kind);
+                const flowing = kind === 'progressing';
+                return (
+                  <g key={`${e.from}-${e.to}`}>
+                    {/* soft glow so a live edge reads on the dotted ground */}
+                    <path
+                      d={`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`}
+                      fill='none'
+                      stroke={stroke}
+                      strokeWidth={flowing ? 6 : 4}
+                      strokeOpacity={flowing ? 0.18 : 0.1}
+                      strokeLinecap='round'
+                    />
+                    <path
+                      d={`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`}
+                      fill='none'
+                      stroke={stroke}
+                      strokeWidth={2}
+                      strokeOpacity={flowing ? 0.95 : 0.6}
+                      strokeLinecap='round'
+                      strokeDasharray={flowing ? '7 7' : undefined}
+                      className={flowing ? 'adhar-dag-flow' : undefined}
+                    />
+                  </g>
+                );
+              })}
+            </svg>
+
+            {/* stage nodes */}
+            {nodes.map((n) => {
+              const p = layout.pos.get(n.name)!;
+              const vis = taskVisual(n.kind, n.label);
+              const meta = metaFor(n.name);
+              const isSel = selected === n.name;
+              const accent = edgeStroke(n.kind);
+              return (
+                <button
+                  key={n.name}
+                  type='button'
+                  onClick={() => onSelect(n.name)}
+                  title={`${n.name} — ${n.label}`}
+                  className={cn(
+                    'adhar-dag-node absolute flex items-center gap-2.5 rounded-full border bg-surface-raised px-3 text-left shadow-sm transition-all',
+                    'hover:-translate-y-0.5 hover:shadow-lg',
+                    isSel ? 'border-brand-400 ring-2 ring-brand-400/40' : vis.borderTone,
+                    n.isFinally && 'border-dashed',
+                  )}
+                  style={{
+                    left: p.x,
+                    top: p.y,
+                    width: layout.NW,
+                    height: layout.NH,
+                    animationDelay: `${Math.min(n.level, 8) * 60}ms`,
+                    boxShadow: vis.running ? `0 0 0 3px ${accent}22` : undefined,
+                  }}
+                >
+                  <span
+                    className={cn(
+                      'flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
+                      vis.glyphTone,
+                      vis.running && 'animate-pulse',
+                    )}
+                  >
+                    <StatusGlyph id={vis.id} size={16} />
+                  </span>
+                  <span className='min-w-0 flex-1'>
+                    <span className='block truncate text-[12px] font-semibold text-content'>
+                      {n.name}
+                    </span>
+                    <span className='block truncate text-[10px] text-content-subtle'>
+                      {meta ? duration(meta.start, meta.end) : n.label}
+                      {meta?.stepsTotal ? ` · ${meta.stepsDone ?? 0}/${meta.stepsTotal} steps` : ''}
+                    </span>
+                  </span>
+                  {/* status accent so colour reads even at small zoom */}
+                  <span
+                    aria-hidden
+                    className='absolute inset-y-2 right-2 w-1 rounded-full'
+                    style={{ background: accent, opacity: 0.75 }}
+                  />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <style>
+        {`
+        @keyframes adhar-dag-flow { to { stroke-dashoffset: -28; } }
+        .adhar-dag-flow { animation: adhar-dag-flow 1s linear infinite; }
+        @keyframes adhar-dag-in {
+          from { opacity: 0; transform: translateY(6px) scale(0.97); }
+          to   { opacity: 1; transform: none; }
+        }
+        .adhar-dag-node { animation: adhar-dag-in .3s cubic-bezier(.2,.7,.3,1) backwards; }
+        @media (prefers-reduced-motion: reduce) {
+          .adhar-dag-flow, .adhar-dag-node { animation: none !important; }
+        }
+      `}
+      </style>
+      {running ? <span className='sr-only'>Pipeline is running</span> : null}
     </div>
+  );
+}
+
+function CanvasBtn({
+  label,
+  onClick,
+  disabled = false,
+  children,
+}: {
+  label: string;
+  onClick(): void;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type='button'
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      aria-label={label}
+      className='flex h-6 w-6 items-center justify-center rounded text-[12px] font-semibold text-content-muted transition-colors hover:bg-surface-sunken hover:text-content disabled:opacity-30'
+    >
+      {children}
+    </button>
   );
 }
 

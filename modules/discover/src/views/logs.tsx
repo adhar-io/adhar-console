@@ -577,7 +577,7 @@ export function Logs() {
 
       {/* ═══ explorer ═══ */}
       {q.isError ? (
-        <SourceError source="Loki" error={q.error} />
+        <SourceError tool="Loki" error={q.error} onRetry={() => q.refetch()} icon={<LokiIcon size={20} />} />
       ) : (
         <div
           className={cn(
@@ -1189,8 +1189,10 @@ function LogRow({
   const labels = labelsOf(entry)
   const re = compileFilter(filter)
   const parts = useMemo(() => splitMatches(entry.message, filter.exclude ? null : re), [entry.message, re, filter.exclude])
-  const pills = prefs.showLabels
-    ? ['namespace', 'app', 'service_name', 'pod', 'container'].map((k) => (labels[k] ? [k, labels[k]] as const : null)).filter(Boolean).slice(0, 3)
+  const pills: Array<readonly [string, string]> = prefs.showLabels
+    ? ['namespace', 'app', 'service_name', 'pod', 'container']
+      .flatMap((k) => (labels[k] ? [[k, labels[k]] as const] : []))
+      .slice(0, 3)
     : []
 
   return (

@@ -254,6 +254,28 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
   const toolPods = useLiveList<PodLike>(GVRS.pods, { namespace: TOOLS_NAMESPACE, labelSelector: TOOLS_LABEL })
   const toolsPod = useMemo(() => toolPods.data.find((p) => p.status?.phase === 'Running'), [toolPods.data])
 
+  /** Launch the cluster (kubectl/k9s/helm) shell without going via the sidebar. */
+  const launchCluster = useCallback(
+    (split?: boolean) => {
+      const container = toolsPod?.spec?.containers?.[0]?.name
+      if (!toolsPod || !container) return
+      open(
+        {
+          kind: 'cluster',
+          cluster: clusterName,
+          namespace: TOOLS_NAMESPACE,
+          pod: toolsPod.metadata?.name ?? '',
+          container,
+          command: shellCommand('auto', ''),
+          shell: 'bash → sh',
+          label: `cluster${clusterName ? `:${clusterName}` : ''}`,
+        },
+        { split },
+      )
+    },
+    [toolsPod, clusterName, open],
+  )
+
   if (!canExec) {
     return (
       <div className="rounded-2xl border border-edge-default bg-surface-raised p-8 shadow-sm">
@@ -273,34 +295,70 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
 
   return (
     <div className={cn('flex flex-col gap-3', fullscreen && 'fixed inset-0 z-40 overflow-hidden bg-surface-app p-3')}>
-      {/* ═══════════ header ═══════════ */}
-      <header className="flex flex-wrap items-center gap-2 rounded-2xl border border-edge-default bg-surface-raised px-3 py-2 shadow-sm">
-        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 text-emerald-300 shadow-sm ring-1 ring-black/10 dark:bg-slate-800">
-          <IconPrompt />
-        </span>
-        <div className="min-w-0">
-          <div className="text-sm font-semibold text-content">Cloud Shell</div>
-          <div className="text-[11px] text-content-subtle">Per-user exec · audited · RBAC enforced by the cluster</div>
+      {/* ═══════════ status band ═══════════
+          The page title lives in the module PageHeader, so this band carries
+          the state an operator needs before they type a command: who they are
+          acting as, which cluster, whether the tools pod is actually up, and
+          what is already running. */}
+      {!fullscreen ? (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+          <ShellStat
+            label="Sessions"
+            value={String(sessions.length)}
+            hint={sessions.length ? `${connected} connected` : 'none open'}
+            tone={sessions.length ? undefined : 'muted'}
+          />
+          <ShellStat
+            label="Acting as"
+            value={user?.name || user?.email || 'you'}
+            hint={roles.length ? K8S_ROLE_LABEL[roles[0]] : 'every exec is audited'}
+          />
+          <ShellStat label="Cluster" value={clusterName ?? 'local'} hint="change it in the top bar" mono />
+          <ShellStat
+            label="Tools pod"
+            value={toolPods.isLoading ? 'checking…' : toolsPod ? 'ready' : 'missing'}
+            hint={toolsPod ? `${TOOLS_NAMESPACE}/${toolsPod.metadata?.name}` : `no Running pod labeled ${TOOLS_LABEL}`}
+            tone={toolPods.isLoading ? 'warn' : toolsPod ? 'ok' : 'bad'}
+          />
+          <ShellStat
+            label="Active shell"
+            value={active ? active.shell : '—'}
+            hint={active ? `${active.namespace}/${active.pod}` : 'no active session'}
+            mono
+          />
+          <ShellStat
+            label="Uptime"
+            value={active ? fmtUptime(now - active.startedAt) : '—'}
+            hint={active ? active.status : 'start a session to begin'}
+            tone={active?.status === 'error' ? 'bad' : active?.status === 'connected' ? 'ok' : undefined}
+          />
         </div>
-        <span className="mx-1 hidden h-6 w-px bg-edge-subtle sm:block" />
-        <Chip title="Every exec is authorised as you">
-          <IconUser />
-          <span className="truncate">{user?.name || user?.email || 'signed-in user'}</span>
-          {roles.length ? <span className="rounded bg-surface-raised px-1 text-[9.5px] uppercase text-content-subtle ring-1 ring-edge-default">{K8S_ROLE_LABEL[roles[0]]}</span> : null}
-        </Chip>
-        <Chip title="Active cluster (change it in the top bar)">
-          <IconCluster />
-          <span className="font-mono">{clusterName ?? 'local'}</span>
-        </Chip>
-        <Chip title={toolsPod ? `${TOOLS_NAMESPACE}/${toolsPod.metadata?.name}` : `No Running pod labeled ${TOOLS_LABEL} in ${TOOLS_NAMESPACE}`}>
-          <span className={cn('h-1.5 w-1.5 rounded-full', toolPods.isLoading ? 'bg-amber-400 animate-pulse' : toolsPod ? 'bg-emerald-500' : 'bg-rose-500')} />
-          tools pod {toolPods.isLoading ? 'checking…' : toolsPod ? 'ready' : 'missing'}
-        </Chip>
-        <Chip title="Open sessions · connected">
-          <IconTabs />
-          {sessions.length} session{sessions.length === 1 ? '' : 's'}
-          {sessions.length ? <span className="text-emerald-600 dark:text-emerald-300">· {connected} live</span> : null}
-        </Chip>
+      ) : null}
+
+      {/* ═══════════ actions — left: launch, right: workbench controls ═══════════ */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Button
+          size="sm"
+          variant="primary"
+          disabled={!toolsPod}
+          title={toolsPod ? 'Open a kubectl / k9s / helm shell on the cluster' : `No Running pod labeled ${TOOLS_LABEL} in ${TOOLS_NAMESPACE}`}
+          onClick={() => launchCluster()}
+        >
+          <IconPrompt /> Cluster shell
+        </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          title="Pick a pod and container to exec into"
+          onClick={() => { setSidebarTab('launch'); setPrefs({ sidebar: true }) }}
+        >
+          <IconPlus /> Pod shell
+        </Button>
+        {active ? (
+          <Button size="sm" variant="ghost" title="Open the active session beside itself" onClick={() => setSplitId((cur) => (cur === activeId ? null : activeId))}>
+            Split
+          </Button>
+        ) : null}
 
         <div className="ml-auto flex items-center gap-1">
           <IconBtn label="Broadcast a command to every session (Alt+B)" active={broadcastOpen} onClick={() => setBroadcastOpen((o) => !o)} disabled={sessions.length === 0}>
@@ -315,7 +373,7 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
             {fullscreen ? <IconCollapse /> : <IconExpand />}
           </IconBtn>
         </div>
-      </header>
+      </div>
 
       {restorable.length && sessions.length === 0 ? (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-brand-200 bg-brand-50/60 px-3 py-2 text-[12px] text-brand-900 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-100">
@@ -333,7 +391,7 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
 
       {/* ═══════════ body ═══════════ */}
       <div
-        className={cn('grid min-h-0 gap-3', prefs.sidebar && 'lg:grid-cols-[300px_minmax(0,1fr)]', fullscreen ? 'flex-1' : 'h-[calc(100vh-15rem)] min-h-[560px]')}
+        className={cn('grid min-h-0 gap-3', prefs.sidebar && 'lg:grid-cols-[300px_minmax(0,1fr)]', fullscreen ? 'flex-1' : 'h-[calc(100vh-17rem)] min-h-[560px]')}
       >
         {prefs.sidebar ? (
           <Sidebar
@@ -401,7 +459,12 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
           {/* panes — every session stays mounted so tabs keep their live shells */}
           <div className={cn('relative grid min-h-0 flex-1 gap-2 p-2', split ? 'grid-cols-2' : 'grid-cols-1')}>
             {sessions.length === 0 ? (
-              <WorkbenchEmpty onLaunch={() => { setSidebarTab('launch'); setPrefs({ sidebar: true }) }} sidebarHidden={!prefs.sidebar} />
+              <WorkbenchEmpty
+                onLaunch={() => { setSidebarTab('launch'); setPrefs({ sidebar: true }) }}
+                onCluster={() => launchCluster()}
+                sidebarHidden={!prefs.sidebar}
+                toolsReady={!!toolsPod}
+              />
             ) : null}
             {sessions.map((s) => {
               const visible = s.id === activeId || s.id === split?.id
@@ -1096,19 +1159,96 @@ function ShortcutsMenu() {
 
 /* ─────────── bits ─────────── */
 
-function WorkbenchEmpty({ onLaunch, sidebarHidden }: { onLaunch(): void; sidebarHidden: boolean }) {
+function WorkbenchEmpty({
+  onLaunch,
+  onCluster,
+  sidebarHidden,
+  toolsReady,
+}: {
+  onLaunch(): void
+  onCluster(): void
+  sidebarHidden: boolean
+  toolsReady: boolean
+}) {
   return (
-    <div className="col-span-full flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-edge-default bg-slate-950 p-8 text-center">
-      <div className="font-mono text-[12px] text-emerald-300">
-        <span className="text-slate-500">$</span> adhar shell <span className="animate-pulse">▍</span>
+    <div className="flex min-h-0 items-center justify-center p-6">
+      <div className="w-full max-w-lg text-center">
+        <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-emerald-300 shadow-sm ring-1 ring-black/10 dark:bg-slate-800">
+          <IconPrompt />
+        </span>
+        <h3 className="mt-3 text-sm font-semibold text-content">A terminal into the cluster, as you</h3>
+        <p className="mx-auto mt-1 max-w-md text-[12px] leading-relaxed text-content-muted">
+          Sessions run through the exec gateway with your own Kubernetes RBAC — you can only reach what
+          you could reach with kubectl, and every session is audited.
+        </p>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={onCluster}
+            disabled={!toolsReady}
+            className="rounded-xl border border-edge-default bg-surface-app p-3 text-left transition-colors hover:border-brand-300 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <div className="text-[12.5px] font-medium text-content">Cluster shell</div>
+            <div className="mt-0.5 text-[11px] leading-relaxed text-content-subtle">
+              {toolsReady ? 'kubectl, k9s and helm already on PATH.' : 'The tools pod is not running in this cluster.'}
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={onLaunch}
+            className="rounded-xl border border-edge-default bg-surface-app p-3 text-left transition-colors hover:border-brand-300"
+          >
+            <div className="text-[12.5px] font-medium text-content">Pod shell</div>
+            <div className="mt-0.5 text-[11px] leading-relaxed text-content-subtle">
+              Exec into any running container to debug it in place.
+            </div>
+          </button>
+        </div>
+        <p className="mt-3 text-[11px] text-content-subtle">
+          {sidebarHidden ? 'The launcher lives in the sidebar — ' : ''}
+          <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">Alt</kbd>+
+          <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">T</kbd> new ·{' '}
+          <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">Alt</kbd>+
+          <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">1…9</kbd> switch ·{' '}
+          <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">Alt</kbd>+
+          <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">B</kbd> broadcast
+        </p>
       </div>
-      <p className="mt-3 max-w-md text-[12px] text-slate-400">
-        Open a <span className="text-slate-200">Cluster shell</span> with kubectl, k9s and helm, or <span className="text-slate-200">exec</span> into any running container. Sessions run as you and are audited.
-      </p>
-      <div className="mt-4 flex gap-2">
-        <Button size="sm" variant="primary" onClick={onLaunch}>{sidebarHidden ? 'Open launcher' : 'Choose a target'}</Button>
-      </div>
-      <p className="mt-4 font-mono text-[10px] text-slate-500">Alt+T new · Alt+1…9 switch · Alt+B broadcast</p>
+    </div>
+  )
+}
+
+/** One tile in the status band. */
+function ShellStat({
+  label,
+  value,
+  hint,
+  tone,
+  mono = false,
+}: {
+  label: string
+  value: string
+  hint?: string
+  tone?: 'ok' | 'warn' | 'bad' | 'muted'
+  mono?: boolean
+}) {
+  const color =
+    tone === 'bad'
+      ? 'text-rose-600 dark:text-rose-400'
+      : tone === 'warn'
+        ? 'text-amber-600 dark:text-amber-400'
+        : tone === 'ok'
+          ? 'text-emerald-600 dark:text-emerald-400'
+          : tone === 'muted'
+            ? 'text-content-muted'
+            : 'text-content'
+  return (
+    <div className="flex flex-col gap-0.5 rounded-xl border border-edge-default bg-surface-raised px-3 py-2">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{label}</span>
+      <span className={cn('truncate text-[15px] font-semibold leading-tight tracking-tight', mono && 'font-mono text-[13px]', color)} title={value}>
+        {value}
+      </span>
+      <span className="truncate text-[10.5px] text-content-subtle" title={hint}>{hint ?? ' '}</span>
     </div>
   )
 }
@@ -1118,11 +1258,6 @@ function Geometry({ id, handles, tick }: { id: string; handles: React.MutableRef
   return g ? <span>{g.cols}×{g.rows}</span> : null
 }
 
-function Chip({ children, title }: { children: ReactNode; title?: string }) {
-  return (
-    <span title={title} className="inline-flex h-7 max-w-64 items-center gap-1.5 rounded-lg bg-surface-sunken px-2 text-[11px] text-content-muted">{children}</span>
-  )
-}
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -1212,9 +1347,6 @@ const I = ({ children, size = 14, sw = 2 }: { children: ReactNode; size?: number
   </svg>
 )
 const IconPrompt = () => <I size={18} sw={2.25}><path d="m5 7 6 5-6 5" /><path d="M13 17h6" /></I>
-const IconUser = () => <I size={12}><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></I>
-const IconCluster = () => <I size={12}><rect x="3" y="4" width="18" height="6" rx="1.5" /><rect x="3" y="14" width="18" height="6" rx="1.5" /><path d="M7 7h.01M7 17h.01" /></I>
-const IconTabs = () => <I size={12}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 10h18" /><path d="M9 5v5" /></I>
 const IconBroadcast = () => <I><circle cx="12" cy="12" r="2" /><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4" /><path d="M19.1 4.9a10 10 0 0 1 0 14.2M4.9 19.1a10 10 0 0 1 0-14.2" /></I>
 const IconSidebar = () => <I><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></I>
 const IconGear = () => <I><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></I>

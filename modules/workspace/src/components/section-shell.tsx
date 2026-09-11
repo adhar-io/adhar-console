@@ -36,8 +36,14 @@ export function ViewShell({
   return (
     <ActionSlotContext.Provider value={slot}>
       <div className="space-y-6">
+        {/* `justify-between` alone is not enough: once the actions wrap onto
+            their own line they become the only item on it, and a lone item
+            under `justify-between` sits at flex-START — which is why pages with
+            a long description (Members) showed their buttons on the left. The
+            title takes the free space so wrapping is rare, and `ml-auto` keeps
+            the actions right-aligned when it does happen. */}
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold tracking-tight text-content">{title}</h2>
               {required ? <RequiredRolePill required={required} /> : null}
@@ -48,7 +54,7 @@ export function ViewShell({
               </p>
             ) : null}
           </div>
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
             {actions}
             <div ref={setSlot} className="contents" />
           </div>

@@ -6,6 +6,42 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+
+- **Adhar AI runs on AG-UI, with generative UI.** The assistant is now an
+  [AG-UI](https://github.com/ag-ui-protocol/ag-ui) (Agent-User Interaction
+  Protocol) server and client. `POST /api/ai/run` takes a canonical
+  `RunAgentInput` and streams canonical AG-UI events; every event is built
+  with the protocol's own `EventType` and validated against its own zod
+  schemas (`@ag-ui/core`) before it goes on the wire, so a malformed event is
+  impossible rather than merely unlikely. What that buys, in the UI:
+
+  - **Generative UI** — the chat renders components, not JSON. Every cluster
+    tool the agent runs maps to a real component (pod diagnosis with a
+    container table, workload health with a replica gauge, grouped warning
+    events, Argo CD sync/health, log viewer, resource lists), and the agent
+    can call `render_ui` itself to pick a table, metric row, timeline,
+    checklist, comparison, callout or bar chart when that beats prose.
+    Fifteen components in all, each defensive about model-authored props and
+    wrapped in an error boundary so a bad payload can't blank the transcript.
+  - **A live agent workspace** — the agent publishes a plan and findings as
+    AG-UI shared state (`STATE_SNAPSHOT` + `STATE_DELTA` JSON Patch). The rail
+    shows the plan ticking off step by step and findings accumulating while it
+    works, instead of a spinner.
+  - **An agent roster** — Reliability, Delivery, Security, FinOps and Platform
+    guide, each with its own brief, toolbox and starter prompts, switchable in
+    the composer.
+  - **Frontend tools** — the agent can drive the console, not just describe
+    it: `navigate_to` opens a page, `open_resource` opens a live detail
+    drawer. The server pauses the run on a browser tool, the client executes
+    it and resumes the same thread — the AG-UI handshake.
+  - **Human-in-the-loop** — `ask_operator` stops the run and puts a real
+    question to you with buttons or a free-text answer; the agent continues
+    with your reply. Change proposals remain review-and-apply.
+
+  Unchanged: the agent reads with the signed-in user's RBAC and still cannot
+  apply, patch, scale or delete anything.
+
 ### Fixed
 
 - **Overview could not be scrolled on phones.** Every panel slot carried

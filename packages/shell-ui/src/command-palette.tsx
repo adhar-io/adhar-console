@@ -2,11 +2,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { useNavigate } from '@tanstack/react-router'
 import { cn } from '@adhar-console/utils'
 import { DEFAULT_NAV, type NavItem, type NavSection } from './nav-tree.tsx'
-import { assistStore, useAssist, type AssistTurn } from './assist-store.ts'
+import { assistStore, useAssist, type ChatEntry, type Finding, type PlanStep, type ToolCallView } from './agui/store.ts'
+import { GenerativeBlock } from './agui/generative.tsx'
 import { consumePendingAsk, SparkIcon } from './ai-assistant.tsx'
 import { useSelection } from './selection-store.ts'
 import { useNotifications } from './notifications.ts'
-import type { AiMode, AiProposal } from './ai.ts'
 
 export interface CommandPaletteProps {
   open: boolean
@@ -33,49 +33,38 @@ export interface CommandItem {
 /**
  * Adhar AI — the ⌘K overlay, and the primary way to talk to the platform.
  *
- * One large surface with two lanes:
- *   • Conversation (left) — a real LLM chat over `/api/ai/*`: streamed
- *     answers rendered as markdown, tool-call chips showing what the model
- *     read from the cluster (with the user's RBAC), proposals as review-and-
- *     apply cards, stop / regenerate / copy, modes (Chat · Diagnose · Explain
- *     · Generate), slash commands (`/go`, `/diagnose`, `/explain`,
- *     `/generate`, `/new`), context chips (page · cluster · namespace) and a
- *     conversation history kept in the browser.
- *   • Navigate (right) — dynamic results for whatever is typed: every page
- *     and command in the console, ranked live. `⌘⏎` opens the top hit, or
- *     click any. When AI isn't configured the overlay still works as the
- *     command palette.
+ * The conversation runs on **AG-UI** (the Agent-User Interaction Protocol):
+ * the BFF is an AG-UI server and this overlay is an AG-UI client, so what you
+ * see is driven by protocol events rather than a bespoke token stream:
  *
- * The composer has no focus ring/border highlight by design — the surface
- * itself is the focus.
+ *   • **Agents** — a roster (Reliability · Delivery · Security · FinOps ·
+ *     Platform guide), each with its own brief, toolbox and starters.
+ *   • **Generative UI** — tool results and `render_ui` calls arrive as CUSTOM
+ *     events and render as real components (diagnosis cards, tables, charts,
+ *     timelines) inline in the transcript, not as JSON.
+ *   • **Live agent state** — STATE_SNAPSHOT / STATE_DELTA drive the workspace
+ *     rail: the agent's plan ticking off step by step and its findings
+ *     accumulating while it works.
+ *   • **Frontend tools** — the agent can navigate the console, open a resource
+ *     drawer, or stop and ask the operator a question (human-in-the-loop).
+ *   • **Navigate lane** — every page and command in the console, ranked live.
+ *     `⌘⏎` opens the top hit. With no LLM configured this is still a full
+ *     command palette.
  */
 export function CommandPalette({ open, onClose, items, sections = DEFAULT_NAV }: CommandPaletteProps) {
   if (!open) return null
   return <AssistOverlay onClose={onClose} items={items} sections={sections} />
 }
 
-const MODES: Array<{ id: AiMode; label: string; hint: string }> = [
-  { id: 'chat', label: 'Chat', hint: 'Ask anything about the platform' },
-  { id: 'diagnose', label: 'Diagnose', hint: 'Root-cause a workload' },
-  { id: 'explain', label: 'Explain', hint: 'What is this resource?' },
-  { id: 'generate', label: 'Generate', hint: 'Draft a manifest to review' },
-]
-
 const SLASH: Array<{ cmd: string; hint: string }> = [
   { cmd: '/go', hint: 'Jump to a page instead of asking' },
-  { cmd: '/diagnose', hint: 'Root-cause the focused workload' },
-  { cmd: '/explain', hint: 'Explain the focused resource' },
-  { cmd: '/generate', hint: 'Draft a manifest to review' },
   { cmd: '/new', hint: 'Start a fresh conversation' },
 ]
 
-const STARTERS: Array<{ label: string; prompt: string; mode?: AiMode }> = [
-  { label: 'What needs my attention right now?', prompt: 'Scan the cluster for Warning events and unhealthy workloads, group by namespace, and tell me what needs attention first.' },
-  { label: 'Why is a pod crash-looping?', prompt: 'Find pods in CrashLoopBackOff or ImagePullBackOff across the cluster, run diagnostics on the worst one, and explain the root cause.' },
-  { label: 'Are my Argo CD apps in sync?', prompt: 'List Argo CD applications that are OutOfSync or Degraded and explain what is blocking each.' },
-  { label: 'Which policies are being violated?', prompt: 'Summarise Kyverno policy violations: which policies fail most, which namespaces are affected, and what to fix first.' },
-  { label: 'Draft a Deployment', prompt: 'Draft a production-ready Deployment with resource requests/limits, probes, non-root security context and 2 replicas for an image I will name.', mode: 'generate' },
-  { label: 'Explain the current page', prompt: 'Explain what the resource I am looking at does, its current state, and anything an operator should know.', mode: 'explain' },
+/** Fallback starters when the roster hasn't loaded (or AI is off). */
+const FALLBACK_STARTERS = [
+  { label: 'What needs my attention right now?', prompt: 'Scan the cluster for Warning events and unhealthy workloads, then tell me what needs attention first.' },
+  { label: 'Why is a pod crash-looping?', prompt: 'Find pods in CrashLoopBackOff or ImagePullBackOff, diagnose the worst one and explain the root cause.' },
 ]
 
 function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: CommandItem[]; sections: NavSection[] }) {
@@ -83,8 +72,7 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
   const state = useAssist()
   const selection = useSelection()
   const [input, setInput] = useState('')
-  const [mode, setMode] = useState<AiMode>('chat')
-  const [rail, setRail] = useState<'navigate' | 'history'>('navigate')
+  const [rail, setRail] = useState<'navigate' | 'agent' | 'history'>('navigate')
   const [attachContext, setAttachContext] = useState(true)
   const [activeNav, setActiveNav] = useState(0)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -96,36 +84,63 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
   const navResults = useMemo(() => filterItems(allItems, navQuery).slice(0, 12), [allItems, navQuery])
   const page = typeof location !== 'undefined' ? location.pathname : ''
   const pageItem = useMemo(() => allItems.find((i) => i.to && page.startsWith(i.to) && i.to !== '/') ?? allItems.find((i) => i.to === page), [allItems, page])
+  const agent = state.agents.find((a) => a.id === state.agentId)
 
-  // Boot: config, pending ask (from useAi().ask / AiButton), focus.
+  // Boot: config, a queued ask (from useAi().ask / AiButton), focus.
   useEffect(() => {
     void assistStore.loadConfig()
     const pending = consumePendingAsk()
     if (pending) {
-      const m = pending.mode ?? 'chat'
-      setMode(m)
-      assistStore.run(m, {
-        prompt: pending.prompt,
-        context: pending.context,
-        userLabel: m === 'chat' ? pending.prompt : pending.title ?? MODES.find((x) => x.id === m)?.label,
-        title: pending.title,
-      })
+      if (pending.agentId) assistStore.setAgent(pending.agentId)
+      if (pending.context) assistStore.setContext(pending.context)
+      if (pending.prompt) assistStore.send(pending.prompt, { context: pending.context, title: pending.title })
     }
     const id = requestAnimationFrame(() => inputRef.current?.focus())
     return () => cancelAnimationFrame(id)
   }, [])
 
+  /**
+   * Frontend tools. Registered while the overlay is mounted because they need
+   * the router; the store itself outlives the overlay so a run keeps going if
+   * the agent navigates and the panel closes.
+   */
+  useEffect(() => {
+    assistStore.setFrontendHandler('navigate_to', (args) => {
+      const path = String(args.path ?? '')
+      if (!path.startsWith('/')) return JSON.stringify({ error: 'path must be a console route starting with /' })
+      const [pathname, qs] = path.split('?')
+      const search = qs ? Object.fromEntries(new URLSearchParams(qs)) : undefined
+      try {
+        navigate({ to: pathname, search: search as never })
+      } catch {
+        return JSON.stringify({ error: `no such console route: ${pathname}` })
+      }
+      onClose()
+      return JSON.stringify({ ok: true, navigated: path, note: 'The operator is now on this page.' })
+    })
+    assistStore.setFrontendHandler('open_resource', (args) => {
+      globalThis.dispatchEvent(new CustomEvent('adhar:ai:open-resource', { detail: args }))
+      return JSON.stringify({ ok: true, opened: `${String(args.kind)}/${String(args.name)}` })
+    })
+    return () => {
+      assistStore.setFrontendHandler('navigate_to', null)
+      assistStore.setFrontendHandler('open_resource', null)
+    }
+  }, [navigate, onClose])
+
   // Keep the thread pinned to the newest message while streaming.
   useLayoutEffect(() => {
     const el = threadRef.current
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight
-  }, [state.current.turns])
+  }, [state.thread.messages, state.run])
 
+  useEffect(() => setActiveNav(0), [navQuery])
+
+  // A run with live state or a question pending is worth showing by default.
   useEffect(() => {
-    setActiveNav(0)
-  }, [navQuery])
+    if (state.pendingAsk) setRail('agent')
+  }, [state.pendingAsk])
 
-  // Keys: Esc closes, ⌘⏎ opens top nav hit, ↑/↓ moves through nav hits when typing.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -146,9 +161,8 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
   const submit = () => {
     const text = input.trim()
     if (!text) return
-    // Slash commands.
     if (text === '/new') {
-      assistStore.newChat()
+      assistStore.newThread()
       setInput('')
       return
     }
@@ -156,14 +170,6 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
       const hit = navResults[activeNav] ?? navResults[0]
       if (hit) runItem(hit)
       return
-    }
-    let m = mode
-    let prompt = text
-    const slash = /^\/(diagnose|explain|generate|chat)\b\s*/.exec(text)
-    if (slash) {
-      m = slash[1] as AiMode
-      prompt = text.slice(slash[0].length).trim()
-      setMode(m)
     }
     if (!state.configured) {
       // No LLM — behave as the command palette.
@@ -174,16 +180,13 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
     if (state.busy) return
     setInput('')
     stickToBottom.current = true
-    // "Context" off → ask without the page/resource focus.
     if (!attachContext) assistStore.setContext(undefined)
-    assistStore.run(m, {
-      prompt: prompt || undefined,
-      userLabel: m === 'chat' ? prompt : `${MODES.find((x) => x.id === m)?.label}${prompt ? `: ${prompt}` : ''}`,
-    })
+    assistStore.send(text)
   }
 
-  const turns = state.current.turns
-  const hasThread = turns.length > 0
+  const messages = state.thread.messages
+  const hasThread = messages.length > 0
+  const starters = agent?.starters?.length ? agent.starters : FALLBACK_STARTERS
   const ctxChips = !attachContext ? [] : [
     pageItem ? { k: 'page', v: pageItem.label } : null,
     { k: 'cluster', v: selection.cluster || 'local' },
@@ -201,7 +204,10 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
             <SparkIcon size={15} />
           </span>
           <div className="min-w-0">
-            <div className="text-[14px] font-semibold tracking-tight text-content">Adhar AI</div>
+            <div className="flex items-center gap-1.5 text-[14px] font-semibold tracking-tight text-content">
+              Adhar AI
+              {state.configured ? <span className="rounded bg-surface-sunken px-1 py-px font-mono text-[9px] font-medium uppercase tracking-wider text-content-subtle">AG-UI</span> : null}
+            </div>
             <div className="truncate text-[11px] text-content-subtle">
               {state.configured
                 ? `${state.model ? `${state.model} · ` : ''}reads with your RBAC · never applies without approval${attachContext ? '' : ' · context off'}`
@@ -214,18 +220,15 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
             ))}
           </div>
           <div className="ml-auto flex items-center gap-1">
-            <HeaderBtn onClick={() => { assistStore.newChat(); setInput(''); inputRef.current?.focus() }} title="New conversation">
+            <HeaderBtn onClick={() => { assistStore.newThread(); setInput(''); inputRef.current?.focus() }} title="New conversation">
               <IconPlus /> New
-            </HeaderBtn>
-            <HeaderBtn onClick={() => setRail(rail === 'history' ? 'navigate' : 'history')} title="Conversation history" active={rail === 'history'}>
-              <IconHistory /> History{state.history.length ? ` · ${state.history.length}` : ''}
             </HeaderBtn>
             <button type="button" onClick={onClose} aria-label="Close" className="ml-1 flex h-8 w-8 items-center justify-center rounded-lg text-content-subtle hover:bg-surface-sunken hover:text-content"><IconX /></button>
           </div>
         </header>
 
         {/* ═══ body ═══ */}
-        <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(0,1fr)_320px]">
           {/* ── conversation ── */}
           <section className="flex min-h-0 flex-col">
             <div
@@ -237,13 +240,13 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
               className="min-h-0 flex-1 overflow-y-auto px-5 py-5"
             >
               {!hasThread ? (
-                <Welcome configured={state.configured} onPick={(s) => { if (s.mode) setMode(s.mode); assistStore.run(s.mode ?? 'chat', { prompt: s.prompt, userLabel: s.mode && s.mode !== 'chat' ? `${MODES.find((x) => x.id === s.mode)?.label}: ${s.label}` : s.prompt }) }} navHint={navResults[0]} />
+                <Welcome configured={state.configured} starters={starters} onPick={(prompt) => assistStore.send(prompt)} navHint={navResults[0]} agentName={agent?.name} />
               ) : (
                 <div className="mx-auto max-w-3xl space-y-5">
-                  {turns.map((t) => (
-                    <TurnView key={t.id} turn={t} canApply={state.canApply} />
-                  ))}
-                  {!state.busy && turns.length ? (
+                  {messages.map((m) => <EntryView key={m.id} entry={m} />)}
+                  {state.pendingAsk ? <AskCard /> : null}
+                  {state.busy && !state.pendingAsk ? <Thinking run={state.run} /> : null}
+                  {!state.busy && messages.length ? (
                     <div className="flex justify-end gap-1">
                       <SmallBtn onClick={() => assistStore.regenerate()}><IconRefresh /> Regenerate</SmallBtn>
                     </div>
@@ -254,47 +257,53 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
 
             {/* composer */}
             <div className="border-t border-edge-subtle bg-surface-raised px-4 pb-3 pt-2.5">
-              <div className="mb-2 flex flex-wrap items-center gap-1">
-                {MODES.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setMode(m.id)}
-                    title={m.hint}
-                    className={cn('h-7 rounded-md px-2.5 text-[11.5px] font-medium transition-colors', mode === m.id ? 'bg-brand-600 text-white' : 'text-content-muted hover:bg-surface-sunken hover:text-content')}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-                <span className="ml-auto flex items-center gap-1">
-                  <button
-                    type="button"
-                    aria-pressed={attachContext}
-                    onClick={() => setAttachContext((v) => !v)}
-                    title="Send the page you're on (cluster, namespace, focused resource) with your question"
-                    className={cn(
-                      'inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium transition-colors',
-                      attachContext ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300' : 'text-content-subtle hover:bg-surface-sunken hover:text-content',
-                    )}
-                  >
-                    <IconPin /> Context
-                  </button>
-                  {SLASH.map((c) => (
+              {state.configured && state.agents.length ? (
+                <div className="mb-2 flex flex-wrap items-center gap-1">
+                  {state.agents.map((a) => (
                     <button
-                      key={c.cmd}
+                      key={a.id}
                       type="button"
-                      title={c.hint}
-                      onClick={() => {
-                        setInput((v) => (v.startsWith('/') ? v.replace(/^\/\w+\s*/, `${c.cmd} `) : `${c.cmd} ${v}`))
-                        inputRef.current?.focus()
-                      }}
-                      className="hidden h-7 items-center rounded-md px-1.5 font-mono text-[10.5px] text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content lg:inline-flex"
+                      onClick={() => assistStore.setAgent(a.id)}
+                      title={a.description}
+                      disabled={state.busy}
+                      className={cn(
+                        'h-7 rounded-md px-2.5 text-[11.5px] font-medium transition-colors disabled:opacity-50',
+                        state.agentId === a.id ? 'bg-brand-600 text-white' : 'text-content-muted hover:bg-surface-sunken hover:text-content',
+                      )}
                     >
-                      {c.cmd}
+                      {a.name}
                     </button>
                   ))}
-                </span>
-              </div>
+                  <span className="ml-auto flex items-center gap-1">
+                    <button
+                      type="button"
+                      aria-pressed={attachContext}
+                      onClick={() => setAttachContext((v) => !v)}
+                      title="Send the page you're on (cluster, namespace, focused resource) with your question"
+                      className={cn(
+                        'inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium transition-colors',
+                        attachContext ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300' : 'text-content-subtle hover:bg-surface-sunken hover:text-content',
+                      )}
+                    >
+                      <IconPin /> Context
+                    </button>
+                    {SLASH.map((c) => (
+                      <button
+                        key={c.cmd}
+                        type="button"
+                        title={c.hint}
+                        onClick={() => {
+                          setInput((v) => (v.startsWith('/') ? v.replace(/^\/\w+\s*/, `${c.cmd} `) : `${c.cmd} ${v}`))
+                          inputRef.current?.focus()
+                        }}
+                        className="hidden h-7 items-center rounded-md px-1.5 font-mono text-[10.5px] text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content lg:inline-flex"
+                      >
+                        {c.cmd}
+                      </button>
+                    ))}
+                  </span>
+                </div>
+              ) : null}
               <div className="flex items-end gap-2 rounded-xl bg-surface-app px-3 py-2">
                 <span className="mb-1.5 text-brand-600"><SparkIcon size={16} /></span>
                 <textarea
@@ -320,7 +329,7 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
                       setActiveNav((i) => Math.max(i - 1, 0))
                     }
                   }}
-                  placeholder={state.configured ? `Ask Adhar anything, or type a page name to jump there…` : 'Search pages, apps and settings…'}
+                  placeholder={state.configured ? `Ask ${agent?.name ?? 'Adhar'} anything, or type a page name to jump there…` : 'Search pages, apps and settings…'}
                   aria-label="Message Adhar AI"
                   className="max-h-40 min-h-[28px] flex-1 resize-none bg-transparent py-1 text-[14px] leading-6 text-content outline-none placeholder:text-content-subtle focus:outline-none focus:ring-0"
                   style={{ height: 'auto' }}
@@ -354,17 +363,21 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
               {(
                 [
                   ['navigate', 'Navigate'],
+                  ['agent', 'Agent'],
                   ['history', 'History'],
                 ] as const
               ).map(([id, label]) => (
-                <button key={id} type="button" onClick={() => setRail(id)} className={cn('h-7 flex-1 rounded-md text-[11.5px] font-medium transition-colors', rail === id ? 'bg-surface-raised text-content shadow-sm ring-1 ring-edge-default' : 'text-content-muted hover:text-content')}>
+                <button key={id} type="button" onClick={() => setRail(id)} className={cn('relative h-7 flex-1 rounded-md text-[11.5px] font-medium transition-colors', rail === id ? 'bg-surface-raised text-content shadow-sm ring-1 ring-edge-default' : 'text-content-muted hover:text-content')}>
                   {label}
+                  {id === 'agent' && state.busy && rail !== 'agent' ? <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 animate-pulse rounded-full bg-brand-500" /> : null}
                 </button>
               ))}
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-2">
               {rail === 'navigate' ? (
                 <NavRail results={navResults} query={navQuery} active={activeNav} onHover={setActiveNav} onPick={runItem} all={allItems} />
+              ) : rail === 'agent' ? (
+                <AgentRail />
               ) : (
                 <HistoryRail />
               )}
@@ -381,7 +394,19 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
 
 /* ─────────── welcome ─────────── */
 
-function Welcome({ configured, onPick, navHint }: { configured: boolean; onPick(s: { label: string; prompt: string; mode?: AiMode }): void; navHint?: CommandItem }) {
+function Welcome({
+  configured,
+  starters,
+  onPick,
+  navHint,
+  agentName,
+}: {
+  configured: boolean
+  starters: Array<{ label: string; prompt: string }>
+  onPick(prompt: string): void
+  navHint?: CommandItem
+  agentName?: string
+}) {
   const notif = useNotifications()
   const insights = notif.items.filter((n) => !n.read && n.prompt).slice(0, 4)
   return (
@@ -394,7 +419,7 @@ function Welcome({ configured, onPick, navHint }: { configured: boolean; onPick(
           </div>
           <div className="space-y-1">
             {insights.map((n) => (
-              <button key={n.id} type="button" onClick={() => { notif.markRead(n.id); onPick({ label: n.title, prompt: n.prompt! }) }} className="group flex w-full items-center gap-2 rounded-lg bg-surface-raised px-2.5 py-1.5 text-left ring-1 ring-edge-subtle transition-colors hover:ring-violet-300">
+              <button key={n.id} type="button" onClick={() => { notif.markRead(n.id); onPick(n.prompt!) }} className="group flex w-full items-center gap-2 rounded-lg bg-surface-raised px-2.5 py-1.5 text-left ring-1 ring-edge-subtle transition-colors hover:ring-violet-300">
                 <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', n.kind === 'error' ? 'bg-rose-500' : n.kind === 'warning' ? 'bg-amber-500' : 'bg-violet-500')} />
                 <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-content">{n.title}</span>
                 <span className="shrink-0 text-[11px] text-violet-700 opacity-0 transition-opacity group-hover:opacity-100 dark:text-violet-300">Ask →</span>
@@ -406,16 +431,18 @@ function Welcome({ configured, onPick, navHint }: { configured: boolean; onPick(
       <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-linear-to-br from-brand-500 to-accent-500 text-white shadow-lg shadow-brand-600/25">
         <SparkIcon size={26} />
       </span>
-      <h2 className="mt-4 text-xl font-semibold tracking-tight text-content">How can I help?</h2>
+      <h2 className="mt-4 text-xl font-semibold tracking-tight text-content">
+        {configured && agentName ? `${agentName} agent — how can I help?` : 'How can I help?'}
+      </h2>
       <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-content-muted">
         {configured
-          ? 'I read your cluster, Argo CD, policies and events with your permissions, explain what I find, and propose changes you approve — nothing is applied on its own.'
+          ? 'I read your cluster, Argo CD, policies and events with your permissions, show what I find as live components, and propose changes you approve — nothing is applied on its own.'
           : 'AI isn’t configured on this cluster yet (set AI_BASE_URL / AI_MODEL). Meanwhile, type any page, app or setting to jump straight to it.'}
       </p>
       {configured ? (
         <div className="mt-6 grid w-full gap-2 sm:grid-cols-2">
-          {STARTERS.map((s) => (
-            <button key={s.label} type="button" onClick={() => onPick(s)} className="group rounded-xl border border-edge-default bg-surface-raised p-3 text-left transition-colors hover:border-brand-300 hover:bg-brand-50/40 dark:hover:border-brand-500/40 dark:hover:bg-brand-500/5">
+          {starters.map((s) => (
+            <button key={s.label} type="button" onClick={() => onPick(s.prompt)} className="group rounded-xl border border-edge-default bg-surface-raised p-3 text-left transition-colors hover:border-brand-300 hover:bg-brand-50/40 dark:hover:border-brand-500/40 dark:hover:bg-brand-500/5">
               <div className="flex items-center justify-between gap-2 text-[13px] font-medium text-content">
                 {s.label}
                 <span className="text-content-subtle opacity-0 transition-opacity group-hover:opacity-100"><IconReturn /></span>
@@ -431,105 +458,266 @@ function Welcome({ configured, onPick, navHint }: { configured: boolean; onPick(
   )
 }
 
-/* ─────────── turns ─────────── */
+/* ─────────── transcript ─────────── */
 
-function TurnView({ turn, canApply }: { turn: AssistTurn; canApply: boolean }) {
+function EntryView({ entry }: { entry: ChatEntry }) {
   const [copied, setCopied] = useState(false)
-  if (turn.role === 'user') {
+  if (entry.role === 'user') {
     return (
       <div className="flex justify-end">
         <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-brand-600 px-4 py-2.5 text-[13.5px] leading-relaxed text-white shadow-sm">
-          {turn.mode && turn.mode !== 'chat' ? <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/70">{turn.mode}</div> : null}
-          <div className="whitespace-pre-wrap">{turn.content}</div>
+          <div className="whitespace-pre-wrap">{entry.content}</div>
         </div>
       </div>
     )
   }
+  const done = entry.toolCalls.filter((t) => t.status !== 'running').length
   return (
     <div className="flex gap-3">
       <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-linear-to-br from-brand-500 to-accent-500 text-white"><SparkIcon size={13} /></span>
       <div className="min-w-0 flex-1 space-y-2">
-        {turn.tools.length > 0 ? (
+        {entry.toolCalls.length ? (
           <div className="flex flex-wrap gap-1.5">
-            {turn.tools.map((t, i) => (
-              <span key={i} className="inline-flex items-center gap-1 rounded-full border border-edge-subtle bg-surface-sunken px-2 py-0.5 text-[11px] text-content-muted" title={JSON.stringify(t.args)}>
-                <IconTool /> {toolLabel(t.name, t.args)}
-              </span>
-            ))}
+            {entry.toolCalls.map((t) => <ToolChip key={t.id} call={t} />)}
           </div>
         ) : null}
-        {turn.content ? (
+
+        {entry.content ? (
           <div className="group relative rounded-2xl rounded-tl-md bg-surface-raised px-4 py-3 text-[13.5px] leading-relaxed text-content ring-1 ring-edge-subtle">
-            <Markdown text={turn.content} />
-            {turn.streaming ? <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-brand-400 align-middle" /> : null}
-            {!turn.streaming ? (
+            <Markdown text={entry.content} />
+            {entry.streaming ? <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-brand-400 align-middle" /> : null}
+            {!entry.streaming ? (
               <button
                 type="button"
-                onClick={() => { void navigator.clipboard?.writeText(turn.content); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
+                onClick={() => { void navigator.clipboard?.writeText(entry.content); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
                 className="absolute right-2 top-2 rounded-md bg-surface-raised px-1.5 py-0.5 text-[10.5px] text-content-subtle opacity-0 ring-1 ring-edge-default transition-opacity hover:text-content group-hover:opacity-100"
               >
                 {copied ? 'Copied' : 'Copy'}
               </button>
             ) : null}
           </div>
-        ) : turn.streaming ? (
-          <div className="flex items-center gap-2 py-2 text-[13px] text-content-subtle"><Dots /> {turn.tools.length ? 'reading the cluster…' : 'thinking…'}</div>
+        ) : entry.streaming && !entry.toolCalls.length ? (
+          <div className="flex items-center gap-2 py-2 text-[13px] text-content-subtle"><Dots /> thinking…</div>
         ) : null}
-        {turn.proposals.map((p, i) => (
-          <ProposalCard key={i} proposal={p} canApply={canApply} />
-        ))}
-        {turn.error ? <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300">{turn.error}</div> : null}
+
+        {/* Generative UI — components the agent chose, in arrival order. */}
+        {entry.ui.map((block) => <GenerativeBlock key={block.id} block={block} />)}
+
+        {entry.error ? (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300">{entry.error}</div>
+        ) : null}
+
+        {entry.toolCalls.length > 3 && !entry.streaming ? (
+          <div className="text-[10.5px] text-content-subtle">{done} of {entry.toolCalls.length} tool calls completed</div>
+        ) : null}
       </div>
     </div>
   )
 }
 
-function ProposalCard({ proposal, canApply }: { proposal: AiProposal; canApply: boolean }) {
-  const [state, setState] = useState<'idle' | 'applying' | 'done' | 'error'>('idle')
-  const [msg, setMsg] = useState('')
-  const [showYaml, setShowYaml] = useState(false)
+function ToolChip({ call }: { call: ToolCallView }) {
+  const [open, setOpen] = useState(false)
+  const failed = call.status === 'error'
   return (
-    <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3 dark:border-amber-500/25 dark:bg-amber-500/10">
-      <div className="flex items-start gap-2">
-        <span className="mt-0.5 text-amber-600"><IconWrench /></span>
-        <div className="min-w-0 flex-1">
-          <div className="text-xs font-semibold text-amber-900 dark:text-amber-200">Proposed change — review &amp; apply</div>
-          <div className="mt-0.5 text-[13px] text-content">{proposal.summary}</div>
-        </div>
-      </div>
-      <button type="button" onClick={() => setShowYaml((s) => !s)} className="mt-2 text-[11px] font-medium text-amber-800 underline-offset-2 hover:underline dark:text-amber-300">
-        {showYaml ? 'Hide' : 'View'} manifest
+    <span className="inline-flex flex-col">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition-colors',
+          failed
+            ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300'
+            : call.status === 'running'
+              ? 'border-brand-200 bg-brand-50 text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300'
+              : 'border-edge-subtle bg-surface-sunken text-content-muted hover:text-content',
+        )}
+        title="Show the arguments and result"
+      >
+        {call.status === 'running' ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" /> : <IconTool />}
+        {toolLabel(call.name, safeArgs(call.args))}
       </button>
-      {showYaml ? <pre className="mt-1.5 max-h-64 overflow-auto rounded-lg bg-slate-950 p-3 font-mono text-[11px] leading-relaxed text-slate-100">{JSON.stringify(proposal.manifest, null, 2)}</pre> : null}
-      <div className="mt-2.5 flex items-center gap-2">
-        <button
-          type="button"
-          disabled={!canApply || state === 'applying' || state === 'done'}
-          onClick={async () => {
-            setState('applying')
-            try {
-              const r = await assistStore.applyProposal(proposal.manifest)
-              setState(r.ok ? 'done' : 'error')
-              setMsg(r.message)
-            } catch (e) {
-              setState('error')
-              setMsg(e instanceof Error ? e.message : String(e))
-            }
-          }}
-          className="rounded-md bg-amber-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
-        >
-          {state === 'applying' ? 'Applying…' : state === 'done' ? 'Applied ✓' : 'Apply'}
-        </button>
-        <button type="button" onClick={() => void navigator.clipboard?.writeText(JSON.stringify(proposal.manifest, null, 2))} className="rounded-md border border-amber-300 px-2.5 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-500/40 dark:text-amber-200 dark:hover:bg-amber-500/10">Copy manifest</button>
-        {msg ? <span className={cn('text-[11px]', state === 'error' ? 'text-rose-700 dark:text-rose-300' : 'text-emerald-700 dark:text-emerald-300')}>{msg}</span> : null}
-      </div>
-      <div className="mt-2 flex items-center gap-1 text-[11px] text-amber-800/80 dark:text-amber-300/80"><IconShield /> Nothing happens until you review and apply.</div>
+      {open ? (
+        <span className="mt-1 block max-w-md overflow-auto rounded-lg bg-slate-950 p-2 font-mono text-[10px] leading-relaxed text-slate-100">
+          <span className="block text-slate-400">args</span>
+          <span className="block whitespace-pre-wrap">{pretty(call.args)}</span>
+          {call.result ? (
+            <>
+              <span className="mt-1 block text-slate-400">result</span>
+              <span className="block max-h-40 overflow-auto whitespace-pre-wrap">{pretty(call.result).slice(0, 4000)}</span>
+            </>
+          ) : null}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
+function safeArgs(s: string): Record<string, unknown> {
+  try {
+    const v = JSON.parse(s || '{}')
+    return v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function pretty(s: string): string {
+  try {
+    return JSON.stringify(JSON.parse(s), null, 2)
+  } catch {
+    return s
+  }
+}
+
+/** What the agent is doing right now, from its shared state. */
+function Thinking({ run }: { run: ReturnType<typeof useAssist>['run'] }) {
+  const active = run?.plan?.find((s) => s.status === 'active')
+  const label = active ? active.label : run?.tools?.last ? `running ${run.tools.last}` : run?.phase === 'planning' ? 'planning' : 'thinking'
+  return (
+    <div className="flex items-center gap-2 pl-10 text-[12.5px] text-content-subtle"><Dots /> {label}…</div>
+  )
+}
+
+/** Human-in-the-loop: the agent stopped to ask the operator something. */
+function AskCard() {
+  const { pendingAsk } = useAssist()
+  const [text, setText] = useState('')
+  if (!pendingAsk) return null
+  return (
+    <div className="ml-10 rounded-xl border border-sky-200 bg-sky-50/70 p-3 dark:border-sky-500/30 dark:bg-sky-500/10">
+      <div className="text-[10.5px] font-semibold uppercase tracking-wider text-sky-700 dark:text-sky-300">The agent needs your decision</div>
+      <p className="mt-1 text-[13px] text-content">{pendingAsk.question}</p>
+      {pendingAsk.options.length ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {pendingAsk.options.map((o) => (
+            <button key={o} type="button" onClick={() => assistStore.answerAsk(o)} className="rounded-md border border-sky-300 bg-surface-raised px-2.5 py-1 text-[12px] font-medium text-sky-800 hover:bg-sky-100 dark:border-sky-500/40 dark:text-sky-200 dark:hover:bg-sky-500/10">
+              {o}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-2 flex gap-1.5">
+          <input
+            autoFocus
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && text.trim()) assistStore.answerAsk(text.trim()) }}
+            placeholder="Your answer…"
+            className="h-8 flex-1 rounded-md border border-edge-default bg-surface-raised px-2 text-[12.5px] text-content focus:border-sky-400 focus:outline-none"
+          />
+          <button type="button" disabled={!text.trim()} onClick={() => assistStore.answerAsk(text.trim())} className="h-8 rounded-md bg-sky-600 px-2.5 text-[12px] font-semibold text-white hover:bg-sky-700 disabled:opacity-40">
+            Answer
+          </button>
+        </div>
+      )}
     </div>
   )
 }
 
-function toolLabel(name: string, args: unknown): string {
-  const a = (args ?? {}) as Record<string, string>
+/* ─────────── agent workspace rail ─────────── */
+
+const SEVERITY_DOT: Record<Finding['severity'], string> = {
+  critical: 'bg-rose-500',
+  warning: 'bg-amber-500',
+  info: 'bg-sky-500',
+  ok: 'bg-emerald-500',
+}
+
+function AgentRail() {
+  const { run, agents, agentId, busy } = useAssist()
+  const agent = agents.find((a) => a.id === agentId)
+  if (!run && !busy) {
+    return (
+      <div className="space-y-2 px-1 py-2">
+        {agent ? (
+          <div className="rounded-lg border border-edge-subtle bg-surface-raised p-2.5">
+            <div className="text-[12.5px] font-semibold text-content">{agent.name}</div>
+            <p className="mt-0.5 text-[11.5px] leading-relaxed text-content-muted">{agent.description}</p>
+            <div className="mt-1.5 text-[10.5px] text-content-subtle">{agent.tools} tools · reads with your RBAC</div>
+          </div>
+        ) : null}
+        <p className="px-1 text-[11.5px] text-content-subtle">
+          While an agent works, its plan and findings appear here.
+        </p>
+      </div>
+    )
+  }
+  const plan = run?.plan ?? []
+  const findings = run?.findings ?? []
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
+        <span>{run?.agent?.name ?? agent?.name ?? 'Agent'}</span>
+        <span className={cn(run?.phase === 'error' ? 'text-rose-600 dark:text-rose-400' : run?.phase === 'done' ? 'text-emerald-600 dark:text-emerald-400' : 'text-brand-600 dark:text-brand-400')}>
+          {run?.phase ?? (busy ? 'working' : 'idle')}
+        </span>
+      </div>
+
+      {plan.length ? (
+        <div>
+          <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">Plan</div>
+          <ol className="space-y-1">
+            {plan.map((s) => <PlanRow key={s.id} step={s} />)}
+          </ol>
+        </div>
+      ) : null}
+
+      {findings.length ? (
+        <div>
+          <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">Findings · {findings.length}</div>
+          <ul className="space-y-1">
+            {findings.map((f) => (
+              <li key={f.id} className="rounded-lg border border-edge-subtle bg-surface-raised p-2">
+                <div className="flex items-start gap-1.5">
+                  <span className={cn('mt-1 h-1.5 w-1.5 shrink-0 rounded-full', SEVERITY_DOT[f.severity] ?? 'bg-slate-400')} />
+                  <div className="min-w-0">
+                    <div className="text-[12px] font-medium leading-snug text-content">{f.title}</div>
+                    {f.detail ? <div className="mt-0.5 line-clamp-3 text-[11px] leading-relaxed text-content-muted">{f.detail}</div> : null}
+                    {f.resource?.name ? (
+                      <div className="mt-0.5 truncate font-mono text-[10px] text-content-subtle">
+                        {f.resource.kind}/{f.resource.name}{f.resource.namespace ? ` · ${f.resource.namespace}` : ''}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {run?.tools?.called ? (
+        <div className="px-1 text-[10.5px] text-content-subtle">
+          {run.tools.called} tool call{run.tools.called === 1 ? '' : 's'}{run.tools.last ? ` · last: ${run.tools.last}` : ''}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function PlanRow({ step }: { step: PlanStep }) {
+  const icon =
+    step.status === 'done' ? '✓' : step.status === 'failed' ? '✕' : step.status === 'active' ? '' : '○'
+  return (
+    <li className="flex items-start gap-1.5 px-1 text-[12px]">
+      <span
+        className={cn(
+          'mt-px w-3 shrink-0 text-center font-semibold',
+          step.status === 'done' ? 'text-emerald-600 dark:text-emerald-400' : step.status === 'failed' ? 'text-rose-600 dark:text-rose-400' : 'text-content-subtle',
+        )}
+        aria-hidden
+      >
+        {step.status === 'active' ? <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-brand-500" /> : icon}
+      </span>
+      <span className={cn('min-w-0 leading-snug', step.status === 'done' ? 'text-content-muted line-through decoration-content-subtle/40' : step.status === 'active' ? 'font-medium text-content' : 'text-content-muted')}>
+        {step.label}
+      </span>
+    </li>
+  )
+}
+
+function toolLabel(name: string, args: Record<string, unknown>): string {
+  const a = args as Record<string, string>
   switch (name) {
     case 'k8s_list': return `list ${a.resource ?? ''}${a.namespace ? ` · ${a.namespace}` : ''}`
     case 'k8s_get': return `get ${a.resource ?? ''}/${a.name ?? ''}`
@@ -542,6 +730,12 @@ function toolLabel(name: string, args: unknown): string {
     case 'k8s_events_scan': return `warning scan · ${a.namespace ?? 'cluster'}`
     case 'argocd_app_status': return `argocd app ${a.name ?? ''}`
     case 'propose_change': return 'propose change'
+    case 'update_plan': return 'update plan'
+    case 'record_finding': return `finding: ${String(a.title ?? '').slice(0, 40)}`
+    case 'render_ui': return `render ${a.component ?? 'ui'}`
+    case 'navigate_to': return `open ${a.path ?? ''}`
+    case 'open_resource': return `open ${a.kind ?? ''}/${a.name ?? ''}`
+    case 'ask_operator': return 'ask the operator'
     default: return name
   }
 }
@@ -597,11 +791,11 @@ function HistoryRail() {
       <div className="space-y-px">
         {state.history.map((c) => (
           <div key={c.id} className="group flex items-center gap-1">
-            <button type="button" onClick={() => assistStore.openConversation(c.id)} className={cn('min-w-0 flex-1 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-sunken', state.current.id === c.id ? 'bg-brand-50 dark:bg-brand-500/10' : '')}>
+            <button type="button" onClick={() => assistStore.openThread(c.id)} className={cn('min-w-0 flex-1 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-sunken', state.thread.id === c.id ? 'bg-brand-50 dark:bg-brand-500/10' : '')}>
               <div className="truncate text-[12.5px] font-medium text-content">{c.title}</div>
-              <div className="truncate text-[10.5px] text-content-subtle">{c.turns.length} messages · {relTime(c.updatedAt)}</div>
+              <div className="truncate text-[10.5px] text-content-subtle">{c.messages.length} messages · {relTime(c.updatedAt)}</div>
             </button>
-            <button type="button" onClick={() => assistStore.deleteConversation(c.id)} aria-label="Delete conversation" className="rounded p-1 text-content-subtle opacity-0 hover:bg-surface-sunken hover:text-rose-600 group-hover:opacity-100"><IconTrash /></button>
+            <button type="button" onClick={() => assistStore.deleteThread(c.id)} aria-label="Delete conversation" className="rounded p-1 text-content-subtle opacity-0 hover:bg-surface-sunken hover:text-rose-600 group-hover:opacity-100"><IconTrash /></button>
           </div>
         ))}
       </div>

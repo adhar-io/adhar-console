@@ -1,193 +1,115 @@
 import { resolveIdentity } from '../k8s/gateway.ts'
-import { getAiConfig, isAiConfigured, streamChat, type ChatMessage } from './provider.ts'
-import { executeTool, TOOL_DEFS } from './tools.ts'
+import { getAiConfig, isAiConfigured } from './provider.ts'
 import { getRequestUser } from '../request-user.ts'
 import { openStore } from '../workspace/store.ts'
 import { emitNotification } from '../notify.ts'
+import { runAgent } from './agui/run.ts'
+import { AGENTS, DEFAULT_AGENT } from './agui/agents.ts'
 
 /**
- * AI assistant endpoints (`/api/ai/*`). All responses to the browser are SSE
- * (`text/event-stream`) with JSON events:
- *   {type:'token', text}        — a streamed content chunk
- *   {type:'tool', name, args}   — the model invoked a read-only cluster tool
- *   {type:'proposal', summary, manifest} — a change proposed for human approval
- *   {type:'error', message}
- *   {type:'done'}
+ * Adhar AI endpoints (`/api/ai/*`) — an AG-UI (Agent-User Interaction Protocol)
+ * server.
  *
- * Policy: the model reads/diagnoses with the USER's RBAC and may PROPOSE changes
- * (as a reviewable manifest) but never mutates the cluster itself.
+ *   GET  /api/ai/config  → { configured, model, protocol, agents }
+ *   GET  /api/ai/agents  → the agent roster (id, name, description, starters)
+ *   POST /api/ai/run     → RunAgentInput in, AG-UI SSE event stream out
+ *
+ * `/run` is the whole conversation surface: the browser posts a canonical
+ * `RunAgentInput` (thread, run, messages, its own frontend tools, context,
+ * forwardedProps.agent) and reads back canonical AG-UI events. Anything that
+ * speaks AG-UI can drive this console's agents; see app/server/ai/agui/run.ts.
+ *
+ * Policy is unchanged: the agent reads the cluster with the SIGNED-IN USER's
+ * RBAC, and it can only ever *propose* a change for a human to apply.
  */
-
-const SYSTEM_PROMPT = [
-  `You are the Adhar Console assistant — an expert platform SRE embedded in Adhar, a 6D SDLC console (Define → Design → Develop → Deliver → Deploy → Drive) that runs on Kubernetes.`,
-  `Platform facts you should use when reasoning:`,
-  `- Sign-in is Keycloak SSO; every tool call runs against the apiserver with the SIGNED-IN USER's own token, so you can never see or do more than their RBAC allows.`,
-  `- Delivery is GitOps via ArgoCD (Application CRs; workloads are typically labeled app.kubernetes.io/instance or annotated argocd/app-name). A live edit to a GitOps-managed object may be reverted by ArgoCD — the durable fix belongs in its Gitea source repo or the Application spec.`,
-  `- Admission policy is enforced by Kyverno; policy denials surface as admission-webhook errors in Events and rollout failures.`,
-  `- Source code and manifests live in Gitea repositories scaffolded by the console's golden paths.`,
-  `Debugging workflow — gather evidence FIRST, never guess resource state:`,
-  `1. Start with the focused diagnostics: k8s_pod_diagnostics for a failing pod (waiting/terminated reasons like CrashLoopBackOff, ImagePullBackOff, OOMKilled; restarts; last state), k8s_workload_health for a Deployment/StatefulSet/DaemonSet rollout (desired vs ready/updated/available + owned-pod issues), k8s_events_scan to sweep a namespace (or cluster) for Warning events, k8s_describe for object + events on one resource, and argocd_app_status when the resource is GitOps-managed.`,
-  `2. Deepen with k8s_get, k8s_logs (use previous=true after crashes), k8s_events, k8s_list and k8s_discovery as needed.`,
-  `3. Explain the root cause concretely, citing the actual names, namespaces, reasons, statuses and log lines you observed.`,
-  `4. If a change would fix it, call propose_change with a complete, minimal, valid manifest and a one-line summary; note when the object is ArgoCD-managed so the human lands the fix in Git.`,
-  `You are strictly read-only: you cannot apply, patch, scale or delete anything. propose_change only RECORDS a suggestion for the human to review and apply in the console — NEVER claim a change was applied.`,
-  `Be concise and concrete; format with short markdown.`,
-].join('\n')
-
-function sse(controller: ReadableStreamDefaultController, obj: unknown) {
-  controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(obj)}\n\n`))
-}
-
-interface ChatBody {
-  messages?: Array<{ role: 'user' | 'assistant'; content: string }>
-  prompt?: string
-  /** Optional resource focus for inline "explain/diagnose" affordances. */
-  context?: { group?: string; version: string; resource: string; namespace?: string; name?: string; kind?: string }
-  mode?: 'chat' | 'diagnose' | 'explain' | 'generate'
-}
 
 export async function handleAi(req: Request, name: string): Promise<Response> {
   if (name === 'config') {
     const cfg = getAiConfig()
-    return Response.json({ configured: isAiConfigured(), model: cfg?.model })
+    return Response.json({
+      configured: isAiConfigured(),
+      model: cfg?.model,
+      protocol: 'ag-ui',
+      defaultAgent: DEFAULT_AGENT,
+      agents: AGENTS.map(publicAgent),
+    })
   }
-  if (!['chat', 'diagnose', 'explain', 'generate'].includes(name)) {
-    return Response.json({ error: 'unknown_ai_endpoint' }, { status: 404 })
+
+  if (name === 'agents') {
+    return Response.json({ agents: AGENTS.map(publicAgent), defaultAgent: DEFAULT_AGENT })
+  }
+
+  if (name !== 'run') {
+    return Response.json({ error: 'unknown_ai_endpoint', endpoint: name }, { status: 404 })
+  }
+  if (req.method !== 'POST') {
+    return Response.json({ error: 'method_not_allowed' }, { status: 405 })
   }
   if (!isAiConfigured()) {
     return Response.json({ error: 'ai_not_configured', hint: 'set AI_BASE_URL / AI_MODEL' }, { status: 503 })
   }
-  const id = await resolveIdentity(req)
-  if (!id) return Response.json({ error: 'unauthenticated' }, { status: 401 })
 
-  let body: ChatBody
+  const identity = await resolveIdentity(req)
+  if (!identity) return Response.json({ error: 'unauthenticated' }, { status: 401 })
+
+  let input: unknown
   try {
-    body = await req.json()
+    input = await req.json()
   } catch {
     return Response.json({ error: 'invalid_json' }, { status: 400 })
   }
 
-  const messages = await buildMessages(name as ChatBody['mode'], body)
-  const cfg = getAiConfig()!
-  // Pass the identity: cluster reads then use the user's token, or the SA
-  // with impersonation on clusters without OIDC — the model is identical.
-  const token = id
   const auth = await getRequestUser(req)
-  const focusLabel = body.context?.name ? `${body.context.kind ?? body.context.resource} ${body.context.name}` : undefined
-  const notify = async (doc: { kind: 'insight' | 'info'; title: string; description?: string; prompt?: string }) => {
-    if (!auth) return
-    try {
-      const store = await openStore(auth.activeTenant)
-      if (!store) return
-      await emitNotification(
-        store,
-        {
-          ...doc,
-          source: 'ai',
-          href: '/',
-          audience: [auth.user.id],
-          at: new Date().toISOString(),
-          target: body.context?.name ? { type: body.context.kind ?? body.context.resource, id: body.context.name, label: body.context.name } : undefined,
-        },
-        auth.user.id,
-      )
-    } catch {
-      // never fail the stream over a notification
-    }
-  }
-
-  const stream = new ReadableStream({
-    async start(controller) {
-      const convo: ChatMessage[] = messages
-      try {
-        for (let step = 0; step < 6; step++) {
-          let content = ''
-          let toolCalls: NonNullable<ChatMessage['tool_calls']> = []
-          for await (const delta of streamChat(cfg, convo, { tools: TOOL_DEFS, signal: req.signal })) {
-            if (delta.content) {
-              content += delta.content
-              sse(controller, { type: 'token', text: delta.content })
-            }
-            if (delta.toolCalls) toolCalls = delta.toolCalls
-          }
-          if (toolCalls.length === 0) break
-          convo.push({ role: 'assistant', content: content || null, tool_calls: toolCalls })
-          for (const tc of toolCalls) {
-            sse(controller, { type: 'tool', name: tc.function.name, args: safeParse(tc.function.arguments) })
-            const result = await executeTool(tc.function.name, tc.function.arguments, token)
-            if (result.proposal) {
-              sse(controller, { type: 'proposal', summary: result.proposal.summary, manifest: result.proposal.manifest })
-              void notify({
-                kind: 'insight',
-                title: `Assist proposed a change${focusLabel ? ` for ${focusLabel}` : ''}`,
-                description: result.proposal.summary,
-                prompt: `Show me the change you proposed${focusLabel ? ` for ${focusLabel}` : ''} and how to apply it safely.`,
-              })
-            }
-            convo.push({ role: 'tool', tool_call_id: tc.id, name: tc.function.name, content: result.content })
-          }
+  const res = runAgent(input, {
+    identity,
+    signal: req.signal,
+    onComplete: ({ findings, agent }) => {
+      // A run that reached a real conclusion is worth a notification — the
+      // operator may have navigated away while it worked. Never let this
+      // affect the stream.
+      const notable = findings.filter((f) => f.severity === 'critical' || f.severity === 'warning')
+      if (!notable.length || !auth) return
+      void (async () => {
+        try {
+          const store = await openStore(auth.activeTenant)
+          if (!store) return
+          await emitNotification(
+            store,
+            {
+              kind: 'insight',
+              title: `${agent.name} agent found ${notable.length} issue${notable.length === 1 ? '' : 's'}`,
+              description: notable[0].title,
+              source: 'ai',
+              href: '/',
+              audience: [auth.user.id],
+              at: new Date().toISOString(),
+              prompt: `Summarise your last findings and what I should do first.`,
+            },
+            auth.user.id,
+          )
+        } catch {
+          // notifications are best-effort
         }
-        if (name === 'diagnose' && focusLabel) {
-          void notify({ kind: 'info', title: `Diagnosis ready for ${focusLabel}`, description: 'Open Adhar AI to read the findings.', prompt: `Summarise your last diagnosis of ${focusLabel}.` })
-        }
-        sse(controller, { type: 'done' })
-      } catch (e) {
-        sse(controller, { type: 'error', message: e instanceof Error ? e.message : String(e) })
-      } finally {
-        controller.close()
-      }
+      })()
     },
   })
 
-  const headers = new Headers({
-    'content-type': 'text/event-stream',
-    'cache-control': 'no-store',
-    connection: 'keep-alive',
-  })
-  if (id.refreshedCookie) headers.append('set-cookie', id.refreshedCookie)
-  return new Response(stream, { headers })
+  if (identity.refreshedCookie && res.body) {
+    const headers = new Headers(res.headers)
+    headers.append('set-cookie', identity.refreshedCookie)
+    return new Response(res.body, { status: res.status, headers })
+  }
+  return res
 }
 
-function safeParse(s: string): unknown {
-  try {
-    return JSON.parse(s)
-  } catch {
-    return s
+function publicAgent(a: (typeof AGENTS)[number]) {
+  return {
+    id: a.id,
+    name: a.name,
+    description: a.description,
+    accent: a.accent,
+    icon: a.icon,
+    starters: a.starters,
+    tools: a.tools.length,
   }
-}
-
-async function buildMessages(mode: ChatBody['mode'], body: ChatBody): Promise<ChatMessage[]> {
-  const msgs: ChatMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }]
-  const ctx = body.context
-  const focus = ctx
-    ? `The user is looking at ${ctx.kind ?? ctx.resource} "${ctx.name ?? ''}"${ctx.namespace ? ` in namespace ${ctx.namespace}` : ''} (group="${ctx.group ?? ''}" version="${ctx.version}" resource="${ctx.resource}"). Use k8s_get / k8s_events / k8s_logs to inspect it.`
-    : ''
-
-  switch (mode) {
-    case 'diagnose':
-      msgs.push({
-        role: 'user',
-        content: `${focus}\nDiagnose the health of this resource. Start with k8s_pod_diagnostics (pods) or k8s_workload_health (deployments/statefulsets/daemonsets), or k8s_describe otherwise; pull logs from failing containers and check argocd_app_status if it is GitOps-managed. Explain the root cause of any problem and, if there's a fix, propose_change it. If healthy, say so briefly.`,
-      })
-      break
-    case 'explain':
-      msgs.push({
-        role: 'user',
-        content: `${focus}\nExplain what this resource is, what it does, its current state, and anything notable an operator should know. Fetch it first.`,
-      })
-      break
-    case 'generate':
-      msgs.push({
-        role: 'user',
-        content: `${focus}\n${body.prompt ?? 'Generate a Kubernetes manifest for the following request.'}\nReturn the manifest via propose_change (validate against real cluster kinds via k8s_discovery if unsure).`,
-      })
-      break
-    default: {
-      // Free chat: prior turns + latest.
-      if (focus) msgs.push({ role: 'system', content: focus })
-      for (const m of body.messages ?? []) msgs.push({ role: m.role, content: m.content })
-      if (body.prompt) msgs.push({ role: 'user', content: body.prompt })
-    }
-  }
-  return msgs
 }

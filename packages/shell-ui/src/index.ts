@@ -1,13 +1,22 @@
 export { AdharLogo, AdharSymbol, AdharWordmark, AdharWordmarkStack } from './brand.tsx'
 export { AiProvider, AiButton, useAi, type AskOptions } from './ai-assistant.tsx'
-export { assistStore, useAssist, type AssistTurn, type Conversation } from './assist-store.ts'
 export {
-  streamAi,
-  getAiConfig,
+  assistStore,
+  useAssist,
+  FRONTEND_TOOLS,
+  type AgentInfo,
   type AiContext,
-  type AiMode,
-  type AiProposal,
-} from './ai.ts'
+  type ChatEntry,
+  type Finding,
+  type PendingAsk,
+  type PlanStep,
+  type RunState,
+  type Thread,
+  type ToolCallView,
+  type UiBlock,
+} from './agui/store.ts'
+export { GenerativeBlock, GENERATIVE_COMPONENTS } from './agui/generative.tsx'
+export { getAiConfig, runAgent as runAguiAgent, AgentRunError, type AguiEvent, type AguiMessage } from './agui/client.ts'
 export { AppShell } from './app-shell.tsx'
 export { Sidebar } from './sidebar.tsx'
 export { Topbar } from './topbar.tsx'

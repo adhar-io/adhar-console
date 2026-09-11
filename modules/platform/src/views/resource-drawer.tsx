@@ -113,8 +113,20 @@ export function ResourceDrawer<T extends Resource>({
           <div className="flex items-center gap-2">
             {ai ? (
               <>
-                <AiButton mode="diagnose" context={ai} label="Diagnose" title={`Diagnose ${resource.metadata.name}`} />
-                <AiButton mode="explain" context={ai} label="Explain" title={`Explain ${resource.metadata.name}`} />
+                <AiButton
+                  agentId="sre"
+                  context={ai}
+                  label="Diagnose"
+                  title={`Diagnose ${resource.metadata.name}`}
+                  prompt={`Diagnose the health of ${resource.kind ?? 'this resource'} "${resource.metadata.name}"${resource.metadata.namespace ? ` in namespace ${resource.metadata.namespace}` : ''}. Gather evidence first, explain the root cause of anything wrong, and propose a fix if there is one. If it is healthy, say so briefly.`}
+                />
+                <AiButton
+                  agentId="platform"
+                  context={ai}
+                  label="Explain"
+                  title={`Explain ${resource.metadata.name}`}
+                  prompt={`Explain what ${resource.kind ?? 'this resource'} "${resource.metadata.name}"${resource.metadata.namespace ? ` in namespace ${resource.metadata.namespace}` : ''} is, what it does, its current state and anything notable an operator should know. Inspect it first.`}
+                />
               </>
             ) : null}
             {statusBadge}

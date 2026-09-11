@@ -1,8 +1,7 @@
 import { useEffect, type ReactNode } from 'react'
-import type { AiContext, AiMode } from './ai.ts'
-import { assistStore, useAssist, type AskOptions } from './assist-store.ts'
+import { assistStore, useAssist, type AiContext, type AskOptions } from './agui/store.ts'
 
-export type { AskOptions } from './assist-store.ts'
+export type { AskOptions } from './agui/store.ts'
 
 /**
  * Adhar AI — wiring.
@@ -87,14 +86,15 @@ export function AiProvider({ children, onApplyProposal }: AiProviderProps) {
 /* ─────────────── inline trigger ─────────────── */
 
 export function AiButton({
-  mode = 'chat',
+  agentId,
   context,
   prompt,
   label = 'Ask AI',
   title,
   className,
 }: {
-  mode?: AiMode
+  /** Which agent to hand this to; defaults to the operator's current one. */
+  agentId?: string
   context?: AiContext
   prompt?: string
   label?: string
@@ -106,7 +106,7 @@ export function AiButton({
   return (
     <button
       type="button"
-      onClick={() => ai.ask({ mode, context, prompt, title })}
+      onClick={() => ai.ask({ agentId, context, prompt, title })}
       className={
         className ??
         'inline-flex items-center gap-1.5 rounded-md border border-brand-200 dark:border-brand-500/25 bg-brand-50 dark:bg-brand-500/10 px-2.5 py-1 text-xs font-medium text-brand-700 dark:text-brand-300 transition-colors hover:border-brand-300 hover:bg-brand-100 dark:hover:bg-brand-500/15'

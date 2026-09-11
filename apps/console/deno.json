@@ -24,6 +24,7 @@
     "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^4.3.0",
     "vite": "npm:vite@^7.1.12",
     "zod": "npm:zod@^3.23.0",
+    "@ag-ui/core": "npm:@ag-ui/core@^0.0.59",
     "clsx": "npm:clsx@^2.1.1",
     "tailwind-merge": "npm:tailwind-merge@^2.5.0",
     "jose": "npm:jose@^5.9.6",

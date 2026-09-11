@@ -6,6 +6,8 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.60] - 2026-09-11
+
 ### Changed
 
 - **Logs is a three-band LogQL workbench.** A query band, a stats band that

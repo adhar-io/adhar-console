@@ -15,7 +15,11 @@
     "tailwindcss": "npm:tailwindcss@^4.0.0",
     "vite": "npm:vite@^7.1.12",
     "clsx": "npm:clsx@^2.1.1",
-    "tailwind-merge": "npm:tailwind-merge@^2.5.0"
+    "tailwind-merge": "npm:tailwind-merge@^2.5.0",
+    "@tanstack/react-virtual": "npm:@tanstack/react-virtual@^3.14.10"
   },
-  "compilerOptions": { "jsx": "react-jsx", "jsxImportSource": "react" }
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "react"
+  }
 }

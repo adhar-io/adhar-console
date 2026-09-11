@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { EmptyState, LokiIcon, Spinner } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
 import type { lgtm } from '@adhar-console/api-clients'
@@ -220,6 +221,7 @@ export function Logs() {
   const [saveOpen, setSaveOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [customOpen, setCustomOpen] = useState(false)
+  const [viewOpen, setViewOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [copiedLink, setCopiedLink] = useState(false)
   const [selected, setSelected] = useState<lgtm.LogEntry | null>(null)
@@ -286,6 +288,20 @@ export function Logs() {
   }, [rows, sel])
 
   const stats = useMemo(() => computeStats(all, rows, buckets, sel), [all, rows, buckets, sel])
+
+  /**
+   * The stream is virtualised (@tanstack/react-virtual): a 5 000-line result
+   * mounts ~40 rows, so tailing stays smooth and scrolling never janks. Rows
+   * are measured rather than assumed, because wrapping and label pills make
+   * their height vary.
+   */
+  const virtualizer = useVirtualizer({
+    count: prefs.view === 'stream' ? rows.length : 0,
+    getScrollElement: () => streamRef.current,
+    estimateSize: () => (prefs.showLabels ? 42 : 24),
+    overscan: 24,
+    getItemKey: (i) => `${rows[i]?.entry.timestamp ?? i}-${i}`,
+  })
 
   /* ── live tail follow / unseen ── */
   useEffect(() => {
@@ -516,9 +532,46 @@ export function Logs() {
           ) : null}
 
           <span className="ml-auto flex items-center gap-1.5">
-            <Select value={prefs.dedup} onChange={(v) => setPrefs({ dedup: v as DedupMode })} title="Collapse repeated lines" options={[['none', 'No dedup'], ['exact', 'Dedup exact'], ['numbers', 'Dedup numbers'], ['signature', 'Dedup signature']]} />
-            <Select value={prefs.order} onChange={(v) => setPrefs({ order: v as Prefs['order'] })} title="Sort order" options={[['newest', 'Newest first'], ['oldest', 'Oldest first']]} />
-            <Select value={String(prefs.limit)} onChange={(v) => setPrefs({ limit: Number(v) })} title="Lines fetched from Loki" options={LIMITS.map((n) => [String(n), `${n} lines`])} />
+            {/* Reading mode lives here so the result pane needs no header of its own. */}
+            <span className="inline-flex items-center rounded-md border border-edge-default bg-surface-raised p-0.5">
+              {(['stream', 'table', 'patterns'] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setPrefs({ view: v })}
+                  className={cn('h-6 rounded px-2 text-[11px] font-medium capitalize transition-colors', prefs.view === v ? 'bg-brand-600 text-white' : 'text-content-muted hover:text-content')}
+                >
+                  {v}
+                </button>
+              ))}
+            </span>
+            <div className="relative">
+              <IconBtn label="View options" onClick={() => setViewOpen((o) => !o)} active={viewOpen}>
+                <IconSliders />
+              </IconBtn>
+              {viewOpen ? (
+                <Popover onClose={() => setViewOpen(false)} className="right-0 w-56">
+                  <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Query</div>
+                  <MenuRow label="Lines fetched">
+                    <Select value={String(prefs.limit)} onChange={(v) => setPrefs({ limit: Number(v) })} title="Lines fetched from Loki" options={LIMITS.map((n) => [String(n), String(n)])} />
+                  </MenuRow>
+                  <MenuRow label="Order">
+                    <Select value={prefs.order} onChange={(v) => setPrefs({ order: v as Prefs['order'] })} title="Sort order" options={[['newest', 'Newest'], ['oldest', 'Oldest']]} />
+                  </MenuRow>
+                  <MenuRow label="Dedup">
+                    <Select value={prefs.dedup} onChange={(v) => setPrefs({ dedup: v as DedupMode })} title="Collapse repeated lines" options={[['none', 'Off'], ['exact', 'Exact'], ['numbers', 'Numbers'], ['signature', 'Signature']]} />
+                  </MenuRow>
+                  <div className="mt-1 border-t border-edge-subtle px-1 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Display</div>
+                  <MenuToggle on={prefs.volume} onClick={() => setPrefs({ volume: !prefs.volume })}>Volume histogram</MenuToggle>
+                  <MenuToggle on={prefs.rail} onClick={() => setPrefs({ rail: !prefs.rail })}>Discovery rail</MenuToggle>
+                  <MenuToggle on={prefs.wrap} onClick={() => setPrefs({ wrap: !prefs.wrap })}>Wrap long lines</MenuToggle>
+                  <MenuToggle on={prefs.showLabels} onClick={() => setPrefs({ showLabels: !prefs.showLabels })}>Stream labels</MenuToggle>
+                  <MenuRow label="Timestamps">
+                    <Select value={prefs.ts} onChange={(v) => setPrefs({ ts: v as TsFormat })} title="Timestamp format" options={[['time', 'Time'], ['iso', 'ISO'], ['relative', 'Relative']]} />
+                  </MenuRow>
+                </Popover>
+              ) : null}
+            </div>
             <div className="relative">
               <IconBtn label="Export these lines" onClick={() => setExportOpen((o) => !o)} active={exportOpen}>
                 <IconDownload />
@@ -548,33 +601,6 @@ export function Logs() {
         </div>
       </div>
 
-      {/* ═══ stats band — doubles as the filter control ═══ */}
-      {query ? (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
-          <StatTile label="Lines" value={fmtNum(rows.length)} hint={rows.length !== all.length ? `of ${fmtNum(all.length)} fetched` : `${selectionLabel(sel)}`} />
-          <StatTile
-            label="Errors"
-            value={fmtNum(levelCounts.error + levelCounts.fatal)}
-            tone={levelCounts.error + levelCounts.fatal > 0 ? 'bad' : 'ok'}
-            hint="click to isolate"
-            on={levels.size === 2 && levels.has('error') && levels.has('fatal')}
-            onClick={() => setLevels(levels.size === 2 && levels.has('error') ? new Set(LEVELS) : new Set(['error', 'fatal']))}
-          />
-          <StatTile
-            label="Warnings"
-            value={fmtNum(levelCounts.warn)}
-            tone={levelCounts.warn > 0 ? 'warn' : undefined}
-            hint="click to isolate"
-            on={levels.size === 1 && levels.has('warn')}
-            onClick={() => setLevels(levels.size === 1 && levels.has('warn') ? new Set(LEVELS) : new Set(['warn']))}
-          />
-          <StatTile label="Streams" value={fmtNum(stats.streams)} hint={`${stats.namespaces} namespace${stats.namespaces === 1 ? '' : 's'}`} />
-          <StatTile label="Rate" value={stats.rate} hint="lines / min in window" />
-          <StatTile label="Patterns" value={fmtNum(stats.patterns)} hint="distinct line shapes" on={prefs.view === 'patterns'} onClick={() => setPrefs({ view: prefs.view === 'patterns' ? 'stream' : 'patterns' })} />
-          <StatTile label="Structured" value={stats.structuredPct} hint={stats.formats} />
-        </div>
-      ) : null}
-
       {/* ═══ explorer ═══ */}
       {q.isError ? (
         <SourceError tool="Loki" error={q.error} onRetry={() => q.refetch()} icon={<LokiIcon size={20} />} />
@@ -583,7 +609,7 @@ export function Logs() {
           className={cn(
             'grid min-h-0 gap-3',
             rail ? 'lg:grid-cols-[248px_minmax(0,1fr)]' : 'grid-cols-1',
-            !query ? 'h-[calc(100vh-16rem)]' : fullscreen ? 'h-[calc(100vh-9rem)]' : 'h-[calc(100vh-19rem)]',
+            !query ? 'h-[calc(100vh-14rem)]' : fullscreen ? 'h-[calc(100vh-8rem)]' : 'h-[calc(100vh-14rem)]',
           )}
         >
           {/* discovery rail */}
@@ -626,37 +652,6 @@ export function Logs() {
               </div>
             ) : null}
 
-            {/* view switch */}
-            <div className="flex items-center gap-1 border-b border-edge-subtle px-2 py-1.5">
-              {(['stream', 'table', 'patterns'] as const).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => setPrefs({ view: v })}
-                  className={cn(
-                    'h-7 rounded-md px-2.5 text-[11.5px] font-medium capitalize transition-colors',
-                    prefs.view === v ? 'bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-200 dark:bg-brand-500/10 dark:text-brand-300 dark:ring-brand-500/30' : 'text-content-muted hover:bg-surface-sunken hover:text-content',
-                  )}
-                >
-                  {v}
-                </button>
-              ))}
-              <span className="ml-2 text-[11px] text-content-subtle">
-                {q.isFetching ? <span className="inline-flex items-center gap-1"><Spinner size={10} /> querying…</span> : `${fmtNum(rows.length)} shown`}
-              </span>
-              <span className="ml-auto flex items-center gap-1">
-                {!rail ? <SmallToggle on={false} onClick={() => setPrefs({ rail: true })} title="Show the discovery rail"><IconTag /> Labels</SmallToggle> : null}
-                <SmallToggle on={prefs.volume} onClick={() => setPrefs({ volume: !prefs.volume })} title="Toggle the volume histogram">Volume</SmallToggle>
-                {prefs.view === 'stream' ? (
-                  <>
-                    <SmallToggle on={prefs.wrap} onClick={() => setPrefs({ wrap: !prefs.wrap })} title="Wrap long lines">Wrap</SmallToggle>
-                    <SmallToggle on={prefs.showLabels} onClick={() => setPrefs({ showLabels: !prefs.showLabels })} title="Show stream labels on each line">Labels</SmallToggle>
-                    <Select value={prefs.ts} onChange={(v) => setPrefs({ ts: v as TsFormat })} title="Timestamp format" options={[['time', 'Time'], ['iso', 'ISO'], ['relative', 'Relative']]} />
-                  </>
-                ) : null}
-              </span>
-            </div>
-
             {/* results */}
             <div
               ref={streamRef}
@@ -683,17 +678,24 @@ export function Logs() {
               ) : prefs.view === 'table' ? (
                 <TableView rows={rows} ts={prefs.ts} onOpen={setSelected} />
               ) : (
-                <ol className="divide-y divide-edge-subtle/70">
-                  {rows.map((r, i) => (
-                    <LogRow
-                      key={`${r.entry.timestamp}-${i}`}
-                      row={r}
-                      prefs={prefs}
-                      filter={text}
-                      onOpen={() => setSelected(r.entry)}
-                      onMatcher={addMatcher}
-                    />
-                  ))}
+                <ol className="relative" style={{ height: virtualizer.getTotalSize() }}>
+                  {virtualizer.getVirtualItems().map((v) => {
+                    const r = rows[v.index]
+                    if (!r) return null
+                    return (
+                      <LogRow
+                        key={v.key}
+                        index={v.index}
+                        measure={virtualizer.measureElement}
+                        style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${v.start}px)` }}
+                        row={r}
+                        prefs={prefs}
+                        filter={text}
+                        onOpen={() => setSelected(r.entry)}
+                        onMatcher={addMatcher}
+                      />
+                    )
+                  })}
                 </ol>
               )}
 
@@ -716,7 +718,14 @@ export function Logs() {
 
             {/* footer */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-edge-subtle px-3 py-1.5 text-[10.5px] text-content-subtle">
-              <span>{fmtNum(rows.length)} shown · {fmtNum(all.length)} fetched · limit {prefs.limit}</span>
+              <span>
+                {q.isFetching ? <span className="inline-flex items-center gap-1"><Spinner size={9} /> querying… </span> : null}
+                {fmtNum(rows.length)} shown · {fmtNum(all.length)} fetched · limit {prefs.limit}
+              </span>
+              <span>{fmtNum(stats.streams)} streams · {stats.namespaces} ns</span>
+              <span>{fmtNum(stats.patterns)} patterns</span>
+              <span>{stats.rate}</span>
+              <span>{stats.structuredPct} structured</span>
               {prefs.dedup !== 'none' ? <span>deduped by {prefs.dedup}</span> : null}
               {live ? <span className="text-emerald-600 dark:text-emerald-400">live · {following ? 'following' : 'paused (scrolled)'}</span> : null}
               <span className="ml-auto font-mono">{stats.window}</span>
@@ -1177,12 +1186,19 @@ function LogRow({
   filter,
   onOpen,
   onMatcher,
+  index,
+  measure,
+  style,
 }: {
   row: Row
   prefs: Prefs
   filter: TextFilter
   onOpen(): void
   onMatcher(key: string, value: string, op?: '=' | '!='): void
+  /** Virtualiser plumbing — the row measures itself so wrapped lines fit. */
+  index?: number
+  measure?(el: HTMLElement | null): void
+  style?: CSSProperties
 }) {
   const { entry, repeats } = row
   const lvl = levelOf(entry)
@@ -1196,7 +1212,12 @@ function LogRow({
     : []
 
   return (
-    <li className="group flex gap-2 px-3 py-1 hover:bg-surface-sunken/40">
+    <li
+      ref={measure}
+      data-index={index}
+      style={style}
+      className="group flex gap-2 border-b border-edge-subtle/70 px-3 py-1 hover:bg-surface-sunken/40"
+    >
       <span className={cn('mt-1 h-[calc(100%-0.5rem)] w-0.5 shrink-0 rounded-full', LEVEL_BAR[lvl])} aria-hidden />
       <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
         <span className="flex flex-wrap items-baseline gap-x-2">
@@ -1361,41 +1382,6 @@ function computeStats(all: lgtm.LogEntry[], rows: Row[], buckets: HistogramBucke
 }
 
 /* ─────────────────────── bits ─────────────────────── */
-
-function StatTile({
-  label,
-  value,
-  hint,
-  tone,
-  on = false,
-  onClick,
-}: {
-  label: string
-  value: string
-  hint?: string
-  tone?: 'ok' | 'warn' | 'bad'
-  on?: boolean
-  onClick?(): void
-}) {
-  const color = tone === 'bad' ? 'text-rose-600 dark:text-rose-400' : tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : tone === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : 'text-content'
-  const Tag = onClick ? 'button' : 'div'
-  return (
-    <Tag
-      type={onClick ? 'button' : undefined}
-      onClick={onClick}
-      aria-pressed={onClick ? on : undefined}
-      className={cn(
-        'flex flex-col gap-0.5 rounded-xl border px-3 py-2 text-left transition-colors',
-        on ? 'border-brand-400 bg-brand-50/60 ring-2 ring-brand-400/20 dark:bg-brand-500/10' : 'border-edge-default bg-surface-raised',
-        onClick && 'hover:border-brand-300',
-      )}
-    >
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{label}</span>
-      <span className={cn('truncate text-lg font-semibold leading-none tracking-tight tabular-nums', color)}>{value}</span>
-      <span className="truncate text-[10.5px] text-content-subtle">{hint ?? ' '}</span>
-    </Tag>
-  )
-}
 
 function Legend({ color, label }: { color: string; label: string }) {
   return (
@@ -1580,15 +1566,34 @@ function Popover({ children, onClose, className }: { children: ReactNode; onClos
   )
 }
 
-function SmallToggle({ on, onClick, title, children }: { on: boolean; onClick(): void; title: string; children: ReactNode }) {
+/** A labelled control inside the view-options popover. */
+function MenuRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-md px-1 py-1 text-[12px] text-content-muted">
+      <span>{label}</span>
+      {children}
+    </div>
+  )
+}
+
+/** A checkbox-style row inside the view-options popover. */
+function MenuToggle({ on, onClick, children }: { on: boolean; onClick(): void; children: ReactNode }) {
   return (
     <button
       type="button"
-      aria-pressed={on}
-      title={title}
       onClick={onClick}
-      className={cn('inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium transition-colors', on ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300' : 'text-content-subtle hover:bg-surface-sunken hover:text-content')}
+      aria-pressed={on}
+      className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-[12px] text-content-muted hover:bg-surface-sunken hover:text-content"
     >
+      <span
+        aria-hidden
+        className={cn(
+          'flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border text-[9px] font-bold',
+          on ? 'border-brand-500 bg-brand-600 text-white' : 'border-edge-default',
+        )}
+      >
+        {on ? '✓' : ''}
+      </span>
       {children}
     </button>
   )
@@ -1642,6 +1647,17 @@ function IconCopySmall() {
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <rect x="9" y="9" width="11" height="11" rx="2" />
       <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+    </svg>
+  )
+}
+
+function IconSliders() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+      <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" />
+      <circle cx="16" cy="6" r="2" />
+      <circle cx="10" cy="12" r="2" />
+      <circle cx="18" cy="18" r="2" />
     </svg>
   )
 }

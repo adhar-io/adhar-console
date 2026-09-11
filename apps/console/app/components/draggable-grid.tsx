@@ -38,7 +38,17 @@ import { cn } from '@adhar-console/utils'
  *     area, faster the closer the pointer is to the edge; the hit-test re-runs
  *     every frame so the target keeps tracking the content sliding under the
  *     cursor.
- *   - Slots are `touch-action: none` so the same engine works on touch.
+ *
+ * Touch:
+ *   - Slots are `touch-action: pan-y pinch-zoom`, NOT `none` — the cards
+ *     cover the whole page on a phone, so `none` made the Overview
+ *     unscrollable. A finger swipe scrolls as normal.
+ *   - A drag starts from a **long-press** (350 ms without moving) on the card,
+ *     or immediately from the grip handle (which is `touch-action: none`).
+ *     Once a drag is live, a non-passive `touchmove` listener cancels the
+ *     browser's scroll so the finger moves the ghost instead.
+ *   - The browser taking over a pan fires `pointercancel`, which drops the
+ *     pending long-press, so scroll always wins until the hold completes.
  */
 
 export interface DraggableGridProps<T extends { id: string }> {
@@ -77,6 +87,10 @@ const EDGE_ZONE = 96
 const MAX_SCROLL_STEP = 22
 /** Movement before a press becomes a drag (px). */
 const DRAG_THRESHOLD = 6
+/** Hold duration that turns a touch into a drag (ms). */
+const LONG_PRESS_MS = 350
+/** Finger wobble tolerated during the hold (px) — beyond it the press is a scroll. */
+const LONG_PRESS_SLOP = 10
 
 /** Nearest ancestor that actually scrolls vertically, else the document. */
 function scrollParentOf(el: HTMLElement | null): HTMLElement | null {
@@ -116,7 +130,13 @@ export function DraggableGrid<T extends { id: string }>({
 
   const renderOrder = drag && virtualOrder ? virtualOrder : items
 
-  function startDrag(itemId: string, e: ReactPointerEvent<HTMLDivElement>) {
+  /**
+   * `mode`: `immediate` starts the drag after DRAG_THRESHOLD of movement
+   * (mouse, or the grip handle on any pointer); `longpress` waits for the
+   * finger to hold still for LONG_PRESS_MS first (touch / pen on the card
+   * body), so a swipe scrolls the page instead of lifting the card.
+   */
+  function startDrag(itemId: string, e: ReactPointerEvent<HTMLElement>, mode: 'immediate' | 'longpress' = 'immediate') {
     if (disabled || e.button !== 0) return
     const slot = slotRef.current.get(itemId)
     if (!slot) return
@@ -128,6 +148,9 @@ export function DraggableGrid<T extends { id: string }>({
     const scroller = scrollParentOf(gridRef.current)
 
     let dragging = false
+    /** Whether movement is allowed to start the drag yet (long-press gate). */
+    let armed = mode === 'immediate'
+    let holdTimer = 0
     let raf = 0
     /** Latest pointer position — consumed once per frame. */
     let px = startX
@@ -154,6 +177,7 @@ export function DraggableGrid<T extends { id: string }>({
       // ── hit-test against the live slot geometry ──
       const fromIdx = items.findIndex((x) => x.id === cur.activeId)
       if (fromIdx < 0) return
+      const gridWidth = gridRef.current?.getBoundingClientRect().width ?? 0
       let targetIdx = cur.targetIdx
       let bestDist = Number.POSITIVE_INFINITY
       slotRef.current.forEach((el, id) => {
@@ -170,8 +194,15 @@ export function DraggableGrid<T extends { id: string }>({
           bestDist = d
           const hoveredIdx = items.findIndex((x) => x.id === id)
           if (hoveredIdx < 0) return
-          // Insert before/after based on cursor position relative to mid-x of target.
-          const after = px > cx
+          // Insert before/after along the axis the target actually lays out on.
+          // A card that spans (nearly) the whole grid — every card at the mobile
+          // breakpoint, and 12-span panels on desktop — has no neighbours to its
+          // left or right, and its centre-x equals the pointer's, so an x-based
+          // test always answers "before" and the index collapses back to where
+          // the drag started (nothing ever moved on a phone). Use the midpoint of
+          // the dominant axis: y for full-width rows, x for cards sharing a row.
+          const stacked = gridWidth > 0 && r.width > gridWidth * 0.9
+          const after = stacked ? py > cy : px > cx
           const ti = hoveredIdx + (after ? 1 : 0)
           targetIdx = ti > fromIdx ? ti - 1 : ti
         }
@@ -200,33 +231,59 @@ export function DraggableGrid<T extends { id: string }>({
       if (!raf) raf = requestAnimationFrame(frame)
     }
 
+    const beginDrag = () => {
+      if (dragging) return
+      const fromIdx = items.findIndex((x) => x.id === itemId)
+      if (fromIdx < 0) return
+      dragging = true
+      const initial: DragState = {
+        activeId: itemId,
+        targetIdx: fromIdx,
+        offsetX,
+        offsetY,
+        pointerX: px,
+        pointerY: py,
+        width: rect.width,
+        height: rect.height,
+      }
+      lastTargetIdx = fromIdx
+      dragRef.current = initial
+      setDrag(initial)
+      setVirtualOrder(items)
+      document.body.classList.add('cursor-grabbing', 'select-none')
+      if (mode === 'longpress') {
+        // A small tick tells the finger the card has lifted.
+        try {
+          (navigator as { vibrate?: (p: number) => boolean }).vibrate?.(10)
+        } catch { /* unsupported */ }
+      }
+    }
+
     const onMove = (ev: PointerEvent) => {
       px = ev.clientX
       py = ev.clientY
       if (!dragging) {
         const dx = px - startX
         const dy = py - startY
-        if (dx * dx + dy * dy < DRAG_THRESHOLD * DRAG_THRESHOLD) return
-        dragging = true
-        const fromIdx = items.findIndex((x) => x.id === itemId)
-        if (fromIdx < 0) return
-        const initial: DragState = {
-          activeId: itemId,
-          targetIdx: fromIdx,
-          offsetX,
-          offsetY,
-          pointerX: px,
-          pointerY: py,
-          width: rect.width,
-          height: rect.height,
+        if (!armed) {
+          // Still holding: a real swipe means the user wants to scroll.
+          if (dx * dx + dy * dy > LONG_PRESS_SLOP * LONG_PRESS_SLOP) finish(false)
+          return
         }
-        lastTargetIdx = fromIdx
-        dragRef.current = initial
-        setDrag(initial)
-        setVirtualOrder(items)
-        document.body.classList.add('cursor-grabbing', 'select-none')
+        if (dx * dx + dy * dy < DRAG_THRESHOLD * DRAG_THRESHOLD) return
+        beginDrag()
       }
       schedule()
+    }
+
+    // Once the card is lifted, keep the browser from panning the page under a
+    // moving finger. Must be non-passive; touch-action can't change mid-touch.
+    const onTouchMove = (ev: TouchEvent) => {
+      if (dragging && ev.cancelable) ev.preventDefault()
+    }
+    // iOS pops a callout / context menu at the end of a long-press.
+    const onContextMenu = (ev: Event) => {
+      if (dragging || mode === 'longpress') ev.preventDefault()
     }
 
     const finish = (commit: boolean) => {
@@ -235,6 +292,10 @@ export function DraggableGrid<T extends { id: string }>({
       globalThis.removeEventListener('pointercancel', onCancel)
       globalThis.removeEventListener('keydown', onKey)
       globalThis.removeEventListener('scroll', schedule, true)
+      document.removeEventListener('touchmove', onTouchMove)
+      document.removeEventListener('contextmenu', onContextMenu)
+      if (holdTimer) clearTimeout(holdTimer)
+      holdTimer = 0
       if (raf) cancelAnimationFrame(raf)
       raf = 0
       document.body.classList.remove('cursor-grabbing', 'select-none')
@@ -265,6 +326,17 @@ export function DraggableGrid<T extends { id: string }>({
     globalThis.addEventListener('keydown', onKey)
     // Wheel/trackpad scrolling mid-drag also shifts the slots under the cursor.
     globalThis.addEventListener('scroll', schedule, true)
+    document.addEventListener('touchmove', onTouchMove, { passive: false })
+    document.addEventListener('contextmenu', onContextMenu)
+
+    if (mode === 'longpress') {
+      holdTimer = globalThis.setTimeout(() => {
+        holdTimer = 0
+        armed = true
+        beginDrag()
+        schedule()
+      }, LONG_PRESS_MS)
+    }
   }
 
   return (
@@ -303,27 +375,42 @@ export function DraggableGrid<T extends { id: string }>({
                         }
                         node = node.parentElement
                       }
-                      startDrag(item.id, e)
+                      // Mouse: lift after a few px. Touch / pen: the page must
+                      // stay scrollable, so the card body only lifts after a
+                      // long-press (the grip handle lifts immediately).
+                      startDrag(item.id, e, e.pointerType === 'mouse' ? 'immediate' : 'longpress')
                     }
               }
-              style={disabled ? undefined : { touchAction: 'none' }}
+              // pan-y keeps one-finger scrolling (and pinch-zoom) working on
+              // phones; `none` here made the whole Overview unscrollable.
+              style={disabled ? undefined : { touchAction: 'pan-y pinch-zoom', WebkitTouchCallout: 'none' } as CSSProperties}
               className={cn(
                 spanClassName(item),
                 'group relative will-change-transform',
                 drag ? 'transition-[transform,opacity] duration-200 ease-out' : 'transition-opacity duration-200',
-                !disabled && 'cursor-grab active:cursor-grabbing',
+                !disabled && 'cursor-grab active:cursor-grabbing [@media(hover:none)]:select-none',
               )}
             >
               {!disabled ? (
                 // Drag handle — sits in the card's header row (cards use p-5),
                 // to the right of the panel's "open" arrow. Faint at rest,
-                // solid on hover so the affordance is discoverable but quiet.
+                // solid on hover (always visible on touch, where there is no
+                // hover) so the affordance is discoverable but quiet. Dragging
+                // from it starts at once on every pointer type.
                 <span
-                  aria-hidden
+                  role="button"
+                  tabIndex={-1}
+                  aria-label="Drag to rearrange"
                   title="Drag to rearrange"
+                  data-no-drag
+                  onPointerDown={(e) => {
+                    e.stopPropagation()
+                    startDrag(item.id, e, 'immediate')
+                  }}
+                  style={{ touchAction: 'none' }}
                   className={cn(
-                    'pointer-events-none absolute right-5 top-5 z-10 flex h-6 w-6 items-center justify-center rounded-md text-content-subtle transition-opacity',
-                    isDragging ? 'opacity-0' : 'opacity-35 group-hover:opacity-100',
+                    'absolute right-4 top-4 z-10 flex h-8 w-8 cursor-grab items-center justify-center rounded-md text-content-subtle transition-opacity active:cursor-grabbing sm:right-5 sm:top-5 sm:h-6 sm:w-6',
+                    isDragging ? 'opacity-0' : 'opacity-35 group-hover:opacity-100 [@media(hover:none)]:opacity-70',
                   )}
                 >
                   <DragHandleGlyph />

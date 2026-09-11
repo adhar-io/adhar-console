@@ -6,6 +6,29 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+
+- **Overview could not be scrolled on phones.** Every panel slot carried
+  `touch-action: none` for the drag-and-drop engine, and since the panels
+  cover the whole page on a narrow screen a finger swipe went to the drag
+  engine instead of the scroller. Slots now use `pan-y pinch-zoom`, so
+  swiping scrolls and pinching zooms as normal; on touch a card lifts after a
+  **long-press** (350 ms, with a small haptic tick) or immediately from the
+  grip handle, which is now a real 32 px touch target and always visible
+  where there is no hover. While a card is lifted a non-passive `touchmove`
+  listener stops the page from panning underneath it, the long-press context
+  menu / iOS callout is suppressed, and a swipe that moves before the hold
+  completes simply scrolls. Mouse behaviour is unchanged.
+
+- **Overview panels never reordered in a single column.** The drop target was
+  chosen from the pointer's position against the target card's *horizontal*
+  midpoint. Full-width cards — every panel at the mobile breakpoint, and
+  12-span panels on desktop — share their centre-x with the pointer, so the
+  test always answered "insert before" and the index collapsed back to where
+  the drag started: the card snapped home on release. The hit-test now picks
+  the axis the target actually lays out on (y for full-width rows, x for cards
+  sharing a row).
+
 ## [0.1.59] - 2026-09-10
 
 ## [0.1.58] - 2026-09-11

@@ -123,7 +123,8 @@ const STEPS: StepDef[] = [
     id: 2,
     eyebrow: 'Capabilities',
     title: 'Choose your capabilities',
-    description: 'Each one is a real open-source project we enable via GitOps. Toggle any on or off.',
+    description:
+      'Each one is a real open-source project the platform installs for you. Most are on already — turn off anything you don\'t need, and add it later if you change your mind.',
   },
   {
     id: 3,
@@ -478,14 +479,14 @@ function StepWelcome({ session }: { session: Session | null }) {
         'Every feature is aggregated from a real OSS project — Gitea, Argo, Kargo, Harbor, Kyverno, LGTM, Plane, Keycloak.',
     },
     {
-      title: 'Kubernetes-native',
+      title: 'Your access, everywhere',
       body:
-        'Reads straight from the kube-apiserver in dev, or an authenticated BFF in production — no vendor data stores.',
+        'The console acts as you, not as a shared admin — so you see exactly what your Kubernetes permissions allow, and every action is attributed to you.',
     },
     {
-      title: 'Provisioned via GitOps',
+      title: 'Set up for you',
       body:
-        'The capabilities you pick are committed to your ApplicationSet — ArgoCD reconciles them into the cluster.',
+        'Pick the capabilities you want and the platform installs them onto your cluster. It runs in the background and tells you when it is done.',
     },
   ]
   return (
@@ -825,15 +826,73 @@ function StepReview({
         )}
       </ReviewRow>
 
-      <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[12px] leading-snug text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200">
-        <IconInfo />
-        <span>
-          Provisioning creates your organization (real, persisted) and commits each selected
-          capability to your platform ApplicationSet via GitOps. Where the GitOps backend isn't wired
-          in this environment, that step is reported as <span className="font-semibold">requested</span> rather
-          than completed — never faked.
+      <WhatHappensNext contactEmail={state.contactEmail} toolCount={selected.length + extraSelected.length} />
+    </div>
+  )
+}
+
+/**
+ * What provisioning will actually do, in the user's terms.
+ *
+ * This replaced a paragraph written for whoever built the feature — it talked
+ * about ApplicationSets, GitOps backends and commits. Someone setting up a
+ * workspace for the first time needs three different things: what is about to
+ * be created, whether they have to sit and watch it, and how they will know it
+ * finished. It is styled as information rather than a warning, because nothing
+ * here is a problem.
+ */
+function WhatHappensNext({ contactEmail, toolCount }: { contactEmail: string; toolCount: number }) {
+  const email = contactEmail.trim()
+  return (
+    <div className="rounded-xl border border-edge-default bg-surface-sunken/50 p-4">
+      <div className="flex items-center gap-2">
+        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-500/12 text-brand-700 dark:text-brand-300">
+          <IconInfo />
         </span>
+        <h3 className="text-[13px] font-semibold text-content">What happens when you hit provision</h3>
       </div>
+
+      <ol className="mt-3 space-y-2.5 text-[12.5px] leading-relaxed text-content-muted">
+        <li className="flex gap-2.5">
+          <span className="mt-px flex h-4 w-4 flex-none items-center justify-center rounded-full bg-surface-raised text-[9px] font-bold text-content-subtle ring-1 ring-inset ring-edge-default">1</span>
+          <span>
+            <span className="font-medium text-content">Your organization is created.</span> It becomes
+            your tenant — a real, isolated home for your projects, data and Kubernetes namespaces.
+            This part is immediate.
+          </span>
+        </li>
+        <li className="flex gap-2.5">
+          <span className="mt-px flex h-4 w-4 flex-none items-center justify-center rounded-full bg-surface-raised text-[9px] font-bold text-content-subtle ring-1 ring-inset ring-edge-default">2</span>
+          <span>
+            <span className="font-medium text-content">
+              Your {toolCount} {toolCount === 1 ? 'capability is' : 'capabilities are'} requested.
+            </span>{' '}
+            Each one is handed to the platform's delivery system, which installs it onto the cluster
+            for you. Some take a few minutes to come up; you don't have to do anything while they do.
+          </span>
+        </li>
+        <li className="flex gap-2.5">
+          <span className="mt-px flex h-4 w-4 flex-none items-center justify-center rounded-full bg-surface-raised text-[9px] font-bold text-content-subtle ring-1 ring-inset ring-edge-default">3</span>
+          <span>
+            <span className="font-medium text-content">You get told when it's done.</span> This runs on
+            the platform, not in your browser, so you can close this page and carry on. A notification
+            appears in the console
+            {email ? (
+              <>
+                {' '}and a confirmation is emailed to{' '}
+                <span className="font-medium text-content">{email}</span>
+              </>
+            ) : null}
+            {' '}the moment it finishes.
+          </span>
+        </li>
+      </ol>
+
+      <p className="mt-3 border-t border-edge-subtle pt-2.5 text-[11.5px] text-content-subtle">
+        Nothing is created until you press the button, and nothing here is destructive. If a
+        capability can't be installed on this platform you'll see exactly which one and why — a step
+        is never reported as finished unless it actually was.
+      </p>
     </div>
   )
 }
@@ -908,18 +967,21 @@ function StepProvision({
     [catalogue, state.selectedTools],
   )
 
+  // Step captions describe the outcome, not the transport. The org step used to
+  // read "POST /api/organizations", which tells someone setting up a workspace
+  // nothing they can act on.
   const buildInitialSteps = (): ProvStep[] => [
     {
       key: 'org',
       kind: 'org',
-      label: `Create organization "${state.orgName.trim()}"`,
-      sublabel: 'POST /api/organizations',
+      label: `Creating "${state.orgName.trim()}"`,
+      sublabel: 'Your tenant, and the namespaces and access that go with it',
       status: 'pending',
     },
     ...selectedIds.map<ProvStep>((t) => ({
       key: `tool:${t.id}`,
       kind: 'tool',
-      label: `Enable ${t.name}`,
+      label: `Adding ${t.name}`,
       sublabel: t.purpose,
       icon: toolIcon(t.id, t.name),
       status: 'pending',
@@ -1246,7 +1308,7 @@ function StepProvision({
           <div className="mb-2 flex items-center gap-2">
             <span className="text-sm font-semibold text-content">Tenant isolation</span>
             <span className="text-[11px] text-content-subtle">
-              namespace · RBAC · GitOps project · repositories
+              your own namespace, permissions, delivery project and repositories
             </span>
           </div>
           <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
@@ -1268,8 +1330,9 @@ function StepProvision({
             ))}
           </ul>
           <p className="mt-2 text-[11px] text-content-subtle">
-            Steps marked “not available” need the corresponding admin credentials configured on the
-            console; the organization is still created and active.
+            Anything not marked ready needs an administrator to finish connecting that system to the
+            console. Your organization is created and usable either way — this only affects how
+            isolated it is inside that one system.
           </p>
         </div>
       ) : null}
@@ -1282,12 +1345,20 @@ function StepProvision({
               <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-[12px] leading-snug text-emerald-800 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-200">
                 <IconCheckCircle />
                 <span>
-                  <span className="font-semibold">{state.orgName.trim()}</span> is live.
+                  <span className="font-semibold">{state.orgName.trim()}</span> is ready — it's your
+                  workspace now, and you can start using it.
                   {anyUnavailable
-                    ? ' Some capabilities were requested but couldn\'t be provisioned via GitOps in this environment — enable them later from the Marketplace once the platform is wired.'
+                    ? " A few capabilities have been requested and are still being installed in the background. They'll appear on their own; you can also check them any time under Platform → Marketplace."
                     : anyFailed
-                      ? ' Some capability toggles failed — retry them above, or continue and enable them later.'
-                      : ' Every selected capability was committed to your ApplicationSet.'}
+                      ? " Some capabilities didn't install. You can retry them above, or add them later from Platform → Marketplace — nothing else is affected."
+                      : ' Every capability you chose is installed and available.'}
+                  {state.contactEmail.trim() ? (
+                    <>
+                      {' '}
+                      A confirmation has been sent to{' '}
+                      <span className="font-semibold">{state.contactEmail.trim()}</span>.
+                    </>
+                  ) : null}
                 </span>
               </div>
               <Button variant="primary" size="lg" block onClick={openConsole} trailing={<IconArrowRight />}>
@@ -1354,17 +1425,28 @@ function StatusGlyph({ status }: { status: RunState }) {
 }
 
 function RunBadge({ status }: { status: RunState }) {
-  const map: Record<RunState, { kind: 'healthy' | 'progressing' | 'failed' | 'paused' | 'unknown'; label: string }> = {
-    pending: { kind: 'unknown', label: 'queued' },
-    running: { kind: 'progressing', label: 'running' },
-    done: { kind: 'healthy', label: 'done' },
-    failed: { kind: 'failed', label: 'failed' },
-    unavailable: { kind: 'paused', label: 'requested' },
-    skipped: { kind: 'unknown', label: 'skipped' },
+  // Each badge carries the sentence a reader would otherwise have to guess.
+  // "requested" in particular is the one state people misread: it does not mean
+  // failed, it means the platform accepted the request and this console cannot
+  // yet confirm the result.
+  const map: Record<
+    RunState,
+    { kind: 'healthy' | 'progressing' | 'failed' | 'paused' | 'unknown'; label: string; hint: string }
+  > = {
+    pending: { kind: 'unknown', label: 'waiting', hint: 'Queued — starts as soon as the step before it finishes' },
+    running: { kind: 'progressing', label: 'working', hint: 'In progress on the platform right now' },
+    done: { kind: 'healthy', label: 'ready', hint: 'Finished and confirmed' },
+    failed: { kind: 'failed', label: 'failed', hint: "Didn't complete — the reason is shown next to the step" },
+    unavailable: {
+      kind: 'paused',
+      label: 'requested',
+      hint: 'Handed to the platform. It will finish on its own, but this page cannot confirm it from here',
+    },
+    skipped: { kind: 'unknown', label: 'skipped', hint: 'Not attempted' },
   }
-  const { kind, label } = map[status]
+  const { kind, label, hint } = map[status]
   return (
-    <span className="ml-auto">
+    <span className="ml-auto" title={hint}>
       <StatusBadge kind={kind}>{label}</StatusBadge>
     </span>
   )

@@ -9,6 +9,7 @@ import {
   Spinner,
   StatusBadge,
 } from '@adhar-console/shell-ui'
+import { cn } from '@adhar-console/utils'
 import type { lgtm } from '@adhar-console/api-clients'
 import {
   DEFAULT_RANGE,
@@ -202,20 +203,100 @@ function MetricPanel({
   /** No source on this cluster reports the metric family this panel needs. */
   unavailable?: boolean
 }) {
-  const q = useMetrics(panel.query, range)
+  // The panel's PromQL is a fallback chain across every telemetry source the
+  // platform might run, so printing it under the title buried a 400-character
+  // expression above a 120-pixel chart. It is kept one click away instead:
+  // hidden by default, editable when someone actually wants it.
+  const [editing, setEditing] = useState(false)
+  const [override, setOverride] = useState<string | null>(null)
+  const [draft, setDraft] = useState(panel.query)
+
+  const effective = override ?? panel.query
+  const q = useMetrics(effective, range)
   const series = q.data ?? []
   const peak = peakValue(series)
+  const edited = override !== null && override !== panel.query
+
+  const apply = () => {
+    setOverride(draft.trim() ? draft : null)
+    setEditing(false)
+  }
+  const reset = () => {
+    setDraft(panel.query)
+    setOverride(null)
+    setEditing(false)
+  }
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
-          <div>
-            <div className="text-sm font-semibold text-content">{panel.label}</div>
-            <code className="font-mono text-[10px] text-content-subtle">{panel.query}</code>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-sm font-semibold text-content">{panel.label}</span>
+            {edited ? (
+              <span
+                title="This panel is showing an edited query, not the platform default"
+                className="shrink-0 rounded-md bg-amber-500/12 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300"
+              >
+                edited
+              </span>
+            ) : null}
           </div>
-          <StatusBadge kind="info">{formatUnit(peak, panel.unit)}</StatusBadge>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <StatusBadge kind="info">{formatUnit(peak, panel.unit)}</StatusBadge>
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(effective)
+                setEditing((e) => !e)
+              }}
+              title={editing ? 'Hide query' : 'Edit the PromQL behind this panel'}
+              aria-expanded={editing}
+              className={cn(
+                'rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors',
+                editing
+                  ? 'bg-surface-sunken text-content'
+                  : 'text-content-subtle hover:bg-surface-sunken hover:text-content',
+              )}
+            >
+              {editing ? 'Done' : 'Query'}
+            </button>
+          </div>
         </div>
+
+        {editing ? (
+          <div className="mt-2.5 space-y-2">
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              spellCheck={false}
+              rows={5}
+              aria-label={`PromQL for ${panel.label}`}
+              className="block w-full resize-y rounded-lg border border-edge-default bg-surface-sunken/60 p-2.5 font-mono text-[11px] leading-relaxed text-content focus:border-brand-400 focus:outline-none"
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={apply}
+                disabled={draft.trim() === effective.trim()}
+                className="rounded-md bg-brand-600 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-brand-700 disabled:opacity-40"
+              >
+                Run
+              </button>
+              <button
+                type="button"
+                onClick={reset}
+                disabled={!edited && draft === panel.query}
+                className="rounded-md px-2 py-1 text-[11px] font-medium text-content-muted hover:text-content disabled:opacity-40"
+              >
+                Reset to default
+              </button>
+              <span className="ml-auto text-[10px] text-content-subtle">
+                Applies to this panel only, for this session.
+              </span>
+            </div>
+          </div>
+        ) : null}
       </CardHeader>
       <CardBody>
         {q.isLoading ? (

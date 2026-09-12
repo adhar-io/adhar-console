@@ -5,6 +5,7 @@ import {
   AdharWordmark,
   Button,
   ModeToggle,
+  useAppConfig,
 } from '@adhar-console/shell-ui'
 import { getStubSession, useAuth } from '@adhar-console/auth'
 import { z } from 'zod'
@@ -79,8 +80,11 @@ function friendlyError(raw: string): { title: string; hint?: string; retryable: 
 }
 
 function LoginPage() {
-  const { configured, signin, setSession } = useAuth()
+  const { configured, signin, signup, setSession } = useAuth()
   const { returnTo, error } = useSearch({ from: '/login' })
+  // Whether this platform lets people sign themselves up (a Keycloak realm
+  // setting, probed server-side and reported on /api/config).
+  const selfRegistration = useAppConfig().data?.selfRegistration ?? false
   const nav = useNavigate()
   const [busy, setBusy] = useState<'login' | 'register' | 'demo' | null>(null)
   const [localError, setLocalError] = useState<string | null>(error ?? null)
@@ -93,6 +97,27 @@ function LoginPage() {
     } catch (e) {
       setBusy(null)
       setLocalError(e instanceof Error ? e.message : 'Could not start sign-in.')
+    }
+  }
+
+  /**
+   * Sign up for real, then set the workspace up.
+   *
+   * This used to open `/onboarding` directly. Onboarding is a public route, so
+   * the wizard rendered — but creating an organization needs an owner, and with
+   * no account there is nobody to own it. The visitor filled in every step and
+   * the first provisioning action failed on a 401. Registration has to happen
+   * first; Keycloak hands the account straight back here with a session, and
+   * `returnTo` drops them into onboarding ready to provision.
+   */
+  async function handleSignup() {
+    setBusy('register')
+    setLocalError(null)
+    try {
+      await signup({ returnTo: '/onboarding' })
+    } catch (e) {
+      setBusy(null)
+      setLocalError(e instanceof Error ? e.message : 'Could not start sign-up.')
     }
   }
 
@@ -241,15 +266,30 @@ function LoginPage() {
                     {busy === 'login' ? <Spinner /> : <IconShield />}
                     {busy === 'login' ? 'Redirecting to Keycloak…' : 'Continue with Single Sign-On'}
                   </button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="lg"
-                    block
-                    onClick={() => nav({ to: '/onboarding' })}
-                  >
-                    Create a new account
-                  </Button>
+                  {selfRegistration ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="lg"
+                      block
+                      onClick={handleSignup}
+                      loading={busy === 'register'}
+                    >
+                      {busy === 'register' ? 'Redirecting to sign-up…' : 'Create a new account'}
+                    </Button>
+                  ) : (
+                    /* Sign-up is closed on this platform. Saying so is kinder
+                       than a button that ends at an identity-provider error —
+                       and an account has to exist before a workspace can be
+                       created for it. */
+                    <p className="text-center text-[12px] leading-relaxed text-content-muted">
+                      Need an account?{' '}
+                      <span className="font-medium text-content">
+                        Ask your platform administrator to create one
+                      </span>{' '}
+                      — self sign-up is turned off for this platform.
+                    </p>
+                  )}
                 </>
               ) : (
                 <>

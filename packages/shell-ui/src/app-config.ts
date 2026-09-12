@@ -10,6 +10,13 @@ import { useQuery } from '@tanstack/react-query'
  */
 export interface AppConfig {
   authConfigured: boolean
+  /**
+   * Whether a visitor can create their own account. False on invite-only
+   * installs, where onboarding cannot create an organization because there is
+   * nobody to own it — the sign-in page says so instead of offering a button
+   * that leads to an identity-provider error.
+   */
+  selfRegistration: boolean
   builderUrl: string
   tools: Record<string, { configured: boolean; url: string }>
   version: string
@@ -35,6 +42,7 @@ export interface AppConfig {
  *  resolves (so queries fire against correct values immediately). */
 export const APP_CONFIG_DEFAULTS: AppConfig = {
   authConfigured: false,
+  selfRegistration: false,
   builderUrl: '',
   tools: {},
   version: '',

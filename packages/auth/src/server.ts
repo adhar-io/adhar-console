@@ -71,8 +71,15 @@ export async function buildAuthorizeUrl(
     code_challenge: opts.codeChallenge,
     code_challenge_method: 'S256',
   })
-  if (opts.intent === 'register') params.set('kc_action', 'register')
-  return `${authorization_endpoint}?${params}`
+  // Keycloak's hosted sign-up is a sibling of the authorize endpoint
+  // (`…/protocol/openid-connect/registrations`), taking the same parameters and
+  // completing the same authorization-code flow — so the user comes back with a
+  // real session. `kc_action` was the wrong lever: it triggers *required
+  // actions* on an account that already exists, which is not sign-up.
+  const endpoint = opts.intent === 'register'
+    ? authorization_endpoint.replace(/\/auth(\?|$)/, '/registrations$1')
+    : authorization_endpoint
+  return `${endpoint}?${params}`
 }
 
 export async function buildEndSessionUrl(

@@ -1,5 +1,5 @@
 import { env } from '@adhar-console/utils'
-import { isServerAuthConfigured } from '@adhar-console/auth/server'
+import { getDiscovery, getServerAuthConfig, isServerAuthConfigured } from '@adhar-console/auth/server'
 import { publicToolInfo } from './tool-registry.ts'
 import { discoverRoutedApps } from './app-discovery.ts'
 import { consolePublicUrl, platformDomain } from './domain.ts'
@@ -37,6 +37,39 @@ function publicProtocol(): string {
   return platformDomain()?.protocol ?? 'https:'
 }
 
+/**
+ * Does this realm let a visitor register themselves?
+ *
+ * Keycloak does not advertise it in OIDC discovery, so we ask the hosted
+ * sign-up endpoint: it answers 400 when `registrationAllowed` is false and
+ * serves the form (200, or a redirect) when it is true. Cached for the process
+ * lifetime — it is a realm setting, not per-request state, and the sign-in page
+ * asks on every load.
+ */
+let selfRegistrationCache: boolean | undefined
+async function selfRegistrationAllowed(): Promise<boolean> {
+  if (selfRegistrationCache !== undefined) return selfRegistrationCache
+  const cfg = getServerAuthConfig()
+  if (!cfg) return false
+  try {
+    const { authorization_endpoint } = await getDiscovery(cfg)
+    const url = new URL(authorization_endpoint.replace(/\/auth$/, '/registrations'))
+    url.searchParams.set('client_id', cfg.clientId)
+    url.searchParams.set('response_type', 'code')
+    url.searchParams.set('scope', 'openid')
+    url.searchParams.set('redirect_uri', `${consolePublicUrl()}/api/auth/callback`)
+    const res = await fetch(url, { redirect: 'manual' })
+    // 400 is Keycloak's "registration not allowed". Anything else means the
+    // form is reachable; a network failure is not evidence either way, so it is
+    // treated as unavailable rather than advertising a door that may not open.
+    selfRegistrationCache = res.status !== 400
+    await res.body?.cancel()
+  } catch {
+    selfRegistrationCache = false
+  }
+  return selfRegistrationCache
+}
+
 export async function buildPublicConfig(): Promise<Record<string, unknown>> {
   const base = publicBaseDomain()
   // Start from the env-driven registry, then overlay what the cluster's
@@ -51,6 +84,13 @@ export async function buildPublicConfig(): Promise<Record<string, unknown>> {
   }
   return {
     authConfigured: isServerAuthConfigured(),
+    // Whether a visitor can create their own account. The console offers
+    // "Create a new account", but self-registration is a realm setting that many
+    // installs deliberately leave off — and onboarding cannot create an
+    // organization for someone who has no account to own it. Knowing this up
+    // front lets the sign-in page explain that an administrator must create the
+    // account, instead of redirecting into a Keycloak error page.
+    selfRegistration: await selfRegistrationAllowed(),
     builderUrl: env('ADHAR_BUILDER_URL') ?? env('VITE_ADHAR_BUILDER_URL') ?? '',
     tools,
     // Baked into the image at build time from the release tag (Dockerfile

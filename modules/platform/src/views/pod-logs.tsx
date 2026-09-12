@@ -92,13 +92,29 @@ export function PodLogsPanel({
   const [loading, setLoading] = useState(false)
   /** Bumped by Reload to restart the stream without changing any option. */
   const [reloadNonce, setReloadNonce] = useState(0)
+  /**
+   * Bumped to *resume* a follow stream that ended on its own, keeping whatever
+   * has already been read.
+   *
+   * A `follow` request is not a permanent subscription: the apiserver closes
+   * idle log streams, and any network blip ends one too. The first version of
+   * this panel treated that as "done" and stopped, so logs silently froze after
+   * a while and looked disconnected. Resuming keeps the tail live.
+   */
+  const [resumeNonce, setResumeNonce] = useState(0)
+  const resumeTimer = useRef<number | undefined>(undefined)
 
   useEffect(() => {
     if (!container || !podName) return
     const ctrl = new AbortController()
-    setText('')
+    // A resume continues the same session, so the buffer survives; every other
+    // dependency change is a genuinely new query and starts clean.
+    const resuming = resumeNonce > 0
+    if (!resuming) {
+      setText('')
+      setLoading(true)
+    }
     setLogError(null)
-    setLoading(true)
     setStreaming(effectiveFollow)
 
     kube
@@ -107,10 +123,12 @@ export function PodLogsPanel({
         podName,
         {
           container,
-          tailLines,
+          // On resume take a short overlap window instead of the whole tail:
+          // re-reading `tailLines` would duplicate the buffer on every reconnect.
+          tailLines: resumeNonce > 0 ? 0 : tailLines,
           timestamps,
           previous,
-          sinceSeconds,
+          sinceSeconds: resumeNonce > 0 ? 2 : sinceSeconds,
           follow: effectiveFollow,
           cluster: LOCAL_CLUSTER,
           signal: ctrl.signal,
@@ -123,9 +141,15 @@ export function PodLogsPanel({
       .then((full) => {
         if (ctrl.signal.aborted) return
         setLoading(false)
-        setStreaming(false)
         // Non-follow resolves with the whole body and never calls onChunk.
-        setText((t) => (t ? t : full))
+        if (!effectiveFollow) {
+          setStreaming(false)
+          setText((t) => (t ? t : full))
+          return
+        }
+        // Following, and the apiserver ended the stream. Pick it back up rather
+        // than leaving a dead tail on screen.
+        resumeTimer.current = setTimeout(() => setResumeNonce((n) => n + 1), 1000) as unknown as number
       })
       .catch((e) => {
         if (ctrl.signal.aborted) return
@@ -134,7 +158,10 @@ export function PodLogsPanel({
         setLogError(e as Error)
       })
 
-    return () => ctrl.abort()
+    return () => {
+      ctrl.abort()
+      if (resumeTimer.current) clearTimeout(resumeTimer.current)
+    }
   }, [
     namespace,
     podName,
@@ -145,7 +172,14 @@ export function PodLogsPanel({
     sinceSeconds,
     effectiveFollow,
     reloadNonce,
+    resumeNonce,
   ])
+
+  // Starting a genuinely new query resets the resume counter, so the next
+  // stream clears the buffer instead of appending to the previous pod's output.
+  useEffect(() => {
+    setResumeNonce(0)
+  }, [namespace, podName, container, tailLines, timestamps, previous, sinceSeconds, effectiveFollow, reloadNonce])
 
   // Shaped like the query object the rest of this component already reads, so
   // the switch from polling to streaming stays local to this block.

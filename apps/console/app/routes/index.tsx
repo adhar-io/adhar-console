@@ -6,6 +6,7 @@ import {
   DonutGauge,
   Sparkline,
   StatusBadge,
+  useLiveStatus,
   useNotifications,
   type AppLink,
   type Notification,
@@ -1394,6 +1395,7 @@ function ClusterSnapshotPanel() {
   const s = summarizeCluster(data)
   const connected = s.connected
   const connecting = s.connecting
+  const liveStatus = useLiveStatus()
 
   // Rolling windows for the sparklines — recorded on each poll into local state
   // so the graph feels alive even on a calm cluster.
@@ -1439,7 +1441,14 @@ function ClusterSnapshotPanel() {
                 ? 'Cluster connected'
                 : 'Cluster unreachable'}
           </span>
-          <span className="text-content-subtle">· updates every 15s</span>
+          {/* How this panel is actually being kept current. It used to say
+              "updates every 15s" unconditionally, which stopped being true once
+              the overview became watch-driven: while the live socket is up
+              changes arrive as they happen, and the interval is only the
+              fallback for when it is not. */}
+          <span className="text-content-subtle">
+            · {liveStatus === 'live' ? 'live updates' : 'updates every 15s'}
+          </span>
         </div>
         <Link to="/platform" className="text-xs font-medium text-brand-700 dark:text-brand-300 hover:text-brand-800 dark:hover:text-brand-300">
           Open Platform →

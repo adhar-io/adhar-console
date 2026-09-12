@@ -1,6 +1,7 @@
 import { audit, canI, originOk, resolveIdentity, usingServiceAccountAuth } from './gateway.ts'
 import { getK8sServiceToken } from '../tool-registry.ts'
 import { env } from '@adhar-console/utils'
+import { connectH1WebSocket } from './ws-h1.ts'
 
 /**
  * Pod exec / attach over WebSocket.
@@ -117,8 +118,11 @@ export async function handleExec(req: Request): Promise<Response> {
   }
 
   const tokenProto = `base64url.bearer.authorization.k8s.io.${b64url(upstreamToken)}`
-  const apiWs = new WebSocket(execUrl, [CHANNEL_PROTOCOL, tokenProto])
-  apiWs.binaryType = 'arraybuffer'
+  // HTTP/1.1-pinned client, not `new WebSocket()`. Deno's built-in socket
+  // negotiates h2 over ALPN, and the kube-apiserver does not implement RFC 8441
+  // Extended CONNECT — so the upgrade failed with a bare protocol error before
+  // authentication was even attempted. See ws-h1.ts.
+  const apiWs = connectH1WebSocket(execUrl, [CHANNEL_PROTOCOL, tokenProto])
   clientWs.binaryType = 'arraybuffer'
 
   const outbox: Array<string | ArrayBufferLike> = []
@@ -136,33 +140,43 @@ export async function handleExec(req: Request): Promise<Response> {
     }
   }, OPEN_TIMEOUT_MS)
 
-  apiWs.onopen = () => {
-    apiOpen = true
+  apiWs.onmessage = (data) => {
+    // Copy out of the read buffer: the frame loop reuses its backing array.
+    if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data.slice().buffer)
+  }
+  apiWs.onclose = (code, reason) => {
     clearTimeout(openTimer)
-    for (const m of outbox) apiWs.send(m as ArrayBuffer)
-    outbox.length = 0
-  }
-  apiWs.onmessage = (e) => {
-    if (clientWs.readyState === WebSocket.OPEN) clientWs.send(e.data)
-  }
-  apiWs.onclose = (e) => {
     try {
-      if (clientWs.readyState === WebSocket.OPEN) clientWs.close(e.code === 1006 ? 1011 : e.code, e.reason)
+      if (clientWs.readyState === WebSocket.OPEN) clientWs.close(code === 1006 ? 1011 : code, reason)
     } catch {
       /* already closing */
     }
   }
-  apiWs.onerror = () => {
+  apiWs.onerror = (err) => {
+    clearTimeout(openTimer)
     try {
-      if (clientWs.readyState === WebSocket.OPEN) clientWs.close(1011, 'apiserver error')
+      // Pass the apiserver's own reason through — "403 Forbidden" is an RBAC
+      // answer the user can act on, and is not the same as a broken channel.
+      if (clientWs.readyState === WebSocket.OPEN) clientWs.close(1011, err.message.slice(0, 120))
     } catch {
       /* ignore */
     }
   }
 
+  apiWs.opened
+    .then(() => {
+      apiOpen = true
+      clearTimeout(openTimer)
+      for (const m of outbox) apiWs.send(m)
+      outbox.length = 0
+    })
+    .catch(() => {
+      /* onerror has already reported it */
+    })
+
   clientWs.onmessage = (e) => {
     const data = e.data as string | ArrayBufferLike
-    if (apiOpen && apiWs.readyState === WebSocket.OPEN) apiWs.send(data as ArrayBuffer)
+    if (apiOpen) apiWs.send(data)
     else if (outbox.length < MAX_OUTBOX) outbox.push(data)
     else {
       // Client is flooding stdin before the shell is up — drop the session.

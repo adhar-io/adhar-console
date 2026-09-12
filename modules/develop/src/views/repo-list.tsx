@@ -23,6 +23,7 @@ import {
 } from '../data/git.ts';
 import { RepoMark } from '../components/repo-picker.tsx';
 import { RepoDrawer } from '../components/repo-drawer.tsx';
+import { CloudEnvLaunch } from '../components/cloud-env-launch.tsx';
 import { copy, fmtKb, IconGrid, IconList, IconMore, IconPlus, IconRefresh, IconSearch, langColor, RepoBadges } from '../components/repo-bits.tsx';
 
 /**
@@ -362,7 +363,7 @@ function RepoCard({ repo: r, prs, onOpen, onArchive, onDelete }: {
                     <MenuItem onClick={() => { setMenu(false); onOpen(); }}>Open details</MenuItem>
                     <MenuItem onClick={() => { setMenu(false); copy(r.clone_url ?? `${r.html_url}.git`, toast); }}>Copy HTTPS clone URL</MenuItem>
                     {r.ssh_url ? <MenuItem onClick={() => { setMenu(false); copy(r.ssh_url!, toast); }}>Copy SSH clone URL</MenuItem> : null}
-                    <MenuItem onClick={() => { setMenu(false); window.open(r.html_url, '_blank', 'noopener'); }}>Open in Gitea ↗</MenuItem>
+                    <MenuItem onClick={() => { setMenu(false); globalThis.open(r.html_url, '_blank', 'noopener'); }}>Open in Gitea ↗</MenuItem>
                     <div className='my-1 border-t border-edge-subtle' />
                     <MenuItem onClick={() => { setMenu(false); onArchive(!r.archived); }}>{r.archived ? 'Unarchive' : 'Archive'}</MenuItem>
                     <MenuItem danger onClick={() => { setMenu(false); onDelete(); }}>Delete…</MenuItem>
@@ -445,7 +446,8 @@ function RepoTable({ rows, prCount, onOpen, onArchive, onDelete }: {
               <td className='px-3 py-2 text-right font-mono text-[11px] text-content-subtle'>{r.size !== undefined ? fmtKb(r.size) : '—'}</td>
               <td className='px-3 py-2 text-content-muted' title={r.updated_at}>{formatRelative(r.updated_at)}</td>
               <td className='px-3 py-2'>
-                <div className='flex justify-end gap-1'>
+                <div className='flex items-center justify-end gap-1'>
+                  <CloudEnvLaunch repo={r.name} cloneUrl={r.clone_url ?? `${r.html_url}.git`} compact />
                   <Button size='xs' variant='ghost' onClick={() => onOpen(r)}>Open</Button>
                   <Button size='xs' variant='ghost' onClick={() => onArchive(r, !r.archived)}>{r.archived ? 'Unarchive' : 'Archive'}</Button>
                   <Button size='xs' variant='ghost' onClick={() => onDelete(r)} className='text-rose-700 dark:text-rose-300'>Delete</Button>

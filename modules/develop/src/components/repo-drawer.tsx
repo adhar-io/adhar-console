@@ -53,6 +53,7 @@ import {
 } from '../data/git.ts';
 import { RepoMark } from './repo-picker.tsx';
 import { FileBrowser } from './file-browser.tsx';
+import { CloudEnvLaunch } from './cloud-env-launch.tsx'
 import { copy, fmtKb, IconBranch, IconClose, IconCopy, IconExternal, IconPlus, IconShield, IconTag, IconTrash, IconUsers, IconWebhook, langColor, RepoBadges } from './repo-bits.tsx';
 
 type TabId = 'overview' | 'files' | 'branches' | 'commits' | 'pulls' | 'issues' | 'releases' | 'people' | 'hooks' | 'settings';
@@ -105,6 +106,7 @@ export function RepoDrawer({ repo: r, onClose, onDeleted }: { repo: gitea.Repo; 
             </div>
           </div>
           <div className='flex shrink-0 items-center gap-1.5'>
+            <CloudEnvLaunch repo={r.name} cloneUrl={cloneUrl} />
             <Button size='sm' variant='secondary' onClick={() => copy(cloneUrl, toast)} title={cloneUrl}>
               <IconCopy /> Clone
             </Button>

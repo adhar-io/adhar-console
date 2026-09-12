@@ -28,7 +28,7 @@ import { copy, fmtKb, IconGrid, IconList, IconMore, IconPlus, IconRefresh, IconS
 /**
  * Repository management — the full Gitea surface for the active org:
  * stats strip (filters), search across name/description/topics/language,
- * visibility + state filters, sort, grid/table layouts, create repo, and a
+ * visibility + state filters, sort, list/grid layouts (list by default), create repo, and a
  * detail drawer with files, branches, releases, collaborators, webhooks and
  * settings.
  */
@@ -42,13 +42,13 @@ interface Prefs {
   layout: Layout;
   sort: Sort;
 }
-const PREFS_KEY = 'adhar.develop.repos.prefs.v1';
+const PREFS_KEY = 'adhar.develop.repos.prefs.v2';
 function loadPrefs(): Prefs {
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(PREFS_KEY) : null;
-    if (raw) return { layout: 'grid', sort: 'updated', ...(JSON.parse(raw) as Partial<Prefs>) };
+    if (raw) return { layout: 'table', sort: 'updated', ...(JSON.parse(raw) as Partial<Prefs>) };
   } catch { /* ignore */ }
-  return { layout: 'grid', sort: 'updated' };
+  return { layout: 'table', sort: 'updated' };
 }
 
 export function RepoList() {

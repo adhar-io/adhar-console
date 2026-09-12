@@ -1336,14 +1336,33 @@ export function TektonPipelineRuns({ namespace }: { namespace?: string }) {
             )}
         />
       </ListShell>
-      {selected ? <PipelineRunDrawer run={selected} onClose={() => setSelected(null)} /> : null}
+      {/* Keyed by identity so a Re-run swaps in a genuinely fresh drawer —
+          otherwise the previous run's selected stage and console would carry
+          over to a run that has neither yet. */}
+      {selected
+        ? (
+          <PipelineRunDrawer
+            key={selected.metadata?.uid ?? selected.metadata?.name}
+            run={selected}
+            onClose={() => setSelected(null)}
+            onReplace={setSelected}
+          />
+        )
+        : null}
     </>
   );
 }
 
 /* ─────────── PipelineRun detail drawer (the centerpiece) ─────────── */
 
-function PipelineRunDrawer({ run: initial, onClose }: { run: TektonRun; onClose(): void }) {
+function PipelineRunDrawer(
+  { run: initial, onClose, onReplace }: {
+    run: TektonRun;
+    onClose(): void;
+    /** Swap the drawer onto another run without closing it (used by Re-run). */
+    onReplace?(run: TektonRun): void;
+  },
+) {
   const { cluster } = useActiveCluster();
   const cp = clusterParam(cluster);
   const qc = useQueryClient();
@@ -1497,10 +1516,15 @@ function PipelineRunDrawer({ run: initial, onClose }: { run: TektonRun; onClose(
       };
       return kube.apply<TektonRun>(manifest, { cluster: cp });
     },
-    onSuccess: () => {
+    // Follow the new run in the drawer that is already open. Closing it (the
+    // previous behaviour) threw the user back to the list at the exact moment
+    // they most want to watch something — the run they just started. `apply`
+    // answers with the created PipelineRun, so the parent can simply select it.
+    onSuccess: (created) => {
       setActionError(null);
       invalidate();
-      onClose();
+      if (created?.metadata?.name) onReplace?.(created);
+      else onClose();
     },
     onError: (e) => setActionError(describeErr(e, 'Re-run failed')),
   });
@@ -1586,6 +1610,7 @@ function PipelineRunDrawer({ run: initial, onClose }: { run: TektonRun; onClose(
                     ? 'Cancel this running PipelineRun'
                     : 'Only running PipelineRuns can be cancelled'}
                 >
+                  <IconCancel />
                   {cancelMut.isPending ? 'Cancelling…' : 'Cancel'}
                 </Button>
                 <Button
@@ -1593,7 +1618,9 @@ function PipelineRunDrawer({ run: initial, onClose }: { run: TektonRun; onClose(
                   variant='secondary'
                   disabled={rerunMut.isPending}
                   onClick={() => rerunMut.mutate()}
+                  title='Start a new run from this run’s spec'
                 >
+                  <IconRerun />
                   {rerunMut.isPending ? 'Starting…' : 'Re-run'}
                 </Button>
                 <Button
@@ -1602,6 +1629,7 @@ function PipelineRunDrawer({ run: initial, onClose }: { run: TektonRun; onClose(
                   disabled={deleteMut.isPending || deleted}
                   onClick={() => setConfirmDelete(true)}
                 >
+                  <IconTrash />
                   Delete
                 </Button>
               </>
@@ -1965,36 +1993,6 @@ function BlueOceanStages({
         }}
       />
 
-      {/* canvas controls */}
-      <div className='absolute right-2 top-2 z-20 flex items-center gap-1 rounded-lg border border-edge-default bg-surface-raised/90 p-0.5 shadow-sm backdrop-blur'>
-        <CanvasBtn
-          label='Zoom out'
-          disabled={zoomIdx === 0}
-          onClick={() => setZoomIdx((i) => Math.max(0, i - 1))}
-        >
-          −
-        </CanvasBtn>
-        <button
-          type='button'
-          onClick={() => setZoomIdx(3)}
-          title='Reset zoom'
-          className='px-1.5 text-[10px] font-semibold tabular-nums text-content-muted hover:text-content'
-        >
-          {Math.round(zoom * 100)}%
-        </button>
-        <CanvasBtn
-          label='Zoom in'
-          disabled={zoomIdx === ZOOM_STEPS.length - 1}
-          onClick={() => setZoomIdx((i) => Math.min(ZOOM_STEPS.length - 1, i + 1))}
-        >
-          +
-        </CanvasBtn>
-        <span className='mx-0.5 h-4 w-px bg-edge-subtle' />
-        <CanvasBtn label={full ? 'Exit full page (Esc)' : 'Full page'} onClick={() => setFull((f) => !f)}>
-          {full ? '⤡' : '⤢'}
-        </CanvasBtn>
-      </div>
-
       <div className={cn('relative flex-1 overflow-auto p-4', full ? 'min-h-0' : 'max-h-[60vh]')}>
         <div
           className='relative'
@@ -2009,8 +2007,13 @@ function BlueOceanStages({
             style={{ width: layout.width, height: layout.height, transform: `scale(${zoom})` }}
           >
             {/* connector layer */}
+            {/* Connectors are deliberately COLOURLESS. Status already reads from
+                each stage's glyph, so painting it onto the edges too turned the
+                graph into a rainbow and made the wiring compete with the nodes
+                for attention. `currentColor` keeps them theme-aware; a running
+                edge is still distinguishable, by weight rather than by hue. */}
             <svg
-              className='pointer-events-none absolute inset-0 overflow-visible'
+              className='pointer-events-none absolute inset-0 overflow-visible text-edge-strong'
               width={layout.width}
               height={layout.height}
             >
@@ -2023,32 +2026,17 @@ function BlueOceanStages({
                 const x2 = b.x;
                 const y2 = b.y + layout.NH / 2;
                 const mx = (x1 + x2) / 2;
-                const kind = statusFor(e.from).kind;
-                const stroke = edgeStroke(kind);
-                // A running edge is drawn slightly stronger, but static — the
-                // marching-dash animation was noise on a graph that already
-                // carries status in colour.
-                const live = kind === 'progressing';
+                const live = statusFor(e.from).kind === 'progressing';
                 return (
-                  <g key={`${e.from}-${e.to}`}>
-                    {/* soft glow so an edge reads on the dotted ground */}
-                    <path
-                      d={`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`}
-                      fill='none'
-                      stroke={stroke}
-                      strokeWidth={4}
-                      strokeOpacity={0.1}
-                      strokeLinecap='round'
-                    />
-                    <path
-                      d={`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`}
-                      fill='none'
-                      stroke={stroke}
-                      strokeWidth={2}
-                      strokeOpacity={live ? 0.9 : 0.6}
-                      strokeLinecap='round'
-                    />
-                  </g>
+                  <path
+                    key={`${e.from}-${e.to}`}
+                    d={`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`}
+                    fill='none'
+                    stroke='currentColor'
+                    strokeWidth={live ? 2.25 : 1.5}
+                    strokeOpacity={live ? 0.95 : 0.65}
+                    strokeLinecap='round'
+                  />
                 );
               })}
             </svg>
@@ -2069,7 +2057,12 @@ function BlueOceanStages({
                   className={cn(
                     'adhar-dag-node absolute flex items-center gap-2.5 rounded-full border bg-surface-raised px-3 text-left shadow-sm transition-all',
                     'hover:-translate-y-0.5 hover:shadow-lg',
-                    isSel ? 'border-brand-400 ring-2 ring-brand-400/40' : vis.borderTone,
+                    // One neutral outline. `vis.borderTone` is a `border-l-<hue>`
+                    // class, which on a pill paints a coloured arc down the left
+                    // edge — a second vertical colour bar competing with the
+                    // accent strip that used to sit on the right. Status lives in
+                    // the glyph now; the container stays quiet.
+                    isSel ? 'border-brand-400 ring-2 ring-brand-400/40' : 'border-edge-default',
                     n.isFinally && 'border-dashed',
                   )}
                   style={{
@@ -2099,12 +2092,6 @@ function BlueOceanStages({
                       {meta?.stepsTotal ? ` · ${meta.stepsDone ?? 0}/${meta.stepsTotal} steps` : ''}
                     </span>
                   </span>
-                  {/* status accent so colour reads even at small zoom */}
-                  <span
-                    aria-hidden
-                    className='absolute inset-y-2 right-2 w-1 rounded-full'
-                    style={{ background: accent, opacity: 0.75 }}
-                  />
                 </button>
               );
             })}
@@ -2112,10 +2099,12 @@ function BlueOceanStages({
         </div>
       </div>
 
-      {/* Legend — its own row under the canvas rather than floating over it.
-          As an overlay it sat on top of whatever node happened to be in the
-          bottom-left corner; a footer can never cover the graph. */}
-      <div className='flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-edge-subtle bg-surface-raised px-4 py-2.5 text-[11px] text-content-muted'>
+      {/* Legend + canvas controls — one footer bar under the canvas rather than
+          a floating overlay. As an overlay the zoom cluster sat on top of
+          whatever node occupied the top-right corner, and the graph had chrome
+          on two edges; a single footer can never cover the graph and gives the
+          controls a permanent, predictable home. */}
+      <div className='flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-edge-subtle bg-surface-raised px-4 py-2 text-[11px] text-content-muted'>
         <span className='font-medium text-content-subtle'>Legend</span>
         {(
           [
@@ -2130,9 +2119,43 @@ function BlueOceanStages({
             {label}
           </span>
         ))}
-        <span className='ml-auto hidden text-content-subtle sm:inline'>
-          {nodes.length} {nodes.length === 1 ? 'stage' : 'stages'}
-          {full ? ' · Esc to exit' : ''}
+
+        <span className='ml-auto flex items-center gap-2'>
+          <span className='hidden text-content-subtle sm:inline'>
+            {nodes.length} {nodes.length === 1 ? 'stage' : 'stages'}
+            {full ? ' · Esc to exit' : ''}
+          </span>
+          <span className='flex items-center gap-0.5 rounded-lg border border-edge-default bg-surface-sunken/60 p-0.5'>
+            <CanvasBtn
+              label='Zoom out'
+              disabled={zoomIdx === 0}
+              onClick={() => setZoomIdx((i) => Math.max(0, i - 1))}
+            >
+              −
+            </CanvasBtn>
+            <button
+              type='button'
+              onClick={() => setZoomIdx(3)}
+              title='Reset zoom'
+              className='w-10 text-center text-[10px] font-semibold tabular-nums text-content-muted hover:text-content'
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+            <CanvasBtn
+              label='Zoom in'
+              disabled={zoomIdx === ZOOM_STEPS.length - 1}
+              onClick={() => setZoomIdx((i) => Math.min(ZOOM_STEPS.length - 1, i + 1))}
+            >
+              +
+            </CanvasBtn>
+            <span className='mx-0.5 h-4 w-px bg-edge-subtle' />
+            <CanvasBtn
+              label={full ? 'Exit full page (Esc)' : 'Full page'}
+              onClick={() => setFull((f) => !f)}
+            >
+              {full ? '⤡' : '⤢'}
+            </CanvasBtn>
+          </span>
         </span>
       </div>
 
@@ -3503,5 +3526,59 @@ function IconClose() {
       <path d='M18 6 6 18' />
       <path d='m6 6 12 12' />
     </svg>
+  );
+}
+
+/* Action-bar glyphs. Same 24-grid, stroke and cap as IconClose so the run
+   actions read as one set. `aria-hidden` throughout — each button already
+   carries its own visible label. */
+function ActionIcon({ children }: { children: ReactNode }) {
+  return (
+    <svg
+      width='13'
+      height='13'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='2.25'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+      aria-hidden
+    >
+      {children}
+    </svg>
+  );
+}
+
+/** Re-run — a clockwise refresh arrow. */
+function IconRerun() {
+  return (
+    <ActionIcon>
+      <path d='M21 12a9 9 0 1 1-2.64-6.36' />
+      <path d='M21 3v6h-6' />
+    </ActionIcon>
+  );
+}
+
+/** Cancel — a circle-slash, the conventional "stop this" mark. */
+function IconCancel() {
+  return (
+    <ActionIcon>
+      <circle cx='12' cy='12' r='9' />
+      <path d='m5.6 5.6 12.8 12.8' />
+    </ActionIcon>
+  );
+}
+
+/** Delete — a trash can. */
+function IconTrash() {
+  return (
+    <ActionIcon>
+      <path d='M3 6h18' />
+      <path d='M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2' />
+      <path d='M19 6v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6' />
+      <path d='M10 11v6' />
+      <path d='M14 11v6' />
+    </ActionIcon>
   );
 }

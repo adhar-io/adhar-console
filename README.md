@@ -49,40 +49,15 @@ and webhooks.
 
 <img src="./docs/assets/screenshots/overview.png" alt="Adhar Console — Overview: cluster health, delivery state, capacity and policy in one view" width="920" />
 
-<em>Overview. Every phase of the lifecycle on one screen, from live cluster and Argo CD state.</em>
+<em>Overview. Cluster health, delivery state, capacity and policy on one screen — every number read live from Kubernetes and Argo CD.</em>
 
 </div>
 
-<table>
-<tr>
-<td width="50%" valign="top">
-
-<img src="./docs/assets/screenshots/kubernetes.png" alt="Adhar Console — Kubernetes workloads, nodes and events" width="100%" />
-
-**Platform → Kubernetes.** Workloads, nodes and events read through the
-console's per-user gateway, so the apiserver enforces *your* RBAC and
-writes *your* audit trail. The console holds no cluster privilege of its
-own for anything user-facing.
-
-</td>
-<td width="50%" valign="top">
-
-<img src="./docs/assets/screenshots/marketplace.png" alt="Adhar Console — Marketplace of 91 first-party platform packages" width="100%" />
-
-**Platform → Marketplace.** Ninety-one first-party packages, each a
-best-in-class open-source project. Installing one writes an Argo CD
-`Application` to the platform repository — reviewable, revertible, and
-visible in Deliver. Nothing is applied to the cluster behind your back.
-
-</td>
-</tr>
-</table>
-
-> **On these images.** The sign-in page is a live capture. The three
-> application screens are design renders built from the console's own
-> palette, navigation tree and real numbers from a running cluster — the
-> console has no demo mode, so its interior cannot be photographed without
-> a signed-in session against someone's private platform.
+> **On these images.** The sign-in page is a live capture. Overview is a
+> design render built from the console's own palette, navigation tree and
+> real figures from a running cluster — the console has no demo mode, so
+> its interior cannot be photographed without a signed-in session against
+> someone's private platform.
 
 ---
 

@@ -37,9 +37,19 @@ and webhooks.
 
 <div align="center">
 
-<img src="./docs/assets/screenshots/repositories.png" alt="Adhar Console — Repositories, backed by Gitea" width="900" />
+<img src="./docs/assets/screenshots/login.png" alt="Adhar Console — sign in with Keycloak single sign-on" width="920" />
 
-<em>Develop → Repositories. Every screen is real data from the tool underneath — here, Gitea.</em>
+<em>Sign in. One confidential OIDC client — your password never touches the console.</em>
+
+</div>
+
+<br />
+
+<div align="center">
+
+<img src="./docs/assets/screenshots/overview.png" alt="Adhar Console — Overview: cluster health, delivery state, capacity and policy in one view" width="920" />
+
+<em>Overview. Every phase of the lifecycle on one screen, from live cluster and Argo CD state.</em>
 
 </div>
 
@@ -47,44 +57,32 @@ and webhooks.
 <tr>
 <td width="50%" valign="top">
 
-<img src="./docs/assets/screenshots/logs.png" alt="Discover — Logs workbench over Loki" width="100%" />
+<img src="./docs/assets/screenshots/kubernetes.png" alt="Adhar Console — Kubernetes workloads, nodes and events" width="100%" />
 
-**Discover → Logs.** A virtualised stream over Loki with live label
-discovery, field facets, pattern grouping and shareable permalinks.
-
-</td>
-<td width="50%" valign="top">
-
-<img src="./docs/assets/screenshots/cloud-shell.png" alt="Platform — Cloud Shell" width="100%" />
-
-**Platform → Cloud Shell.** A real xterm session into the cluster over a
-WebSocket, scoped to the signed-in user's RBAC.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-<img src="./docs/assets/screenshots/data-grid.png" alt="Decide — spend, in the shared data grid" width="100%" />
-
-**The shared grid.** Sorting, column resize and reorder, per-column
-filters, search, density, saved layout and CSV export — on every table
-in the console.
+**Platform → Kubernetes.** Workloads, nodes and events read through the
+console's per-user gateway, so the apiserver enforces *your* RBAC and
+writes *your* audit trail. The console holds no cluster privilege of its
+own for anything user-facing.
 
 </td>
 <td width="50%" valign="top">
 
-<img src="./docs/assets/screenshots/cloud-envs.png" alt="Develop — Cloud Dev Environments via Coder" width="100%" />
+<img src="./docs/assets/screenshots/marketplace.png" alt="Adhar Console — Marketplace of 91 first-party platform packages" width="100%" />
 
-**Develop → Cloud Envs.** Coder workspaces on the cluster. Empty states
-explain what is missing and how to fix it, rather than showing zero.
+**Platform → Marketplace.** Ninety-one first-party packages, each a
+best-in-class open-source project. Installing one writes an Argo CD
+`Application` to the platform repository — reviewable, revertible, and
+visible in Deliver. Nothing is applied to the cluster behind your back.
 
 </td>
 </tr>
 </table>
 
-> Screenshots are from a live cluster and predate the v0.1.61 navigation
-> rename, so a couple of sidebar labels differ from the current build.
+> **On these images.** The sign-in page is a live capture. The three
+> application screens are design renders built from the console's own
+> palette, navigation tree and real numbers from a running cluster — the
+> console has no demo mode, so its interior cannot be photographed without
+> a signed-in session against someone's private platform.
 
 ---
 

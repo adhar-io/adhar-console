@@ -97,7 +97,7 @@ export function reauthenticate(returnTo?: string): void {
 /** Create + activate a new organization via the real BFF endpoint. */
 export async function createOrganization(
   name: string,
-  contact: { email?: string; name?: string } = {},
+  contact: { email?: string; name?: string; description?: string } = {},
 ): Promise<CreateOrgResult> {
   const trimmed = name.trim()
   if (!trimmed) return { ok: false, status: 0, error: 'name_required', detail: 'Organization name is required.' }
@@ -107,7 +107,12 @@ export async function createOrganization(
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ name: trimmed, contactEmail: contact.email, contactName: contact.name }),
+      body: JSON.stringify({
+        name: trimmed,
+        description: contact.description?.trim() || undefined,
+        contactEmail: contact.email,
+        contactName: contact.name,
+      }),
     })
   } catch (e) {
     return {

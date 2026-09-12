@@ -36,6 +36,8 @@ export interface Organization {
   id: string
   name: string
   slug: string
+  /** What this tenant is for, as typed during onboarding. Optional. */
+  description?: string
   createdAt: string
   createdBy?: string
 }
@@ -46,6 +48,8 @@ interface Registry {
 }
 
 const NAME_MAX = 60
+/** Truncated rather than rejected — a long description is not a failed create. */
+const DESCRIPTION_MAX = 280
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
 
 function json(body: unknown, status = 200): Response {
@@ -141,15 +145,25 @@ export async function handleOrganizations(req: Request, subpath: string): Promis
     }
     // POST /api/organizations  → create + activate
     if (seg.length === 0 && method === 'POST') {
-      const body = (await req.json().catch(() => ({}))) as { name?: string; contactEmail?: string; contactName?: string }
+      const body = (await req.json().catch(() => ({}))) as {
+        name?: string
+        description?: string
+        contactEmail?: string
+        contactName?: string
+      }
       const name = (body.name ?? '').trim()
       if (!name) return attach(json({ error: 'name_required' }, 400))
       if (name.length > NAME_MAX) return attach(json({ error: 'name_too_long' }, 400))
+      // Onboarding asks what the org is for and shows the answer back on the
+      // review step, so it has to be stored — a field that is collected,
+      // confirmed and then dropped is worse than never asking.
+      const description = (body.description ?? '').trim().slice(0, DESCRIPTION_MAX)
       const id = `${slugify(name)}-${randomSuffix()}`.slice(0, 63)
       const org: Organization = {
         id,
         name,
         slug: slugify(name),
+        ...(description ? { description } : {}),
         createdAt: new Date().toISOString(),
         createdBy: auth.user.id,
       }

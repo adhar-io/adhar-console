@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import {
+  AdharLogo,
   ArgoCDIcon,
   ArgoRolloutsIcon,
   ArgoWorkflowsIcon,
@@ -52,8 +53,43 @@ interface State {
   selectedTools: Set<string>
 }
 
-/** Sensible pre-checked defaults — the platform's core spine. */
-const DEFAULT_SELECTED = new Set(['gitea', 'plane', 'argocd', 'kargo', 'harbor', 'kyverno', 'grafana', 'crossplane'])
+/**
+ * Capabilities the platform cannot run without, so they are never presented as
+ * a choice.
+ *
+ *   • **Keycloak** issues the session you are reading this page with. The
+ *     console fails closed without it — there is no unauthenticated mode.
+ *   • **Argo CD** is the engine that performs every other toggle on this page:
+ *     enabling a capability writes to an ApplicationSet that Argo CD reconciles.
+ *     Turning it off would disable the mechanism doing the turning off.
+ *   • **Gitea** hosts the platform repository Argo CD reconciles *from*.
+ *
+ * Offering these as togglable and then ignoring the answer would be worse than
+ * not offering them, so they are locked on and say why.
+ */
+const REQUIRED_TOOLS = new Set(['keycloak', 'argocd', 'gitea'])
+
+/** Why each locked capability cannot be turned off, shown on its card. */
+const REQUIRED_REASON: Record<string, string> = {
+  keycloak: 'Issues your sign-in session — the console cannot run without it',
+  argocd: 'Performs every other toggle on this page',
+  gitea: 'Hosts the repository Argo CD reconciles from',
+}
+
+/**
+ * Pre-checked defaults: everything curated except the pieces that carry a real
+ * cost or a prerequisite most installs will not have. A platform is more useful
+ * complete than minimal, and anything here can still be turned off.
+ *
+ * Left off by default — deliberately, not by omission:
+ *   • `beyla` needs privileged eBPF, which many clusters disallow.
+ *   • `mimir` duplicates Prometheus storage and only pays off at scale.
+ */
+const OFF_BY_DEFAULT = new Set(['beyla', 'mimir'])
+
+const DEFAULT_SELECTED = new Set(
+  BACKING_TOOLS.filter((t) => !OFF_BY_DEFAULT.has(t.id)).map((t) => t.id),
+)
 
 const DEFAULT: State = {
   orgName: '',
@@ -139,11 +175,74 @@ function slugPreview(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'org'
 }
 
+/** A capability the wizard can offer, whether curated or found on the cluster. */
+interface Capability {
+  id: string
+  name: string
+  purpose: string
+  version: string
+  license: string
+}
+
+/**
+ * The capabilities this platform can actually offer: the curated set, plus
+ * anything the cluster is running that the curated list doesn't know about.
+ *
+ * Resolved once, in the wizard, and passed to both the picker and the
+ * provisioner. They previously derived it separately, and the provisioner used
+ * only `BACKING_TOOLS` — so a cluster-discovered tool could be ticked on the
+ * capabilities step and then silently never provisioned. Selecting something
+ * and having nothing happen is the worst outcome of the three.
+ */
+function useCapabilities(): { catalogue: Capability[]; installed: Map<string, InstalledApp>; loading: boolean } {
+  const { apps: discovered, loading } = usePlatformApps()
+
+  const installed = useMemo(() => {
+    const m = new Map<string, InstalledApp>()
+    for (const a of discovered) {
+      if (!a.configured) continue
+      const entry = { name: a.name, description: a.description, icon: a.icon, url: a.url }
+      m.set(a.id, entry)
+      for (const t of a.tools ?? []) m.set(t, entry)
+    }
+    return m
+  }, [discovered])
+
+  const catalogue = useMemo(() => {
+    const extras = discovered
+      .filter((a) => a.configured && !BACKING_TOOLS.some((t) => t.id === a.id || (a.tools ?? []).includes(t.id)))
+      .map<Capability>((a) => ({ id: a.id, name: a.name, purpose: a.description, version: '', license: '' }))
+    return [...BACKING_TOOLS.map((t) => t as Capability), ...extras]
+  }, [discovered])
+
+  return { catalogue, installed, loading }
+}
+
+interface InstalledApp {
+  name: string
+  description: string
+  icon: ReactNode
+  url: string
+}
+
 function OnboardingWizard() {
   const nav = useNavigate()
   const { session, setSession } = useAuth()
   const [step, setStep] = useState<Step>(0)
   const [state, setState] = useState<State>(DEFAULT)
+  const { catalogue, installed, loading: appsLoading } = useCapabilities()
+
+  // Required capabilities are never absent from the selection, whatever the
+  // user clicked or whatever a stale default carried in.
+  useEffect(() => {
+    setState((s) => {
+      const missing = [...REQUIRED_TOOLS].filter((id) => !s.selectedTools.has(id))
+      if (!missing.length) return s
+      const next = new Set(s.selectedTools)
+      for (const id of missing) next.add(id)
+      return { ...s, selectedTools: next }
+    })
+  }, [])
 
   // Prefill the workspace contact from the signed-in user — they can change it.
   useEffect(() => {
@@ -197,44 +296,45 @@ function OnboardingWizard() {
       }}
     >
       <div className="relative mx-auto flex min-h-screen max-w-5xl flex-col px-4 py-10 sm:px-6 lg:px-8">
-        {/* Top chrome */}
+        {/* Top chrome. The brand sits on the left for the whole flow — this is
+            the first screen of the product, so it should look like it. The
+            right-hand side identifies who is signed in; when there is no
+            session there is nothing useful to put there, and the duplicate
+            brand chip that used to fill the gap said the same thing twice. */}
         <header className="mb-8 flex items-center justify-between gap-3">
-          {provisioning ? (
-            <span className="inline-flex h-9 items-center gap-2 rounded-lg border border-edge-default bg-surface-raised/80 px-3 text-sm text-content-muted shadow-sm backdrop-blur">
-              <AdharMark />
-              <span className="font-semibold text-content">Adhar</span>
-              <span className="text-content-subtle">Console</span>
-            </span>
-          ) : (
-            <button
-              type="button"
-              onClick={skipOnboarding}
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-edge-default bg-surface-raised/80 px-3 text-sm text-content-muted shadow-sm backdrop-blur transition-colors hover:border-edge-strong hover:text-content"
-            >
-              <IconArrowLeft />
-              Skip for now
-            </button>
-          )}
-          {session ? (
-            <div className="inline-flex h-10 items-center gap-2.5 rounded-full border border-edge-default bg-surface-raised/80 py-1 pl-1.5 pr-3.5 shadow-sm backdrop-blur">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-linear-to-br from-brand-500 to-accent-500 text-[11px] font-semibold text-white">
-                {initials(session.user.name)}
-              </span>
-              <span className="hidden flex-col leading-tight sm:flex">
-                <span className="text-xs font-semibold text-content">{session.user.name}</span>
-                <span className="text-[10px] text-content-subtle">{session.user.email}</span>
-              </span>
-              <span className="ml-0.5 inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300 ring-1 ring-inset ring-emerald-200">
-                <IconShieldMini /> SSO
-              </span>
-            </div>
-          ) : (
-            <span className="inline-flex h-8 items-center gap-2 rounded-full border border-edge-default bg-surface-raised/80 px-3 text-xs shadow-sm backdrop-blur">
-              <AdharMark />
-              <span className="font-semibold text-content">Adhar</span>
-              <span className="text-content-subtle">Console</span>
-            </span>
-          )}
+          <AdharLogo symbolSize={34} subtitle="Console" />
+
+          <div className="flex items-center gap-3">
+            {/* Onboarding is resumable and never blocks the app, so leaving is
+                a legitimate choice — but a quiet one, not a peer of the brand.
+                It marks onboarding seen so the app does not ask again; the
+                wizard stays reachable from Workspace settings. */}
+            {provisioning ? null : (
+              <button
+                type="button"
+                onClick={skipOnboarding}
+                title="Go to the console now — you can finish this later from Workspace settings"
+                className="text-xs font-medium text-content-subtle underline-offset-4 transition-colors hover:text-content hover:underline"
+              >
+                Skip for now
+              </button>
+            )}
+
+            {session ? (
+              <div className="inline-flex h-10 items-center gap-2.5 rounded-full border border-edge-default bg-surface-raised/80 py-1 pl-1.5 pr-3.5 shadow-sm backdrop-blur">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-linear-to-br from-brand-500 to-accent-500 text-[11px] font-semibold text-white">
+                  {initials(session.user.name)}
+                </span>
+                <span className="hidden flex-col leading-tight sm:flex">
+                  <span className="text-xs font-semibold text-content">{session.user.name}</span>
+                  <span className="text-[10px] text-content-subtle">{session.user.email}</span>
+                </span>
+                <span className="ml-0.5 inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300 ring-1 ring-inset ring-emerald-200">
+                  <IconShieldMini /> SSO
+                </span>
+              </div>
+            ) : null}
+          </div>
         </header>
 
         {/* Stepper */}
@@ -301,11 +401,20 @@ function OnboardingWizard() {
             <div className="px-6 py-6 sm:px-10 sm:py-8">
               {step === 0 && <StepWelcome session={session} />}
               {step === 1 && <StepOrg state={state} setState={setState} />}
-              {step === 2 && <StepConnect state={state} setState={setState} />}
-              {step === 3 && <StepReview state={state} onEdit={setStep} />}
+              {step === 2 && (
+                <StepConnect
+                  state={state}
+                  setState={setState}
+                  catalogue={catalogue}
+                  installed={installed}
+                  appsLoading={appsLoading}
+                />
+              )}
+              {step === 3 && <StepReview state={state} catalogue={catalogue} onEdit={setStep} />}
               {step === 4 && (
                 <StepProvision
                   state={state}
+                  catalogue={catalogue}
                   session={session}
                   setSession={setSession}
                   navHome={() => nav({ to: '/' })}
@@ -534,11 +643,19 @@ function StepOrg({
 function StepConnect({
   state,
   setState,
+  catalogue,
+  installed,
+  appsLoading,
 }: {
   state: State
   setState: React.Dispatch<React.SetStateAction<State>>
+  catalogue: Capability[]
+  installed: Map<string, InstalledApp>
+  appsLoading: boolean
 }) {
   function toggle(id: string) {
+    // Required capabilities are not a choice — see REQUIRED_TOOLS.
+    if (REQUIRED_TOOLS.has(id)) return
     setState((s) => {
       const next = new Set(s.selectedTools)
       if (next.has(id)) next.delete(id)
@@ -547,37 +664,16 @@ function StepConnect({
     })
   }
 
-  // What the cluster actually exposes right now (HTTPRoute discovery +
-  // /api/config), with real brand logos — the same source the app launcher
-  // uses, so onboarding never advertises a tool this platform doesn't have.
-  const { apps: discovered, loading: appsLoading } = usePlatformApps()
-  const installed = useMemo(() => {
-    const m = new Map<string, { name: string; description: string; icon: ReactNode; url: string }>()
-    for (const a of discovered) {
-      if (!a.configured) continue
-      m.set(a.id, { name: a.name, description: a.description, icon: a.icon, url: a.url })
-      for (const t of a.tools ?? []) m.set(t, { name: a.name, description: a.description, icon: a.icon, url: a.url })
-    }
-    return m
-  }, [discovered])
-
-  // Curated capabilities first (they carry purpose/version), then anything the
-  // cluster runs that the curated list doesn't know about.
-  const extras = useMemo(
-    () =>
-      discovered
-        .filter((a) => a.configured && !BACKING_TOOLS.some((t) => t.id === a.id || (a.tools ?? []).includes(t.id)))
-        .map((a) => ({ id: a.id, name: a.name, purpose: a.description, version: '', license: '' })),
-    [discovered],
-  )
-  const catalogue = useMemo(() => [...BACKING_TOOLS, ...extras], [extras])
+  const optional = catalogue.filter((t) => !REQUIRED_TOOLS.has(t.id))
+  const optionalOn = optional.filter((t) => state.selectedTools.has(t.id)).length
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between text-xs text-content-muted">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-content-muted">
         <span>
           <span className="font-semibold text-content">{state.selectedTools.size}</span> of{' '}
           {catalogue.length} capabilities selected
+          <span className="ml-2 text-content-subtle">· {REQUIRED_TOOLS.size} required</span>
           {appsLoading ? null : (
             <span className="ml-2 text-content-subtle">· {installed.size} already running on your platform</span>
           )}
@@ -586,9 +682,24 @@ function StepConnect({
           <button
             type="button"
             onClick={() => setState((s) => ({ ...s, selectedTools: new Set(catalogue.map((t) => t.id)) }))}
-            className="font-medium text-brand-700 dark:text-brand-300 hover:text-brand-800 dark:hover:text-brand-300"
+            disabled={optionalOn === optional.length}
+            className="font-medium text-brand-700 hover:text-brand-800 disabled:opacity-40 dark:text-brand-300 dark:hover:text-brand-300"
           >
             Select all
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setState((s) => ({
+                ...s,
+                // Clearing never drops a required capability.
+                selectedTools: new Set(REQUIRED_TOOLS),
+              }))
+            }
+            disabled={optionalOn === 0}
+            className="font-medium text-content-muted hover:text-content disabled:opacity-40"
+          >
+            Clear optional
           </button>
           <button
             type="button"
@@ -599,9 +710,11 @@ function StepConnect({
           </button>
         </div>
       </div>
+
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {catalogue.map((t) => {
-          const on = state.selectedTools.has(t.id)
+          const required = REQUIRED_TOOLS.has(t.id)
+          const on = required || state.selectedTools.has(t.id)
           const live = installed.get(t.id)
           return (
             <button
@@ -609,11 +722,16 @@ function StepConnect({
               key={t.id}
               onClick={() => toggle(t.id)}
               aria-pressed={on}
+              aria-disabled={required}
+              title={required ? REQUIRED_REASON[t.id] : undefined}
               className={cn(
                 'flex items-start gap-3 rounded-xl border p-3 text-left transition-all duration-150 ease-smooth',
                 on
-                  ? 'border-brand-500 bg-brand-50/40 dark:bg-brand-500/10 ring-2 ring-brand-500/20'
+                  ? 'border-brand-500 bg-brand-50/40 ring-2 ring-brand-500/20 dark:bg-brand-500/10'
                   : 'border-edge-default bg-surface-raised hover:border-edge-strong hover:shadow-md',
+                // A locked card still reads as selected; it just doesn't invite
+                // a click it would ignore.
+                required && 'cursor-default',
               )}
             >
               {/* Real logo: the discovered app's brand icon when the cluster
@@ -626,12 +744,24 @@ function StepConnect({
                   <div className="truncate text-sm font-semibold text-content">{t.name}</div>
                   <div className="flex shrink-0 items-center gap-1">
                     {live ? <StatusBadge kind="healthy" dot={false}>installed</StatusBadge> : null}
-                    <StatusBadge kind={on ? 'healthy' : 'unknown'}>{on ? 'enable' : 'skip'}</StatusBadge>
+                    {required ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-surface-sunken px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-content-muted ring-1 ring-inset ring-edge-default">
+                        <IconLockMini /> required
+                      </span>
+                    ) : (
+                      <StatusBadge kind={on ? 'healthy' : 'unknown'}>{on ? 'enable' : 'skip'}</StatusBadge>
+                    )}
                   </div>
                 </div>
                 <div className="truncate text-[11px] text-content-muted">{live?.description ?? t.purpose}</div>
                 <div className="mt-1 truncate font-mono text-[10px] text-content-subtle">
-                  {live?.url ? new URL(live.url).host : t.version ? `v${t.version} · ${t.license}` : 'discovered on this cluster'}
+                  {required
+                    ? REQUIRED_REASON[t.id]
+                    : live?.url
+                      ? new URL(live.url).host
+                      : t.version
+                        ? `v${t.version} · ${t.license}`
+                        : 'discovered on this cluster'}
                 </div>
               </div>
             </button>
@@ -642,10 +772,20 @@ function StepConnect({
   )
 }
 
-function StepReview({ state, onEdit }: { state: State; onEdit: (s: Step) => void }) {
+function StepReview({
+  state,
+  catalogue,
+  onEdit,
+}: {
+  state: State
+  catalogue: Capability[]
+  onEdit: (s: Step) => void
+}) {
   const slug = slugPreview(state.orgName.trim())
-  const selected = BACKING_TOOLS.filter((t) => state.selectedTools.has(t.id))
-  const extraSelected = [...state.selectedTools].filter((id) => !BACKING_TOOLS.some((t) => t.id === id))
+  // Review lists exactly what provisioning will act on — the same catalogue,
+  // so nothing can appear here that the next step would skip, or vice versa.
+  const selected = catalogue.filter((t) => state.selectedTools.has(t.id))
+  const extraSelected = [...state.selectedTools].filter((id) => !catalogue.some((t) => t.id === id))
   return (
     <div className="max-w-3xl space-y-5">
       <ReviewRow label="Organization" onEdit={() => onEdit(1)}>
@@ -749,18 +889,23 @@ function outcomeToRunState(o: ToggleOutcome): RunState {
 
 function StepProvision({
   state,
+  catalogue,
   session,
   setSession,
   navHome,
 }: {
   state: State
+  catalogue: Capability[]
   session: Session | null
   setSession: (s: Session) => void
   navHome: () => void
 }) {
+  // Provision everything that was selected, not just the curated subset. This
+  // used to filter `BACKING_TOOLS`, which meant a capability discovered on the
+  // cluster could be ticked and then quietly never enabled.
   const selectedIds = useMemo(
-    () => BACKING_TOOLS.filter((t) => state.selectedTools.has(t.id)),
-    [state.selectedTools],
+    () => catalogue.filter((t) => state.selectedTools.has(t.id)),
+    [catalogue, state.selectedTools],
   )
 
   const buildInitialSteps = (): ProvStep[] => [
@@ -822,7 +967,11 @@ function StepProvision({
   /** Run the org-creation step. Returns true when the org exists (created now or already). */
   async function runOrg(): Promise<boolean> {
     patch('org', { status: 'running', detail: undefined })
-    const res = await createOrganization(state.orgName, { email: state.contactEmail, name: state.contactName })
+    const res = await createOrganization(state.orgName, {
+      email: state.contactEmail,
+      name: state.contactName,
+      description: state.orgDescription,
+    })
     if (res.ok && res.org) {
       createdOrg.current = res.org
       orgReachable.current = true
@@ -917,7 +1066,6 @@ function StepProvision({
   }
 
   const orgStep = steps.find((s) => s.kind === 'org')!
-  const toolSteps = steps.filter((s) => s.kind === 'tool')
   const orgDone = orgStep.status === 'done'
   const allSettled =
     phase === 'done' && steps.every((s) => s.status !== 'running' && s.status !== 'pending')
@@ -1242,6 +1390,26 @@ function IconShieldMini() {
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
       <path d="m9 12 2 2 4-4" />
+    </svg>
+  )
+}
+
+/** Padlock for a capability that cannot be turned off. */
+function IconLockMini() {
+  return (
+    <svg
+      width="9"
+      height="9"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
     </svg>
   )
 }

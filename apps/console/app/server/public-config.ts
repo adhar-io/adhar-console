@@ -42,13 +42,23 @@ function publicProtocol(): string {
  *
  * Keycloak does not advertise it in OIDC discovery, so we ask the hosted
  * sign-up endpoint: it answers 400 when `registrationAllowed` is false and
- * serves the form (200, or a redirect) when it is true. Cached for the process
- * lifetime — it is a realm setting, not per-request state, and the sign-in page
- * asks on every load.
+ * serves the form (200, or a redirect) when it is true. Briefly cached, because
+ * the sign-in page asks on every load and this is a realm setting rather than
+ * per-request state.
  */
-let selfRegistrationCache: boolean | undefined
+let selfRegistrationCache: { value: boolean; at: number } | undefined
+/**
+ * Re-probed after this long. Not cached for the process lifetime: turning
+ * registration on is a realm change made *outside* the console, and a console
+ * that kept saying "sign-up is turned off" until someone restarted the pod
+ * would make a correct platform change look like it had not worked.
+ */
+const SELF_REG_TTL_MS = 5 * 60_000
+
 async function selfRegistrationAllowed(): Promise<boolean> {
-  if (selfRegistrationCache !== undefined) return selfRegistrationCache
+  if (selfRegistrationCache && Date.now() - selfRegistrationCache.at < SELF_REG_TTL_MS) {
+    return selfRegistrationCache.value
+  }
   const cfg = getServerAuthConfig()
   if (!cfg) return false
   try {
@@ -62,12 +72,12 @@ async function selfRegistrationAllowed(): Promise<boolean> {
     // 400 is Keycloak's "registration not allowed". Anything else means the
     // form is reachable; a network failure is not evidence either way, so it is
     // treated as unavailable rather than advertising a door that may not open.
-    selfRegistrationCache = res.status !== 400
+    selfRegistrationCache = { value: res.status !== 400, at: Date.now() }
     await res.body?.cancel()
   } catch {
-    selfRegistrationCache = false
+    selfRegistrationCache = { value: false, at: Date.now() }
   }
-  return selfRegistrationCache
+  return selfRegistrationCache.value
 }
 
 export async function buildPublicConfig(): Promise<Record<string, unknown>> {

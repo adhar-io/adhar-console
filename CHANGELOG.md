@@ -6,6 +6,49 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.64] - 2026-09-12
+
+### Fixed
+
+- **Healthy tools reported as unavailable.** The BFF refused to send a request
+  at all when a tool was declared `service` auth mode with no token, answering
+  503 Service Unavailable before contacting it. Most of the platform's own
+  services need no credential in-cluster — Prometheus, Loki, Mimir, Tempo, the
+  Tekton dashboard, Falco — so Metrics, Traces, Grafana boards and the service
+  detail panels all reported backends as down that were running and would have
+  answered. Fourteen tools were affected. A missing service token now forwards
+  the request unauthenticated; a tool that genuinely needs auth answers 401 or
+  403 itself, which is actionable, instead of the console guessing on its
+  behalf. `basic` and `login` still fail closed.
+- **The code editor rendered as an empty strip.** Its host carried both
+  `flex-1` and an inline height; in a column flex container the flex-basis of 0
+  wins, so Monaco was handed a zero-height element and "Raw object" showed a
+  toolbar above nothing.
+- **Environments detail had no background** — it used a `surface-base` class,
+  and no such token exists, so Tailwind emitted no rule and the panel was
+  transparent over the page.
+- **Pipeline stages: legend and full page.** The legend floated over the graph
+  and covered whichever stage sat in the bottom-left; it is now its own row
+  beneath the canvas. Full page was clipped to the drawer, because
+  `position: fixed` resolves against an ancestor with a transform or filter
+  rather than the viewport; it now renders through a portal. The marching-dash
+  edge animation is gone.
+- **Tempo used the Kubernetes icon**, making it indistinguishable from every
+  other cluster-scoped tool. Replaced with Grafana Tempo's own mark.
+
+### Changed
+
+- **Metric panels no longer print their PromQL.** The golden-signal queries are
+  fallback chains across every telemetry source a platform might run, so the
+  expression dwarfed the chart. It is now behind a "Query" toggle that opens an
+  editable box with Run and Reset; an edited panel is badged so a chart never
+  silently shows something other than the platform default.
+- **Tech stack reads as a stack.** The catalogue grew from 36 entries to 76 and
+  each declares its layer, so the panel groups languages, frameworks, data and
+  messaging, runtime, and platform. Version provenance is named rather than
+  implied, and Tech Docs now sits beside the stack with a link that opens it in
+  place.
+
 ## [0.1.63] - 2026-09-12
 
 ## [0.1.62] - 2026-09-12

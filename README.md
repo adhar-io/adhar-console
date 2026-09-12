@@ -33,6 +33,61 @@ and webhooks.
 
 ---
 
+## What it looks like
+
+<div align="center">
+
+<img src="./docs/assets/screenshots/repositories.png" alt="Adhar Console — Repositories, backed by Gitea" width="900" />
+
+<em>Develop → Repositories. Every screen is real data from the tool underneath — here, Gitea.</em>
+
+</div>
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+<img src="./docs/assets/screenshots/logs.png" alt="Discover — Logs workbench over Loki" width="100%" />
+
+**Discover → Logs.** A virtualised stream over Loki with live label
+discovery, field facets, pattern grouping and shareable permalinks.
+
+</td>
+<td width="50%" valign="top">
+
+<img src="./docs/assets/screenshots/cloud-shell.png" alt="Platform — Cloud Shell" width="100%" />
+
+**Platform → Cloud Shell.** A real xterm session into the cluster over a
+WebSocket, scoped to the signed-in user's RBAC.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+<img src="./docs/assets/screenshots/data-grid.png" alt="Decide — spend, in the shared data grid" width="100%" />
+
+**The shared grid.** Sorting, column resize and reorder, per-column
+filters, search, density, saved layout and CSV export — on every table
+in the console.
+
+</td>
+<td width="50%" valign="top">
+
+<img src="./docs/assets/screenshots/cloud-envs.png" alt="Develop — Cloud Dev Environments via Coder" width="100%" />
+
+**Develop → Cloud Envs.** Coder workspaces on the cluster. Empty states
+explain what is missing and how to fix it, rather than showing zero.
+
+</td>
+</tr>
+</table>
+
+> Screenshots are from a live cluster and predate the v0.1.61 navigation
+> rename, so a couple of sidebar labels differ from the current build.
+
+---
+
 ## Why another console?
 
 - **Transparency.** Every screen links back to its upstream open-source project.
@@ -107,80 +162,148 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) and [docs/architecture/](./docs/archite
 
 ---
 
-## Quickstart (dev)
+## Getting started
 
-`pnpm dev` connects to a **locally-running adhar cluster** — real Keycloak login,
-the real kube-apiserver, real backing tools, and real Postgres. There is no stub
-mode in dev.
+**Read this first.** The console is a *window onto a cluster*, not a standalone
+app. It has **no demo mode and no stub fallback** — every screen reads a real
+Kubernetes API and real backing tools. So before anything else you need an Adhar
+platform to point it at. That single fact is the most common reason a first run
+fails.
 
-Prerequisites: **Deno ≥ 2.0**, **pnpm ≥ 10**, **Node ≥ 20**, a sibling checkout
-of [`adhar-ui`](https://github.com/adhar-io/adhar-ui) (or set `ADHAR_UI_PATH`),
-and the **adhar platform running locally** (kind cluster reachable at
-`*.adhar.localtest.me:8443`).
+Pick the path that matches what you want to do:
+
+| I want to… | Go to |
+| --- | --- |
+| See the console running, with the least setup | [1. Run the container](#1-run-the-container) |
+| Change the console's code | [2. Develop the console](#2-develop-the-console) |
+| Install it for a team | [3. Deploy on the Adhar platform](#3-deploy-on-the-adhar-platform) |
+
+### Prerequisites
+
+You need a running Adhar platform. If you don't have one, install the platform
+first — the console is one of the packages it ships.
+
+```bash
+# Verify you can reach a cluster and that it is an Adhar platform.
+kubectl get nodes
+kubectl -n adhar-system get svc keycloak          # the console needs Keycloak
+```
+
+For the development path you additionally need:
+
+| Tool | Version | Check |
+| --- | --- | --- |
+| Deno | ≥ 2.0 | `deno --version` |
+| pnpm | ≥ 10 | `pnpm --version` |
+| Node | ≥ 20 | `node --version` |
+| [`adhar-ui`](https://github.com/adhar-io/adhar-ui) | sibling checkout | `ls ../adhar-ui` (or set `ADHAR_UI_PATH`) |
+
+### 1. Run the container
+
+The fastest way to see it. Images publish to `ghcr.io/adhar-io/adhar-console`
+and are mirrored to Docker Hub as `adhario/adhar-console`; GHCR packages start
+private, so either make the package public or `docker login ghcr.io` first.
+
+```bash
+cp .env.example .env       # fill it in — see the env table below
+docker compose -f deploy/compose/docker-compose.yml up
+#   → http://localhost:3000   ·   /healthz  /readyz  /api/config
+```
+
+Every variable is listed in [the `.env` table](#the-env-you-actually-need); for
+the container set `AUTH_PUBLIC_URL=http://localhost:3000`.
+
+`docker compose` brings its own Postgres. To run the image alone against an
+existing database:
+
+```bash
+docker run --rm -p 3000:3000 --env-file .env ghcr.io/adhar-io/adhar-console:latest
+```
+
+> The server **fails closed**: without `KEYCLOAK_URL`, `AUTH_CLIENT_SECRET` and
+> `AUTH_COOKIE_SECRET` it refuses to boot rather than silently starting in an
+> unauthenticated mode. That is deliberate — see
+> [docs/architecture/auth.md](./docs/architecture/auth.md).
+
+### 2. Develop the console
 
 ```bash
 pnpm install
-cp .env.example .env      # then fill in the values noted in the file
-pnpm dev                  # → http://localhost:5100
+cp .env.example .env       # then fill in the table below
+pnpm dev                   # → http://localhost:5100
 ```
 
-`pnpm dev` starts **10 processes**: the **BFF** (Deno `server.ts`, `:5099`) plus
-the Vite host (`:5100`) and every federated remote (`:5101–5108`). The Vite host
-proxies all `/api/*` calls to the BFF, which does the real work against the
-cluster. Log in at `http://localhost:5100` via the real Keycloak.
+`pnpm dev` starts **10 processes**: the BFF (Deno `server.ts`, `:5099`), the Vite
+host (`:5100`), and every federated remote (`:5101–5108`). The host proxies all
+`/api/*` calls to the BFF, which does the real work against your cluster. Sign in
+at `http://localhost:5100` through the real Keycloak.
 
-Minimum `.env` to wire (see comments in `.env.example` for how to obtain each):
-
-| Var | Dev value |
-| --- | --- |
-| `KEYCLOAK_URL` | `https://keycloak.adhar.localtest.me:8443` |
-| `KEYCLOAK_CLIENT_ID` | `adhar-console` |
-| `AUTH_CLIENT_SECRET` | from the cluster's `keycloak-clients` secret |
-| `AUTH_COOKIE_SECRET` | any random ≥32 chars |
-| `AUTH_PUBLIC_URL` | `http://localhost:5100` |
-| `AUTH_COOKIE_SECURE` | `false` (plain-HTTP localhost) |
-| `K8S_API_URL` | your kube context server (e.g. `https://127.0.0.1:6443`) |
-| `DENO_CERT` | PEM bundle trusting the apiserver + Keycloak CAs |
-| `DATABASE_URL` | port-forward `console-db`, or the compose Postgres |
-| tool `*_URL` | `https://<tool>.adhar.localtest.me:8443` |
-
-> The Keycloak `adhar-console` client already allows the dev redirect
-> `http://localhost:5100/api/auth/callback` (see the platform's
-> `keycloak-config.yaml`).
-
-Run a subset of remotes (the `bff` + `console` come along automatically):
+Working on one phase? Start only what you need — the BFF and host always come
+along:
 
 ```bash
 deno task dev develop platform
 ```
 
-**Offline / tests only:** pass `mode:'stub'` to a client factory to use the
-in-memory fixtures; there is no automatic stub fallback.
+#### The `.env` you actually need
 
-## Build & run the container
+Each of these has a comment in `.env.example` explaining where to get it.
 
-The production build is a Vite SPA served by the standalone Deno server. The
-easiest path is the container:
+| Variable | Dev value | How to get it |
+| --- | --- | --- |
+| `KEYCLOAK_URL` | `https://keycloak.adhar.localtest.me:8443` | your platform's Keycloak |
+| `KEYCLOAK_CLIENT_ID` | `adhar-console` | pre-provisioned by the platform |
+| `AUTH_CLIENT_SECRET` | — | `kubectl -n adhar-system get secret keycloak-clients -o jsonpath='{.data.ADHAR_CONSOLE_CLIENT_SECRET}' \| base64 -d` |
+| `AUTH_COOKIE_SECRET` | any random ≥32 chars | `openssl rand -base64 48` |
+| `AUTH_PUBLIC_URL` | `http://localhost:5100` | the origin your browser uses |
+| `AUTH_COOKIE_SECURE` | `false` | plain-HTTP localhost |
+| `K8S_API_URL` | `https://127.0.0.1:6443` | `kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}'` |
+| `DENO_CERT` | path to a PEM bundle | must trust the apiserver **and** Keycloak CAs |
+| `DATABASE_URL` | `postgres://…` | port-forward `console-db`, or use the compose Postgres |
+| tool `*_URL` | `https://<tool>.adhar.localtest.me:8443` | one per backing tool you want live |
+
+> The platform's `adhar-console` Keycloak client already allows the dev redirect
+> `http://localhost:5100/api/auth/callback`, so no Keycloak change is needed.
+
+#### When it doesn't work
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Server exits immediately on boot | Keycloak env missing | Set `KEYCLOAK_URL`, `AUTH_CLIENT_SECRET`, `AUTH_COOKIE_SECRET` — it fails closed by design |
+| Login loops back to the sign-in page | `AUTH_PUBLIC_URL` doesn't match the origin in your address bar | Make them identical, including port |
+| `certificate` / TLS errors in the BFF log | `DENO_CERT` missing or incomplete | Point it at a bundle trusting **both** the apiserver and Keycloak CAs |
+| A tool's page says it can't be reached | That tool's `*_URL` is unset, so it resolves to a public hostname behind an OAuth proxy | Set the in-cluster Service URL for that tool |
+| `/readyz` reports `db: unconfigured` | No `DATABASE_URL` | Preferences, notifications and the document store return `503` without it |
+| Cluster pages are empty but tools work | Your Keycloak user has no RBAC in the cluster | The console impersonates *you*; bind your group in the cluster |
+
+> **Offline / tests only:** pass `mode:'stub'` to a client factory for in-memory
+> fixtures. There is no automatic stub fallback — a running system always talks
+> to real backends.
+
+### 3. Deploy on the Adhar platform
+
+See [Deploy on the Adhar platform](#deploy-on-the-adhar-platform) below.
+
+## Building from source
+
+A production build is a Vite SPA served by the standalone Deno server. `adhar-ui`
+is passed as a BuildKit build context rather than vendored, so the image build
+needs it checked out alongside this repo.
 
 ```bash
-# Build (adhar-ui is passed as a BuildKit build context).
 docker build \
   --build-context adhar-ui=../adhar-ui \
   -f deploy/Dockerfile \
   -t ghcr.io/adhar-io/adhar-console:dev .
-
-# Run — needs real config. In production the server FAILS CLOSED without
-# Keycloak (KEYCLOAK_URL + AUTH_CLIENT_SECRET + AUTH_COOKIE_SECRET) — it will
-# not boot in demo mode. Pass the env (or use the compose stack below).
-docker run --rm -p 3000:3000 --env-file .env ghcr.io/adhar-io/adhar-console:dev
-#   → http://localhost:3000   ·   /healthz  /readyz  /api/config
-
-# Local full stack (console + Postgres):
-docker compose -f deploy/compose/docker-compose.yml up
 ```
 
-Building without Docker: `pnpm build` (→ `apps/console/dist/`) then
-`cd apps/console && deno run -A --env-file=../../.env server.ts`.
+Without Docker:
+
+```bash
+pnpm build                                    # → apps/console/dist/
+cd apps/console
+deno run -A --env-file=../../.env server.ts   # → http://localhost:3000
+```
 
 ### Runtime endpoints
 

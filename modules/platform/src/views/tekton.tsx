@@ -10,6 +10,7 @@ import {
   EmptyState,
   Spinner,
   StatusBadge,
+  useLiveRefetch,
   type StatusKind,
 } from '@adhar-console/shell-ui';
 import type { GatewayGVR as GVR, KubeObject } from '@adhar-console/api-clients/k8s';
@@ -1357,19 +1358,36 @@ function PipelineRunDrawer({ run: initial, onClose }: { run: TektonRun; onClose(
   const [deleted, setDeleted] = useState(false);
 
   // Live single-run refetch so the drawer reflects progress.
+  const runKey = ['platform', 'tekton', 'pipelinerun', ns ?? '-', name, cp ?? '-'];
   const runQ = useQuery<TektonRun>({
-    queryKey: ['platform', 'tekton', 'pipelinerun', ns ?? '-', name, cp ?? '-'],
+    queryKey: runKey,
     queryFn: () => kube.get<TektonRun>(PIPELINERUNS_GVR, ns, name, { cluster: cp }),
     initialData: initial,
-    refetchInterval: 5000,
+    refetchInterval: useLiveRefetch(
+      { ...PIPELINERUNS_GVR, namespace: ns, cluster: cp },
+      [runKey],
+      5000,
+    ),
     retry: false,
   });
   const run = runQ.data ?? initial;
   const running = isRunning(run);
 
   // TaskRuns for this run — colours the DAG and feeds per-step logs.
+  const taskRunsKey = ['platform', 'tekton', 'taskruns', ns ?? '-', name, cp ?? '-'];
+  const taskRunsInterval = useLiveRefetch(
+    {
+      ...TASKRUNS_GVR,
+      namespace: ns,
+      labelSelector: `tekton.dev/pipelineRun=${name}`,
+      cluster: cp,
+    },
+    [taskRunsKey],
+    5000,
+    running,
+  );
   const taskRunsQ = useQuery<TektonTaskRunObj[]>({
-    queryKey: ['platform', 'tekton', 'taskruns', ns ?? '-', name, cp ?? '-'],
+    queryKey: taskRunsKey,
     queryFn: () =>
       kube
         .list<TektonTaskRunObj>(TASKRUNS_GVR, {
@@ -1378,7 +1396,7 @@ function PipelineRunDrawer({ run: initial, onClose }: { run: TektonRun; onClose(
           cluster: cp,
         })
         .then((l) => l.items),
-    refetchInterval: running ? 5000 : false,
+    refetchInterval: running ? taskRunsInterval : false,
     retry: false,
   });
   const taskRunsForbidden = (taskRunsQ.error as { status?: number } | null)?.status === 403;

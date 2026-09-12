@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Button,
   Card,
@@ -13,6 +13,14 @@ import {
 } from '@adhar-console/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar-console/utils'
 import type { kargo } from '@adhar-console/api-clients'
+import {
+  CanvasBtn,
+  edgeBetween,
+  GraphCanvas,
+  layoutLayers,
+  statusHex,
+  type CanvasEdge,
+} from '../components/canvas.tsx'
 import {
   useAbortPromotion,
   useApproveFreight,
@@ -57,6 +65,52 @@ const HEALTH_HEX: Record<string, string> = {
   Unknown: 'var(--color-slate-400)',
 }
 
+/** Kargo reports the verification as an Argo Rollouts AnalysisRun phase. */
+function verificationKind(phase?: string): StatusKind {
+  switch (phase) {
+    case 'Successful':
+      return 'healthy'
+    case 'Failed':
+    case 'Error':
+      return 'failed'
+    case 'Running':
+    case 'Pending':
+      return 'progressing'
+    default:
+      return 'unknown'
+  }
+}
+
+/** A stage is "moving" when a promotion is running against it. */
+function isBusy(s: kargo.Stage): boolean {
+  return s.phase === 'Promoting' || s.phase === 'Verifying' || !!s.currentPromotion
+}
+
+/* ─────────── canvas layout constants ─────────── */
+
+const NODE_W = 268
+const NODE_H = 142
+const COL_GAP = 96
+const ROW_GAP = 26
+
+/* ─────────── view preference ─────────── */
+
+type PipelineView = 'canvas' | 'list'
+interface Prefs {
+  view: PipelineView
+}
+const PREFS_KEY = 'adhar.deliver.kargo.prefs.v1'
+const DEFAULT_PREFS: Prefs = { view: 'canvas' }
+
+function loadPrefs(): Prefs {
+  try {
+    const raw = globalThis.localStorage?.getItem(PREFS_KEY)
+    return raw ? { ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<Prefs>) } : DEFAULT_PREFS
+  } catch {
+    return DEFAULT_PREFS
+  }
+}
+
 /**
  * Kargo promotion pipeline — everything the `kargo` CLI and dashboard expose
  * for a project, on one page, all read from and written to the Kargo CRDs
@@ -64,9 +118,12 @@ const HEALTH_HEX: Record<string, string> = {
  *
  *  - a stats strip (stages by phase, verification, freight, running / failed
  *    promotions) whose tiles filter the pipeline;
- *  - the pipeline laid out by dependency depth (warehouse-fed stages first,
- *    then each downstream tier), with health rail, phase, current freight and
- *    its artifacts, verification result, last promotion outcome, and issues;
+ *  - the pipeline as a pan/zoom canvas — stages placed by dependency depth on a
+ *    dotted ground, upstream subscriptions drawn as edges that animate while a
+ *    promotion is running, with fit-to-view / full-page and a list fallback that
+ *    keeps the original tier columns;
+ *  - a stage detail panel: current freight and its artifacts, verification,
+ *    upstream / downstream, recent promotions, and the stage actions;
  *  - warehouses with their subscriptions, discovery interval, last freight and
  *    a "Discover now" action;
  *  - the freight inventory with search, warehouse filter, where each bundle is
@@ -89,6 +146,19 @@ export function KargoStages() {
   const [phaseF, setPhaseF] = useState<'all' | 'attention' | 'active' | 'steady'>('all')
   const [search, setSearch] = useState('')
   const [warehouseF, setWarehouseF] = useState('all')
+  const [selected, setSelected] = useState<string | null>(null)
+  const [prefs, setPrefsState] = useState<Prefs>(() => loadPrefs())
+
+  const setPrefs = (patch: Partial<Prefs>) =>
+    setPrefsState((p) => {
+      const next = { ...p, ...patch }
+      try {
+        globalThis.localStorage?.setItem(PREFS_KEY, JSON.stringify(next))
+      } catch {
+        /* storage unavailable — the preference just doesn't persist */
+      }
+      return next
+    })
 
   const stageList = useMemo(() => stages.data ?? [], [stages.data])
   const freightList = useMemo(() => freight.data ?? [], [freight.data])
@@ -111,8 +181,13 @@ export function KargoStages() {
     return s
   }, [stageList, promotionList])
 
-  /** Stages arranged in dependency tiers: warehouse-fed first, then downstream. */
-  const tiers = useMemo(() => {
+  /**
+   * The pipeline as a graph: stages arranged in dependency tiers (warehouse-fed
+   * first, then downstream), the canvas placement for those tiers, and the
+   * upstream edges between them. Layout depends only on the stage set, never on
+   * the filters, so the shape of the pipeline stays put while you filter.
+   */
+  const graph = useMemo(() => {
     const byName = new Map(stageList.map((s) => [s.name, s]))
     const depth = new Map<string, number>()
     const visit = (name: string, seen: Set<string>): number => {
@@ -126,12 +201,54 @@ export function KargoStages() {
       return d
     }
     for (const s of stageList) visit(s.name, new Set())
+
     const groups = new Map<number, kargo.Stage[]>()
     for (const s of stageList) {
       const d = depth.get(s.name) ?? 0
       ;(groups.get(d) ?? groups.set(d, []).get(d)!).push(s)
     }
-    return [...groups.entries()].sort((a, b) => a[0] - b[0]).map(([d, list]) => ({ depth: d, stages: list.sort((a, b) => a.name.localeCompare(b.name)) }))
+    const tiers = [...groups.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([d, list]) => ({ depth: d, stages: list.sort((a, b) => a.name.localeCompare(b.name)) }))
+
+    // Feed the same levelling into the canvas layout, in tier order so the
+    // columns on the canvas match the columns in the list view.
+    const layout = layoutLayers(
+      tiers.flatMap((t) => t.stages.map((s) => ({ id: s.name, level: t.depth }))),
+      { nodeWidth: NODE_W, nodeHeight: NODE_H, colGap: COL_GAP, rowGap: ROW_GAP },
+    )
+
+    const edges: CanvasEdge[] = []
+    const downstream = new Map<string, string[]>()
+    for (const s of stageList) {
+      const to = layout.pos.get(s.name)
+      if (!to) continue
+      for (const u of s.upstream ?? []) {
+        const from = layout.pos.get(u)
+        if (!from) continue
+        downstream.set(u, [...(downstream.get(u) ?? []), s.name])
+        const up = byName.get(u)
+        const kind = (up?.health ? HEALTH_KIND[up.health] : undefined) ??
+          PHASE_KIND[up?.phase ?? 'Unknown'] ?? 'unknown'
+        edges.push({
+          ...edgeBetween(from, to, layout.nodeWidth, layout.nodeHeight),
+          kind,
+          // Dashes run while the upstream stage is actually moving freight.
+          flowing: !!up && isBusy(up),
+        })
+      }
+    }
+    return { tiers, depth, layout, edges, downstream }
+  }, [stageList])
+
+  /** Only the statuses actually present — the legend never invents states. */
+  const legend = useMemo(() => {
+    const seen = new Map<StatusKind, string>()
+    for (const s of stageList) {
+      if (s.health) seen.set(HEALTH_KIND[s.health] ?? 'unknown', s.health)
+      else seen.set(PHASE_KIND[s.phase] ?? 'unknown', s.phase)
+    }
+    return [...seen].map(([kind, label]) => ({ kind, label })).sort((a, b) => a.label.localeCompare(b.label))
   }, [stageList])
 
   const visibleStage = (s: kargo.Stage) => {
@@ -156,6 +273,20 @@ export function KargoStages() {
     })
   }, [freightList, search, warehouseF])
 
+  /** The selected stage, re-read from the live list so the panel stays fresh. */
+  const detail = useMemo(() => stageList.find((s) => s.name === selected) ?? null, [stageList, selected])
+
+  // Escape closes the detail panel. The canvas handles its own Escape for
+  // full-page, and that listener is only mounted while full-page is on.
+  useEffect(() => {
+    if (!selected) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelected(null)
+    }
+    globalThis.addEventListener('keydown', onKey)
+    return () => globalThis.removeEventListener('keydown', onKey)
+  }, [selected])
+
   const act = async (label: string, fn: () => Promise<unknown>) => {
     try {
       await fn()
@@ -164,6 +295,9 @@ export function KargoStages() {
       toast.error(e instanceof Error ? e.message : `${label} failed`)
     }
   }
+
+  const doRefresh = (s: kargo.Stage) => act(`Refresh requested for ${s.name}.`, () => refreshStage.mutateAsync({ stage: s.name }))
+  const doAbort = (promotion: string) => act(`Abort requested for ${promotion}.`, () => abort.mutateAsync({ promotion }))
 
   if (stages.isLoading || freight.isLoading) {
     return (
@@ -175,6 +309,8 @@ export function KargoStages() {
   if (stages.isError) {
     return <EmptyState title="Couldn't reach Kargo" description={stages.error instanceof Error ? stages.error.message : 'The Kargo CRDs are not readable with your access.'} />
   }
+
+  const hiddenCount = phaseF === 'all' ? 0 : stageList.filter((s) => !visibleStage(s)).length
 
   return (
     <div className="space-y-5">
@@ -191,16 +327,86 @@ export function KargoStages() {
 
       {/* ── pipeline ── */}
       <section>
-        <div className="mb-2 flex items-center justify-between">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
           <h2 className="text-sm font-semibold text-content">Promotion pipeline</h2>
-          <span className="text-[11px] text-content-subtle">tiers follow upstream subscriptions · newest freight flows left → right</span>
+          <span className="text-[11px] text-content-subtle">
+            tiers follow upstream subscriptions · newest freight flows left → right
+            {hiddenCount ? ` · ${hiddenCount} dimmed by filter` : ''}
+          </span>
+          <div className="ml-auto">
+            <ViewToggle value={prefs.view} onChange={(view) => setPrefs({ view })} />
+          </div>
         </div>
+
         {stageList.length === 0 ? (
           <EmptyState compact title="No stages yet" description="Create Kargo Stages in this project to build a promotion pipeline." />
+        ) : prefs.view === 'canvas' ? (
+          <GraphCanvas
+            width={graph.layout.width}
+            height={graph.layout.height}
+            edges={graph.edges}
+            legend={legend}
+            className="h-[520px]"
+            ariaLabel={`Promotion pipeline — ${stageList.length} stages across ${graph.tiers.length} tiers`}
+            toolbar={
+              <>
+                <CanvasBtn
+                  label="Only stages needing attention"
+                  active={phaseF === 'attention'}
+                  onClick={() => setPhaseF(phaseF === 'attention' ? 'all' : 'attention')}
+                >
+                  !
+                </CanvasBtn>
+                <CanvasBtn
+                  label="Only promoting / verifying stages"
+                  active={phaseF === 'active'}
+                  onClick={() => setPhaseF(phaseF === 'active' ? 'all' : 'active')}
+                >
+                  ▸
+                </CanvasBtn>
+              </>
+            }
+          >
+            {/* Tier captions sit above each column. */}
+            {graph.tiers.map((t, col) => (
+              <div
+                key={`tier-${t.depth}`}
+                aria-hidden
+                className="absolute text-[10px] font-semibold uppercase tracking-wider text-content-subtle"
+                style={{ left: col * (NODE_W + COL_GAP), top: -22, width: NODE_W }}
+              >
+                {t.depth === 0 ? 'from warehouse' : `tier ${t.depth}`}
+              </div>
+            ))}
+            {stageList.map((s) => {
+              const p = graph.layout.pos.get(s.name)
+              if (!p) return null
+              return (
+                <div
+                  key={s.name}
+                  className={cn('adhar-node-in absolute transition-opacity', !visibleStage(s) && 'opacity-35')}
+                  style={{
+                    left: p.x,
+                    top: p.y,
+                    width: graph.layout.nodeWidth,
+                    height: graph.layout.nodeHeight,
+                    animationDelay: `${(graph.depth.get(s.name) ?? 0) * 70}ms`,
+                  }}
+                >
+                  <StageNode
+                    stage={s}
+                    freightList={freightList}
+                    selected={selected === s.name}
+                    onOpen={() => setSelected(s.name)}
+                  />
+                </div>
+              )
+            })}
+          </GraphCanvas>
         ) : (
           <div className="overflow-x-auto pb-2">
             <div className="flex items-start gap-3">
-              {tiers.map((tier, i) => (
+              {graph.tiers.map((tier, i) => (
                 <div key={tier.depth} className="flex items-start gap-3">
                   <div className="flex flex-col gap-3">
                     <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
@@ -213,13 +419,14 @@ export function KargoStages() {
                         dimmed={!visibleStage(s)}
                         freightList={freightList}
                         promotions={promotionList}
+                        onOpen={() => setSelected(s.name)}
                         onPromote={() => setPromoteFor(s)}
-                        onRefresh={() => act(`Refresh requested for ${s.name}.`, () => refreshStage.mutateAsync({ stage: s.name }))}
-                        onAbort={s.currentPromotion ? () => act(`Abort requested for ${s.currentPromotion}.`, () => abort.mutateAsync({ promotion: s.currentPromotion! })) : undefined}
+                        onRefresh={() => doRefresh(s)}
+                        onAbort={s.currentPromotion ? () => doAbort(s.currentPromotion!) : undefined}
                       />
                     ))}
                   </div>
-                  {i < tiers.length - 1 ? <FlowArrow /> : null}
+                  {i < graph.tiers.length - 1 ? <FlowArrow /> : null}
                 </div>
               ))}
             </div>
@@ -345,7 +552,9 @@ export function KargoStages() {
                   const running = p.phase === 'Running' || p.phase === 'Pending'
                   return (
                     <tr key={p.name} className="hover:bg-surface-sunken/40">
-                      <td className="px-3 py-2 font-semibold text-content">{p.stage}</td>
+                      <td className="px-3 py-2 font-semibold text-content">
+                        <button type="button" onClick={() => setSelected(p.stage)} className="hover:underline">{p.stage}</button>
+                      </td>
                       <td className="px-3 py-2 font-mono text-[11px] text-content-muted" title={p.freight}>{fr?.alias ?? p.freight.slice(0, 12)}</td>
                       <td className="px-3 py-2"><StatusBadge kind={PROMO_KIND[p.phase] ?? 'unknown'}>{p.phase}</StatusBadge></td>
                       <td className="px-3 py-2 text-content-muted" title={formatAbsolute(p.created)}>{formatRelative(p.created)}</td>
@@ -353,7 +562,7 @@ export function KargoStages() {
                       <td className="max-w-md px-3 py-2"><div className="line-clamp-2 text-[11px] text-content-muted" title={p.message}>{p.message ?? '—'}</div></td>
                       <td className="px-3 py-2 text-right">
                         {running ? (
-                          <Button size="sm" variant="secondary" onClick={() => act(`Abort requested for ${p.name}.`, () => abort.mutateAsync({ promotion: p.name }))} loading={abort.isPending && abort.variables?.promotion === p.name}>
+                          <Button size="sm" variant="secondary" onClick={() => doAbort(p.name)} loading={abort.isPending && abort.variables?.promotion === p.name}>
                             Abort
                           </Button>
                         ) : null}
@@ -366,6 +575,26 @@ export function KargoStages() {
           </div>
         )}
       </section>
+
+      {detail ? (
+        <StageDetailPanel
+          stage={detail}
+          freightList={freightList}
+          promotions={promotionList}
+          downstream={graph.downstream.get(detail.name) ?? []}
+          onSelectStage={setSelected}
+          onClose={() => setSelected(null)}
+          onPromote={() => setPromoteFor(detail)}
+          onApprove={() => {
+            const current = freightList.find((f) => f.id === detail.currentFreight)
+            if (current) setApproveFor(current)
+          }}
+          onRefresh={() => doRefresh(detail)}
+          onAbort={detail.currentPromotion ? () => doAbort(detail.currentPromotion!) : undefined}
+          refreshing={refreshStage.isPending && refreshStage.variables?.stage === detail.name}
+          aborting={abort.isPending && abort.variables?.promotion === detail.currentPromotion}
+        />
+      ) : null}
 
       {promoteFor ? (
         <PromoteModal
@@ -392,6 +621,27 @@ export function KargoStages() {
 
 /* ─────────── pieces ─────────── */
 
+function ViewToggle({ value, onChange }: { value: PipelineView; onChange(v: PipelineView): void }) {
+  return (
+    <div className="inline-flex items-center rounded-lg border border-edge-default bg-surface-raised p-0.5" role="group" aria-label="Pipeline layout">
+      {(['canvas', 'list'] as const).map((v) => (
+        <button
+          key={v}
+          type="button"
+          onClick={() => onChange(v)}
+          aria-pressed={value === v}
+          className={cn(
+            'rounded-md px-2.5 py-1 text-[11px] font-medium capitalize transition-colors',
+            value === v ? 'bg-brand-500/15 text-brand-700 dark:text-brand-300' : 'text-content-muted hover:text-content',
+          )}
+        >
+          {v}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function StatTile({ label, value, hint, tone, active = false, onClick }: { label: string; value: number | string; hint?: string; tone?: StatusKind; active?: boolean; onClick?(): void }) {
   const toneText: Record<string, string> = {
     healthy: 'text-emerald-600 dark:text-emerald-300',
@@ -417,11 +667,312 @@ function StatTile({ label, value, hint, tone, active = false, onClick }: { label
   )
 }
 
+/**
+ * Canvas node. Same facts as the list card, at the size a graph node can carry:
+ * health rail, name + upstream, phase / health, current freight and its lead
+ * artifact, then a footer of last promotion + verification. Everything else
+ * lives one click away in the detail panel.
+ */
+function StageNode({
+  stage: s,
+  freightList,
+  selected,
+  onOpen,
+}: {
+  stage: kargo.Stage
+  freightList: kargo.Freight[]
+  selected: boolean
+  onOpen(): void
+}) {
+  const current = freightList.find((f) => f.id === s.currentFreight)
+  const busy = isBusy(s)
+  const alias = current?.alias ?? s.currentFreightAlias ?? (s.currentFreight ? s.currentFreight.slice(0, 12) : null)
+  const image = current?.images[0]
+  const vKind = s.verification ? verificationKind(s.verification.phase) : null
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-pressed={selected}
+      className={cn(
+        'relative flex h-full w-full flex-col overflow-hidden rounded-xl border bg-surface-raised py-2 pl-4 pr-2.5 text-left shadow-sm transition-shadow hover:shadow-md',
+        selected ? 'border-brand-400 ring-2 ring-brand-400/25' : 'border-edge-default hover:border-edge-strong',
+      )}
+    >
+      <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: HEALTH_HEX[s.health ?? 'Unknown'] }} />
+
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-[13px] font-semibold leading-tight text-content">{s.name}</div>
+          <div className="truncate text-[10px] text-content-subtle">
+            {s.upstream?.length ? `← ${s.upstream.join(', ')}` : s.warehouse ? `← warehouse ${s.warehouse}` : 'no upstream'}
+          </div>
+        </div>
+        <StatusBadge kind={PHASE_KIND[s.phase] ?? 'unknown'}>
+          {busy ? <span className="inline-flex items-center gap-1"><Spinner size={9} /> {s.phase}</span> : s.phase}
+        </StatusBadge>
+      </div>
+
+      <div className="mt-2 min-w-0 space-y-0.5">
+        {alias ? (
+          <div className="flex items-center gap-1.5">
+            <code className="truncate rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-content">{alias}</code>
+            {current ? <span className="shrink-0 text-[10px] text-content-subtle" title={formatAbsolute(current.created)}>{formatRelative(current.created)}</span> : null}
+          </div>
+        ) : (
+          <div className="text-[11px] text-content-subtle">no freight yet</div>
+        )}
+        {image ? (
+          <div className="truncate font-mono text-[10.5px] text-content-muted" title={`${image.repoURL}:${image.tag}`}>
+            {image.repoURL.replace(/^https?:\/\//, '').split('/').slice(-1)[0]}:<span className="text-content">{image.tag}</span>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="mt-auto flex items-center gap-2 pt-1.5 text-[10px] text-content-subtle">
+        <span className="truncate" title={s.lastPromoted ? formatAbsolute(s.lastPromoted) : ''}>
+          {s.lastPromoted ? `promoted ${formatRelative(s.lastPromoted)}` : 'never promoted'}
+        </span>
+        {vKind ? (
+          <span className="ml-auto inline-flex shrink-0 items-center gap-1" title={`Verification: ${s.verification!.phase}`}>
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: statusHex(vKind) }} />
+            verify
+          </span>
+        ) : null}
+        {s.issues?.length ? (
+          <span className={cn('shrink-0 font-medium text-rose-600 dark:text-rose-300', !vKind && 'ml-auto')}>
+            {s.issues.length} issue{s.issues.length === 1 ? '' : 's'}
+          </span>
+        ) : null}
+      </div>
+    </button>
+  )
+}
+
+/**
+ * Stage detail — a side panel rather than a modal, so the canvas stays visible
+ * and you can walk the pipeline by clicking through upstream / downstream.
+ */
+function StageDetailPanel({
+  stage: s,
+  freightList,
+  promotions,
+  downstream,
+  onSelectStage,
+  onClose,
+  onPromote,
+  onApprove,
+  onRefresh,
+  onAbort,
+  refreshing,
+  aborting,
+}: {
+  stage: kargo.Stage
+  freightList: kargo.Freight[]
+  promotions: kargo.Promotion[]
+  downstream: string[]
+  onSelectStage(name: string): void
+  onClose(): void
+  onPromote(): void
+  onApprove(): void
+  onRefresh(): void
+  onAbort?(): void
+  refreshing: boolean
+  aborting: boolean
+}) {
+  const current = freightList.find((f) => f.id === s.currentFreight)
+  const mine = promotions.filter((p) => p.stage === s.name)
+  const last = mine[0]
+  const busy = isBusy(s)
+  return (
+    <div className="fixed inset-0 z-40" role="dialog" aria-modal="false" aria-label={`Stage ${s.name}`}>
+      {/* Click-away. The panel is non-modal, so this only closes it. */}
+      <button type="button" aria-label="Close stage details" onClick={onClose} className="absolute inset-0 h-full w-full cursor-default bg-slate-950/10 backdrop-blur-[1px] dark:bg-slate-950/30" />
+      <aside className="absolute inset-y-0 right-0 flex w-full max-w-[420px] flex-col border-l border-edge-default bg-surface-raised shadow-2xl">
+        <header className="relative shrink-0 border-b border-edge-default px-5 py-3">
+          <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: HEALTH_HEX[s.health ?? 'Unknown'] }} />
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-content">{s.name}</div>
+              <div className="truncate text-[11px] text-content-subtle">{s.project}</div>
+            </div>
+            <button type="button" onClick={onClose} aria-label="Close (Esc)" className="-mr-1 rounded px-1.5 py-0.5 text-content-muted hover:bg-surface-sunken hover:text-content">✕</button>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <StatusBadge kind={PHASE_KIND[s.phase] ?? 'unknown'}>
+              {busy ? <span className="inline-flex items-center gap-1"><Spinner size={9} /> {s.phase}</span> : s.phase}
+            </StatusBadge>
+            {s.health ? <StatusBadge kind={HEALTH_KIND[s.health] ?? 'unknown'}>{s.health}</StatusBadge> : null}
+            {s.verification ? (
+              <StatusBadge kind={verificationKind(s.verification.phase)}>verify · {s.verification.phase}</StatusBadge>
+            ) : null}
+          </div>
+        </header>
+
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4 text-[12px]">
+          <PanelSection title="Current freight">
+            {current ? (
+              <div className="space-y-1">
+                <div className="flex items-center gap-1.5">
+                  <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content">{current.alias ?? current.id.slice(0, 12)}</code>
+                  <span className="text-[10.5px] text-content-subtle" title={formatAbsolute(current.created)}>{formatRelative(current.created)}</span>
+                </div>
+                <div className="truncate font-mono text-[10px] text-content-subtle" title={current.id}>{current.id}</div>
+                {current.images.map((img, i) => (
+                  <div key={`i-${i}`} className="truncate font-mono text-[11px] text-content-muted" title={`${img.repoURL}:${img.tag}`}>
+                    {img.repoURL.replace(/^https?:\/\//, '')}:<span className="text-content">{img.tag}</span>
+                  </div>
+                ))}
+                {(current.commits ?? []).map((c, i) => (
+                  <div key={`c-${i}`} className="truncate font-mono text-[11px] text-content-muted" title={c.message}>
+                    {c.id.slice(0, 8)}{c.branch ? ` (${c.branch})` : ''}{c.message ? ` — ${c.message}` : ''}
+                  </div>
+                ))}
+                {(current.charts ?? []).map((c, i) => (
+                  <div key={`h-${i}`} className="truncate font-mono text-[11px] text-content-muted">{c.name ?? 'chart'}@{c.version}</div>
+                ))}
+              </div>
+            ) : (
+              <span className="text-content-subtle">{s.currentFreightAlias ?? 'none yet'}</span>
+            )}
+          </PanelSection>
+
+          <PanelSection title="Lineage">
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="w-20 shrink-0 text-[11px] text-content-subtle">Upstream</span>
+                {s.upstream?.length
+                  ? s.upstream.map((u) => <StageLink key={u} name={u} onClick={() => onSelectStage(u)} />)
+                  : <span className="text-[11px] text-content-muted">{s.warehouse ? `warehouse ${s.warehouse}` : 'none'}</span>}
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="w-20 shrink-0 text-[11px] text-content-subtle">Downstream</span>
+                {downstream.length
+                  ? downstream.map((d) => <StageLink key={d} name={d} onClick={() => onSelectStage(d)} />)
+                  : <span className="text-[11px] text-content-muted">none</span>}
+              </div>
+            </div>
+          </PanelSection>
+
+          <PanelSection title="Last promotion">
+            {s.lastPromoted || last ? (
+              <div className="grid grid-cols-[5rem_1fr] gap-x-3 gap-y-1 text-[11px]">
+                <div className="text-content-subtle">When</div>
+                <div className="text-content" title={s.lastPromoted ? formatAbsolute(s.lastPromoted) : last ? formatAbsolute(last.created) : ''}>
+                  {s.lastPromoted ? formatRelative(s.lastPromoted) : last ? formatRelative(last.created) : '—'}
+                </div>
+                <div className="text-content-subtle">Result</div>
+                <div>
+                  {s.lastPromotionPhase ?? last?.phase
+                    ? <StatusBadge kind={PROMO_KIND[(s.lastPromotionPhase ?? last!.phase)] ?? 'unknown'}>{s.lastPromotionPhase ?? last!.phase}</StatusBadge>
+                    : <span className="text-content-subtle">—</span>}
+                </div>
+                {last?.message ? (
+                  <>
+                    <div className="text-content-subtle">Message</div>
+                    <div className="text-content-muted">{last.message}</div>
+                  </>
+                ) : null}
+              </div>
+            ) : (
+              <span className="text-content-subtle">never promoted</span>
+            )}
+          </PanelSection>
+
+          {s.verification ? (
+            <PanelSection title="Verification">
+              <div className="grid grid-cols-[5rem_1fr] gap-x-3 gap-y-1 text-[11px]">
+                <div className="text-content-subtle">Phase</div>
+                <div><StatusBadge kind={verificationKind(s.verification.phase)}>{s.verification.phase}</StatusBadge></div>
+                {s.verification.startTime ? (
+                  <>
+                    <div className="text-content-subtle">Started</div>
+                    <div className="text-content-muted" title={formatAbsolute(s.verification.startTime)}>{formatRelative(s.verification.startTime)}</div>
+                  </>
+                ) : null}
+                {s.verification.finishTime ? (
+                  <>
+                    <div className="text-content-subtle">Finished</div>
+                    <div className="text-content-muted" title={formatAbsolute(s.verification.finishTime)}>{formatRelative(s.verification.finishTime)}</div>
+                  </>
+                ) : null}
+                {s.verification.message ? (
+                  <>
+                    <div className="text-content-subtle">Message</div>
+                    <div className="text-content-muted">{s.verification.message}</div>
+                  </>
+                ) : null}
+              </div>
+            </PanelSection>
+          ) : null}
+
+          {mine.length ? (
+            <PanelSection title={`Recent promotions (${mine.length})`}>
+              <ul className="space-y-1">
+                {mine.slice(0, 6).map((p) => (
+                  <li key={p.name} className="flex items-center gap-2">
+                    <StatusBadge kind={PROMO_KIND[p.phase] ?? 'unknown'}>{p.phase}</StatusBadge>
+                    <code className="truncate font-mono text-[10.5px] text-content-muted" title={p.freight}>
+                      {freightList.find((f) => f.id === p.freight)?.alias ?? p.freight.slice(0, 12)}
+                    </code>
+                    <span className="ml-auto shrink-0 text-[10.5px] text-content-subtle" title={formatAbsolute(p.created)}>{formatRelative(p.created)}</span>
+                  </li>
+                ))}
+              </ul>
+            </PanelSection>
+          ) : null}
+
+          {s.issues?.length || s.message ? (
+            <PanelSection title="Issues">
+              <ul className="space-y-1 text-[11px] text-rose-700 dark:text-rose-300">
+                {(s.issues ?? [s.message!]).map((m, i) => <li key={i}>{m}</li>)}
+              </ul>
+            </PanelSection>
+          ) : null}
+        </div>
+
+        <footer className="flex shrink-0 flex-wrap items-center gap-1.5 border-t border-edge-default px-5 py-3">
+          <Button size="sm" onClick={onPromote} disabled={freightList.length === 0}>Promote…</Button>
+          <Button size="sm" variant="secondary" onClick={onApprove} disabled={!current} title={current ? undefined : 'No current freight to approve'}>
+            Approve freight…
+          </Button>
+          <Button size="sm" variant="ghost" onClick={onRefresh} loading={refreshing}>Refresh stage</Button>
+          {onAbort ? (
+            <Button size="sm" variant="secondary" onClick={onAbort} loading={aborting} className="ml-auto">Abort</Button>
+          ) : null}
+        </footer>
+      </aside>
+    </div>
+  )
+}
+
+function PanelSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{title}</h3>
+      {children}
+    </section>
+  )
+}
+
+function StageLink({ name, onClick }: { name: string; onClick(): void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded border border-edge-default bg-surface-sunken px-1.5 py-0.5 text-[11px] font-medium text-content-muted hover:border-edge-strong hover:text-content"
+    >
+      {name}
+    </button>
+  )
+}
+
 function StageCard({
   stage: s,
   dimmed,
   freightList,
   promotions,
+  onOpen,
   onPromote,
   onRefresh,
   onAbort,
@@ -430,6 +981,7 @@ function StageCard({
   dimmed: boolean
   freightList: kargo.Freight[]
   promotions: kargo.Promotion[]
+  onOpen(): void
   onPromote(): void
   onRefresh(): void
   onAbort?(): void
@@ -437,14 +989,14 @@ function StageCard({
   const tone = PHASE_KIND[s.phase] ?? 'unknown'
   const current = freightList.find((f) => f.id === s.currentFreight)
   const lastPromo = promotions.find((p) => p.stage === s.name)
-  const busy = s.phase === 'Promoting' || s.phase === 'Verifying' || !!s.currentPromotion
+  const busy = isBusy(s)
   return (
     <Card className={cn('relative w-[300px] shrink-0 overflow-hidden transition-opacity', dimmed && 'opacity-35')}>
       <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: HEALTH_HEX[s.health ?? 'Unknown'] }} />
       <CardHeader>
         <div className="flex items-start justify-between gap-2 pl-1">
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-content">{s.name}</div>
+            <button type="button" onClick={onOpen} className="block max-w-full truncate text-left text-sm font-semibold text-content hover:underline">{s.name}</button>
             <div className="truncate text-[11px] text-content-subtle">
               {s.upstream?.length ? `← ${s.upstream.join(', ')}` : s.warehouse ? `← warehouse ${s.warehouse}` : 'no upstream'}
             </div>
@@ -490,7 +1042,7 @@ function StageCard({
           <div>
             {s.verification ? (
               <span className="inline-flex items-center gap-1" title={s.verification.message}>
-                <StatusBadge kind={s.verification.phase === 'Successful' ? 'healthy' : s.verification.phase === 'Failed' || s.verification.phase === 'Error' ? 'failed' : s.verification.phase === 'Running' || s.verification.phase === 'Pending' ? 'progressing' : 'unknown'}>{s.verification.phase}</StatusBadge>
+                <StatusBadge kind={verificationKind(s.verification.phase)}>{s.verification.phase}</StatusBadge>
                 {s.verification.finishTime ?? s.verification.startTime ? <span className="text-content-subtle">{formatRelative(s.verification.finishTime ?? s.verification.startTime!)}</span> : null}
               </span>
             ) : (
@@ -510,6 +1062,7 @@ function StageCard({
             <Button size="sm" onClick={onPromote} disabled={freightList.length === 0}>Promote…</Button>
           )}
           <Button size="sm" variant="ghost" onClick={onRefresh}>Refresh</Button>
+          <Button size="sm" variant="ghost" onClick={onOpen}>Details</Button>
         </div>
       </CardBody>
     </Card>

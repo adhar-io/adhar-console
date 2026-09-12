@@ -8,10 +8,12 @@ import {
   Skeleton,
   Sparkline,
   StatusBadge,
+  useLiveRefetch,
   type SeriesPoint,
 } from '@adhar-console/shell-ui'
 import { client, LOCAL_CLUSTER } from '../data/client.ts'
 import { formatBytes, formatCpu, parseQuantity } from '../data/format.ts'
+import { GVRS } from '../data/gvr.ts'
 
 /**
  * Depth metrics for a single pod, in two independent layers that degrade
@@ -201,10 +203,11 @@ export function PodMetricsPanel({
   })
 
   // Pod status for restart / OOM indicators (dedupes with the drawer's pod query).
+  const podKey = ['k8s', 'pod', namespace, podName]
   const podQ = useQuery({
-    queryKey: ['k8s', 'pod', namespace, podName],
+    queryKey: podKey,
     queryFn: () => client.getPod(LOCAL_CLUSTER, namespace, podName),
-    refetchInterval: 15_000,
+    refetchInterval: useLiveRefetch({ ...GVRS.pods, namespace }, [podKey], 15_000),
     retry: false,
   })
 

@@ -20,9 +20,33 @@ export const ArtifactSchema = z.object({
   /** `IMAGE`, `CHART`, `SBOM`, … */
   type: z.string().optional(),
   media_type: z.string().optional(),
+  /** OCI artifact type (`application/vnd.docker.container.image.v1+json`, …). */
+  artifactType: z.string().optional(),
+  manifestMediaType: z.string().optional(),
   /** From the manifest config — `linux/amd64`, `linux/arm64`, … */
   platform: z.string().optional(),
   labels: z.array(z.object({ name: z.string(), color: z.string().optional() })).optional(),
+  /** Image-config provenance. Absent when the build set no OCI labels. */
+  configLabels: z.record(z.string()).optional(),
+  /** `extra_attrs.created` — the image-config creation timestamp. */
+  createdAt: z.string().optional(),
+  author: z.string().optional(),
+  entrypoint: z.array(z.string()).optional(),
+  workingDir: z.string().optional(),
+  user: z.string().optional(),
+  env: z.array(z.string()).optional(),
+  /**
+   * Cosign / notation accessories. `[]` means Harbor was asked and found none
+   * (⇒ unsigned); `undefined` means the list wasn't requested with
+   * `with_accessory`.
+   */
+  accessories: z.array(z.custom<Accessory>()).optional(),
+  /** Child manifests of a multi-arch index. */
+  references: z.array(z.custom<ArtifactReference>()).optional(),
+  /** True when Harbor reported an SBOM overview for this artifact. */
+  hasSbom: z.boolean().optional(),
+  /** Addition endpoints Harbor offers for this artifact (build_history, …). */
+  additions: z.array(z.string()).optional(),
   vulnerabilities: z
     .object({ critical: z.number(), high: z.number(), medium: z.number(), low: z.number() })
     .optional(),
@@ -50,6 +74,88 @@ export interface Project {
   createdAt?: string
 }
 
+/**
+ * A cosign / notation accessory attached to an artifact — a signature, an
+ * attestation, an SBOM blob. Harbor only populates this when the artifact list
+ * is requested with `with_accessory=true`; an empty array means **unsigned**,
+ * never "unknown".
+ */
+export interface Accessory {
+  id?: number
+  artifactId?: number
+  /** Digest of the artifact this accessory is *about*. */
+  subjectDigest?: string
+  /** Digest of the accessory blob itself. */
+  digest: string
+  size?: number
+  /** `signature.cosign`, `subject.accessory`, `attestation`, … */
+  type: string
+  icon?: string
+  createdAt?: string
+}
+
+/** A referenced child manifest — how a multi-arch index lists its platforms. */
+export interface ArtifactReference {
+  childDigest: string
+  parentDigest?: string
+  platform?: string
+  annotations?: Record<string, string>
+}
+
+/** One layer of `docker history` for an image, from Harbor's build-history addition. */
+export interface BuildHistoryEntry {
+  created?: string
+  createdBy?: string
+  comment?: string
+  emptyLayer?: boolean
+}
+
+/** Harbor's own health, straight from `GET /api/v2.0/health`. */
+export interface HarborHealth {
+  status: string
+  components: Array<{ name: string; status: string; error?: string }>
+}
+
+/** Instance-wide counters from `GET /api/v2.0/statistics`. */
+export interface HarborStatistics {
+  privateProjects: number
+  privateRepos: number
+  publicProjects: number
+  publicRepos: number
+  totalProjects: number
+  totalRepos: number
+  /** Bytes across the whole registry. */
+  totalStorage: number
+}
+
+/** `GET /api/v2.0/systeminfo` — version, auth mode, registry host. */
+export interface HarborSystemInfo {
+  harborVersion?: string
+  registryUrl?: string
+  externalUrl?: string
+  authMode?: string
+  readOnly?: boolean
+  selfRegistration?: boolean
+  hasCARoot?: boolean
+}
+
+/**
+ * A registered scanner adapter. **An empty list is the load-bearing case**: with
+ * no scanner registered Harbor cannot produce `scan_overview`, SBOMs or CVE
+ * reports for any artifact, and the absence of findings means nothing.
+ */
+export interface Scanner {
+  uuid?: string
+  name: string
+  description?: string
+  url?: string
+  disabled?: boolean
+  isDefault?: boolean
+  health?: string
+  vendor?: string
+  version?: string
+}
+
 export interface Vulnerability {
   id: string
   severity: 'Critical' | 'High' | 'Medium' | 'Low' | 'Negligible' | 'Unknown'
@@ -73,6 +179,36 @@ export interface HarborClient {
   deleteTag(project: string, repo: string, ref: string, tag: string): Promise<void>
   /** External registry hostname for `docker pull` commands. */
   registryHost(): Promise<string>
+  /** Instance-wide counters (`/statistics`). */
+  statistics(): Promise<HarborStatistics>
+  /** Component health (`/health`). Note: Trivy is a *scanner adapter*, not a component. */
+  health(): Promise<HarborHealth>
+  /** Version / auth mode / registry host (`/systeminfo`). */
+  systemInfo(): Promise<HarborSystemInfo>
+  /** Registered scanner adapters. `[]` ⇒ no scanning is possible on this instance. */
+  scanners(): Promise<Scanner[]>
+  /** `docker history` for an image artifact, when Harbor offers the addition. */
+  buildHistory(project: string, repo: string, ref: string): Promise<BuildHistoryEntry[]>
+  /** Raw SBOM document for an artifact. `null` when Harbor has none. */
+  sbom(project: string, repo: string, ref: string): Promise<unknown | null>
+}
+
+interface RawAccessory {
+  id?: number
+  artifact_id?: number
+  subject_artifact_digest?: string
+  digest: string
+  size?: number
+  type?: string
+  icon?: string
+  creation_time?: string
+}
+
+interface RawReference {
+  child_digest?: string
+  parent_id?: number
+  platform?: { os?: string; architecture?: string; variant?: string }
+  annotations?: Record<string, string>
 }
 
 interface RawArtifact {
@@ -83,8 +219,28 @@ interface RawArtifact {
   pull_time?: string
   type?: string
   media_type?: string
-  extra_attrs?: { os?: string; architecture?: string; variant?: string }
+  artifact_type?: string
+  manifest_media_type?: string
+  extra_attrs?: {
+    os?: string
+    architecture?: string
+    variant?: string
+    created?: string
+    author?: string
+    config?: {
+      Labels?: Record<string, string>
+      Entrypoint?: string[]
+      Cmd?: string[]
+      Env?: string[]
+      User?: string
+      WorkingDir?: string
+    }
+  }
   labels?: Array<{ name: string; color?: string }>
+  accessories?: RawAccessory[] | null
+  references?: RawReference[] | null
+  addition_links?: Record<string, { href?: string; absolute?: boolean }>
+  sbom_overview?: { scan_status?: string; sbom_digest?: string; end_time?: string } | null
   scan_overview?: Record<
     string,
     {
@@ -96,11 +252,15 @@ interface RawArtifact {
   >
 }
 
+function plat(p?: { os?: string; architecture?: string; variant?: string }): string | undefined {
+  if (!p) return undefined
+  return p.os || p.architecture ? [p.os, p.architecture, p.variant].filter(Boolean).join('/') : undefined
+}
+
 function withScan(a: RawArtifact): Artifact {
   const scan = a.scan_overview ? Object.values(a.scan_overview)[0] : undefined
   const ov = scan?.summary?.summary
-  const os = a.extra_attrs?.os
-  const arch = a.extra_attrs?.architecture
+  const cfg = a.extra_attrs?.config
   return {
     digest: a.digest,
     tags: a.tags,
@@ -109,8 +269,40 @@ function withScan(a: RawArtifact): Artifact {
     pull_time: a.pull_time,
     type: a.type,
     media_type: a.media_type,
-    platform: os || arch ? [os, arch, a.extra_attrs?.variant].filter(Boolean).join('/') : undefined,
+    artifactType: a.artifact_type,
+    manifestMediaType: a.manifest_media_type,
+    platform: plat(a.extra_attrs),
     labels: a.labels,
+    configLabels: cfg?.Labels && Object.keys(cfg.Labels).length ? cfg.Labels : undefined,
+    createdAt: a.extra_attrs?.created,
+    author: a.extra_attrs?.author || undefined,
+    entrypoint: cfg?.Entrypoint ?? cfg?.Cmd,
+    workingDir: cfg?.WorkingDir || undefined,
+    user: cfg?.User || undefined,
+    env: cfg?.Env,
+    // `null` is Harbor's "asked, found none" — normalise it to `[]` so views can
+    // tell "unsigned" apart from "never requested" (undefined).
+    accessories: a.accessories === undefined
+      ? undefined
+      : (a.accessories ?? []).map((x) => ({
+          id: x.id,
+          artifactId: x.artifact_id,
+          subjectDigest: x.subject_artifact_digest,
+          digest: x.digest,
+          size: x.size,
+          type: x.type ?? 'unknown',
+          icon: x.icon,
+          createdAt: x.creation_time,
+        })),
+    references: a.references === undefined
+      ? undefined
+      : (a.references ?? []).map((r) => ({
+          childDigest: r.child_digest ?? '',
+          platform: plat(r.platform),
+          annotations: r.annotations,
+        })),
+    hasSbom: a.sbom_overview ? Boolean(a.sbom_overview.sbom_digest ?? a.sbom_overview.scan_status) : undefined,
+    additions: a.addition_links ? Object.keys(a.addition_links) : undefined,
     vulnerabilities: ov
       ? { critical: ov.Critical ?? 0, high: ov.High ?? 0, medium: ov.Medium ?? 0, low: ov.Low ?? 0 }
       : undefined,
@@ -194,7 +386,9 @@ function build(http: HttpClient): HarborClient {
     },
     listArtifacts: async (p, r) => {
       const list = await http.get<RawArtifact[]>(
-        `${repoRef(p, r)}/artifacts?page_size=100&with_tag=true&with_scan_overview=true&with_label=true&sort=-push_time`,
+        `${repoRef(p, r)}/artifacts?page_size=100&sort=-push_time` +
+          `&with_tag=true&with_label=true&with_scan_overview=true&with_sbom_overview=true` +
+          `&with_signature=true&with_accessory=true&with_immutable_status=true`,
       )
       return list.map(withScan)
     },
@@ -232,6 +426,104 @@ function build(http: HttpClient): HarborClient {
         return info.registry_url ?? info.external_url?.replace(/^https?:\/\//, '') ?? ''
       } catch {
         return ''
+      }
+    },
+    statistics: async () => {
+      const s = await http.get<{
+        private_project_count?: number
+        private_repo_count?: number
+        public_project_count?: number
+        public_repo_count?: number
+        total_project_count?: number
+        total_repo_count?: number
+        total_storage_consumption?: number
+      }>('/api/v2.0/statistics')
+      return {
+        privateProjects: s.private_project_count ?? 0,
+        privateRepos: s.private_repo_count ?? 0,
+        publicProjects: s.public_project_count ?? 0,
+        publicRepos: s.public_repo_count ?? 0,
+        totalProjects: s.total_project_count ?? 0,
+        totalRepos: s.total_repo_count ?? 0,
+        totalStorage: s.total_storage_consumption ?? 0,
+      }
+    },
+    health: async () => {
+      const h = await http.get<{ status?: string; components?: Array<{ name?: string; status?: string; error?: string }> }>(
+        '/api/v2.0/health',
+      )
+      return {
+        status: h.status ?? 'unknown',
+        components: (h.components ?? []).map((c) => ({ name: c.name ?? '', status: c.status ?? 'unknown', error: c.error })),
+      }
+    },
+    systemInfo: async () => {
+      const i = await http.get<{
+        harbor_version?: string
+        registry_url?: string
+        external_url?: string
+        auth_mode?: string
+        read_only?: boolean
+        self_registration?: boolean
+        has_ca_root?: boolean
+      }>('/api/v2.0/systeminfo')
+      return {
+        harborVersion: i.harbor_version,
+        registryUrl: i.registry_url,
+        externalUrl: i.external_url,
+        authMode: i.auth_mode,
+        readOnly: i.read_only,
+        selfRegistration: i.self_registration,
+        hasCARoot: i.has_ca_root,
+      }
+    },
+    // An empty list is a real, meaningful answer — it means Harbor cannot scan
+    // anything — so it is returned as-is rather than smoothed over.
+    scanners: async () => {
+      const list = await http.get<
+        Array<{
+          uuid?: string
+          name?: string
+          description?: string
+          url?: string
+          disabled?: boolean
+          is_default?: boolean
+          health?: string
+          vendor?: string
+          version?: string
+        }>
+      >('/api/v2.0/scanners')
+      return (list ?? []).map((s) => ({
+        uuid: s.uuid,
+        name: s.name ?? 'unnamed',
+        description: s.description,
+        url: s.url,
+        disabled: s.disabled,
+        isDefault: s.is_default,
+        health: s.health,
+        vendor: s.vendor,
+        version: s.version,
+      }))
+    },
+    buildHistory: async (p, r, ref) => {
+      const list = await http.get<
+        Array<{ created?: string; created_by?: string; comment?: string; empty_layer?: boolean }>
+      >(`${repoRef(p, r)}/artifacts/${encodeURIComponent(ref)}/additions/build_history`)
+      return (list ?? []).map((h) => ({
+        created: h.created,
+        createdBy: h.created_by,
+        comment: h.comment,
+        emptyLayer: h.empty_layer,
+      }))
+    },
+    // Harbor answers 404 when no SBOM addition exists for the artifact, which is
+    // "none" rather than a failure — every other status is surfaced.
+    sbom: async (p, r, ref) => {
+      try {
+        return await http.get<unknown>(`${repoRef(p, r)}/artifacts/${encodeURIComponent(ref)}/additions/sbom`)
+      } catch (e) {
+        if ((e as { status?: number }).status === 404) return null
+        throw e
       }
     },
   }
@@ -338,4 +630,35 @@ export const HarborClient = defineClient<HarborClient>(build, () => ({
   addTag: async () => {},
   deleteTag: async () => {},
   registryHost: async () => 'harbor.adhar.local',
+  statistics: () => Promise.resolve({
+    privateProjects: 1,
+    privateRepos: STUB_REPOS.length,
+    publicProjects: 0,
+    publicRepos: 0,
+    totalProjects: 1,
+    totalRepos: STUB_REPOS.length,
+    totalStorage: 4_200_000_000,
+  }),
+  health: () => Promise.resolve({
+    status: 'healthy',
+    components: ['core', 'database', 'jobservice', 'portal', 'redis', 'registry', 'registryctl'].map((name) => ({
+      name,
+      status: 'healthy',
+    })),
+  }),
+  systemInfo: () => Promise.resolve({
+    harborVersion: 'v2.15.2-stub',
+    registryUrl: 'harbor.adhar.local',
+    externalUrl: 'https://harbor.adhar.local',
+    authMode: 'db_auth',
+    readOnly: false,
+  }),
+  scanners: () => Promise.resolve([
+    { uuid: 'stub-trivy', name: 'Trivy', vendor: 'Aqua Security', version: '0.58.0', isDefault: true, health: 'healthy' },
+  ]),
+  buildHistory: () => Promise.resolve([
+    { created: '2026-04-23T18:10:00Z', createdBy: '/bin/sh -c #(nop) ADD file:… in /', emptyLayer: false },
+    { created: '2026-04-23T18:12:00Z', createdBy: '/bin/sh -c #(nop) CMD ["/app/server"]', emptyLayer: true },
+  ]),
+  sbom: () => Promise.resolve(null),
 }))

@@ -42,15 +42,38 @@ const SYNC_KIND: Record<string, StatusKind> = {
   Unknown: 'unknown',
 }
 
-/** Colour per health state — used for the card's ring and the stat tiles. */
-const HEALTH_HEX: Record<string, string> = {
-  Healthy: 'var(--color-emerald-500)',
-  Progressing: 'var(--color-indigo-500)',
-  Degraded: 'var(--color-rose-500)',
-  Suspended: 'var(--color-amber-500)',
-  Missing: 'var(--color-slate-400)',
-  Unknown: 'var(--color-slate-400)',
+/**
+ * Card palette. Sync and health are independent signals, so the card never
+ * folds them into one colour: `warn` (amber) always means drift, `bad` (rose)
+ * always means broken, `busy` (indigo) always means an operation in flight.
+ */
+type CardTone = 'ok' | 'warn' | 'bad' | 'busy' | 'idle'
+
+/** Chip fill per tone — same palette as StatusBadge so cards and drawer agree. */
+const TONE_CHIP: Record<CardTone, string> = {
+  ok: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/25',
+  warn: 'bg-amber-50 text-amber-800 ring-amber-600/25 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/25',
+  bad: 'bg-rose-50 text-rose-700 ring-rose-600/20 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-400/25',
+  busy: 'bg-indigo-50 text-indigo-700 ring-indigo-600/20 dark:bg-indigo-500/10 dark:text-indigo-300 dark:ring-indigo-400/25',
+  idle: 'bg-slate-100 text-slate-600 ring-slate-500/20 dark:bg-slate-400/10 dark:text-slate-300 dark:ring-slate-400/25',
 }
+/** Solid fill per tone — the accent rail and the resource-meter segments. */
+const TONE_FILL: Record<CardTone, string> = {
+  ok: 'bg-emerald-500 dark:bg-emerald-400',
+  warn: 'bg-amber-500 dark:bg-amber-400',
+  bad: 'bg-rose-500 dark:bg-rose-400',
+  busy: 'bg-indigo-500 dark:bg-indigo-400',
+  idle: 'bg-slate-300 dark:bg-slate-600',
+}
+const HEALTH_TONE: Record<string, CardTone> = {
+  Healthy: 'ok',
+  Progressing: 'busy',
+  Degraded: 'bad',
+  Missing: 'bad',
+  Suspended: 'warn',
+  Unknown: 'idle',
+}
+const SYNC_TONE: Record<string, CardTone> = { Synced: 'ok', OutOfSync: 'warn', Unknown: 'idle' }
 
 type SyncFilter = 'all' | 'Synced' | 'OutOfSync' | 'Unknown'
 type HealthFilter = 'all' | 'Healthy' | 'Progressing' | 'Degraded' | 'Suspended' | 'Missing' | 'Unknown'
@@ -327,11 +350,70 @@ export function ArgoApps() {
       )}
 
       {open ? <AppDetail app={open} onClose={() => setOpenName(null)} /> : null}
+
+      <style>
+        {`
+        /* The accent rail breathes while a sync is in flight, so a card that is
+           actively changing is distinguishable from one that is merely broken. */
+        @keyframes adhar-app-busy { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+        .adhar-app-busy { animation: adhar-app-busy 1.4s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) {
+          .adhar-app-busy { animation: none !important; }
+        }
+      `}
+      </style>
     </div>
   )
 }
 
 /* ─────────── stat tile ─────────── */
+
+/** Status chip on the card, on the shared tone palette. */
+function Chip({ tone, label, children }: { tone: CardTone; label: string; children: React.ReactNode }) {
+  return (
+    <span
+      title={`${label}: ${typeof children === 'string' ? children : ''}`}
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset',
+        TONE_CHIP[tone],
+      )}
+    >
+      <span className={cn('h-1.5 w-1.5 rounded-full', TONE_FILL[tone])} />
+      {children}
+    </span>
+  )
+}
+
+/**
+ * Proportional health of the app's managed resources.
+ *
+ * Argo CD reports totals, drift and unhealthy counts; the bar shows them as
+ * shares of the whole so a card communicates "mostly fine, two broken" without
+ * the reader doing arithmetic. Drift and unhealthy can overlap, so the healthy
+ * segment is floored at zero rather than allowed to go negative.
+ */
+function ResourceMeter({ total, outOfSync, unhealthy }: { total: number; outOfSync: number; unhealthy: number }) {
+  if (!total) return null
+  const bad = Math.min(unhealthy, total)
+  const drift = Math.min(Math.max(outOfSync - bad, 0), total - bad)
+  const ok = Math.max(total - bad - drift, 0)
+  const pct = (n: number) => `${(n / total) * 100}%`
+  return (
+    <div className="mt-2.5">
+      <div className="flex h-1.5 overflow-hidden rounded-full bg-surface-sunken" role="img"
+        aria-label={`${ok} healthy, ${drift} out of sync, ${bad} unhealthy of ${total} resources`}>
+        {ok ? <span className={cn('h-full', TONE_FILL.ok)} style={{ width: pct(ok) }} /> : null}
+        {drift ? <span className={cn('h-full', TONE_FILL.warn)} style={{ width: pct(drift) }} /> : null}
+        {bad ? <span className={cn('h-full', TONE_FILL.bad)} style={{ width: pct(bad) }} /> : null}
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-x-2.5 text-[10px] text-content-subtle">
+        <span className="tabular-nums">{total} resources</span>
+        {drift ? <span className="text-amber-700 dark:text-amber-400">{drift} drifted</span> : null}
+        {bad ? <span className="text-rose-700 dark:text-rose-400">{bad} unhealthy</span> : null}
+      </div>
+    </div>
+  )
+}
 
 function StatTile({ label, value, hint, tone, active = false, onClick }: { label: string; value: number | string; hint?: string; tone?: StatusKind; active?: boolean; onClick?(): void }) {
   const toneText: Record<string, string> = {
@@ -399,8 +481,17 @@ function AppCard({
       )}
       interactive
     >
-      {/* status rail */}
-      <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: HEALTH_HEX[health] ?? HEALTH_HEX.Unknown }} />
+      {/* Status rail. Runtime health picks the colour, except while an operation
+          is in flight — a sync running on a degraded app is the more useful
+          signal, because it says the problem is already being acted on. */}
+      <span
+        aria-hidden
+        className={cn(
+          'absolute inset-y-0 left-0 w-1',
+          TONE_FILL[running ? 'busy' : (HEALTH_TONE[health] ?? 'idle')],
+          running ? 'adhar-app-busy' : '',
+        )}
+      />
       <div className="flex items-start gap-3 p-4 pl-5">
         <Checkbox checked={selected} onChange={onSelect} aria-label={`Select ${a.metadata.name}`} />
         <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
@@ -421,11 +512,27 @@ function AppCard({
                 {a.spec.destination.server && !/kubernetes\.default|in-cluster/.test(a.spec.destination.server) ? ` · ${a.spec.destination.name ?? a.spec.destination.server}` : ''}
               </div>
             </div>
+            {/* Sync and health are independent — an app can be perfectly
+                healthy and still have drifted from git — so they get two
+                separate chips on a fixed palette rather than one blended
+                colour that hides whichever problem came second. */}
             <div className="flex shrink-0 flex-col items-end gap-1">
-              <StatusBadge kind={SYNC_KIND[sync] ?? 'unknown'}>{sync === 'OutOfSync' ? 'Out of sync' : sync}</StatusBadge>
-              <StatusBadge kind={HEALTH_KIND[health] ?? 'unknown'}>{health}</StatusBadge>
+              <Chip tone={SYNC_TONE[sync] ?? 'idle'} label="Sync">
+                {sync === 'OutOfSync' ? 'Out of sync' : sync}
+              </Chip>
+              <Chip tone={running ? 'busy' : (HEALTH_TONE[health] ?? 'idle')} label="Health">
+                {running ? 'Syncing' : health}
+              </Chip>
             </div>
           </div>
+
+          {/* Managed-resource health, at a glance. A count of "42 res" says
+              nothing about whether they are fine; the proportions do. */}
+          <ResourceMeter
+            total={a.status.resources.total}
+            outOfSync={a.status.resources.outOfSync}
+            unhealthy={a.status.resources.unhealthy}
+          />
 
           <div className="mt-3 rounded-md border border-edge-subtle bg-surface-sunken/40 px-2.5 py-2 text-[11px]">
             <div className="truncate font-mono text-content-muted" title={a.spec.source.repoURL}>{repo || '—'}</div>

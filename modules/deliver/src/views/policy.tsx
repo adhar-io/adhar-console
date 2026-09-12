@@ -8,6 +8,7 @@ import {
   EmptyState,
   Spinner,
   StatusBadge,
+  useLiveRefetch,
   type StatusKind,
 } from '@adhar-console/shell-ui'
 import { formatRelative } from '@adhar-console/utils'
@@ -70,10 +71,17 @@ export function Policy() {
     queryFn: () => client.listPolicies(),
     staleTime: 30_000,
   })
+  const reportsKey = ['kyverno', 'reports']
   const reports = useQuery({
-    queryKey: ['kyverno', 'reports'],
+    queryKey: reportsKey,
     queryFn: () => client.listPolicyReports(),
-    refetchInterval: 30_000,
+    // PolicyReports are CRDs written by Kyverno's reports controller, so a new
+    // violation lands here as soon as it is recorded.
+    refetchInterval: useLiveRefetch(
+      { group: 'wgpolicyk8s.io', version: 'v1alpha2', resource: 'policyreports' },
+      [reportsKey],
+      30_000,
+    ),
   })
   const exceptions = useQuery({
     queryKey: ['kyverno', 'exceptions'],
@@ -109,6 +117,24 @@ export function Policy() {
 
   return (
     <div className="space-y-4">
+      {/* These are not a second, separate set of policies. Both this view and
+          Platform → Policies read the same Kyverno engine and the same
+          PolicyReports; the difference is the question each one answers. Saying
+          so prevents the two screens from looking like they disagree — which
+          they did, because this view used to read only cluster-scoped reports
+          and therefore saw a fraction of the findings. */}
+      <p className="text-[11.5px] text-content-muted">
+        The same Kyverno policies and findings as{' '}
+        <a
+          href="/platform?section=policies"
+          className="font-medium text-brand-700 underline-offset-2 hover:underline dark:text-brand-300"
+        >
+          Platform → Policies
+        </a>
+        , framed around what gates a release: which rules are enforced, what is
+        currently failing, and which exceptions are in effect.
+      </p>
+
       {nothingInstalled ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-[12px] leading-relaxed text-amber-900 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200">
           No Kyverno policies or PolicyReports found in this cluster. Install{' '}

@@ -7,6 +7,7 @@ import { generateGoldenPathFiles, isGoldenPathFamily } from './golden-paths.ts'
 import type { GoldenPathFamily } from './golden-paths.ts'
 import { parseYaml } from './yaml-lite.ts'
 import { computeValues, renderContent, renderPath, skeletonDir } from './template-render.ts'
+import { toolPublicUrl, toPublicToolUrl } from './domain.ts'
 
 /**
  * Component scaffolder — the real GitOps engine behind Catalog → Create.
@@ -97,11 +98,97 @@ function withCookie(res: Response, cookie?: string): Response {
   return res
 }
 
+/** Notified as each real step finishes, so progress can be streamed live. */
+type OnStep = (s: StepResult) => void
+
+/**
+ * `POST /api/scaffold`.
+ *
+ * Two response shapes from one implementation:
+ *
+ *   • **JSON** (default) — the original contract: one object with every step's
+ *     outcome, returned when the whole run is over.
+ *   • **SSE** (`Accept: text/event-stream`, or `?stream=1`) — the same run, with
+ *     each step published the moment it actually completes.
+ *
+ * The stream exists because the work is genuinely sequential and genuinely
+ * takes time: create the repository, render and commit a skeleton file by file,
+ * create the kpack Image, create the Argo CD Application. Buffering all of that
+ * into one response meant the wizard sat at zero and then jumped to done, which
+ * read as "nothing happened" for the several seconds it was working hardest.
+ * Nothing here is simulated — an event is emitted when a real backend call has
+ * returned, so a slow step looks slow and a fast one looks fast.
+ */
 export async function handleScaffold(req: Request): Promise<Response> {
+  const wantsStream = req.headers.get('accept')?.includes('text/event-stream') ||
+    new URL(req.url).searchParams.get('stream') === '1'
+  if (!wantsStream) return scaffold(req, () => {})
+
+  // Resolve the session once, out here, so the streaming response can carry a
+  // rotated cookie in its headers — they are sent before the body starts, and
+  // the inner run cannot add one afterwards.
+  const auth = await getRequestUser(req)
+  if (!auth) return unauthorized()
+
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      let closed = false
+      const send = (event: unknown) => {
+        if (closed) return
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+        } catch {
+          closed = true
+        }
+      }
+
+      void (async () => {
+        send({ type: 'start', at: Date.now() })
+        try {
+          const res = await scaffold(req, (s) => send({ type: 'step', step: s, at: Date.now() }), auth)
+          const payload = await res.json().catch(() => ({}))
+          send({ type: 'result', status: res.status, ok: res.ok, payload })
+        } catch (e) {
+          send({
+            type: 'result',
+            status: 500,
+            ok: false,
+            payload: { error: 'scaffold_failed', detail: e instanceof Error ? e.message : String(e) },
+          })
+        } finally {
+          closed = true
+          try {
+            controller.close()
+          } catch {
+            // client went away first
+          }
+        }
+      })()
+    },
+  })
+
+  const res = new Response(stream, {
+    headers: {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+      // Proxies that buffer would defeat the point of streaming at all.
+      'x-accel-buffering': 'no',
+    },
+  })
+  return withCookie(res, auth.refreshedCookie)
+}
+
+async function scaffold(
+  req: Request,
+  onStep: OnStep,
+  preAuth?: Awaited<ReturnType<typeof getRequestUser>>,
+): Promise<Response> {
   if (req.method.toUpperCase() !== 'POST') {
     return new Response('Method Not Allowed', { status: 405 })
   }
-  const auth = await getRequestUser(req)
+  const auth = preAuth ?? (await getRequestUser(req))
   if (!auth) return unauthorized()
 
   let body: ScaffoldRequest
@@ -140,6 +227,11 @@ export async function handleScaffold(req: Request): Promise<Response> {
   const catalogInfoPath = sc.catalogInfoPath || 'catalog-info.yaml'
   const manifestPath = sc.manifestPath || 'deploy'
   const steps: StepResult[] = []
+  /** Record a finished step and publish it immediately to any listener. */
+  const step = (s: StepResult) => {
+    steps.push(s)
+    onStep(s)
+  }
 
   // Resolve the Backstage template source (repo + path) for skeleton rendering.
   const templatesOrg = env('GITEA_TEMPLATES_ORG') || env('GITEA_ORG') || 'adhar'
@@ -169,7 +261,7 @@ export async function handleScaffold(req: Request): Promise<Response> {
 
   if (!repoRes.ok) {
     const detail = (await repoRes.text().catch(() => '')).slice(0, 300)
-    steps.push({ name: 'create-repo', ok: false, detail })
+    step({ name: 'create-repo', ok: false, detail })
     const code = repoRes.status === 409 ? 409 : 502
     return withCookie(
       Response.json({ error: 'repo_create_failed', status: repoRes.status, detail, steps }, { status: code }),
@@ -177,9 +269,21 @@ export async function handleScaffold(req: Request): Promise<Response> {
     )
   }
   const repo = (await repoRes.json().catch(() => ({}))) as { html_url?: string; clone_url?: string }
-  const repoUrl = repo.html_url ?? `${gitea.baseUrl}/${org}/${name}`
-  const cloneUrl = repo.clone_url ?? `${gitea.baseUrl}/${org}/${name}.git`
-  steps.push({ name: 'create-repo', ok: true, detail: repoUrl })
+  // Gitea builds `html_url` / `clone_url` from the host of the request it
+  // received, and the console reaches it over in-cluster Service DNS — so both
+  // come back as `http://gitea-http.<ns>.svc.cluster.local:3000/...`, which no
+  // developer can clone and no browser can open. Everything below this line is
+  // consumed outside the cluster (the response, the catalog annotation, the
+  // Argo CD `repoURL`, the kpack source), so it all uses the public origin.
+  //
+  // Verified reachable from inside the cluster with valid TLS, so the GitOps
+  // and build references stay correct too.
+  const publicGitea = toolPublicUrl('gitea', 'GITEA_URL')
+  const repoUrl = toPublicToolUrl(repo.html_url, 'gitea', 'GITEA_URL') ??
+    `${publicGitea}/${org}/${name}`
+  const cloneUrl = toPublicToolUrl(repo.clone_url, 'gitea', 'GITEA_URL') ??
+    `${publicGitea}/${org}/${name}.git`
+  step({ name: 'create-repo', ok: true, detail: repoUrl })
 
   const putFile = (filePath: string, base64Content: string, message: string) =>
     gitea_api(`/repos/${encodeURIComponent(org)}/${encodeURIComponent(name)}/contents/${filePath}`, {
@@ -209,9 +313,9 @@ export async function handleScaffold(req: Request): Promise<Response> {
       if (!treeRes.ok) throw new Error(`git tree ${treeRes.status}`)
       const tree = (await treeRes.json().catch(() => ({}))) as { tree?: TreeEntry[] }
       entries = (tree.tree ?? []).filter((e) => e.type === 'blob' && e.path && e.path.startsWith(skelPrefix))
-      steps.push({ name: 'render-skeleton', ok: true, detail: `${templatePath} — ${entries.length} files` })
+      step({ name: 'render-skeleton', ok: true, detail: `${templatePath} — ${entries.length} files` })
     } catch (e) {
-      steps.push({ name: 'render-skeleton', ok: false, detail: e instanceof Error ? e.message : String(e) })
+      step({ name: 'render-skeleton', ok: false, detail: e instanceof Error ? e.message : String(e) })
     }
 
     if (entries.length) {
@@ -221,7 +325,7 @@ export async function handleScaffold(req: Request): Promise<Response> {
       if (params.description == null) params.description = body.description ?? ''
       if (params.owner == null && body.owner) params.owner = body.owner
       // The console creates the repo itself, so synthesise the RepoUrlPicker value.
-      if (params.repoUrl == null) params.repoUrl = `${gitea.baseUrl}?owner=${org}&repo=${name}`
+      if (params.repoUrl == null) params.repoUrl = `${publicGitea}?owner=${org}&repo=${name}`
       const values = computeValues(doc, params)
       // Pin repo identity to the repo we actually created (not the picker guess).
       values.gitOwner = org
@@ -254,7 +358,7 @@ export async function handleScaffold(req: Request): Promise<Response> {
           if (!firstError) firstError = `${outPath}: ${e instanceof Error ? e.message : String(e)}`
         }
       }
-      steps.push({
+      step({
         name: 'commit-files',
         ok: failed === 0,
         detail: failed === 0
@@ -268,15 +372,15 @@ export async function handleScaffold(req: Request): Promise<Response> {
   // The Backstage skeleton ships its own; only commit a generated descriptor
   // when the template didn't provide one.
   if (committedPaths.has(catalogInfoPath)) {
-    steps.push({ name: 'catalog-info', ok: true, detail: `${catalogInfoPath} (from template skeleton)` })
+    step({ name: 'catalog-info', ok: true, detail: `${catalogInfoPath} (from template skeleton)` })
   } else {
     const catalogInfo = buildCatalogInfo({ ...body, name, repoUrl, gitops: Boolean(sc.gitops) })
     try {
       const r = await putFile(catalogInfoPath, toBase64(catalogInfo), `chore: add ${catalogInfoPath} (adhar scaffolder)`)
-      steps.push({ name: 'catalog-info', ok: r.ok, detail: r.ok ? catalogInfoPath : (await r.text().catch(() => '')).slice(0, 200) })
+      step({ name: 'catalog-info', ok: r.ok, detail: r.ok ? catalogInfoPath : (await r.text().catch(() => '')).slice(0, 200) })
       if (r.ok) committedPaths.add(catalogInfoPath)
     } catch (e) {
-      steps.push({ name: 'catalog-info', ok: false, detail: e instanceof Error ? e.message : '' })
+      step({ name: 'catalog-info', ok: false, detail: e instanceof Error ? e.message : '' })
     }
   }
 
@@ -297,14 +401,14 @@ export async function handleScaffold(req: Request): Promise<Response> {
       if (committedPaths.has(file.path) || file.path === catalogInfoPath || file.path === 'catalog-info.yaml') continue
       try {
         const r = await putFile(file.path, toBase64(file.content), `feat: add ${goldenPath} golden-path starter (adhar scaffolder)`)
-        steps.push({
+        step({
           name: `commit:${file.path}`,
           ok: r.ok,
           detail: r.ok ? undefined : `gitea ${r.status}: ${(await r.text().catch(() => '')).slice(0, 160)}`,
         })
         if (r.ok) committedPaths.add(file.path)
       } catch (e) {
-        steps.push({ name: `commit:${file.path}`, ok: false, detail: e instanceof Error ? e.message : '' })
+        step({ name: `commit:${file.path}`, ok: false, detail: e instanceof Error ? e.message : '' })
       }
     }
   }
@@ -317,7 +421,7 @@ export async function handleScaffold(req: Request): Promise<Response> {
   {
     const id = await resolveIdentity(req)
     if (!id) {
-      steps.push({ name: 'build-image', ok: false, detail: 'no cluster identity to create the kpack Image' })
+      step({ name: 'build-image', ok: false, detail: 'no cluster identity to create the kpack Image' })
     } else {
       const buildNs = env('KPACK_NAMESPACE') ?? 'adhar-system'
       const subPath = typeof body.params?.subpath === 'string' ? (body.params.subpath as string) : undefined
@@ -328,7 +432,7 @@ export async function handleScaffold(req: Request): Promise<Response> {
           `/apis/kpack.io/v1alpha2/namespaces/${encodeURIComponent(buildNs)}/images`,
           { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(image) },
         )
-        steps.push({
+        step({
           name: 'build-image',
           ok: r.ok,
           detail: r.ok
@@ -336,7 +440,7 @@ export async function handleScaffold(req: Request): Promise<Response> {
             : `apiserver ${r.status}: ${(await r.text().catch(() => '')).slice(0, 140)}`,
         })
       } catch (e) {
-        steps.push({ name: 'build-image', ok: false, detail: e instanceof Error ? e.message : '' })
+        step({ name: 'build-image', ok: false, detail: e instanceof Error ? e.message : '' })
       }
     }
   }
@@ -361,7 +465,7 @@ export async function handleScaffold(req: Request): Promise<Response> {
     }
     const id = await resolveIdentity(req)
     if (!id) {
-      steps.push({ name: 'gitops-app', ok: false, detail: 'no cluster identity' })
+      step({ name: 'gitops-app', ok: false, detail: 'no cluster identity' })
     } else {
       const argoNs = env('ARGOCD_NAMESPACE') ?? 'argocd'
       const app = buildArgoApplication({
@@ -378,13 +482,13 @@ export async function handleScaffold(req: Request): Promise<Response> {
           { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(app) },
         )
         appName = r.ok ? name : undefined
-        steps.push({
+        step({
           name: 'gitops-app',
           ok: r.ok,
           detail: r.ok ? `${argoNs}/${name}` : `apiserver ${r.status}: ${(await r.text().catch(() => '')).slice(0, 140)}`,
         })
       } catch (e) {
-        steps.push({ name: 'gitops-app', ok: false, detail: e instanceof Error ? e.message : '' })
+        step({ name: 'gitops-app', ok: false, detail: e instanceof Error ? e.message : '' })
       }
     }
   }

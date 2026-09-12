@@ -1,5 +1,5 @@
 /**
- * Lazy Monaco loader (platform-local copy).
+ * Lazy Monaco loader (decide-local copy).
  *
  * Monaco is huge (~3 MB) and has its own AMD-style loader that conflicts
  * with bundlers, so we skip Vite/MF entirely and pull it from jsDelivr at
@@ -8,7 +8,7 @@
  *
  * Result is cached on `window.__adharMonaco` so every editor instance
  * reuses the same runtime. This is a deliberate local duplicate of
- * `modules/develop/src/components/monaco-loader.ts` — remotes must not
+ * `modules/platform/src/components/monaco-loader.ts` — remotes must not
  * import each other's internals across the module-federation boundary.
  */
 

@@ -1,85 +1,83 @@
 import { k8s } from '@adhar-console/api-clients'
 import { useQuery } from '@tanstack/react-query'
+import { useLiveRefetch } from '@adhar-console/shell-ui'
 
 /**
  * Shared Overview cluster summary. Deliberately host-local — the Decide module
  * has its own copy tailored to its KPI tiles; the Overview only needs the
  * coarse-grained aggregates below.
+ *
+ * Each query is driven by the apiserver watch on its resource, so the Overview
+ * reflects a pod crashing or a sync completing as it happens. The interval is
+ * the fallback for a dropped socket, not the primary mechanism.
  */
 // `auto()` → the console's authenticated `/api/k8s` gateway (per-user token
 // impersonation), in dev and prod alike. No local proxy involved.
 const client = k8s.K8sClient.auto()
 const REFRESH_MS = 15_000
 
+const GVR = {
+  nodes: { group: '', version: 'v1', resource: 'nodes', namespaced: false },
+  deployments: { group: 'apps', version: 'v1', resource: 'deployments', namespaced: true },
+  pods: { group: '', version: 'v1', resource: 'pods', namespaced: true },
+  argoApps: { group: 'argoproj.io', version: 'v1alpha1', resource: 'applications', namespaced: true },
+  rollouts: { group: 'argoproj.io', version: 'v1alpha1', resource: 'rollouts', namespaced: true },
+  policyReports: { group: 'wgpolicyk8s.io', version: 'v1alpha2', resource: 'policyreports', namespaced: true },
+  clusterPolicyReports: { group: 'wgpolicyk8s.io', version: 'v1alpha2', resource: 'clusterpolicyreports', namespaced: false },
+} as const
+
 export function useClusterSignals() {
+  const nodesKey = ['overview', 'nodes']
   const nodes = useQuery({
-    queryKey: ['overview', 'nodes'],
+    queryKey: nodesKey,
     queryFn: () => client.listNodes(),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: useLiveRefetch(GVR.nodes, [nodesKey], REFRESH_MS),
     retry: false,
   })
+  const deploymentsKey = ['overview', 'deployments']
   const deployments = useQuery({
-    queryKey: ['overview', 'deployments'],
+    queryKey: deploymentsKey,
     queryFn: () => client.listDeployments(),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: useLiveRefetch(GVR.deployments, [deploymentsKey], REFRESH_MS),
     retry: false,
   })
+  const podsKey = ['overview', 'pods']
   const pods = useQuery({
-    queryKey: ['overview', 'pods'],
+    queryKey: podsKey,
     queryFn: () => client.listPods(),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: useLiveRefetch(GVR.pods, [podsKey], REFRESH_MS),
     retry: false,
   })
+  const argoAppsKey = ['overview', 'argo-apps']
   const argoApps = useQuery({
-    queryKey: ['overview', 'argo-apps'],
-    queryFn: () =>
-      client.listGeneric(undefined, {
-        group: 'argoproj.io',
-        version: 'v1alpha1',
-        resource: 'applications',
-        namespaced: true,
-      }),
-    refetchInterval: REFRESH_MS,
+    queryKey: argoAppsKey,
+    queryFn: () => client.listGeneric(undefined, GVR.argoApps),
+    refetchInterval: useLiveRefetch(GVR.argoApps, [argoAppsKey], REFRESH_MS),
     retry: false,
   })
+  const rolloutsKey = ['overview', 'rollouts']
   const rollouts = useQuery({
-    queryKey: ['overview', 'rollouts'],
-    queryFn: () =>
-      client.listGeneric(undefined, {
-        group: 'argoproj.io',
-        version: 'v1alpha1',
-        resource: 'rollouts',
-        namespaced: true,
-      }),
-    refetchInterval: REFRESH_MS,
+    queryKey: rolloutsKey,
+    queryFn: () => client.listGeneric(undefined, GVR.rollouts),
+    refetchInterval: useLiveRefetch(GVR.rollouts, [rolloutsKey], REFRESH_MS),
     retry: false,
   })
   // Kyverno records most results in *namespaced* PolicyReports (one per workload),
   // not the cluster-scoped ClusterPolicyReports (whose summaries are usually
   // empty). Read both and aggregate so the Security sub-score reflects the whole
   // policy surface, not just the handful of cluster-wide rules.
+  const policyReportsKey = ['overview', 'policy-reports']
   const policyReports = useQuery({
-    queryKey: ['overview', 'policy-reports'],
-    queryFn: () =>
-      client.listGeneric(undefined, {
-        group: 'wgpolicyk8s.io',
-        version: 'v1alpha2',
-        resource: 'policyreports',
-        namespaced: true,
-      }),
-    refetchInterval: REFRESH_MS,
+    queryKey: policyReportsKey,
+    queryFn: () => client.listGeneric(undefined, GVR.policyReports),
+    refetchInterval: useLiveRefetch(GVR.policyReports, [policyReportsKey], REFRESH_MS),
     retry: false,
   })
+  const clusterPolicyReportsKey = ['overview', 'cluster-policy-reports']
   const clusterPolicyReports = useQuery({
-    queryKey: ['overview', 'cluster-policy-reports'],
-    queryFn: () =>
-      client.listGeneric(undefined, {
-        group: 'wgpolicyk8s.io',
-        version: 'v1alpha2',
-        resource: 'clusterpolicyreports',
-        namespaced: false,
-      }),
-    refetchInterval: REFRESH_MS,
+    queryKey: clusterPolicyReportsKey,
+    queryFn: () => client.listGeneric(undefined, GVR.clusterPolicyReports),
+    refetchInterval: useLiveRefetch(GVR.clusterPolicyReports, [clusterPolicyReportsKey], REFRESH_MS),
     retry: false,
   })
   return { nodes, deployments, pods, argoApps, rollouts, policyReports, clusterPolicyReports }

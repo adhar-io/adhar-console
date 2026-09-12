@@ -31,6 +31,13 @@ interface Sub {
 
 const BACKOFF_MIN = 1000
 const BACKOFF_MAX = 30_000
+/**
+ * Treat the socket as dead after this long with no traffic. The server
+ * heartbeats every 25s, so 70s is comfortably past two missed beats — long
+ * enough not to fire on a slow network, short enough that a user does not sit
+ * in front of a frozen page.
+ */
+const DEAD_AFTER_MS = 70_000
 
 class LiveClient {
   private ws: WebSocket | null = null
@@ -42,6 +49,8 @@ class LiveClient {
   private _status: LiveStatus = 'offline'
   private wantOpen = false
   private pingTimer: number | undefined
+  /** Timestamp of the last frame received, for the half-open watchdog. */
+  private lastMsgAt = 0
 
   get status(): LiveStatus {
     return this._status
@@ -102,12 +111,28 @@ class LiveClient {
     this.ws = ws
     ws.onopen = () => {
       this.backoff = BACKOFF_MIN
+      this.lastMsgAt = Date.now()
       this.setStatus('live')
       for (const s of this.subs.values()) this.sendSub(s)
       if (this.pingTimer) clearInterval(this.pingTimer)
-      this.pingTimer = setInterval(() => this.send({ op: 'ping', t: Date.now() }), 20_000) as unknown as number
+      this.pingTimer = setInterval(() => {
+        // Watchdog. The server heartbeats every 25s, so silence well past that
+        // means the connection is gone even though the browser still reports it
+        // as OPEN — the half-open case a TCP-level failure leaves behind, where
+        // no `close` event ever fires and nothing would otherwise reconnect.
+        if (Date.now() - this.lastMsgAt > DEAD_AFTER_MS) {
+          try {
+            ws.close()
+          } catch {
+            // already gone — onclose will schedule the reconnect
+          }
+          return
+        }
+        this.send({ op: 'ping', t: Date.now() })
+      }, 20_000) as unknown as number
     }
     ws.onmessage = (ev) => {
+      this.lastMsgAt = Date.now()
       let msg: Record<string, unknown>
       try {
         msg = JSON.parse(String(ev.data))
@@ -137,8 +162,29 @@ class LiveClient {
   private scheduleReconnect() {
     this.setStatus('reconnecting')
     if (this.timer) clearTimeout(this.timer)
-    this.timer = setTimeout(() => this.open(), this.backoff) as unknown as number
+    // Full jitter. Without it every tab that was connected when the server
+    // restarted wakes on the same schedule and reconnects in lockstep, which
+    // is precisely the load the restarting server cannot absorb. Spreading the
+    // retries across the window turns a thundering herd into a trickle.
+    const delay = BACKOFF_MIN + Math.random() * (this.backoff - BACKOFF_MIN)
+    this.timer = setTimeout(() => this.open(), delay) as unknown as number
     this.backoff = Math.min(this.backoff * 2, BACKOFF_MAX)
+  }
+
+  /**
+   * Reconnect now, abandoning any backoff wait.
+   *
+   * Backoff is right for a server that is down, and wrong for a laptop that
+   * just woke up: the socket died while suspended, the backoff has grown to
+   * half a minute, and the user is looking at a stale page for no reason. The
+   * triggers below all mean "the environment just changed, try again".
+   */
+  reconnectNow() {
+    if (!this.subs.size) return
+    if (this.ws?.readyState === WebSocket.OPEN) return
+    if (this.timer) clearTimeout(this.timer)
+    this.backoff = BACKOFF_MIN
+    this.open()
   }
 
   private close() {
@@ -158,6 +204,23 @@ class LiveClient {
 }
 
 export const liveClient = new LiveClient()
+
+// Recover immediately when the environment says something changed: the tab
+// coming back to the foreground (laptop woken, tab re-selected) or the network
+// coming back. Each of these leaves a socket that is already dead but whose
+// backoff timer may be tens of seconds away, which the user experiences as a
+// page that has simply stopped updating.
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') liveClient.reconnectNow()
+  })
+}
+if (typeof globalThis.addEventListener === 'function') {
+  globalThis.addEventListener('online', () => liveClient.reconnectNow())
+  // A socket can stay half-open after a network change: the browser never sees
+  // a close, so nothing triggers a reconnect. `focus` is a cheap extra nudge.
+  globalThis.addEventListener('focus', () => liveClient.reconnectNow())
+}
 
 export function useLiveStatus(): LiveStatus {
   return useSyncExternalStore(
@@ -295,6 +358,112 @@ export function useLiveInvalidate(
       unsub()
     }
   }, [topic, paramsKey, enabled, qc])
+}
+
+/** The apiserver resource a query is derived from. */
+export interface LiveWatchRef {
+  group: string
+  version: string
+  resource: string
+  namespace?: string
+  labelSelector?: string
+  fieldSelector?: string
+  cluster?: string
+}
+
+/**
+ * Make an existing `useQuery` live.
+ *
+ * This is the one-line conversion from "poll on a timer" to "push, and poll
+ * only as a safety net". It subscribes to the apiserver watch for `watch`,
+ * invalidates `queryKeys` when anything changes, and returns the
+ * `refetchInterval` to hand back to TanStack Query — `false` while the socket
+ * is live, `fallbackMs` when it is not.
+ *
+ * ```ts
+ * const key = ['platform', 'pods', ns]
+ * return useQuery({
+ *   queryKey: key,
+ *   queryFn: () => client.listPods(undefined, ns),
+ *   refetchInterval: useLiveRefetch(PODS_GVR, [key], 10_000),
+ * })
+ * ```
+ *
+ * The timer fallback is deliberate rather than vestigial: a socket can be
+ * blocked by a corporate proxy, drop on a flaky network, or be mid-reconnect,
+ * and a page that silently stopped updating is worse than one that polls. Pass
+ * `watch: null` for data with no Kubernetes resource behind it — the query then
+ * keeps polling, which is the honest behaviour.
+ */
+export function useLiveRefetch(
+  watch: LiveWatchRef | null,
+  queryKeys: QueryKey[],
+  fallbackMs: number,
+  enabled = true,
+): number | false {
+  useLiveInvalidate(
+    'k8s',
+    (watch ?? {}) as unknown as Record<string, unknown>,
+    queryKeys,
+    enabled && watch !== null,
+  )
+  const interval = usePollingInterval(fallbackMs)
+  // With no watch behind it there is nothing to push, so the timer stands.
+  return watch === null ? fallbackMs : interval
+}
+
+/**
+ * Make a **tool-backed** query live.
+ *
+ * Not everything the console shows lives in Kubernetes: Coder, Airbyte, Harbor,
+ * Gitea and Plane are ordinary REST APIs with no watch endpoint, so there is
+ * nothing to subscribe to. What can still be removed is the *browser* polling:
+ * the BFF fetches the path on an interval, hashes the response, and notifies
+ * only when it actually changed — and that upstream poll is shared across every
+ * tab and every user on the same session, instead of each tab hitting the tool
+ * on its own timer.
+ *
+ * Unlike `useLivePoll`, this does not write the pushed body into the cache. The
+ * body the BFF sees is the tool's raw response, while the query holds whatever
+ * the typed client parsed it into; writing one into the other would quietly
+ * corrupt the shape. So this uses the push purely as a change signal and lets
+ * the query refetch through its normal `queryFn`, which keeps types honest at
+ * the cost of one extra round trip on an actual change.
+ *
+ * Returns the `refetchInterval` to hand back to TanStack Query: `false` while
+ * the socket is live, `intervalMs` as the fallback when it is not.
+ */
+export function useLiveToolPoll(
+  tool: string,
+  path: string,
+  intervalMs: number,
+  queryKeys: QueryKey[],
+  opts: { windowMs?: number; enabled?: boolean } = {},
+): number | false {
+  const qc = useQueryClient()
+  const { windowMs = 0, enabled = true } = opts
+  const keysRef = useRef(queryKeys)
+  keysRef.current = queryKeys
+
+  useEffect(() => {
+    if (!enabled || !path) return
+    let timer: number | undefined
+    const unsub = liveClient.subscribe('poll', { tool, path, intervalMs, windowMs }, (msg) => {
+      if (msg.op !== 'changed') return
+      // Coalesce a burst of changes into one refetch.
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        for (const k of keysRef.current) void qc.invalidateQueries({ queryKey: k })
+      }, 200) as unknown as number
+    })
+    return () => {
+      if (timer) clearTimeout(timer)
+      unsub()
+    }
+  }, [tool, path, intervalMs, windowMs, enabled, qc])
+
+  const fallback = usePollingInterval(intervalMs)
+  return enabled ? fallback : false
 }
 
 /**

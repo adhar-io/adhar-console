@@ -27,6 +27,12 @@ export function useDestinations() {
   })
 }
 
+/**
+ * Airbyte's config API lists through `POST /api/v1/connections/list`, and the
+ * BFF's server-side change detection issues GETs — so these two hooks keep
+ * their browser timer rather than pretending to be push-driven. Moving them
+ * over needs the live hub to support a POST body for the `poll` topic.
+ */
 export function useConnections() {
   return useQuery({
     queryKey: ['airbyte', 'connections'],

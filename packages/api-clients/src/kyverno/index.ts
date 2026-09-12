@@ -122,12 +122,31 @@ function build(http: HttpClient): KyvernoClient {
           ? `/apis/kyverno.io/v1/namespaces/${namespace}/policies/${name}`
           : `/apis/kyverno.io/v1/clusterpolicies/${name}`,
       ),
+    /**
+     * Policy results.
+     *
+     * With no namespace this reads BOTH scopes, mirroring `listPolicies`.
+     * Reading only `clusterpolicyreports` looks right and is badly wrong in
+     * practice: Kyverno writes one namespaced PolicyReport per workload and
+     * reserves the cluster-scoped report for cluster-scoped resources, so on a
+     * real cluster the cluster scope holds a handful of reports while the
+     * namespaced scope holds thousands. The Deliver policy view was built on
+     * this call and consequently showed a fraction of the violations that the
+     * Platform view showed from the same engine — the two disagreeing about
+     * the same data is worse than either being merely incomplete.
+     */
     listPolicyReports: async (ns) => {
-      const path = ns
-        ? `/apis/wgpolicyk8s.io/v1alpha2/namespaces/${ns}/policyreports`
-        : `/apis/wgpolicyk8s.io/v1alpha2/clusterpolicyreports`
-      const res = await http.get<{ items: PolicyReport[] }>(path)
-      return res.items
+      if (ns) {
+        const res = await http.get<{ items: PolicyReport[] }>(
+          `/apis/wgpolicyk8s.io/v1alpha2/namespaces/${ns}/policyreports`,
+        )
+        return res.items
+      }
+      const [cluster, namespaced] = await Promise.all([
+        http.get<{ items: PolicyReport[] }>(`/apis/wgpolicyk8s.io/v1alpha2/clusterpolicyreports`),
+        http.get<{ items: PolicyReport[] }>(`/apis/wgpolicyk8s.io/v1alpha2/policyreports`),
+      ])
+      return [...cluster.items, ...namespaced.items]
     },
     listExceptions: async () => {
       const res = await http.get<{ items: PolicyException[] }>(`/apis/kyverno.io/v2/policyexceptions`)

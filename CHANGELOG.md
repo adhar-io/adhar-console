@@ -6,7 +6,98 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.61] - 2026-09-12
+
+### Added
+
+- **Realtime by default.** The console already had a multiplexed WebSocket hub
+  at `/api/live`, but most views ignored it: 86 queries polled on a timer
+  regardless of whether the socket was up. They are now push-driven, with the
+  timer kept only as a fallback for a dropped connection. Identical apiserver
+  watches are shared server-side — a page reading pods from six panels opens
+  one upstream watch, not six — and a late subscriber is served from the
+  watcher's cached snapshot, so a second panel onto the same resource paints
+  with no round trip. Reconnect backoff gained full jitter so tabs do not
+  reconnect in lockstep after a restart; waking a laptop, regaining network or
+  refocusing the tab reconnects immediately instead of waiting out a 30-second
+  backoff; and a watchdog closes half-open sockets, which report `OPEN` while
+  being dead and previously never triggered a reconnect. A connection
+  indicator in the topbar stays a quiet dot while live and speaks up only when
+  the data may be behind. Hub load is reported at `/api/diagnostics`.
+- **Argo Workflows workbench** under Develop, with a DAG canvas built from
+  `status.nodes`, sections for Workflows, Templates and Cron, and step detail.
+  Actions that the console has no real API path for are omitted rather than
+  shipped inert. Develop's nav was corrected: "CI Workflows" was listing Argo
+  Workflows, so it is now "Workflows", and a "CI Pipelines" entry points at the
+  Tekton page where CI actually lives.
+- **Registry rebuilt for the software supply chain**, covering Harbor for
+  container images and Nexus for packages as the different models they are.
+  Artifact detail now carries versions, multi-arch references, provenance,
+  scan results, SBOM and cosign attestations — each labelled with where the
+  fact came from, and provenance marked as inferred when it is a guess read
+  off a tag. Admission enforcement from sigstore and Kyverno image policies is
+  shown alongside, so an unsigned image says what that means for deployment.
+- **Environments rebuilt cluster-first.** It was grouping only by namespace, so
+  two different clusters both deploying to `adhar-system` collapsed into
+  indistinguishable cards, and health was inferred from the namespace's name
+  with anything unrecognised defaulting to "prod". Clusters now come from the
+  Argo CD registry, with live node, provider, region and capacity detail where
+  the console can reach the cluster and Argo CD's own report where it cannot.
+  Drift and runtime health are separate signals.
+- **Kargo stages and Delivery Flow on a real canvas** — pan, zoom, fit,
+  full-page, dotted ground and animated edges, with a list view retained.
+
 ### Fixed
+
+- **Tools reported themselves unavailable while running.** The proxy rejected a
+  request with 503 `tool_service_token_missing` *before contacting the tool*
+  whenever it was declared `service` mode with no token configured. OpenCost
+  needs no auth at all, so a perfectly healthy OpenCost reported itself as
+  unreachable. Metabase needs its session id in `X-Metabase-Session`, which the
+  proxy could not express at all. Tools that need no token now degrade to
+  `none`, Metabase authenticates with an API key or a session minted from the
+  admin credentials, and login mode can send its token in any header. The
+  missing in-cluster URLs for Metabase, OpenCost, Kargo, Coder, Airbyte, Falco
+  and Nexus are set, so these no longer resolve to a public hostname sitting
+  behind an OAuth proxy.
+- **Deliver and Platform disagreed about policy findings.** Deliver read only
+  `clusterpolicyreports`, but Kyverno writes one namespaced PolicyReport per
+  workload and reserves the cluster scope for cluster-scoped resources — 8
+  reports versus 1014 on a live cluster. Deliver was showing under 1% of the
+  violations Platform showed from the same engine.
+- **JSON and YAML editors did not load.** Monaco is pulled from a CDN, but
+  `MonacoEnvironment.getWorkerUrl` was never configured, and browsers refuse to
+  construct a Worker from a cross-origin URL — so the editor appeared while its
+  language services threw, which is why Raw object and ConfigMap data came up
+  wrong. A second editor could also hang forever when the loader script had
+  already finished loading before it attached its `load` listener.
+- **Request-rate, error-rate and latency panels drew a phantom series.** The
+  golden-signal queries forced every telemetry source into a synthetic
+  `service` label with `label_replace`, which silently copies nothing when the
+  source label is absent and collapses everything into one anonymous bucket.
+  On a cluster whose only HTTP source is Hubble — which has no `destination`
+  label — the chart showed a single unlabelled line. Each source now groups by
+  labels it actually carries, and the page probes which metric families
+  Prometheus has, so an empty panel says whether there is no traffic or no
+  exporter. Those are very different things and looked identical.
+- **Pod logs polled instead of tailing.** The panel refetched the whole tail
+  every two seconds: lines arrived up to two seconds late, the entire buffer
+  was re-transferred each tick, and anything that scrolled past `tailLines`
+  between polls was lost. It now holds one `follow` stream open, the same
+  mechanism the pipeline console uses.
+- **Scaffolding looked like it did nothing.** `/api/scaffold` returned every
+  step at once when the whole run finished, so the wizard sat at zero and
+  jumped to done. Steps are now streamed as each backend call genuinely
+  returns, with per-step durations.
+- **Scaffolded repositories recorded an uncloneable address.** Gitea builds its
+  own URLs from the host of the request it receives, and the console reaches it
+  over in-cluster Service DNS, so every new component reported itself at
+  `gitea-http.<ns>.svc.cluster.local`. The response, the catalog annotation,
+  the Argo CD `repoURL` and the kpack source now use the public origin.
+- **The SQL editor was a dead end when Metabase was unreachable.** It now leads
+  with LibreDB Studio, which has connections to every platform database and
+  does not depend on Metabase, and the query box is a real editor rather than a
+  textarea.
 
 - **Cloud Shell could not be typed into.** The platform module is built as a
   Module Federation remote, so Vite hoisted xterm's stylesheet into the
@@ -1820,7 +1911,6 @@ First tagged release — published to `ghcr.io/adhar-io/adhar-console`.
   **human-approved change proposals** (the AI proposes a manifest; the operator
   reviews and applies). Global streaming assistant + inline "Diagnose / Explain"
   on resources. Configure via `AI_BASE_URL` / `AI_MODEL` / `AI_API_KEY`.
-
 
 ## [0.2.0] — 2026-07-04
 

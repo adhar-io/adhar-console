@@ -5,6 +5,7 @@ import { formatRelative, cn } from '@adhar-console/utils'
 import { Kbd } from './primitives.tsx'
 import { AppLauncher, type AppLink } from './app-launcher.tsx'
 import { ModeToggle } from './mode-toggle.tsx'
+import { LiveIndicator } from './live-indicator.tsx'
 import { useNotifications, type Notification } from './notifications.ts'
 import { NotificationCard } from './notification-center.tsx'
 import { useAi } from './ai-assistant.tsx'
@@ -93,6 +94,7 @@ export function Topbar({
               <span className="mx-1 hidden h-6 w-px bg-edge-subtle md:block" aria-hidden />
             </>
           ) : null}
+          <LiveIndicator className="hidden sm:inline-flex" />
           <HelpMenu />
           <ModeToggle />
           <AppLauncher apps={apps} />

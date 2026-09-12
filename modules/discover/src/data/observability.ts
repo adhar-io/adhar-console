@@ -206,24 +206,40 @@ export function bucketLogsByLevel(
  * to the label the family provides). Saturation uses cAdvisor, which every
  * kubelet exposes.
  */
+/**
+ * Golden-signal queries, one variant per telemetry source.
+ *
+ * Each variant groups by a label the metric family **actually carries**. The
+ * previous version forced every source into a synthetic `service` label with
+ * `label_replace(..., "<src>", "(.+)")`, which fails silently and badly: when
+ * the source label does not exist, `label_replace` copies nothing and the
+ * `sum by (service)` collapses every series into one anonymous `{}` bucket. On
+ * a cluster whose only HTTP source is Hubble — whose `http_requests_total`
+ * carries `namespace`/`pod`/`method`/`status` and no `destination` — the chart
+ * showed a single unlabelled line instead of either real per-service traffic
+ * or an honest empty panel.
+ *
+ * `seriesLabel()` picks the best label present on whatever comes back, so each
+ * variant can group naturally instead of being coerced.
+ */
 export const PROMQL = {
   rps: [
-    'sum by (service) (label_replace(rate(envoy_cluster_upstream_rq_total[5m]), "service", "$1", "envoy_cluster_name", "(.+)"))',
-    'sum by (service) (label_replace(rate(nginx_ingress_controller_requests[5m]), "service", "$1", "service", "(.+)"))',
-    'sum by (service) (label_replace(rate(hubble_http_requests_total[5m]), "service", "$1", "destination", "(.+)"))',
-    'sum by (service) (label_replace(rate(http_requests_total[5m]), "service", "$1", "service", "(.+)"))',
-    'sum by (service) (label_replace(rate(http_server_requests_seconds_count[5m]), "service", "$1", "job", "(.+)"))',
+    'sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_total[5m]))',
+    'sum by (service) (rate(nginx_ingress_controller_requests[5m]))',
+    'sum by (namespace, pod) (rate(hubble_http_requests_total[5m]))',
+    'sum by (service) (rate(http_requests_total[5m]))',
+    'sum by (job) (rate(http_server_requests_seconds_count[5m]))',
   ].join(' or '),
   errorRate: [
-    '100 * sum by (service) (label_replace(rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class="5"}[5m]), "service", "$1", "envoy_cluster_name", "(.+)")) / sum by (service) (label_replace(rate(envoy_cluster_upstream_rq_total[5m]), "service", "$1", "envoy_cluster_name", "(.+)"))',
+    '100 * sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class="5"}[5m])) / sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_total[5m]))',
     '100 * sum by (service) (rate(nginx_ingress_controller_requests{status=~"5.."}[5m])) / sum by (service) (rate(nginx_ingress_controller_requests[5m]))',
-    '100 * sum by (service) (label_replace(rate(hubble_http_requests_total{status=~"5.."}[5m]), "service", "$1", "destination", "(.+)")) / sum by (service) (label_replace(rate(hubble_http_requests_total[5m]), "service", "$1", "destination", "(.+)"))',
+    '100 * sum by (namespace) (rate(hubble_http_requests_total{status=~"5.."}[5m])) / sum by (namespace) (rate(hubble_http_requests_total[5m]))',
     '100 * sum by (service) (rate(http_requests_total{status=~"5.."}[5m])) / sum by (service) (rate(http_requests_total[5m]))',
   ].join(' or '),
   latencyP95: [
-    '1000 * histogram_quantile(0.95, sum by (le, service) (label_replace(rate(envoy_cluster_upstream_rq_time_bucket[5m]), "service", "$1", "envoy_cluster_name", "(.+)"))) / 1000',
+    '1000 * histogram_quantile(0.95, sum by (le, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_time_bucket[5m])))',
     '1000 * histogram_quantile(0.95, sum by (le, service) (rate(nginx_ingress_controller_request_duration_seconds_bucket[5m])))',
-    '1000 * histogram_quantile(0.95, sum by (le, service) (label_replace(rate(hubble_http_request_duration_seconds_bucket[5m]), "service", "$1", "destination", "(.+)")))',
+    '1000 * histogram_quantile(0.95, sum by (le, namespace) (rate(hubble_http_request_duration_seconds_bucket[5m])))',
     '1000 * histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_seconds_bucket[5m])))',
   ].join(' or '),
   cpu: 'sum by (namespace) (rate(container_cpu_usage_seconds_total{container!="", container!="POD"}[5m]))',
@@ -231,9 +247,50 @@ export const PROMQL = {
   podRestarts: 'sum by (namespace) (increase(kube_pod_container_status_restarts_total[1h]))',
 } as const
 
+/**
+ * Metric families the golden-signal panels depend on, in preference order.
+ * `useTelemetrySources()` probes which of these Prometheus actually has, so a
+ * panel with no data can say *why* — "no ingress or mesh exporter is scraped"
+ * — instead of rendering an empty chart that reads as "zero traffic".
+ */
+export const HTTP_SOURCES: Array<{ metric: string; label: string; hint: string }> = [
+  { metric: 'envoy_cluster_upstream_rq_total', label: 'Envoy / Istio', hint: 'service mesh sidecars' },
+  { metric: 'nginx_ingress_controller_requests', label: 'NGINX Ingress', hint: 'ingress controller metrics' },
+  { metric: 'hubble_http_requests_total', label: 'Cilium Hubble', hint: 'eBPF L7 visibility' },
+  { metric: 'http_requests_total', label: 'Application', hint: 'Prometheus client library' },
+  { metric: 'http_server_requests_seconds_count', label: 'Spring / Micrometer', hint: 'JVM actuator metrics' },
+]
+
 /** Best display label for a series: service → namespace → job/pod/instance → __name__. */
 export function seriesLabel(metric: Record<string, string | undefined>): string {
   return metric.service || metric.namespace || metric.job || metric.pod || metric.instance || metric.__name__ || 'series'
+}
+
+/**
+ * Which HTTP telemetry sources Prometheus is actually scraping.
+ *
+ * Asks Prometheus for the metric names it knows about and intersects them with
+ * `HTTP_SOURCES`. This is what lets a golden-signal panel distinguish "this
+ * service had no traffic in the window" from "nothing on this cluster reports
+ * HTTP metrics at all" — two states that look identical on an empty chart and
+ * mean completely different things.
+ */
+export function useTelemetrySources() {
+  return useQuery({
+    queryKey: ['lgtm', 'telemetry-sources'],
+    queryFn: async () => {
+      const res = await fetch('/api/svc/prometheus/api/v1/label/__name__/values', {
+        credentials: 'include',
+        headers: { accept: 'application/json' },
+      })
+      if (!res.ok) throw new Error(`Prometheus ${res.status} listing metric names`)
+      const body = (await res.json()) as { data?: string[] }
+      const present = new Set(body.data ?? [])
+      return HTTP_SOURCES.filter((s) => present.has(s.metric))
+    },
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
 }
 
 export function useMetrics(query: string, range: TimeRangeId, step = '1m') {

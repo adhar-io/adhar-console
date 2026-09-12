@@ -6,6 +6,7 @@ import {
   Kbd,
   StatusBadge,
   Tabs,
+  useLiveRefetch,
   type TabDef,
 } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
@@ -42,10 +43,11 @@ interface Props {
 
 export function PodDrawer({ namespace, name, onClose }: Props) {
   const qc = useQueryClient()
+  const podKey = ['k8s', 'pod', namespace, name]
   const pod = useQuery({
-    queryKey: ['k8s', 'pod', namespace, name],
+    queryKey: podKey,
     queryFn: () => client.getPod(LOCAL_CLUSTER, namespace, name),
-    refetchInterval: 10_000,
+    refetchInterval: useLiveRefetch({ ...GVRS.pods, namespace }, [podKey], 10_000),
   })
 
   const canDelete = useHasK8sPermission('pods.delete')
@@ -579,10 +581,11 @@ function Mono({ children }: { children: React.ReactNode }) {
 }
 
 function Events({ namespace, name }: { namespace: string; name: string }) {
+  const queryKey = ['k8s', 'pod-events', namespace, name]
   const q = useQuery({
-    queryKey: ['k8s', 'pod-events', namespace, name],
+    queryKey,
     queryFn: () => client.listEvents(LOCAL_CLUSTER, namespace),
-    refetchInterval: 5_000,
+    refetchInterval: useLiveRefetch({ ...GVRS.events, namespace }, [queryKey], 5_000),
   })
   const filtered = (q.data ?? []).filter(
     (e) =>
@@ -684,10 +687,11 @@ function Arrow() {
 }
 
 function RecentEvents({ namespace, name, kind }: { namespace: string; name: string; kind: string }) {
+  const queryKey = ['k8s', 'pod-events', namespace, name]
   const q = useQuery({
-    queryKey: ['k8s', 'pod-events', namespace, name],
+    queryKey,
     queryFn: () => client.listEvents(LOCAL_CLUSTER, namespace),
-    refetchInterval: 15_000,
+    refetchInterval: useLiveRefetch({ ...GVRS.events, namespace }, [queryKey], 15_000),
     retry: false,
   })
   const events = (q.data ?? [])

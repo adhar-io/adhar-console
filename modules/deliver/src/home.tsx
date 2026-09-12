@@ -55,8 +55,10 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
     description: 'Release history derived from sync revisions, freight promotions, and image tags.',
   },
   registry: {
+    // Label kept in step with the sidebar entry (`deliver.registry` in nav-tree).
     label: 'Image Registry',
-    description: 'Harbor repositories, artifacts, tags, and per-image vulnerability counts.',
+    description:
+      'Harbor container images and Nexus packages — tags, versions, provenance, signatures, scan results and the admission policies that gate them.',
   },
   scans: {
     label: 'Vulnerability Scans',

@@ -53,6 +53,17 @@ export interface ToolDef {
     path: string
     body(username: string, password: string): unknown
     tokenField: string
+    /**
+     * Header the minted token is sent in. Defaults to `authorization`, but not
+     * every tool speaks Bearer: Metabase wants its session id in
+     * `X-Metabase-Session`, and sending it as a Bearer is silently rejected.
+     */
+    header?: string
+    /**
+     * Scheme prefixed to the token (`'Bearer '` by default). Set to `''` for
+     * tools whose header carries a bare token.
+     */
+    scheme?: string
   }
 }
 
@@ -155,6 +166,16 @@ export function getToolRegistry(): Record<string, ToolDef> {
       username: env('HARBOR_USERNAME'),
       password: env('HARBOR_PASSWORD'),
     },
+    // Nexus Repository (packages: maven / npm / pypi / nuget). Its REST v1 API
+    // accepts HTTP Basic from the `nexus-credentials` Secret; without creds only
+    // anonymous-readable repositories list.
+    nexus: {
+      baseUrl: toolUrl('nexus', 'NEXUS_URL'),
+      authMode: env('NEXUS_USERNAME') && env('NEXUS_PASSWORD') ? 'basic' : 'service',
+      serviceToken: env('NEXUS_TOKEN'),
+      username: env('NEXUS_USERNAME'),
+      password: env('NEXUS_PASSWORD'),
+    },
     'argo-workflows': {
       baseUrl: toolUrl('argo-workflows', 'ARGO_WORKFLOWS_URL'),
       authMode: 'service',
@@ -175,25 +196,56 @@ export function getToolRegistry(): Record<string, ToolDef> {
       username: env('GRAFANA_USERNAME') ?? 'admin',
       password: env('GRAFANA_PASSWORD'),
     },
+    // Metabase speaks three dialects and none of them is a Bearer token:
+    //   • an API key in `X-API-KEY` (`METABASE_API_KEY`) — preferred, durable;
+    //   • a session id in `X-Metabase-Session`, minted from admin credentials
+    //     (`metabase-admin-credentials`) — what an install has by default;
+    //   • nothing, in which case Metabase answers 401 and the view says so.
+    // It previously ran as `service`, which made the proxy fail closed with a
+    // 503 before ever calling Metabase — indistinguishable, to the user, from
+    // Metabase being down.
     metabase: {
       baseUrl: toolUrl('metabase', 'METABASE_URL'),
-      authMode: 'service',
+      authMode: env('METABASE_API_KEY')
+        ? 'none'
+        : env('METABASE_TOKEN')
+          ? 'service'
+          : env('METABASE_PASSWORD')
+            ? 'login'
+            : 'none',
       serviceToken: env('METABASE_TOKEN'),
+      username: env('METABASE_USERNAME') ?? env('METABASE_EMAIL'),
+      password: env('METABASE_PASSWORD'),
+      headers: env('METABASE_API_KEY') ? { 'x-api-key': env('METABASE_API_KEY')! } : undefined,
+      login: {
+        path: '/api/session',
+        body: (username: string, password: string) => ({ username, password }),
+        tokenField: 'id',
+        header: 'x-metabase-session',
+        scheme: '',
+      },
     },
     // OpenCost / Kubecost allocation API (Decide → cost/spend). The OpenCost
-    // REST API needs no auth by default; run `service` mode so an optional
-    // `OPENCOST_TOKEN` is forwarded when fronted by an authenticating proxy.
-    // In-cluster this is usually the opencost svc, e.g.
-    // http://opencost.opencost.svc:9003 (its API port).
+    // REST API needs no auth by default, so it must run in `none` mode unless a
+    // token is supplied — `service` mode rejects the request with a 503 when
+    // `OPENCOST_TOKEN` is unset, which meant a perfectly reachable OpenCost
+    // reported itself as unavailable. In-cluster this is the opencost svc on
+    // its API port, e.g. http://opencost.adhar-system.svc.cluster.local:9003.
     opencost: {
       baseUrl: toolUrl('opencost', 'OPENCOST_URL'),
-      authMode: 'service',
+      authMode: env('OPENCOST_TOKEN') ? 'service' : 'none',
       serviceToken: env('OPENCOST_TOKEN'),
     },
     airbyte: {
       baseUrl: toolUrl('airbyte', 'AIRBYTE_URL'),
-      authMode: 'service',
+      authMode: env('AIRBYTE_TOKEN')
+        ? 'service'
+        : env('AIRBYTE_PASSWORD')
+          ? 'basic'
+          : 'none',
       serviceToken: env('AIRBYTE_TOKEN'),
+      username: env('AIRBYTE_USERNAME') ?? 'airbyte',
+      password: env('AIRBYTE_PASSWORD'),
     },
     // LGTM (Discover): Grafana fronts Loki/Mimir/Tempo via its datasource proxy.
     lgtm: {
@@ -203,9 +255,13 @@ export function getToolRegistry(): Record<string, ToolDef> {
       username: env('GRAFANA_USERNAME') ?? 'admin',
       password: env('GRAFANA_PASSWORD'),
     },
+    // PostHog personal API keys are sent as a Bearer, so `service` is right —
+    // but only when a key exists. Without one, fall through to `none` so the
+    // view reports PostHog's own answer (a 401, or a connection error if the
+    // web deployment isn't running) instead of a synthetic 503.
     posthog: {
       baseUrl: toolUrl('posthog', 'POSTHOG_URL'),
-      authMode: 'service',
+      authMode: env('POSTHOG_TOKEN') ? 'service' : 'none',
       serviceToken: env('POSTHOG_TOKEN'),
     },
     // Coder only accepts its own session tokens / API keys — a Keycloak access

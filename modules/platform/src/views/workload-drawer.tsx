@@ -8,6 +8,7 @@ import {
   Spinner,
   StatusBadge,
   Tabs,
+  useLiveRefetch,
   type StatusKind,
   type TabDef,
 } from '@adhar-console/shell-ui'
@@ -191,11 +192,12 @@ interface Props {
 
 export function WorkloadDrawer({ kind, namespace, name, onClose }: Props) {
   const gvr = KIND_GVR[kind]
+  const wlKey = ['k8s', 'workload', kind, namespace, name]
   const wl = useQuery({
-    queryKey: ['k8s', 'workload', kind, namespace, name],
+    queryKey: wlKey,
     queryFn: () =>
       client.getGeneric(LOCAL_CLUSTER, gvr, namespace, name) as unknown as Promise<WorkloadObj>,
-    refetchInterval: 10_000,
+    refetchInterval: useLiveRefetch({ ...gvr, namespace }, [wlKey], 10_000),
   })
 
   const canExec = useHasK8sPermission('pods.exec')
@@ -561,18 +563,20 @@ function RelatedResources({
   namespace: string
   matchLabels?: Record<string, string>
 }) {
+  const svcKey = ['k8s', 'workload-related-svc', namespace]
+  const ingKey = ['k8s', 'workload-related-ing', namespace]
   const svcQ = useQuery({
-    queryKey: ['k8s', 'workload-related-svc', namespace],
+    queryKey: svcKey,
     enabled: Boolean(namespace && matchLabels),
     retry: false,
-    refetchInterval: 30_000,
+    refetchInterval: useLiveRefetch({ ...GVRS.services, namespace }, [svcKey], 30_000),
     queryFn: () => client.listServices(LOCAL_CLUSTER, namespace) as unknown as Promise<ServiceLite[]>,
   })
   const ingQ = useQuery({
-    queryKey: ['k8s', 'workload-related-ing', namespace],
+    queryKey: ingKey,
     enabled: Boolean(namespace && matchLabels),
     retry: false,
-    refetchInterval: 30_000,
+    refetchInterval: useLiveRefetch({ ...GVRS.ingresses, namespace }, [ingKey], 30_000),
     queryFn: () => client.listIngresses(LOCAL_CLUSTER, namespace) as unknown as Promise<IngressLite[]>,
   })
 
@@ -645,10 +649,11 @@ function RelatedResources({
 }
 
 function WorkloadRecentEvents({ namespace, name, kind }: { namespace: string; name: string; kind: WorkloadKind }) {
+  const queryKey = ['k8s', 'workload-events', namespace, kind, name]
   const q = useQuery({
-    queryKey: ['k8s', 'workload-events', namespace, kind, name],
+    queryKey,
     queryFn: () => client.listEvents(LOCAL_CLUSTER, namespace),
-    refetchInterval: 15_000,
+    refetchInterval: useLiveRefetch({ ...GVRS.events, namespace }, [queryKey], 15_000),
     retry: false,
   })
   const events = (q.data ?? [])
@@ -848,9 +853,10 @@ function HpaCard({
   namespace: string
   name: string
 }) {
+  const queryKey = ['k8s', 'workload-hpa', namespace, kind, name]
   const q = useQuery({
-    queryKey: ['k8s', 'workload-hpa', namespace, kind, name],
-    refetchInterval: 15_000,
+    queryKey,
+    refetchInterval: useLiveRefetch({ ...GVRS.hpa, namespace }, [queryKey], 15_000),
     retry: false,
     queryFn: async () => {
       const list = (await client
@@ -952,9 +958,10 @@ function ArgoRolloutLadder({
   name: string
   obj: WorkloadObj
 }) {
+  const queryKey = ['k8s', 'argo-rollouts', namespace, name]
   const q = useQuery({
-    queryKey: ['k8s', 'argo-rollouts', namespace, name],
-    refetchInterval: 15_000,
+    queryKey,
+    refetchInterval: useLiveRefetch({ ...ARGO_ROLLOUTS_GVR, namespace }, [queryKey], 15_000),
     retry: false,
     queryFn: async () => {
       const list = (await client
@@ -1262,10 +1269,11 @@ function WorkloadMetricsRollup({
 /* ── Events ──────────────────────────────────────────────────────────────── */
 
 function Events({ namespace, name, kind }: { namespace: string; name: string; kind: WorkloadKind }) {
+  const queryKey = ['k8s', 'workload-events', namespace, kind, name]
   const q = useQuery({
-    queryKey: ['k8s', 'workload-events', namespace, kind, name],
+    queryKey,
     queryFn: () => client.listEvents(LOCAL_CLUSTER, namespace),
-    refetchInterval: 5_000,
+    refetchInterval: useLiveRefetch({ ...GVRS.events, namespace }, [queryKey], 5_000),
   })
   const filtered = (q.data ?? []).filter(
     (e) =>

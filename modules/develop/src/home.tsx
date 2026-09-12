@@ -52,8 +52,9 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
     description: 'Coder workspaces — code-server, terminal and previews on the cluster, from any template.',
   },
   workflows: {
-    label: 'CI Workflows',
-    description: 'Argo Workflows runs across namespaces, live from the apiserver.',
+    label: 'Workflows',
+    description:
+      'Argo Workflows — runs, templates and schedules across namespaces, live from the apiserver. CI itself is Tekton, under Platform → CI / CD.',
   },
   pipelines: {
     label: 'Data Pipelines',

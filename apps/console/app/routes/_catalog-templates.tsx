@@ -1187,12 +1187,26 @@ function useRecentTemplates(): readonly string[] {
 
 type WizardStage = 'fields' | 'review' | 'run' | 'success'
 
+/** One real backend step, as reported by the scaffold stream. */
+interface RunStepResult {
+  name: string
+  ok: boolean
+  detail?: string
+  /** When the step landed, for the per-step duration shown in the task list. */
+  at: number
+}
+
 interface ScaffoldRun {
   step: number
   done: boolean
   progress: number
   log: string[]
   startedAt: number
+  /** Steps the server has actually finished, in order. */
+  results: RunStepResult[]
+  /** What is running right now, from the step the server is working toward. */
+  current?: string
+  failed?: boolean
 }
 
 /* ─────────── owner/team source (GET /api/teams) ─────────── */
@@ -1725,60 +1739,147 @@ function runScaffoldReal(
     params: values,
   }
 
-  setRun({ step: 0, done: false, progress: 0, log: ['▶ Scaffolding on the platform…'], startedAt: Date.now() })
-
-  fetch('/api/scaffold', {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify(body),
+  const startedAt = Date.now()
+  setRun({
+    step: 0,
+    done: false,
+    progress: 0,
+    log: ['▶ Scaffolding on the platform…'],
+    startedAt,
+    results: [],
+    current: 'create-repo',
   })
-    .then(async (res) => {
+
+  // The server publishes each step as it genuinely completes, so the task list
+  // advances with the work instead of jumping from empty to finished.
+  const finish = (data: ScaffoldResult | null, lines: string[], failed: boolean) => {
+    setRun((prev) =>
+      prev ? { ...prev, done: true, progress: 1, failed, current: undefined, log: [...prev.log, ...lines] } : prev,
+    )
+    done(data)
+  }
+
+  void (async () => {
+    let res: Response
+    try {
+      res = await fetch('/api/scaffold?stream=1', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+        body: JSON.stringify(body),
+      })
+    } catch (e) {
+      finish(null, [`✗ ${e instanceof Error ? e.message : 'network error'}`], true)
+      return
+    }
+
+    // A proxy that strips the upgrade, or an older server, answers with plain
+    // JSON. Fall back rather than failing — the run still succeeded server-side.
+    if (!res.body || !res.headers.get('content-type')?.includes('text/event-stream')) {
       const data = (await res.json().catch(() => ({}))) as ScaffoldResult & { detail?: string }
-      if (!res.ok || data.ok === false) {
-        const steps = data.steps ?? []
-        setRun((prev) =>
-          prev
-            ? {
-                ...prev,
-                done: true,
-                progress: 1,
-                log: [
-                  ...prev.log,
-                  ...steps.map((s) => `${s.ok ? '✔' : '✗'} ${s.name}${s.detail ? ` — ${s.detail}` : ''}`),
-                  `✗ Scaffold failed: ${data.error ?? data.detail ?? `HTTP ${res.status}`}`,
-                ],
-              }
-            : prev,
-        )
-        done(null)
-        return
-      }
       const steps = data.steps ?? []
-      setRun((prev) =>
-        prev
-          ? {
-              ...prev,
-              done: true,
-              progress: 1,
-              log: [
-                ...prev.log,
-                ...steps.map((s) => `${s.ok ? '✔' : '✗'} ${s.name}${s.detail ? ` — ${s.detail}` : ''}`),
-                `✔ Done — ${data.repoUrl ?? 'repository created'}`,
-              ],
+      const lines = steps.map((s) => `${s.ok ? '✔' : '✗'} ${s.name}${s.detail ? ` — ${s.detail}` : ''}`)
+      if (!res.ok || data.ok === false) {
+        finish(null, [...lines, `✗ Scaffold failed: ${data.error ?? data.detail ?? `HTTP ${res.status}`}`], true)
+      } else {
+        finish(data, [...lines, `✔ Done — ${data.repoUrl ?? 'repository created'}`], false)
+      }
+      return
+    }
+
+    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
+    let buf = ''
+    let settled = false
+    try {
+      for (;;) {
+        const { value, done: streamDone } = await reader.read()
+        if (streamDone) break
+        buf += value
+        let sep: number
+        while ((sep = buf.indexOf('\n\n')) >= 0) {
+          const frame = buf.slice(0, sep)
+          buf = buf.slice(sep + 2)
+          const line = frame.split('\n').find((l) => l.startsWith('data:'))
+          if (!line) continue
+          let ev: {
+            type?: string
+            step?: { name: string; ok: boolean; detail?: string }
+            at?: number
+            ok?: boolean
+            status?: number
+            payload?: ScaffoldResult & { detail?: string }
+          }
+          try {
+            ev = JSON.parse(line.slice(5).trim())
+          } catch {
+            continue
+          }
+
+          if (ev.type === 'step' && ev.step) {
+            const s = ev.step
+            setRun((prev) => {
+              if (!prev) return prev
+              const results = [...prev.results, { ...s, at: ev.at ?? Date.now() }]
+              return {
+                ...prev,
+                results,
+                step: results.length,
+                // Progress tracks completed steps against the template's plan,
+                // capped just short of done so the bar never claims completion
+                // before the server says so.
+                progress: Math.min(0.95, results.length / Math.max(results.length + 1, EXPECTED_STEPS)),
+                current: undefined,
+                failed: prev.failed || !s.ok,
+                log: [...prev.log, `${s.ok ? '✔' : '✗'} ${s.name}${s.detail ? ` — ${s.detail}` : ''}`],
+              }
+            })
+          } else if (ev.type === 'result') {
+            settled = true
+            const data = ev.payload ?? ({} as ScaffoldResult & { detail?: string })
+            if (ev.ok === false || data.ok === false) {
+              finish(null, [`✗ Scaffold failed: ${data.error ?? data.detail ?? `HTTP ${ev.status ?? 500}`}`], true)
+            } else {
+              finish(data, [`✔ Done — ${data.repoUrl ?? 'repository created'}`], false)
             }
-          : prev,
-      )
-      done(data)
-    })
-    .catch((e) => {
-      setRun((prev) =>
-        prev
-          ? { ...prev, done: true, progress: 1, log: [...prev.log, `✗ ${e instanceof Error ? e.message : 'network error'}`] }
-          : prev,
-      )
-      done(null)
-    })
+          }
+        }
+      }
+    } catch (e) {
+      if (!settled) finish(null, [`✗ ${e instanceof Error ? e.message : 'stream error'}`], true)
+      return
+    }
+    // Stream ended without a result event — the connection dropped mid-run.
+    if (!settled) finish(null, ['✗ Connection closed before the scaffold reported a result'], true)
+  })()
+}
+
+/**
+ * How many steps a typical run reports, used only to pace the progress bar
+ * before the total is known. The bar is driven by real completions; this just
+ * stops a four-step run from looking like it stalled at 25%.
+ */
+const EXPECTED_STEPS = 6
+
+/**
+ * Human labels for the steps the scaffolder reports. Anything not listed —
+ * `commit:<path>`, for instance — is rendered from its own name, so a new
+ * server step never shows up as a blank row.
+ */
+const STEP_LABEL: Record<string, { title: string; detail: string }> = {
+  'create-repo': { title: 'Create repository', detail: 'A new Git repository in your organisation' },
+  'render-skeleton': { title: 'Render template', detail: 'Expanding the skeleton with your values' },
+  'catalog-info': { title: 'Register in catalog', detail: 'Committing catalog-info.yaml' },
+  'build-image': { title: 'Configure build', detail: 'kpack Image — buildpacks to container image' },
+  'gitops-app': { title: 'Hand over to GitOps', detail: 'Argo CD Application for continuous delivery' },
+}
+
+function labelFor(name: string): { title: string; detail: string } {
+  const known = STEP_LABEL[name]
+  if (known) return known
+  if (name.startsWith('commit:')) {
+    return { title: 'Commit file', detail: name.slice('commit:'.length) }
+  }
+  return { title: name, detail: '' }
 }
 
 function RunStep({ template, run }: { template: CatalogTemplate; run: ScaffoldRun }) {
@@ -1788,48 +1889,113 @@ function RunStep({ template, run }: { template: CatalogTemplate; run: ScaffoldRu
     if (el) el.scrollTop = el.scrollHeight
   }, [run.log])
 
+  // Elapsed time ticks while the run is in flight, so a slow step is visibly
+  // slow rather than looking like a hang.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (run.done) return
+    const t = setInterval(() => setNow(Date.now()), 250)
+    return () => clearInterval(t)
+  }, [run.done])
+
+  const elapsed = Math.max(0, (run.done ? run.results.at(-1)?.at ?? now : now) - run.startedAt)
+  const doneCount = run.results.length
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-base font-semibold text-content">Scaffolding…</h3>
-        <span className="font-mono text-xs text-content-muted">
-          step {Math.min(run.step + 1, template.actions.length)} of {template.actions.length}
+        <h3 className="text-base font-semibold text-content">
+          {run.done ? (run.failed ? 'Scaffold finished with errors' : 'Scaffold complete') : 'Scaffolding…'}
+        </h3>
+        <span className="font-mono text-xs tabular-nums text-content-muted">
+          {doneCount} step{doneCount === 1 ? '' : 's'} · {(elapsed / 1000).toFixed(1)}s
         </span>
       </div>
+
       <div className="h-2 overflow-hidden rounded-full bg-surface-sunken">
         <div
-          className="h-full rounded-full bg-linear-to-r from-brand-400 to-brand-600 transition-[width]"
-          style={{ width: `${Math.round(run.progress * 100)}%` }}
+          className={cn(
+            'h-full rounded-full transition-[width] duration-500 ease-out',
+            run.failed
+              ? 'bg-linear-to-r from-rose-400 to-rose-600'
+              : 'bg-linear-to-r from-brand-400 to-brand-600',
+            // While work is outstanding the bar carries a moving sheen, so a
+            // long step reads as "still going" rather than "stuck".
+            run.done ? '' : 'adhar-scaffold-pulse',
+          )}
+          style={{ width: `${Math.max(4, Math.round(run.progress * 100))}%` }}
         />
       </div>
+
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <ol className="space-y-2 text-sm">
-          {template.actions.map((a, i) => (
-            <li key={i} className="flex items-start gap-2">
-              {i < run.step ? (
-                <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
-                  <IconCheck />
+        <ol className="space-y-1.5 text-sm">
+          {run.results.map((s, i) => {
+            const { title, detail } = labelFor(s.name)
+            const took = i === 0 ? s.at - run.startedAt : s.at - run.results[i - 1].at
+            return (
+              <li key={`${s.name}-${i}`} className="adhar-scaffold-row flex items-start gap-2">
+                <span
+                  className={cn(
+                    'mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full',
+                    s.ok
+                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300'
+                      : 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300',
+                  )}
+                >
+                  {s.ok ? <IconCheck /> : <span className="text-[11px] font-bold">!</span>}
                 </span>
-              ) : i === run.step ? (
-                <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center">
-                  <Spinner size={14} />
-                </span>
-              ) : (
-                <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface-sunken text-[10px] font-semibold text-content-subtle">
-                  {i + 1}
-                </span>
-              )}
-              <div>
-                <div className={cn(i === run.step ? 'text-content' : 'text-content-muted')}>
-                  {a.title}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-content">{title}</span>
+                    <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums text-content-subtle">
+                      {took >= 0 ? `${(took / 1000).toFixed(1)}s` : ''}
+                    </span>
+                  </div>
+                  {s.detail || detail ? (
+                    <div className="truncate text-[11px] text-content-subtle" title={s.detail || detail}>
+                      {s.detail || detail}
+                    </div>
+                  ) : null}
                 </div>
-                {a.detail ? (
-                  <div className="text-[11px] text-content-subtle">{a.detail}</div>
-                ) : null}
+              </li>
+            )
+          })}
+
+          {/* The step in flight. Only shown while the server has not finished. */}
+          {!run.done ? (
+            <li className="adhar-scaffold-row flex items-start gap-2">
+              <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center">
+                <Spinner size={14} />
+              </span>
+              <div className="min-w-0">
+                <div className="text-content">
+                  {run.results.length === 0 ? 'Create repository' : 'Working…'}
+                </div>
+                <div className="text-[11px] text-content-subtle">
+                  {run.results.length === 0
+                    ? 'A new Git repository in your organisation'
+                    : 'The next step is running on the platform'}
+                </div>
               </div>
             </li>
-          ))}
+          ) : null}
+
+          {/* What the template said it would do, for anything not reached yet. */}
+          {!run.done && template.actions.length > run.results.length + 1
+            ? template.actions.slice(run.results.length + 1).map((a, i) => (
+                <li key={`pending-${i}`} className="flex items-start gap-2 opacity-45">
+                  <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface-sunken text-[10px] font-semibold text-content-subtle">
+                    {run.results.length + i + 2}
+                  </span>
+                  <div>
+                    <div className="text-content-muted">{a.title}</div>
+                    {a.detail ? <div className="text-[11px] text-content-subtle">{a.detail}</div> : null}
+                  </div>
+                </li>
+              ))
+            : null}
         </ol>
+
         <pre
           ref={logRef}
           className="max-h-72 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-3 font-mono text-[11px] leading-relaxed text-slate-100"
@@ -1837,6 +2003,30 @@ function RunStep({ template, run }: { template: CatalogTemplate; run: ScaffoldRu
           {run.log.join('\n')}
         </pre>
       </div>
+
+      <style>
+        {`
+        @keyframes adhar-scaffold-sheen {
+          0%   { background-position: 0% 0; }
+          100% { background-position: 200% 0; }
+        }
+        .adhar-scaffold-pulse {
+          background-image: linear-gradient(90deg,
+            var(--color-brand-400), var(--color-brand-600),
+            var(--color-brand-400), var(--color-brand-600));
+          background-size: 200% 100%;
+          animation: adhar-scaffold-sheen 1.8s linear infinite;
+        }
+        @keyframes adhar-scaffold-in {
+          from { opacity: 0; transform: translateY(-4px); }
+          to   { opacity: 1; transform: none; }
+        }
+        .adhar-scaffold-row { animation: adhar-scaffold-in .28s cubic-bezier(.2,.7,.3,1) backwards; }
+        @media (prefers-reduced-motion: reduce) {
+          .adhar-scaffold-pulse, .adhar-scaffold-row { animation: none !important; }
+        }
+      `}
+      </style>
     </div>
   )
 }

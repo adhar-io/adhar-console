@@ -192,9 +192,9 @@ export function Dashboard() {
           />
           <QuickStartCard
             title="Run"
-            description="CI pipelines + cloud development environments."
+            description="Argo Workflows runs + cloud development environments."
             links={[
-              { label: 'CI Workflows', href: '?workflows' },
+              { label: 'Workflows', href: '?workflows' },
               { label: 'Cloud Envs', href: '?environments' },
             ]}
             tone="violet"

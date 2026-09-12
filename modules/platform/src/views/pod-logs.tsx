@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { Button, Spinner, StatusBadge } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
-import { client, LOCAL_CLUSTER } from '../data/client.ts'
+import { kube } from '@adhar-console/api-clients/k8s'
+import { LOCAL_CLUSTER } from '../data/client.ts'
 import {
   buildMatcher,
   detectSeverity,
@@ -73,23 +73,94 @@ export function PodLogsPanel({
   // nothing live to tail, so following is disabled while it's on.
   const effectiveFollow = follow && !previous
 
-  const q = useQuery({
-    queryKey: ['k8s', 'pod-logs', namespace, podName, container, tailLines, timestamps, previous, sinceSeconds ?? null],
-    queryFn: () =>
-      client.podLogs(LOCAL_CLUSTER, namespace, podName, {
-        container,
-        tailLines,
-        timestamps,
-        sinceSeconds,
-        previous,
-      }),
-    enabled: Boolean(container && podName),
-    refetchInterval: effectiveFollow ? 2_000 : false,
-    refetchOnWindowFocus: effectiveFollow,
-    retry: false,
-  })
+  /**
+   * True log streaming, the same mechanism the pipeline console uses.
+   *
+   * This panel used to refetch the whole tail every two seconds. That has three
+   * problems a real tail does not: new lines appear up to two seconds late, the
+   * entire buffer is re-transferred each tick (expensive on a chatty pod), and
+   * anything that scrolled past `tailLines` between polls is lost forever.
+   * `logStream` holds one `follow` connection open and appends each chunk as
+   * the kubelet emits it, so output arrives as it is written.
+   *
+   * "Previous" reads the last-terminated container, which is a fixed snapshot
+   * with nothing to tail, so it always takes the one-shot path.
+   */
+  const [text, setText] = useState('')
+  const [streaming, setStreaming] = useState(false)
+  const [logError, setLogError] = useState<Error | null>(null)
+  const [loading, setLoading] = useState(false)
+  /** Bumped by Reload to restart the stream without changing any option. */
+  const [reloadNonce, setReloadNonce] = useState(0)
 
-  const text = q.data ?? ''
+  useEffect(() => {
+    if (!container || !podName) return
+    const ctrl = new AbortController()
+    setText('')
+    setLogError(null)
+    setLoading(true)
+    setStreaming(effectiveFollow)
+
+    kube
+      .logStream(
+        namespace,
+        podName,
+        {
+          container,
+          tailLines,
+          timestamps,
+          previous,
+          sinceSeconds,
+          follow: effectiveFollow,
+          cluster: LOCAL_CLUSTER,
+          signal: ctrl.signal,
+        },
+        (chunk) => {
+          setLoading(false)
+          setText((t) => t + chunk)
+        },
+      )
+      .then((full) => {
+        if (ctrl.signal.aborted) return
+        setLoading(false)
+        setStreaming(false)
+        // Non-follow resolves with the whole body and never calls onChunk.
+        setText((t) => (t ? t : full))
+      })
+      .catch((e) => {
+        if (ctrl.signal.aborted) return
+        setLoading(false)
+        setStreaming(false)
+        setLogError(e as Error)
+      })
+
+    return () => ctrl.abort()
+  }, [
+    namespace,
+    podName,
+    container,
+    tailLines,
+    timestamps,
+    previous,
+    sinceSeconds,
+    effectiveFollow,
+    reloadNonce,
+  ])
+
+  // Shaped like the query object the rest of this component already reads, so
+  // the switch from polling to streaming stays local to this block.
+  const q = useMemo(
+    () => ({
+      data: text,
+      isLoading: loading && !text,
+      isError: logError !== null,
+      error: logError,
+      isFetching: streaming || loading,
+      refetch: () => setReloadNonce((n) => n + 1),
+    }),
+    [text, loading, logError, streaming],
+  )
+
   const lines = useMemo(() => (text ? text.replace(/\n$/, '').split('\n') : []), [text])
 
   const matcher = useMemo(

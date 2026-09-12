@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import type { k8s } from '@adhar-console/api-clients'
+import { useLiveRefetch } from '@adhar-console/shell-ui'
 import { client, useActiveCluster, useActiveNamespace, useNamespaceScope } from './client.ts'
 import { useLiveList } from './live.ts'
 import { GVRS } from './gvr.ts'
@@ -57,11 +58,16 @@ export function useApiSurface() {
 export function useNamespaces() {
   const { cluster } = useActiveCluster()
   const scope = useNamespaceScope()
+  const queryKey = ['k8s', 'namespaces', scope, cluster]
   return useQuery({
-    queryKey: ['k8s', 'namespaces', scope, cluster],
+    queryKey,
     queryFn: () => client.listNamespaces(cluster, scope || undefined),
     staleTime: 30_000,
-    refetchInterval: AUTO_REFRESH_MS,
+    refetchInterval: useLiveRefetch(
+      { ...GVRS.namespaces, labelSelector: scope || undefined, cluster },
+      [queryKey],
+      AUTO_REFRESH_MS,
+    ),
   })
 }
 
@@ -97,20 +103,30 @@ export function useDaemonSets(namespace?: string) {
 export function useJobs(namespace?: string) {
   const { cluster } = useActiveCluster()
   const ns = useScopedNamespace(namespace)
+  const queryKey = ['k8s', 'jobs', ns ?? '*', cluster]
   return useQuery({
-    queryKey: ['k8s', 'jobs', ns ?? '*', cluster],
+    queryKey,
     queryFn: () => client.listJobs(cluster, ns),
-    refetchInterval: AUTO_REFRESH_MS,
+    refetchInterval: useLiveRefetch(
+      { ...GVRS.jobs, namespace: ns, cluster },
+      [queryKey],
+      AUTO_REFRESH_MS,
+    ),
   })
 }
 
 export function useCronJobs(namespace?: string) {
   const { cluster } = useActiveCluster()
   const ns = useScopedNamespace(namespace)
+  const queryKey = ['k8s', 'cronjobs', ns ?? '*', cluster]
   return useQuery({
-    queryKey: ['k8s', 'cronjobs', ns ?? '*', cluster],
+    queryKey,
     queryFn: () => client.listCronJobs(cluster, ns),
-    refetchInterval: AUTO_REFRESH_MS,
+    refetchInterval: useLiveRefetch(
+      { ...GVRS.cronjobs, namespace: ns, cluster },
+      [queryKey],
+      AUTO_REFRESH_MS,
+    ),
   })
 }
 
@@ -161,10 +177,15 @@ export function usePersistentVolumes() {
 export function usePersistentVolumeClaims(namespace?: string) {
   const { cluster } = useActiveCluster()
   const ns = useScopedNamespace(namespace)
+  const queryKey = ['k8s', 'pvc', ns ?? '*', cluster]
   return useQuery({
-    queryKey: ['k8s', 'pvc', ns ?? '*', cluster],
+    queryKey,
     queryFn: () => client.listPersistentVolumeClaims(cluster, ns),
-    refetchInterval: AUTO_REFRESH_MS,
+    refetchInterval: useLiveRefetch(
+      { ...GVRS.persistentvolumeclaims, namespace: ns, cluster },
+      [queryKey],
+      AUTO_REFRESH_MS,
+    ),
   })
 }
 
@@ -255,9 +276,17 @@ export function useGeneric(gvr: k8s.GVR, namespace?: string) {
   // to the shared active-namespace selection.
   const active = useScopedNamespace(namespace)
   const ns = gvr.namespaced === false ? namespace : active
+  const queryKey = ['k8s', 'generic', gvr.group, gvr.version, gvr.resource, ns ?? '*', cluster]
   return useQuery({
-    queryKey: ['k8s', 'generic', gvr.group, gvr.version, gvr.resource, ns ?? '*', cluster],
+    queryKey,
     queryFn: () => client.listGeneric(cluster, gvr, ns),
+    // `metrics.k8s.io` serves samples rather than objects and cannot be
+    // watched; everything else gets apiserver push.
+    refetchInterval: useLiveRefetch(
+      gvr.group === 'metrics.k8s.io' ? null : { ...gvr, namespace: ns, cluster },
+      [queryKey],
+      AUTO_REFRESH_MS,
+    ),
   })
 }
 

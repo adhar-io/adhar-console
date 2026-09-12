@@ -7,10 +7,13 @@ import {
   EmptyState,
   Spinner,
   StatusBadge,
+  useToolPublicUrl,
 } from '@adhar-console/shell-ui'
+import { cn } from '@adhar-console/utils'
 import type { metabase } from '@adhar-console/api-clients'
 import { useDatabases, useRunQuery } from '../data/bi.ts'
 import { MetabaseUnavailable } from './bi-states.tsx'
+import { CodeEditor } from '../components/code-editor.tsx'
 
 /**
  * Schema-agnostic starter queries. These use ANSI `information_schema`
@@ -44,6 +47,70 @@ const DEFAULT_SQL = STARTER_QUERIES[0].sql
  * Native SQL workbench — pick a database, write a query, run it, and
  * inspect the result table. Supports a sample-query gallery to bootstrap.
  */
+/**
+ * LibreDB Studio — the platform's full database IDE.
+ *
+ * Studio is a separate first-party app on `libredb.<domain>` with its own
+ * Keycloak sign-in and connections pre-provisioned to every platform database,
+ * so it opens straight onto real data. It is deliberately opened in a new tab
+ * rather than embedded: Studio sends `frame-ancestors 'none'` and
+ * `X-Frame-Options: DENY`, and every route redirects to its own login, so an
+ * iframe would render nothing. Framing it would mean overriding those headers
+ * at the Gateway, which is a security decision for the platform to make rather
+ * than something the console should quietly work around.
+ */
+function StudioBanner({ compact = false }: { compact?: boolean }) {
+  const studio = useToolPublicUrl('libredb')
+  if (!studio) return null
+  return (
+    <div
+      className={cn(
+        'flex flex-wrap items-center gap-3 rounded-xl border border-edge-default bg-linear-to-br from-brand-50/70 to-surface-raised p-3 dark:from-brand-500/10',
+        compact ? '' : 'shadow-sm',
+      )}
+    >
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-500/12 text-brand-700 dark:text-brand-300">
+        <IconDatabase />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-semibold text-content">LibreDB Studio</div>
+        <p className="text-[12px] text-content-muted">
+          The full database client — schema browser, saved queries, history and multi-engine
+          connections to every platform database. Signs in with the same account.
+        </p>
+      </div>
+      <a
+        href={studio}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="shrink-0 rounded-lg border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content transition-colors hover:border-brand-400 hover:text-brand-700 dark:hover:text-brand-300"
+      >
+        Open Studio ↗
+      </a>
+    </div>
+  )
+}
+
+function IconDatabase() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <ellipse cx="12" cy="5" rx="8" ry="3" />
+      <path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5" />
+      <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
+    </svg>
+  )
+}
+
 export function SqlEditor() {
   const databases = useDatabases()
   const [databaseId, setDatabaseId] = useState<number | null>(null)
@@ -79,27 +146,37 @@ export function SqlEditor() {
       </div>
     )
   }
+  // Metabase backs the in-console query box, but Studio is the full client and
+  // does not depend on Metabase at all — so it stays offered in every state
+  // rather than leaving the page a dead end when Metabase is unreachable.
   if (databases.isError) {
     return (
-      <MetabaseUnavailable
-        resource="databases"
-        error={databases.error}
-        onRetry={() => databases.refetch()}
-        retrying={databases.isFetching}
-      />
+      <div className="space-y-3">
+        <StudioBanner />
+        <MetabaseUnavailable
+          resource="databases"
+          error={databases.error}
+          onRetry={() => databases.refetch()}
+          retrying={databases.isFetching}
+        />
+      </div>
     )
   }
   if ((databases.data ?? []).length === 0) {
     return (
-      <EmptyState
-        title="No databases connected"
-        description="Register a database in Metabase to run native SQL against it here."
-      />
+      <div className="space-y-3">
+        <StudioBanner />
+        <EmptyState
+          title="No databases connected to Metabase"
+          description="The in-console query box runs through Metabase. Register a database there, or use LibreDB Studio above, which already has connections to every platform database."
+        />
+      </div>
     )
   }
 
   return (
     <div className="space-y-3">
+      <StudioBanner compact />
       <header className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-surface-raised p-2 shadow-sm">
         <select
           value={databaseId ?? ''}
@@ -149,11 +226,17 @@ export function SqlEditor() {
             <div className="text-[11px] text-content-subtle">Native SQL · {databases.data?.find((d) => d.id === databaseId)?.engine ?? '—'}</div>
           </CardHeader>
           <CardBody className="p-0!">
-            <textarea
+            {/* A real editor, not a textarea: SQL highlighting, bracket
+                matching, find and replace, multi-cursor and fullscreen. */}
+            <CodeEditor
               value={sql}
-              onChange={(e) => setSql(e.target.value)}
-              spellCheck={false}
-              className="block h-[60vh] w-full resize-none rounded-b-xl border-0 bg-slate-950 p-4 font-mono text-[12px] leading-relaxed text-slate-100 focus:outline-none"
+              language="sql"
+              readOnly={false}
+              onChange={setSql}
+              onSave={onRun}
+              hideToolbar
+              height={Math.round(globalThis.innerHeight * 0.6)}
+              className="rounded-none border-0"
             />
           </CardBody>
         </Card>

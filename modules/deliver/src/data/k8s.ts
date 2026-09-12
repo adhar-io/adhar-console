@@ -1,5 +1,6 @@
 import { k8s } from '@adhar-console/api-clients'
 import { useQuery } from '@tanstack/react-query'
+import { useLiveRefetch } from '@adhar-console/shell-ui'
 
 /**
  * K8s client for the Deliver module.
@@ -18,12 +19,19 @@ const REFRESH_MS = 10_000
 
 type GVR = k8s.GVR
 
+/**
+ * A CRD list kept current by the apiserver watch on that resource. The
+ * `refetchInterval` is the fallback for a dropped socket; while the socket is
+ * up the list updates on the change itself, which is what makes a PipelineRun
+ * or a Rollout appear to move in real time.
+ */
 export function useCRD(gvr: GVR, namespace?: string, enabled = true) {
+  const queryKey = ['deliver', gvr.group, gvr.version, gvr.resource, namespace ?? '*']
   return useQuery({
-    queryKey: ['deliver', gvr.group, gvr.version, gvr.resource, namespace ?? '*'],
+    queryKey,
     queryFn: () => client.listGeneric(undefined, gvr, namespace),
     enabled,
-    refetchInterval: REFRESH_MS,
+    refetchInterval: useLiveRefetch({ ...gvr, namespace }, [queryKey], REFRESH_MS, enabled),
     retry: false,
   })
 }

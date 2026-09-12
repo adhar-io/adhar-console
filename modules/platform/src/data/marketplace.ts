@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { k8s } from '@adhar-console/api-clients'
-import { notifyUnauthorized } from '@adhar-console/shell-ui'
+import { notifyUnauthorized, useLiveRefetch } from '@adhar-console/shell-ui'
 import { client, useActiveCluster } from './client.ts'
 
 /**
@@ -1508,11 +1508,16 @@ export function useMarketplaceApps() {
     retry: false,
   })
 
+  const appsKey = ['marketplace', 'argo-apps', cluster]
   const appsQ = useQuery({
-    queryKey: ['marketplace', 'argo-apps', cluster],
+    queryKey: appsKey,
     queryFn: () =>
       client.listGeneric(cluster, APPLICATIONS_GVR, APPSET_NAMESPACE) as Promise<RawApplication[]>,
-    refetchInterval: 10_000,
+    refetchInterval: useLiveRefetch(
+      { ...APPLICATIONS_GVR, namespace: APPSET_NAMESPACE, cluster },
+      [appsKey],
+      10_000,
+    ),
     retry: false,
   })
 

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { coder } from '@adhar-console/api-clients'
-import { toPublicUrl, useOptionalUser, usePublicBaseDomain, useToolPublicUrl } from '@adhar-console/shell-ui'
+import { toPublicUrl, useLiveToolPoll, useOptionalUser, usePublicBaseDomain, useToolPublicUrl } from '@adhar-console/shell-ui'
 
 /**
  * Coder hooks for cloud development environments.
@@ -65,29 +65,49 @@ export function useTemplateParameters(versionId?: string) {
   })
 }
 
+/**
+ * Coder has no watch endpoint, so "live" here means the BFF does the polling
+ * and pushes only on an actual change — one upstream poll shared by every open
+ * tab instead of one per tab, and no browser timer while the socket is up.
+ */
 export function useWorkspaces() {
+  const queryKey = ['coder', 'workspaces']
   return useQuery({
-    queryKey: ['coder', 'workspaces'],
+    queryKey,
     queryFn: () => coderClient.listWorkspaces(),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: useLiveToolPoll('coder', '/api/v2/workspaces?limit=200', REFRESH_MS, [queryKey]),
   })
 }
 
 export function useWorkspace(id?: string) {
+  const queryKey = ['coder', 'workspace', id]
   return useQuery({
-    queryKey: ['coder', 'workspace', id],
+    queryKey,
     queryFn: () => coderClient.getWorkspace(id!),
     enabled: !!id,
-    refetchInterval: REFRESH_MS,
+    refetchInterval: useLiveToolPoll(
+      'coder',
+      `/api/v2/workspaces/${id ?? ''}`,
+      REFRESH_MS,
+      [queryKey],
+      { enabled: !!id },
+    ),
   })
 }
 
 export function useBuilds(workspaceId?: string) {
+  const queryKey = ['coder', 'builds', workspaceId]
   return useQuery({
-    queryKey: ['coder', 'builds', workspaceId],
+    queryKey,
     queryFn: () => coderClient.listBuilds(workspaceId!, 20),
     enabled: !!workspaceId,
-    refetchInterval: REFRESH_MS,
+    refetchInterval: useLiveToolPoll(
+      'coder',
+      `/api/v2/workspaces/${workspaceId ?? ''}/builds?limit=20`,
+      REFRESH_MS,
+      [queryKey],
+      { enabled: !!workspaceId },
+    ),
   })
 }
 

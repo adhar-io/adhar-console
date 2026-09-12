@@ -124,6 +124,48 @@ export async function handleLive(req: Request): Promise<Response> {
 
 /* ─────────── k8s: list + watch with the user's token ─────────── */
 
+/**
+ * Shared apiserver watches.
+ *
+ * Every component that wants live data subscribes to the GVR it cares about,
+ * and a busy page can easily ask for the same one a dozen times — the overview
+ * alone reads pods, deployments and events from several panels at once. One
+ * apiserver watch per *subscription* would multiply that across every open tab
+ * and is what makes a push architecture fall over under load.
+ *
+ * So identical subscriptions share a single upstream watch, exactly as the
+ * `poll` topic already shares its upstream fetches. The watcher keeps the
+ * current object set in memory, which means a late joiner is served a `resync`
+ * from cache **immediately** rather than waiting on a fresh list — the reason
+ * a second panel opening the same resource now renders instantly.
+ *
+ * The cache key includes the user id: two users have different RBAC, and a
+ * shared watch must never hand one user objects the apiserver would have
+ * refused them.
+ */
+interface K8sWatcher {
+  subscribers: Set<(m: Json) => void>
+  /** Current object set, keyed by uid (or namespace/name), for instant resync. */
+  items: Map<string, unknown>
+  resourceVersion: string
+  /** True once the first list has landed — before that there is nothing to replay. */
+  ready: boolean
+  /** Sticky fatal error (401/403/404): replayed to late joiners instead of a resync. */
+  fatal?: Json
+  stop(): void
+}
+
+const k8sWatchers = new Map<string, K8sWatcher>()
+
+interface KubeObj {
+  metadata?: { uid?: string; namespace?: string; name?: string; resourceVersion?: string }
+  code?: number
+}
+
+function objKey(o: KubeObj): string {
+  return o.metadata?.uid ?? `${o.metadata?.namespace ?? ''}/${o.metadata?.name ?? ''}`
+}
+
 function watchK8s(sid: string, id: K8sIdentity, params: Json, send: (m: Json) => void): SubHandle {
   const group = String(params.group ?? '')
   const version = String(params.version ?? 'v1')
@@ -141,77 +183,156 @@ function watchK8s(sid: string, id: K8sIdentity, params: Json, send: (m: Json) =>
   if (labelSelector) base.set('labelSelector', labelSelector)
   if (fieldSelector) base.set('fieldSelector', fieldSelector)
 
-  const ac = new AbortController()
-  let stopped = false
-  ;(async () => {
-    let backoff = 1000
-    while (!stopped) {
-      try {
-        // 1. list → resync snapshot
-        const lq = new URLSearchParams(base)
-        lq.set('limit', '2000')
-        const list = await apiServerFetch(id, path, { search: `?${lq}`, signal: ac.signal, cluster })
-        if (!list.ok) {
-          const body = await list.text().catch(() => '')
-          send({ op: 'error', id: sid, status: list.status, message: body.slice(0, 300) || `list failed (${list.status})` })
-          if (list.status === 401 || list.status === 403 || list.status === 404) return
-          throw new Error(`list ${list.status}`)
-        }
-        const body = (await list.json()) as { items?: unknown[]; metadata?: { resourceVersion?: string } }
-        let rv = body.metadata?.resourceVersion ?? ''
-        send({ op: 'resync', id: sid, items: body.items ?? [], resourceVersion: rv })
-        backoff = 1000
+  const key = `${id.user.id}|${cluster ?? ''}|${path}|${labelSelector}|${fieldSelector}`
+  const deliver = (m: Json) => send({ ...m, id: sid })
 
-        // 2. watch from that resourceVersion
-        const wq = new URLSearchParams(base)
-        wq.set('watch', '1')
-        wq.set('allowWatchBookmarks', 'true')
-        if (rv) wq.set('resourceVersion', rv)
-        const res = await apiServerFetch(id, path, { search: `?${wq}`, signal: ac.signal, cluster })
-        if (!res.ok || !res.body) {
-          if (res.status === 410) continue // relist
-          throw new Error(`watch ${res.status}`)
-        }
-        const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
-        let buf = ''
-        for (;;) {
-          const { value, done } = await reader.read()
-          if (done || stopped) break
-          buf += value
-          let nl: number
-          while ((nl = buf.indexOf('\n')) >= 0) {
-            const line = buf.slice(0, nl).trim()
-            buf = buf.slice(nl + 1)
-            if (!line) continue
-            let ev: { type?: string; object?: { metadata?: { resourceVersion?: string }; code?: number } }
-            try {
-              ev = JSON.parse(line)
-            } catch {
-              continue
+  let watcher = k8sWatchers.get(key)
+  if (!watcher) {
+    const ac = new AbortController()
+    let stopped = false
+    const w: K8sWatcher = {
+      subscribers: new Set(),
+      items: new Map(),
+      resourceVersion: '',
+      ready: false,
+      stop() {
+        stopped = true
+        ac.abort()
+        k8sWatchers.delete(key)
+      },
+    }
+    const fanout = (m: Json) => {
+      for (const s of w.subscribers) s(m)
+    }
+
+    // Register this subscriber BEFORE the watch loop starts. The loop's first
+    // action is an awaited fetch, so in practice registration always wins — but
+    // relying on that is relying on an implementation detail of when a promise
+    // yields. Doing it in this order means the opening `resync` cannot be
+    // fanned out to an empty subscriber set and lost.
+    w.subscribers.add(deliver)
+    k8sWatchers.set(key, w)
+
+    ;(async () => {
+      let backoff = 1000
+      while (!stopped) {
+        try {
+          // 1. list → resync snapshot
+          const lq = new URLSearchParams(base)
+          lq.set('limit', '2000')
+          const list = await apiServerFetch(id, path, { search: `?${lq}`, signal: ac.signal, cluster })
+          if (!list.ok) {
+            const body = await list.text().catch(() => '')
+            const msg: Json = {
+              op: 'error',
+              status: list.status,
+              message: body.slice(0, 300) || `list failed (${list.status})`,
             }
-            if (ev.type === 'ERROR') {
-              if (ev.object?.code === 410) rv = ''
-              throw new Error('watch stream error')
+            // 401/403/404 will not fix themselves by retrying: the user lacks
+            // access, or the CRD is not installed. Remember it so later
+            // subscribers get the same honest answer without another round trip.
+            if (list.status === 401 || list.status === 403 || list.status === 404) {
+              w.fatal = msg
+              w.ready = true
+              fanout(msg)
+              return
             }
-            if (ev.object?.metadata?.resourceVersion) rv = ev.object.metadata.resourceVersion
-            if (ev.type === 'BOOKMARK') continue
-            send({ op: 'event', id: sid, type: ev.type, object: ev.object })
+            fanout(msg)
+            throw new Error(`list ${list.status}`)
           }
+          const body = (await list.json()) as { items?: KubeObj[]; metadata?: { resourceVersion?: string } }
+          const items = body.items ?? []
+          w.items = new Map(items.map((it) => [objKey(it), it]))
+          w.resourceVersion = body.metadata?.resourceVersion ?? ''
+          w.ready = true
+          w.fatal = undefined
+          fanout({ op: 'resync', items, resourceVersion: w.resourceVersion })
+          backoff = 1000
+
+          // 2. watch from that resourceVersion
+          const wq = new URLSearchParams(base)
+          wq.set('watch', '1')
+          wq.set('allowWatchBookmarks', 'true')
+          if (w.resourceVersion) wq.set('resourceVersion', w.resourceVersion)
+          const res = await apiServerFetch(id, path, { search: `?${wq}`, signal: ac.signal, cluster })
+          if (!res.ok || !res.body) {
+            if (res.status === 410) continue // relist
+            throw new Error(`watch ${res.status}`)
+          }
+          const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
+          let buf = ''
+          for (;;) {
+            const { value, done } = await reader.read()
+            if (done || stopped) break
+            buf += value
+            let nl: number
+            while ((nl = buf.indexOf('\n')) >= 0) {
+              const line = buf.slice(0, nl).trim()
+              buf = buf.slice(nl + 1)
+              if (!line) continue
+              let ev: { type?: string; object?: KubeObj }
+              try {
+                ev = JSON.parse(line)
+              } catch {
+                continue
+              }
+              if (ev.type === 'ERROR') {
+                if (ev.object?.code === 410) w.resourceVersion = ''
+                throw new Error('watch stream error')
+              }
+              if (ev.object?.metadata?.resourceVersion) {
+                w.resourceVersion = ev.object.metadata.resourceVersion
+              }
+              if (ev.type === 'BOOKMARK') continue
+              // Keep the shared snapshot current so the next subscriber to
+              // arrive sees the same state this one just saw.
+              if (ev.object) {
+                const k = objKey(ev.object)
+                if (ev.type === 'DELETED') w.items.delete(k)
+                else w.items.set(k, ev.object)
+              }
+              fanout({ op: 'event', type: ev.type, object: ev.object })
+            }
+          }
+          // clean close (server timeout) → loop relists immediately
+        } catch (e) {
+          if (stopped || ac.signal.aborted) return
+          fanout({
+            op: 'status',
+            state: 'reconnecting',
+            message: e instanceof Error ? e.message : String(e),
+          })
+          await new Promise((r) => setTimeout(r, backoff))
+          backoff = Math.min(backoff * 2, 15_000)
         }
-        // clean close (server timeout) → loop relists immediately
-      } catch (e) {
-        if (stopped || ac.signal.aborted) return
-        send({ op: 'status', id: sid, state: 'reconnecting', message: e instanceof Error ? e.message : String(e) })
-        await new Promise((r) => setTimeout(r, backoff))
-        backoff = Math.min(backoff * 2, 15_000)
+      }
+    })()
+
+    watcher = w
+  } else {
+    // Joining a watch that already exists.
+    watcher.subscribers.add(deliver)
+    if (watcher.ready) {
+      // Replay the cached state straight away, so a panel opening onto an
+      // already-watched resource paints with no round trip at all.
+      if (watcher.fatal) deliver(watcher.fatal)
+      else {
+        deliver({
+          op: 'resync',
+          items: Array.from(watcher.items.values()),
+          resourceVersion: watcher.resourceVersion,
+        })
       }
     }
-  })()
+    // Not ready yet: the in-flight list's `resync` will fan out to this
+    // subscriber along with everyone else.
+  }
 
+  const w = watcher
   return {
     stop() {
-      stopped = true
-      ac.abort()
+      w.subscribers.delete(deliver)
+      if (w.subscribers.size === 0) w.stop()
     },
   }
 }
@@ -345,8 +466,10 @@ function watchNotifications(sid: string, tenant: string, userId: string, send: (
 }
 
 /** Exposed for diagnostics (`/api/live` is WS-only; this reports hub load). */
-export function liveStats(): { pollers: number } {
-  return { pollers: pollers.size }
+export function liveStats(): { pollers: number; watches: number; watchSubscribers: number } {
+  let watchSubscribers = 0
+  for (const w of k8sWatchers.values()) watchSubscribers += w.subscribers.size
+  return { pollers: pollers.size, watches: k8sWatchers.size, watchSubscribers }
 }
 
 // Keep `env` referenced for future tunables without unused-import churn.

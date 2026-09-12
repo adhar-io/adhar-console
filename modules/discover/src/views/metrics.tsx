@@ -17,6 +17,7 @@ import {
   seriesToPoints,
   TIME_RANGES,
   useMetrics,
+  useTelemetrySources,
   type TimeRangeId,
 } from '../data/observability.ts'
 import { SourceError } from './states.tsx'
@@ -43,22 +44,83 @@ const QUICK_PANELS: Array<{
  * groups results by `metric.service` and renders a per-series area chart
  * with a max value pill.
  */
+/** Panels that need HTTP telemetry; saturation panels work from cAdvisor alone. */
+const HTTP_PANEL_IDS = new Set(['rps', 'errors', 'latency'])
+
 export function Metrics() {
   const [range, setRange] = useState<TimeRangeId>(DEFAULT_RANGE)
   const [query, setQuery] = useState('')
+  const sources = useTelemetrySources()
+
+  const httpSources = sources.data ?? []
+  // Only claim "no source" once the probe has actually answered — while it is
+  // loading, an empty list would wrongly accuse the cluster.
+  const noHttpSource = sources.isSuccess && httpSources.length === 0
 
   return (
     <div className="space-y-4">
       <Toolbar range={range} onRange={setRange} query={query} onQuery={setQuery} />
+
+      {/* What is feeding the golden signals. An empty request-rate chart means
+          something entirely different depending on whether anything on the
+          cluster reports HTTP metrics at all, so the page says which. */}
+      {!query.trim() ? (
+        <TelemetryBanner sources={httpSources} none={noHttpSource} loading={sources.isLoading} />
+      ) : null}
+
       {query.trim() ? (
         <CustomPanel query={query} range={range} />
       ) : (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {QUICK_PANELS.map((p) => (
-            <MetricPanel key={p.id} panel={p} range={range} />
+            <MetricPanel
+              key={p.id}
+              panel={p}
+              range={range}
+              unavailable={noHttpSource && HTTP_PANEL_IDS.has(p.id)}
+            />
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function TelemetryBanner({
+  sources,
+  none,
+  loading,
+}: {
+  sources: Array<{ metric: string; label: string; hint: string }>
+  none: boolean
+  loading: boolean
+}) {
+  if (loading) return null
+  if (none) {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-[12px] leading-relaxed text-amber-900 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200">
+        <span className="font-semibold">No HTTP telemetry is being scraped.</span> Prometheus has
+        none of the request metric families this page reads, so request rate, error rate and latency
+        have nothing to draw — that is not the same as zero traffic. Scrape an ingress controller or
+        service mesh, or instrument your services with a Prometheus client library. Saturation
+        panels below use cAdvisor and work regardless.
+      </div>
+    )
+  }
+  if (!sources.length) return null
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-content-muted">
+      <span className="font-medium text-content-subtle">Request metrics from</span>
+      {sources.map((s) => (
+        <span
+          key={s.metric}
+          title={`${s.metric} — ${s.hint}`}
+          className="inline-flex items-center gap-1 rounded-md bg-surface-sunken px-1.5 py-0.5 font-medium text-content"
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          {s.label}
+        </span>
+      ))}
     </div>
   )
 }
@@ -133,9 +195,12 @@ function RangeSelect({
 function MetricPanel({
   panel,
   range,
+  unavailable = false,
 }: {
   panel: typeof QUICK_PANELS[number]
   range: TimeRangeId
+  /** No source on this cluster reports the metric family this panel needs. */
+  unavailable?: boolean
 }) {
   const q = useMetrics(panel.query, range)
   const series = q.data ?? []
@@ -160,7 +225,17 @@ function MetricPanel({
         ) : q.isError ? (
           <SourceError compact tool="Prometheus" error={q.error} onRetry={() => q.refetch()} icon={<PrometheusIcon size={20} />} />
         ) : series.length === 0 ? (
-          <EmptyState compact title="No data" />
+          // "No data" is ambiguous and, for a golden signal, misleading — it
+          // reads as "no traffic". Say which of the two it is.
+          <EmptyState
+            compact
+            title={unavailable ? 'No source for this metric' : 'No data in this range'}
+            description={
+              unavailable
+                ? 'Nothing on this cluster reports the request metrics this panel needs.'
+                : undefined
+            }
+          />
         ) : (
           <SeriesGrid series={series} color={panel.color} unit={panel.unit} />
         )}

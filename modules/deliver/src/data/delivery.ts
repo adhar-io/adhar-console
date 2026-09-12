@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { argocd, argoRollouts, falco, harbor, kargo, trivy } from '@adhar-console/api-clients'
-import { useArgocdProject, useHarborProject, useLiveInvalidate, usePollingInterval } from '@adhar-console/shell-ui'
+import { argocd, argoRollouts, falco, harbor, k8s, kargo, nexus, trivy } from '@adhar-console/api-clients'
+import { useArgocdProject, useHarborProject, useLiveInvalidate, useLiveToolPoll, usePollingInterval } from '@adhar-console/shell-ui'
 import {
   deleteApplication,
   fetchManagedResources,
@@ -36,6 +36,9 @@ export const rolloutsClient = argoRollouts.ArgoRolloutsClient.auto({ tool: 'argo
 export const harborClient = harbor.HarborClient.auto({ tool: 'harbor' })
 export const trivyClient = trivy.TrivyClient.auto({ tool: 'trivy' })
 export const falcoClient = falco.FalcoClient.auto({ tool: 'falco' })
+export const nexusClient = nexus.NexusClient.auto({ tool: 'nexus' })
+/** Kubernetes reads — admission policies live as CRDs, not in any registry API. */
+export const k8sClient = k8s.K8sClient.auto()
 
 /**
  * Argo CD project the platform's Applications (and, per-install, the matching
@@ -356,6 +359,188 @@ export function useRegistryHost() {
   return useQuery({ queryKey: ['harbor', 'host'], queryFn: () => harborClient.registryHost(), staleTime: Infinity })
 }
 
+/* ─────────── Harbor: instance + supply chain ─────────── */
+
+/** Instance-wide counters. Harbor has no watch, so the BFF does the polling. */
+export function useHarborStatistics() {
+  const queryKey = ['harbor', 'statistics']
+  return useQuery({
+    queryKey,
+    queryFn: () => harborClient.statistics(),
+    retry: false,
+    refetchInterval: useLiveToolPoll('harbor', '/api/v2.0/statistics', 30_000, [queryKey]),
+  })
+}
+
+/** Harbor component health (core, database, jobservice, registry, …). */
+export function useHarborHealth() {
+  const queryKey = ['harbor', 'health']
+  return useQuery({
+    queryKey,
+    queryFn: () => harborClient.health(),
+    retry: false,
+    refetchInterval: useLiveToolPoll('harbor', '/api/v2.0/health', 30_000, [queryKey]),
+  })
+}
+
+export function useHarborSystemInfo() {
+  return useQuery({ queryKey: ['harbor', 'systeminfo'], queryFn: () => harborClient.systemInfo(), staleTime: 5 * 60_000, retry: false })
+}
+
+/**
+ * Registered scanner adapters.
+ *
+ * The **empty** answer is the one that matters: with no scanner registered,
+ * Harbor cannot produce scan results, SBOMs or fixable-CVE counts for any
+ * artifact — so "no findings" must never be rendered as "no vulnerabilities".
+ * The query is kept separate from the artifact list precisely so the UI can
+ * distinguish the two.
+ */
+export function useHarborScanners() {
+  const queryKey = ['harbor', 'scanners']
+  return useQuery({
+    queryKey,
+    queryFn: () => harborClient.scanners(),
+    staleTime: 5 * 60_000,
+    retry: false,
+    refetchInterval: useLiveToolPoll('harbor', '/api/v2.0/scanners', 60_000, [queryKey]),
+  })
+}
+
+/** `docker history` for one artifact — the only in-registry build provenance Harbor keeps. */
+export function useArtifactBuildHistory(repo?: string, ref?: string, enabled = true) {
+  const fallback = useHarborProject()
+  const { project, path } = splitRepo(repo ?? '', fallback)
+  return useQuery({
+    queryKey: ['harbor', 'build-history', project, path, ref],
+    queryFn: () => harborClient.buildHistory(project, path, ref!),
+    enabled: enabled && !!repo && !!ref,
+    retry: false,
+    staleTime: 5 * 60_000,
+  })
+}
+
+/** SBOM document for one artifact. Resolves to `null` when Harbor has none. */
+export function useArtifactSbom(repo?: string, ref?: string, enabled = true) {
+  const fallback = useHarborProject()
+  const { project, path } = splitRepo(repo ?? '', fallback)
+  return useQuery({
+    queryKey: ['harbor', 'sbom', project, path, ref],
+    queryFn: () => harborClient.sbom(project, path, ref!),
+    enabled: enabled && !!repo && !!ref,
+    retry: false,
+    staleTime: 5 * 60_000,
+  })
+}
+
+/* ─────────── Admission policy (cluster-side supply chain) ─────────── */
+
+const SIGSTORE_POLICIES: k8s.GVR = {
+  group: 'policy.sigstore.dev',
+  version: 'v1beta1',
+  resource: 'clusterimagepolicies',
+  namespaced: false,
+}
+const KYVERNO_IVPOLICIES: k8s.GVR = {
+  group: 'policies.kyverno.io',
+  version: 'v1alpha1',
+  resource: 'imagevalidatingpolicies',
+  namespaced: false,
+}
+
+/** What a missing CRD means — "not installed" is not an error and not "no policies". */
+export type PolicyAvailability = 'present' | 'not-installed' | 'error'
+
+export interface AdmissionPolicies {
+  sigstore: { availability: PolicyAvailability; items: k8s.Generic[] }
+  kyverno: { availability: PolicyAvailability; items: k8s.Generic[] }
+}
+
+async function listPolicies(gvr: k8s.GVR): Promise<{ availability: PolicyAvailability; items: k8s.Generic[] }> {
+  try {
+    return { availability: 'present', items: await k8sClient.listGeneric(undefined, gvr) }
+  } catch (e) {
+    // 404 = the CRD is not registered on this cluster. That is a configuration
+    // fact ("the admission controller isn't installed"), not a failure, and the
+    // two must not look the same to the reader.
+    const status = (e as { status?: number }).status
+    return { availability: status === 404 || status === 403 ? 'not-installed' : 'error', items: [] }
+  }
+}
+
+/**
+ * Image-admission policies that would gate a pulled image: Sigstore policy
+ * controller `ClusterImagePolicy` and Kyverno `ImageValidatingPolicy`. Both are
+ * optional CRDs, so each reports its own availability rather than collapsing
+ * "absent" into "none found".
+ */
+export function useAdmissionImagePolicies() {
+  return useQuery<AdmissionPolicies>({
+    queryKey: ['supply-chain', 'admission-image-policies'],
+    queryFn: async () => {
+      const [sigstore, kyverno] = await Promise.all([listPolicies(SIGSTORE_POLICIES), listPolicies(KYVERNO_IVPOLICIES)])
+      return { sigstore, kyverno }
+    },
+    staleTime: 60_000,
+    retry: false,
+  })
+}
+
+/* ─────────── Nexus ─────────── */
+
+export function useNexusRepositories() {
+  const queryKey = ['nexus', 'repositories']
+  return useQuery({
+    queryKey,
+    queryFn: () => nexusClient.listRepositories(),
+    retry: false,
+    refetchInterval: useLiveToolPoll('nexus', '/service/rest/v1/repositories', 60_000, [queryKey]),
+  })
+}
+
+export function useNexusStatus() {
+  const queryKey = ['nexus', 'status']
+  return useQuery({
+    queryKey,
+    queryFn: () => nexusClient.statusCheck(),
+    retry: false,
+    refetchInterval: useLiveToolPoll('nexus', '/service/rest/v1/status/check', 30_000, [queryKey]),
+  })
+}
+
+/**
+ * Components of one Nexus repository, or a keyword search across the instance.
+ * Nexus pages by continuation token; the first two pages are enough for a
+ * browsing UI and the hook reports whether more remain rather than pretending
+ * the list is complete.
+ */
+export function useNexusComponents(repository?: string, q?: string) {
+  return useQuery({
+    queryKey: ['nexus', 'components', repository ?? '*', q ?? ''],
+    queryFn: async () => {
+      const query = q?.trim()
+      const first = query
+        ? await nexusClient.search({ repository, q: query })
+        : await nexusClient.listComponents(repository!)
+      let items = first.items
+      let token = first.continuationToken
+      let pages = 1
+      while (token && pages < 3) {
+        const next = query
+          ? await nexusClient.search({ repository, q: query, continuationToken: token })
+          : await nexusClient.listComponents(repository!, token)
+        items = items.concat(next.items)
+        token = next.continuationToken
+        pages++
+      }
+      return { items, truncated: Boolean(token) }
+    },
+    enabled: !!repository || !!q?.trim(),
+    retry: false,
+    staleTime: 30_000,
+  })
+}
+
 /* ─────────── Trivy ─────────── */
 
 export function useScans(filter?: { target?: trivy.ScanTarget; namespace?: string }) {
@@ -363,7 +548,9 @@ export function useScans(filter?: { target?: trivy.ScanTarget; namespace?: strin
   return useQuery({
     queryKey: ['trivy', 'reports', filter?.target ?? 'all', filter?.namespace ?? 'all'],
     queryFn: () => trivyClient.listReports(filter),
-    refetchInterval: 60_000,
+    // Reports are CRDs and the watch above already pushes on change, so the
+    // minute-long timer is only needed when the socket is down.
+    refetchInterval: usePollingInterval(60_000),
   })
 }
 
@@ -385,11 +572,22 @@ export function useRescan() {
 
 /* ─────────── Falco ─────────── */
 
+/**
+ * Falco has no watch API, so the BFF does the polling and only notifies when
+ * the event list actually changes — which for a security feed is most of the
+ * time quiet, and exactly when it is not quiet you want it immediately.
+ */
 export function useFalcoEvents(filter?: { priority?: falco.FalcoPriority; sinceMs?: number }) {
+  const queryKey = ['falco', 'events', filter?.priority ?? 'all', filter?.sinceMs ?? 0]
   return useQuery({
-    queryKey: ['falco', 'events', filter?.priority ?? 'all', filter?.sinceMs ?? 0],
+    queryKey,
     queryFn: () => falcoClient.listEvents(filter),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: useLiveToolPoll(
+      'falco',
+      `/api/v1/falco/events${filter?.priority ? `?priority=${encodeURIComponent(filter.priority)}` : ''}`,
+      REFRESH_MS,
+      [queryKey],
+    ),
   })
 }
 

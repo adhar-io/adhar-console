@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { argocd, k8s } from '@adhar-console/api-clients'
+import { useLiveRefetch } from '@adhar-console/shell-ui'
 
 /**
  * Platform-signal hooks for the Overview page — REAL data, no stubs / no
@@ -39,13 +40,34 @@ const GVR = {
   resourceQuotas: { group: '', version: 'v1', resource: 'resourcequotas', namespaced: true },
   endpoints: { group: '', version: 'v1', resource: 'endpoints', namespaced: true },
   certificates: { group: 'cert-manager.io', version: 'v1', resource: 'certificates', namespaced: true },
+  // Core resources the typed client methods below read. Declared here too so
+  // each one can name the apiserver resource it should be watching.
+  nodes: { group: '', version: 'v1', resource: 'nodes', namespaced: false },
+  pods: { group: '', version: 'v1', resource: 'pods', namespaced: true },
+  pvcs: { group: '', version: 'v1', resource: 'persistentvolumeclaims', namespaced: true },
+  pvs: { group: '', version: 'v1', resource: 'persistentvolumes', namespaced: false },
+  events: { group: '', version: 'v1', resource: 'events', namespaced: true },
+  services: { group: '', version: 'v1', resource: 'services', namespaced: true },
+  ingresses: { group: 'networking.k8s.io', version: 'v1', resource: 'ingresses', namespaced: true },
+  namespaces: { group: '', version: 'v1', resource: 'namespaces', namespaced: false },
+  argoApps: { group: 'argoproj.io', version: 'v1alpha1', resource: 'applications', namespaced: true },
 } as const
 
-function useGeneric(key: string, gvr: (typeof GVR)[keyof typeof GVR], refetch = REFRESH_MS) {
+type Gvr = (typeof GVR)[keyof typeof GVR]
+
+/**
+ * Every hook in this file is push-driven: the apiserver watch for its resource
+ * invalidates the query the moment something changes, and the interval is only
+ * a fallback for when the live socket is down. `metrics.k8s.io` is the one
+ * exception — it is a metrics API, not a watchable resource, so it keeps its
+ * timer.
+ */
+function useGeneric(key: string, gvr: Gvr, refetch = REFRESH_MS, watchable = true) {
+  const queryKey = ['ov', 'k8s', key]
   return useQuery({
-    queryKey: ['ov', 'k8s', key],
+    queryKey,
     queryFn: () => client.listGeneric(undefined, gvr),
-    refetchInterval: refetch,
+    refetchInterval: useLiveRefetch(watchable ? gvr : null, [queryKey], refetch),
     retry: false,
   })
 }
@@ -53,59 +75,66 @@ function useGeneric(key: string, gvr: (typeof GVR)[keyof typeof GVR], refetch = 
 /* ─────────── core k8s resources ─────────── */
 
 export function useNodes() {
+  const queryKey = ['ov', 'k8s', 'nodes']
   return useQuery({
-    queryKey: ['ov', 'k8s', 'nodes'],
+    queryKey,
     queryFn: () => client.listNodes(),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: useLiveRefetch(GVR.nodes, [queryKey], REFRESH_MS),
     retry: false,
   })
 }
 
 export function useAllPods() {
+  const queryKey = ['ov', 'k8s', 'pods']
   return useQuery({
-    queryKey: ['ov', 'k8s', 'pods'],
+    queryKey,
     queryFn: () => client.listPods(),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: useLiveRefetch(GVR.pods, [queryKey], REFRESH_MS),
     retry: false,
   })
 }
 
+/** `metrics.k8s.io` serves point-in-time samples and cannot be watched. */
 export function useNodeMetrics() {
-  return useGeneric('node-metrics', GVR.nodeMetrics)
+  return useGeneric('node-metrics', GVR.nodeMetrics, REFRESH_MS, false)
 }
 
 export function usePvcs() {
+  const queryKey = ['ov', 'k8s', 'pvcs']
   return useQuery({
-    queryKey: ['ov', 'k8s', 'pvcs'],
+    queryKey,
     queryFn: () => client.listPersistentVolumeClaims(),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: useLiveRefetch(GVR.pvcs, [queryKey], REFRESH_MS),
     retry: false,
   })
 }
 
 export function usePvs() {
+  const queryKey = ['ov', 'k8s', 'pvs']
   return useQuery({
-    queryKey: ['ov', 'k8s', 'pvs'],
+    queryKey,
     queryFn: () => client.listPersistentVolumes(),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: useLiveRefetch(GVR.pvs, [queryKey], REFRESH_MS),
     retry: false,
   })
 }
 
 export function useClusterEvents() {
+  const queryKey = ['ov', 'k8s', 'events']
   return useQuery({
-    queryKey: ['ov', 'k8s', 'events'],
+    queryKey,
     queryFn: () => client.listEvents(),
-    refetchInterval: FAST_REFRESH_MS,
+    refetchInterval: useLiveRefetch(GVR.events, [queryKey], FAST_REFRESH_MS),
     retry: false,
   })
 }
 
 export function useServices() {
+  const queryKey = ['ov', 'k8s', 'services']
   return useQuery({
-    queryKey: ['ov', 'k8s', 'services'],
+    queryKey,
     queryFn: () => client.listServices(),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: useLiveRefetch(GVR.services, [queryKey], REFRESH_MS),
     retry: false,
   })
 }
@@ -115,10 +144,11 @@ export function useEndpoints() {
 }
 
 export function useIngresses() {
+  const queryKey = ['ov', 'k8s', 'ingresses']
   return useQuery({
-    queryKey: ['ov', 'k8s', 'ingresses'],
+    queryKey,
     queryFn: () => client.listIngresses(),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: useLiveRefetch(GVR.ingresses, [queryKey], REFRESH_MS),
     retry: false,
   })
 }
@@ -129,10 +159,11 @@ export function useResourceQuotas() {
 
 /** Cluster namespaces — used to map tenants (adhar.io/org label) to namespaces. */
 export function useNamespaces() {
+  const queryKey = ['ov', 'k8s', 'namespaces']
   return useQuery({
-    queryKey: ['ov', 'k8s', 'namespaces'],
+    queryKey,
     queryFn: () => client.listNamespaces(),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: useLiveRefetch(GVR.namespaces, [queryKey], REFRESH_MS),
     retry: false,
   })
 }
@@ -222,11 +253,17 @@ export interface DoraApp {
   }
 }
 
+/**
+ * Argo CD Applications are Kubernetes CRDs, so this reads through the proxy but
+ * is driven by the apiserver watch on `applications` — a sync finishing updates
+ * the panel immediately instead of up to 30 seconds later.
+ */
 export function useDoraApps() {
+  const queryKey = ['ov', 'argocd', 'dora-apps']
   return useQuery({
-    queryKey: ['ov', 'argocd', 'dora-apps'],
+    queryKey,
     queryFn: async () => (await argocdClient.listApplications()) as unknown as DoraApp[],
-    refetchInterval: REFRESH_MS,
+    refetchInterval: useLiveRefetch(GVR.argoApps, [queryKey], REFRESH_MS),
     retry: false,
   })
 }

@@ -46,7 +46,7 @@ import { registerDbSessionStore, sessionStoreStatus } from './app/server/session
 registerDbSessionStore()
 import { apiServerFetch, handleK8s, resolveIdentity } from './app/server/k8s/gateway.ts'
 import { handleExec } from './app/server/k8s/exec.ts'
-import { handleLive } from './app/server/live.ts'
+import { handleLive, liveStats } from './app/server/live.ts'
 import { handleAi } from './app/server/ai/handlers.ts'
 
 const PORT = Number(env('PORT') ?? 3000)
@@ -277,6 +277,20 @@ async function diagnostics(req: Request): Promise<Response> {
     }
   }
   out.kubernetes = k8s
+
+  // ── realtime hub load ──
+  // `watches` is the number of upstream apiserver watches this process holds;
+  // `subscribers` is how many browser subscriptions they serve. Identical
+  // subscriptions share one watch, so subscribers should sit well above
+  // watches on a busy install — if the two track each other, deduplication has
+  // stopped working and the apiserver is carrying one stream per panel.
+  const live = liveStats()
+  out.live = {
+    watches: live.watches,
+    subscribers: live.watchSubscribers,
+    pollers: live.pollers,
+    sharingRatio: live.watches ? Number((live.watchSubscribers / live.watches).toFixed(2)) : 0,
+  }
 
   return Response.json(out, { headers: { 'cache-control': 'no-store' } })
 }

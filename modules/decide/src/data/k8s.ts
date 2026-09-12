@@ -1,63 +1,66 @@
 import { k8s } from '@adhar-console/api-clients'
 import { useQuery } from '@tanstack/react-query'
+import { useLiveRefetch } from '@adhar-console/shell-ui'
 
 export const client = k8s.K8sClient.auto()
 
 const REFRESH_MS = 15_000
 
+const GVR = {
+  nodes: { group: '', version: 'v1', resource: 'nodes', namespaced: false },
+  deployments: { group: 'apps', version: 'v1', resource: 'deployments', namespaced: true },
+  pods: { group: '', version: 'v1', resource: 'pods', namespaced: true },
+  argoApps: { group: 'argoproj.io', version: 'v1alpha1', resource: 'applications', namespaced: true },
+  rollouts: { group: 'argoproj.io', version: 'v1alpha1', resource: 'rollouts', namespaced: true },
+  policyReports: { group: 'wgpolicyk8s.io', version: 'v1alpha2', resource: 'clusterpolicyreports', namespaced: false },
+} as const
+
+/**
+ * Decide's KPI inputs. Every one is watch-driven, so the tiles move with the
+ * cluster rather than on a 15-second cadence; the interval only applies while
+ * the live socket is down.
+ */
 export function useDecideSignals() {
+  const nodesKey = ['decide', 'nodes']
   const nodes = useQuery({
-    queryKey: ['decide', 'nodes'],
+    queryKey: nodesKey,
     queryFn: () => client.listNodes(),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: useLiveRefetch(GVR.nodes, [nodesKey], REFRESH_MS),
     retry: false,
   })
+  const deploymentsKey = ['decide', 'deployments']
   const deployments = useQuery({
-    queryKey: ['decide', 'deployments'],
+    queryKey: deploymentsKey,
     queryFn: () => client.listDeployments(),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: useLiveRefetch(GVR.deployments, [deploymentsKey], REFRESH_MS),
     retry: false,
   })
+  const podsKey = ['decide', 'pods']
   const pods = useQuery({
-    queryKey: ['decide', 'pods'],
+    queryKey: podsKey,
     queryFn: () => client.listPods(),
-    refetchInterval: REFRESH_MS,
+    refetchInterval: useLiveRefetch(GVR.pods, [podsKey], REFRESH_MS),
     retry: false,
   })
+  const argoAppsKey = ['decide', 'argo-apps']
   const argoApps = useQuery({
-    queryKey: ['decide', 'argo-apps'],
-    queryFn: () =>
-      client.listGeneric(undefined, {
-        group: 'argoproj.io',
-        version: 'v1alpha1',
-        resource: 'applications',
-        namespaced: true,
-      }),
-    refetchInterval: REFRESH_MS,
+    queryKey: argoAppsKey,
+    queryFn: () => client.listGeneric(undefined, GVR.argoApps),
+    refetchInterval: useLiveRefetch(GVR.argoApps, [argoAppsKey], REFRESH_MS),
     retry: false,
   })
+  const rolloutsKey = ['decide', 'rollouts']
   const rollouts = useQuery({
-    queryKey: ['decide', 'rollouts'],
-    queryFn: () =>
-      client.listGeneric(undefined, {
-        group: 'argoproj.io',
-        version: 'v1alpha1',
-        resource: 'rollouts',
-        namespaced: true,
-      }),
-    refetchInterval: REFRESH_MS,
+    queryKey: rolloutsKey,
+    queryFn: () => client.listGeneric(undefined, GVR.rollouts),
+    refetchInterval: useLiveRefetch(GVR.rollouts, [rolloutsKey], REFRESH_MS),
     retry: false,
   })
+  const policyReportsKey = ['decide', 'policy-reports']
   const policyReports = useQuery({
-    queryKey: ['decide', 'policy-reports'],
-    queryFn: () =>
-      client.listGeneric(undefined, {
-        group: 'wgpolicyk8s.io',
-        version: 'v1alpha2',
-        resource: 'clusterpolicyreports',
-        namespaced: false,
-      }),
-    refetchInterval: REFRESH_MS,
+    queryKey: policyReportsKey,
+    queryFn: () => client.listGeneric(undefined, GVR.policyReports),
+    refetchInterval: useLiveRefetch(GVR.policyReports, [policyReportsKey], REFRESH_MS),
     retry: false,
   })
 

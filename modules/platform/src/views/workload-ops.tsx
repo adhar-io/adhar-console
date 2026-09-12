@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Spinner, StatusBadge } from '@adhar-console/shell-ui'
+import { Button, Spinner, StatusBadge, useLiveRefetch } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
 import { kube } from '@adhar-console/api-clients/k8s'
 import { client, LOCAL_CLUSTER } from '../data/client.ts'
@@ -197,7 +197,7 @@ function WorkloadOps({
 
   const q = useQuery<WorkloadObj | null>({
     queryKey: key,
-    refetchInterval: 8_000,
+    refetchInterval: useLiveRefetch({ ...gvr, namespace }, [key], 8_000),
     queryFn: async () =>
       (await client.getGeneric(LOCAL_CLUSTER, gvr, namespace, name)) as unknown as WorkloadObj,
   })
@@ -645,9 +645,10 @@ function RollbackPanel({
     obj.metadata.annotations?.['deployment.kubernetes.io/revision'] ?? 0,
   )
 
+  const rsKey = ['k8s', 'rollout-history', namespace, name]
   const rsQ = useQuery<RevisionRs[]>({
-    queryKey: ['k8s', 'rollout-history', namespace, name],
-    refetchInterval: 15_000,
+    queryKey: rsKey,
+    refetchInterval: useLiveRefetch({ ...GVRS.replicasets, namespace }, [rsKey], 15_000),
     queryFn: async () => {
       const list = await kube.list<RevisionRs>(GVRS.replicasets, { namespace })
       return list.items

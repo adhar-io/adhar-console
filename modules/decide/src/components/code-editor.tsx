@@ -309,10 +309,20 @@ export function CodeEditor({
           />
         </div>
       ) : (
+        /* Height is set exactly one way at a time, and mixing them is what made
+           the editor render as an empty strip.
+
+           `flex-1` is `flex: 1 1 0%`, and in a column flex container the
+           flex-basis wins over `height`. The shell's own height is auto, so
+           there is no free space for `flex-grow` to distribute: the basis of 0
+           stands, Monaco gets a zero-height host, and the toolbar appears above
+           nothing. Inline, the fixed height must therefore be the only rule;
+           only in fullscreen — where the shell *is* given a definite height —
+           does flex sizing make sense. */
         <div
           ref={hostRef}
-          className="min-h-0 flex-1"
-          style={{ height: fullscreen ? undefined : height }}
+          className={fullscreen ? 'min-h-0 flex-1' : undefined}
+          style={fullscreen ? undefined : { height }}
         />
       )}
     </div>

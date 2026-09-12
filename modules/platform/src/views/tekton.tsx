@@ -1948,11 +1948,11 @@ function BlueOceanStages({
 
   const running = nodes.some((n) => statusFor(n.name).kind === 'progressing');
 
-  return (
+  const canvas = (
     <div
       className={cn(
-        'relative overflow-hidden rounded-xl border border-edge-default',
-        full ? 'fixed inset-3 z-50 shadow-2xl' : '',
+        'relative flex flex-col overflow-hidden rounded-xl border border-edge-default bg-surface-raised',
+        full ? 'h-full w-full' : '',
       )}
     >
       {/* canvas ground — the dotted grid you expect to be able to pan around */}
@@ -1995,24 +1995,7 @@ function BlueOceanStages({
         </CanvasBtn>
       </div>
 
-      {/* legend */}
-      <div className='absolute bottom-2 left-2 z-20 flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-surface-raised/90 px-2 py-1 text-[10px] text-content-muted shadow-sm backdrop-blur'>
-        {(
-          [
-            ['healthy', 'passed'],
-            ['progressing', 'running'],
-            ['failed', 'failed'],
-            ['unknown', 'pending'],
-          ] as Array<[StatusKind, string]>
-        ).map(([k, label]) => (
-          <span key={label} className='inline-flex items-center gap-1'>
-            <span className='h-1.5 w-1.5 rounded-full' style={{ background: edgeStroke(k) }} />
-            {label}
-          </span>
-        ))}
-      </div>
-
-      <div className={cn('relative overflow-auto p-4', full ? 'h-full' : 'max-h-[60vh]')}>
+      <div className={cn('relative flex-1 overflow-auto p-4', full ? 'min-h-0' : 'max-h-[60vh]')}>
         <div
           className='relative'
           style={{
@@ -2042,16 +2025,19 @@ function BlueOceanStages({
                 const mx = (x1 + x2) / 2;
                 const kind = statusFor(e.from).kind;
                 const stroke = edgeStroke(kind);
-                const flowing = kind === 'progressing';
+                // A running edge is drawn slightly stronger, but static — the
+                // marching-dash animation was noise on a graph that already
+                // carries status in colour.
+                const live = kind === 'progressing';
                 return (
                   <g key={`${e.from}-${e.to}`}>
-                    {/* soft glow so a live edge reads on the dotted ground */}
+                    {/* soft glow so an edge reads on the dotted ground */}
                     <path
                       d={`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`}
                       fill='none'
                       stroke={stroke}
-                      strokeWidth={flowing ? 6 : 4}
-                      strokeOpacity={flowing ? 0.18 : 0.1}
+                      strokeWidth={4}
+                      strokeOpacity={0.1}
                       strokeLinecap='round'
                     />
                     <path
@@ -2059,10 +2045,8 @@ function BlueOceanStages({
                       fill='none'
                       stroke={stroke}
                       strokeWidth={2}
-                      strokeOpacity={flowing ? 0.95 : 0.6}
+                      strokeOpacity={live ? 0.9 : 0.6}
                       strokeLinecap='round'
-                      strokeDasharray={flowing ? '7 7' : undefined}
-                      className={flowing ? 'adhar-dag-flow' : undefined}
                     />
                   </g>
                 );
@@ -2128,22 +2112,64 @@ function BlueOceanStages({
         </div>
       </div>
 
+      {/* Legend — its own row under the canvas rather than floating over it.
+          As an overlay it sat on top of whatever node happened to be in the
+          bottom-left corner; a footer can never cover the graph. */}
+      <div className='flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-edge-subtle bg-surface-raised px-4 py-2.5 text-[11px] text-content-muted'>
+        <span className='font-medium text-content-subtle'>Legend</span>
+        {(
+          [
+            ['healthy', 'passed'],
+            ['progressing', 'running'],
+            ['failed', 'failed'],
+            ['unknown', 'pending'],
+          ] as Array<[StatusKind, string]>
+        ).map(([k, label]) => (
+          <span key={label} className='inline-flex items-center gap-1.5'>
+            <span className='h-2 w-2 rounded-full' style={{ background: edgeStroke(k) }} />
+            {label}
+          </span>
+        ))}
+        <span className='ml-auto hidden text-content-subtle sm:inline'>
+          {nodes.length} {nodes.length === 1 ? 'stage' : 'stages'}
+          {full ? ' · Esc to exit' : ''}
+        </span>
+      </div>
+
       <style>
         {`
-        @keyframes adhar-dag-flow { to { stroke-dashoffset: -28; } }
-        .adhar-dag-flow { animation: adhar-dag-flow 1s linear infinite; }
         @keyframes adhar-dag-in {
           from { opacity: 0; transform: translateY(6px) scale(0.97); }
           to   { opacity: 1; transform: none; }
         }
         .adhar-dag-node { animation: adhar-dag-in .3s cubic-bezier(.2,.7,.3,1) backwards; }
         @media (prefers-reduced-motion: reduce) {
-          .adhar-dag-flow, .adhar-dag-node { animation: none !important; }
+          .adhar-dag-node { animation: none !important; }
         }
       `}
       </style>
       {running ? <span className='sr-only'>Pipeline is running</span> : null}
     </div>
+  );
+
+  if (!full) return canvas;
+
+  // Full page renders through a portal on <body>. `position: fixed` is measured
+  // against the nearest ancestor with a transform, filter or backdrop-filter
+  // rather than the viewport, and this canvas lives inside the PipelineRun
+  // drawer — so an in-place `fixed inset-3` was being clipped to the drawer
+  // instead of covering the page. A portal has no such ancestor.
+  return createPortal(
+    <div className='fixed inset-0 z-[60] flex flex-col bg-surface-app/80 p-3 backdrop-blur-sm'>
+      <button
+        type='button'
+        aria-label='Exit full page'
+        onClick={() => setFull(false)}
+        className='absolute inset-0 -z-10 cursor-default'
+      />
+      {canvas}
+    </div>,
+    document.body,
   );
 }
 

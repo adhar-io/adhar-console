@@ -435,7 +435,11 @@ export const kube = {
   async logStream(
     namespace: string,
     pod: string,
-    opts: { container?: string; follow?: boolean; tailLines?: number; timestamps?: boolean; previous?: boolean; sinceSeconds?: number; signal?: AbortSignal; cluster?: string } = {},
+    // `sinceTime` (RFC3339) is what makes a dropped follow resumable: asking for
+    // `tailLines` again would re-send lines the viewer already has, so a stream
+    // that reconnects a few times fills the pane with duplicates. Resuming from
+    // the last timestamp seen returns only what was missed.
+    opts: { container?: string; follow?: boolean; tailLines?: number; timestamps?: boolean; previous?: boolean; sinceSeconds?: number; sinceTime?: string; signal?: AbortSignal; cluster?: string } = {},
     onChunk?: (text: string) => void,
   ): Promise<string> {
     const q = new URLSearchParams()
@@ -445,6 +449,12 @@ export const kube = {
     if (opts.timestamps) q.set('timestamps', 'true')
     if (opts.previous) q.set('previous', 'true')
     if (opts.sinceSeconds) q.set('sinceSeconds', String(opts.sinceSeconds))
+    // Mutually exclusive with sinceSeconds upstream; when resuming, sinceTime wins.
+    if (opts.sinceTime) {
+      q.set('sinceTime', opts.sinceTime)
+      q.delete('sinceSeconds')
+      q.delete('tailLines')
+    }
     if (opts.cluster) q.set('cluster', opts.cluster)
     const path = `/api/v1/namespaces/${encodeURIComponent(namespace)}/pods/${encodeURIComponent(pod)}/log?${q}`
     const res = await fetch(`${BASE}${path}`, { credentials: 'include', signal: opts.signal })

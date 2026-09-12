@@ -19,6 +19,7 @@ import { cn } from '@adhar-console/utils';
 import { type LiveStatus, useLiveList } from '../data/live.ts';
 import { clusterParam, useActiveCluster } from '../data/client.ts';
 import { CodeEditor } from '../components/code-editor.tsx';
+import { LogConsole, useLogStream } from '../components/log-console.tsx';
 import { useGeneric } from '../data/hooks.ts';
 import { useHasK8sPermission } from '../data/access.ts';
 import { age } from '../data/format.ts';
@@ -1872,11 +1873,6 @@ function stepKind(s: TektonStepState): StatusKind {
 /* ═══════════════ Blue Ocean stage viewer ═══════════════ */
 
 /** Strip ANSI colour/control sequences so CI output reads cleanly. */
-function stripAnsi(s: string): string {
-  // eslint-disable-next-line no-control-regex
-  return s.replace(/\[[0-9;]*[A-Za-z]/g, '');
-}
-
 /**
  * Blue Ocean-style pipeline graph — stages flow left→right by DAG level, with
  * parallel stages stacked in a column and connectors drawn between them. Each
@@ -2384,258 +2380,39 @@ function StageConsole({
   running: boolean;
   cluster?: string;
 }) {
-  const [text, setText] = useState('');
-  const [state, setState] = useState<
-    'loading' | 'idle' | 'empty' | 'error' | 'forbidden' | 'notfound'
-  >('loading');
-  const [errMsg, setErrMsg] = useState('');
-  const [follow, setFollow] = useState(true);
-  const [wrap, setWrap] = useState(false);
-  const [timestamps, setTimestamps] = useState(false);
-  const [search, setSearch] = useState('');
-  const [fullscreen, setFullscreen] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-
-  // Stream (follow) while running; one-shot fetch when finished.
-  useEffect(() => {
-    if (!namespace || !pod) {
-      setState('empty');
-      return;
-    }
-    const ctrl = new AbortController();
-    setText('');
-    setState('loading');
-    let got = false;
-    kube
-      .logStream(
-        namespace,
-        pod,
-        { container, tailLines: 8000, timestamps, follow: running, cluster, signal: ctrl.signal },
-        (chunk) => {
-          got = true;
-          setState('idle');
-          setText((t) => t + chunk);
-        },
-      )
-      .then((full) => {
-        if (ctrl.signal.aborted) return;
-        if (!got) {
-          setText(full);
-          setState(full.trim() ? 'idle' : 'empty');
-        } else if (!full.trim()) {
-          setState('empty');
-        }
-      })
-      .catch((e) => {
-        if (ctrl.signal.aborted) return;
-        const st = (e as { status?: number })?.status;
-        if (st === 403) setState('forbidden');
-        else if (st === 404) setState('notfound');
-        else {
-          setErrMsg((e as Error).message);
-          setState('error');
-        }
-      });
-    return () => ctrl.abort();
-  }, [namespace, pod, container, running, cluster, timestamps]);
-
-  // Auto-scroll to tail while following.
-  useEffect(() => {
-    if (follow && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [text, follow]);
-
-  const lines = useMemo(() => {
-    const raw = stripAnsi(text).replace(/\n$/, '').split('\n');
-    if (!search.trim()) return raw.map((t, i) => ({ n: i + 1, t }));
-    const q = search.toLowerCase();
-    return raw.map((t, i) => ({ n: i + 1, t })).filter((l) => l.t.toLowerCase().includes(q));
-  }, [text, search]);
-
-  const download = () => {
-    const blob = new Blob([stripAnsi(text)], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${taskName}-${stepName}.log`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
-  };
-  const copy = () => {
-    try {
-      navigator.clipboard?.writeText(stripAnsi(text));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* clipboard blocked */
-    }
-  };
-
-  const body = (
-    <div
-      className={cn(
-        'flex flex-col overflow-hidden bg-code',
-        fullscreen ? 'fixed inset-3 z-[60] rounded-xl shadow-2xl' : 'h-[26rem]',
-      )}
-    >
-      {/* toolbar */}
-      <div className='flex flex-wrap items-center gap-1.5 border-b border-code-edge bg-code-raised px-2 py-1.5'>
-        <span className='mr-1 font-mono text-[11px] text-code-fg/60'>{stepName}</span>
-        {running
-          ? (
-            <span className='inline-flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300'>
-              <span className='h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400' /> live
-            </span>
-          )
-          : null}
-        <div className='relative ml-auto'>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder='Search logs…'
-            className='h-6 w-36 rounded border border-code-edge bg-code-raised px-2 text-[11px] text-code-fg placeholder:text-code-fg/45 outline-none focus:border-brand-400'
-          />
-          {search
-            ? (
-              <span className='absolute right-1.5 top-1/2 -translate-y-1/2 font-mono text-[9px] text-slate-500'>
-                {lines.length}
-              </span>
-            )
-            : null}
-        </div>
-        <ConsoleBtn active={follow} onClick={() => setFollow((f) => !f)} label='Follow / auto-scroll'>
-          <IconTail />
-        </ConsoleBtn>
-        <ConsoleBtn active={wrap} onClick={() => setWrap((w) => !w)} label='Wrap lines'>
-          <IconWrapC />
-        </ConsoleBtn>
-        <ConsoleBtn active={timestamps} onClick={() => setTimestamps((t) => !t)} label='Timestamps'>
-          <IconClock2 />
-        </ConsoleBtn>
-        <ConsoleBtn onClick={copy} label={copied ? 'Copied' : 'Copy'}>
-          {copied ? <IconCheckC /> : <IconCopyC />}
-        </ConsoleBtn>
-        <ConsoleBtn onClick={download} label='Download log'>
-          <IconDownloadC />
-        </ConsoleBtn>
-        <ConsoleBtn onClick={() => setFullscreen((f) => !f)} label='Fullscreen'>
-          <IconExpandC />
-        </ConsoleBtn>
-      </div>
-      {/* log body */}
-      <div ref={scrollRef} className='min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-[11px] leading-relaxed'>
-        {state === 'loading'
-          ? (
-            <div className='flex items-center gap-2 py-4 text-slate-300'>
-              <Spinner size={14} /> Streaming logs…
-            </div>
-          )
-          : state === 'forbidden'
-          ? <div className='py-4 text-code-fg/60'>Not authorized to read logs for this pod.</div>
-          : state === 'notfound'
-          ? <div className='py-4 text-code-fg/60'>Pod no longer exists — logs have been cleaned up.</div>
-          : state === 'error'
-          ? <div className='py-4 text-rose-300'>Couldn&apos;t load logs: {errMsg}</div>
-          : state === 'empty'
-          ? <div className='py-4 text-slate-500'>No log output {running ? 'yet' : ''}.</div>
-          : lines.length === 0
-          ? <div className='py-4 text-slate-500'>No lines match “{search}”.</div>
-          : (
-            <table className='w-full border-collapse'>
-              <tbody>
-                {lines.map((l) => (
-                  <tr key={l.n} className='align-top hover:bg-code-raised'>
-                    <td className='select-none pr-3 text-right font-mono text-[10px] text-slate-600'>
-                      {l.n}
-                    </td>
-                    <td
-                      className={cn(
-                        'text-slate-200',
-                        wrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre',
-                      )}
-                    >
-                      {highlightMatch(l.t, search)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-      </div>
-    </div>
+  // This console used to be ~210 lines of bespoke toolbar, buffer and reconnect
+  // logic that only the pipeline drawer could use. It is now the shared
+  // `LogConsole`, so the Logs page and the pod drawer render the exact same
+  // surface — and inherit the same resumable stream.
+  const sources = useMemo(
+    () => (pod ? [{ pod, container, label: container ?? pod }] : []),
+    [pod, container],
   );
 
-  if (fullscreen) {
-    return (
-      <>
-        <div
-          className='fixed inset-0 z-[59] bg-scrim/40 backdrop-blur-[2px]'
-          onClick={() => setFullscreen(false)}
-        />
-        {body}
-      </>
-    );
-  }
-  return body;
-}
+  const stream = useLogStream({
+    namespace,
+    sources,
+    cluster,
+    // A finished step is read once; a running one is followed.
+    follow: running,
+    tailLines: 8000,
+  });
 
-function highlightMatch(line: string, q: string): React.ReactNode {
-  if (!q.trim()) return line;
-  const idx = line.toLowerCase().indexOf(q.toLowerCase());
-  if (idx < 0) return line;
   return (
-    <>
-      {line.slice(0, idx)}
-      <mark className='rounded bg-amber-400/40 text-amber-100'>{line.slice(idx, idx + q.length)}</mark>
-      {line.slice(idx + q.length)}
-    </>
+    <LogConsole
+      lines={stream.lines}
+      status={stream.status}
+      error={stream.error}
+      reconnect={stream.reconnect}
+      label={stepName}
+      live={running}
+      filename={`${taskName}-${stepName}`}
+      emptyMessage={running ? 'No log output yet.' : 'No log output.'}
+    />
   );
 }
 
-function ConsoleBtn({
-  active,
-  onClick,
-  label,
-  children,
-}: {
-  active?: boolean;
-  onClick(): void;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type='button'
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-      className={cn(
-        'inline-flex h-6 w-6 items-center justify-center rounded transition-colors',
-        active
-          ? 'bg-brand-500/25 text-brand-200 ring-1 ring-inset ring-brand-400/40'
-          : 'text-code-fg/60 hover:bg-code-raised hover:text-code-fg',
-      )}
-    >
-      {children}
-    </button>
-  );
-}
 
-/* console toolbar icons (13px, on dark) */
-const CS = ({ children }: { children: React.ReactNode }) => (
-  <svg width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round' aria-hidden>
-    {children}
-  </svg>
-);
-const IconTail = () => <CS><path d='M12 5v14' /><path d='m19 12-7 7-7-7' /></CS>;
-const IconWrapC = () => <CS><path d='M3 6h18' /><path d='M3 12h15a3 3 0 1 1 0 6h-4' /><path d='m16 16-2 2 2 2' /><path d='M3 18h7' /></CS>;
-const IconClock2 = () => <CS><circle cx='12' cy='12' r='9' /><path d='M12 7v5l3 2' /></CS>;
-const IconCopyC = () => <CS><rect x='9' y='9' width='13' height='13' rx='2' /><path d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1' /></CS>;
-const IconCheckC = () => <CS><path d='M20 6 9 17l-5-5' /></CS>;
-const IconDownloadC = () => <CS><path d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' /><path d='m7 10 5 5 5-5' /><path d='M12 15V3' /></CS>;
-const IconExpandC = () => <CS><path d='M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3' /></CS>;
 
 /* ─────────── Timeline (TaskRuns ordered by start) ─────────── */
 

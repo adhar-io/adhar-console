@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Button,
@@ -16,6 +16,10 @@ import {
   Tabs,
   useToast,
   type StatusKind,
+  LogConsole,
+  type LogLine,
+  detectSeverity,
+  type Severity,
 } from '@adhar-console/shell-ui'
 import { cn, formatRelative } from '@adhar-console/utils'
 import { coder } from '@adhar-console/api-clients'
@@ -824,36 +828,55 @@ function WorkspaceDrawer({ workspace: w, dashboard, onClose, actions }: { worksp
   )
 }
 
+/** Coder's own log levels, mapped onto the console's severity scale. */
+const CODER_LEVEL: Record<string, Severity> = {
+  error: 'error',
+  warn: 'warn',
+  info: 'info',
+  debug: 'debug',
+  trace: 'debug',
+}
+
 function BuildLogs({ buildId, live }: { buildId: string; live: boolean }) {
   const logs = useBuildLogs(buildId, live)
-  const endRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (live) endRef.current?.scrollIntoView({ block: 'end' })
-  }, [logs.data?.length, live])
-  const lines = logs.data ?? []
+
+  /* Provisioner logs arrive as structured records over Coder's API rather than
+     as a byte stream, so they are mapped onto the same `LogLine` shape the
+     Kubernetes transport produces — and render through the very same console as
+     the CI/CD run logs, with search, wrap, timestamps, copy, download and
+     fullscreen for free. The build stage becomes the gutter prefix. */
+  const lines = useMemo<LogLine[]>(
+    () =>
+      (logs.data ?? []).map((l) => ({
+        ts: l.created_at,
+        text: l.output ?? '',
+        source: l.stage,
+        severity: CODER_LEVEL[l.log_level ?? ''] ?? detectSeverity(l.output ?? ''),
+      })),
+    [logs.data],
+  )
+
+  const status = logs.isLoading
+    ? 'connecting'
+    : logs.isError
+    ? 'error'
+    : live
+    ? 'streaming'
+    : lines.length
+    ? 'paused'
+    : 'empty'
+
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-sm font-semibold text-content">Provisioner logs {live ? <StatusBadge kind="progressing">streaming</StatusBadge> : null}</div>
-          <span className="text-[11px] text-content-subtle">{lines.length} lines</span>
-        </div>
-      </CardHeader>
-      <CardBody className="p-0!">
-        {logs.isLoading ? <div className="flex items-center gap-2 p-4 text-xs text-content-muted"><Spinner size={12} /> Loading…</div> : lines.length ? (
-          <pre className="max-h-[60vh] overflow-auto bg-surface-sunken p-3 font-mono text-[11px] leading-relaxed text-content">
-            {lines.map((l) => (
-              <div key={l.id} className={cn(l.log_level === 'error' ? 'text-rose-700 dark:text-rose-300' : l.log_level === 'warn' ? 'text-amber-700 dark:text-amber-300' : '')}>
-                <span className="text-content-subtle">{l.created_at.slice(11, 19)} </span>
-                <span className="text-brand-700 dark:text-brand-300">[{l.stage}] </span>
-                {l.output}
-              </div>
-            ))}
-            <div ref={endRef} />
-          </pre>
-        ) : <EmptyState compact title="No log lines" />}
-      </CardBody>
-    </Card>
+    <LogConsole
+      lines={lines}
+      status={status}
+      error={logs.error instanceof Error ? logs.error.message : undefined}
+      label="Provisioner"
+      live={live}
+      filename={`build-${buildId.slice(0, 8)}`}
+      height="h-[60vh]"
+      emptyMessage={live ? 'Waiting for provisioner output…' : 'This build produced no logs.'}
+    />
   )
 }
 

@@ -1,17 +1,34 @@
 <div align="center">
 
-<img src="./apps/console/public/branding/symbol-color.svg" alt="Adhar" width="88" height="88" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./apps/console/public/branding/adhar-logo-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="./apps/console/public/branding/adhar-logo.svg">
+  <img alt="Adhar — Open Cloud-Native Foundation" src="./apps/console/public/branding/adhar-logo.svg" width="300">
+</picture>
 
-# Adhar Console
+<h1>Adhar Console — one window onto the whole platform</h1>
 
-**A transparent, open-core control plane for the full software lifecycle.**
+<p><em>Every tool the platform runs, behind one sign-in and one design system.</em></p>
 
 [![CI](https://github.com/adhar-io/adhar-console/actions/workflows/ci.yml/badge.svg)](./.github/workflows/ci.yml)
 [![Release](https://github.com/adhar-io/adhar-console/actions/workflows/release.yml/badge.svg)](./.github/workflows/release.yml)
 [![Image](https://img.shields.io/badge/docker-adhario%2Fadhar--console-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/adhario/adhar-console)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
+[![Deno](https://img.shields.io/badge/deno-2.x-000000?logo=deno&logoColor=white)](https://deno.com)
+[![React](https://img.shields.io/badge/react-19.2-61DAFB?logo=react&logoColor=black)](https://react.dev)
+[![Module Federation](https://img.shields.io/badge/module_federation-8_remotes-7C3AED)](./docs/architecture/module-federation.md)
+[![Auth](https://img.shields.io/badge/auth-OIDC_confidential_client-success?logo=keycloak&logoColor=white)](./docs/architecture/auth.md)
+[![License](https://img.shields.io/badge/license-Apache%202.0-green?logo=apache)](./LICENSE)
+[![Slack](https://img.shields.io/badge/slack-join_community-4A154B?logo=slack)](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww)
+
+<h3>Adhar • Built with ❤️ for developers!</h3>
 
 </div>
+
+---
+
+## 🧭 What is Adhar Console?
+
+**Sanskrit: अधार (Adhāra) – Foundation**
 
 Adhar Console is a unified operator UI over the Adhar platform. It doesn't replace
 any of the open-source tools underneath — it aggregates them into one coherent,
@@ -33,7 +50,7 @@ and webhooks.
 
 ---
 
-## What it looks like
+## 📸 What it looks like
 
 <div align="center">
 
@@ -61,7 +78,53 @@ and webhooks.
 
 ---
 
-## Why another console?
+## 🎨 The IDP theme — sign-in is part of the product
+
+The first screen anyone sees is **not** rendered by this repo. It is Keycloak, the
+platform's identity provider. Left stock, it greets your users with PatternFly
+defaults and a Keycloak logo — a visible seam on the one page every single person
+passes through.
+
+The **Adhar login theme** closes that seam. It lives in the platform repo at
+[`platform/stack/packages/security/keycloak/theme/`](https://github.com/adhar-io/adhar/tree/main/platform/stack/packages/security/keycloak/theme)
+and is layered on `keycloak.v2` — **no FreeMarker template is overridden**, so
+every login flow (password, social providers, registration, reset-credentials,
+OTP, update-profile) keeps Keycloak's own logic and cannot be broken by a restyle.
+
+<div align="center">
+
+<img src="./docs/assets/screenshots/idp-theme.png" alt="The Adhar Keycloak login theme in light and dark" width="940" />
+
+<em>Same tokens, same card, same brand button — in both themes.</em>
+
+</div>
+
+**One design system, two codebases.** Every colour in the theme is copied verbatim
+from the console's own `apps/console/app/styles.css` — the same OKLCH brand ramp,
+`surface-*`, `content-*` and `edge-*` tokens. The sign-in page and the console are
+the same product because they are the same numbers, not because someone matched
+them by eye.
+
+**The theme follows you across the seam.** The console's light/dark setting is an
+explicit user choice, and `localStorage` is not shared across origins — so a user
+on dark would previously land on a white sign-in page. The preference now travels
+in an `adhar-theme` cookie scoped to the parent domain, readable by both
+`console.<domain>` and `keycloak.<domain>`. A small script resolves it before first
+paint (so there is no flash), honours `?theme=light|dark`, falls back to the OS
+preference, and renders the toggle in the corner of the card. It degrades
+correctly with JavaScript disabled, where Keycloak's own `prefers-color-scheme`
+class takes over.
+
+| | |
+|---|---|
+| **Where** | `platform/.../keycloak/theme/adhar/login/` — `theme.properties`, `resources/css/adhar.css`, `resources/js/adhar-theme.js` |
+| **How it ships** | as a `ConfigMap` (`theme-configmap.yaml`) mounted at `/opt/keycloak/themes/adhar` |
+| **Activated by** | the realm's `loginTheme: adhar`, set in `keycloak-config.yaml` |
+| **Assets** | SVG only — no web-font or CDN fetch, so it works fully air-gapped |
+
+---
+
+## 🤔 Why another console?
 
 - **Transparency.** Every screen links back to its upstream open-source project.
   The [Platform status page](./docs/phases/platform.md) shows real versions and
@@ -76,7 +139,7 @@ and webhooks.
 
 ---
 
-## Architecture in one breath
+## 🧩 Architecture in one breath
 
 ```
 browser ─┬─▶  SPA (host + federated remotes, one origin)
@@ -119,7 +182,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) and [docs/architecture/](./docs/archite
 
 ---
 
-## Stack at a glance
+## 🧱 Stack at a glance
 
 | Concern       | Choice                                                                   |
 | ------------- | ------------------------------------------------------------------------ |
@@ -135,34 +198,37 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) and [docs/architecture/](./docs/archite
 
 ---
 
-## Getting started
+## ⚡ Getting started
 
-**Read this first.** The console is a *window onto a cluster*, not a standalone
-app. It has **no demo mode and no stub fallback** — every screen reads a real
-Kubernetes API and real backing tools. So before anything else you need an Adhar
-platform to point it at. That single fact is the most common reason a first run
-fails.
+> **Read this first.** The console is a *window onto a cluster*, not a standalone
+> app. It has **no demo mode and no stub fallback** — every screen reads a real
+> Kubernetes API and real backing tools. **You need an Adhar platform to point it
+> at before anything else works.** That single fact is the most common reason a
+> first run fails.
 
-Pick the path that matches what you want to do:
+### Step 1 · Get a platform to point at
 
-| I want to… | Go to |
-| --- | --- |
-| See the console running, with the least setup | [1. Run the container](#1-run-the-container) |
-| Change the console's code | [2. Develop the console](#2-develop-the-console) |
-| Install it for a team | [3. Deploy on the Adhar platform](#3-deploy-on-the-adhar-platform) |
-
-### Prerequisites
-
-You need a running Adhar platform. If you don't have one, install the platform
-first — the console is one of the packages it ships.
+The console is one of the packages the Adhar platform ships, so the platform comes
+first. If you don't have one, install it with
+[`adhar up`](https://github.com/adhar-io/adhar), then confirm it is reachable:
 
 ```bash
-# Verify you can reach a cluster and that it is an Adhar platform.
-kubectl get nodes
-kubectl -n adhar-system get svc keycloak          # the console needs Keycloak
+kubectl get nodes                                 # a cluster you can reach
+kubectl -n adhar-system get svc keycloak          # …that is an Adhar platform
 ```
 
-For the development path you additionally need:
+✅ **You should see** a list of ready nodes, and a `keycloak` Service. If either
+command fails, stop here — nothing below will work.
+
+### Step 2 · Pick your path
+
+| I want to… | Go to | Needs |
+| --- | --- | --- |
+| 🐳 See it running, least setup | [Step 3A — run the container](#step-3a--run-the-container) | Docker |
+| 🛠️ Change the console's code | [Step 3B — develop](#step-3b--develop-the-console) | Deno, pnpm, Node |
+| 🚀 Install it for a team | [Step 3C — deploy](#step-3c--deploy-on-the-adhar-platform) | platform admin |
+
+For the **develop** path you additionally need:
 
 | Tool | Version | Check |
 | --- | --- | --- |
@@ -171,7 +237,7 @@ For the development path you additionally need:
 | Node | ≥ 20 | `node --version` |
 | [`adhar-ui`](https://github.com/adhar-io/adhar-ui) | sibling checkout | `ls ../adhar-ui` (or set `ADHAR_UI_PATH`) |
 
-### 1. Run the container
+### Step 3A · Run the container
 
 The fastest way to see it. Images publish to `ghcr.io/adhar-io/adhar-console`
 and are mirrored to Docker Hub as `adhario/adhar-console`; GHCR packages start
@@ -193,12 +259,15 @@ existing database:
 docker run --rm -p 3000:3000 --env-file .env ghcr.io/adhar-io/adhar-console:latest
 ```
 
+✅ **You should see** `curl -s localhost:3000/readyz` report ready, and
+`http://localhost:3000` redirect you to the Adhar-themed Keycloak sign-in above.
+
 > The server **fails closed**: without `KEYCLOAK_URL`, `AUTH_CLIENT_SECRET` and
 > `AUTH_COOKIE_SECRET` it refuses to boot rather than silently starting in an
 > unauthenticated mode. That is deliberate — see
 > [docs/architecture/auth.md](./docs/architecture/auth.md).
 
-### 2. Develop the console
+### Step 3B · Develop the console
 
 ```bash
 pnpm install
@@ -210,6 +279,10 @@ pnpm dev                   # → http://localhost:5100
 host (`:5100`), and every federated remote (`:5101–5108`). The host proxies all
 `/api/*` calls to the BFF, which does the real work against your cluster. Sign in
 at `http://localhost:5100` through the real Keycloak.
+
+✅ **You should see** all 10 processes report listening, and signing in at
+`http://localhost:5100` land you on Overview with live cluster numbers. Empty
+cluster pages mean your Keycloak user has no RBAC — see the table below.
 
 Working on one phase? Start only what you need — the BFF and host always come
 along:
@@ -253,11 +326,18 @@ Each of these has a comment in `.env.example` explaining where to get it.
 > fixtures. There is no automatic stub fallback — a running system always talks
 > to real backends.
 
-### 3. Deploy on the Adhar platform
+### Step 3C · Deploy on the Adhar platform
 
-See [Deploy on the Adhar platform](#deploy-on-the-adhar-platform) below.
+`adhar up` already deploys the console as a platform package — see
+[Deploy on the Adhar platform](#-deploy-on-the-adhar-platform) below for the
+manifests, and [Enable SSO](#-enable-sso-keycloak) for the client it needs.
 
-## Building from source
+👉 The long form of all three paths — every variable, every prerequisite, and
+what to expect at each step — is **[docs/getting-started.md](./docs/getting-started.md)**.
+
+---
+
+## 🏗️ Building from source
 
 A production build is a Vite SPA served by the standalone Deno server. `adhar-ui`
 is passed as a BuildKit build context rather than vendored, so the image build
@@ -312,7 +392,7 @@ await docStore.put('design.adr', id, {...})    // upsert
 await docStore.remove('workspace.webhook', id)
 ```
 
-## Enable SSO (Keycloak)
+## 🔐 Enable SSO (Keycloak)
 
 The console is a **confidential OIDC client**. In production these are
 **required** — the server **fails closed** (refuses to boot) if Keycloak isn't
@@ -335,7 +415,7 @@ claim for per-user cluster impersonation) — see the platform's
 `/api/notifications`, and `/api/store/*`; without it those endpoints return
 `503` and `/readyz` reports `db: unconfigured`.
 
-## Deploy on the Adhar platform
+## 🚀 Deploy on the Adhar platform
 
 `adhar up` deploys the console from
 `platform/stack/packages/core/adhar-console/manifests/install.yaml`, which
@@ -347,7 +427,7 @@ Crossplane `Database` claim / Postgres StatefulSet). See
 
 ---
 
-## Repository layout
+## 📁 Repository layout
 
 ```
 adhar-console/
@@ -373,7 +453,7 @@ adhar-console/
 
 ---
 
-## CI / Release
+## 🔄 CI / Release
 
 Three workflows form a full release pipeline:
 
@@ -419,16 +499,32 @@ Both build jobs check out `adhar-io/adhar-ui` as a sibling for the Docker build 
 
 ---
 
-## Documentation
+## 📖 Documentation
 
-- [**Getting started**](./docs/getting-started.md) · [**Architecture overview**](./docs/architecture/overview.md) · [**Module Federation**](./docs/architecture/module-federation.md) · [**BFF**](./docs/architecture/bff.md)
-- [**Auth**](./docs/architecture/auth.md) · [**Tenancy**](./docs/architecture/tenancy.md) · [**Deploy**](./docs/architecture/deploy.md) · [**Observability**](./docs/architecture/observability.md)
-- Per-phase: [Define](./docs/phases/define.md) · [Design](./docs/phases/design.md) · [Develop](./docs/phases/develop.md) · [Deliver](./docs/phases/deliver.md) · [Discover](./docs/phases/discover.md) · [Decide](./docs/phases/decide.md) · [Platform](./docs/phases/platform.md) · [Workspace](./docs/phases/workspace.md)
-- [**ARCHITECTURE.md**](./ARCHITECTURE.md) · [**CONTRIBUTING.md**](./CONTRIBUTING.md) · [**SECURITY.md**](./SECURITY.md) · [**CHANGELOG.md**](./CHANGELOG.md)
+| Guide | What it covers |
+|---|---|
+| 🚀 **[Getting Started](./docs/getting-started.md)** | The long form of the three paths above, with every variable explained |
+| 🏛️ **[Architecture](./docs/architecture/overview.md)** | How the SPA, the federated remotes and the BFF fit together |
+| 🧩 **[Module Federation](./docs/architecture/module-federation.md)** | How a phase is built, loaded and owned independently |
+| 🔌 **[BFF](./docs/architecture/bff.md)** | Every `/api/*` surface and the token-injecting proxy |
+| 🔐 **[Auth](./docs/architecture/auth.md)** | The confidential OIDC client, sessions, and per-user cluster impersonation |
+| 🏢 **[Tenancy](./docs/architecture/tenancy.md)** | Tenant scoping and what is shared across an organisation |
+| 🚢 **[Deploy](./docs/architecture/deploy.md)** · **[Observability](./docs/architecture/observability.md)** | Shipping it, and watching it once shipped |
+| ☸️ **[Kubernetes setup](./docs/guides/kubernetes-setup.md)** | Wiring the apiserver, OIDC audience and RBAC the console expects |
+| 🤝 **[Contributing](./CONTRIBUTING.md)** · **[Security](./SECURITY.md)** · **[Changelog](./CHANGELOG.md)** | Working on it, reporting issues, what changed |
+
+**Per phase:** [Define](./docs/phases/define.md) · [Design](./docs/phases/design.md) ·
+[Develop](./docs/phases/develop.md) · [Deliver](./docs/phases/deliver.md) ·
+[Discover](./docs/phases/discover.md) · [Decide](./docs/phases/decide.md) ·
+[Platform](./docs/phases/platform.md) · [Workspace](./docs/phases/workspace.md)
+
+**Related repos:** [adhar](https://github.com/adhar-io/adhar) (the platform) ·
+[adhar-ai](https://github.com/adhar-io/adhar-ai) (the agentic layer) ·
+[adhar-ui](https://github.com/adhar-io/adhar-ui) (the design system)
 
 ---
 
-## License
+## 📄 License
 
 Apache-2.0. See [LICENSE](./LICENSE). The backing open-source tools retain their
 own licenses — [the status page](./docs/phases/platform.md#platform-status-page)

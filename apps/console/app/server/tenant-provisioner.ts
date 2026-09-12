@@ -162,7 +162,11 @@ async function provisionGitea(input: ProvisionInput): Promise<ProvisionStepResul
     return { system: 'gitea', label, status: 'skipped', detail: 'Gitea admin not configured' }
   }
   try {
-    const res = await giteaFetcher(conn)('/api/v1/orgs', {
+    // `giteaConn()` already ends `base` at `/api/v1`, so paths here are
+    // relative to it — passing `/api/v1/orgs` built `…/api/v1/api/v1/orgs`,
+    // which Gitea answers with a plain 404. The step then reported
+    // `gitea 404` and every tenant was created without its Gitea org.
+    const res = await giteaFetcher(conn)('/orgs', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({

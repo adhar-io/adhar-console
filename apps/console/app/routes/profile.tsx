@@ -263,7 +263,7 @@ function AvatarEditor({
       <div className="relative">
         <AvatarDisplay name={name} dataUrl={dataUrl} size={64} />
         {busy ? (
-          <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 text-white">
+          <span className="absolute inset-0 flex items-center justify-center rounded-full bg-scrim/40 text-white">
             <Spinner />
           </span>
         ) : null}

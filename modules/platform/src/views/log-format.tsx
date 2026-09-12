@@ -61,8 +61,8 @@ export const SEVERITY_TONE: Record<Severity, string> = {
   error: 'text-rose-300',
   warn: 'text-amber-200',
   info: 'text-sky-200',
-  debug: 'text-slate-400',
-  other: 'text-slate-200',
+  debug: 'text-code-fg/55',
+  other: 'text-code-fg/85',
 }
 
 /** Small dot / chip accent per severity (theme-aware chrome). */
@@ -70,8 +70,8 @@ export const SEVERITY_DOT: Record<Severity, string> = {
   error: 'bg-rose-400',
   warn: 'bg-amber-400',
   info: 'bg-sky-400',
-  debug: 'bg-slate-400',
-  other: 'bg-slate-500',
+  debug: 'bg-code-fg/40',
+  other: 'bg-code-fg/55',
 }
 
 /**
@@ -362,7 +362,7 @@ export function renderSegments(
           key={key++}
           className={cn(
             'rounded px-0.5',
-            isCurrent ? 'bg-amber-400 text-slate-900' : 'bg-amber-300/30 text-amber-100',
+            isCurrent ? 'bg-amber-400 text-code' : 'bg-amber-300/30 text-amber-100',
           )}
         >
           {seg.text.slice(s - segStart, e - segStart)}

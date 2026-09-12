@@ -1099,7 +1099,7 @@ function StageDrawer({ stage: s, onClose }: { stage: StageModel; onClose(): void
       <button
         type="button"
         aria-label="Close"
-        className="absolute inset-0 bg-slate-900/35 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
       <aside className="relative flex h-full w-full max-w-lg flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">

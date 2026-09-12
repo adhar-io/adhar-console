@@ -1998,7 +1998,7 @@ function RunStep({ template, run }: { template: CatalogTemplate; run: ScaffoldRu
 
         <pre
           ref={logRef}
-          className="max-h-72 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-3 font-mono text-[11px] leading-relaxed text-slate-100"
+          className="max-h-72 overflow-auto rounded-xl border border-code-edge bg-code p-3 font-mono text-[11px] leading-relaxed text-code-fg"
         >
           {run.log.join('\n')}
         </pre>

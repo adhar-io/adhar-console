@@ -1,4 +1,5 @@
-import { useEffect, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
+import { useOverlayDismiss } from './overlay.ts'
 import { createPortal } from 'react-dom'
 import { cn } from '@adhar-console/utils'
 
@@ -39,26 +40,8 @@ export function Modal({
   width = 'md',
   branded = false,
 }: ModalProps) {
-  // ESC closes.
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
-
-  // Lock body scroll while open.
-  useEffect(() => {
-    if (!open) return
-    if (typeof document === 'undefined') return
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.body.style.overflow = prev
-    }
-  }, [open])
+  // ESC to close + body-scroll lock, shared with the hand-rolled drawers.
+  useOverlayDismiss(open, onClose)
 
   if (!open) return null
   if (typeof document === 'undefined') return null
@@ -72,7 +55,7 @@ export function Modal({
         type="button"
         aria-label="Close"
         onClick={onClose}
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
       />
       <div
         className={cn(

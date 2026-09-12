@@ -283,7 +283,7 @@ function LogViewer({ props: p }: { props: Props }) {
   const lines = raw.split('\n').filter(Boolean)
   if (!lines.length) return <Empty text="No log output." />
   return (
-    <pre className="max-h-72 overflow-auto rounded-lg bg-slate-950 p-2.5 font-mono text-[10.5px] leading-relaxed text-slate-100">
+    <pre className="max-h-72 overflow-auto rounded-lg bg-code p-2.5 font-mono text-[10.5px] leading-relaxed text-code-fg">
       {lines.slice(-200).map((l, i) => (
         <div key={i} className={cn(/error|fatal|panic|exception/i.test(l) ? 'text-rose-300' : /warn/i.test(l) ? 'text-amber-300' : undefined)}>
           {l}
@@ -344,7 +344,7 @@ function ResourceSummary({ props: p }: { props: Props }) {
         {open ? 'Hide' : 'Show'} full object
       </button>
       {open ? (
-        <pre className="max-h-72 overflow-auto rounded-lg bg-slate-950 p-2.5 font-mono text-[10.5px] leading-relaxed text-slate-100">
+        <pre className="max-h-72 overflow-auto rounded-lg bg-code p-2.5 font-mono text-[10.5px] leading-relaxed text-code-fg">
           {JSON.stringify(obj, null, 2)}
         </pre>
       ) : null}
@@ -370,7 +370,7 @@ function Proposal({ props: p }: { props: Props }) {
         {showYaml ? 'Hide' : 'View'} manifest
       </button>
       {showYaml ? (
-        <pre className="mt-1.5 max-h-64 overflow-auto rounded-lg bg-slate-950 p-3 font-mono text-[10.5px] leading-relaxed text-slate-100">
+        <pre className="mt-1.5 max-h-64 overflow-auto rounded-lg bg-code p-3 font-mono text-[10.5px] leading-relaxed text-code-fg">
           {JSON.stringify(manifest, null, 2)}
         </pre>
       ) : null}

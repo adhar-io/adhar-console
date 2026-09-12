@@ -908,7 +908,7 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
           <div
             ref={paneRef}
             className={cn(
-              'overflow-auto rounded-xl border border-slate-800 bg-slate-950 font-mono text-[11px] leading-[1.55]',
+              'overflow-auto rounded-xl border border-code-edge bg-code font-mono text-[11px] leading-[1.55]',
               fullscreen ? 'h-full' : 'max-h-[62vh] min-h-[18rem] resize-y',
             )}
           >
@@ -930,15 +930,15 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
               </div>
             ) : (status === 'connecting' || status === 'streaming' || status === 'reconnecting') &&
               lines.length === 0 ? (
-              <div className="p-6 text-center text-xs text-slate-500">
+              <div className="p-6 text-center text-xs text-code-fg/55">
                 {status === 'reconnecting' ? 'Reconnecting…' : 'Waiting for log output…'}
               </div>
             ) : lines.length === 0 ? (
-              <div className="p-6 text-center text-xs text-slate-500">
+              <div className="p-6 text-center text-xs text-code-fg/55">
                 {status === 'empty' || status === 'paused' ? 'No log output.' : 'No log lines.'}
               </div>
             ) : processed.length === 0 ? (
-              <div className="p-6 text-center text-xs text-slate-500">
+              <div className="p-6 text-center text-xs text-code-fg/55">
                 No lines match the current search / severity filter.
               </div>
             ) : (
@@ -1016,7 +1016,7 @@ function LogRow({
       )}
     >
       {lineNumbers ? (
-        <span className="w-12 shrink-0 select-none text-right tabular-nums text-slate-600">{n}</span>
+        <span className="w-12 shrink-0 select-none text-right tabular-nums text-code-fg/40">{n}</span>
       ) : null}
       {line.c ? (
         <span

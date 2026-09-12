@@ -391,7 +391,7 @@ function EventDrawer({ event, onClose, onFilter }: { event: WsAuditEvent; onClos
   ]
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Audit event">
-      <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-slate-900/35 backdrop-blur-[2px]" />
+      <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" />
       <aside className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
         <header className="flex items-start justify-between gap-3 border-b border-edge-default bg-surface-raised px-5 py-4">
           <div className="min-w-0">
@@ -434,12 +434,12 @@ function EventDrawer({ event, onClose, onFilter }: { event: WsAuditEvent; onClos
           {event.metadata && Object.keys(event.metadata).length ? (
             <section>
               <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-content-subtle">Metadata</div>
-              <pre className="whitespace-pre-wrap break-all rounded-xl border border-edge-default bg-slate-950 p-4 font-mono text-[11.5px] leading-relaxed text-slate-100">{JSON.stringify(event.metadata, null, 2)}</pre>
+              <pre className="whitespace-pre-wrap break-all rounded-xl border border-edge-default bg-code p-4 font-mono text-[11.5px] leading-relaxed text-code-fg">{JSON.stringify(event.metadata, null, 2)}</pre>
             </section>
           ) : null}
           <section>
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-content-subtle">Raw event</div>
-            <pre className="whitespace-pre-wrap break-all rounded-xl border border-edge-default bg-slate-950 p-4 font-mono text-[11.5px] leading-relaxed text-slate-100">{JSON.stringify(event, null, 2)}</pre>
+            <pre className="whitespace-pre-wrap break-all rounded-xl border border-edge-default bg-code p-4 font-mono text-[11.5px] leading-relaxed text-code-fg">{JSON.stringify(event, null, 2)}</pre>
           </section>
         </div>
       </aside>

@@ -314,7 +314,7 @@ function SpecEditor({
               onChange={(e) => touch(setDocument)(e.target.value)}
               spellCheck={false}
               placeholder='{ "openapi": "3.0.3", "info": { … }, "paths": { … } }'
-              className="block h-[62vh] w-full resize-none rounded-b-xl border-0 bg-slate-950 p-4 font-mono text-[12px] leading-relaxed text-slate-100 focus:outline-none"
+              className="block h-[62vh] w-full resize-none rounded-b-xl border-0 bg-code p-4 font-mono text-[12px] leading-relaxed text-code-fg focus:outline-none"
             />
           </CardBody>
         </Card>

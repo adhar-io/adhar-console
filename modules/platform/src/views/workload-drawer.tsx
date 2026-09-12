@@ -220,7 +220,7 @@ export function WorkloadDrawer({ kind, namespace, name, onClose }: Props) {
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
       <div
-        className="absolute inset-0 bg-slate-900/30 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
         aria-hidden
       />

@@ -177,8 +177,8 @@ export function ResourcePlaybooks({
 function CmdBlock({ cmd }: { cmd: string }) {
   const [copied, setCopied] = useState(false)
   return (
-    <div className="mt-2 flex items-start gap-2 rounded-md border border-edge-subtle bg-slate-950 px-2.5 py-1.5">
-      <pre className="min-w-0 flex-1 overflow-x-auto font-mono text-[11px] leading-relaxed text-slate-100">
+    <div className="mt-2 flex items-start gap-2 rounded-md border border-edge-subtle bg-code px-2.5 py-1.5">
+      <pre className="min-w-0 flex-1 overflow-x-auto font-mono text-[11px] leading-relaxed text-code-fg">
         {cmd}
       </pre>
       <button
@@ -193,7 +193,7 @@ function CmdBlock({ cmd }: { cmd: string }) {
           }
         }}
         title={copied ? 'Copied' : 'Copy'}
-        className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-100"
+        className="shrink-0 rounded p-1 text-code-fg/60 hover:bg-code-raised hover:text-code-fg"
       >
         {copied ? <IconCheck /> : <IconCopy />}
       </button>

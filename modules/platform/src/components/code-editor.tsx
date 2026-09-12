@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@adhar-console/utils'
+import { useOverlayDismiss } from '@adhar-console/shell-ui'
 import { loadMonaco, type MonacoEditorInstance } from './monaco-loader.ts'
 
 /**
@@ -250,6 +251,11 @@ export function CodeEditor({
     }
   }
 
+  // ESC leaves fullscreen — the same gesture that dismisses every other
+  // overlay in the console. Scroll stays unlocked: the editor floats over the
+  // page rather than blocking it, and the toolbar's exit button remains.
+  useOverlayDismiss(fullscreen, () => setFullscreen(false), { lockScroll: false })
+
   const shell = (
     <div
       className={cn(
@@ -333,7 +339,7 @@ export function CodeEditor({
     return (
       <>
         <div
-          className="fixed inset-0 z-[59] bg-slate-900/40 backdrop-blur-[1px]"
+          className="fixed inset-0 z-[59] bg-scrim/40 backdrop-blur-[2px]"
           onClick={() => setFullscreen(false)}
         />
         {shell}

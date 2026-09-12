@@ -1538,7 +1538,7 @@ function PipelineRunDrawer({ run: initial, onClose }: { run: TektonRun; onClose(
       <button
         type='button'
         aria-label='Close'
-        className='absolute inset-0 bg-slate-900/35 backdrop-blur-[2px]'
+        className='absolute inset-0 bg-scrim/40 backdrop-blur-[2px]'
         onClick={onClose}
       />
       <aside className='relative flex h-full w-full max-w-5xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl'>
@@ -2453,13 +2453,13 @@ function StageConsole({
   const body = (
     <div
       className={cn(
-        'flex flex-col overflow-hidden bg-slate-950',
+        'flex flex-col overflow-hidden bg-code',
         fullscreen ? 'fixed inset-3 z-[60] rounded-xl shadow-2xl' : 'h-[26rem]',
       )}
     >
       {/* toolbar */}
-      <div className='flex flex-wrap items-center gap-1.5 border-b border-slate-800 bg-slate-900/80 px-2 py-1.5'>
-        <span className='mr-1 font-mono text-[11px] text-slate-400'>{stepName}</span>
+      <div className='flex flex-wrap items-center gap-1.5 border-b border-code-edge bg-code-raised px-2 py-1.5'>
+        <span className='mr-1 font-mono text-[11px] text-code-fg/60'>{stepName}</span>
         {running
           ? (
             <span className='inline-flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300'>
@@ -2472,7 +2472,7 @@ function StageConsole({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder='Search logs…'
-            className='h-6 w-36 rounded border border-slate-700 bg-slate-800 px-2 text-[11px] text-slate-100 placeholder:text-slate-500 outline-none focus:border-brand-400'
+            className='h-6 w-36 rounded border border-code-edge bg-code-raised px-2 text-[11px] text-code-fg placeholder:text-code-fg/45 outline-none focus:border-brand-400'
           />
           {search
             ? (
@@ -2510,9 +2510,9 @@ function StageConsole({
             </div>
           )
           : state === 'forbidden'
-          ? <div className='py-4 text-slate-400'>Not authorized to read logs for this pod.</div>
+          ? <div className='py-4 text-code-fg/60'>Not authorized to read logs for this pod.</div>
           : state === 'notfound'
-          ? <div className='py-4 text-slate-400'>Pod no longer exists — logs have been cleaned up.</div>
+          ? <div className='py-4 text-code-fg/60'>Pod no longer exists — logs have been cleaned up.</div>
           : state === 'error'
           ? <div className='py-4 text-rose-300'>Couldn&apos;t load logs: {errMsg}</div>
           : state === 'empty'
@@ -2523,7 +2523,7 @@ function StageConsole({
             <table className='w-full border-collapse'>
               <tbody>
                 {lines.map((l) => (
-                  <tr key={l.n} className='align-top hover:bg-slate-900/60'>
+                  <tr key={l.n} className='align-top hover:bg-code-raised'>
                     <td className='select-none pr-3 text-right font-mono text-[10px] text-slate-600'>
                       {l.n}
                     </td>
@@ -2548,7 +2548,7 @@ function StageConsole({
     return (
       <>
         <div
-          className='fixed inset-0 z-[59] bg-slate-900/50 backdrop-blur-[1px]'
+          className='fixed inset-0 z-[59] bg-scrim/40 backdrop-blur-[2px]'
           onClick={() => setFullscreen(false)}
         />
         {body}
@@ -2592,7 +2592,7 @@ function ConsoleBtn({
         'inline-flex h-6 w-6 items-center justify-center rounded transition-colors',
         active
           ? 'bg-brand-500/25 text-brand-200 ring-1 ring-inset ring-brand-400/40'
-          : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
+          : 'text-code-fg/60 hover:bg-code-raised hover:text-code-fg',
       )}
     >
       {children}
@@ -2793,7 +2793,7 @@ function PipelineDrawer({
       <button
         type='button'
         aria-label='Close'
-        className='absolute inset-0 bg-slate-900/35 backdrop-blur-[2px]'
+        className='absolute inset-0 bg-scrim/40 backdrop-blur-[2px]'
         onClick={onClose}
       />
       <aside className='relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl'>
@@ -2959,7 +2959,7 @@ function RunPipelineModal({ pipeline, onClose }: { pipeline: TektonPipelineObj; 
       <button
         type='button'
         aria-label='Close'
-        className='absolute inset-0 bg-slate-900/45 backdrop-blur-[2px]'
+        className='absolute inset-0 bg-scrim/40 backdrop-blur-[2px]'
         onClick={() => !runMut.isPending && onClose()}
       />
       <div className='relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-app shadow-2xl'>
@@ -3175,7 +3175,7 @@ function TaskDrawer({ task, onClose }: { task: TektonTaskObj; onClose(): void })
       <button
         type='button'
         aria-label='Close'
-        className='absolute inset-0 bg-slate-900/35 backdrop-blur-[2px]'
+        className='absolute inset-0 bg-scrim/40 backdrop-blur-[2px]'
         onClick={onClose}
       />
       <aside className='relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl'>
@@ -3220,7 +3220,7 @@ function TaskDrawer({ task, onClose }: { task: TektonTaskObj; onClose(): void })
                       </div>
                       {s.script
                         ? (
-                          <pre className='mt-2 max-h-40 overflow-auto rounded bg-slate-950 p-2 font-mono text-[10px] leading-relaxed text-slate-100'>{s.script}</pre>
+                          <pre className='mt-2 max-h-40 overflow-auto rounded bg-code p-2 font-mono text-[10px] leading-relaxed text-code-fg'>{s.script}</pre>
                         )
                         : null}
                     </li>

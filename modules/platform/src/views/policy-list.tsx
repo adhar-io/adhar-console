@@ -697,7 +697,7 @@ function ViolationDrawer({ v, policy, reporterUrl, onClose }: { v: Violation; po
             <div className="flex items-center gap-2"><code className="font-mono text-[12px] font-semibold text-content">{rule.name}</code><Chip>{ruleAction(rule)}</Chip></div>
             <div className="mt-1.5 flex flex-wrap gap-1 text-[11px]"><span className="text-content-subtle">matches</span>{matchKinds(rule.match).map((k) => <Chip key={k}>{k}</Chip>)}</div>
             {rule.validate?.message ? <p className="mt-2 rounded-md bg-surface-sunken px-2 py-1.5 font-mono text-[11px] text-content-muted">{rule.validate.message}</p> : null}
-            {rule.validate?.pattern ? <pre className="mt-2 max-h-48 overflow-auto rounded-md bg-slate-950 p-2 font-mono text-[11px] text-slate-100">{JSON.stringify(rule.validate.pattern, null, 2)}</pre> : null}
+            {rule.validate?.pattern ? <pre className="mt-2 max-h-48 overflow-auto rounded-md bg-code p-2 font-mono text-[11px] text-code-fg">{JSON.stringify(rule.validate.pattern, null, 2)}</pre> : null}
           </div>
         </DrawerSection>
       ) : null}

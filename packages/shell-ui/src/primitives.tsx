@@ -9,8 +9,11 @@ import { cn } from '@adhar-console/utils'
  * Elevation system:
  *   • `flat`   — border only, no shadow          — default resting state
  *   • `raised` — flat + `shadow-sm`              — sits on the canvas
- *   • `float`  — raised + `shadow-md` on hover   — interactive cards
- *   • `pop`    — `shadow-xl ring-1 ring-black/5` — dropdowns + drawers
+ *   • `float`  — raised + `shadow-md`            — interactive cards
+ *
+ * Dropdowns and drawers are not `Card`s — they portal out and carry their own
+ * `shadow-2xl`. (A fourth `pop` step was documented here for a while but never
+ * implemented, and nothing ever asked for it.)
  */
 
 /* ───────────────────────────────────────────────────────────── Card ── */

@@ -787,7 +787,7 @@ function StageDetailPanel({
   return (
     <div className="fixed inset-0 z-40" role="dialog" aria-modal="false" aria-label={`Stage ${s.name}`}>
       {/* Click-away. The panel is non-modal, so this only closes it. */}
-      <button type="button" aria-label="Close stage details" onClick={onClose} className="absolute inset-0 h-full w-full cursor-default bg-slate-950/10 backdrop-blur-[1px] dark:bg-slate-950/30" />
+      <button type="button" aria-label="Close stage details" onClick={onClose} className="absolute inset-0 h-full w-full cursor-default bg-scrim/40 backdrop-blur-[2px] dark:bg-scrim/40" />
       <aside className="absolute inset-y-0 right-0 flex w-full max-w-[420px] flex-col border-l border-edge-default bg-surface-raised shadow-2xl">
         <header className="relative shrink-0 border-b border-edge-default px-5 py-3">
           <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: HEALTH_HEX[s.health ?? 'Unknown'] }} />

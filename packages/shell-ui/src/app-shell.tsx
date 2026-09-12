@@ -165,7 +165,7 @@ export function AppShell({
           aria-label="Close navigation"
           onClick={() => setMobileOpen(false)}
           className={cn(
-            'absolute inset-0 bg-slate-900/40 backdrop-blur-[2px] transition-opacity duration-200 ease-smooth',
+            'absolute inset-0 bg-scrim/40 backdrop-blur-[2px] transition-opacity duration-200 ease-smooth',
             mobileOpen ? 'opacity-100' : 'opacity-0',
           )}
         />

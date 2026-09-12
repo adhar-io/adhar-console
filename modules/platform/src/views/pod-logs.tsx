@@ -473,12 +473,12 @@ function LogStream({
     <div className="relative">
       <div
         ref={ref}
-        className="max-h-[55vh] overflow-auto rounded-xl border border-slate-800 bg-slate-950 font-mono text-[11px] leading-[1.55]"
+        className="max-h-[55vh] overflow-auto rounded-xl border border-code-edge bg-code font-mono text-[11px] leading-[1.55]"
       >
         {loading ? (
-          <div className="p-6 text-center text-xs text-slate-500">Loading…</div>
+          <div className="p-6 text-center text-xs text-code-fg/55">Loading…</div>
         ) : lines.length === 0 ? (
-          <div className="p-6 text-center text-xs text-slate-500">
+          <div className="p-6 text-center text-xs text-code-fg/55">
             {hasSearch ? 'No lines match the current search / severity filter.' : 'No log lines.'}
           </div>
         ) : (
@@ -521,7 +521,7 @@ function LogLine({
   return (
     <div className={cn('flex gap-3 px-3 py-0.5 hover:bg-white/[0.04]', SEVERITY_TONE[sev])}>
       {lineNumbers ? (
-        <span className="w-14 shrink-0 select-none text-right tabular-nums text-slate-600">{index + 1}</span>
+        <span className="w-14 shrink-0 select-none text-right tabular-nums text-code-fg/40">{index + 1}</span>
       ) : null}
       <span className={cn('min-w-0', wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre')}>
         {renderSegments(line, matcher)}

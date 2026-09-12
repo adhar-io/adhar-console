@@ -196,7 +196,7 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
 
   return (
     <div role="dialog" aria-modal="true" aria-label="Adhar AI" className="fixed inset-0 z-[70] flex items-start justify-center px-3 pt-[6vh] sm:px-6">
-      <div className="fade-in absolute inset-0 bg-slate-950/60 backdrop-blur-[3px]" onClick={onClose} aria-hidden />
+      <div className="fade-in absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
       <div className="pop-in relative flex h-[86vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-app shadow-[0_40px_80px_-20px_rgba(15,23,42,0.5)]">
         {/* ═══ header ═══ */}
         <header className="flex items-center gap-3 border-b border-edge-subtle bg-surface-raised px-4 py-2.5">
@@ -537,7 +537,7 @@ function ToolChip({ call }: { call: ToolCallView }) {
         {toolLabel(call.name, safeArgs(call.args))}
       </button>
       {open ? (
-        <span className="mt-1 block max-w-md overflow-auto rounded-lg bg-slate-950 p-2 font-mono text-[10px] leading-relaxed text-slate-100">
+        <span className="mt-1 block max-w-md overflow-auto rounded-lg bg-code p-2 font-mono text-[10px] leading-relaxed text-code-fg">
           <span className="block text-slate-400">args</span>
           <span className="block whitespace-pre-wrap">{pretty(call.args)}</span>
           {call.result ? (
@@ -828,9 +828,9 @@ export function Markdown({ text }: { text: string }) {
         if (b.type === 'code') {
           return (
             <div key={i} className="group/code relative">
-              <pre className="max-h-96 overflow-auto rounded-lg bg-slate-950 p-3 font-mono text-[11.5px] leading-relaxed text-slate-100">{b.text}</pre>
+              <pre className="max-h-96 overflow-auto rounded-lg bg-code p-3 font-mono text-[11.5px] leading-relaxed text-code-fg">{b.text}</pre>
               {b.lang ? <span className="absolute right-2 top-1.5 text-[10px] uppercase text-slate-500">{b.lang}</span> : null}
-              <button type="button" onClick={() => void navigator.clipboard?.writeText(b.text)} className="absolute bottom-2 right-2 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-300 opacity-0 transition-opacity hover:text-white group-hover/code:opacity-100">copy</button>
+              <button type="button" onClick={() => void navigator.clipboard?.writeText(b.text)} className="absolute bottom-2 right-2 rounded bg-code-raised px-1.5 py-0.5 text-[10px] text-code-fg/70 opacity-0 transition-opacity hover:text-white group-hover/code:opacity-100">copy</button>
             </div>
           )
         }

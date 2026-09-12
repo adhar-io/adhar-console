@@ -3418,7 +3418,7 @@ function EntityDrawer({
       <button
         type="button"
         aria-label="Close"
-        className="absolute inset-0 bg-slate-900/35 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
       <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
@@ -3698,7 +3698,7 @@ function EntityDrawer({
                         <h3 className="text-sm font-semibold text-content">Raw entity</h3>
                       </CardHeader>
                       <CardBody>
-                        <pre className="max-h-72 overflow-auto rounded-lg bg-slate-950 p-4 font-mono text-[11px] leading-relaxed text-slate-100">
+                        <pre className="max-h-72 overflow-auto rounded-lg bg-code p-4 font-mono text-[11px] leading-relaxed text-code-fg">
                           {JSON.stringify(entity, null, 2)}
                         </pre>
                       </CardBody>
@@ -4867,7 +4867,7 @@ function Markdown({ source, base }: { source: string; base?: string }) {
         blocks.push(
           <pre
             key={keyer()}
-            className="my-3 overflow-auto rounded-lg border border-edge-subtle bg-slate-950 p-3 font-mono text-[12px] leading-relaxed text-slate-100"
+            className="my-3 overflow-auto rounded-lg border border-edge-subtle bg-code p-3 font-mono text-[12px] leading-relaxed text-code-fg"
           >
             <code>{buf.join('\n')}</code>
           </pre>,

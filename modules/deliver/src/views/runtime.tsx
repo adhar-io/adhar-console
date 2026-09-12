@@ -256,7 +256,7 @@ function EventDetail({ event: e, onClose }: { event: falco.FalcoEvent; onClose()
       <button
         type="button"
         aria-label="Close"
-        className="absolute inset-0 bg-slate-900/35 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
       <aside className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
@@ -292,7 +292,7 @@ function EventDetail({ event: e, onClose }: { event: falco.FalcoEvent; onClose()
               </div>
             </CardHeader>
             <CardBody>
-              <pre className="whitespace-pre-wrap rounded-md bg-slate-950 p-3 font-mono text-[11px] leading-relaxed text-slate-100">
+              <pre className="whitespace-pre-wrap rounded-md bg-code p-3 font-mono text-[11px] leading-relaxed text-code-fg">
                 {e.output}
               </pre>
             </CardBody>

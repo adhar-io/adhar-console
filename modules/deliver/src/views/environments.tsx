@@ -490,7 +490,7 @@ function EnvDrawer({
 
   const body = (
     <div className='fixed inset-0 z-50 flex justify-end'>
-      <div className='absolute inset-0 bg-slate-900/40 backdrop-blur-[1px]' onClick={onClose} />
+      <div className='absolute inset-0 bg-scrim/40 backdrop-blur-[2px]' onClick={onClose} />
       {/* `bg-surface-app`, not `surface-base` — the latter is not a token, so
           Tailwind emitted no rule and the panel rendered transparent over the
           page behind it. */}

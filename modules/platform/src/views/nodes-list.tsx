@@ -11,6 +11,7 @@ import {
   StatusBadge,
   Tabs,
   type TabDef,
+  useOverlayDismiss,
 } from '@adhar-console/shell-ui'
 import { kube } from '@adhar-console/api-clients/k8s'
 import { useNodes } from '../data/hooks.ts'
@@ -314,11 +315,13 @@ function NodeDrawer({
   const drainEvictable = (drainPodsQ.data ?? []).filter(isEvictable).length
   const drainSkipped = (drainPodsQ.data?.length ?? 0) - drainEvictable
 
+  useOverlayDismiss(true, onClose)
+
   if (typeof document === 'undefined') return null
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
       <div
-        className="absolute inset-0 bg-slate-900/30 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
         aria-hidden
       />

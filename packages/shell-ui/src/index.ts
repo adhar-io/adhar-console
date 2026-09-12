@@ -177,6 +177,7 @@ export {
 export { notifyUnauthorized, subscribeUnauthorized, UNAUTHORIZED_EVENT } from './unauthorized.ts'
 export { liveClient, useLiveInvalidate, useLiveK8sList, useLivePoll, useLiveRefetch, useLiveStatus, useLiveToolPoll, usePollingInterval, type LiveListState, type LiveStatus as LiveHubStatus, type LiveTopic, type LiveWatchRef } from './live.ts'
 export { ToastProvider, useToast, type Toast, type ToastApi, type ToastKind, type ToastOptions } from './toast.tsx'
+export { useOverlayDismiss } from './overlay.ts'
 
 /* ─ Primitives (new polish layer) ─ */
 export {

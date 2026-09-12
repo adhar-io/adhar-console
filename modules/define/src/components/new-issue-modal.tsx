@@ -102,7 +102,7 @@ export function NewIssueModal({
         type="button"
         aria-label="Close"
         onClick={onClose}
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
       />
       <form
         onSubmit={(e) => {

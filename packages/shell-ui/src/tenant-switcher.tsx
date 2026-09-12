@@ -304,7 +304,7 @@ function DialogFrame({
         type="button"
         aria-label="Close"
         onClick={() => !busy && onClose()}
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
       />
       <div
         role="dialog"

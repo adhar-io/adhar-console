@@ -381,7 +381,7 @@ function ExportPanel({ css, json }: { css: string; json: string }) {
           >
             Copy
           </button>
-          <pre className="max-h-72 overflow-auto rounded-lg bg-slate-950 p-4 font-mono text-[11px] leading-relaxed text-slate-100">
+          <pre className="max-h-72 overflow-auto rounded-lg bg-code p-4 font-mono text-[11px] leading-relaxed text-code-fg">
             {value}
           </pre>
         </div>

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useQueries, useQueryClient } from '@tanstack/react-query'
-import { Badge, Input, Select, Skeleton, Spinner, StatusBadge } from '@adhar-console/shell-ui'
+import { Badge, Input, Select, Skeleton, Spinner, StatusBadge, useOverlayDismiss } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
 import { client, useActiveCluster } from '../data/client.ts'
 import { useHasK8sPermission } from '../data/access.ts'
@@ -297,12 +297,14 @@ export function PlatformCatalog() {
 function BrowseModal({ info, onClose }: { info: XrdInfo; onClose(): void }) {
   if (typeof document === 'undefined') return null
   const cur = curationFor(info.kind)
+  useOverlayDismiss(true, onClose)
+
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:p-8" role="dialog" aria-modal="true">
       <button
         type="button"
         aria-label="Close"
-        className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px]"
+        className="fixed inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
       <div className="relative w-full max-w-6xl rounded-2xl border border-edge-default bg-surface-app shadow-2xl">

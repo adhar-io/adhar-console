@@ -11,6 +11,7 @@ import {
   Input,
   StatusBadge,
   type StatusKind,
+  useOverlayDismiss,
 } from '@adhar-console/shell-ui'
 import { kube } from '@adhar-console/api-clients/k8s'
 import { GVRS } from '../data/gvr.ts'
@@ -180,10 +181,12 @@ function ReleaseDrawer({ release, onClose }: { release: HelmRelease; onClose(): 
   const decoded = useDecodedRelease(release.latest.secret)
   const [confirming, setConfirming] = useState(false)
 
+  useOverlayDismiss(true, onClose)
+
   if (typeof document === 'undefined') return null
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
+      <div className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
       <aside className="relative flex h-full w-full max-w-2xl flex-col border-l border-edge-default bg-surface-raised shadow-2xl">
         <header className="flex items-start justify-between gap-4 border-b border-edge-default px-6 py-4">
           <div className="min-w-0">

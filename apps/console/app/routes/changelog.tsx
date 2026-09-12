@@ -40,7 +40,7 @@ function ChangelogPage() {
 
 function Hero() {
   return (
-    <section className="relative mb-10 overflow-hidden rounded-2xl border border-white/10 bg-slate-950 px-6 py-10 sm:px-10 sm:py-14">
+    <section className="relative mb-10 overflow-hidden rounded-2xl border border-white/10 bg-code px-6 py-10 sm:px-10 sm:py-14">
       {/* animated gradient blobs */}
       <div
         aria-hidden

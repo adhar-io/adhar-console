@@ -826,7 +826,7 @@ function AppDrawer({ app, onClose }: { app: MarketplaceApp; onClose(): void }) {
       <button
         type="button"
         aria-label="Close"
-        className="absolute inset-0 bg-slate-900/35 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={() => !toggle.isPending && onClose()}
       />
       <aside

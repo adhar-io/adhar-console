@@ -10,6 +10,7 @@ import {
   useNotifications,
   type AppLink,
   type Notification,
+  useOverlayDismiss,
 } from '@adhar-console/shell-ui'
 import { cn, formatRelative } from '@adhar-console/utils'
 import { STUB_USER, useOptionalSession } from '@adhar-console/auth'
@@ -1997,13 +1998,15 @@ function CustomizeSheet({
 
   const orderedIds = layout.order ?? layout.enabled
 
+  useOverlayDismiss(true, onClose)
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-end">
       <button
         type="button"
         aria-label="Close"
         onClick={onClose}
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
       />
       <aside
         role="dialog"

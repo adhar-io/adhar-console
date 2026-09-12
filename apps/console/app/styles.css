@@ -60,6 +60,32 @@
   --color-edge-default: oklch(0.91 0.008 260);
   --color-edge-strong: oklch(0.84 0.012 260);
 
+  /*
+   * ─ Mode-invariant surfaces ─
+   *
+   * Everything above flips in `.dark` via the variable swap. These four
+   * deliberately do NOT, and must never be given a `.dark` override — they
+   * describe surfaces that are dark in *both* themes.
+   *
+   * Why they exist: the slate ramp is inverted in dark mode, so `bg-slate-900`
+   * resolves to a near-WHITE color there. That is right for the borders and
+   * muted text the ramp was built for, and wrong for the two cases below:
+   *
+   *   scrim — a modal backdrop must darken whatever is behind it. Written as
+   *           `bg-slate-900/40` it dimmed correctly in light mode and washed
+   *           the page out with a white haze in dark mode.
+   *   code  — terminals, log viewers and `<pre>` blocks read as dark consoles.
+   *           Written as `bg-slate-950 text-slate-100` they inverted into a
+   *           glaring white block on an otherwise dark page.
+   *
+   * `code-raised` is for toolbars/headers sitting on a code surface.
+   */
+  --color-scrim: oklch(0.21 0.02 260);
+  --color-code: oklch(0.19 0.006 260);
+  --color-code-raised: oklch(0.23 0.007 260);
+  --color-code-fg: oklch(0.93 0.004 260);
+  --color-code-edge: oklch(0.31 0.009 260);
+
   /* ─ Motion ─ */
   --ease-smooth: cubic-bezier(0.32, 0.72, 0, 1);
 

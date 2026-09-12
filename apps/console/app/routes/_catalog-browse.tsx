@@ -2650,10 +2650,24 @@ type TechTone =
   | 'orange'
   | 'slate'
 
+/** Where a technology sits in the stack — drives grouping on the detail tab. */
+type TechGroup = 'language' | 'framework' | 'datastore' | 'runtime' | 'platform'
+
 interface TechBadge {
   label: string
   tone: TechTone
+  group: TechGroup
 }
+
+/** Section headings, in the order a reader builds a mental model of a service. */
+const TECH_GROUP_LABEL: Record<TechGroup, string> = {
+  language: 'Languages',
+  framework: 'Frameworks & libraries',
+  datastore: 'Data & messaging',
+  runtime: 'Runtime & packaging',
+  platform: 'Platform & delivery',
+}
+const TECH_GROUP_ORDER: TechGroup[] = ['language', 'framework', 'datastore', 'runtime', 'platform']
 
 /**
  * Known language / framework tags → a recognisable, brand-ish badge. Keys are
@@ -2662,43 +2676,87 @@ interface TechBadge {
  * not in here is treated as a generic tag — never guessed at.
  */
 const TECH_MAP: Record<string, TechBadge> = {
-  // languages
-  java: { label: 'Java', tone: 'orange' },
-  python: { label: 'Python', tone: 'blue' },
-  py: { label: 'Python', tone: 'blue' },
-  go: { label: 'Go', tone: 'cyan' },
-  golang: { label: 'Go', tone: 'cyan' },
-  typescript: { label: 'TypeScript', tone: 'blue' },
-  ts: { label: 'TypeScript', tone: 'blue' },
-  javascript: { label: 'JavaScript', tone: 'amber' },
-  js: { label: 'JavaScript', tone: 'amber' },
-  rust: { label: 'Rust', tone: 'orange' },
-  'c#': { label: 'C#', tone: 'violet' },
-  csharp: { label: 'C#', tone: 'violet' },
-  ruby: { label: 'Ruby', tone: 'red' },
-  php: { label: 'PHP', tone: 'indigo' },
-  kotlin: { label: 'Kotlin', tone: 'violet' },
-  scala: { label: 'Scala', tone: 'red' },
-  // frameworks
-  spring: { label: 'Spring', tone: 'green' },
-  'spring-boot': { label: 'Spring Boot', tone: 'green' },
-  springboot: { label: 'Spring Boot', tone: 'green' },
-  node: { label: 'Node.js', tone: 'green' },
-  nodejs: { label: 'Node.js', tone: 'green' },
-  'node.js': { label: 'Node.js', tone: 'green' },
-  express: { label: 'Express', tone: 'slate' },
-  react: { label: 'React', tone: 'cyan' },
-  next: { label: 'Next.js', tone: 'slate' },
-  nextjs: { label: 'Next.js', tone: 'slate' },
-  'next.js': { label: 'Next.js', tone: 'slate' },
-  django: { label: 'Django', tone: 'emerald' },
-  fastapi: { label: 'FastAPI', tone: 'teal' },
-  dotnet: { label: '.NET', tone: 'violet' },
-  '.net': { label: '.NET', tone: 'violet' },
-  rails: { label: 'Rails', tone: 'red' },
-  'ruby-on-rails': { label: 'Rails', tone: 'red' },
-  quarkus: { label: 'Quarkus', tone: 'sky' },
-  micronaut: { label: 'Micronaut', tone: 'cyan' },
+  // ── languages ──
+  java: { label: 'Java', tone: 'orange', group: 'language' },
+  python: { label: 'Python', tone: 'blue', group: 'language' },
+  py: { label: 'Python', tone: 'blue', group: 'language' },
+  go: { label: 'Go', tone: 'cyan', group: 'language' },
+  golang: { label: 'Go', tone: 'cyan', group: 'language' },
+  typescript: { label: 'TypeScript', tone: 'blue', group: 'language' },
+  ts: { label: 'TypeScript', tone: 'blue', group: 'language' },
+  javascript: { label: 'JavaScript', tone: 'amber', group: 'language' },
+  js: { label: 'JavaScript', tone: 'amber', group: 'language' },
+  rust: { label: 'Rust', tone: 'orange', group: 'language' },
+  'c#': { label: 'C#', tone: 'violet', group: 'language' },
+  csharp: { label: 'C#', tone: 'violet', group: 'language' },
+  ruby: { label: 'Ruby', tone: 'red', group: 'language' },
+  php: { label: 'PHP', tone: 'indigo', group: 'language' },
+  kotlin: { label: 'Kotlin', tone: 'violet', group: 'language' },
+  scala: { label: 'Scala', tone: 'red', group: 'language' },
+  elixir: { label: 'Elixir', tone: 'violet', group: 'language' },
+  shell: { label: 'Shell', tone: 'slate', group: 'language' },
+  bash: { label: 'Shell', tone: 'slate', group: 'language' },
+  // ── frameworks & libraries ──
+  spring: { label: 'Spring', tone: 'green', group: 'framework' },
+  'spring-boot': { label: 'Spring Boot', tone: 'green', group: 'framework' },
+  springboot: { label: 'Spring Boot', tone: 'green', group: 'framework' },
+  node: { label: 'Node.js', tone: 'green', group: 'framework' },
+  nodejs: { label: 'Node.js', tone: 'green', group: 'framework' },
+  'node.js': { label: 'Node.js', tone: 'green', group: 'framework' },
+  express: { label: 'Express', tone: 'slate', group: 'framework' },
+  react: { label: 'React', tone: 'cyan', group: 'framework' },
+  vue: { label: 'Vue', tone: 'emerald', group: 'framework' },
+  svelte: { label: 'Svelte', tone: 'orange', group: 'framework' },
+  next: { label: 'Next.js', tone: 'slate', group: 'framework' },
+  nextjs: { label: 'Next.js', tone: 'slate', group: 'framework' },
+  'next.js': { label: 'Next.js', tone: 'slate', group: 'framework' },
+  django: { label: 'Django', tone: 'emerald', group: 'framework' },
+  flask: { label: 'Flask', tone: 'slate', group: 'framework' },
+  fastapi: { label: 'FastAPI', tone: 'teal', group: 'framework' },
+  dotnet: { label: '.NET', tone: 'violet', group: 'framework' },
+  '.net': { label: '.NET', tone: 'violet', group: 'framework' },
+  rails: { label: 'Rails', tone: 'red', group: 'framework' },
+  'ruby-on-rails': { label: 'Rails', tone: 'red', group: 'framework' },
+  quarkus: { label: 'Quarkus', tone: 'sky', group: 'framework' },
+  micronaut: { label: 'Micronaut', tone: 'cyan', group: 'framework' },
+  grpc: { label: 'gRPC', tone: 'teal', group: 'framework' },
+  graphql: { label: 'GraphQL', tone: 'rose', group: 'framework' },
+  // ── data & messaging ──
+  postgres: { label: 'PostgreSQL', tone: 'blue', group: 'datastore' },
+  postgresql: { label: 'PostgreSQL', tone: 'blue', group: 'datastore' },
+  mysql: { label: 'MySQL', tone: 'sky', group: 'datastore' },
+  mariadb: { label: 'MariaDB', tone: 'orange', group: 'datastore' },
+  mongodb: { label: 'MongoDB', tone: 'green', group: 'datastore' },
+  redis: { label: 'Redis', tone: 'red', group: 'datastore' },
+  valkey: { label: 'Valkey', tone: 'red', group: 'datastore' },
+  kafka: { label: 'Kafka', tone: 'slate', group: 'datastore' },
+  rabbitmq: { label: 'RabbitMQ', tone: 'orange', group: 'datastore' },
+  clickhouse: { label: 'ClickHouse', tone: 'amber', group: 'datastore' },
+  elasticsearch: { label: 'Elasticsearch', tone: 'teal', group: 'datastore' },
+  opensearch: { label: 'OpenSearch', tone: 'teal', group: 'datastore' },
+  s3: { label: 'S3', tone: 'emerald', group: 'datastore' },
+  minio: { label: 'MinIO', tone: 'red', group: 'datastore' },
+  // ── runtime & packaging ──
+  docker: { label: 'Docker', tone: 'blue', group: 'runtime' },
+  oci: { label: 'OCI image', tone: 'blue', group: 'runtime' },
+  buildpacks: { label: 'Buildpacks', tone: 'sky', group: 'runtime' },
+  kpack: { label: 'kpack', tone: 'sky', group: 'runtime' },
+  helm: { label: 'Helm', tone: 'indigo', group: 'runtime' },
+  kustomize: { label: 'Kustomize', tone: 'indigo', group: 'runtime' },
+  serverless: { label: 'Serverless', tone: 'violet', group: 'runtime' },
+  knative: { label: 'Knative', tone: 'violet', group: 'runtime' },
+  // ── platform & delivery ──
+  kubernetes: { label: 'Kubernetes', tone: 'blue', group: 'platform' },
+  k8s: { label: 'Kubernetes', tone: 'blue', group: 'platform' },
+  argocd: { label: 'Argo CD', tone: 'orange', group: 'platform' },
+  gitops: { label: 'GitOps', tone: 'orange', group: 'platform' },
+  tekton: { label: 'Tekton', tone: 'sky', group: 'platform' },
+  kargo: { label: 'Kargo', tone: 'amber', group: 'platform' },
+  otel: { label: 'OpenTelemetry', tone: 'indigo', group: 'platform' },
+  opentelemetry: { label: 'OpenTelemetry', tone: 'indigo', group: 'platform' },
+  prometheus: { label: 'Prometheus', tone: 'orange', group: 'platform' },
+  terraform: { label: 'Terraform', tone: 'violet', group: 'platform' },
+  crossplane: { label: 'Crossplane', tone: 'teal', group: 'platform' },
 }
 
 /** Full literal Tailwind classes (JIT-safe), matching the StatusBadge pill pattern. */
@@ -3270,6 +3328,9 @@ function EntityDrawer({
   const version = entityVersion(entity)
   const health = entityHealth(entity, score)
   const docsUrl = techDocsUrl(entity)
+  // Controlled so a link inside one panel can move the reader to another —
+  // "Read here →" on the tech-stack panel opens the docs tab in place.
+  const [tab, setTab] = useState<DrawerTab>('overview')
   // Live metrics apply to anything that actually runs: a Component or Resource
   // the catalog resolved to a workload. `adhar.io/grafana-dashboard` pins a
   // dashboard when the team has one.
@@ -3421,7 +3482,7 @@ function EntityDrawer({
         </header>
 
         <div className="flex-1 overflow-y-auto px-6 py-5">
-          <Tabs<DrawerTab> tabs={tabs} ariaLabel="Entity details">
+          <Tabs<DrawerTab> tabs={tabs} value={tab} onChange={setTab} ariaLabel="Entity details">
             {(active) => (
               <div className="space-y-5">
                 {active === 'overview' ? (
@@ -3541,7 +3602,13 @@ function EntityDrawer({
                 ) : null}
 
                 {active === 'tech' ? (
-                  <TechStackCard stack={stack} version={version} entity={entity} />
+                  <TechStackCard
+                    stack={stack}
+                    version={version}
+                    entity={entity}
+                    docsUrl={docsUrl}
+                    onOpenDocs={() => setTab('docs')}
+                  />
                 ) : null}
 
                 {active === 'docs' ? <TechDocsCard url={docsUrl} entity={entity} monitorUrl={monitorUrl} /> : null}
@@ -4510,30 +4577,64 @@ function TechStackCard({
   stack,
   version,
   entity,
+  docsUrl,
+  onOpenDocs,
 }: {
   stack: TechBadge[]
   version?: string
   entity: Entity
+  docsUrl?: string
+  onOpenDocs?: () => void
 }) {
   const hasAny = stack.length > 0 || Boolean(version)
+  const ann = entityAnnotations(entity)
+  const repoUrl = (entity.metadata.links ?? []).find((l) => l.icon === 'repo')?.url
+
+  // Group the badges so the panel reads as a stack rather than a tag cloud:
+  // what it is written in, what it is built on, what it talks to, how it ships.
+  const grouped = TECH_GROUP_ORDER
+    .map((g) => ({ group: g, items: stack.filter((b) => b.group === g) }))
+    .filter((x) => x.items.length > 0)
+
+  // Where the version came from, named rather than implied — an annotation is a
+  // deliberate statement, a version-shaped tag is an inference.
+  const versionSource = ann['adhar.io/version']
+    ? 'adhar.io/version annotation'
+    : ann['backstage.io/version']
+      ? 'backstage.io/version annotation'
+      : ann['app.kubernetes.io/version']
+        ? 'app.kubernetes.io/version label'
+        : version
+          ? 'version-shaped tag'
+          : undefined
+
   return (
     <Card>
       <CardHeader>
-        <h3 className="text-sm font-semibold text-content">Tech stack &amp; versions</h3>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-content">Tech stack &amp; versions</h3>
+          {stack.length ? (
+            <span className="font-mono text-[10px] text-content-subtle">
+              {stack.length} detected across {grouped.length}{' '}
+              {grouped.length === 1 ? 'layer' : 'layers'}
+            </span>
+          ) : null}
+        </div>
       </CardHeader>
       <CardBody className="space-y-4">
-        {stack.length ? (
-          <div>
+        {grouped.map(({ group, items }) => (
+          <div key={group}>
             <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
-              Languages &amp; frameworks
+              {TECH_GROUP_LABEL[group]}
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {stack.map((b) => (
+              {items.map((b) => (
                 <TechPill key={b.label} badge={b} />
               ))}
             </div>
           </div>
-        ) : null}
+        ))}
+
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field
             label="Version"
@@ -4546,32 +4647,96 @@ function TechStackCard({
             }
           />
           <Field
-            label="Detected from"
+            label="Version source"
             value={
-              stack.length ? (
-                <span className="text-xs text-content-muted">Repository language / tags</span>
+              versionSource ? (
+                <span className="text-xs text-content-muted">{versionSource}</span>
               ) : (
                 <span className="text-content-subtle">—</span>
               )
             }
           />
+          <Field
+            label="Stack detected from"
+            value={
+              stack.length ? (
+                <span className="text-xs text-content-muted">
+                  Catalog tags on {entity.metadata.name}
+                </span>
+              ) : (
+                <span className="text-content-subtle">—</span>
+              )
+            }
+          />
+          <Field
+            label="Source"
+            value={
+              repoUrl ? (
+                <a
+                  href={repoUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-brand-700 hover:underline dark:text-brand-300"
+                >
+                  Repository ↗
+                </a>
+              ) : (
+                <span className="text-content-subtle">— not linked</span>
+              )
+            }
+          />
         </div>
+
+        {/* Documentation belongs beside the stack: the two questions "what is
+            this built with" and "how do I work on it" are asked together. */}
+        <div className="rounded-lg border border-edge-subtle bg-surface-sunken/40 px-3 py-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
+              Tech docs
+            </span>
+            {docsUrl ? (
+              <>
+                <StatusBadge kind="healthy" className="px-1.5 py-0 text-[10px]">
+                  registered
+                </StatusBadge>
+                {onOpenDocs ? (
+                  <button
+                    type="button"
+                    onClick={onOpenDocs}
+                    className="ml-auto text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300"
+                  >
+                    Read here →
+                  </button>
+                ) : null}
+              </>
+            ) : (
+              <span className="text-[11px] text-content-subtle">not registered</span>
+            )}
+          </div>
+          <p className="mt-1.5 text-[11px] leading-relaxed text-content-muted">
+            {docsUrl
+              ? 'Markdown kept in the repository renders inside the console, with a table of contents and search.'
+              : 'Add a docs link to metadata.links, or the backstage.io/techdocs-ref / adhar.io/docs annotation, to publish documentation for this component.'}
+          </p>
+        </div>
+
         {!hasAny ? (
           <EmptyState
             compact
             title="No tech stack detected"
             description={
               <>
-                Add language / framework tags (e.g. <code>java</code>, <code>spring-boot</code>) or
-                the <code>adhar.io/version</code> annotation on{' '}
-                <code>{entity.metadata.name}</code> to surface its stack.
+                Add language / framework tags (e.g. <code>java</code>, <code>spring-boot</code>,{' '}
+                <code>postgres</code>, <code>kafka</code>) or the <code>adhar.io/version</code>{' '}
+                annotation on <code>{entity.metadata.name}</code> to surface its stack.
               </>
             }
           />
         ) : (
           <p className="text-[11px] leading-relaxed text-content-subtle">
-            Per-language versions aren&apos;t published to the catalog — the version above is the
-            registered entity version when available. Honest &quot;—&quot; is shown when unknown.
+            The stack is read from the component&apos;s catalog tags, so it is only as complete as
+            those tags. Per-language versions are not published to the catalog — the version above
+            is the registered entity version, and an honest &quot;—&quot; is shown when unknown.
           </p>
         )}
       </CardBody>

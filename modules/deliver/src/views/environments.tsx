@@ -491,7 +491,10 @@ function EnvDrawer({
   const body = (
     <div className='fixed inset-0 z-50 flex justify-end'>
       <div className='absolute inset-0 bg-slate-900/40 backdrop-blur-[1px]' onClick={onClose} />
-      <aside className='relative flex h-full w-full max-w-2xl flex-col border-l border-edge-default bg-surface-base shadow-2xl'>
+      {/* `bg-surface-app`, not `surface-base` — the latter is not a token, so
+          Tailwind emitted no rule and the panel rendered transparent over the
+          page behind it. */}
+      <aside className='relative flex h-full w-full max-w-2xl flex-col border-l border-edge-default bg-surface-app shadow-2xl'>
         <header className='flex items-start gap-3 border-b border-edge-subtle px-5 py-4'>
           <div className='min-w-0 flex-1'>
             <div className='flex items-center gap-2 text-[11px] text-content-subtle'>

@@ -226,12 +226,99 @@ interface InstalledApp {
   url: string
 }
 
+/**
+ * Where the half-filled wizard is parked while the user goes to sign in.
+ *
+ * `/onboarding` is a public route — "Create a new account" on the sign-in page
+ * opens it — so someone can fill the whole wizard in with no session. Creating
+ * the organization needs one, and signing in is a full-page trip to Keycloak,
+ * which discards React state. Without this, a signing-up user typed everything,
+ * pressed the button, and was told the request had failed.
+ *
+ * Session storage, not local: this is one sign-up in one tab, and it should not
+ * outlive the tab or leak into the next person's.
+ */
+const RESUME_KEY = 'adhar.onboarding.resume.v1'
+
+interface ResumeBlob {
+  step: Step
+  orgName: string
+  orgDescription: string
+  contactName: string
+  contactEmail: string
+  selectedTools: string[]
+}
+
+function saveResume(step: Step, s: State) {
+  try {
+    const blob: ResumeBlob = {
+      step,
+      orgName: s.orgName,
+      orgDescription: s.orgDescription,
+      contactName: s.contactName,
+      contactEmail: s.contactEmail,
+      selectedTools: [...s.selectedTools],
+    }
+    sessionStorage.setItem(RESUME_KEY, JSON.stringify(blob))
+  } catch {
+    /* private mode — the flow still works, it just cannot resume */
+  }
+}
+
+function takeResume(): { step: Step; state: State } | null {
+  try {
+    const raw = sessionStorage.getItem(RESUME_KEY)
+    if (!raw) return null
+    sessionStorage.removeItem(RESUME_KEY)
+    const b = JSON.parse(raw) as ResumeBlob
+    const tools = new Set(Array.isArray(b.selectedTools) ? b.selectedTools : [])
+    for (const id of REQUIRED_TOOLS) tools.add(id)
+    return {
+      step: ([0, 1, 2, 3].includes(b.step) ? b.step : 0) as Step,
+      state: {
+        orgName: typeof b.orgName === 'string' ? b.orgName : '',
+        orgDescription: typeof b.orgDescription === 'string' ? b.orgDescription : '',
+        contactName: typeof b.contactName === 'string' ? b.contactName : '',
+        contactEmail: typeof b.contactEmail === 'string' ? b.contactEmail : '',
+        selectedTools: tools.size ? tools : new Set(DEFAULT_SELECTED),
+      },
+    }
+  } catch {
+    return null
+  }
+}
+
 function OnboardingWizard() {
   const nav = useNavigate()
   const { session, setSession } = useAuth()
-  const [step, setStep] = useState<Step>(0)
-  const [state, setState] = useState<State>(DEFAULT)
+  // Restore a wizard parked before a sign-in trip, so the round trip is
+  // invisible: same step, same answers.
+  const resumed = useRef(takeResume())
+  const [step, setStep] = useState<Step>(resumed.current?.step ?? 0)
+  const [state, setState] = useState<State>(resumed.current?.state ?? DEFAULT)
   const { catalogue, installed, loading: appsLoading } = useCapabilities()
+
+  /**
+   * Whether provisioning would be rejected for want of a session. Checked
+   * against the server rather than inferred from context: `useAuth()` can be
+   * momentarily empty on a cold load even when a valid cookie exists, and
+   * pushing that user to sign in again would be wrong.
+   */
+  const [authed, setAuthed] = useState<boolean | null>(null)
+  useEffect(() => {
+    let live = true
+    if (session) {
+      setAuthed(true)
+      return
+    }
+    void sessionAlive().then((ok) => {
+      if (live) setAuthed(ok)
+    })
+    return () => {
+      live = false
+    }
+  }, [session])
+  const needsSignIn = authed === false
 
   // Required capabilities are never absent from the selection, whatever the
   // user clicked or whatever a stale default carried in.
@@ -263,6 +350,14 @@ function OnboardingWizard() {
     // rest of the flow (and the final navigation into the app), so we don't
     // auto-finish here.
     if (step === 3) {
+      // Creating the organization requires a session. Send the user to sign in
+      // *before* provisioning rather than letting the first step fail — and
+      // park the wizard so they come back to exactly this screen.
+      if (needsSignIn) {
+        saveResume(3, state)
+        reauthenticate('/onboarding')
+        return
+      }
       setStep(4)
       return
     }
@@ -272,6 +367,18 @@ function OnboardingWizard() {
   function back() {
     if (step === 0 || step === 4) return
     setStep((step - 1) as Step)
+  }
+
+  /**
+   * Park the wizard and go to sign in, returning to the review step.
+   *
+   * Returning to step 3 rather than the provisioning screen is deliberate: the
+   * user confirms once, after signing in, instead of finding a run already
+   * underway that they did not start in this page load.
+   */
+  function parkAndSignIn() {
+    saveResume(3, state)
+    reauthenticate('/onboarding')
   }
 
   function skipOnboarding() {
@@ -411,7 +518,14 @@ function OnboardingWizard() {
                   appsLoading={appsLoading}
                 />
               )}
-              {step === 3 && <StepReview state={state} catalogue={catalogue} onEdit={setStep} />}
+              {step === 3 && (
+                <StepReview
+                  state={state}
+                  catalogue={catalogue}
+                  needsSignIn={needsSignIn}
+                  onEdit={setStep}
+                />
+              )}
               {step === 4 && (
                 <StepProvision
                   state={state}
@@ -419,6 +533,7 @@ function OnboardingWizard() {
                   session={session}
                   setSession={setSession}
                   navHome={() => nav({ to: '/' })}
+                  onSignIn={parkAndSignIn}
                 />
               )}
             </div>
@@ -448,7 +563,7 @@ function OnboardingWizard() {
                     disabled={!canContinue}
                     trailing={<IconArrowRight />}
                   >
-                    {step === 3 ? 'Provision workspace' : 'Continue'}
+                    {step === 3 ? (needsSignIn ? 'Sign in & provision' : 'Provision workspace') : 'Continue'}
                   </Button>
                 </div>
               </div>
@@ -776,10 +891,12 @@ function StepConnect({
 function StepReview({
   state,
   catalogue,
+  needsSignIn,
   onEdit,
 }: {
   state: State
   catalogue: Capability[]
+  needsSignIn: boolean
   onEdit: (s: Step) => void
 }) {
   const slug = slugPreview(state.orgName.trim())
@@ -825,6 +942,19 @@ function StepReview({
           </div>
         )}
       </ReviewRow>
+
+      {needsSignIn ? (
+        <div className="flex items-start gap-2.5 rounded-xl border border-brand-200 bg-brand-50/60 px-3.5 py-3 text-[12.5px] leading-snug text-brand-900 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-100">
+          <span className="mt-px shrink-0">
+            <IconShieldMini />
+          </span>
+          <span>
+            <span className="font-semibold">One step first: sign in.</span> Your workspace is created
+            under your account, so we need to know who you are before anything is provisioned. You'll
+            come straight back here — everything you've entered is kept.
+          </span>
+        </div>
+      ) : null}
 
       <WhatHappensNext contactEmail={state.contactEmail} toolCount={selected.length + extraSelected.length} />
     </div>
@@ -952,12 +1082,15 @@ function StepProvision({
   session,
   setSession,
   navHome,
+  onSignIn,
 }: {
   state: State
   catalogue: Capability[]
   session: Session | null
   setSession: (s: Session) => void
   navHome: () => void
+  /** Park the wizard and send the user to sign in, returning to this screen. */
+  onSignIn: () => void
 }) {
   // Provision everything that was selected, not just the curated subset. This
   // used to filter `BACKING_TOOLS`, which meant a capability discovered on the
@@ -1045,17 +1178,17 @@ function StepProvision({
       })
       return true
     }
-    // A 401 mid-onboarding means the SESSION aged out, not that the user was
-    // never signed in — say so, and offer a one-click reconnect that returns
-    // here with the wizard intact.
+    // A 401 here has two very different causes, and they need different words.
+    // `/onboarding` is public, so the user may never have signed in at all —
+    // telling that person their "session is valid" was both wrong and useless.
     if (res.status === 401) {
       const alive = await sessionAlive()
-      setExpired(!alive)
+      setExpired(true)
       patch('org', {
         status: 'failed',
         detail: alive
-          ? 'The console rejected the request even though your session is valid — retry, and check the server logs if it persists.'
-          : 'Your sign-in session expired while you were setting things up. Reconnect to continue — nothing you entered is lost.',
+          ? 'The console rejected the request even though you are signed in. Retry, and if it keeps happening your account may not have permission to create an organization.'
+          : 'Creating a workspace needs you to be signed in. Sign in to continue — everything you entered is kept.',
       })
       orgReachable.current = false
       return false
@@ -1183,11 +1316,11 @@ function StepProvision({
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-[13px] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
           <IconInfo />
           <span className="min-w-0 flex-1">
-            Your sign-in session expired while you were setting things up. Reconnect and we'll bring
-            you straight back here — your organization name and capability choices are kept.
+            Creating your workspace needs you to be signed in. Sign in and we'll bring you straight
+            back to this screen — your organization name and capability choices are kept.
           </span>
-          <Button size="sm" onClick={() => reauthenticate('/onboarding')}>
-            Reconnect
+          <Button size="sm" onClick={onSignIn}>
+            Sign in
           </Button>
         </div>
       ) : null}

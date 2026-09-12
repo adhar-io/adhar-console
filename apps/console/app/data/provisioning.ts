@@ -82,7 +82,14 @@ async function readJson(res: Response): Promise<Record<string, unknown>> {
 export async function sessionAlive(): Promise<boolean> {
   try {
     const res = await fetch('/api/auth/session', { credentials: 'same-origin', headers: { accept: 'application/json' } })
-    return res.ok
+    // `/api/auth/session` answers 200 whether or not anyone is signed in — the
+    // answer is in the body, not the status. Trusting `res.ok` reported every
+    // signed-out visitor as having a live session, which turned a plain
+    // "you are not signed in" into "the console rejected the request even
+    // though your session is valid" — the opposite of what had happened.
+    if (!res.ok) return false
+    const body = (await res.json().catch(() => null)) as { authenticated?: boolean } | null
+    return body?.authenticated === true
   } catch {
     return false
   }

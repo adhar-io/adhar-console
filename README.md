@@ -58,69 +58,24 @@ and webhooks.
 
 <em>Sign in. One confidential OIDC client — your password never touches the console.</em>
 
-</div>
-
-<br />
-
-<div align="center">
+<br /><br />
 
 <img src="./docs/assets/screenshots/overview.png" alt="Adhar Console — Overview: cluster health, delivery state, capacity and policy in one view" width="920" />
 
 <em>Overview. Cluster health, delivery state, capacity and policy on one screen — every number read live from Kubernetes and Argo CD.</em>
 
-</div>
+<br /><br />
 
-> **On these images.** The sign-in page is a live capture. Overview is a
-> design render built from the console's own palette, navigation tree and
-> real figures from a running cluster — the console has no demo mode, so
-> its interior cannot be photographed without a signed-in session against
-> someone's private platform.
+<img src="./docs/assets/screenshots/idp-theme.png" alt="The Adhar Keycloak sign-in theme in light and dark" width="920" />
 
----
-
-## 🎨 The IDP theme — sign-in is part of the product
-
-The first screen anyone sees is **not** rendered by this repo. It is Keycloak, the
-platform's identity provider. Left stock, it greets your users with PatternFly
-defaults and a Keycloak logo — a visible seam on the one page every single person
-passes through.
-
-The **Adhar login theme** closes that seam. It lives in the platform repo at
-[`platform/stack/packages/security/keycloak/theme/`](https://github.com/adhar-io/adhar/tree/main/platform/stack/packages/security/keycloak/theme)
-and is layered on `keycloak.v2` — **no FreeMarker template is overridden**, so
-every login flow (password, social providers, registration, reset-credentials,
-OTP, update-profile) keeps Keycloak's own logic and cannot be broken by a restyle.
-
-<div align="center">
-
-<img src="./docs/assets/screenshots/idp-theme.png" alt="The Adhar Keycloak login theme in light and dark" width="940" />
-
-<em>Same tokens, same card, same brand button — in both themes.</em>
+<em>Light and dark. The Keycloak sign-in page uses the console's own design tokens, and follows the theme you picked.</em>
 
 </div>
 
-**One design system, two codebases.** Every colour in the theme is copied verbatim
-from the console's own `apps/console/app/styles.css` — the same OKLCH brand ramp,
-`surface-*`, `content-*` and `edge-*` tokens. The sign-in page and the console are
-the same product because they are the same numbers, not because someone matched
-them by eye.
-
-**The theme follows you across the seam.** The console's light/dark setting is an
-explicit user choice, and `localStorage` is not shared across origins — so a user
-on dark would previously land on a white sign-in page. The preference now travels
-in an `adhar-theme` cookie scoped to the parent domain, readable by both
-`console.<domain>` and `keycloak.<domain>`. A small script resolves it before first
-paint (so there is no flash), honours `?theme=light|dark`, falls back to the OS
-preference, and renders the toggle in the corner of the card. It degrades
-correctly with JavaScript disabled, where Keycloak's own `prefers-color-scheme`
-class takes over.
-
-| | |
-|---|---|
-| **Where** | `platform/.../keycloak/theme/adhar/login/` — `theme.properties`, `resources/css/adhar.css`, `resources/js/adhar-theme.js` |
-| **How it ships** | as a `ConfigMap` (`theme-configmap.yaml`) mounted at `/opt/keycloak/themes/adhar` |
-| **Activated by** | the realm's `loginTheme: adhar`, set in `keycloak-config.yaml` |
-| **Assets** | SVG only — no web-font or CDN fetch, so it works fully air-gapped |
+> **On these images.** Sign-in is a live capture. Overview is a design render
+> built from the console's own palette, navigation tree and real figures from a
+> running cluster — the console has no demo mode, so its interior cannot be
+> photographed without a signed-in session against someone's private platform.
 
 ---
 

@@ -114,13 +114,38 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
           GHCR: ${{ steps.reg.outputs.ghcr }}
+          SHA: ${{ github.sha }}
         run: |
           # A published semver tag is immutable — fail early rather than clobber.
-          if docker buildx imagetools inspect "${GHCR}:${VERSION}" >/dev/null 2>&1; then
-            echo "::error::${GHCR}:${VERSION} already exists. Bump the version."
-            exit 1
+          #
+          # "Already published" is not the same as "published from somewhere
+          # else", though. This job pushes the image BEFORE it cuts the GitHub
+          # Release, so a failure in between leaves the version half-released:
+          # the image exists, the Release does not, and re-running the tag used
+          # to be refused right here — the version became permanently
+          # unreleasable and the only way out was to bump. (That is exactly what
+          # happened to v0.1.71.)
+          #
+          # So the guard asks the sharper question: was this image built from
+          # THIS commit? Same commit means a retry, and re-pushing identical
+          # content is a no-op. A different commit is the real violation.
+          if ! docker buildx imagetools inspect "${GHCR}:${VERSION}" >/dev/null 2>&1; then
+            echo "Version ${VERSION} is free — proceeding."
+            exit 0
           fi
-          echo "Version ${VERSION} is free — proceeding."
+          # Every build also publishes a `sha-<short>` tag. Comparing the two
+          # digests answers "same commit?" with two plain manifest lookups —
+          # more robust than digging labels out of a multi-arch index, where
+          # they live on the per-platform configs rather than the index itself.
+          SHORT="${SHA:0:7}"
+          VER_DIGEST=$(docker buildx imagetools inspect "${GHCR}:${VERSION}" --format '{{.Manifest.Digest}}' 2>/dev/null || true)
+          SHA_DIGEST=$(docker buildx imagetools inspect "${GHCR}:sha-${SHORT}" --format '{{.Manifest.Digest}}' 2>/dev/null || true)
+          if [ -n "${VER_DIGEST}" ] && [ "${VER_DIGEST}" = "${SHA_DIGEST}" ]; then
+            echo "::notice::${GHCR}:${VERSION} was already built from ${SHA} — retrying the rest of the release."
+            exit 0
+          fi
+          echo "::error::${GHCR}:${VERSION} already exists and was not built from ${SHA}. Bump the version."
+          exit 1
 
       - name: Derive image + tags
         id: meta
@@ -190,12 +215,47 @@ jobs:
             echo "| **Digest** | \`${DIGEST}\` |"
             echo
           } > "$NOTES_FILE"
+          # The image is already pushed by the time we get here, so a failure in
+          # this step half-releases the version. Three things follow from that:
+          #
+          #  1. Say WHY it failed. `gh` writes its reason to stderr and the step
+          #     used to surface nothing but "exit code 1", which is what made
+          #     v0.1.71 undiagnosable after the fact.
+          #  2. Never lose the Release because the CHANGELOG could not be built.
+          #     `--generate-notes` calls a separate API that can fail on its own;
+          #     the image table below is the part that matters, so fall back to
+          #     publishing without the auto-changelog rather than not at all.
+          #  3. Be idempotent. A retry of a tag whose Release already exists
+          #     should update it, not fail.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::notice::Release $TAG already exists — updating it."
+            gh release edit "$TAG" --title "adhar-console ${VERSION}" --notes-file "$NOTES_FILE"
+            exit 0
+          fi
+
           # --generate-notes appends the commit/PR changelog since the last tag.
-          gh release create "$TAG" \
-            --title "adhar-console ${VERSION}" \
-            --notes-file "$NOTES_FILE" \
-            --generate-notes \
-            --verify-tag
+          if ERR=$(gh release create "$TAG" \
+                --title "adhar-console ${VERSION}" \
+                --notes-file "$NOTES_FILE" \
+                --generate-notes \
+                --verify-tag 2>&1); then
+            echo "$ERR"
+            exit 0
+          fi
+          echo "$ERR"
+          echo "::warning::gh release create failed with auto-generated notes: ${ERR}"
+          echo "Retrying without --generate-notes."
+          if ERR2=$(gh release create "$TAG" \
+                --title "adhar-console ${VERSION}" \
+                --notes-file "$NOTES_FILE" \
+                --verify-tag 2>&1); then
+            echo "$ERR2"
+            echo "::notice::Released $TAG without the auto-generated changelog."
+            exit 0
+          fi
+          echo "$ERR2"
+          echo "::error::Could not create release $TAG: ${ERR2}"
+          exit 1
 
       - name: Job summary
         if: always()

@@ -15,7 +15,7 @@ import { TOOL_DEFS } from '../tools.ts'
  * *proposed* and a human applies it.
  */
 
-export type AgentId = 'sre' | 'delivery' | 'security' | 'finops' | 'platform'
+export type AgentId = 'sre' | 'delivery' | 'security' | 'finops' | 'platform' | 'adhar-ai'
 
 export interface AgentDef {
   id: AgentId
@@ -28,6 +28,12 @@ export interface AgentDef {
   icon: string
   /** Server-side tools this agent may call, by name. */
   tools: string[]
+  /**
+   * When set, this agent does not run the console's own tool loop — the turn is
+   * delegated to that runtime and its answer is narrated as AG-UI. Only
+   * `adhar-ai` uses it today.
+   */
+  delegateTo?: 'adhar-ai'
   starters: Array<{ label: string; prompt: string }>
   systemPrompt: string
 }
@@ -162,6 +168,38 @@ export const AGENTS: AgentDef[] = [
       `Your brief: you are the platform's guide. Explain how this specific installation is put together and how to get things done on it.`,
       `Ground every explanation in what you can actually see in the cluster — inspect before you explain. When you describe a workflow, name the real tools and the real console pages. Prefer render_ui tables and timelines for anything with more than three items.`,
     ].join('\n'),
+  },
+  {
+    /*
+     * The one agent that is not a console tool loop.
+     *
+     * Everything above reads the cluster with the signed-in user's RBAC and can
+     * only ever *propose* a change in prose. adhar-ai is the platform's agentic
+     * runtime: a larger governed tool contract, retrieval grounding, operators
+     * that react to cluster events — and a write path that is real, because it
+     * ends in a pull request rather than a suggestion. That property is
+     * structural in adhar-ai (every write tool reaches `open_pr`, and there is
+     * no apply path in the codebase), which is why it is safe to expose here.
+     *
+     * No `tools`: the runtime owns its own contract, and listing console tools
+     * against it would imply this loop can call them.
+     */
+    id: 'adhar-ai',
+    name: 'Adhar AI',
+    description: 'The platform agent — grounded answers, governed tools, changes as pull requests',
+    accent: 'violet',
+    icon: 'sparkle',
+    tools: [],
+    delegateTo: 'adhar-ai',
+    starters: [
+      { label: 'Why is this app degraded?', prompt: 'Which applications are out of sync or degraded, and why? Cite what you read.' },
+      { label: 'Propose a fix', prompt: 'Find the most impactful reliability problem on this platform right now and open a pull request that fixes it.' },
+      { label: 'What is this costing?', prompt: 'Where is spend going on this cluster, and what is the clearest waste to remove?' },
+      { label: 'Explain a recent finding', prompt: 'Summarise the most recent operator findings and tell me which one deserves attention first.' },
+    ],
+    // Delegated runs never see this: adhar-ai has its own system prompt. Kept
+    // non-empty so nothing downstream has to special-case an absent one.
+    systemPrompt: 'Delegated to the adhar-ai runtime.',
   },
 ]
 

@@ -4,6 +4,7 @@ import { executeTool } from '../tools.ts'
 import type { K8sIdentity } from '../../k8s/gateway.ts'
 import { AguiStream, type PatchOp } from './protocol.ts'
 import { getAgent, isServerTool, toolsForAgent, uiForToolResult, type AgentDef } from './agents.ts'
+import { delegateToAdharAi } from './delegate.ts'
 
 /**
  * The AG-UI run loop.
@@ -198,6 +199,46 @@ export function runAgent(rawInput: unknown, opts: RunOptions): Response {
 
       let finalText = ''
       try {
+        /*
+         * Delegated agents skip this loop entirely.
+         *
+         * `adhar-ai` is a whole agentic runtime with its own governed tool
+         * contract and its own write path; re-running it inside the console's
+         * loop would mean two agents arguing about one turn. The runtime gets
+         * the user's last message and its answer is narrated as AG-UI, so the
+         * browser sees the same events either way.
+         */
+        if (agent.delegateTo === 'adhar-ai') {
+          const last = [...input.messages].reverse().find((m) => m.role === 'user')
+          const prompt = typeof last?.content === 'string' ? last.content.trim() : ''
+          if (!prompt) {
+            stream.runError('No user message to send to adhar-ai.', 'empty_prompt')
+            stream.close()
+            return
+          }
+          // Context the UI attached (the page you were on, the resource you had
+          // open) is prepended, because the runtime has no view of the console.
+          const context = (input.context ?? []).map((c) => `${c.description}: ${c.value}`).join('\n')
+          const delegated = await delegateToAdharAi(stream, {
+            prompt: context ? `${context}\n\n${prompt}` : prompt,
+            bearer: typeof opts.identity === 'string' ? opts.identity : opts.identity.token,
+            user: typeof opts.identity === 'string' ? undefined : opts.identity.user.email,
+            session: input.threadId,
+            signal: opts.signal,
+          })
+          if (delegated.error) {
+            stream.runError(delegated.error, 'adhar_ai_error')
+            stream.close()
+            return
+          }
+          finalText = delegated.text
+          stream.patchState([{ op: 'replace', path: '/phase', value: 'done' }])
+          stream.runFinished({ text: finalText })
+          stream.close()
+          opts.onComplete?.({ text: finalText, findings: state.findings, agent })
+          return
+        }
+
         for (let step = 0; step < MAX_STEPS; step++) {
           const stepName = `step-${step + 1}`
           stream.stepStarted(stepName)

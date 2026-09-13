@@ -5,6 +5,7 @@ import { openStore } from '../workspace/store.ts'
 import { emitNotification } from '../notify.ts'
 import { runAgent } from './agui/run.ts'
 import { AGENTS, DEFAULT_AGENT } from './agui/agents.ts'
+import { adharAiFindings, isAdharAiConfigured } from './adhar-ai.ts'
 
 /**
  * Adhar AI endpoints (`/api/ai/*`) — an AG-UI (Agent-User Interaction Protocol)
@@ -31,12 +32,39 @@ export async function handleAi(req: Request, name: string): Promise<Response> {
       model: cfg?.model,
       protocol: 'ag-ui',
       defaultAgent: DEFAULT_AGENT,
-      agents: AGENTS.map(publicAgent),
+      // Reported separately from `configured`: the console's own agents and the
+      // agentic runtime fail independently, and collapsing them into one flag
+      // would blame the wrong thing.
+      adharAi: { configured: isAdharAiConfigured() },
+      agents: availableAgents().map(publicAgent),
     })
   }
 
   if (name === 'agents') {
-    return Response.json({ agents: AGENTS.map(publicAgent), defaultAgent: DEFAULT_AGENT })
+    return Response.json({ agents: availableAgents().map(publicAgent), defaultAgent: DEFAULT_AGENT })
+  }
+
+  /*
+   * Operator findings from adhar-ai — the agentic surface that exists whether
+   * or not anyone is chatting. Its operators watch Alertmanager and Argo CD
+   * notifications and record what they conclude; this is how the console shows
+   * that work. Gated on the signed-in user and forwarded with their token,
+   * because a finding carries the cluster detail the read tools are RBAC-scoped
+   * to protect.
+   */
+  if (name === 'findings') {
+    if (!isAdharAiConfigured()) {
+      return Response.json({ error: 'adhar_ai_not_configured', hint: 'set ADHAR_AI_URL' }, { status: 503 })
+    }
+    const who = await resolveIdentity(req)
+    if (!who) return Response.json({ error: 'unauthenticated' }, { status: 401 })
+    const limit = Number(new URL(req.url).searchParams.get('limit') ?? '20')
+    const res = await adharAiFindings({ bearer: who.token, limit: Number.isFinite(limit) ? limit : 20 })
+    if (!res.ok) {
+      return Response.json({ error: 'adhar_ai_unavailable', detail: res.error }, { status: 502 })
+    }
+    const body = res.data
+    return Response.json({ findings: body.findings ?? body.items ?? [] })
   }
 
   if (name !== 'run') {
@@ -111,5 +139,20 @@ function publicAgent(a: (typeof AGENTS)[number]) {
     icon: a.icon,
     starters: a.starters,
     tools: a.tools.length,
+    /** True for agents handled by an external runtime rather than this loop. */
+    delegated: Boolean(a.delegateTo),
   }
+}
+
+/**
+ * The roster the UI may offer.
+ *
+ * A delegated agent is only listed when its runtime is actually configured —
+ * offering "Adhar AI" on an install without `ADHAR_AI_URL` would put a choice
+ * in the switcher whose every message fails. The console's own agents need no
+ * such gate: they run on the LLM endpoint this handler already checked.
+ */
+function availableAgents() {
+  const adharAi = isAdharAiConfigured()
+  return AGENTS.filter((a) => a.delegateTo !== 'adhar-ai' || adharAi)
 }

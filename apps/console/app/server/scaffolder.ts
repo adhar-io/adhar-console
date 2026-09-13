@@ -3,7 +3,7 @@ import { getRequestUser, unauthorized } from './request-user.ts'
 import { getTool } from './tool-registry.ts'
 import { giteaConn, giteaFetcher } from './gitea-auth.ts'
 import { apiServerFetch, resolveIdentity } from './k8s/gateway.ts'
-import { generateGoldenPathFiles, isGoldenPathFamily } from './golden-paths.ts'
+import { defaultImage, generateGoldenPathFiles, isGoldenPathFamily } from './golden-paths.ts'
 import type { GoldenPathFamily } from './golden-paths.ts'
 import { parseYaml } from './yaml-lite.ts'
 import { computeValues, renderContent, renderPath, skeletonDir } from './template-render.ts'
@@ -420,6 +420,14 @@ async function scaffold(
       owner: body.owner,
       port: Number(p.port) || undefined,
       language: typeof p.language === 'string' ? p.language : undefined,
+      // Derived from the SAME env the kpack Image below uses, so the manifest
+      // and the build target cannot drift. They did: the generator hard-coded
+      // registry.adhar.local (which exists nowhere) with a `:latest` tag, and the
+      // platform's supply-chain policies denied the Deployment at admission —
+      // `restrict-image-registries-enforce` + `disallow-latest-tag-enforce` — so
+      // the scaffold produced a repo, a build and an Argo CD Application, and
+      // then no workload.
+      image: defaultImage(name, env('KPACK_REGISTRY'), env('SCAFFOLD_IMAGE_TAG') ?? '0.1.0'),
     })
     for (const file of files) {
       if (committedPaths.has(file.path) || file.path === catalogInfoPath || file.path === 'catalog-info.yaml') continue

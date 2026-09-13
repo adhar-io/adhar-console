@@ -28,6 +28,21 @@ export interface GoldenPathParams {
   port?: number
   /** Implementation language where the family supports a choice (microservice: go | node). */
   language?: string
+  /**
+   * Fully-qualified image reference for the generated Deployment.
+   *
+   * MUST be supplied by the caller in a real scaffold, because it has to agree
+   * with where the kpack `Image` actually pushes. It previously hard-coded
+   * `registry.adhar.local/platform/<name>:latest`, a registry that does not
+   * exist on any Adhar cluster and a tag the platform's own supply-chain policies
+   * REJECT, so the scaffolded Deployment was denied at admission:
+   *
+   *   disallow-latest-tag-enforce:      an explicit image tag is required
+   *   restrict-image-registries-enforce: registry is not in the platform allowlist
+   *
+   * i.e. the platform shipped a golden path its own enforcement refused to run.
+   */
+  image?: string
 }
 
 const FAMILIES: readonly GoldenPathFamily[] = ['microservice', 'frontend', 'data-pipeline', 'ml']
@@ -60,6 +75,7 @@ interface Ctx {
   description: string
   owner: string
   port: number
+  image: string
 }
 
 function ctx(params: GoldenPathParams, defaultPort: number): Ctx {
@@ -72,7 +88,30 @@ function ctx(params: GoldenPathParams, defaultPort: number): Ctx {
     description: params.description?.trim() || `${params.name} — scaffolded by Adhar golden paths.`,
     owner: params.owner?.trim() || 'group:platform',
     port,
+    image: params.image?.trim() || defaultImage(params.name),
   }
+}
+
+/**
+ * Fallback image reference: the platform's Harbor, with an explicit initial tag.
+ *
+ * Deliberately NOT `:latest` — the platform's `disallow-latest-tag-enforce`
+ * policy denies it at admission, so a `:latest` reference does not merely look
+ * sloppy, it stops the workload existing. And deliberately Harbor, because
+ * `restrict-image-registries-enforce` allows only the platform registry.
+ *
+ * The tag will not exist until the first build publishes it, so the Deployment
+ * reports ImagePullBackOff until then. That is the honest "awaiting first build"
+ * state and it is the right trade: the GitOps chain is correct and complete, and
+ * CI's version-bump moves the tag forward. An admission-denied Deployment, by
+ * contrast, never reconciles at all.
+ *
+ * Keep this in step with `buildKpackImage()` in scaffolder.ts — that is where the
+ * image is actually pushed, and the two disagreeing is the bug this replaced.
+ */
+export function defaultImage(name: string, registry?: string, tag = '0.1.0'): string {
+  const reg = (registry || 'harbor-core.adhar-system.svc.cluster.local/library').replace(/\/$/, '')
+  return `${reg}/${name}:${tag}`
 }
 
 const OTEL_ENDPOINT = 'http://otel-collector.observability.svc.cluster.local:4317'
@@ -118,7 +157,9 @@ on:
   pull_request: {}
 
 env:
-  REGISTRY: \${{ vars.REGISTRY || 'registry.adhar.local' }}
+  # Overridable per repo with a REGISTRY Actions variable. The default is the
+  # platform registry, which is the only one its image policy admits.
+  REGISTRY: \${{ vars.REGISTRY || 'harbor-core.adhar-system.svc.cluster.local/library' }}
   IMAGE: platform/${name}
 
 jobs:
@@ -150,6 +191,8 @@ ${testJobSteps}
 
 function deploymentYaml(o: {
   name: string
+  /** Fully-qualified, policy-compliant image reference — see defaultImage(). */
+  image: string
   port: number
   envYaml: string
   cpuRequest?: string
@@ -181,7 +224,7 @@ spec:
     spec:
       containers:
         - name: ${o.name}
-          image: registry.adhar.local/platform/${o.name}:latest
+          image: ${o.image}
           ports:
             - name: http
               containerPort: ${o.port}
@@ -266,7 +309,12 @@ function microserviceFiles(params: GoldenPathParams): GoldenPathFile[] {
     },
     {
       path: 'deploy/deployment.yaml',
-      content: deploymentYaml({ name: c.name, port: c.port, envYaml: otelEnvYaml(c.name, [['PORT', String(c.port)]]) }),
+      content: deploymentYaml({
+        name: c.name,
+        image: c.image,
+        port: c.port,
+        envYaml: otelEnvYaml(c.name, [['PORT', String(c.port)]]),
+      }),
     },
     { path: 'deploy/service.yaml', content: serviceYaml(c.name, c.port) },
     { path: 'deploy/servicemonitor.yaml', content: serviceMonitorYaml(c.name) },
@@ -570,6 +618,7 @@ EXPOSE ${c.port}
       path: 'deploy/deployment.yaml',
       content: deploymentYaml({
         name: c.name,
+        image: c.image,
         port: c.port,
         envYaml: otelEnvYaml(c.name),
         cpuRequest: '50m',
@@ -741,7 +790,7 @@ spec:
     templates:
       - name: run
         container:
-          image: registry.adhar.local/platform/${c.name}:latest
+          image: ${c.image}
           command: [python, -m, pipeline.main]
           env:
             - name: OTEL_SERVICE_NAME
@@ -906,6 +955,7 @@ CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port \${PORT}"]
       path: 'deploy/deployment.yaml',
       content: deploymentYaml({
         name: c.name,
+        image: c.image,
         port: c.port,
         envYaml: otelEnvYaml(c.name, [['PORT', String(c.port)], ['MODEL_VERSION', '0.1.0']]),
         cpuRequest: '250m',
@@ -937,7 +987,7 @@ spec:
     templates:
       - name: train
         container:
-          image: registry.adhar.local/platform/${c.name}:latest
+          image: ${c.image}
           command: [python, training/train.py]
           env:
             - name: OTEL_SERVICE_NAME

@@ -85,17 +85,41 @@ and webhooks.
 
 ## 🧩 Architecture in one breath
 
-```
-browser ─┬─▶  SPA (host + federated remotes, one origin)
-         └─▶  BFF API  ── /api/auth/*    OIDC login (Keycloak, server-side)
-                        ── /api/k8s/*     per-user Kubernetes gateway (impersonation, watch, exec)
-                        ── /api/svc/<tool>/…   token-injecting reverse proxy
-                        ── /api/store/<kind>[/<id>]   console-owned entities (Postgres)
-                        ── /api/prefs, /api/notifications   (Postgres via Drizzle)
-                        ── /api/ai/*      AI assistant (read + propose)
-                        ── /healthz, /readyz, /api/config
-                              │
-                    apps/console/server.ts  (standalone Deno server)
+```mermaid
+flowchart LR
+  B["Browser<br/><small>SPA host + 8 federated remotes</small>"]
+
+  subgraph origin["console.&lt;domain&gt; · one origin, one process"]
+    direction TB
+    S["apps/console/server.ts<br/><small>Deno.serve — serves the SPA and hosts the BFF</small>"]
+    AU["/api/auth/*"]
+    K8["/api/k8s/*"]
+    SV["/api/svc/&lt;tool&gt;/*"]
+    ST["/api/store/* · /api/prefs<br/>/api/notifications"]
+    AI["/api/ai/*"]
+    S --- AU & K8 & SV & ST & AI
+  end
+
+  KC["Keycloak<br/><small>confidential OIDC client</small>"]
+  API["kube-apiserver"]
+  TOOLS["Backing tools<br/><small>Argo CD · Gitea · Harbor · Kargo<br/>Grafana · Loki · Mimir · Tempo · …</small>"]
+  PG[("Postgres<br/><small>Drizzle</small>")]
+
+  B -->|"static SPA + remotes"| S
+  B -->|"fetch /api/* · HttpOnly session cookie"| S
+
+  AU -->|"code exchange + JWKS<br/>tokens never reach the browser"| KC
+  K8 -->|"as the signed-in user<br/>OIDC impersonation — their RBAC, their audit"| API
+  SV -->|"upstream credential injected server-side"| TOOLS
+  ST --> PG
+  AI -.->|"read + propose"| API
+
+  classDef edgeNode fill:none,stroke:#6366f1,stroke-width:1.5px
+  classDef apiNode fill:none,stroke:#94a3b8,stroke-width:1px
+  classDef extNode fill:none,stroke:#10b981,stroke-width:1.5px
+  class B,S edgeNode
+  class AU,K8,SV,ST,AI apiNode
+  class KC,API,TOOLS,PG extNode
 ```
 
 - **Client** is a Vite **SPA** (React 19 + TanStack Router/Query) with each 6D

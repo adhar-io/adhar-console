@@ -26,6 +26,8 @@ export const LOCAL_CLUSTER = 'local'
 const CLUSTER_KEY = 'adhar.platform.active-cluster'
 const NAMESPACE_KEY = 'adhar.platform.active-namespace'
 const SCOPE_KEY = 'adhar.platform.ns-scope'
+const TEAM_KEY = 'adhar.platform.active-team'
+const TEAM_ALL_KEY = 'adhar.platform.team-show-all'
 const SELECTION_EVENT = 'adhar:selection-change'
 
 export interface Selection {
@@ -39,6 +41,20 @@ export interface Selection {
    * case is active and every namespace is in scope.
    */
   namespaceScope: string
+  /**
+   * Slug of the active team, or `''` when no team is selected.
+   *
+   * This is a **lens, not a boundary**. Real isolation is enforced where it can
+   * actually be enforced — Kubernetes RBAC against the signed-in user, and the
+   * Keycloak groups behind it — and the console impersonates that user for every
+   * cluster read. Filtering here narrows what is *shown* to the team you are
+   * working in; it never decides what you are *allowed* to see, and pretending
+   * otherwise would be security theatre that also hides things people
+   * legitimately need.
+   */
+  team: string
+  /** True when the user has asked to see everything regardless of team. */
+  teamShowAll: boolean
 }
 
 function read(key: string): string {
@@ -63,6 +79,8 @@ function fresh(): Selection {
     cluster: read(CLUSTER_KEY) || LOCAL_CLUSTER,
     namespace: read(NAMESPACE_KEY),
     namespaceScope: read(SCOPE_KEY),
+    team: read(TEAM_KEY),
+    teamShowAll: read(TEAM_ALL_KEY) === '1',
   }
 }
 
@@ -81,7 +99,9 @@ function rebuild(): void {
   if (
     next.cluster === snapshot.cluster &&
     next.namespace === snapshot.namespace &&
-    next.namespaceScope === snapshot.namespaceScope
+    next.namespaceScope === snapshot.namespaceScope &&
+    next.team === snapshot.team &&
+    next.teamShowAll === snapshot.teamShowAll
   ) {
     return
   }
@@ -91,7 +111,10 @@ function rebuild(): void {
 
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e: StorageEvent) => {
-    if (e.key === null || e.key === CLUSTER_KEY || e.key === NAMESPACE_KEY || e.key === SCOPE_KEY) {
+    if (
+      e.key === null || e.key === CLUSTER_KEY || e.key === NAMESPACE_KEY ||
+      e.key === SCOPE_KEY || e.key === TEAM_KEY || e.key === TEAM_ALL_KEY
+    ) {
       rebuild()
     }
   })
@@ -157,6 +180,25 @@ export function setNamespaceScope(selector?: string): void {
   broadcast()
 }
 
+export function getActiveTeam(): string {
+  return snapshot.team
+}
+
+export function setActiveTeam(slug?: string): void {
+  const next = slug ?? ''
+  if (next === snapshot.team) return
+  snapshot = { ...snapshot, team: next }
+  write(TEAM_KEY, next)
+  broadcast()
+}
+
+export function setTeamShowAll(on: boolean): void {
+  if (on === snapshot.teamShowAll) return
+  snapshot = { ...snapshot, teamShowAll: on }
+  write(TEAM_ALL_KEY, on ? '1' : '')
+  broadcast()
+}
+
 export function subscribeSelection(listener: () => void): () => void {
   return subscribe(listener)
 }
@@ -185,4 +227,28 @@ export function useActiveNamespace(): {
 /** Reactive org→namespace label selector (`''` when unscoped). */
 export function useNamespaceScope(): string {
   return useSelection().namespaceScope
+}
+
+/**
+ * Reactive team lens.
+ *
+ * `active` is the team slug being worked in; `showAll` overrides the filter.
+ * `filtering` is the question every view actually asks — "should I narrow what
+ * I show?" — so callers do not each re-derive it and drift apart.
+ */
+export function useTeamScope(): {
+  team: string
+  showAll: boolean
+  filtering: boolean
+  setTeam: (slug?: string) => void
+  setShowAll: (on: boolean) => void
+} {
+  const { team, teamShowAll } = useSelection()
+  return {
+    team,
+    showAll: teamShowAll,
+    filtering: Boolean(team) && !teamShowAll,
+    setTeam: setActiveTeam,
+    setShowAll: setTeamShowAll,
+  }
 }

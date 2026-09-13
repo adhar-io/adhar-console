@@ -11,6 +11,8 @@ import {
   StatusBadge,
   useToast,
   type StatusKind,
+  TeamScopeBar,
+  useTeamProjects,
 } from '@adhar-console/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar-console/utils'
 import type { argocd } from '@adhar-console/api-clients'
@@ -164,9 +166,22 @@ export function ArgoApps() {
     return s
   }, [all])
 
+  // An app belongs to a team transitively: the team owns a workspace project,
+  // and that project names the Argo CD AppProject the app is deployed under.
+  // A lens, not a boundary — the bar below says so and offers the way out.
+  const teamScope = useTeamProjects()
+
+  const teamVisible = useMemo(
+    () =>
+      teamScope.filtering
+        ? all.filter((a) => teamScope.argoProjects.has(a.spec.project))
+        : all,
+    [all, teamScope.filtering, teamScope.argoProjects],
+  )
+
   const list = useMemo(() => {
     const f = search.trim().toLowerCase()
-    let out = all.filter((a) => {
+    let out = teamVisible.filter((a) => {
       if (syncF !== 'all' && a.status.sync.status !== syncF) return false
       if (healthF !== 'all') {
         const h = a.status.health.status
@@ -202,7 +217,7 @@ export function ArgoApps() {
       return x.metadata.name.localeCompare(y.metadata.name)
     })
     return out
-  }, [all, search, syncF, healthF, policyF, projectF, namespaceF, prefs.sort])
+  }, [teamVisible, search, syncF, healthF, policyF, projectF, namespaceF, prefs.sort])
 
   const open = all.find((a) => a.metadata.name === openName) ?? null
   const refining = syncF !== 'all' || healthF !== 'all' || policyF !== 'all' || projectF !== 'all' || namespaceF !== 'all' || !!search.trim()
@@ -316,12 +331,35 @@ export function ArgoApps() {
         </div>
       ) : null}
 
+      <TeamScopeBar
+        team={teamScope.team}
+        shown={teamVisible.length}
+        total={all.length}
+        noun="applications"
+      />
+
       <div className="text-[11px] text-content-subtle">
-        {list.length === all.length ? `${all.length} application${all.length === 1 ? '' : 's'}` : `${list.length} of ${all.length} applications`}
+        {list.length === teamVisible.length
+          ? `${teamVisible.length} application${teamVisible.length === 1 ? '' : 's'}`
+          : `${list.length} of ${teamVisible.length} applications`}
       </div>
 
+      {/* Three genuinely different empty states below. Saying "ArgoCD has no
+          Applications" when the team lens is what hid them would send people
+          looking for a problem that does not exist. */}
       {list.length === 0 ? (
-        <EmptyState title={all.length === 0 ? 'No applications' : 'No matches'} description={all.length === 0 ? 'ArgoCD has no Applications in this project yet.' : 'Relax the filters or the search.'} />
+        <EmptyState
+          title={all.length === 0
+            ? 'No applications'
+            : teamVisible.length === 0
+            ? `No applications for ${teamScope.team}`
+            : 'No matches'}
+          description={all.length === 0
+            ? 'ArgoCD has no Applications in this project yet.'
+            : teamVisible.length === 0
+            ? `${all.length} application${all.length === 1 ? '' : 's'} exist, but none belong to a project owned by this team. Use “Show all” above to see them.`
+            : 'Relax the filters or the search.'}
+        />
       ) : prefs.layout === 'grid' ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-3">
           {list.map((a) => (

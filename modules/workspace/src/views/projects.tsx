@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { DataTable, EmptyState, Modal, StatusBadge } from '@adhar-console/shell-ui'
+import { DataTable, EmptyState, Modal, StatusBadge, TeamScopeBar, useTeamScope } from '@adhar-console/shell-ui'
 import { formatRelative } from '@adhar-console/utils'
 import {
   isDbUnavailable,
@@ -29,7 +29,12 @@ export function Projects() {
   const [editing, setEditing] = useState<WsProject | null>(null)
   const [pendingDelete, setPendingDelete] = useState<WsProject | null>(null)
 
-  const all = q.data ?? []
+  // The active team is a lens over this list, not a permission boundary — the
+  // bar below says what is hidden and offers the way out. A project belongs to
+  // a team through its own `teams` field, so the filter is a direct read.
+  const { team, filtering } = useTeamScope()
+  const everything = q.data ?? []
+  const all = filtering ? everything.filter((p) => (p.teams ?? []).includes(team)) : everything
 
   const openCreate = () => {
     setEditing(null)
@@ -57,6 +62,7 @@ export function Projects() {
         <StoreErrorState error={q.error} retry={() => q.refetch()} />
       ) : (
         <>
+          <TeamScopeBar team={team} shown={all.length} total={everything.length} noun="projects" />
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatTile label="Projects" value={q.isLoading ? '…' : all.length} />
             <StatTile label="With repo" value={all.filter((p) => p.primaryRepo).length} />

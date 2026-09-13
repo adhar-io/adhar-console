@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { setActiveTeam } from './selection-store.ts'
 
 /**
  * The active team — the level between an organization and its projects in
@@ -183,12 +184,31 @@ export function useTeams(orgId: string | undefined): UseTeams {
   )
 
   const myTeams = useMemo(() => teams.filter((t) => t.mine), [teams])
+  const active = teams.find((t) => t.id === activeId)
+
+  /*
+   * Publish the active team's SLUG into the shared selection store.
+   *
+   * `shell-ui` is not a Module-Federation singleton, so every remote holds its
+   * own copy of this hook — a module-level variable would not cross the
+   * host↔remote boundary. The selection store already solves that for cluster
+   * and namespace (localStorage + a broadcast event), so the team rides the
+   * same rails and every remote sees the same value.
+   *
+   * The slug rather than the id, because the slug is what the rest of the
+   * platform already keys on: `ProjectDoc.teams`, member records, and the
+   * Keycloak group name `ws-team-<slug>`.
+   */
+  useEffect(() => {
+    if (!ready) return
+    setActiveTeam(active?.slug ?? '')
+  }, [ready, active?.slug])
 
   return {
     teams,
     myTeams,
     activeId,
-    active: teams.find((t) => t.id === activeId),
+    active,
     ready,
     loading,
     switching,

@@ -64,18 +64,7 @@ and webhooks.
 
 <em>Overview. Cluster health, delivery state, capacity and policy on one screen — every number read live from Kubernetes and Argo CD.</em>
 
-<br /><br />
-
-<img src="./docs/assets/screenshots/idp-theme.png" alt="The Adhar Keycloak sign-in theme in light and dark" width="920" />
-
-<em>Light and dark. The Keycloak sign-in page uses the console's own design tokens, and follows the theme you picked.</em>
-
 </div>
-
-> **On these images.** Sign-in is a live capture. Overview is a design render
-> built from the console's own palette, navigation tree and real figures from a
-> running cluster — the console has no demo mode, so its interior cannot be
-> photographed without a signed-in session against someone's private platform.
 
 ---
 

@@ -233,11 +233,36 @@ async function scaffold(
     onStep(s)
   }
 
-  // Resolve the Backstage template source (repo + path) for skeleton rendering.
+  // A GOLDEN PATH IS NOT A BACKSTAGE SKELETON, and deciding that first matters.
+  //
+  // `templatePath` used to default to `templates/${templateId}` for ANY
+  // templateId, which made `isBackstage` true for the golden paths too (their
+  // catalog ids are `golden-microservice`, `golden-frontend`, ...). Two things
+  // then went wrong at once, and the response still said `ok: true`:
+  //
+  //   * the Backstage render 404'd — there is no `templates/golden-microservice`
+  //     in the Gitea templates repo, because golden paths are GENERATED, not
+  //     stored; and
+  //   * `goldenPath` below is gated on `!isBackstage`, so the generator was
+  //     skipped as well.
+  //
+  // The scaffolded repo therefore contained nothing but catalog-info.yaml, while
+  // an Argo CD Application was still created pointing at a `deploy/` that did
+  // not exist — leaving it stuck at sync status `Unknown`. "Scaffold to running"
+  // could not work for any golden path.
+  //
+  // So: a declared golden-path family wins, unless the caller explicitly names a
+  // Backstage source (`templatePath` / `templatesRepo`), in which case they have
+  // asked for a skeleton render and get one.
   const templatesOrg = env('GITEA_TEMPLATES_ORG') || env('GITEA_ORG') || 'adhar'
   const templatesRepo = sc.templatesRepo || `${templatesOrg}/${env('GITEA_TEMPLATES_REPO') || 'adhar-templates'}`
-  const templatePath = sc.templatePath || (body.templateId ? `templates/${body.templateId}` : undefined)
-  const isBackstage = Boolean(templatePath && templatesRepo.includes('/'))
+  const { templatePath, isBackstage, goldenPath } = resolveTemplateSource({
+    templateId: body.templateId,
+    templatePath: sc.templatePath,
+    templatesRepo,
+    explicitTemplatesRepo: Boolean(sc.templatesRepo),
+    goldenPath: sc.goldenPath,
+  })
 
   /* ── 1. create the (empty) repo ── */
   let repoRes: Response
@@ -387,7 +412,6 @@ async function scaffold(
   /* ── 2c. golden path: commit the full generated starter set ── */
   // Only for non-Backstage templates; a Backstage skeleton already populated the
   // repo (Dockerfile-less buildpacks + deploy/ + observability).
-  const goldenPath = !isBackstage && isGoldenPathFamily(sc.goldenPath) ? sc.goldenPath : undefined
   if (goldenPath) {
     const p = body.params ?? {}
     const files = generateGoldenPathFiles(goldenPath, {
@@ -448,10 +472,16 @@ async function scaffold(
   /* ── 3. GitOps: deploy starter + Argo CD Application (as the user) ── */
   let appName: string | undefined
   if (sc.gitops) {
-    // Backstage skeletons and golden paths ship their own populated deploy/;
-    // only seed the empty Kustomization stub when nothing else filled it in.
-    const haveDeploy = isBackstage || goldenPath ||
-      [...committedPaths].some((p) => p.startsWith(`${manifestPath}/`))
+    // Seed an empty Kustomization stub only when nothing actually filled deploy/.
+    //
+    // This used to read `isBackstage || goldenPath || <committed>` — i.e. it
+    // trusted INTENT. When a skeleton render or golden-path commit failed, the
+    // first two were still true, so no stub was written either, and the Argo CD
+    // Application below was created pointing at a path that did not exist. It
+    // then sat at sync status `Unknown` forever with no error anywhere.
+    // Ask what was committed instead; a valid-but-empty Kustomization is a far
+    // better failure mode than a dangling source.
+    const haveDeploy = [...committedPaths].some((p) => p.startsWith(`${manifestPath}/`))
     if (!haveDeploy) {
       try {
         await putFile(
@@ -506,6 +536,41 @@ async function scaffold(
     }),
     auth.refreshedCookie,
   )
+}
+
+/* ─────────────── template source resolution ─────────────── */
+
+/**
+ * Decide whether a scaffold renders a stored Backstage skeleton or GENERATES a
+ * golden-path starter — exactly one of the two, never neither.
+ *
+ * Pure and exported because getting it wrong is silent: the previous inline
+ * version defaulted `templatePath` to `templates/${templateId}` for ANY
+ * templateId, so a golden path (catalog ids `golden-microservice`, ...) was
+ * treated as a Backstage skeleton. The render then 404'd (golden paths are
+ * generated, not stored) AND the generator was skipped, because it was gated on
+ * `!isBackstage`. The scaffolded repo got nothing but catalog-info.yaml while an
+ * Argo CD Application was still created against a `deploy/` that did not exist,
+ * and the response reported success.
+ *
+ * Precedence: an explicitly named Backstage source wins (the caller asked for a
+ * skeleton); otherwise a valid golden-path family wins; otherwise a templateId
+ * means a stored skeleton.
+ */
+export function resolveTemplateSource(o: {
+  templateId?: string
+  templatePath?: string
+  templatesRepo: string
+  explicitTemplatesRepo?: boolean
+  goldenPath?: unknown
+}): { templatePath?: string; isBackstage: boolean; goldenPath?: GoldenPathFamily } {
+  const family = isGoldenPathFamily(o.goldenPath) ? o.goldenPath : undefined
+  const explicitBackstage = Boolean(o.templatePath || o.explicitTemplatesRepo)
+  const generating = Boolean(family) && !explicitBackstage
+  const templatePath = o.templatePath ??
+    (o.templateId && !generating ? `templates/${o.templateId}` : undefined)
+  const isBackstage = Boolean(templatePath && o.templatesRepo.includes('/'))
+  return { templatePath, isBackstage, goldenPath: isBackstage ? undefined : family }
 }
 
 /* ─────────────── descriptor builders ─────────────── */

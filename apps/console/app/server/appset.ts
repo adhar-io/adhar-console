@@ -4,6 +4,52 @@ import { getTool } from './tool-registry.ts'
 import { apiServerFetch, resolveIdentity } from './k8s/gateway.ts'
 
 /**
+ * Map a console-facing component name onto the ApplicationSet element that
+ * actually governs it — or say that nothing does.
+ *
+ * The console names platform components in several places (onboarding tool
+ * picker, the Platform status page's health matchers) using names that are NOT
+ * ApplicationSet elements. Toggling any of them used to fail with
+ * `appset_file_not_found`, whose message blamed unset `ADHAR_APPSET_REPO` /
+ * `ADHAR_APPSET_FILE` — so an operator saw five confident-looking configuration
+ * errors for a repo and file that were configured correctly all along.
+ *
+ * Three cases, and they need different answers:
+ *   * an ALIAS — a different spelling of a real package (`argo-rollouts` for the
+ *     `argo-rollout` package). Toggle the real one.
+ *   * a SUB-COMPONENT — shipped by a larger package (`grafana` and `prometheus`
+ *     both come from `kube-prometheus`). Toggle the package that provides it.
+ *   * ALWAYS INSTALLED — the bootstrap components the AdharPlatform controller
+ *     installs imperatively before GitOps exists (`gitea`, `argocd`). There is no
+ *     element to flip, and there could not be: ArgoCD cannot un-deploy itself.
+ */
+export function resolvePackageName(
+  requested: string,
+): { kind: 'package'; name: string } | { kind: 'always-installed'; why: string } {
+  const ALWAYS_INSTALLED: Record<string, string> = {
+    gitea: 'the in-cluster Git server GitOps reads from',
+    argocd: 'the GitOps engine itself',
+    'argo-cd': 'the GitOps engine itself',
+    cilium: 'the CNI',
+    crossplane: 'the control plane',
+  }
+  // Alias or provided-by. Values must be real package directory names.
+  const PROVIDED_BY: Record<string, string> = {
+    'argo-rollouts': 'argo-rollout',
+    'argo-workflow': 'argo-workflows',
+    grafana: 'kube-prometheus',
+    prometheus: 'kube-prometheus',
+    alertmanager: 'kube-prometheus',
+    'kube-prometheus-stack': 'kube-prometheus',
+    opentelemetry: 'alloy',
+    otel: 'alloy',
+  }
+  const key = requested.toLowerCase()
+  if (key in ALWAYS_INSTALLED) return { kind: 'always-installed', why: ALWAYS_INSTALLED[key] }
+  return { kind: 'package', name: PROVIDED_BY[key] ?? requested }
+}
+
+/**
  * Marketplace enable/disable — the GitOps write behind the Adhar Marketplace.
  *
  * The Marketplace lists the elements of the Adhar `helm-charts-*`
@@ -258,10 +304,31 @@ export async function handleAppsetToggle(req: Request): Promise<Response> {
     return withCookie(Response.json({ error: 'invalid_json' }, { status: 400 }), auth.refreshedCookie)
   }
 
-  const name = String(body.name ?? '').trim()
-  if (!name || !/^[a-zA-Z0-9]([a-zA-Z0-9._-]{0,126})$/.test(name)) {
+  const requested = String(body.name ?? '').trim()
+  if (!requested || !/^[a-zA-Z0-9]([a-zA-Z0-9._-]{0,126})$/.test(requested)) {
     return withCookie(Response.json({ error: 'invalid_name' }, { status: 400 }), auth.refreshedCookie)
   }
+
+  // Not everything the console can NAME is an ApplicationSet element.
+  const resolved = resolvePackageName(requested)
+  if (resolved.kind === 'always-installed') {
+    // Reporting a 404 "could not locate the ApplicationSet YAML" here was
+    // actively misleading: it blamed missing ADHAR_APPSET_* configuration for
+    // something no configuration could fix, and told operators to go set env
+    // vars that were already correct. These components are part of the platform
+    // itself; "enabled" is the only state they have.
+    return withCookie(
+      Response.json({
+        ok: true,
+        name: requested,
+        enabled: true,
+        outcome: 'already-installed',
+        detail: `${requested} is part of the platform foundation (${resolved.why}), so it is always installed and cannot be toggled.`,
+      }),
+      auth.refreshedCookie,
+    )
+  }
+  const name = resolved.name
   if (typeof body.enabled !== 'boolean') {
     return withCookie(Response.json({ error: 'enabled_required' }, { status: 400 }), auth.refreshedCookie)
   }
@@ -329,6 +396,10 @@ export async function handleAppsetToggle(req: Request): Promise<Response> {
   let fileSha: string | undefined
   let original: string | undefined
   let lastStatus = 0
+  // Candidate files we could actually READ. Distinguishes "the ApplicationSet
+  // file is somewhere else" from "the file is right here and has no such
+  // element" — two very different problems that reported the same message.
+  const readable: string[] = []
   for (const cand of candidates) {
     let res: Response
     try {
@@ -346,6 +417,7 @@ export async function handleAppsetToggle(req: Request): Promise<Response> {
     const meta = (await res.json().catch(() => ({}))) as { content?: string; sha?: string; encoding?: string }
     if (!meta.content) continue
     const text = meta.encoding === 'base64' ? fromBase64(meta.content) : meta.content
+    readable.push(cand)
     // Only accept a file that actually declares this element (so we edit the
     // right ApplicationSet even when several YAMLs live side by side).
     const probe = flipElementEnabled(text, name, enabled)
@@ -358,15 +430,26 @@ export async function handleAppsetToggle(req: Request): Promise<Response> {
   }
 
   if (!filePath || original === undefined) {
+    // We read the ApplicationSet file(s) fine — they simply do not declare this
+    // package. Telling the operator to go configure ADHAR_APPSET_REPO here sends
+    // them to fix something that is not broken.
+    const aliased = name !== requested ? ` (resolved from "${requested}")` : ''
+    const detail = readable.length
+      ? `"${name}"${aliased} is not an element of the ApplicationSet in ${repoSpec} ` +
+        `(read: ${readable.join(', ')}). It may be a sub-component of another package, or not packaged at all — ` +
+        'only names that appear as ApplicationSet elements can be enabled.'
+      : `Could not locate the ApplicationSet YAML in ${repoSpec}. ` +
+        'Set ADHAR_APPSET_REPO and ADHAR_APPSET_FILE to the repo + path that version-controls the ApplicationSet.'
     return withCookie(
       Response.json(
         {
-          error: 'appset_file_not_found',
-          detail:
-            `Could not locate the ApplicationSet YAML containing "${name}" in ${repoSpec}. ` +
-            'Set ADHAR_APPSET_REPO and ADHAR_APPSET_FILE to the repo + path that version-controls the ApplicationSet.',
+          error: readable.length ? 'appset_element_not_found' : 'appset_file_not_found',
+          detail,
+          name,
+          requested,
           repo: repoSpec,
           tried: candidates,
+          read: readable,
           lastStatus,
         },
         { status: 404 },

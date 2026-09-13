@@ -10,6 +10,7 @@ import {
   EmptyState,
   Spinner,
   StatusBadge,
+  useActiveNamespace,
   useLiveRefetch,
   type StatusKind,
 } from '@adhar-console/shell-ui';
@@ -1224,8 +1225,45 @@ function MiniTaskProgress({ run }: { run: TektonRun }) {
 
 /* ─────────── PipelineRuns tab ─────────── */
 
+/**
+ * Empty state that SAYS WHAT SCOPE IT SEARCHED.
+ *
+ * The previous copy read "…in this scope will appear here", which is the least
+ * useful thing it could say: the namespace picker persists in localStorage, so a
+ * user who once selected a namespace sees a permanently blank CI/CD page with no
+ * hint that a filter is the reason. Tekton runs for the platform's own pipelines
+ * live in the platform namespace, so picking almost any tenant namespace empties
+ * the page. Name the namespace and offer the way out.
+ */
+function ScopedEmpty({ what, namespace }: { what: string; namespace?: string }) {
+  const { setNamespace } = useActiveNamespace();
+  if (!namespace) {
+    return (
+      <EmptyState
+        title={`No ${what}`}
+        description={`No ${what} exist on this cluster yet — they appear here as they start.`}
+      />
+    );
+  }
+  return (
+    <EmptyState
+      title={`No ${what} in ${namespace}`}
+      description={`Searched only the ${namespace} namespace, because that is the current Namespace selection. Platform pipelines run in the platform namespace, so clear the filter to see every run you have access to.`}
+      action={
+        <Button variant='secondary' onClick={() => setNamespace(undefined)}>
+          Show all namespaces
+        </Button>
+      }
+    />
+  );
+}
+
 export function TektonPipelineRuns({ namespace }: { namespace?: string }) {
   const live = useLiveList<TektonRun>(PIPELINERUNS_GVR, { namespace });
+  // Mirror useLiveList's own fallback so the empty state names the namespace
+  // actually searched, not the (usually undefined) prop.
+  const { namespace: pickedNamespace } = useActiveNamespace();
+  const effectiveNamespace = namespace ?? pickedNamespace;
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<TektonRun | null>(null);
   useTick();
@@ -1329,12 +1367,7 @@ export function TektonPipelineRuns({ namespace }: { namespace?: string }) {
                 description="The tekton.dev/v1 PipelineRuns API isn't served on this cluster (or the watch was denied). Install Tekton Pipelines to see runs here."
               />
             )
-            : (
-              <EmptyState
-                title='No pipeline runs'
-                description='Tekton PipelineRuns in this scope will appear here as they start.'
-              />
-            )}
+            : <ScopedEmpty what='pipeline runs' namespace={effectiveNamespace} />}
         />
       </ListShell>
       {/* Keyed by identity so a Re-run swaps in a genuinely fresh drawer —

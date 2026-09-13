@@ -60,7 +60,14 @@ function b64url(bytes: Uint8Array): string {
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-function b64urlDecode(s: string): Uint8Array {
+// `Uint8Array<ArrayBuffer>`, not a bare `Uint8Array`. Since TypeScript 5.7 the
+// typed arrays are generic over their backing buffer, and a bare `Uint8Array`
+// widens to `Uint8Array<ArrayBufferLike>` — which `crypto.subtle.verify` rejects,
+// because a `SharedArrayBuffer` cannot back a `BufferSource`. The allocation
+// below is a plain ArrayBuffer, so stating that is both accurate and what
+// unblocks type-checking (it was failing repo-wide, which in turn meant
+// `deno test` could not run at all).
+function b64urlDecode(s: string): Uint8Array<ArrayBuffer> {
   const pad = s.length % 4 === 0 ? '' : '='.repeat(4 - (s.length % 4))
   const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/') + pad)
   const out = new Uint8Array(bin.length)
@@ -92,8 +99,8 @@ export async function unsign(token: string, secret: string): Promise<string | nu
   if (dot === -1) return null
   const payloadB64 = token.slice(0, dot)
   const sigB64 = token.slice(dot + 1)
-  let payloadBytes: Uint8Array
-  let sigBytes: Uint8Array
+  let payloadBytes: Uint8Array<ArrayBuffer>
+  let sigBytes: Uint8Array<ArrayBuffer>
   try {
     payloadBytes = b64urlDecode(payloadB64)
     sigBytes = b64urlDecode(sigB64)

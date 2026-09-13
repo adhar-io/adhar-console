@@ -112,6 +112,36 @@ export async function getAiConfig(): Promise<AiConfig> {
   return configCache
 }
 
+/** One thing adhar-ai's operators concluded on their own, without being asked. */
+export interface OperatorFinding {
+  id?: string
+  operator?: string
+  severity?: string
+  title?: string
+  summary?: string
+  created_at?: string
+}
+
+/**
+ * What the platform's operators have noticed.
+ *
+ * This is the half of the agentic runtime that works whether or not anyone is
+ * chatting: operators watch Alertmanager and Argo CD and record what they
+ * conclude. Failure is silent and returns nothing — an idle panel that cannot
+ * reach the runtime should show no findings, not an error where an operator
+ * expects a summary.
+ */
+export async function getOperatorFindings(limit = 6): Promise<OperatorFinding[]> {
+  try {
+    const res = await fetch(`/api/ai/findings?limit=${limit}`, { credentials: 'include', headers: { accept: 'application/json' } })
+    if (!res.ok) return []
+    const body = (await res.json()) as { findings?: OperatorFinding[] }
+    return Array.isArray(body.findings) ? body.findings : []
+  } catch {
+    return []
+  }
+}
+
 export class AgentRunError extends Error {
   constructor(message: string, readonly status?: number) {
     super(message)

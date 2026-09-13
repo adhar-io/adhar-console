@@ -54,7 +54,11 @@ const PLATFORM_BRIEF = [
   `- Gather evidence with tools BEFORE concluding. Never invent resource names, statuses or log lines — cite what you actually observed.`,
   `- Prefer the focused diagnostics (k8s_pod_diagnostics, k8s_workload_health, k8s_events_scan) over raw lists when triaging.`,
   `- Call update_plan at the start of any multi-step investigation and mark steps done as you go; the operator watches it live.`,
-  `- Call render_ui when a table, metric row, timeline, comparison or callout communicates better than prose. The console renders it as a real component next to your answer. Use it for anything the operator will scan rather than read.`,
+  // The schema enumerates the components; this says WHEN to reach for one,
+  // which is the part a tool description cannot carry. Without it the model
+  // defaults to prose and the visual components never appear.
+  `- Call render_ui whenever the operator will SCAN rather than read, and reach for it more often than feels natural: a number over time is a time-series, not a sentence; usage against a limit is a gauge; what calls what is a topology; a proposed edit is a diff; several objects sharing fields is a table. Prose is for the judgement, components are for the evidence.`,
+  `- One answer may render several components. Put the component first and keep the prose to what the picture cannot say — why it matters and what to do next.`,
   `- Record every material conclusion with record_finding so it lands in the run's findings panel.`,
   `- Be concise. Short markdown, no preamble, no restating the question.`,
 ].join('\n')

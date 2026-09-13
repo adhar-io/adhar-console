@@ -14,6 +14,7 @@ import {
   type ToolCallView,
 } from './agui/store.ts'
 import { GenerativeBlock } from './agui/generative.tsx'
+import type { OperatorFinding } from './agui/client.ts'
 import { consumePendingAsk, SparkIcon } from './ai-assistant.tsx'
 import { useSelection } from './selection-store.ts'
 import { useNotifications } from './notifications.ts'
@@ -290,7 +291,7 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
               {canvas && canvasBlocks.length ? (
                 <CanvasView blocks={canvasBlocks} />
               ) : !hasThread ? (
-                <Welcome configured={state.configured} starters={starters} onPick={(prompt) => assistStore.send(prompt)} navHint={navResults[0]} agentName={agent?.name} />
+                <Welcome configured={state.configured} starters={starters} onPick={(prompt) => assistStore.send(prompt)} navHint={navResults[0]} agentName={agent?.name} findings={state.operatorFindings} />
               ) : (
                 <div className="mx-auto max-w-3xl space-y-5">
                   {messages.map((m) => <EntryView key={m.id} entry={m} />)}
@@ -445,18 +446,69 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
 
 /* ─────────── welcome ─────────── */
 
+/**
+ * What the platform's operators concluded while nobody was watching.
+ *
+ * adhar-ai's operators run against Alertmanager and Argo CD whether or not
+ * anyone opens this palette, and until now their output had no surface in the
+ * console at all — the proactive half of the agentic platform was invisible.
+ * Landing it on the empty state is deliberate: it is the one moment the
+ * operator is looking at Adhar AI with nothing else in the way, and every row
+ * is a question already worth asking.
+ */
+function OperatorFindings({ items, onAsk }: { items: OperatorFinding[]; onAsk(prompt: string): void }) {
+  const sev = (f: OperatorFinding) => {
+    const s = (f.severity ?? '').toLowerCase()
+    if (s === 'critical' || s === 'error') return 'bad' as const
+    if (s === 'warning' || s === 'warn') return 'warn' as const
+    return 'info' as const
+  }
+  return (
+    <div className="mb-5 w-full rounded-xl border border-edge-default bg-surface-raised/60 p-3 text-left">
+      <div className="mb-1.5 flex items-center justify-between text-[10.5px] font-semibold uppercase tracking-wider text-content-subtle">
+        <span>Adhar AI noticed · {items.length}</span>
+        <span className="font-normal normal-case tracking-normal">from the platform operators, unprompted</span>
+      </div>
+      <div className="space-y-1">
+        {items.map((f, i) => {
+          const title = f.title ?? f.summary ?? 'Finding'
+          const tone = sev(f)
+          return (
+            <button
+              key={f.id ?? i}
+              type="button"
+              // The finding is a conclusion; what the operator wants next is the
+              // reasoning and what to do, which is a question for the runtime
+              // that produced it.
+              onClick={() => onAsk(`Investigate this finding from the ${f.operator ?? 'platform'} operator and tell me what to do about it: ${title}${f.summary && f.summary !== title ? ` — ${f.summary}` : ''}`)}
+              className="group flex w-full items-center gap-2 rounded-lg bg-surface-raised px-2.5 py-1.5 text-left ring-1 ring-edge-subtle transition-colors hover:ring-brand-300 dark:hover:ring-brand-500/40"
+            >
+              <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', tone === 'bad' ? 'bg-rose-500' : tone === 'warn' ? 'bg-amber-500' : 'bg-sky-500')} />
+              <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-content">{title}</span>
+              {f.operator ? <span className="hidden shrink-0 font-mono text-[10px] text-content-subtle sm:inline">{f.operator}</span> : null}
+              <span className="shrink-0 text-[11px] text-brand-600 opacity-0 transition-opacity group-hover:opacity-100 dark:text-brand-300">Investigate →</span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function Welcome({
   configured,
   starters,
   onPick,
   navHint,
   agentName,
+  findings,
 }: {
   configured: boolean
   starters: Array<{ label: string; prompt: string }>
   onPick(prompt: string): void
   navHint?: CommandItem
   agentName?: string
+  findings: OperatorFinding[]
 }) {
   const notif = useNotifications()
   const insights = notif.items.filter((n) => !n.read && n.prompt).slice(0, 4)
@@ -479,6 +531,7 @@ function Welcome({
           </div>
         </div>
       ) : null}
+      {findings.length ? <OperatorFindings items={findings} onAsk={onPick} /> : null}
       <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-linear-to-br from-brand-500 to-accent-500 text-white shadow-lg shadow-brand-600/25">
         <SparkIcon size={26} />
       </span>

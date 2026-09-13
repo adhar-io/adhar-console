@@ -3,8 +3,10 @@ import {
   AgentRunError,
   EventType,
   getAiConfig,
+  getOperatorFindings,
   runAgent,
   type AgentInfo,
+  type OperatorFinding,
   type AguiEvent,
   type AguiMessage,
   type FrontendTool,
@@ -155,6 +157,8 @@ interface State {
   pendingAsk: PendingAsk | null
   /** Autonomy to request for delegated (adhar-ai) runs. */
   autonomy: Autonomy
+  /** What the runtime's operators noticed on their own. Empty when unavailable. */
+  operatorFindings: OperatorFinding[]
 }
 
 /**
@@ -301,6 +305,7 @@ let state: State = {
   canApply: false,
   pendingAsk: null,
   autonomy: storedAutonomy(),
+  operatorFindings: [],
 }
 
 function set(patch: Partial<State> | ((s: State) => Partial<State>)) {
@@ -561,6 +566,11 @@ export const assistStore = {
     const agents = c.agents ?? []
     const agentId = agents.some((a) => a.id === state.agentId) ? state.agentId : (c.defaultAgent ?? agents[0]?.id ?? 'sre')
     set({ configured: c.configured, model: c.model, agents, agentId, configLoaded: true })
+    // Not awaited: what the operators noticed is worth showing, but nobody
+    // should wait on the runtime to start typing a question.
+    if (agents.some((a) => a.delegated)) {
+      void getOperatorFindings().then((operatorFindings) => set({ operatorFindings }))
+    }
   },
 
   setApplyHandler(fn: ApplyHandler | null) {

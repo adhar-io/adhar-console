@@ -2,7 +2,17 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { useNavigate } from '@tanstack/react-router'
 import { cn } from '@adhar-console/utils'
 import { DEFAULT_NAV, type NavItem, type NavSection } from './nav-tree.tsx'
-import { assistStore, useAssist, type ChatEntry, type Finding, type PlanStep, type ToolCallView } from './agui/store.ts'
+import {
+  assistStore,
+  AUTONOMY_LEVELS,
+  useAssist,
+  type AdharAiRunInfo,
+  type Autonomy,
+  type ChatEntry,
+  type Finding,
+  type PlanStep,
+  type ToolCallView,
+} from './agui/store.ts'
 import { GenerativeBlock } from './agui/generative.tsx'
 import { consumePendingAsk, SparkIcon } from './ai-assistant.tsx'
 import { useSelection } from './selection-store.ts'
@@ -75,6 +85,7 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
   const [rail, setRail] = useState<'navigate' | 'agent' | 'history'>('navigate')
   const [attachContext, setAttachContext] = useState(true)
   const [activeNav, setActiveNav] = useState(0)
+  const [canvas, setCanvas] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const threadRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
@@ -85,6 +96,25 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
   const page = typeof location !== 'undefined' ? location.pathname : ''
   const pageItem = useMemo(() => allItems.find((i) => i.to && page.startsWith(i.to) && i.to !== '/') ?? allItems.find((i) => i.to === page), [allItems, page])
   const agent = state.agents.find((a) => a.id === state.agentId)
+
+  /**
+   * Every visual the conversation has produced, newest first.
+   *
+   * Charts and topologies are the parts of an answer an operator comes back to,
+   * and in a transcript they scroll away under the prose that followed them.
+   * Collecting them lets the same content be read as a board without
+   * duplicating any state — this is a view of the thread, not a copy of it.
+   */
+  const canvasBlocks = useMemo(
+    () =>
+      state.thread.messages
+        .flatMap((m) => m.ui)
+        // A proposal is a call to action, not a visual; it belongs where it was
+        // said, next to the reasoning for it.
+        .filter((b) => b.component !== 'proposal')
+        .reverse(),
+    [state.thread.messages],
+  )
 
   // Boot: config, a queued ask (from useAi().ask / AiButton), focus.
   useEffect(() => {
@@ -130,9 +160,12 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
 
   // Keep the thread pinned to the newest message while streaming.
   useLayoutEffect(() => {
+    // The canvas is a board you scroll deliberately; yanking it to the bottom
+    // because a message arrived would move it out from under the reader.
+    if (canvas) return
     const el = threadRef.current
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight
-  }, [state.thread.messages, state.run])
+  }, [state.thread.messages, state.run, canvas])
 
   useEffect(() => setActiveNav(0), [navQuery])
 
@@ -140,6 +173,12 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
   useEffect(() => {
     if (state.pendingAsk) setRail('agent')
   }, [state.pendingAsk])
+
+  // Asking something new means you want the answer, not the board you were
+  // looking at when you asked.
+  useEffect(() => {
+    if (state.busy) setCanvas(false)
+  }, [state.busy])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -220,6 +259,15 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
             ))}
           </div>
           <div className="ml-auto flex items-center gap-1">
+            {canvasBlocks.length ? (
+              <HeaderBtn
+                onClick={() => setCanvas((v) => !v)}
+                title={canvas ? 'Back to the conversation' : `Lay out all ${canvasBlocks.length} visuals side by side`}
+                active={canvas}
+              >
+                <IconCanvas /> Canvas <span className="tabular-nums opacity-60">{canvasBlocks.length}</span>
+              </HeaderBtn>
+            ) : null}
             <HeaderBtn onClick={() => { assistStore.newThread(); setInput(''); inputRef.current?.focus() }} title="New conversation">
               <IconPlus /> New
             </HeaderBtn>
@@ -239,7 +287,9 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
               }}
               className="min-h-0 flex-1 overflow-y-auto px-5 py-5"
             >
-              {!hasThread ? (
+              {canvas && canvasBlocks.length ? (
+                <CanvasView blocks={canvasBlocks} />
+              ) : !hasThread ? (
                 <Welcome configured={state.configured} starters={starters} onPick={(prompt) => assistStore.send(prompt)} navHint={navResults[0]} agentName={agent?.name} />
               ) : (
                 <div className="mx-auto max-w-3xl space-y-5">
@@ -275,6 +325,7 @@ function AssistOverlay({ onClose, items, sections }: { onClose(): void; items?: 
                     </button>
                   ))}
                   <span className="ml-auto flex items-center gap-1">
+                    {agent?.delegated ? <AutonomyPicker value={state.autonomy} busy={state.busy} onPick={(a) => assistStore.setAutonomy(a)} /> : null}
                     <button
                       type="button"
                       aria-pressed={attachContext}
@@ -569,6 +620,121 @@ function pretty(s: string): string {
   }
 }
 
+/**
+ * Every visual in the thread, laid out as a board.
+ *
+ * The transcript is the right place to READ an answer and the wrong place to
+ * COMPARE two of them: by the time a third chart arrives the first has scrolled
+ * away. This is the same blocks at the same fidelity, in a masonry-ish grid
+ * that gives wide components (topologies, diffs, area charts) the full column
+ * and lets small ones pair up.
+ *
+ * Newest first, because the thing you just asked about is the thing you want.
+ */
+function CanvasView({ blocks }: { blocks: Array<Parameters<typeof GenerativeBlock>[0]['block']> }) {
+  // Components that carry a chart or a graph need width to be legible; a
+  // metric row or a checklist does not and looks stranded at full bleed.
+  const WIDE = new Set(['topology', 'diff', 'time-series', 'table', 'log-viewer', 'heatmap', 'events-scan'])
+  return (
+    <div className="mx-auto max-w-5xl">
+      <div className="mb-3 flex items-baseline justify-between px-0.5">
+        <h2 className="text-[13px] font-semibold text-content">Canvas</h2>
+        <span className="text-[11px] text-content-subtle">{blocks.length} visual{blocks.length === 1 ? '' : 's'} from this conversation</span>
+      </div>
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        {blocks.map((b) => (
+          <div key={b.id} className={cn('min-w-0', WIDE.has(b.component) ? 'lg:col-span-2' : '')}>
+            <GenerativeBlock block={b} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * How much authority this turn gets.
+ *
+ * A segmented control rather than a menu, because the setting is the safety
+ * boundary of the whole feature: it should be readable at a glance without a
+ * click, and changing it should not hide what the other options were. It only
+ * appears for the delegated agent — the console's own agents are read-only by
+ * construction, and a control that cannot change anything is worse than none.
+ */
+function AutonomyPicker({ value, busy, onPick }: { value: Autonomy; busy: boolean; onPick: (a: Autonomy) => void }) {
+  return (
+    <span className="inline-flex items-center rounded-md bg-surface-sunken p-0.5" role="group" aria-label="Autonomy">
+      {AUTONOMY_LEVELS.map((l) => (
+        <button
+          key={l.id}
+          type="button"
+          disabled={busy}
+          aria-pressed={value === l.id}
+          title={`${l.label} — ${l.hint}`}
+          onClick={() => onPick(l.id)}
+          className={cn(
+            'h-6 rounded px-1.5 text-[10.5px] font-medium transition-colors disabled:opacity-50',
+            value === l.id ? 'bg-surface-raised text-content shadow-sm ring-1 ring-edge-default' : 'text-content-subtle hover:text-content',
+          )}
+        >
+          {l.label}
+        </button>
+      ))}
+    </span>
+  )
+}
+
+/**
+ * What a delegated run actually did — the audit trail.
+ *
+ * Every field here is reported back by the runtime rather than assumed by the
+ * console. The one that earns its place most is `autonomy`: it is what was
+ * GRANTED, and when that is less than what was asked for, saying so is the
+ * difference between "the agent decided not to" and "the agent was not
+ * allowed to".
+ */
+function RunProvenance({ info }: { info: AdharAiRunInfo }) {
+  const downgraded = info.requested && info.requested !== info.autonomy
+  const level = AUTONOMY_LEVELS.find((l) => l.id === info.autonomy)
+  const rows: Array<[string, ReactNode]> = []
+  if (info.autonomy) rows.push(['Autonomy', level?.label ?? info.autonomy])
+  if (info.steps !== undefined) rows.push(['Steps', <span className="tabular-nums">{info.steps}</span>])
+  if (info.pullRequests) rows.push(['Pull requests', <span className="tabular-nums">{info.pullRequests}</span>])
+  rows.push(['Identity', info.authenticated ? (info.writeAllowed ? 'you · write allowed' : 'you · read only') : 'anonymous'])
+
+  return (
+    <section className="mt-3">
+      <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">Run</div>
+      <div className="space-y-1 rounded-lg border border-edge-subtle bg-surface-sunken/40 px-2 py-1.5">
+        {rows.map(([k, v]) => (
+          <div key={k} className="flex items-baseline justify-between gap-2 text-[11px]">
+            <span className="text-content-subtle">{k}</span>
+            <span className="truncate text-right text-content">{v}</span>
+          </div>
+        ))}
+        {downgraded ? (
+          <p className="pt-0.5 text-[10.5px] leading-snug text-amber-700 dark:text-amber-300">
+            You asked for {AUTONOMY_LEVELS.find((l) => l.id === info.requested)?.label ?? info.requested}; the runtime granted less for your identity.
+          </p>
+        ) : null}
+        {info.kind === 'budget_exhausted' ? (
+          <p className="pt-0.5 text-[10.5px] leading-snug text-amber-700 dark:text-amber-300">Stopped at its step budget before finishing.</p>
+        ) : null}
+        {info.auditId ? (
+          <button
+            type="button"
+            title="Copy the audit id"
+            onClick={() => void globalThis.navigator?.clipboard?.writeText(info.auditId ?? '')}
+            className="w-full truncate pt-0.5 text-left font-mono text-[10px] text-content-subtle transition-colors hover:text-content"
+          >
+            audit {info.auditId}
+          </button>
+        ) : null}
+      </div>
+    </section>
+  )
+}
+
 /** What the agent is doing right now, from its shared state. */
 function Thinking({ run }: { run: ReturnType<typeof useAssist>['run'] }) {
   const active = run?.plan?.find((s) => s.status === 'active')
@@ -688,9 +854,15 @@ function AgentRail() {
 
       {run?.tools?.called ? (
         <div className="px-1 text-[10.5px] text-content-subtle">
-          {run.tools.called} tool call{run.tools.called === 1 ? '' : 's'}{run.tools.last ? ` · last: ${run.tools.last}` : ''}
+          {run.tools.called} tool call{run.tools.called === 1 ? '' : 's'}
+          {run.tools.failed ? (
+            <span className="text-rose-600 dark:text-rose-400"> · {run.tools.failed} failed</span>
+          ) : null}
+          {run.tools.last ? ` · last: ${run.tools.last}` : ''}
         </div>
       ) : null}
+
+      {run?.adharAi ? <RunProvenance info={run.adharAi} /> : null}
     </div>
   )
 }
@@ -944,6 +1116,7 @@ const I = ({ children, size = 14, sw = 2 }: { children: ReactNode; size?: number
 )
 const IconX = () => <I size={16}><path d="M18 6 6 18M6 6l12 12" /></I>
 const IconPlus = () => <I size={12} sw={2.5}><path d="M12 5v14M5 12h14" /></I>
+const IconCanvas = () => <I size={12}><rect x="3" y="3" width="8" height="8" rx="1.5" /><rect x="13" y="3" width="8" height="5" rx="1.5" /><rect x="13" y="10" width="8" height="11" rx="1.5" /><rect x="3" y="13" width="8" height="8" rx="1.5" /></I>
 const IconHistory = () => <I size={13}><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l3 2" /></I>
 const IconReturn = () => <I size={12} sw={2.25}><polyline points="9 10 4 15 9 20" /><path d="M20 4v7a4 4 0 0 1-4 4H4" /></I>
 const IconStop = () => <I size={12} sw={2.5}><rect x="6" y="6" width="12" height="12" rx="2" /></I>

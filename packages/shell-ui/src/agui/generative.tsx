@@ -1,5 +1,6 @@
 import { Component, useState, type ErrorInfo, type ReactNode } from 'react'
-import { cn } from '@adhar-console/utils'
+import { cn, GENERATIVE_COMPONENT_IDS } from '@adhar-console/utils'
+import { AreaChart, DonutGauge, HeatMap, Sparkline } from '../charts.tsx'
 import { assistStore, useAssist, type UiBlock } from './store.ts'
 
 /**
@@ -555,6 +556,388 @@ function BarChart({ props: p }: { props: Props }) {
   )
 }
 
+/* ──────────────────── charts, canvases, diffs ──────────────────── */
+
+/**
+ * Tone → an actual stroke colour.
+ *
+ * The chart primitives take a CSS colour string, not a Tailwind class, so the
+ * tone vocabulary the rest of this file uses has to be translated once here.
+ * These are the `--color-*` tokens, so every chart follows the theme — a
+ * hard-coded hex would survive the light/dark flip and look wrong in one of
+ * them.
+ */
+const TONE_STROKE: Record<Tone, string> = {
+  ok: 'var(--color-emerald-500)',
+  warn: 'var(--color-amber-500)',
+  bad: 'var(--color-rose-500)',
+  info: 'var(--color-sky-500)',
+  muted: 'var(--color-brand-500)',
+}
+
+/** Numbers out of a model, which may arrive as strings. */
+function nums(v: unknown): number[] {
+  if (!Array.isArray(v)) return []
+  return v
+    .map((x) => (typeof x === 'number' ? x : typeof x === 'string' ? Number(x) : typeof x === 'object' && x ? num((x as Props).v ?? (x as Props).value) : undefined))
+    .filter((n): n is number => typeof n === 'number' && Number.isFinite(n))
+}
+
+function fmtNum(v: number): string {
+  const a = Math.abs(v)
+  if (a >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
+  if (a >= 1_000) return `${(v / 1_000).toFixed(1)}k`
+  if (a >= 100 || Number.isInteger(v)) return String(Math.round(v))
+  return v.toFixed(a < 1 ? 2 : 1)
+}
+
+/**
+ * One or more series over time.
+ *
+ * A single series gets the full area chart with axis labels; several get a
+ * compact row each — label, sparkline, latest value — because four stacked
+ * area charts in a chat transcript is noise, not a comparison.
+ */
+function TimeSeries({ props: p }: { props: Props }) {
+  const unit = str(p.unit)
+  const raw = arr(p.series)
+  // `{points:[…]}` is the obvious shape for one series, so accept it too rather
+  // than making the model wrap a single line in an array.
+  const series = raw.length
+    ? raw.map((s) => ({ label: str(s.label), points: nums(s.points ?? s.values ?? s.data), tone: tone(s.tone) }))
+    : [{ label: str(p.label), points: nums(p.points ?? p.values ?? p.data), tone: tone(p.tone) }]
+  const usable = series.filter((s) => s.points.length >= 2)
+  if (!usable.length) return <Empty text="Not enough samples to plot." />
+  const fmt = (v: number) => `${fmtNum(v)}${unit ? ` ${unit}` : ''}`
+
+  if (usable.length === 1) {
+    const s = usable[0]
+    return (
+      <div className="space-y-1.5">
+        {s.label ? <div className="text-[11.5px] font-medium text-content-muted">{s.label}</div> : null}
+        {/*
+          AreaChart's svg is `width:100%` with no height, so the browser derives
+          its height from the viewBox aspect ratio — at the width of a chat
+          panel that is a chart three times taller than asked for. Pinning the
+          svg's height is what makes `height` mean pixels here.
+        */}
+        <AreaChart points={s.points} color={TONE_STROKE[s.tone]} height={110} formatY={fmt} className="[&>svg]:h-[110px]" />
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-2">
+      {usable.slice(0, 6).map((s, i) => (
+        <div key={i} className="flex items-center gap-2.5">
+          <span className="w-24 shrink-0 truncate text-[11.5px] text-content-muted" title={s.label}>{s.label || `series ${i + 1}`}</span>
+          <span className="min-w-0 flex-1">
+            <Sparkline points={s.points} color={TONE_STROKE[s.tone]} height={26} />
+          </span>
+          <span className="w-16 shrink-0 text-right text-[11.5px] font-semibold tabular-nums text-content">
+            {fmt(s.points[s.points.length - 1])}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Saturation dials — "how full is it" reads instantly as an arc, never as a number in prose. */
+function Gauges({ props: p }: { props: Props }) {
+  const items = arr(p.items).length ? arr(p.items) : [p]
+  const usable = items.filter((g) => num(g.value) !== undefined)
+  if (!usable.length) return <Empty text="No values to plot." />
+  return (
+    <div className="flex flex-wrap items-start justify-center gap-x-6 gap-y-4">
+      {usable.slice(0, 4).map((g, i) => {
+        const value = num(g.value)!
+        const max = num(g.max) ?? 100
+        const unit = str(g.unit ?? p.unit)
+        // A dial with no explicit tone should still go red when it is nearly
+        // full — that is the entire reason to draw it as a dial.
+        const pct = max > 0 ? (value / max) * 100 : 0
+        const t = g.tone ? tone(g.tone) : pct >= 90 ? 'bad' : pct >= 75 ? 'warn' : 'ok'
+        return (
+          <div key={i} className="flex flex-col items-center gap-1.5">
+            <DonutGauge
+              value={value}
+              max={max}
+              size={96}
+              thickness={10}
+              color={TONE_STROKE[t]}
+              label={<span className={cn('text-base font-semibold tabular-nums', TONE_TEXT[t])}>{fmtNum(value)}{unit ? <span className="text-[10px] font-normal text-content-subtle"> {unit}</span> : null}</span>}
+            />
+            <div className="max-w-[7.5rem] truncate text-center text-[11.5px] font-medium text-content" title={str(g.label)}>{str(g.label)}</div>
+            {g.caption ? <div className="text-[10.5px] text-content-subtle">{str(g.caption)}</div> : null}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/**
+ * Density over a grid — restart counts per day, alerts per hour.
+ *
+ * The primitive wants intensities in 0..1, but a model produces raw counts, so
+ * normalisation happens here against the largest cell. The legend states the
+ * top of that scale, because an unlabelled heat map says "some are darker"
+ * and nothing else.
+ */
+function Heat({ props: p }: { props: Props }) {
+  const values = nums(p.cells ?? p.values ?? p.items)
+  if (!values.length) return <Empty text="No activity to chart." />
+  const max = Math.max(...values, 1)
+  const weeks = Math.max(1, Math.min(53, num(p.weeks) ?? Math.ceil(values.length / 7)))
+  const t = tone(p.tone, 'muted')
+  // The primitive's 11px cell is sized for a year strip in a dashboard card. A
+  // twelve-week range at that size occupies a third of the panel and reads as
+  // an afterthought, so short ranges get bigger cells — capped, because past
+  // about 18px the grid stops looking like a heat map and starts looking like
+  // a table of coloured squares.
+  const cellSize = Math.max(9, Math.min(18, Math.round(430 / weeks) - 2))
+  return (
+    <div className="space-y-2">
+      <div className="overflow-x-auto pb-1">
+        <HeatMap cells={values.map((v) => v / max)} weeks={weeks} color={TONE_STROKE[t]} cellSize={cellSize} gap={cellSize > 13 ? 3 : 2} />
+      </div>
+      <div className="flex items-center justify-between text-[10.5px] text-content-subtle">
+        <span>{str(p.caption, `${values.length} buckets`)}</span>
+        <span className="tabular-nums">0 — {fmtNum(max)}{str(p.unit) ? ` ${str(p.unit)}` : ''}</span>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * A dependency / flow canvas.
+ *
+ * Nodes are placed in columns by `layer`, edges drawn as curves between them.
+ * Layout is deterministic and computed here rather than by a layout engine:
+ * the graphs an operator asks about are small (a service and its dependencies,
+ * a pipeline, a sync chain), and a real engine would be a large dependency for
+ * a picture that fits in a chat bubble.
+ */
+function Topology({ props: p }: { props: Props }) {
+  const nodes = arr(p.nodes).map((n, i) => ({
+    id: str(n.id ?? n.name ?? `n${i}`),
+    label: str(n.label ?? n.name ?? n.id, `node ${i + 1}`),
+    kind: str(n.kind),
+    status: str(n.status),
+    layer: num(n.layer),
+  }))
+  if (!nodes.length) return <Empty text="No graph to draw." />
+  const edges = arr(p.edges)
+    .map((e) => ({ from: str(e.from ?? e.source), to: str(e.to ?? e.target), label: str(e.label) }))
+    .filter((e) => e.from && e.to)
+
+  // Without explicit layers, derive them: a node sits one column right of
+  // everything that points at it. Cycles are broken by the depth cap, so a
+  // circular dependency degrades to a flat row instead of hanging.
+  const layerOf = new Map<string, number>()
+  if (nodes.some((n) => n.layer !== undefined)) {
+    nodes.forEach((n) => layerOf.set(n.id, n.layer ?? 0))
+  } else {
+    nodes.forEach((n) => layerOf.set(n.id, 0))
+    for (let pass = 0; pass < Math.min(nodes.length, 8); pass++) {
+      for (const e of edges) {
+        if (!layerOf.has(e.from) || !layerOf.has(e.to)) continue
+        layerOf.set(e.to, Math.max(layerOf.get(e.to)!, layerOf.get(e.from)! + 1))
+      }
+    }
+  }
+
+  const columns: typeof nodes[] = []
+  for (const n of nodes) {
+    const l = Math.max(0, Math.min(6, layerOf.get(n.id) ?? 0))
+    ;(columns[l] ??= []).push(n)
+  }
+  const cols = columns.filter(Boolean)
+  const COL_W = 150
+  const NODE_H = 40
+  const GAP_Y = 16
+  const rows = Math.max(...cols.map((c) => c.length), 1)
+  const W = cols.length * COL_W
+  const H = rows * (NODE_H + GAP_Y) - GAP_Y
+
+  const pos = new Map<string, { x: number; y: number }>()
+  cols.forEach((col, ci) => {
+    const colH = col.length * (NODE_H + GAP_Y) - GAP_Y
+    col.forEach((n, ri) => {
+      pos.set(n.id, { x: ci * COL_W, y: (H - colH) / 2 + ri * (NODE_H + GAP_Y) })
+    })
+  })
+  const NODE_W = COL_W - 26
+
+  return (
+    <div className="overflow-x-auto">
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="max-w-none">
+        <defs>
+          <marker id="adhar-topo-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0,0 L8,4 L0,8 z" fill="var(--color-edge-strong)" />
+          </marker>
+        </defs>
+        {edges.map((e, i) => {
+          const a = pos.get(e.from)
+          const b = pos.get(e.to)
+          if (!a || !b) return null
+          const x1 = a.x + NODE_W
+          const y1 = a.y + NODE_H / 2
+          const x2 = b.x - 4
+          const y2 = b.y + NODE_H / 2
+          const mid = (x1 + x2) / 2
+          return (
+            <path
+              key={i}
+              d={`M${x1},${y1} C${mid},${y1} ${mid},${y2} ${x2},${y2}`}
+              fill="none"
+              stroke="var(--color-edge-strong)"
+              strokeWidth={1.25}
+              markerEnd="url(#adhar-topo-arrow)"
+            />
+          )
+        })}
+        {nodes.map((n) => {
+          const at = pos.get(n.id)
+          if (!at) return null
+          const t = n.status ? statusTone(n.status) : 'muted'
+          return (
+            <g key={n.id}>
+              <rect
+                x={at.x}
+                y={at.y}
+                width={NODE_W}
+                height={NODE_H}
+                rx={8}
+                fill="var(--color-surface-raised)"
+                stroke={t === 'muted' ? 'var(--color-edge-default)' : TONE_STROKE[t]}
+                strokeWidth={t === 'muted' ? 1 : 1.5}
+              />
+              {t !== 'muted' ? <circle cx={at.x + 10} cy={at.y + NODE_H / 2} r={3} fill={TONE_STROKE[t]} /> : null}
+              <text
+                x={at.x + (t !== 'muted' ? 20 : 10)}
+                y={at.y + (n.kind ? 17 : NODE_H / 2 + 4)}
+                fill="var(--color-content)"
+                fontSize={11.5}
+                fontWeight={500}
+              >
+                {n.label.length > 16 ? `${n.label.slice(0, 15)}…` : n.label}
+              </text>
+              {n.kind ? (
+                <text x={at.x + (t !== 'muted' ? 20 : 10)} y={at.y + 29} fill="var(--color-content-subtle)" fontSize={9.5}>
+                  {n.kind.length > 18 ? `${n.kind.slice(0, 17)}…` : n.kind}
+                </text>
+              ) : null}
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
+/**
+ * A unified diff — what a proposed change actually does.
+ *
+ * Accepts either structured lines or a raw patch string, because the agent's
+ * write path already has the patch text in hand and re-serialising it into
+ * JSON is a step that can only lose fidelity.
+ */
+function Diff({ props: p }: { props: Props }) {
+  const structured = arr(p.lines).map((l) => ({ type: str(l.type ?? l.kind, 'ctx'), text: str(l.text ?? l.line) }))
+  const lines = structured.length
+    ? structured
+    : str(p.diff ?? p.patch ?? p.text)
+        .split('\n')
+        .map((line) => ({
+          // `+++`/`---` are file headers, not an added and a removed line.
+          type: /^\+\+\+|^---|^@@|^diff |^index /.test(line) ? 'meta' : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : 'ctx',
+          text: line,
+        }))
+  const usable = lines.filter((l) => l.text !== '' || l.type !== 'ctx')
+  if (!usable.length) return <Empty text="No changes." />
+  const added = usable.filter((l) => l.type === 'add' || l.type === '+').length
+  const removed = usable.filter((l) => l.type === 'del' || l.type === '-' || l.type === 'remove').length
+  const path = str(p.path ?? p.file)
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-edge-subtle">
+      {path || added || removed ? (
+        <div className="flex items-center gap-2 border-b border-edge-subtle bg-surface-sunken/60 px-2.5 py-1.5">
+          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-content-muted" title={path}>{path || 'patch'}</span>
+          <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-emerald-600 dark:text-emerald-400">+{added}</span>
+          <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-rose-600 dark:text-rose-400">−{removed}</span>
+        </div>
+      ) : null}
+      <div className="max-h-72 overflow-auto bg-code font-mono text-[11px] leading-[1.55]">
+        {usable.slice(0, 400).map((l, i) => {
+          const add = l.type === 'add' || l.type === '+'
+          const del = l.type === 'del' || l.type === '-' || l.type === 'remove'
+          return (
+            <div
+              key={i}
+              className={cn(
+                'whitespace-pre px-2.5',
+                // `bg-code` is mode-invariant — a dark surface in both themes —
+                // so every colour on it must be too. `text-content-subtle`
+                // here rendered as dark grey on near-black in light mode.
+                add ? 'bg-emerald-500/12 text-emerald-300' : del ? 'bg-rose-500/12 text-rose-300' : l.type === 'meta' ? 'text-code-fg/45' : 'text-code-fg/85',
+              )}
+            >
+              {structured.length ? `${add ? '+' : del ? '-' : ' '}${l.text}` : l.text || ' '}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * KPI cards with a trend behind each number.
+ *
+ * `metrics` answers "what is it now". This answers "and which way is it
+ * going", which is usually the question that actually matters — a 4% error
+ * rate climbing is an incident and a 4% error rate falling is a recovery.
+ */
+function StatGrid({ props: p }: { props: Props }) {
+  const items = arr(p.items)
+  if (!items.length) return <Empty text="No stats." />
+  return (
+    <div className={cn('grid gap-2', items.length === 1 ? 'grid-cols-1' : items.length === 3 ? 'grid-cols-3' : 'grid-cols-2')}>
+      {items.slice(0, 6).map((s, i) => {
+        const trend = nums(s.trend ?? s.points ?? s.sparkline)
+        const delta = num(s.delta)
+        const t = s.tone ? tone(s.tone) : delta === undefined ? 'muted' : 'info'
+        const better = str(s.direction).toLowerCase() === 'down' ? -1 : 1
+        const deltaTone: Tone = delta === undefined || delta === 0 ? 'muted' : delta * better > 0 ? 'ok' : 'bad'
+        return (
+          <div key={i} className="relative overflow-hidden rounded-lg border border-edge-subtle bg-surface-sunken/40 px-3 py-2.5">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{str(s.label)}</div>
+            <div className="mt-0.5 flex items-baseline gap-1.5">
+              <span className={cn('truncate text-xl font-semibold leading-none tabular-nums', s.tone ? TONE_TEXT[t] : 'text-content')} title={str(s.value)}>
+                {str(s.value, '—')}
+              </span>
+              {str(s.unit) ? <span className="text-[11px] text-content-subtle">{str(s.unit)}</span> : null}
+              {delta !== undefined ? (
+                <span className={cn('text-[11px] font-medium tabular-nums', TONE_TEXT[deltaTone])}>
+                  {delta > 0 ? '▲' : delta < 0 ? '▼' : '•'} {fmtNum(Math.abs(delta))}{str(s.deltaUnit ?? '%')}
+                </span>
+              ) : null}
+            </div>
+            {s.hint ? <div className="mt-0.5 truncate text-[10.5px] text-content-subtle">{str(s.hint)}</div> : null}
+            {trend.length >= 2 ? (
+              <div className="mt-1.5 -mb-1 opacity-70">
+                <Sparkline points={trend} color={TONE_STROKE[t === 'muted' ? 'info' : t]} height={22} />
+              </div>
+            ) : null}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 /* ─────────────────────────── registry ─────────────────────────── */
 
 const REGISTRY: Record<string, (p: { props: Props }) => ReactNode> = {
@@ -573,10 +956,32 @@ const REGISTRY: Record<string, (p: { props: Props }) => ReactNode> = {
   comparison: Comparison,
   callout: Callout,
   'bar-chart': BarChart,
+  'time-series': TimeSeries,
+  gauge: Gauges,
+  heatmap: Heat,
+  topology: Topology,
+  diff: Diff,
+  'stat-grid': StatGrid,
 }
 
-/** Component ids a model may pick — mirrored in the render_ui tool schema. */
+/** Every component that can appear in a transcript, model-picked or server-mapped. */
 export const GENERATIVE_COMPONENTS = Object.keys(REGISTRY)
+
+/**
+ * The model is offered the catalog; the catalog must be renderable.
+ *
+ * A catalog id with no registry entry degrades to a JSON dump in the middle of
+ * an answer — the failure is silent server-side and ugly client-side, which is
+ * the worst combination. Fail loudly in development instead; in production the
+ * JSON fallback is still better than a blank transcript.
+ */
+export const UNRENDERABLE_CATALOG_IDS = GENERATIVE_COMPONENT_IDS.filter((id) => !(id in REGISTRY))
+if (UNRENDERABLE_CATALOG_IDS.length > 0) {
+  console.error(
+    `[adhar-ai] render_ui offers components with no renderer: ${UNRENDERABLE_CATALOG_IDS.join(', ')} ` +
+      `— add them to the REGISTRY in shell-ui/src/agui/generative.tsx or remove them from GENERATIVE_CATALOG.`,
+  )
+}
 
 /**
  * Render one generative-UI block. A `proposal` and a `callout` carry their own

@@ -5,6 +5,7 @@ import type { K8sIdentity } from '../../k8s/gateway.ts'
 import { AguiStream, type PatchOp } from './protocol.ts'
 import { getAgent, isServerTool, toolsForAgent, uiForToolResult, type AgentDef } from './agents.ts'
 import { delegateToAdharAi } from './delegate.ts'
+import { AUTONOMY_LADDER } from '../adhar-ai.ts'
 
 /**
  * The AG-UI run loop.
@@ -34,7 +35,9 @@ const MAX_STEPS = 8
 
 export interface RunState extends Record<string, unknown> {
   agent: { id: string; name: string; accent: string; icon: string }
-  phase: 'planning' | 'working' | 'awaiting-input' | 'done' | 'error'
+  // `thinking`/`answering` belong to the delegated runtime, which has no plan
+  // to tick through and so cannot honestly report 'planning' or 'working'.
+  phase: 'planning' | 'working' | 'thinking' | 'answering' | 'awaiting-input' | 'done' | 'error'
   plan: Array<{ id: string; label: string; status: 'pending' | 'active' | 'done' | 'failed' }>
   findings: Array<{ id: string; severity: string; title: string; detail?: string; resource?: Record<string, unknown> }>
   tools: { called: number; last?: string }
@@ -219,8 +222,15 @@ export function runAgent(rawInput: unknown, opts: RunOptions): Response {
           // Context the UI attached (the page you were on, the resource you had
           // open) is prepended, because the runtime has no view of the console.
           const context = (input.context ?? []).map((c) => `${c.description}: ${c.value}`).join('\n')
+          // Autonomy the operator picked. Validated against the ladder rather
+          // than forwarded blind: adhar-ai rejects an unknown value outright,
+          // so a typo would fail the whole run instead of falling back to the
+          // runtime's own default.
+          const asked = typeof input.forwardedProps?.autonomy === 'string' ? input.forwardedProps.autonomy : ''
+          const autonomy = AUTONOMY_LADDER.find((a) => a === asked)
           const delegated = await delegateToAdharAi(stream, {
             prompt: context ? `${context}\n\n${prompt}` : prompt,
+            autonomy,
             bearer: typeof opts.identity === 'string' ? opts.identity : opts.identity.token,
             user: typeof opts.identity === 'string' ? undefined : opts.identity.user.email,
             session: input.threadId,

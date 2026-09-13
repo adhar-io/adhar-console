@@ -1,3 +1,4 @@
+import { GENERATIVE_COMPONENT_IDS, catalogEnumDescription, catalogPropsDescription } from '@adhar-console/utils'
 import type { ToolDef } from '../provider.ts'
 import { TOOL_DEFS } from '../tools.ts'
 
@@ -278,17 +279,19 @@ export const AGENTIC_TOOL_DEFS: ToolDef[] = [
       parameters: {
         type: 'object',
         properties: {
+          // Enum and description come from the shared catalog, so a component
+          // added to the browser registry is offered to the model in the same
+          // commit. Hand-maintaining this list is what previously left seven
+          // components unreachable.
           component: {
             type: 'string',
-            enum: ['table', 'metrics', 'timeline', 'checklist', 'comparison', 'callout', 'bar-chart', 'resource-list'],
-            description:
-              'table: rows/columns. metrics: a row of big numbers. timeline: ordered events with timestamps. checklist: pass/fail items. comparison: before/after or expected/actual. callout: one highlighted statement. bar-chart: labelled magnitudes. resource-list: clickable Kubernetes objects.',
+            enum: [...GENERATIVE_COMPONENT_IDS],
+            description: catalogEnumDescription(),
           },
           title: { type: 'string' },
           props: {
             type: 'object',
-            description:
-              'Shape depends on component. table:{columns:[{key,label,align?}],rows:[{...}]} · metrics:{items:[{label,value,hint?,tone?}]} · timeline:{items:[{at,label,detail?,tone?}]} · checklist:{items:[{label,status:pass|fail|warn,detail?}]} · comparison:{left:{title,items:[{label,value}]},right:{title,items:[{label,value}]}} · callout:{tone:info|success|warning|danger,text} · bar-chart:{items:[{label,value,hint?}],unit?} · resource-list:{items:[{kind,name,namespace?,status?,tone?}]}',
+            description: catalogPropsDescription(),
             additionalProperties: true,
           },
         },

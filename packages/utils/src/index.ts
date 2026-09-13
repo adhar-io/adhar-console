@@ -5,3 +5,10 @@ export { env, requireEnv } from './env.ts'
 export type { Result } from './result.ts'
 export { ok, err, isOk, isErr } from './result.ts'
 export { derivedUrl, platformDomain, resetPlatformDomain, subdomainUrl, type PlatformDomain } from './domain.ts'
+export {
+  GENERATIVE_CATALOG,
+  GENERATIVE_COMPONENT_IDS,
+  catalogEnumDescription,
+  catalogPropsDescription,
+  type GenerativeComponentSpec,
+} from './agui-catalog.ts'

@@ -91,13 +91,37 @@ export interface Finding {
   resource?: { kind?: string; name?: string; namespace?: string }
 }
 
+/**
+ * What a run did, when the run was a governed adhar-ai run.
+ *
+ * This is the audit trail, not decoration. `autonomy` is what the runtime
+ * actually GRANTED, which may be lower than what was asked for — showing it
+ * back is how an operator learns they were pinned to read-only rather than
+ * wondering why nothing was applied. `auditId` is the handle support needs to
+ * find the run server-side.
+ */
+export interface AdharAiRunInfo {
+  kind?: 'answer' | 'proposed' | 'budget_exhausted' | 'error'
+  steps?: number
+  auditId?: string
+  autonomy?: string
+  /** Autonomy the operator asked for, when the grant came back lower. */
+  requested?: string
+  writeAllowed?: boolean
+  authenticated?: boolean
+  pullRequests?: number
+}
+
 /** The agent's shared state, mirrored from STATE_SNAPSHOT / STATE_DELTA. */
 export interface RunState {
   agent?: { id: string; name: string; accent: string; icon: string }
-  phase?: 'planning' | 'working' | 'awaiting-input' | 'done' | 'error'
+  // `thinking` and `answering` are the delegated runtime's phases: it has no
+  // plan to tick through, so 'planning'/'working' would misdescribe it.
+  phase?: 'planning' | 'working' | 'thinking' | 'answering' | 'awaiting-input' | 'done' | 'error'
   plan: PlanStep[]
   findings: Finding[]
-  tools?: { called: number; last?: string }
+  tools?: { called: number; last?: string; failed?: number }
+  adharAi?: AdharAiRunInfo
 }
 
 /** A question the agent put to the operator, awaiting an answer. */
@@ -129,7 +153,27 @@ interface State {
   context?: AiContext
   canApply: boolean
   pendingAsk: PendingAsk | null
+  /** Autonomy to request for delegated (adhar-ai) runs. */
+  autonomy: Autonomy
 }
+
+/**
+ * The autonomy ladder, exactly as adhar-ai spells it. Authority only ever
+ * narrows: this is a CEILING REQUEST, and the runtime may grant less based on
+ * who is asking. Sending a value outside this set is an error there, not a
+ * silent downgrade — hence the exact spelling, hyphens included.
+ *
+ * The runtime's fourth rung, `scoped`, is deliberately not offered here. Every
+ * other rung ends at a pull request a human merges, which is the property that
+ * makes handing the agent a production cluster reasonable; putting a
+ * one-click escape from it in a ⌘K palette is not.
+ */
+export const AUTONOMY_LEVELS = [
+  { id: 'read-only', label: 'Read only', hint: 'Investigate and answer. No changes of any kind.' },
+  { id: 'suggest', label: 'Suggest', hint: 'Investigate, then describe the change it would make.' },
+  { id: 'approve-to-apply', label: 'Propose PR', hint: 'Open a pull request for you to review and merge.' },
+] as const
+export type Autonomy = (typeof AUTONOMY_LEVELS)[number]['id']
 
 /* ─────────────────────── frontend tools ─────────────────────── */
 
@@ -190,6 +234,7 @@ type ApplyHandler = (manifest: unknown) => Promise<{ ok: boolean; message: strin
 
 const HISTORY_KEY = 'adhar.assist.threads.v2'
 const AGENT_KEY = 'adhar.assist.agent.v1'
+const AUTONOMY_KEY = 'adhar.assist.autonomy.v1'
 const HISTORY_MAX = 20
 
 let applyHandler: ApplyHandler | null = null
@@ -233,6 +278,17 @@ function storedAgent(): string {
   }
 }
 
+/** Remembered autonomy, floored at read-only if the stored value is stale. */
+function storedAutonomy(): Autonomy {
+  try {
+    const raw = globalThis.localStorage?.getItem(AUTONOMY_KEY)
+    const hit = AUTONOMY_LEVELS.find((l) => l.id === raw)
+    return hit ? hit.id : 'read-only'
+  } catch {
+    return 'read-only'
+  }
+}
+
 let state: State = {
   configured: false,
   configLoaded: false,
@@ -244,6 +300,7 @@ let state: State = {
   run: null,
   canApply: false,
   pendingAsk: null,
+  autonomy: storedAutonomy(),
 }
 
 function set(patch: Partial<State> | ((s: State) => Partial<State>)) {
@@ -535,6 +592,16 @@ export const assistStore = {
     set((s) => ({ agentId, thread: s.thread.messages.length ? s.thread : { ...s.thread, agentId } }))
   },
 
+  /** Request a different autonomy ceiling for delegated runs. */
+  setAutonomy(autonomy: Autonomy) {
+    try {
+      globalThis.localStorage?.setItem(AUTONOMY_KEY, autonomy)
+    } catch {
+      // ignore
+    }
+    set({ autonomy })
+  },
+
   /** Answer the agent's pending `ask_operator` question. */
   answerAsk(answer: string) {
     askResolver?.(answer)
@@ -587,7 +654,7 @@ export const assistStore = {
           messages: protocolMessages(state.thread),
           tools: FRONTEND_TOOLS,
           context,
-          forwardedProps: { agent: state.agentId },
+          forwardedProps: { agent: state.agentId, autonomy: state.autonomy },
           signal: ac.signal,
         })) {
           reduce(event)

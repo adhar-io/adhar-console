@@ -87,6 +87,8 @@ export interface AgentInfo {
   icon: string
   starters: Array<{ label: string; prompt: string }>
   tools: number
+  /** Handled by the external adhar-ai runtime rather than the console's own loop. */
+  delegated?: boolean
 }
 
 export interface AiConfig {

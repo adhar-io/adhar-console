@@ -27,9 +27,18 @@ import {
  * the wait.
  */
 
-/** Roughly a sentence per chunk — enough to read as prose arriving, not a stutter. */
+/**
+ * Roughly a sentence per chunk — enough to read as prose arriving, not a
+ * stutter.
+ *
+ * There is deliberately NO delay between chunks. The run has already finished
+ * by the time the first chunk is written, so pausing between them does not
+ * make the answer more live — it just withholds text the user could already be
+ * reading, and on a long answer that cost ran into seconds. Chunking survives
+ * because it lets the browser paint incrementally; the artificial pacing does
+ * not.
+ */
 const CHUNK = 180
-const CHUNK_DELAY_MS = 16
 
 function chunks(text: string): string[] {
   const out: string[] = []
@@ -142,22 +151,25 @@ export async function delegateToAdharAi(
   // 2. The tools it actually called. Replayed as real tool events so the UI's
   //    existing tool timeline works unchanged.
   let toolFailures = 0
+  let lastTool = ''
   run.tool_calls?.forEach((call, i) => {
     const id = stream.id('tool')
-    stream.toolStart(id, toolName(call, i))
+    const name = toolName(call, i)
+    lastTool = name
+    stream.toolStart(id, name)
     stream.toolArgs(id, JSON.stringify(toolArguments(call)))
     stream.toolEnd(id)
     stream.toolResult(id, resultText(call))
     if (failed(call)) toolFailures++
   })
 
+  // Patch the fields, not the object: replacing `/tools` wholesale drops
+  // `last`, which is what the "running …" line in the UI reads.
   stream.patchState([
     { op: 'replace', path: '/phase', value: 'answering' },
-    {
-      op: 'replace',
-      path: '/tools',
-      value: { called: run.tool_calls?.length ?? 0, failed: toolFailures },
-    },
+    { op: 'add', path: '/tools/called', value: run.tool_calls?.length ?? 0 },
+    { op: 'add', path: '/tools/failed', value: toolFailures },
+    ...(lastTool ? [{ op: 'add' as const, path: '/tools/last', value: lastTool }] : []),
   ])
 
   // 3. The answer.
@@ -165,10 +177,7 @@ export async function delegateToAdharAi(
   if (text) {
     const messageId = stream.id('msg')
     stream.textStart(messageId)
-    for (const piece of chunks(text)) {
-      stream.textDelta(messageId, piece)
-      if (CHUNK_DELAY_MS) await new Promise((r) => setTimeout(r, CHUNK_DELAY_MS))
-    }
+    for (const piece of chunks(text)) stream.textDelta(messageId, piece)
     stream.textEnd(messageId)
   }
 
@@ -203,6 +212,9 @@ export async function delegateToAdharAi(
         steps: run.steps,
         auditId: run.audit_id,
         autonomy: run.autonomy,
+        // Only when it differs — an equal pair would render as a downgrade
+        // notice for a request that was granted exactly as asked.
+        requested: opts.autonomy && opts.autonomy !== run.autonomy ? opts.autonomy : undefined,
         writeAllowed: run.principal?.write_allowed ?? false,
         authenticated: run.principal?.authenticated ?? false,
         pullRequests: run.pull_requests?.length ?? 0,

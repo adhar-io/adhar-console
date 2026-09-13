@@ -16,6 +16,10 @@ import { getKeycloakAdmin } from './workspace/keycloak-admin.ts'
  *   • **ArgoCD**     — an AppProject `<slug>` whose destinations are restricted
  *                      to the tenant namespace, so GitOps can only deploy there.
  *   • **Gitea**      — an org `<slug>` to hold the tenant's repositories.
+ *   • **Grafana**    — a folder for the tenant's dashboards, plus a team named
+ *                      for its Keycloak group, granted edit on that folder.
+ *   • **Harbor**     — a private project `<slug>` to push images to, with the
+ *                      tenant's group added as a developer.
  *
  * Every step is **best-effort and independent**: the organization record is
  * already persisted before this runs and is never rolled back. Each step reports
@@ -26,7 +30,7 @@ import { getKeycloakAdmin } from './workspace/keycloak-admin.ts'
  */
 
 export interface ProvisionStepResult {
-  system: 'keycloak' | 'namespace' | 'argocd' | 'gitea'
+  system: 'keycloak' | 'namespace' | 'argocd' | 'gitea' | 'grafana' | 'harbor'
   label: string
   status: 'done' | 'skipped' | 'failed'
   detail?: string
@@ -187,6 +191,149 @@ async function provisionGitea(input: ProvisionInput): Promise<ProvisionStepResul
   }
 }
 
+/* ── Shared: basic-auth fetch for tools the console holds admin creds for ── */
+
+/**
+ * Admin-credentialled call to a backing tool.
+ *
+ * Grafana and Harbor both take HTTP Basic with the admin account the console
+ * already holds for its proxy, so there is no separate credential to provision
+ * or rotate for this. Returns null when the tool is not configured, which the
+ * callers report as `skipped` rather than `failed` — an install without Harbor
+ * has not failed to provision Harbor.
+ */
+function adminFetch(tool: 'grafana' | 'harbor') {
+  const def = getTool(tool)
+  if (!def?.baseUrl || !def.username || !def.password) return null
+  const auth = `Basic ${btoa(`${def.username}:${def.password}`)}`
+  const base = def.baseUrl.replace(/\/$/, '')
+  return (path: string, init: RequestInit = {}): Promise<Response> =>
+    fetch(`${base}${path}`, {
+      ...init,
+      headers: {
+        accept: 'application/json',
+        authorization: auth,
+        ...(init.body ? { 'content-type': 'application/json' } : {}),
+        ...(init.headers as Record<string, string> | undefined),
+      },
+    })
+}
+
+/* ── Grafana: a folder per tenant, owned by the tenant's team ── */
+
+/**
+ * Give the organization somewhere of its own in Grafana.
+ *
+ * A folder, a team, and the permission that ties them together. The folder is
+ * the part that matters: without it every tenant's dashboards land in the same
+ * flat list, and "which of these are ours" stops having an answer as soon as
+ * there is a second tenant.
+ *
+ * The team is created too, and named for the Keycloak group, so that an install
+ * with Grafana team sync configured has something to sync INTO. Open-source
+ * Grafana has no team sync, so membership fills in by hand or as people are
+ * added — which is why a missing team is reported, not fatal.
+ *
+ * Idempotent: an existing folder (412 Precondition Failed on a duplicate uid)
+ * and an existing team (409) are both treated as success.
+ */
+async function provisionGrafana(input: ProvisionInput): Promise<ProvisionStepResult> {
+  const label = `Grafana folder ${input.name}`
+  const call = adminFetch('grafana')
+  if (!call) return { system: 'grafana', label, status: 'skipped', detail: 'Grafana admin not configured' }
+
+  const uid = `org-${input.slug}`.slice(0, 40)
+  try {
+    const folderRes = await call('/api/folders', {
+      method: 'POST',
+      body: JSON.stringify({ uid, title: input.name }),
+    })
+    // 409/412 both mean "already there", which is the desired end state.
+    if (!ok(folderRes.status) && folderRes.status !== 409 && folderRes.status !== 412) {
+      return { system: 'grafana', label, status: 'failed', detail: `folder ${folderRes.status}` }
+    }
+
+    // Best-effort from here: the folder exists, and that is the useful part.
+    const teamName = groupForOrg(input.slug)
+    let teamId: number | undefined
+    const teamRes = await call('/api/teams', { method: 'POST', body: JSON.stringify({ name: teamName }) })
+    if (ok(teamRes.status)) {
+      teamId = ((await teamRes.json().catch(() => ({}))) as { teamId?: number }).teamId
+    } else if (teamRes.status === 409) {
+      const found = await call(`/api/teams/search?name=${encodeURIComponent(teamName)}`)
+      const body = (await found.json().catch(() => ({}))) as { teams?: Array<{ id: number }> }
+      teamId = body.teams?.[0]?.id
+    }
+
+    if (teamId) {
+      await call(`/api/folders/${uid}/permissions`, {
+        method: 'POST',
+        // 2 = Edit. The tenant's own people manage their own dashboards.
+        body: JSON.stringify({ items: [{ teamId, permission: 2 }] }),
+      }).catch(() => undefined)
+      return { system: 'grafana', label, status: 'done', detail: `folder + team ${teamName} (edit)` }
+    }
+    return { system: 'grafana', label, status: 'done', detail: 'folder ready; team not created' }
+  } catch (e) {
+    return { system: 'grafana', label, status: 'failed', detail: (e as Error).message }
+  }
+}
+
+/* ── Harbor: a private project per tenant ── */
+
+/**
+ * A registry project the tenant pushes to.
+ *
+ * The platform's own project model already expects one — `ProjectDoc` carries a
+ * `harborProject` alongside `giteaOrg` and `argoProject` — but nothing created
+ * it, so that field pointed at a project that did not exist and every tenant
+ * shared `library`.
+ *
+ * Private by default: a registry that is public until someone remembers to
+ * change it is the wrong default for a multi-tenant platform. The Keycloak group
+ * is added as a project member where Harbor's OIDC group support allows it, so
+ * access follows the same group as everything else.
+ */
+async function provisionHarbor(input: ProvisionInput): Promise<ProvisionStepResult> {
+  const label = `Harbor project ${input.slug}`
+  const call = adminFetch('harbor')
+  if (!call) return { system: 'harbor', label, status: 'skipped', detail: 'Harbor admin not configured' }
+
+  try {
+    const res = await call('/api/v2.0/projects', {
+      method: 'POST',
+      body: JSON.stringify({
+        project_name: input.slug,
+        metadata: { public: 'false' },
+      }),
+    })
+    // 409 = already exists, which is the end state we want.
+    if (!ok(res.status) && res.status !== 409) {
+      return { system: 'harbor', label, status: 'failed', detail: `harbor ${res.status}` }
+    }
+
+    // Group membership is best-effort: it needs Harbor configured for OIDC
+    // groups, and the project existing is the part that unblocks pushes.
+    await call(`/api/v2.0/projects/${encodeURIComponent(input.slug)}/members`, {
+      method: 'POST',
+      body: JSON.stringify({
+        // 2 = Developer: push and pull, but not project administration.
+        role_id: 2,
+        member_group: { group_name: groupForOrg(input.slug), group_type: 3 },
+      }),
+    }).catch(() => undefined)
+
+    return {
+      system: 'harbor',
+      label,
+      status: 'done',
+      detail: res.status === 409 ? 'project already exists' : 'project created (private)',
+    }
+  } catch (e) {
+    return { system: 'harbor', label, status: 'failed', detail: (e as Error).message }
+  }
+}
+
 /**
  * Provision a tenant across all systems. Runs Keycloak → Namespace/RBAC first
  * (identity + isolation), then ArgoCD + Gitea in parallel. Never throws — always
@@ -196,7 +343,15 @@ export async function provisionTenant(input: ProvisionInput): Promise<ProvisionS
   const results: ProvisionStepResult[] = []
   results.push(await provisionKeycloak(input))
   results.push(await provisionNamespace(input))
-  const [argo, gitea] = await Promise.all([provisionArgoProject(input), provisionGitea(input)])
-  results.push(argo, gitea)
+  // The rest are independent of each other and of the order they finish in, so
+  // they run together — provisioning an organization should not take as long as
+  // the sum of every tool's latency.
+  const rest = await Promise.all([
+    provisionArgoProject(input),
+    provisionGitea(input),
+    provisionGrafana(input),
+    provisionHarbor(input),
+  ])
+  results.push(...rest)
   return results
 }

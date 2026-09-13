@@ -39,11 +39,19 @@ import { env } from '@adhar-console/utils'
 export const AUTONOMY_LADDER = ['read-only', 'suggest', 'approve-to-apply', 'scoped'] as const
 export type Autonomy = (typeof AUTONOMY_LADDER)[number]
 
+/**
+ * One tool the runtime called.
+ *
+ * Field names verified against a live run, not guessed: adhar-ai emits
+ * `{tool, args, decision}` — NOT the OpenAI-shaped `{name, arguments, result}`
+ * an LLM tool call uses. `decision` is the outcome ("ok", "error", or a policy
+ * refusal), and there is no result payload: the transcript records what was
+ * asked and how it went, not what came back.
+ */
 export interface AdharAiToolCall {
-  name?: string
-  arguments?: Record<string, unknown>
-  result?: unknown
-  error?: string
+  tool?: string
+  args?: Record<string, unknown>
+  decision?: string
   [k: string]: unknown
 }
 

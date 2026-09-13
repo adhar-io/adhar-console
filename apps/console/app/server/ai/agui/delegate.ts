@@ -50,25 +50,44 @@ function chunks(text: string): string[] {
   return out
 }
 
-/** A tool call's display name, however the runtime spelled it. */
+/**
+ * A tool call's display name.
+ *
+ * adhar-ai emits `{tool, args, decision}`, not the OpenAI-shaped
+ * `{name, arguments}`. Reading the wrong field renders every call as
+ * "tool_1, tool_2, …" with empty arguments — which looks like the agent did
+ * nothing, exactly when the transcript matters most. `name` is still accepted
+ * in case the runtime ever normalises toward the OpenAI shape.
+ */
 function toolName(call: AdharAiToolCall, index: number): string {
-  const raw = call.name ?? (call.function as { name?: string } | undefined)?.name
+  const raw = call.tool ?? (call.name as string | undefined)
   return typeof raw === 'string' && raw ? raw : `tool_${index + 1}`
 }
 
 function toolArguments(call: AdharAiToolCall): unknown {
+  if (call.args && typeof call.args === 'object') return call.args
   if (call.arguments && typeof call.arguments === 'object') return call.arguments
-  const fn = call.function as { arguments?: unknown } | undefined
-  return fn?.arguments ?? {}
+  return {}
 }
 
-/** Compact a tool result for the transcript without losing its shape. */
+/**
+ * What the transcript shows for a call.
+ *
+ * There is no result payload — adhar-ai records the DECISION ("ok", "error", or
+ * a policy refusal), not what the tool returned. Saying "ok" regardless would
+ * quietly hide the failures, and a run whose every tool errored while the UI
+ * showed three green ticks is worse than no transcript at all.
+ */
 function resultText(call: AdharAiToolCall): string {
-  if (call.error) return `error: ${call.error}`
-  const value = call.result ?? call.output ?? call.content
-  if (value === undefined) return 'ok'
-  const s = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
-  return s.length > 4000 ? `${s.slice(0, 4000)}\n… truncated` : s
+  const decision = typeof call.decision === 'string' ? call.decision : ''
+  if (!decision) return 'called'
+  return decision === 'error' ? 'error — the tool call failed' : decision
+}
+
+/** Errors and policy refusals deserve to look different from a clean call. */
+function failed(call: AdharAiToolCall): boolean {
+  const d = typeof call.decision === 'string' ? call.decision.toLowerCase() : ''
+  return d === 'error' || d.includes('refus') || d.includes('denied')
 }
 
 export interface DelegateOptions {
@@ -122,18 +141,23 @@ export async function delegateToAdharAi(
 
   // 2. The tools it actually called. Replayed as real tool events so the UI's
   //    existing tool timeline works unchanged.
+  let toolFailures = 0
   run.tool_calls?.forEach((call, i) => {
     const id = stream.id('tool')
-    const name = toolName(call, i)
-    stream.toolStart(id, name)
+    stream.toolStart(id, toolName(call, i))
     stream.toolArgs(id, JSON.stringify(toolArguments(call)))
     stream.toolEnd(id)
     stream.toolResult(id, resultText(call))
+    if (failed(call)) toolFailures++
   })
 
   stream.patchState([
     { op: 'replace', path: '/phase', value: 'answering' },
-    { op: 'replace', path: '/tools', value: { called: run.tool_calls?.length ?? 0 } },
+    {
+      op: 'replace',
+      path: '/tools',
+      value: { called: run.tool_calls?.length ?? 0, failed: toolFailures },
+    },
   ])
 
   // 3. The answer.

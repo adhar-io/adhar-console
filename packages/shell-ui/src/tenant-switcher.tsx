@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { cn } from '@adhar-console/utils'
 import type { Tenant } from '@adhar-console/tenancy'
 import { useOrganizations } from './use-organizations.ts'
+import { type TeamSummary, useTeams } from './use-teams.ts'
 
 interface Props {
   /** Fallback list used until the live `/api/organizations` list loads. */
@@ -34,6 +35,11 @@ export function TenantSwitcher({
   const [createOpen, setCreateOpen] = useState(false)
   const [renameFor, setRenameFor] = useState<OrgItem | null>(null)
   const [deleteFor, setDeleteFor] = useState<OrgItem | null>(null)
+
+  // Teams belong to the active organization, so the hook re-fetches whenever
+  // the org changes. Passing undefined before the live list arrives keeps it
+  // quiet rather than firing a request against an id that isn't settled yet.
+  const teams = useTeams(org.ready ? org.activeId : undefined)
 
   // Live data once loaded, else the props passed by the shell (keeps the
   // switcher populated during the initial fetch / when signed out). The
@@ -83,8 +89,15 @@ export function TenantSwitcher({
       <OrgAvatar name={active.name} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium text-content">{active.name}</div>
+        {/* The second line shows the active TEAM, so the two levels a person
+            works inside are both visible without opening anything. It falls
+            back to the org subtitle when teams have not loaded. */}
         <div className="truncate text-[11px] text-content-subtle">
-          {switching ? 'Switching…' : active.subtitle}
+          {switching
+            ? 'Switching…'
+            : teams.active
+            ? teams.active.name
+            : active.subtitle}
         </div>
       </div>
       {switching ? <MiniSpinner /> : <IconChevronUpDown />}
@@ -102,6 +115,13 @@ export function TenantSwitcher({
           activeId={activeId}
           manageable={usingLive}
           canDelete={usingLive && items.length > 1}
+          teams={usingLive && teams.ready ? teams.teams : []}
+          activeTeamId={teams.activeId}
+          teamBusy={teams.switching}
+          onSelectTeam={(id) => {
+            setOpen(false)
+            void teams.switchTeam(id)
+          }}
           onSelect={select}
           onClose={() => setOpen(false)}
           onNew={() => {
@@ -175,6 +195,10 @@ function Menu({
   activeId,
   manageable,
   canDelete,
+  teams,
+  activeTeamId,
+  teamBusy,
+  onSelectTeam,
   onSelect,
   onClose,
   onNew,
@@ -188,6 +212,11 @@ function Menu({
   /** Rename/delete are only offered on the live server-backed list. */
   manageable: boolean
   canDelete: boolean
+  /** Teams inside the active organization. Empty until the live list loads. */
+  teams: TeamSummary[]
+  activeTeamId: string
+  teamBusy: boolean
+  onSelectTeam(id: string): void
   onSelect(id: string): void
   onClose(): void
   onNew(): void
@@ -261,6 +290,72 @@ function Menu({
             )
           })}
         </ul>
+
+        {/* Teams in the active organization. Switching one is a scope change
+            within the same tenant, so unlike an org switch it neither re-signs
+            the session nor reloads the page. Hidden entirely when the live list
+            is unavailable rather than showing an empty, unexplained heading. */}
+        {teams.length > 0 ? (
+          <>
+            <div className="flex items-center justify-between gap-2 border-y border-edge-subtle px-3 py-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+                Team
+              </span>
+              {teamBusy ? <MiniSpinner /> : null}
+            </div>
+            <ul className="max-h-48 overflow-y-auto py-1">
+              {teams.map((t) => {
+                const isActive = t.id === activeTeamId
+                return (
+                  <li key={t.id}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={isActive}
+                      onClick={() => onSelectTeam(t.id)}
+                      className={cn(
+                        'flex w-full items-center gap-2.5 py-1.5 pl-3 pr-3 text-left transition-colors',
+                        isActive ? 'bg-surface-sunken' : 'hover:bg-surface-sunken',
+                      )}
+                    >
+                      {/* Indented under the org list to show the nesting. */}
+                      <span
+                        aria-hidden
+                        className={cn(
+                          'ml-1 h-1.5 w-1.5 shrink-0 rounded-full',
+                          isActive ? 'bg-brand-500' : 'bg-edge-strong',
+                        )}
+                      />
+                      <span className="min-w-0 flex-1 truncate text-[13px] text-content">{t.name}</span>
+                      {/* Teams you belong to are listed first and marked, so a
+                          large organization's list stays navigable and it is
+                          obvious which ones are yours to work in. */}
+                      {t.mine
+                        ? (
+                          <span className="shrink-0 rounded bg-brand-50 px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide text-brand-700 dark:bg-brand-500/15 dark:text-brand-300">
+                            You
+                          </span>
+                        )
+                        : null}
+                      {t.keycloakSynced === false
+                        ? (
+                          <span
+                            title="This team exists in the console but has not been reflected into Keycloak yet, so cluster RBAC cannot be granted to it."
+                            className="shrink-0 rounded bg-amber-50 px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
+                          >
+                            Unsynced
+                          </span>
+                        )
+                        : null}
+                      {isActive ? <IconCheck /> : null}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </>
+        ) : null}
+
         <div className="border-t border-edge-subtle p-1">
           <button
             type="button"

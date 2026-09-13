@@ -614,7 +614,60 @@ function toTeam(
   }
 }
 
+/**
+ * Bootstrap one team on first read, the way `loadOrg` bootstraps the org.
+ *
+ * An organization with zero teams is not a meaningful state: the tenancy chain
+ * is Organization → Team → Project → App, so a missing middle level leaves
+ * projects with nothing to belong to and the switcher with nothing to show —
+ * which reads as a broken feature rather than an empty one. Every install was
+ * starting there, because nothing ever created the first team.
+ *
+ * Seeded only when the collection is genuinely empty, so deleting down to zero
+ * deliberately is respected for the rest of that request; the next read brings
+ * it back, exactly as it does for the org document.
+ */
+async function ensureDefaultTeam(ctx: Ctx): Promise<void> {
+  const existing = await ctx.store.list<TeamDoc>(KIND.team)
+  if (existing.length > 0) return
+
+  const slug = 'platform'
+  const kc = getKeycloakAdmin()
+  const groupName = groupForTeam(slug)
+  // Same best-effort contract as createTeam: Keycloak being unreachable must
+  // not stop the team existing, it only leaves it flagged unsynced.
+  const group = kc ? await kc.ensureGroup(groupName) : null
+
+  const doc: TeamDoc = {
+    slug,
+    name: 'Platform Team',
+    description: 'The organization’s first team. Rename it, or add more in Workspace → Teams.',
+    createdAt: new Date().toISOString(),
+    keycloakGroup: groupName,
+    keycloakSynced: group !== null,
+  }
+  await ctx.store.put(KIND.team, crypto.randomUUID(), doc, ctx.user.id)
+
+  // Put the reader in it. A team nobody belongs to cannot be "your" team, and
+  // the switcher defaults to the first team you are a member of.
+  try {
+    const self = await ctx.store.get<MemberDoc>(KIND.member, ctx.user.id)
+    if (self && !self.data.teams.includes(slug)) {
+      await ctx.store.put(
+        KIND.member,
+        ctx.user.id,
+        { ...self.data, teams: [...self.data.teams, slug] },
+        ctx.user.id,
+      )
+      if (kc) await kc.addUserToGroup(ctx.user.id, groupName)
+    }
+  } catch {
+    // Membership is a convenience here; the team itself is what matters.
+  }
+}
+
 async function listTeams(ctx: Ctx): Promise<Response> {
+  await ensureDefaultTeam(ctx)
   const [docs, { members, projects }] = await Promise.all([
     ctx.store.list<TeamDoc>(KIND.team),
     teamCounters(ctx.store),

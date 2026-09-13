@@ -178,6 +178,7 @@ export { notifyUnauthorized, subscribeUnauthorized, UNAUTHORIZED_EVENT } from '.
 export { liveClient, useLiveInvalidate, useLiveK8sList, useLivePoll, useLiveRefetch, useLiveStatus, useLiveToolPoll, usePollingInterval, type LiveListState, type LiveStatus as LiveHubStatus, type LiveTopic, type LiveWatchRef } from './live.ts'
 export { ToastProvider, useToast, type Toast, type ToastApi, type ToastKind, type ToastOptions } from './toast.tsx'
 export { useOverlayDismiss } from './overlay.ts'
+export { type TeamAction, type TeamSummary, useTeams, type UseTeams } from './use-teams.ts'
 export {
   buildMatcher,
   containerColor,

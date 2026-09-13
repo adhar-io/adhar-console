@@ -14,6 +14,11 @@ name: Release
 #     :<version>, :<major.minor>, :<major>, :latest, :sha-<short> + a GitHub
 #     Release with auto-generated notes.
 #   - manual dispatch with an explicit version → publishes the image only.
+#   - manual dispatch with `release_only` → cuts the GitHub Release for a
+#     version whose image is ALREADY published, without rebuilding. This is the
+#     recovery path for a run that pushed the image and then failed before the
+#     Release existed; rebuilding in that situation would replace an immutable
+#     tag with different content, so it deliberately does not.
 #
 # Cut a release the easy way with the "Version bump" workflow.
 #
@@ -29,6 +34,13 @@ on:
       version:
         description: Version to publish (e.g. 0.3.1) — image only, no GitHub Release
         required: true
+      release_only:
+        description: >-
+          Recovery — cut the GitHub Release for an already-published version
+          without rebuilding. Use when the image pushed but the Release step
+          failed.
+        type: boolean
+        default: false
 
 concurrency:
   group: release-${{ github.ref }}
@@ -166,6 +178,10 @@ jobs:
 
       - name: Build + push (amd64 + arm64)
         id: build
+        # Recovery runs deliberately do not rebuild: the published image is the
+        # release, and rebuilding it from a later commit would clobber an
+        # immutable tag with different content.
+        if: ${{ !inputs.release_only }}
         uses: docker/build-push-action@v6
         with:
           context: adhar-console
@@ -186,16 +202,24 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Create GitHub Release
-        if: github.ref_type == 'tag'
+        if: ${{ github.ref_type == 'tag' || inputs.release_only }}
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
           GHCR: ${{ steps.reg.outputs.ghcr }}
           DIGEST: ${{ steps.build.outputs.digest }}
-          TAG: ${{ github.ref_name }}
+          # On a tag push this IS the tag. A recovery dispatch runs from a
+          # branch, so the tag has to come from the version being recovered.
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version) }}
         working-directory: adhar-console
         run: |
           MINOR="${VERSION%.*}"
+          # Nothing was built on a recovery run, so the digest comes from the
+          # registry — the notes should describe the image that IS published,
+          # not carry an empty cell.
+          if [ -z "${DIGEST}" ]; then
+            DIGEST=$(docker buildx imagetools inspect "${GHCR}:${VERSION}" --format '{{.Manifest.Digest}}' 2>/dev/null || true)
+          fi
           NOTES_FILE="$(mktemp)"
           {
             echo "## Container image"

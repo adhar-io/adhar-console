@@ -75,6 +75,12 @@ export interface AdharAiResult {
   error: string
   /** First heading of each retrieved document the answer was grounded on. */
   grounded_on?: string[]
+  /**
+   * Ids of the knowledge chunks behind `grounded_on`. Posting them back to
+   * `/feedback` with a verdict is how the store learns which chunks are worth
+   * ranking — the closed loop, and the reason the ids ride on every answer.
+   */
+  grounding_chunk_ids?: number[]
   principal?: {
     subject?: string
     method?: string
@@ -203,4 +209,93 @@ export function adharAiFindings(opts: { bearer?: string; limit?: number; operato
 export async function adharAiHealthy(): Promise<boolean> {
   const res = await call<unknown>('/healthz', { method: 'GET', timeoutMs: 4_000 })
   return res.ok
+}
+
+/**
+ * What the runtime is made of right now — `/healthz`, which is derived from
+ * LIVE MCP sessions rather than start-up state, so a tool server that died
+ * shows as unreachable instead of connected-but-failing.
+ */
+export interface AdharAiHealth {
+  status?: string
+  autonomy_default?: string
+  operators?: string[]
+  mcp_servers_connected?: string[]
+  mcp_servers_unreachable?: Record<string, string>
+  tools?: string[]
+  rag?: string
+  auth?: unknown
+  findings_held?: number
+  [k: string]: unknown
+}
+
+export function adharAiHealth() {
+  return call<AdharAiHealth>('/healthz', { method: 'GET', timeoutMs: 4_000 })
+}
+
+/* ─────────────────────────── knowledge ─────────────────────────── */
+
+/** One retrieved chunk, as `/knowledge/search` returns it. */
+export interface AdharAiKnowledgeHit {
+  chunk_id: number
+  source: string
+  kind: string
+  origin: string
+  retrieval: string
+  score: number
+  text: string
+}
+
+export interface AdharAiKnowledgeStats {
+  mode?: string
+  sources?: string[]
+  lastRefresh?: string | null
+  lexicalChunks?: number
+  [k: string]: unknown
+}
+
+/** Knowledge-base size, mode (pgvector / lexical / none) and last refresh. */
+export function adharAiKnowledgeStats(opts: { bearer?: string } = {}) {
+  return call<AdharAiKnowledgeStats>('/knowledge', { method: 'GET', bearer: opts.bearer })
+}
+
+/**
+ * Retrieve grounding WITHOUT running the agent — "what does the platform know
+ * about X" at a fraction of a run's cost, and the way to check what an agent
+ * was given when an answer disappoints.
+ */
+export function adharAiKnowledgeSearch(
+  body: { query: string; k?: number; kinds?: string[] },
+  opts: { bearer?: string } = {},
+) {
+  return call<{ query: string; mode: string; hits: AdharAiKnowledgeHit[] }>('/knowledge/search', {
+    method: 'POST',
+    body: JSON.stringify({ query: body.query, k: body.k ?? 6, kinds: body.kinds ?? [] }),
+    bearer: opts.bearer,
+  })
+}
+
+/**
+ * Add something a human learned to the knowledge base — indexed at once, not
+ * at the next sweep. Not a platform write: it touches the agent's own store,
+ * never a cluster or a repository.
+ */
+export function adharAiAddNote(
+  body: { title: string; body: string; kind?: 'note' | 'runbook' | 'incident'; tags?: string[] },
+  opts: { bearer?: string } = {},
+) {
+  return call<Record<string, unknown>>('/knowledge', {
+    method: 'POST',
+    body: JSON.stringify({ title: body.title, body: body.body, kind: body.kind ?? 'note', tags: body.tags ?? [] }),
+    bearer: opts.bearer,
+  })
+}
+
+/** Say whether an answer's grounding helped. Bounded server-side: one vote nudges, never buries. */
+export function adharAiFeedback(body: { chunk_ids: number[]; helpful: boolean }, opts: { bearer?: string } = {}) {
+  return call<{ updated: number; helpful: boolean }>('/feedback', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    bearer: opts.bearer,
+  })
 }

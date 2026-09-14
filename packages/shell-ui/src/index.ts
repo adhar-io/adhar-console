@@ -8,6 +8,7 @@ export {
   type AiContext,
   type ChatEntry,
   type Finding,
+  type Grounding,
   type PendingAsk,
   type PlanStep,
   type RunState,

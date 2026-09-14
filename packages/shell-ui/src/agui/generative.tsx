@@ -65,22 +65,71 @@ function statusTone(s: string): Tone {
 
 /* ─────────────────────────── chrome ─────────────────────────── */
 
-function Panel({ title, children, tone: t }: { title?: string; children: ReactNode; tone?: Tone }) {
+/**
+ * The frame every component sits in.
+ *
+ * A quiet header — component kind as a small glyph, the title, and actions
+ * that appear on hover so the frame does not compete with what it frames.
+ * "Ask about this" turns any chart into the next question; "Canvas" lifts it
+ * onto the board. Both are supplied by the host: this file stays free of
+ * conversation state.
+ */
+function Panel({
+  title,
+  children,
+  tone: t,
+  kind,
+  actions,
+}: {
+  title?: string
+  children: ReactNode
+  tone?: Tone
+  kind?: string
+  actions?: ReactNode
+}) {
+  const showHead = Boolean(title || actions || kind)
   return (
     <div
       className={cn(
-        'overflow-hidden rounded-xl border bg-surface-raised',
+        'group/block overflow-hidden rounded-xl border bg-surface-raised shadow-sm shadow-black/3',
         t === 'bad' ? 'border-rose-200/70 dark:border-rose-500/30' : t === 'warn' ? 'border-amber-200/70 dark:border-amber-500/30' : 'border-edge-default',
       )}
     >
-      {title ? (
-        <div className="border-b border-edge-subtle bg-surface-sunken/50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
-          {title}
+      {showHead ? (
+        <div className="flex items-center gap-2 border-b border-edge-subtle bg-surface-sunken/50 px-3 py-1.5">
+          {kind ? <span className="text-content-subtle" title={kind}>{kindGlyph(kind)}</span> : null}
+          <span className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-wider text-content-subtle">{title ?? kind}</span>
+          {actions ? <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/block:opacity-100">{actions}</span> : null}
         </div>
       ) : null}
       <div className="p-3">{children}</div>
     </div>
   )
+}
+
+/** A 12px glyph per component kind — enough to tell a chart from a table at a glance. */
+function kindGlyph(kind: string): ReactNode {
+  const P = ({ d }: { d: string }) => (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={d} /></svg>
+  )
+  switch (kind) {
+    case 'time-series': return <P d="M3 17l5-6 4 4 5-8 4 5" />
+    case 'bar-chart': return <P d="M5 20V10M12 20V4M19 20v-7" />
+    case 'gauge': return <P d="M4 15a8 8 0 0 1 16 0M12 15l4-5" />
+    case 'heatmap': return <P d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
+    case 'topology': return <P d="M5 6h4M15 6h4M9 6l6 12M5 18h4M15 18h4" />
+    case 'diff': return <P d="M12 4v16M5 9h6M13 15h6" />
+    case 'table': case 'resource-list': return <P d="M4 6h16M4 12h16M4 18h16" />
+    case 'metrics': case 'stat-grid': return <P d="M4 5h7v6H4zM13 5h7v6h-7zM4 13h7v6H4zM13 13h7v6h-7z" />
+    case 'timeline': return <P d="M12 3v18M8 7h8M8 12h8M8 17h8" />
+    case 'checklist': return <P d="M9 6l2 2 4-4M9 12l2 2 4-4M9 18l2 2 4-4M3 6h3M3 12h3M3 18h3" />
+    case 'comparison': return <P d="M12 3v18M4 8h5M15 8h5M4 16h5M15 16h5" />
+    case 'log-viewer': return <P d="M4 5h16M4 10h10M4 15h14M4 20h8" />
+    case 'events-scan': return <P d="M12 9v4M12 17h.01M10.3 3.9 2.3 18a2 2 0 0 0 1.7 3h16a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+    case 'pod-diagnostics': case 'workload-health': return <P d="M22 12h-4l-3 9L9 3l-3 9H2" />
+    case 'argocd-app': return <P d="M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5" />
+    default: return <P d="M4 4h16v16H4z" />
+  }
 }
 
 function Chip({ t, children }: { t: Tone; children: ReactNode }) {
@@ -355,7 +404,53 @@ function ResourceSummary({ props: p }: { props: Props }) {
 
 /* ─────────────────── human-in-the-loop: proposal ─────────────────── */
 
+/**
+ * A change the agent wants made — in one of two shapes.
+ *
+ * The console's own agents propose a MANIFEST for the operator to apply here.
+ * adhar-ai proposes a PULL REQUEST it has already opened: there is nothing to
+ * apply, the whole point is that a human reviews and merges in Gitea. The two
+ * need different chrome — a PR card with an Apply button that can never be
+ * enabled, and "View manifest" over an undefined manifest, misdescribes what
+ * happened and hides the one link that matters.
+ */
 function Proposal({ props: p }: { props: Props }) {
+  const href = str(p.href)
+  const manifest = p.manifest
+  if (href && (manifest === undefined || manifest === null)) return <PullRequestProposal props={p} href={href} />
+  return <ManifestProposal props={p} />
+}
+
+function PullRequestProposal({ props: p, href }: { props: Props; href: string }) {
+  const title = str(p.title, 'Proposed change')
+  const summary = str(p.summary)
+  const cta = str(p.cta, 'Review pull request')
+  return (
+    <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-3.5 dark:border-violet-500/25 dark:bg-violet-500/10">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[10.5px] font-semibold uppercase tracking-wider text-violet-700 dark:text-violet-300">Pull request opened</div>
+          <div className="mt-1 text-[13.5px] font-medium leading-snug text-content">{title}</div>
+          {summary ? <div className="mt-0.5 truncate font-mono text-[11px] text-content-muted" title={summary}>{summary}</div> : null}
+        </div>
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-violet-600 px-3 text-[12px] font-semibold text-white shadow-sm shadow-violet-600/25 transition-colors hover:bg-violet-700"
+        >
+          {cta}
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M7 17 17 7M8 7h9v9" /></svg>
+        </a>
+      </div>
+      <p className="mt-2.5 text-[11px] leading-snug text-content-muted">
+        Nothing has been applied. The runtime opened this for review — merging it is your decision, and Argo CD applies it from Git.
+      </p>
+    </div>
+  )
+}
+
+function ManifestProposal({ props: p }: { props: Props }) {
   const [phase, setPhase] = useState<'idle' | 'applying' | 'done' | 'error'>('idle')
   const [msg, setMsg] = useState('')
   const [showYaml, setShowYaml] = useState(false)
@@ -403,7 +498,7 @@ function Proposal({ props: p }: { props: Props }) {
         </button>
         {msg ? <span className={cn('text-[11px]', phase === 'error' ? TONE_TEXT.bad : TONE_TEXT.ok)}>{msg}</span> : null}
       </div>
-      <p className="mt-2 text-[11px] text-amber-800/80 dark:text-amber-300/80">Nothing happens until you review and apply.</p>
+      <p className="mt-2 text-[11px] text-amber-900/80 dark:text-amber-200/80">Nothing happens until you review and apply.</p>
     </div>
   )
 }
@@ -987,23 +1082,57 @@ if (UNRENDERABLE_CATALOG_IDS.length > 0) {
  * Render one generative-UI block. A `proposal` and a `callout` carry their own
  * chrome; everything else is wrapped in a titled panel.
  */
-export function GenerativeBlock({ block }: { block: UiBlock }) {
+export function GenerativeBlock({
+  block,
+  onAsk,
+  onCanvas,
+  animate = false,
+}: {
+  block: UiBlock
+  /** Turn this block into the next question — the host fills the composer. */
+  onAsk?(prompt: string): void
+  /** Lift this block onto the canvas board. */
+  onCanvas?(): void
+  /** Entrance motion for blocks arriving live; off for re-renders of history. */
+  animate?: boolean
+}) {
   const Component = REGISTRY[block.component]
+  const actions = onAsk || onCanvas ? (
+    <>
+      {onAsk ? (
+        <button
+          type="button"
+          onClick={() => onAsk(`About the "${block.title ?? block.component}" you showed: `)}
+          title="Ask a question about this"
+          className="rounded px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-content-muted hover:bg-surface-raised hover:text-content"
+        >
+          Ask about this
+        </button>
+      ) : null}
+      {onCanvas ? (
+        <button type="button" onClick={onCanvas} title="Open on the canvas" className="rounded px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-content-muted hover:bg-surface-raised hover:text-content">
+          Canvas
+        </button>
+      ) : null}
+    </>
+  ) : undefined
+  const wrap = (node: ReactNode) => (animate ? <div className="rise-in">{node}</div> : <>{node}</>)
+
   if (!Component) {
-    return (
-      <Panel title={block.title ?? block.component}>
+    return wrap(
+      <Panel title={block.title ?? block.component} kind={block.component}>
         <pre className="max-h-56 overflow-auto font-mono text-[10.5px] text-content-muted">{JSON.stringify(block.props, null, 2)}</pre>
-      </Panel>
+      </Panel>,
     )
   }
   if (block.component === 'proposal' || block.component === 'callout') {
-    return <BlockBoundary><Component props={block.props ?? {}} /></BlockBoundary>
+    return wrap(<BlockBoundary><Component props={block.props ?? {}} /></BlockBoundary>)
   }
   const t: Tone | undefined = block.component === 'events-scan' ? 'warn' : undefined
-  return (
-    <Panel title={block.title} tone={t}>
+  return wrap(
+    <Panel title={block.title} tone={t} kind={block.component} actions={actions}>
       <BlockBoundary><Component props={block.props ?? {}} /></BlockBoundary>
-    </Panel>
+    </Panel>,
   )
 }
 

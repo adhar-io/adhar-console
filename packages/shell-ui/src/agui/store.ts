@@ -2,11 +2,19 @@ import { useSyncExternalStore } from 'react'
 import {
   AgentRunError,
   EventType,
+  addKnowledgeNote,
   getAiConfig,
+  getKnowledgeStats,
   getOperatorFindings,
+  getRuntimeInfo,
   runAgent,
+  searchKnowledge,
+  sendGroundingFeedback,
   type AgentInfo,
+  type KnowledgeHit,
+  type KnowledgeStats,
   type OperatorFinding,
+  type RuntimeInfo,
   type AguiEvent,
   type AguiMessage,
   type FrontendTool,
@@ -59,6 +67,20 @@ export interface UiBlock {
   toolCallId?: string
 }
 
+/**
+ * What an answer was grounded on, and the operator's verdict on it.
+ *
+ * `chunkIds` are the runtime's knowledge chunks; a vote here is posted back as
+ * feedback on exactly those chunks, which is how the store learns which
+ * documents are worth ranking. The verdict is kept on the message so the UI
+ * can show it was given and not ask twice.
+ */
+export interface Grounding {
+  sources: string[]
+  chunkIds: number[]
+  vote?: 'up' | 'down'
+}
+
 export interface ChatEntry {
   id: string
   role: 'user' | 'assistant'
@@ -67,6 +89,9 @@ export interface ChatEntry {
   error?: string
   toolCalls: ToolCallView[]
   ui: UiBlock[]
+  grounding?: Grounding
+  /** Questions the agent thinks are worth asking next — one click each. */
+  followups?: string[]
   at: string
 }
 
@@ -112,6 +137,8 @@ export interface AdharAiRunInfo {
   writeAllowed?: boolean
   authenticated?: boolean
   pullRequests?: number
+  /** How many knowledge documents the answer was grounded on. */
+  grounded?: number
 }
 
 /** The agent's shared state, mirrored from STATE_SNAPSHOT / STATE_DELTA. */
@@ -159,6 +186,17 @@ interface State {
   autonomy: Autonomy
   /** What the runtime's operators noticed on their own. Empty when unavailable. */
   operatorFindings: OperatorFinding[]
+  /** The agentic runtime's live shape — MCP servers, tools, RAG mode. Null until loaded. */
+  runtime: RuntimeInfo | null
+  /** Knowledge-base search, driven from the inspector. */
+  knowledge: {
+    stats: KnowledgeStats | null
+    query: string
+    hits: KnowledgeHit[]
+    mode?: string
+    searching: boolean
+    error?: string
+  }
 }
 
 /**
@@ -244,6 +282,8 @@ const HISTORY_MAX = 20
 let applyHandler: ApplyHandler | null = null
 const frontendHandlers = new Map<string, FrontendHandler>()
 let abort: AbortController | null = null
+/** In-flight knowledge search, so a fast typist's earlier queries are dropped. */
+let knowledgeAbort: AbortController | null = null
 /** Resolver for the in-flight `ask_operator`. */
 let askResolver: ((answer: string) => void) | null = null
 const listeners = new Set<() => void>()
@@ -306,6 +346,8 @@ let state: State = {
   pendingAsk: null,
   autonomy: storedAutonomy(),
   operatorFindings: [],
+  runtime: null,
+  knowledge: { stats: null, query: '', hits: [], searching: false },
 }
 
 function set(patch: Partial<State> | ((s: State) => Partial<State>)) {
@@ -435,9 +477,31 @@ function reduce(e: AguiEvent) {
     }
     case EventType.CUSTOM: {
       const { name, value } = e as { name: string; value: unknown }
-      if (name !== 'adhar.ui' || !value || typeof value !== 'object') break
-      const block = value as UiBlock
-      patchEntry(currentAssistantId(), (m) => ({ ...m, ui: [...m.ui, block] }))
+      if (!value || typeof value !== 'object') break
+      if (name === 'adhar.ui') {
+        const block = value as UiBlock
+        patchEntry(currentAssistantId(), (m) => ({ ...m, ui: [...m.ui, block] }))
+        break
+      }
+      if (name === 'adhar.grounding') {
+        // Footnotes for one message. Attach to the named message when it
+        // exists, else to whatever assistant turn is current — a run with no
+        // text still had a basis worth showing.
+        const g = value as { messageId?: string; sources?: unknown; chunkIds?: unknown }
+        const sources = Array.isArray(g.sources) ? g.sources.filter((s): s is string => typeof s === 'string') : []
+        const chunkIds = Array.isArray(g.chunkIds) ? g.chunkIds.filter((n): n is number => typeof n === 'number') : []
+        const target = g.messageId && state.thread.messages.some((m) => m.id === g.messageId) ? g.messageId : currentAssistantId()
+        patchEntry(target, (m) => ({ ...m, grounding: { sources, chunkIds } }))
+        break
+      }
+      if (name === 'adhar.followups') {
+        const f = value as { messageId?: string; items?: unknown }
+        const items = Array.isArray(f.items) ? f.items.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, 4) : []
+        if (!items.length) break
+        const target = f.messageId && state.thread.messages.some((m) => m.id === f.messageId) ? f.messageId : currentAssistantId()
+        patchEntry(target, (m) => ({ ...m, followups: items }))
+        break
+      }
       break
     }
     case EventType.RUN_FINISHED: {
@@ -560,6 +624,15 @@ export const assistStore = {
     return state
   },
 
+  /**
+   * Replace part of the state wholesale. For harnesses and tests that need a
+   * populated surface without a server behind it; nothing in the app calls
+   * this.
+   */
+  hydrate(patch: Partial<State>) {
+    set(patch)
+  },
+
   async loadConfig() {
     if (state.configLoaded) return
     const c = await getAiConfig()
@@ -570,7 +643,58 @@ export const assistStore = {
     // should wait on the runtime to start typing a question.
     if (agents.some((a) => a.delegated)) {
       void getOperatorFindings().then((operatorFindings) => set({ operatorFindings }))
+      void assistStore.loadRuntime()
     }
+  },
+
+  /** The runtime's live shape and the knowledge base's size, for the inspector. */
+  async loadRuntime() {
+    const [runtime, stats] = await Promise.all([getRuntimeInfo(), getKnowledgeStats()])
+    set((s) => ({ runtime, knowledge: { ...s.knowledge, stats } }))
+  },
+
+  /** Retrieve grounding without running an agent. Latest query wins. */
+  async searchKnowledge(query: string) {
+    const q = query.trim()
+    knowledgeAbort?.abort()
+    if (!q) {
+      set((s) => ({ knowledge: { ...s.knowledge, query: '', hits: [], searching: false, error: undefined } }))
+      return
+    }
+    const ac = new AbortController()
+    knowledgeAbort = ac
+    set((s) => ({ knowledge: { ...s.knowledge, query: q, searching: true, error: undefined } }))
+    try {
+      const res = await searchKnowledge(q, { signal: ac.signal })
+      if (ac.signal.aborted) return
+      set((s) => ({ knowledge: { ...s.knowledge, hits: res.hits, mode: res.mode, searching: false } }))
+    } catch (err) {
+      if (ac.signal.aborted) return
+      set((s) => ({ knowledge: { ...s.knowledge, hits: [], searching: false, error: err instanceof Error ? err.message : String(err) } }))
+    }
+  },
+
+  /**
+   * Vote on an answer's grounding. Recorded on the message first so the UI
+   * reflects it instantly; the runtime call is best-effort and the vote is
+   * withdrawn if it fails, so the UI never claims a verdict that was not kept.
+   */
+  async feedback(entryId: string, vote: 'up' | 'down') {
+    const entry = state.thread.messages.find((m) => m.id === entryId)
+    const chunkIds = entry?.grounding?.chunkIds ?? []
+    if (!entry?.grounding) return false
+    const previous = entry.grounding.vote
+    patchEntry(entryId, (m) => ({ ...m, grounding: m.grounding ? { ...m.grounding, vote } : m.grounding }))
+    if (!chunkIds.length) return true
+    const ok = await sendGroundingFeedback(chunkIds, vote === 'up')
+    if (!ok) patchEntry(entryId, (m) => ({ ...m, grounding: m.grounding ? { ...m.grounding, vote: previous } : m.grounding }))
+    else persist()
+    return ok
+  },
+
+  /** Remember something for the platform — a note, a runbook, an incident write-up. */
+  saveNote(note: { title: string; body: string; kind?: 'note' | 'runbook' | 'incident'; tags?: string[] }) {
+    return addKnowledgeNote(note)
   },
 
   setApplyHandler(fn: ApplyHandler | null) {

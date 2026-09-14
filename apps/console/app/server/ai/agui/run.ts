@@ -132,6 +132,16 @@ function runAgenticTool(
       })
       return JSON.stringify({ ok: true, rendered: component })
     }
+    case 'suggest_followups': {
+      // One-click next questions under the answer. Bounded and de-duplicated
+      // here so a model that repeats itself or pads to twelve does not get to
+      // decide how much of the screen the suggestions take.
+      const items = Array.isArray(args.items) ? (args.items as unknown[]) : []
+      const clean = [...new Set(items.map((s) => String(s ?? '').trim().slice(0, 120)).filter(Boolean))].slice(0, 4)
+      if (!clean.length) return JSON.stringify({ error: 'items must contain at least one question' })
+      stream.custom('adhar.followups', { items: clean })
+      return JSON.stringify({ ok: true, offered: clean.length })
+    }
     default:
       return null
   }

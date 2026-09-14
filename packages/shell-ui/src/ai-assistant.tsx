@@ -6,8 +6,9 @@ export type { AskOptions } from './agui/store.ts'
 /**
  * Adhar AI — wiring.
  *
- * The assistant UI is the ⌘K overlay (`command-palette.tsx`, rendered by
- * AppShell inside the router). This file owns the cross-remote plumbing:
+ * The assistant UI is the ⌘K overlay — `assist/surface.tsx`, mounted through
+ * the router-aware shim in `command-palette.tsx` by AppShell. This file owns
+ * the cross-remote plumbing:
  *
  *   • `useAi().ask(opts)` / `<AiButton>` from ANY remote dispatch window
  *     events (React context does not cross Module-Federation boundaries).

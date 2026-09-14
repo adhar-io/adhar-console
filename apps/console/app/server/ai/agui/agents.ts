@@ -59,6 +59,7 @@ const PLATFORM_BRIEF = [
   // defaults to prose and the visual components never appear.
   `- Call render_ui whenever the operator will SCAN rather than read, and reach for it more often than feels natural: a number over time is a time-series, not a sentence; usage against a limit is a gauge; what calls what is a topology; a proposed edit is a diff; several objects sharing fields is a table. Prose is for the judgement, components are for the evidence.`,
   `- One answer may render several components. Put the component first and keep the prose to what the picture cannot say — why it matters and what to do next.`,
+  `- Finish every substantive answer by calling suggest_followups with 2–4 short next questions the operator would plausibly ask, each specific to what you just found (names, namespaces), never generic. They become one-click prompts.`,
   `- Record every material conclusion with record_finding so it lands in the run's findings panel.`,
   `- Be concise. Short markdown, no preamble, no restating the question.`,
 ].join('\n')
@@ -76,7 +77,7 @@ const DIAGNOSTIC_TOOLS = [
 ]
 
 /** Tools every agent gets: the agentic/UI primitives defined in this module. */
-const AGENTIC_TOOLS = ['update_plan', 'record_finding', 'render_ui']
+const AGENTIC_TOOLS = ['update_plan', 'record_finding', 'render_ui', 'suggest_followups']
 
 export const AGENTS: AgentDef[] = [
   {
@@ -271,6 +272,26 @@ export const AGENTIC_TOOL_DEFS: ToolDef[] = [
           },
         },
         required: ['severity', 'title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'suggest_followups',
+      description:
+        'Offer the operator 2–4 next questions as one-click prompts under your answer. Each must be specific to what you found — name the workload, namespace or application — and be answerable by you. Call it once, at the end.',
+      parameters: {
+        type: 'object',
+        properties: {
+          items: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 4,
+            items: { type: 'string', description: 'A complete question, ≤ 90 characters, phrased as the operator would type it.' },
+          },
+        },
+        required: ['items'],
       },
     },
   },

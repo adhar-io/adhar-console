@@ -5,7 +5,16 @@ import { openStore } from '../workspace/store.ts'
 import { emitNotification } from '../notify.ts'
 import { runAgent } from './agui/run.ts'
 import { AGENTS, DEFAULT_AGENT } from './agui/agents.ts'
-import { adharAiFindings, isAdharAiConfigured } from './adhar-ai.ts'
+import {
+  adharAiAddNote,
+  adharAiFeedback,
+  adharAiFindings,
+  adharAiHealth,
+  adharAiKnowledgeSearch,
+  adharAiKnowledgeStats,
+  adharAiRuntimeConfig,
+  isAdharAiConfigured,
+} from './adhar-ai.ts'
 
 /**
  * Adhar AI endpoints (`/api/ai/*`) — an AG-UI (Agent-User Interaction Protocol)
@@ -65,6 +74,110 @@ export async function handleAi(req: Request, name: string): Promise<Response> {
     }
     const body = res.data
     return Response.json({ findings: body.findings ?? body.items ?? [] })
+  }
+
+  /*
+   * The runtime's own shape — which MCP servers are live, which tools they
+   * expose, how grounding is retrieved, which operators are loaded. Shown in
+   * the assistant so "what can you actually do" has an answer that comes from
+   * the runtime rather than from marketing copy. `/healthz` is unauthenticated
+   * on the runtime (it is the probe) but `/config` is not, so the merged view
+   * is gated on the signed-in user like everything else here.
+   */
+  if (name === 'runtime') {
+    if (!isAdharAiConfigured()) {
+      return Response.json({ configured: false })
+    }
+    const who = await resolveIdentity(req)
+    if (!who) return Response.json({ error: 'unauthenticated' }, { status: 401 })
+    const [health, cfg] = await Promise.all([adharAiHealth(), adharAiRuntimeConfig({ bearer: who.token })])
+    if (!health.ok) {
+      return Response.json({ configured: true, reachable: false, error: health.error })
+    }
+    const h = health.data
+    return Response.json({
+      configured: true,
+      reachable: true,
+      status: h.status,
+      autonomyDefault: h.autonomy_default,
+      operators: cfg.ok ? cfg.data.operators ?? {} : Object.fromEntries((h.operators ?? []).map((o) => [o, {}])),
+      mcp: {
+        connected: h.mcp_servers_connected ?? [],
+        unreachable: h.mcp_servers_unreachable ?? {},
+      },
+      tools: h.tools ?? [],
+      rag: h.rag,
+      findingsHeld: h.findings_held ?? 0,
+      limits: cfg.ok ? cfg.data.limits : undefined,
+      writePolicy: cfg.ok ? cfg.data.writePolicy : undefined,
+    })
+  }
+
+  /*
+   * Knowledge base. GET is the stats; POST with `{query}` is a search, with
+   * `{title, body}` a note to remember. Retrieval without an agent run is the
+   * cheap way to ask "what does the platform know about X", and adding a note
+   * is the human half of the learning loop — indexed immediately, so an outage
+   * written up at 02:00 is askable at 02:01.
+   */
+  if (name === 'knowledge') {
+    if (!isAdharAiConfigured()) {
+      return Response.json({ error: 'adhar_ai_not_configured' }, { status: 503 })
+    }
+    const who = await resolveIdentity(req)
+    if (!who) return Response.json({ error: 'unauthenticated' }, { status: 401 })
+
+    if (req.method === 'GET') {
+      const res = await adharAiKnowledgeStats({ bearer: who.token })
+      return res.ok ? Response.json(res.data) : Response.json({ error: 'adhar_ai_unavailable', detail: res.error }, { status: 502 })
+    }
+    if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed' }, { status: 405 })
+
+    let body: { query?: unknown; k?: unknown; kinds?: unknown; title?: unknown; body?: unknown; kind?: unknown; tags?: unknown }
+    try {
+      body = (await req.json()) as typeof body
+    } catch {
+      return Response.json({ error: 'invalid_json' }, { status: 400 })
+    }
+
+    if (typeof body.title === 'string' && typeof body.body === 'string') {
+      const kind = body.kind === 'runbook' || body.kind === 'incident' ? body.kind : 'note'
+      const tags = Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === 'string').slice(0, 10) : []
+      const res = await adharAiAddNote({ title: body.title.slice(0, 200), body: body.body.slice(0, 20_000), kind, tags }, { bearer: who.token })
+      return res.ok ? Response.json(res.data) : Response.json({ error: 'adhar_ai_unavailable', detail: res.error }, { status: 502 })
+    }
+
+    const query = typeof body.query === 'string' ? body.query.trim() : ''
+    if (!query) return Response.json({ error: 'query_required' }, { status: 400 })
+    const k = typeof body.k === 'number' && body.k > 0 ? Math.min(body.k, 20) : 6
+    const kinds = Array.isArray(body.kinds) ? body.kinds.filter((x): x is string => typeof x === 'string') : []
+    const res = await adharAiKnowledgeSearch({ query, k, kinds }, { bearer: who.token })
+    return res.ok ? Response.json(res.data) : Response.json({ error: 'adhar_ai_unavailable', detail: res.error }, { status: 502 })
+  }
+
+  /*
+   * Feedback on an answer's grounding. The chunk ids arrive with the answer as
+   * an AG-UI event; the verdict goes back here. The store nudges those chunks'
+   * ranking — bounded, so one vote cannot bury the only document that answers
+   * a question.
+   */
+  if (name === 'feedback') {
+    if (!isAdharAiConfigured()) {
+      return Response.json({ error: 'adhar_ai_not_configured' }, { status: 503 })
+    }
+    if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed' }, { status: 405 })
+    const who = await resolveIdentity(req)
+    if (!who) return Response.json({ error: 'unauthenticated' }, { status: 401 })
+    let body: { chunkIds?: unknown; helpful?: unknown }
+    try {
+      body = (await req.json()) as typeof body
+    } catch {
+      return Response.json({ error: 'invalid_json' }, { status: 400 })
+    }
+    const chunkIds = Array.isArray(body.chunkIds) ? body.chunkIds.filter((x): x is number => typeof x === 'number' && Number.isInteger(x)) : []
+    if (!chunkIds.length) return Response.json({ error: 'chunk_ids_required' }, { status: 400 })
+    const res = await adharAiFeedback({ chunk_ids: chunkIds.slice(0, 50), helpful: body.helpful !== false }, { bearer: who.token })
+    return res.ok ? Response.json(res.data) : Response.json({ error: 'adhar_ai_unavailable', detail: res.error }, { status: 502 })
   }
 
   if (name !== 'run') {

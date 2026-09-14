@@ -142,6 +142,107 @@ export async function getOperatorFindings(limit = 6): Promise<OperatorFinding[]>
   }
 }
 
+/* ─────────────────────── runtime / knowledge / feedback ─────────────────────── */
+
+/** The agentic runtime's live shape, from `/api/ai/runtime`. */
+export interface RuntimeInfo {
+  configured: boolean
+  reachable?: boolean
+  error?: string
+  status?: string
+  autonomyDefault?: string
+  operators?: Record<string, { trigger?: string; autonomy?: string; allowedTools?: string[] }>
+  mcp?: { connected: string[]; unreachable: Record<string, string> }
+  tools?: string[]
+  /** How grounding is retrieved: e.g. `pgvector`, `lexical`, `none`. */
+  rag?: string
+  findingsHeld?: number
+  limits?: { maxSteps?: number; maxToolCallsPerOp?: number }
+  writePolicy?: { allowedRepos?: string[]; allowedPathPrefixes?: string[] }
+}
+
+export async function getRuntimeInfo(): Promise<RuntimeInfo> {
+  try {
+    const res = await fetch('/api/ai/runtime', { credentials: 'include', headers: { accept: 'application/json' } })
+    if (!res.ok) return { configured: false }
+    return (await res.json()) as RuntimeInfo
+  } catch {
+    return { configured: false }
+  }
+}
+
+/** One retrieved chunk of platform knowledge. */
+export interface KnowledgeHit {
+  chunk_id: number
+  source: string
+  kind: string
+  origin: string
+  retrieval: string
+  score: number
+  text: string
+}
+
+export interface KnowledgeStats {
+  mode?: string
+  sources?: string[]
+  lastRefresh?: string | null
+  lexicalChunks?: number
+  documents?: number
+  chunks?: number
+  [k: string]: unknown
+}
+
+export async function getKnowledgeStats(): Promise<KnowledgeStats | null> {
+  try {
+    const res = await fetch('/api/ai/knowledge', { credentials: 'include', headers: { accept: 'application/json' } })
+    return res.ok ? ((await res.json()) as KnowledgeStats) : null
+  } catch {
+    return null
+  }
+}
+
+export async function searchKnowledge(query: string, opts: { k?: number; kinds?: string[]; signal?: AbortSignal } = {}): Promise<{ mode?: string; hits: KnowledgeHit[] }> {
+  const res = await fetch('/api/ai/knowledge', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ query, k: opts.k ?? 6, kinds: opts.kinds ?? [] }),
+    signal: opts.signal,
+  })
+  if (!res.ok) throw new AgentRunError(`knowledge search failed (${res.status})`, res.status)
+  const body = (await res.json()) as { mode?: string; hits?: KnowledgeHit[] }
+  return { mode: body.mode, hits: Array.isArray(body.hits) ? body.hits : [] }
+}
+
+export async function addKnowledgeNote(note: { title: string; body: string; kind?: 'note' | 'runbook' | 'incident'; tags?: string[] }): Promise<boolean> {
+  try {
+    const res = await fetch('/api/ai/knowledge', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(note),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+/** Tell the runtime whether an answer's grounding helped. */
+export async function sendGroundingFeedback(chunkIds: number[], helpful: boolean): Promise<boolean> {
+  try {
+    const res = await fetch('/api/ai/feedback', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ chunkIds, helpful }),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 export class AgentRunError extends Error {
   constructor(message: string, readonly status?: number) {
     super(message)

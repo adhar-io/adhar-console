@@ -135,20 +135,7 @@ export async function delegateToAdharAi(
   }
   const run = res.data
 
-  // 1. Grounding — say what the answer was based on before the answer itself,
-  //    so a reader can judge it. Silent when retrieval returned nothing rather
-  //    than claiming an empty basis.
-  const grounded = (run.grounded_on ?? []).filter(Boolean)
-  if (grounded.length > 0) {
-    stream.ui({
-      id: stream.id('ui'),
-      component: 'checklist',
-      title: 'Grounded on',
-      props: { items: grounded.map((g) => ({ label: g, done: true })) },
-    })
-  }
-
-  // 2. The tools it actually called. Replayed as real tool events so the UI's
+  // 1. The tools it actually called. Replayed as real tool events so the UI's
   //    existing tool timeline works unchanged.
   let toolFailures = 0
   let lastTool = ''
@@ -172,14 +159,40 @@ export async function delegateToAdharAi(
     ...(lastTool ? [{ op: 'add' as const, path: '/tools/last', value: lastTool }] : []),
   ])
 
-  // 3. The answer.
+  // 2. The answer.
   const text = run.text?.trim() ?? ''
+  const messageId = stream.id('msg')
   if (text) {
-    const messageId = stream.id('msg')
     stream.textStart(messageId)
     for (const piece of chunks(text)) stream.textDelta(messageId, piece)
     stream.textEnd(messageId)
   }
+
+  // 3. What the answer was grounded on — attached to the message, not rendered
+  //    as a widget in front of it. The sources are the answer's footnotes, and
+  //    the chunk ids are what makes the feedback loop close: a verdict on this
+  //    message goes back to the runtime as a verdict on these chunks. Silent
+  //    when retrieval returned nothing rather than claiming an empty basis.
+  const grounded = (run.grounded_on ?? []).filter(Boolean)
+  const chunkIds = (run.grounding_chunk_ids ?? []).filter((n) => Number.isInteger(n))
+  if (grounded.length > 0 || chunkIds.length > 0) {
+    stream.custom('adhar.grounding', { messageId, sources: grounded, chunkIds })
+  }
+
+  // 3b. Next questions. The runtime does not propose them, so they are derived
+  //     from what the run actually did: a PR invites a review, a failed tool
+  //     invites a retry, grounding invites a look at the sources. Specific to
+  //     this run, never boilerplate — and omitted entirely when nothing in the
+  //     run suggests a next step, because an empty suggestion row is noise.
+  const followups: string[] = []
+  for (const pr of (run.pull_requests ?? []).slice(0, 1)) {
+    if (pr.title) followups.push(`Walk me through the changes in "${pr.title.slice(0, 60)}"`)
+  }
+  if (toolFailures > 0) followups.push(`Why did ${toolFailures === 1 ? 'that tool call' : `${toolFailures} tool calls`} fail, and does it change the answer?`)
+  if (run.kind === 'budget_exhausted') followups.push('Continue from where you stopped')
+  if (lastTool && !toolFailures) followups.push(`What else did ${lastTool.replace(/_/g, ' ')} return that you did not mention?`)
+  if (grounded.length) followups.push(`Which of the ${grounded.length} sources mattered most here, and why?`)
+  if (followups.length) stream.custom('adhar.followups', { messageId, items: followups.slice(0, 3) })
 
   // 4. Proposed pull requests — the whole point of the write path. A card per
   //    PR, because "it opened a PR" buried in prose is the one outcome nobody
@@ -218,6 +231,7 @@ export async function delegateToAdharAi(
         writeAllowed: run.principal?.write_allowed ?? false,
         authenticated: run.principal?.authenticated ?? false,
         pullRequests: run.pull_requests?.length ?? 0,
+        grounded: grounded.length,
       },
     },
   ])

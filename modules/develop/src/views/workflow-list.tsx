@@ -1,12 +1,17 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
+  Button,
   DataTable,
   EmptyState,
   Input,
+  LogConsole,
   Select,
   Spinner,
   StatusBadge,
+  useCan,
+  useLogStream,
   useToast,
   useToolPublicUrl,
   type Column,
@@ -19,18 +24,18 @@ import {
   edgeBetween,
   GraphCanvas,
   layoutLayers,
-  statusHex,
   type CanvasEdge,
 } from '../components/canvas.tsx'
 import { CrdMissing } from '../components/crd-missing.tsx'
 import {
+  deleteWorkflow,
   durationSecs,
-  fetchNodeLogs,
   fmtDuration,
   isCrdMissing,
   isNotFound,
-  levelNodes,
   nodeList,
+  resubmitWorkflow,
+  shutdownWorkflow,
   useCronWorkflows,
   useWorkflow,
   useWorkflows,
@@ -49,10 +54,10 @@ import {
  * DAG of containers runs on Argo Workflows, and this is where those runs,
  * their templates and their schedules are read.
  *
- * Read-only by design. `K8sClient` has generic list/get but no generic delete
- * or patch, so retry / stop / resubmit / delete are not offered here at all
- * rather than offered as buttons that cannot work; the Argo UI deep link is the
- * honest route to those.
+ * A run opens in a drawer modelled on the Tekton PipelineRun drawer: stages as
+ * a graph, a streaming console per stage, and Re-run / Stop / Terminate /
+ * Delete through the Kubernetes gateway — the console has no Argo Server token,
+ * so everything is done to the Workflow object itself.
  */
 
 const ARGO_INSTALL_DOCS = 'https://argo-workflows.readthedocs.io/en/stable/quick-start/'
@@ -72,11 +77,6 @@ const PHASES = ['Running', 'Succeeded', 'Failed', 'Pending'] as const
 
 type Tab = 'workflows' | 'templates' | 'cron'
 type PhaseFilter = 'all' | 'Running' | 'Succeeded' | 'Failed' | 'Pending'
-
-const NODE_W = 208
-const NODE_H = 76
-const COL_GAP = 72
-const ROW_GAP = 20
 
 export function WorkflowList() {
   const argoUrl = useToolPublicUrl('argo-workflows')
@@ -317,10 +317,12 @@ export function WorkflowList() {
       {open
         ? (
           <WorkflowDrawer
+            key={`${open.namespace}/${open.name}`}
             namespace={open.namespace}
             name={open.name}
             argoUrl={argoUrl}
             onClose={() => setOpen(null)}
+            onReplace={(next) => setOpen(next)}
           />
         )
         : null}
@@ -535,311 +537,651 @@ function cronColumns(argoUrl: string): Column<CronWorkflow>[] {
 
 /* ─────────── detail drawer ─────────── */
 
+/*
+ * The run, presented the way a pipeline actually reads — the same model as the
+ * Tekton PipelineRun drawer: an action bar, a progress strip, status tiles, the
+ * stages as a graph you click, a streaming console for the selected stage,
+ * then parameters, outputs, timeline, conditions and the raw object.
+ *
+ * Two layers. `WorkflowDrawer` owns data — the live query, the mutations, the
+ * portal. `WorkflowDetail` is presentational and takes the object, so it can
+ * be rendered from a fixture with nothing behind it.
+ */
+
+const STAGE_W = 196
+const STAGE_H = 56
+const STAGE_COL_GAP = 96
+const STAGE_ROW_GAP = 20
+
+/**
+ * Nodes that group other nodes rather than doing work. Argo records the DAG
+ * root, step groups and retry wrappers as nodes of their own; drawn literally
+ * they double the graph and say nothing. They are collapsed, and edges pass
+ * through them to the work they contain.
+ */
+const CONTAINER_TYPES = new Set(['DAG', 'Steps', 'StepGroup', 'TaskGroup', 'Retry'])
+
+function phaseKind(phase?: string): StatusKind {
+  return PHASE_KIND[phase ?? ''] ?? 'unknown'
+}
+
+interface StageGraph {
+  stages: WorkflowNode[]
+  edges: Array<{ from: string; to: string }>
+  level: Map<string, number>
+}
+
+/** Visible stages, edges routed through the collapsed containers, and levels by longest path. */
+function stageGraph(nodes: WorkflowNode[]): StageGraph {
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const stages = nodes.filter((n) => !CONTAINER_TYPES.has(n.type ?? ''))
+  const visible = new Set(stages.map((n) => n.id))
+  const leaves = (id: string, seen: Set<string>): string[] => {
+    if (seen.has(id)) return []
+    seen.add(id)
+    const n = byId.get(id)
+    if (!n) return []
+    if (visible.has(id)) return [id]
+    return (n.children ?? []).flatMap((c) => leaves(c, seen))
+  }
+  const edges: StageGraph['edges'] = []
+  const seenEdge = new Set<string>()
+  for (const n of stages) {
+    for (const c of n.children ?? []) {
+      for (const t of leaves(c, new Set([n.id]))) {
+        const k = `${n.id}>${t}`
+        if (t === n.id || seenEdge.has(k)) continue
+        seenEdge.add(k)
+        edges.push({ from: n.id, to: t })
+      }
+    }
+  }
+  const parents = new Map<string, string[]>()
+  for (const e of edges) parents.set(e.to, [...(parents.get(e.to) ?? []), e.from])
+  const level = new Map<string, number>(stages.map((n) => [n.id, 0]))
+  // Bounded by the stage count: terminates on a DAG and refuses to hang on a cycle.
+  for (let pass = 0; pass < stages.length; pass++) {
+    let changed = false
+    for (const n of stages) {
+      const ps = parents.get(n.id)
+      if (!ps?.length) continue
+      const want = 1 + Math.max(...ps.map((p) => level.get(p) ?? 0))
+      if (want > (level.get(n.id) ?? 0)) {
+        level.set(n.id, want)
+        changed = true
+      }
+    }
+    if (!changed) break
+  }
+  return { stages, edges, level }
+}
+
+function isRunningPhase(phase?: string): boolean {
+  return phase === 'Running' || phase === 'Pending'
+}
+
 function WorkflowDrawer({
   namespace,
   name,
   argoUrl,
   onClose,
+  onReplace,
 }: {
   namespace: string
   name: string
   argoUrl: string
   onClose(): void
+  /** Follow another run in the same drawer (used by Re-run). */
+  onReplace(next: { namespace: string; name: string }): void
 }) {
   const q = useWorkflow(namespace, name)
-  const wf = q.data
-  const [selected, setSelected] = useState<string | null>(null)
-  const [onlyProblems, setOnlyProblems] = useState(false)
+  const qc = useQueryClient()
+  const toast = useToast()
+  const canWrite = useCan('develop')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleted, setDeleted] = useState(false)
 
-  const nodes = useMemo(() => nodeList(wf), [wf])
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['argo-workflows'] })
+  const fail = (what: string) => (e: unknown) => toast.error(`${what}: ${e instanceof Error ? e.message : String(e)}`)
 
-  const graph = useMemo(() => {
-    const level = levelNodes(nodes)
-    const layout = layoutLayers(
-      nodes.map((n) => ({ id: n.id, level: level.get(n.id) ?? 0 })),
-      { nodeWidth: NODE_W, nodeHeight: NODE_H, colGap: COL_GAP, rowGap: ROW_GAP },
-    )
-    const byId = new Map(nodes.map((n) => [n.id, n]))
-    const edges: CanvasEdge[] = []
-    for (const n of nodes) {
-      const from = layout.pos.get(n.id)
-      if (!from) continue
-      for (const childId of n.children ?? []) {
-        const to = layout.pos.get(childId)
-        if (!to || !byId.has(childId)) continue
-        edges.push({
-          ...edgeBetween(from, to, layout.nodeWidth, layout.nodeHeight),
-          kind: PHASE_KIND[n.phase ?? ''] ?? 'unknown',
-          // Dashes run out of a step that is still executing.
-          flowing: n.phase === 'Running',
-        })
-      }
-    }
-    return { layout, edges }
-  }, [nodes])
+  const rerun = useMutation({
+    mutationFn: () => resubmitWorkflow(q.data!),
+    onSuccess: (created) => {
+      invalidate()
+      toast.success(`Started ${created.metadata.name}`)
+      // Follow the new run here rather than closing — the run just started is
+      // the one the operator wants to watch.
+      onReplace({ namespace: created.metadata.namespace ?? namespace, name: created.metadata.name })
+    },
+    onError: fail('Re-run failed'),
+  })
+  const stop = useMutation({
+    mutationFn: (mode: 'Stop' | 'Terminate') => shutdownWorkflow(namespace, name, mode),
+    onSuccess: (_r, mode) => { invalidate(); q.refetch(); toast.success(mode === 'Stop' ? 'Stopping — running steps finish, exit handlers run.' : 'Terminating — all pods are being killed.') },
+    onError: fail('Could not stop the workflow'),
+  })
+  const del = useMutation({
+    mutationFn: () => deleteWorkflow(namespace, name),
+    onSuccess: () => { invalidate(); setDeleted(true); setConfirmDelete(false); toast.success(`Deleted ${name}`) },
+    onError: fail('Delete failed'),
+  })
 
-  /** Only the phases actually present — the legend never invents states. */
-  const legend = useMemo(() => {
-    const seen = new Map<StatusKind, string>()
-    for (const n of nodes) if (n.phase) seen.set(PHASE_KIND[n.phase] ?? 'unknown', n.phase)
-    return [...seen].map(([kind, label]) => ({ kind, label })).sort((a, b) => a.label.localeCompare(b.label))
-  }, [nodes])
+  useOverlayDismiss(!confirmDelete, onClose)
 
-  const node = selected ? nodes.find((n) => n.id === selected) ?? null : null
-  const phase = wf?.status?.phase
   const wfUrl = argoUrl
     ? `${argoUrl}/workflows/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`
     : ''
-
-  const problem = (n: WorkflowNode) => n.phase === 'Failed' || n.phase === 'Error'
-
-  useOverlayDismiss(true, onClose)
 
   return createPortal(
     <div className='fixed inset-0 z-50 flex justify-end' role='dialog' aria-modal='true' aria-label={`Workflow ${name}`}>
       <button type='button' aria-label='Close' className='absolute inset-0 bg-scrim/40 backdrop-blur-[2px]' onClick={onClose} />
       <aside className='relative flex h-full w-full max-w-5xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl'>
-        <header className='flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4'>
-          <div className='min-w-0'>
-            <div className='flex flex-wrap items-center gap-2'>
-              <h2 className='truncate text-lg font-semibold tracking-tight text-content'>{name}</h2>
-              <StatusBadge kind={phase ? (PHASE_KIND[phase] ?? 'unknown') : 'unknown'}>
-                {phase ?? 'Unknown'}
-              </StatusBadge>
-            </div>
-            <div className='mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-content-muted'>
-              <span>{namespace}</span>
-              {wf?.spec?.entrypoint ? <span className='font-mono'>{wf.spec.entrypoint}</span> : null}
-              <span>{fmtDuration(durationSecs(wf?.status?.startedAt, wf?.status?.finishedAt))}</span>
-              {wf?.status?.startedAt
-                ? <span title={formatAbsolute(wf.status.startedAt)}>started {formatRelative(wf.status.startedAt)}</span>
-                : null}
-              {wf?.status?.progress ? <span>{wf.status.progress} steps</span> : null}
-            </div>
-            {wf?.status?.message
-              ? <p className='mt-1.5 max-w-2xl text-xs text-content-muted'>{wf.status.message}</p>
-              : null}
-          </div>
-          <div className='flex shrink-0 items-center gap-1.5'>
-            {wfUrl ? <ExternalLink href={wfUrl}>Argo Workflows</ExternalLink> : null}
-            <button
-              type='button'
-              onClick={onClose}
-              aria-label='Close'
-              className='flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content'
-            >
-              ✕
-            </button>
-          </div>
-        </header>
-
-        <div className='min-h-0 flex-1 space-y-4 overflow-y-auto p-6'>
-          {q.isLoading
-            ? <div className='flex items-center gap-2 text-sm text-content-muted'><Spinner /> Loading workflow…</div>
-            : isNotFound(q.error)
-            ? <EmptyState compact title='Workflow no longer exists' description='It may have been garbage-collected by the workflow controller.' />
-            : q.error
-            ? <EmptyState compact title="Couldn't load this workflow" description={q.error instanceof Error ? q.error.message : undefined} />
-            : nodes.length === 0
-            ? (
-              <EmptyState
-                compact
-                title={wf?.status?.compressedNodes ? 'Node graph is compressed' : 'No steps recorded yet'}
-                description={wf?.status?.compressedNodes
-                  ? (
-                    <>
-                      The controller stored this run's node map gzipped, which the console cannot inflate.
-                      {wfUrl ? <> Open it in <a className='text-brand-700 underline dark:text-brand-300' href={wfUrl} target='_blank' rel='noreferrer'>Argo Workflows ↗</a>.</> : null}
-                    </>
-                  )
-                  : 'The controller has not scheduled any nodes for this workflow yet.'}
-              />
-            )
-            : (
-              <>
-                <GraphCanvas
-                  width={graph.layout.width}
-                  height={graph.layout.height}
-                  edges={graph.edges}
-                  legend={legend}
-                  className='h-[440px]'
-                  ariaLabel={`Workflow graph — ${nodes.length} nodes`}
-                  toolbar={
-                    <CanvasBtn
-                      label='Only failed steps'
-                      active={onlyProblems}
-                      onClick={() => setOnlyProblems((v) => !v)}
-                    >
-                      !
-                    </CanvasBtn>
-                  }
-                >
-                  {nodes.map((n) => {
-                    const p = graph.layout.pos.get(n.id)
-                    if (!p) return null
-                    return (
-                      <div
-                        key={n.id}
-                        className={cn(
-                          'adhar-node-in absolute transition-opacity',
-                          onlyProblems && !problem(n) && 'opacity-30',
-                        )}
-                        style={{ left: p.x, top: p.y, width: NODE_W, height: NODE_H }}
-                      >
-                        <NodeCard node={n} selected={selected === n.id} onClick={() => setSelected(n.id)} />
-                      </div>
-                    )
-                  })}
-                </GraphCanvas>
-
-                {/* Keyed by node so a previous step's logs never linger under a new selection. */}
-                <StepDetail key={node?.id ?? 'none'} node={node} namespace={namespace} workflowUrl={wfUrl} />
-              </>
-            )}
-        </div>
+        <WorkflowDetail
+          namespace={namespace}
+          name={name}
+          wf={q.data}
+          loading={q.isLoading}
+          refreshing={q.isFetching && !q.isLoading}
+          error={q.error}
+          argoUrl={wfUrl}
+          onClose={onClose}
+          actions={{
+            enabled: canWrite,
+            deleted,
+            rerun: { run: () => rerun.mutate(), pending: rerun.isPending },
+            stop: { run: (mode) => stop.mutate(mode), pending: stop.isPending },
+            remove: {
+              confirm: confirmDelete,
+              ask: () => setConfirmDelete(true),
+              cancel: () => setConfirmDelete(false),
+              run: () => del.mutate(),
+              pending: del.isPending,
+            },
+          }}
+        />
       </aside>
     </div>,
     document.body,
   )
 }
 
-function NodeCard({ node, selected, onClick }: { node: WorkflowNode; selected: boolean; onClick(): void }) {
-  const kind = PHASE_KIND[node.phase ?? ''] ?? 'unknown'
+export interface WorkflowActions {
+  enabled: boolean
+  deleted: boolean
+  rerun: { run(): void; pending: boolean }
+  stop: { run(mode: 'Stop' | 'Terminate'): void; pending: boolean }
+  remove: { confirm: boolean; ask(): void; cancel(): void; run(): void; pending: boolean }
+}
+
+/** Everything inside the drawer. Presentational: takes the object, never fetches. */
+export function WorkflowDetail({
+  namespace,
+  name,
+  wf,
+  loading = false,
+  refreshing = false,
+  error,
+  argoUrl,
+  onClose,
+  actions,
+}: {
+  namespace: string
+  name: string
+  wf: Workflow | undefined
+  loading?: boolean
+  refreshing?: boolean
+  error?: unknown
+  argoUrl: string
+  onClose(): void
+  actions?: WorkflowActions
+}) {
+  const [selected, setSelected] = useState<string | null>(null)
+  const nodes = useMemo(() => nodeList(wf), [wf])
+  const graph = useMemo(() => stageGraph(nodes), [nodes])
+  const phase = wf?.status?.phase
+  const kind = phaseKind(phase)
+  const running = isRunningPhase(phase)
+  const stage = selected ? graph.stages.find((n) => n.id === selected) ?? null : null
+
+  // The first failed stage is what an operator opening a failed run wants to
+  // see; a running run opens on its running stage. Neither is forced on a
+  // reader who has already picked one.
+  useEffect(() => {
+    if (selected || !graph.stages.length) return
+    const pick = graph.stages.find((n) => n.phase === 'Failed' || n.phase === 'Error')
+      ?? graph.stages.find((n) => n.phase === 'Running')
+    if (pick) setSelected(pick.id)
+  }, [graph.stages, selected])
+
+  const params = wf?.spec?.arguments?.parameters ?? []
+  const outParams = wf?.status?.outputs?.parameters ?? []
+  const outArtifacts = wf?.status?.outputs?.artifacts ?? []
+  const conditions = wf?.status?.conditions ?? []
+  const durationText = fmtDuration(durationSecs(wf?.status?.startedAt, wf?.status?.finishedAt))
+
+  return (
+    <>
+      <header className='flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4'>
+        <div className='min-w-0'>
+          <div className='text-xs font-semibold uppercase tracking-wider text-content-subtle'>Workflow · {namespace}</div>
+          <h2 className='mt-0.5 truncate text-lg font-semibold text-content'>{name}</h2>
+          <div className='mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-content-muted'>
+            argoproj.io/v1alpha1
+            {wf?.spec?.entrypoint ? <span>entrypoint {wf.spec.entrypoint}</span> : null}
+            {wf?.spec?.workflowTemplateRef?.name ? <span>template {wf.spec.workflowTemplateRef.name}</span> : null}
+            {refreshing ? <span className='inline-flex items-center gap-1 text-content-subtle'><Spinner size={12} /> refreshing</span> : null}
+          </div>
+        </div>
+        <div className='flex shrink-0 items-center gap-2'>
+          <StatusBadge kind={kind} pulse={running}>{phase ?? 'Unknown'}</StatusBadge>
+          {argoUrl ? <ExternalLink href={argoUrl}>Argo</ExternalLink> : null}
+          <button type='button' onClick={onClose} aria-label='Close' className='flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content'>
+            <IconClose />
+          </button>
+        </div>
+      </header>
+
+      {actions ? (
+        <div className='flex flex-wrap items-center gap-2 border-b border-edge-default bg-surface-sunken/50 px-6 py-2.5'>
+          {actions.enabled ? (
+            <>
+              <Button size='sm' variant='secondary' disabled={!wf || actions.rerun.pending || actions.deleted} onClick={actions.rerun.run} title='Start a new run from this run’s spec'>
+                <IconRerun /> {actions.rerun.pending ? 'Starting…' : 'Re-run'}
+              </Button>
+              <Button size='sm' variant='secondary' disabled={!running || actions.stop.pending} onClick={() => actions.stop.run('Stop')} title={running ? 'Let running steps finish, then run exit handlers' : 'Only a running workflow can be stopped'}>
+                <IconStopSquare /> {actions.stop.pending ? 'Stopping…' : 'Stop'}
+              </Button>
+              <Button size='sm' variant='secondary' disabled={!running || actions.stop.pending} onClick={() => actions.stop.run('Terminate')} title={running ? 'Kill every pod now — no exit handlers' : 'Only a running workflow can be terminated'}>
+                <IconBolt /> Terminate
+              </Button>
+              <Button size='sm' variant='danger' disabled={actions.remove.pending || actions.deleted} onClick={actions.remove.ask}>
+                <IconTrash /> Delete
+              </Button>
+            </>
+          ) : (
+            <span className='inline-flex items-center gap-1.5 rounded-md border border-edge-default px-2 py-1 text-[11px] text-content-muted'>
+              Managing runs needs the <span className='font-medium text-content'>develop</span> capability
+            </span>
+          )}
+          {actions.deleted ? <span className='text-[12px] text-content-muted'>Deleted — this run has been removed.</span> : null}
+        </div>
+      ) : null}
+
+      {actions?.remove.confirm ? (
+        <div className='border-b border-rose-200 bg-rose-50/70 px-6 py-3 dark:border-rose-500/25 dark:bg-rose-500/10' role='alertdialog' aria-label='Confirm delete'>
+          <div className='flex flex-wrap items-center justify-between gap-3'>
+            <p className='min-w-0 flex-1 text-[12px] text-content-muted'>
+              Delete Workflow <code className='font-mono'>{name}</code>? Its pods and logs go with it. This cannot be undone.
+            </p>
+            <div className='flex items-center gap-2'>
+              <Button size='sm' variant='ghost' onClick={actions.remove.cancel} disabled={actions.remove.pending}>Cancel</Button>
+              <Button size='sm' variant='danger' onClick={actions.remove.run} disabled={actions.remove.pending}>{actions.remove.pending ? 'Deleting…' : 'Delete run'}</Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <div className='min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5'>
+        {loading ? (
+          <div className='flex items-center gap-2 text-sm text-content-muted'><Spinner /> Loading workflow…</div>
+        ) : isNotFound(error) ? (
+          <EmptyState compact title='Workflow no longer exists' description='It may have been garbage-collected by the workflow controller.' />
+        ) : error ? (
+          <EmptyState compact title="Couldn't load this workflow" description={error instanceof Error ? error.message : undefined} />
+        ) : (
+          <>
+            <StageProgress stages={graph.stages} kind={kind} label={phase ?? 'Unknown'} running={running} durationText={durationText} message={wf?.status?.message} />
+
+            <section className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
+              <Tile label='Status' kind={kind} value={phase ?? 'Unknown'} />
+              <Tile label='Steps' kind='info' value={wf?.status?.progress ?? `${graph.stages.length}`} />
+              <Tile label='Duration' kind='info' value={durationText} />
+              <Tile label='Started' kind='info' value={wf?.status?.startedAt ? formatRelative(wf.status.startedAt) : '—'} />
+            </section>
+
+            <Section title='Stages'>
+              {graph.stages.length === 0 ? (
+                <EmptyState
+                  compact
+                  title={wf?.status?.compressedNodes ? 'Node graph is compressed' : running ? 'No stages scheduled yet' : 'No stages recorded'}
+                  description={wf?.status?.compressedNodes
+                    ? <>The controller stored this run's node map gzipped, which the console cannot inflate.{argoUrl ? <> Open it in <a className='text-brand-700 underline dark:text-brand-300' href={argoUrl} target='_blank' rel='noreferrer'>Argo Workflows ↗</a>.</> : null}</>
+                    : 'Stages appear here as the controller schedules them.'}
+                />
+              ) : (
+                <>
+                  <StageCanvas graph={graph} selected={selected} onSelect={setSelected} />
+                  <p className='mt-2 text-[11px] text-content-subtle'>
+                    {stage ? 'The console below streams the selected stage — live while it runs.' : 'Click a stage to open its details and stream its console.'}
+                  </p>
+                </>
+              )}
+            </Section>
+
+            {stage ? (
+              <Section title={`Console · ${stage.displayName || stage.name}`}>
+                <StageConsole key={stage.id} namespace={namespace} node={stage} argoUrl={argoUrl} />
+              </Section>
+            ) : null}
+
+            <Section title={`Parameters (${params.length})`}>
+              {params.length
+                ? <KeyValueList rows={params.map((p) => [p.name ?? '—', p.value ?? (p.valueFrom ? 'from: ' + Object.keys(p.valueFrom).join(', ') : '—')])} />
+                : <EmptyState compact title='No parameters' />}
+            </Section>
+
+            <Section title={`Outputs (${outParams.length + outArtifacts.length})`}>
+              {outParams.length || outArtifacts.length
+                ? <KeyValueList rows={[
+                    ...outParams.map((p): [string, string] => [p.name ?? '—', p.value ?? '—']),
+                    ...outArtifacts.map((a): [string, string] => [a.name ?? 'artifact', a.path ?? 'artifact']),
+                  ]} />
+                : <EmptyState compact title={running ? 'No outputs yet — run in progress' : 'No outputs emitted'} />}
+            </Section>
+
+            <Section title='Timeline'>
+              <StageTimeline stages={graph.stages} onSelect={setSelected} />
+            </Section>
+
+            <Section title={`Conditions (${conditions.length})`}>
+              {conditions.length ? (
+                <ul className='divide-y divide-edge-subtle'>
+                  {conditions.map((c, i) => (
+                    <li key={`${c.type ?? 'c'}-${i}`} className='flex items-start gap-3 px-1 py-2 text-sm'>
+                      <StatusBadge kind={c.status === 'True' ? (c.type === 'Completed' ? 'healthy' : 'info') : 'unknown'}>{c.type ?? '—'}</StatusBadge>
+                      <div className='min-w-0 flex-1'>
+                        <div className='text-content'>{c.status ?? '—'}</div>
+                        {c.message ? <div className='mt-0.5 text-xs text-content-muted'>{c.message}</div> : null}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : <EmptyState compact title='No conditions reported' />}
+            </Section>
+
+            <details className='group rounded-xl border border-edge-default bg-surface-raised'>
+              <summary className='cursor-pointer select-none px-4 py-2.5 text-sm font-semibold text-content'>Raw object</summary>
+              <pre className='max-h-96 overflow-auto border-t border-edge-subtle bg-code p-3 font-mono text-[11px] leading-relaxed text-code-fg'>{JSON.stringify(wf, null, 2)}</pre>
+            </details>
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
+/* ─────────── stages: progress, canvas, console, timeline ─────────── */
+
+const PROGRESS_SEGMENTS: Array<{ kinds: StatusKind[]; color: string }> = [
+  { kinds: ['healthy'], color: '#10b981' },
+  { kinds: ['failed', 'degraded'], color: '#f43f5e' },
+  { kinds: ['progressing'], color: '#6366f1' },
+  { kinds: ['info', 'paused', 'unknown'], color: '#cbd5e1' },
+]
+
+function StageProgress({ stages, kind, label, running, durationText, message }: { stages: WorkflowNode[]; kind: StatusKind; label: string; running: boolean; durationText: string; message?: string }) {
+  const counts = new Map<StatusKind, number>()
+  for (const n of stages) counts.set(phaseKind(n.phase), (counts.get(phaseKind(n.phase)) ?? 0) + 1)
+  const total = stages.length
+  const done = (counts.get('healthy') ?? 0) + (counts.get('failed') ?? 0)
+  return (
+    <div className='rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm'>
+      <div className='flex flex-wrap items-center justify-between gap-2'>
+        <div className='flex min-w-0 items-center gap-2'>
+          <StatusBadge kind={kind} pulse={running}>{label}</StatusBadge>
+          <span className='text-[12px] text-content-muted'>{total ? `${done} of ${total} stages complete` : 'No stages'}</span>
+        </div>
+        <span className='font-mono text-[12px] tabular-nums text-content-muted'>{durationText}</span>
+      </div>
+      <div className='mt-2.5 flex h-2 w-full overflow-hidden rounded-full bg-surface-sunken'>
+        {total ? PROGRESS_SEGMENTS.map((seg, i) => {
+          const n = seg.kinds.reduce((s, k) => s + (counts.get(k) ?? 0), 0)
+          if (!n) return null
+          return <span key={i} className={cn('h-full transition-[width] duration-500', seg.color === '#6366f1' && running && 'animate-pulse')} style={{ width: `${(n / total) * 100}%`, backgroundColor: seg.color }} />
+        }) : null}
+      </div>
+      {message ? <p className='mt-2 text-xs leading-relaxed text-content-muted'>{message}</p> : null}
+    </div>
+  )
+}
+
+/**
+ * The stage graph. Pills laid out by dependency level on the shared canvas —
+ * status on the glyph, name and duration beside it, one quiet outline. The
+ * connectors carry no colour; the legend and the zoom cluster live in the
+ * canvas footer.
+ */
+function StageCanvas({ graph, selected, onSelect }: { graph: StageGraph; selected: string | null; onSelect(id: string): void }) {
+  const [onlyProblems, setOnlyProblems] = useState(false)
+  const laid = useMemo(() => {
+    const layout = layoutLayers(
+      graph.stages.map((n) => ({ id: n.id, level: graph.level.get(n.id) ?? 0 })),
+      { nodeWidth: STAGE_W, nodeHeight: STAGE_H, colGap: STAGE_COL_GAP, rowGap: STAGE_ROW_GAP },
+    )
+    const byId = new Map(graph.stages.map((n) => [n.id, n]))
+    const edges: CanvasEdge[] = []
+    for (const e of graph.edges) {
+      const from = layout.pos.get(e.from)
+      const to = layout.pos.get(e.to)
+      if (!from || !to) continue
+      edges.push({ ...edgeBetween(from, to, layout.nodeWidth, layout.nodeHeight), kind: phaseKind(byId.get(e.from)?.phase), flowing: byId.get(e.from)?.phase === 'Running' })
+    }
+    return { layout, edges }
+  }, [graph])
+
+  const legend = useMemo(() => {
+    const seen = new Map<StatusKind, string>()
+    for (const n of graph.stages) if (n.phase) seen.set(phaseKind(n.phase), n.phase)
+    return [...seen].map(([kind, label]) => ({ kind, label })).sort((a, b) => a.label.localeCompare(b.label))
+  }, [graph.stages])
+
+  const problem = (n: WorkflowNode) => n.phase === 'Failed' || n.phase === 'Error'
+
+  return (
+    <GraphCanvas
+      width={laid.layout.width}
+      height={laid.layout.height}
+      edges={laid.edges}
+      legend={legend}
+      // A static class on purpose: Tailwind only emits classes it can see in
+      // source, so a computed `h-[…px]` is never generated and the canvas
+      // collapses to its footer. Fit-to-view makes a fixed height fine.
+      className='h-[380px]'
+      ariaLabel={`Stage graph — ${graph.stages.length} stages`}
+      toolbar={<CanvasBtn label='Only failed stages' active={onlyProblems} onClick={() => setOnlyProblems((v) => !v)}>!</CanvasBtn>}
+    >
+      {graph.stages.map((n) => {
+        const p = laid.layout.pos.get(n.id)
+        if (!p) return null
+        return (
+          <div key={n.id} className={cn('adhar-node-in absolute transition-opacity', onlyProblems && !problem(n) && 'opacity-30')} style={{ left: p.x, top: p.y, width: STAGE_W, height: STAGE_H }}>
+            <StagePill node={n} selected={selected === n.id} onClick={() => onSelect(n.id)} />
+          </div>
+        )
+      })}
+    </GraphCanvas>
+  )
+}
+
+const GLYPH_TONE: Record<StatusKind, string> = {
+  healthy: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
+  failed: 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300',
+  degraded: 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300',
+  progressing: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300',
+  info: 'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300',
+  paused: 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
+  unknown: 'bg-surface-sunken text-content-subtle',
+}
+
+function PhaseGlyph({ kind }: { kind: StatusKind }) {
+  const P = ({ d }: { d: string }) => <svg width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round' strokeLinejoin='round' aria-hidden><path d={d} /></svg>
+  if (kind === 'healthy') return <P d='m5 12 5 5L20 7' />
+  if (kind === 'failed' || kind === 'degraded') return <P d='M18 6 6 18M6 6l12 12' />
+  if (kind === 'progressing') return <span className='h-2.5 w-2.5 rounded-full bg-current' />
+  if (kind === 'paused') return <P d='M8 5v14M16 5v14' />
+  if (kind === 'info') return <span className='h-2.5 w-2.5 rounded-full border-2 border-current' />
+  return <P d='M6 12h12' />
+}
+
+function StagePill({ node, selected, onClick }: { node: WorkflowNode; selected: boolean; onClick(): void }) {
+  const kind = phaseKind(node.phase)
+  const live = node.phase === 'Running'
+  const sub = node.startedAt
+    ? `${fmtDuration(durationSecs(node.startedAt, node.finishedAt))}${node.type && node.type !== 'Pod' ? ` · ${node.type}` : ''}`
+    : node.phase ?? 'Pending'
   return (
     <button
       type='button'
       onClick={onClick}
-      title={node.name}
+      title={`${node.displayName || node.name} — ${node.phase ?? 'Pending'}`}
       className={cn(
-        'flex h-full w-full flex-col items-start gap-1 rounded-xl border bg-surface-raised px-3 py-2 text-left shadow-sm transition-colors',
-        selected ? 'border-brand-400 ring-2 ring-brand-400/25' : 'border-edge-default hover:border-edge-strong',
+        'flex h-full w-full items-center gap-2.5 rounded-full border bg-surface-raised px-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg',
+        // One neutral outline; status lives in the glyph, never on the container.
+        selected ? 'border-brand-400 ring-2 ring-brand-400/40' : 'border-edge-default',
       )}
-      style={{ borderLeft: `3px solid ${statusHex(kind)}` }}
+      style={live ? { boxShadow: '0 0 0 3px rgb(99 102 241 / 0.15)' } : undefined}
     >
-      <span className='w-full truncate text-[12px] font-medium text-content'>
-        {node.displayName || node.name}
+      <span className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-full', GLYPH_TONE[kind], live && 'animate-pulse')}>
+        <PhaseGlyph kind={kind} />
       </span>
-      <span className='flex w-full items-center gap-1.5 text-[10px] text-content-subtle'>
-        <span className='h-1.5 w-1.5 shrink-0 rounded-full' style={{ background: statusHex(kind) }} />
-        <span className='truncate'>{node.phase ?? 'Unknown'}</span>
-        {node.type ? <span className='truncate'>· {node.type}</span> : null}
-      </span>
-      <span className='truncate text-[10px] tabular-nums text-content-subtle'>
-        {fmtDuration(durationSecs(node.startedAt, node.finishedAt))}
+      <span className='min-w-0 flex-1'>
+        <span className='block truncate text-[12px] font-semibold text-content'>{node.displayName || node.name}</span>
+        <span className='block truncate text-[10px] text-content-subtle'>{sub}</span>
       </span>
     </button>
   )
 }
 
+const CONTAINERS = ['main', 'init', 'wait'] as const
+
 /**
- * The selected step.
- *
- * Logs are only fetched when Argo itself recorded the pod name on the node.
- * Pod naming changed between Argo versions (v1 uses the node id, v2 uses
- * `<workflow>-<template>-<hash>`) and the node does not always carry it, so
- * anything else would be a guess that 404s — the Argo UI link is the honest
- * fallback.
+ * The selected stage: facts, message, and its console — streamed, following
+ * while it runs, one container at a time. Logs are only offered when Argo
+ * itself recorded the pod name on the node: pod naming changed between Argo
+ * versions and the node does not always carry it, so anything else would be
+ * a guess that 404s.
  */
-function StepDetail({
-  node,
-  namespace,
-  workflowUrl,
-}: {
-  node: WorkflowNode | null
-  namespace: string
-  workflowUrl: string
-}) {
-  const toast = useToast()
-  const [logs, setLogs] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-
-  if (!node) {
-    return (
-      <div className='rounded-xl border border-dashed border-edge-strong bg-surface-sunken/40 px-4 py-6 text-center text-xs text-content-subtle'>
-        Select a step in the graph to see its phase, timings and message.
-      </div>
-    )
-  }
-
+function StageConsole({ namespace, node, argoUrl }: { namespace: string; node: WorkflowNode; argoUrl: string }) {
+  const kind = phaseKind(node.phase)
+  const running = node.phase === 'Running'
   const podName = node.type === 'Pod' ? node.podName : undefined
-  const nodeUrl = workflowUrl
-    ? `${workflowUrl}?nodeId=${encodeURIComponent(node.id)}&sidePanel=${encodeURIComponent(`logs:${node.id}:main`)}`
-    : ''
+  const [container, setContainer] = useState<(typeof CONTAINERS)[number]>('main')
+  const nodeUrl = argoUrl ? `${argoUrl}?nodeId=${encodeURIComponent(node.id)}&sidePanel=${encodeURIComponent(`logs:${node.id}:main`)}` : ''
 
-  const loadLogs = async () => {
-    if (!podName) return
-    setLoading(true)
-    try {
-      setLogs(await fetchNodeLogs(namespace, podName))
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not read logs for this step')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const sources = useMemo(() => (podName ? [{ pod: podName, container, label: container }] : []), [podName, container])
+  const stream = useLogStream({ namespace, sources, follow: running, tailLines: 8000, enabled: Boolean(podName) })
 
   return (
-    <div className='rounded-xl border border-edge-default bg-surface-raised'>
-      <div className='flex flex-wrap items-start justify-between gap-3 border-b border-edge-subtle px-4 py-3'>
-        <div className='min-w-0'>
-          <div className='flex flex-wrap items-center gap-2'>
-            <span className='truncate text-sm font-medium text-content'>{node.displayName || node.name}</span>
-            <StatusBadge kind={PHASE_KIND[node.phase ?? ''] ?? 'unknown'}>{node.phase ?? 'Unknown'}</StatusBadge>
-          </div>
-          <code className='mt-0.5 block truncate text-[10.5px] text-content-subtle'>{node.id}</code>
-        </div>
-        <div className='flex shrink-0 items-center gap-1.5'>
-          {podName
-            ? (
-              <button
-                type='button'
-                onClick={loadLogs}
-                disabled={loading}
-                className='inline-flex h-8 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-xs font-medium text-content hover:border-brand-400 hover:text-brand-700 disabled:opacity-50'
-              >
-                {loading ? <Spinner /> : null} {logs === null ? 'Load logs' : 'Reload logs'}
-              </button>
-            )
-            : null}
-          {nodeUrl ? <ExternalLink href={nodeUrl}>Logs in Argo</ExternalLink> : null}
-        </div>
+    <div className='overflow-hidden rounded-xl border border-edge-default'>
+      <div className='flex flex-wrap items-center gap-2 border-b border-edge-default bg-surface-sunken/50 px-3 py-2'>
+        <StatusBadge kind={kind} pulse={running}>{node.phase ?? 'Pending'}</StatusBadge>
+        <span className='font-mono text-[12px] font-semibold text-content'>{node.displayName || node.name}</span>
+        {node.templateName || node.templateRef?.template ? <code className='text-[11px] text-content-muted'>{node.templateName ?? node.templateRef?.template}</code> : null}
+        <span className='ml-auto text-[11px] text-content-subtle'>{fmtDuration(durationSecs(node.startedAt, node.finishedAt))}</span>
       </div>
-
-      <dl className='grid grid-cols-2 gap-x-6 gap-y-2 px-4 py-3 text-[11.5px] sm:grid-cols-4'>
+      <dl className='grid grid-cols-2 gap-x-6 gap-y-2 border-b border-edge-subtle px-3 py-2.5 text-[11.5px] sm:grid-cols-4'>
         <Fact label='Type' value={node.type ?? '—'} />
-        <Fact label='Template' value={node.templateName ?? node.templateRef?.template ?? node.templateRef?.name ?? '—'} mono />
         <Fact label='Started' value={node.startedAt ? formatAbsolute(node.startedAt) : '—'} />
-        <Fact label='Finished' value={node.finishedAt ? formatAbsolute(node.finishedAt) : node.phase === 'Running' ? 'running' : '—'} />
-        <Fact label='Duration' value={fmtDuration(durationSecs(node.startedAt, node.finishedAt))} />
+        <Fact label='Finished' value={node.finishedAt ? formatAbsolute(node.finishedAt) : running ? 'running' : '—'} />
+        {podName ? <Fact label='Pod' value={podName} mono /> : <Fact label='Node id' value={node.id} mono />}
+        {node.hostNodeName ? <Fact label='Host' value={node.hostNodeName} mono /> : null}
         {node.progress ? <Fact label='Progress' value={node.progress} /> : null}
-        {node.hostNodeName ? <Fact label='Host node' value={node.hostNodeName} mono /> : null}
-        {podName ? <Fact label='Pod' value={podName} mono /> : null}
       </dl>
+      {node.message ? <p className='border-b border-edge-subtle px-3 py-2 text-xs leading-relaxed text-content-muted'>{node.message}</p> : null}
+      {podName ? (
+        <LogConsole
+          lines={stream.lines}
+          status={stream.status}
+          error={stream.error}
+          reconnect={stream.reconnect}
+          label={`${node.displayName || node.name} · ${container}`}
+          live={running}
+          filename={`${node.displayName || node.name}-${container}`}
+          emptyMessage={running ? 'No log output yet.' : 'No log output.'}
+          toolbar={
+            <span className='inline-flex items-center rounded-md bg-surface-sunken p-0.5'>
+              {CONTAINERS.map((c) => (
+                <button key={c} type='button' onClick={() => setContainer(c)} aria-pressed={container === c} className={cn('h-5 rounded px-1.5 font-mono text-[10px]', container === c ? 'bg-surface-raised text-content shadow-sm' : 'text-content-subtle hover:text-content')}>
+                  {c}
+                </button>
+              ))}
+            </span>
+          }
+        />
+      ) : (
+        <div className='px-3 py-5'>
+          <EmptyState
+            compact
+            title={node.type === 'Pod' ? 'No pod recorded for this stage' : `${node.type ?? 'This'} stages have no container`}
+            description={node.type === 'Pod'
+              ? <>Argo did not record the pod name on this node, so its logs cannot be read here.{nodeUrl ? <> Open it in <a className='text-brand-700 underline dark:text-brand-300' href={nodeUrl} target='_blank' rel='noreferrer'>Argo Workflows ↗</a>.</> : null}</>
+              : 'Only pod stages produce logs.'}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
 
-      {node.message
-        ? (
-          <p className='border-t border-edge-subtle px-4 py-3 text-xs leading-relaxed text-content-muted'>
-            {node.message}
-          </p>
-        )
-        : null}
+function StageTimeline({ stages, onSelect }: { stages: WorkflowNode[]; onSelect(id: string): void }) {
+  const rows = useMemo(() => [...stages].sort((a, b) => new Date(a.startedAt ?? '9999').getTime() - new Date(b.startedAt ?? '9999').getTime()), [stages])
+  if (!rows.length) return <EmptyState compact title='No stages to time' />
+  return (
+    <ul className='divide-y divide-edge-subtle'>
+      {rows.map((n) => (
+        <li key={n.id}>
+          <button type='button' onClick={() => onSelect(n.id)} className='flex w-full items-center justify-between gap-3 rounded-md px-1.5 py-2 text-left text-sm transition-colors hover:bg-surface-sunken'>
+            <div className='min-w-0'>
+              <div className='truncate font-medium text-content'>{n.displayName || n.name}</div>
+              <div className='text-[11px] text-content-subtle'>
+                {n.startedAt ? `started ${formatRelative(n.startedAt)} · ${fmtDuration(durationSecs(n.startedAt, n.finishedAt))}` : 'not started'}
+              </div>
+            </div>
+            <StatusBadge kind={phaseKind(n.phase)}>{n.phase ?? 'Pending'}</StatusBadge>
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
+}
 
-      {logs !== null
-        ? (
-          <pre className='max-h-72 overflow-auto border-t border-edge-subtle bg-surface-sunken/60 px-4 py-3 font-mono text-[11px] leading-relaxed text-content-muted'>
-            {logs || 'The container produced no output.'}
-          </pre>
-        )
-        : null}
+/* ─────────── drawer chrome ─────────── */
 
-      {!podName && !node.message
-        ? (
-          <p className='border-t border-edge-subtle px-4 py-3 text-xs text-content-subtle'>
-            Argo did not record a pod for this step, so the console cannot read its logs directly.
-            {nodeUrl ? ' Open it in Argo Workflows for the container output.' : ''}
-          </p>
-        )
-        : null}
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className='rounded-xl border border-edge-default bg-surface-raised'>
+      <div className='border-b border-edge-subtle px-4 py-2.5 text-sm font-semibold text-content'>{title}</div>
+      <div className='p-4'>{children}</div>
+    </section>
+  )
+}
+
+const TILE_TEXT: Record<string, string> = {
+  healthy: 'text-emerald-700 dark:text-emerald-300',
+  failed: 'text-rose-700 dark:text-rose-300',
+  degraded: 'text-rose-700 dark:text-rose-300',
+  progressing: 'text-indigo-700 dark:text-indigo-300',
+  paused: 'text-amber-700 dark:text-amber-300',
+}
+
+function Tile({ label, kind, value }: { label: string; kind: StatusKind; value: string }) {
+  return (
+    <div className='rounded-xl border border-edge-default bg-surface-raised px-3 py-2.5'>
+      <div className='text-[10px] font-semibold uppercase tracking-wider text-content-subtle'>{label}</div>
+      <div className={cn('mt-0.5 truncate text-[15px] font-semibold tabular-nums', TILE_TEXT[kind] ?? 'text-content')} title={value}>{value}</div>
+    </div>
+  )
+}
+
+function KeyValueList({ rows }: { rows: Array<[string, string]> }) {
+  return (
+    <div className='divide-y divide-edge-subtle text-sm'>
+      {rows.map(([k, v], i) => (
+        <div key={`${k}-${i}`} className='flex items-baseline justify-between gap-4 py-1.5'>
+          <span className='shrink-0 text-content-muted'>{k}</span>
+          <code className='min-w-0 truncate font-mono text-xs text-content' title={v}>{v}</code>
+        </div>
+      ))}
     </div>
   )
 }
@@ -852,6 +1194,15 @@ function Fact({ label, value, mono = false }: { label: string; value: string; mo
     </div>
   )
 }
+
+const I = ({ children, size = 13 }: { children: ReactNode; size?: number }) => (
+  <svg width={size} height={size} viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round' aria-hidden className='shrink-0'>{children}</svg>
+)
+const IconClose = () => <I size={16}><path d='M18 6 6 18M6 6l12 12' /></I>
+const IconRerun = () => <I><path d='M21 12a9 9 0 1 1-3-6.7L21 8' /><path d='M21 3v5h-5' /></I>
+const IconStopSquare = () => <I><rect x='6' y='6' width='12' height='12' rx='2' /></I>
+const IconBolt = () => <I><path d='M13 2 4 14h7l-1 8 9-12h-7z' /></I>
+const IconTrash = () => <I><path d='M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6' /></I>
 
 /* ─────────── empty state ─────────── */
 

@@ -162,7 +162,7 @@ export function GraphCanvas({
   return (
     <div
       className={cn(
-        'relative overflow-hidden rounded-xl border border-edge-default bg-surface-raised',
+        'relative flex flex-col overflow-hidden rounded-xl border border-edge-default bg-surface-raised',
         full ? 'fixed inset-3 z-50 shadow-2xl' : className ?? 'h-[460px]',
       )}
     >
@@ -177,48 +177,6 @@ export function GraphCanvas({
         }}
       />
 
-      {/* Controls. */}
-      <div className='absolute right-2 top-2 z-20 flex items-center gap-1 rounded-lg border border-edge-default bg-surface-raised/90 p-0.5 shadow-sm backdrop-blur'>
-        {toolbar}
-        {toolbar ? <span className='mx-0.5 h-4 w-px bg-edge-subtle' /> : null}
-        <CanvasBtn label='Zoom out' disabled={zoomIdx === 0} onClick={() => setZoomIdx((i) => Math.max(0, i - 1))}>
-          −
-        </CanvasBtn>
-        <button
-          type='button'
-          onClick={fit}
-          title='Fit to view'
-          className='px-1.5 text-[10px] font-semibold tabular-nums text-content-muted hover:text-content'
-        >
-          {Math.round(zoom * 100)}%
-        </button>
-        <CanvasBtn
-          label='Zoom in'
-          disabled={zoomIdx === ZOOM_STEPS.length - 1}
-          onClick={() => setZoomIdx((i) => Math.min(ZOOM_STEPS.length - 1, i + 1))}
-        >
-          +
-        </CanvasBtn>
-        <span className='mx-0.5 h-4 w-px bg-edge-subtle' />
-        <CanvasBtn label='Fit to view' onClick={fit}>
-          ⊡
-        </CanvasBtn>
-        <CanvasBtn label={full ? 'Exit full page (Esc)' : 'Full page'} onClick={() => setFull((f) => !f)}>
-          {full ? '⤡' : '⤢'}
-        </CanvasBtn>
-      </div>
-
-      {legend?.length ? (
-        <div className='absolute bottom-2 left-2 z-20 flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-surface-raised/90 px-2 py-1 text-[10px] text-content-muted shadow-sm backdrop-blur'>
-          {legend.map((l) => (
-            <span key={l.label} className='inline-flex items-center gap-1'>
-              <span className='h-1.5 w-1.5 rounded-full' style={{ background: statusHex(l.kind) }} />
-              {l.label}
-            </span>
-          ))}
-        </div>
-      ) : null}
-
       {/* Viewport — drag the background to pan. */}
       <div
         ref={viewportRef}
@@ -228,7 +186,7 @@ export function GraphCanvas({
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
-        className='absolute inset-0 cursor-grab touch-none active:cursor-grabbing'
+        className='relative min-h-0 flex-1 cursor-grab touch-none active:cursor-grabbing'
       >
         <div
           className='absolute origin-top-left'
@@ -244,34 +202,78 @@ export function GraphCanvas({
             height={height}
             aria-hidden
           >
-            {paths.map((p) => {
-              const stroke = statusHex(p.kind)
-              return (
-                <g key={p.i}>
-                  <path
-                    d={p.d}
-                    fill='none'
-                    stroke={stroke}
-                    strokeWidth={p.flowing ? 6 : 4}
-                    strokeOpacity={p.flowing ? 0.18 : 0.1}
-                    strokeLinecap='round'
-                  />
-                  <path
-                    d={p.d}
-                    fill='none'
-                    stroke={stroke}
-                    strokeWidth={2}
-                    strokeOpacity={p.flowing ? 0.95 : 0.6}
-                    strokeLinecap='round'
-                    strokeDasharray={p.flowing ? '7 7' : undefined}
-                    className={p.flowing ? 'adhar-flow-dash' : undefined}
-                  />
-                </g>
-              )
-            })}
+            {/* Connectors are deliberately COLOURLESS. Status already reads from
+                each node's glyph; painting it onto the wiring too turned the
+                graph into a rainbow and made the edges compete with the nodes.
+                `currentColor` keeps them theme-aware; a flowing edge is still
+                distinguishable — by weight and motion, not by hue. */}
+            {paths.map((p) => (
+              <path
+                key={p.i}
+                d={p.d}
+                fill='none'
+                stroke='currentColor'
+                className={cn('text-edge-strong', p.flowing && 'adhar-flow-dash')}
+                strokeWidth={p.flowing ? 2.25 : 1.5}
+                strokeOpacity={p.flowing ? 0.95 : 0.65}
+                strokeLinecap='round'
+                strokeDasharray={p.flowing ? '7 7' : undefined}
+              />
+            ))}
           </svg>
           {children}
         </div>
+      </div>
+
+      {/* Legend + canvas controls — one footer under the canvas rather than two
+          floating overlays. Overlays sat on top of whichever node occupied a
+          corner; a footer can never cover the graph and gives the controls a
+          permanent, predictable home. */}
+      {/* `relative` so the footer stacks above the positioned dotted ground. */}
+      <div className='relative flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-edge-subtle bg-surface-raised px-3 py-1.5 text-[11px] text-content-muted'>
+        {legend?.length ? (
+          <>
+            <span className='font-medium text-content-subtle'>Legend</span>
+            {legend.map((l) => (
+              <span key={l.label} className='inline-flex items-center gap-1.5'>
+                <span className='h-2 w-2 rounded-full' style={{ background: statusHex(l.kind) }} />
+                {l.label}
+              </span>
+            ))}
+          </>
+        ) : null}
+        <span className='ml-auto flex items-center gap-2'>
+          {full ? <span className='hidden text-content-subtle sm:inline'>Esc to exit</span> : null}
+          <span className='flex items-center gap-0.5 rounded-lg border border-edge-default bg-surface-sunken/60 p-0.5'>
+            {toolbar}
+            {toolbar ? <span className='mx-0.5 h-4 w-px bg-edge-subtle' /> : null}
+            <CanvasBtn label='Zoom out' disabled={zoomIdx === 0} onClick={() => setZoomIdx((i) => Math.max(0, i - 1))}>
+              −
+            </CanvasBtn>
+            <button
+              type='button'
+              onClick={fit}
+              title='Fit to view'
+              className='w-10 text-center text-[10px] font-semibold tabular-nums text-content-muted hover:text-content'
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+            <CanvasBtn
+              label='Zoom in'
+              disabled={zoomIdx === ZOOM_STEPS.length - 1}
+              onClick={() => setZoomIdx((i) => Math.min(ZOOM_STEPS.length - 1, i + 1))}
+            >
+              +
+            </CanvasBtn>
+            <span className='mx-0.5 h-4 w-px bg-edge-subtle' />
+            <CanvasBtn label='Fit to view' onClick={fit}>
+              ⊡
+            </CanvasBtn>
+            <CanvasBtn label={full ? 'Exit full page (Esc)' : 'Full page'} onClick={() => setFull((f) => !f)}>
+              {full ? '⤡' : '⤢'}
+            </CanvasBtn>
+          </span>
+        </span>
       </div>
 
       <style>

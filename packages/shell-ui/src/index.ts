@@ -210,6 +210,7 @@ export {
   type LogLine,
   type StreamStatus,
 } from './log-console.tsx'
+export { useLogStream, type LogSource, type LogStream, type UseLogStreamOptions } from './log-stream.ts'
 
 /* ─ Primitives (new polish layer) ─ */
 export {

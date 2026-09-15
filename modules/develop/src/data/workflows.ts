@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useLiveRefetch } from '@adhar-console/shell-ui'
 import { k8s } from '@adhar-console/api-clients'
+import { kube } from '@adhar-console/api-clients/k8s'
 
 /**
  * Argo Workflows — the non-CI half of the platform's execution story.
@@ -10,9 +11,9 @@ import { k8s } from '@adhar-console/api-clients'
  * backfills, ML jobs, scheduled housekeeping, fan-out/fan-in batch work — runs
  * on Argo Workflows, and this is the data behind that workbench.
  *
- * Everything here is read-only. `K8sClient` exposes generic list/get but no
- * generic delete or patch, so retry / stop / resubmit are not offered rather
- * than offered and broken; the Argo UI deep link covers them.
+ * Reads go through `K8sClient` (stub fixtures in dev). Writes — re-run, stop,
+ * terminate, delete — go through the `kube` gateway, the same path the Tekton
+ * pipeline drawer uses, so a run is managed here the way a PipelineRun is.
  */
 
 // Stub fixtures in dev, authenticated `/api/k8s` gateway in prod.
@@ -83,13 +84,23 @@ export interface WorkflowNode {
   podName?: string
 }
 
+export interface WorkflowParameter {
+  name?: string
+  value?: string
+  valueFrom?: Record<string, unknown>
+}
+
 export interface Workflow {
   metadata: ObjMeta
   spec?: {
     entrypoint?: string
     serviceAccountName?: string
     suspend?: boolean
+    /** `Stop` finishes running steps and runs exit handlers; `Terminate` kills everything. */
+    shutdown?: 'Stop' | 'Terminate' | string
     workflowTemplateRef?: { name?: string; clusterScope?: boolean }
+    arguments?: { parameters?: WorkflowParameter[]; artifacts?: Array<{ name?: string }> }
+    [k: string]: unknown
   }
   status?: {
     phase?: WorkflowPhase
@@ -98,6 +109,10 @@ export interface Workflow {
     finishedAt?: string
     progress?: string
     estimatedDuration?: number
+    conditions?: Array<{ type?: string; status?: string; message?: string }>
+    outputs?: { parameters?: WorkflowParameter[]; artifacts?: Array<{ name?: string; path?: string }> }
+    /** Seconds of cpu / memory consumed, as Argo accounts them. */
+    resourcesDuration?: Record<string, number>
     nodes?: Record<string, WorkflowNode>
     /**
      * Set instead of `nodes` when the controller gzips a large node map. The
@@ -206,6 +221,50 @@ export function useWorkflow(namespace: string | undefined, name: string | undefi
 /** Container logs for a node's pod. Only ever called with a server-given pod name. */
 export function fetchNodeLogs(namespace: string, podName: string): Promise<string> {
   return client.podLogs(undefined, namespace, podName, { container: 'main', tailLines: 500 })
+}
+
+/* ─────────── writes ─────────── */
+
+/** `<name>-r<stamp>`: a fresh, sortable name that still says where it came from. */
+export function rerunName(base: string): string {
+  const stem = base.replace(/-r[0-9a-z]{6,}$/, '').slice(0, 52)
+  return `${stem}-r${Date.now().toString(36)}`
+}
+
+/**
+ * Start a new workflow from this one's spec.
+ *
+ * Argo's own "resubmit" is an API-server operation; the console has no Argo
+ * Server token, so the equivalent is done the Kubernetes way: a new Workflow
+ * object with the same spec. `shutdown` and `suspend` are dropped — a run
+ * resubmitted from a stopped one should run — and the lineage is kept in a
+ * label so the two are relatable afterwards.
+ */
+export function resubmitWorkflow(wf: Workflow): Promise<Workflow> {
+  const { shutdown: _shutdown, suspend: _suspend, ...spec } = wf.spec ?? {}
+  const name = rerunName(wf.metadata.name)
+  return kube.apply<Workflow>({
+    apiVersion: 'argoproj.io/v1alpha1',
+    kind: 'Workflow',
+    metadata: {
+      name,
+      namespace: wf.metadata.namespace,
+      labels: {
+        ...(wf.metadata.labels ?? {}),
+        'workflows.argoproj.io/resubmitted-from': wf.metadata.name,
+      },
+    },
+    spec,
+  } as unknown as k8s.KubeObject)
+}
+
+/** Stop: running pods finish, exit handlers run. Terminate: everything is killed now. */
+export function shutdownWorkflow(namespace: string, name: string, mode: 'Stop' | 'Terminate'): Promise<unknown> {
+  return kube.patch(WORKFLOWS_GVR, namespace, name, { spec: { shutdown: mode } }, 'merge')
+}
+
+export function deleteWorkflow(namespace: string, name: string): Promise<unknown> {
+  return kube.delete(WORKFLOWS_GVR, namespace, name)
 }
 
 /* ─────────── derivations ─────────── */

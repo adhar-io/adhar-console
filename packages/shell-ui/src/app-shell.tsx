@@ -45,6 +45,8 @@ interface Props {
   contentWidth?: 'standard' | 'wide' | 'full'
 }
 
+const SIDEBAR_KEY = 'adhar.shell.sidebar-collapsed.v1'
+
 const CONTENT_WIDTH_CLASS = {
   standard: 'max-w-7xl',
   wide: 'max-w-screen-2xl',
@@ -66,7 +68,24 @@ export function AppShell({
   contentWidth = 'standard',
   headerControls,
 }: Props) {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  // Remembered across reloads. Collapsing the sidebar is a layout preference,
+  // and a preference that resets on every navigation to a fresh document is
+  // one the operator has to keep re-making — which is how it reads as broken.
+  const [sidebarCollapsed, setSidebarCollapsedState] = useState<boolean>(() => {
+    try {
+      return globalThis.localStorage?.getItem(SIDEBAR_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  const setSidebarCollapsed = (next: boolean) => {
+    setSidebarCollapsedState(next)
+    try {
+      globalThis.localStorage?.setItem(SIDEBAR_KEY, next ? '1' : '0')
+    } catch {
+      // private mode / quota — the choice just does not persist
+    }
+  }
   const [mobileOpen, setMobileOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const openPalette = commandPaletteEnabled ? () => setPaletteOpen(true) : undefined

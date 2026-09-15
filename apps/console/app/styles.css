@@ -255,23 +255,33 @@ body::before {
  * Consistent focus ring for any native input, select or textarea. Brand-tinted
  * glow replaces the default browser outlines so every form in the app feels
  * like it belongs to the same system.
+ *
+ * In `@layer base` DELIBERATELY. Unlayered CSS outranks every layered rule
+ * regardless of specificity, so when this lived outside a layer no utility
+ * could switch it off: a textarea inside a wrapper that draws its own
+ * `focus-within` ring got this ring too — `focus:ring-0` and `outline-none`
+ * were simply ignored — and every search field and the ⌘K composer showed a
+ * box inside a box on focus. As a base rule it is the default a component
+ * gets for free and can still opt out of, which is what a default is for.
  */
-input,
-select,
-textarea {
-  transition:
-    border-color 150ms var(--ease-smooth),
-    box-shadow 150ms var(--ease-smooth);
-}
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible {
-  outline: none;
-  border-color: var(--color-brand-400);
-  box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-brand-500) 22%, transparent);
-  transition:
-    border-color 120ms var(--ease-smooth, cubic-bezier(0.32, 0.72, 0, 1)),
-    box-shadow 120ms var(--ease-smooth, cubic-bezier(0.32, 0.72, 0, 1));
+@layer base {
+  input,
+  select,
+  textarea {
+    transition:
+      border-color 150ms var(--ease-smooth),
+      box-shadow 150ms var(--ease-smooth);
+  }
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: none;
+    border-color: var(--color-brand-400);
+    box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-brand-500) 22%, transparent);
+    transition:
+      border-color 120ms var(--ease-smooth, cubic-bezier(0.32, 0.72, 0, 1)),
+      box-shadow 120ms var(--ease-smooth, cubic-bezier(0.32, 0.72, 0, 1));
+  }
 }
 
 /* Link default — inherit color; views opt into brand tint explicitly. */

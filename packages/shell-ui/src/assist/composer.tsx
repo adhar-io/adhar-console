@@ -182,7 +182,12 @@ export function Composer({
       ) : null}
 
       {/* ── field ── */}
-      <div className={cn('flex items-end gap-2 rounded-2xl border bg-surface-app px-3 py-2 transition-shadow', busy ? 'border-edge-subtle' : 'border-edge-default focus-within:border-brand-400 focus-within:shadow-[0_0_0_3px_var(--color-brand-500)]/10')}>
+      {/*
+        One focus highlight, on the wrapper. The textarea inside opts out of
+        the global input ring (`outline-none focus:ring-0`), so the field reads
+        as a single control rather than a box inside a box.
+      */}
+      <div className={cn('flex items-end gap-2 rounded-2xl border bg-surface-app px-3 py-2 transition-[box-shadow,border-color]', busy ? 'border-edge-subtle' : 'border-edge-default focus-within:border-brand-400 focus-within:ring-[3px] focus-within:ring-brand-500/15')}>
         <span className={cn('mb-1.5 text-brand-600 dark:text-brand-400', busy && 'animate-pulse')}><SparkIcon size={16} /></span>
         <textarea
           ref={inputRef}

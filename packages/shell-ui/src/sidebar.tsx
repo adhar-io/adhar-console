@@ -103,6 +103,20 @@ export function Sidebar({
     else setInternalCollapsed(next)
   }
 
+  // ⌘B / Ctrl+B toggles the rail, the convention editors have made muscle
+  // memory. Not while typing: a B in a text field is a B.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'b') return
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      e.preventDefault()
+      toggleCollapsed()
+    }
+    globalThis.addEventListener('keydown', onKey)
+    return () => globalThis.removeEventListener('keydown', onKey)
+  }) // deliberately unmemoised: `toggleCollapsed` closes over the latest `collapsed`
+
   // ⌘K is handled once, in AppShell (it toggles the Adhar AI overlay).
 
   // Two-key Vim-style shortcut sequences declared on nav items via the
@@ -169,6 +183,7 @@ export function Sidebar({
       )}
     >
       <Header collapsed={collapsed} onToggle={toggleCollapsed} />
+      {collapsed ? <ExpandRow onToggle={toggleCollapsed} /> : null}
 
       <nav
         aria-label="Primary navigation"
@@ -239,30 +254,46 @@ function Header({
           <AdharWordmarkStack fontSize={17} subtitle="Console" />
         </div>
       </Link>
-      {collapsed ? (
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-label="Expand sidebar"
-          title="Expand sidebar"
-          className={cn(
-            'absolute top-1/2 -right-3.5 z-30 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full',
-            'border border-edge-default bg-surface-raised text-content-muted shadow-md transition-all duration-200',
-            'hover:scale-105 hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300 hover:shadow-lg',
-          )}
-        >
-          <IconChevronsRight />
-        </button>
-      ) : (
+      {collapsed ? null : (
         <button
           type="button"
           onClick={onToggle}
           aria-label="Collapse sidebar"
+          title="Collapse sidebar (⌘B)"
           className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content"
         >
           <IconSidebarCollapse />
         </button>
       )}
+    </div>
+  )
+}
+
+/**
+ * The expand control for the collapsed rail.
+ *
+ * It used to be a pill floating half outside the sidebar's right edge, level
+ * with the topbar — which put a stray button in the seam between two
+ * surfaces, crowding the search field and reading as part of neither. It now
+ * sits INSIDE the rail as the first row under the logo, styled like every
+ * other icon in the column, so the rail is a self-contained strip and the
+ * toggle is where the eye looks for it: opposite where it was when open.
+ */
+function ExpandRow({ onToggle }: { onToggle(): void }) {
+  return (
+    <div className="flex shrink-0 justify-center border-b border-edge-subtle px-2 py-1.5">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-label="Expand sidebar"
+        title="Expand sidebar (⌘B)"
+        className={cn(
+          'flex h-8 w-9 items-center justify-center rounded-lg text-content-subtle transition-colors',
+          'hover:bg-surface-sunken hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25',
+        )}
+      >
+        <IconChevronsRight />
+      </button>
     </div>
   )
 }

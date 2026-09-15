@@ -48,3 +48,21 @@ Deno.test('a caller-supplied image is used verbatim', () => {
   const dep = files.find((f) => f.path === 'deploy/deployment.yaml')!
   assertMatch(dep.content, /image: reg\.io\/x\/demo:9\.9\.9/)
 })
+
+// Phase 4 (ADR-0020): the data-pipeline golden path must land in the platform
+// lakehouse, not log a row count and write nowhere — the Iceberg REST catalog
+// RustFS serves, the platform object-store credential under BOTH the S3_* and
+// AWS_* names PyIceberg signs with, and a Trino-bootstrapped raw table.
+Deno.test('the data-pipeline family writes the platform lakehouse', () => {
+  const files = generateGoldenPathFiles('data-pipeline', { name: 'demo-etl' })
+  const byPath = Object.fromEntries(files.map((f) => [f.path, f.content]))
+  assertMatch(byPath['dagster/pipeline.py'], /rustfs\.adhar-system\.svc\.cluster\.local:9000\/iceberg/)
+  assertMatch(byPath['dagster/pipeline.py'], /header\.x-amz-content-sha256/, 'RustFS needs the SigV4 payload-hash header')
+  assertMatch(byPath['dagster/pipeline.py'], /CREATE TABLE IF NOT EXISTS iceberg/, 'raw table is bootstrapped through Trino')
+  assertNotMatch(byPath['dagster/pipeline.py'], /from __future__ import annotations/, 'Dagster 1.9 rejects postponed annotations on assets')
+  assertMatch(byPath['deploy/external-secret.yaml'], /AWS_ACCESS_KEY_ID/)
+  assertMatch(byPath['deploy/external-secret.yaml'], /key: root-creds/)
+  assertMatch(byPath['deploy/cronworkflow.yaml'], /demo-etl-object-store/)
+  assertMatch(byPath['deploy/kustomization.yaml'], /external-secret\.yaml/)
+  assertEquals(files.some((f) => f.path === 'pipeline/main.py'), false, 'the toy ETL is gone')
+})

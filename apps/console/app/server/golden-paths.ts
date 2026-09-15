@@ -686,59 +686,148 @@ npm run dev
   ]
 }
 
-/* ─────────────── data-pipeline (Python + Argo CronWorkflow) ─────────────── */
+/* ─────────────── data-pipeline (Dagster → RustFS Iceberg catalog → dbt/Trino) ─────────────── */
+
+// The platform's lakehouse contract (ADR-0020, platform package
+// application/adhar-templates/data-pipeline): the pipeline writes an Apache
+// Iceberg table through the Iceberg REST catalog that RustFS S3 Tables serves
+// inside the platform object store, and Trino reads the same table through its
+// `iceberg` catalog. Everything below mirrors what was verified live on the
+// platform (2026-09-15):
+//   * the catalog is signed with the ordinary S3 keys over SigV4 — PyIceberg
+//     signs with boto3's DEFAULT session, so the credential must be present
+//     under the AWS_* names too, and RustFS requires the SigV4 payload-hash
+//     header, which PyIceberg's generic signer omits (`header.x-amz-content-sha256`);
+//   * a PyIceberg-created table cannot take its first commit on RustFS 1.0-rc,
+//     so the raw table is bootstrapped through Trino and appended by PyIceberg;
+//   * Dagster 1.9 rejects `from __future__ import annotations` on assets.
+// The earlier generator here emitted a toy extract/transform/load that logged a
+// row count and wrote nowhere — a "data pipeline" that never touched the
+// lakehouse, so the Phase 4 data golden path could not be verified through it.
+const LAKEHOUSE_REST_URI = 'http://rustfs.adhar-system.svc.cluster.local:9000/iceberg'
+const LAKEHOUSE_S3_ENDPOINT = 'http://rustfs.adhar-system.svc.cluster.local:9000'
 
 function dataPipelineFiles(params: GoldenPathParams): GoldenPathFile[] {
   const c = ctx(params, 8080)
+  const ns = c.name.replace(/-/g, '_')
   return [
     {
-      path: 'pipeline/main.py',
-      content: `"""${c.name} — batch pipeline entrypoint (Adhar golden path)."""
+      path: 'dagster/pipeline.py',
+      content: `"""${c.name} — Dagster job writing the platform lakehouse (Adhar golden path).
 
-import logging
+Materializes a source batch into the Iceberg table TARGET_TABLE through the
+platform Iceberg REST catalog (RustFS S3 Tables), then runs the dbt staging
+transform over Trino. Replace the body of raw_events with your real extract
+(or an Airbyte connection landing the same table); nothing downstream changes.
+"""
+
 import os
-import sys
 from datetime import datetime, timezone
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-log = logging.getLogger("${c.name}")
+import pyarrow as pa
+from dagster import AssetExecutionContext, Definitions, ScheduleDefinition, asset, define_asset_job
+from pyiceberg.catalog import load_catalog
+
+CATALOG_NAME = "adhar"
+ICEBERG_REST_URI = os.environ.get("ICEBERG_REST_URI", "${LAKEHOUSE_REST_URI}")
+ICEBERG_WAREHOUSE = os.environ.get("ICEBERG_WAREHOUSE", "lakehouse")
+S3_ENDPOINT = os.environ.get("S3_ENDPOINT", "${LAKEHOUSE_S3_ENDPOINT}")
+S3_REGION = os.environ.get("S3_REGION", "us-east-1")
+S3_ACCESS_KEY_ID = os.environ.get("S3_ACCESS_KEY_ID", "")
+S3_SECRET_ACCESS_KEY = os.environ.get("S3_SECRET_ACCESS_KEY", "")
+TARGET_TABLE = os.environ.get("TARGET_TABLE", "${ns}.events")
+SOURCE_CONNECTOR = os.environ.get("SOURCE_CONNECTOR", "sample")
+
+# The catalog's SigV4 signer is boto3's default session, which reads only the
+# AWS_* names; the ExternalSecret publishes both spellings.
+os.environ.setdefault("AWS_ACCESS_KEY_ID", S3_ACCESS_KEY_ID)
+os.environ.setdefault("AWS_SECRET_ACCESS_KEY", S3_SECRET_ACCESS_KEY)
+os.environ.setdefault("AWS_DEFAULT_REGION", S3_REGION)
 
 
-def extract() -> list[dict]:
-    """Pull raw records from the source system. Replace with a real reader."""
-    return [{"id": 1, "value": 42}]
+def _catalog():
+    return load_catalog(
+        CATALOG_NAME,
+        **{
+            "type": "rest",
+            "uri": ICEBERG_REST_URI,
+            "warehouse": ICEBERG_WAREHOUSE,
+            "rest.sigv4-enabled": "true",
+            "rest.signing-region": S3_REGION,
+            "rest.signing-name": "s3",
+            "s3.endpoint": S3_ENDPOINT,
+            "s3.region": S3_REGION,
+            "s3.access-key-id": S3_ACCESS_KEY_ID,
+            "s3.secret-access-key": S3_SECRET_ACCESS_KEY,
+            "s3.path-style-access": "true",
+            "py-io-impl": "pyiceberg.io.pyarrow.PyArrowFileIO",
+            # RustFS requires the SigV4 payload-hash header on every signed call.
+            "header.x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+        },
+    )
 
 
-def transform(rows: list[dict]) -> list[dict]:
-    """Apply business transformations. Keep this pure and unit-testable."""
-    return [{**row, "processed_at": datetime.now(timezone.utc).isoformat()} for row in rows]
+def _bootstrap_table(namespace: str, table_name: str, schema: pa.Schema) -> None:
+    """Create the raw table through Trino if it does not exist (idempotent).
+
+    A table's first data commit from PyIceberg is rejected by RustFS S3 Tables
+    1.0-rc; a table created by Trino takes PyIceberg appends and both engines
+    read it, so the paved road creates it through the platform Trino.
+    """
+    import trino
+
+    type_map = {pa.int64(): "bigint", pa.int32(): "integer", pa.float64(): "double", pa.string(): "varchar", pa.bool_(): "boolean"}
+    cols = []
+    for field in schema:
+        trino_type = "timestamp(6) with time zone" if pa.types.is_timestamp(field.type) else type_map.get(field.type, "varchar")
+        cols.append(f'"{field.name}" {trino_type}')
+    conn = trino.dbapi.connect(
+        host=os.environ.get("TRINO_HOST", "trino.adhar-system.svc"),
+        port=int(os.environ.get("TRINO_PORT", "8080")),
+        user=os.environ.get("TRINO_USER", "${c.name}"),
+        catalog="iceberg",
+        schema=namespace,
+    )
+    cur = conn.cursor()
+    cur.execute(f'CREATE SCHEMA IF NOT EXISTS iceberg."{namespace}"')
+    cur.execute(f'CREATE TABLE IF NOT EXISTS iceberg."{namespace}"."{table_name}" ({", ".join(cols)})')
+    cur.fetchall()
 
 
-def load(rows: list[dict]) -> None:
-    """Write to the destination (lakehouse, warehouse, topic, ...)."""
-    log.info("loaded %d rows", len(rows))
+@asset(description="Ingest source records into the raw Iceberg table.", compute_kind=SOURCE_CONNECTOR)
+def raw_events(context: AssetExecutionContext) -> None:
+    namespace, _, table_name = TARGET_TABLE.rpartition(".")
+    namespace = namespace or "raw"
+    now = datetime.now(timezone.utc)
+    batch = pa.table(
+        {
+            "id": pa.array([1, 2, 3], type=pa.int64()),
+            "event": pa.array(["created", "updated", "deleted"]),
+            "source": pa.array([SOURCE_CONNECTOR] * 3),
+            "ingested_at": pa.array([now] * 3, type=pa.timestamp("us", tz="UTC")),
+        }
+    )
+    catalog = _catalog()
+    catalog.create_namespace_if_not_exists(namespace)
+    _bootstrap_table(namespace, table_name, batch.schema)
+    table = catalog.load_table((namespace, table_name))
+    table.append(batch)
+    context.log.info("Appended %d rows to %s.%s via %s", batch.num_rows, namespace, table_name, ICEBERG_REST_URI)
 
 
-def main() -> int:
-    log.info("starting run · otlp=%s", os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "unset"))
-    load(transform(extract()))
-    log.info("run complete")
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+pipeline_job = define_asset_job(name="${ns}_pipeline", selection="*")
+daily_schedule = ScheduleDefinition(name="${ns}_daily", job=pipeline_job, cron_schedule="0 6 * * *")
+defs = Definitions(assets=[raw_events], jobs=[pipeline_job], schedules=[daily_schedule])
 `,
     },
     {
-      path: 'pipeline/__init__.py',
-      content: '',
-    },
-    {
       path: 'requirements.txt',
-      content: `# Pin your pipeline dependencies here.
-# pandas==2.2.*
-# pyarrow==17.*
+      content: `# Pins verified against the platform lakehouse (RustFS S3 Tables + Trino).
+dagster==1.9.5
+pyiceberg[pyarrow]==0.9.1   # PyArrow FileIO; the s3fs extra pins an aiobotocore that breaks resolution
+pyarrow>=17.0.0
+boto3>=1.34                 # SigV4 signer for the RustFS Iceberg REST catalog
+trino>=0.330                # bootstraps the raw table through the platform Trino
 `,
     },
     {
@@ -747,9 +836,10 @@ if __name__ == "__main__":
 WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-COPY pipeline ./pipeline
+COPY dagster ./dagster
+ENV DAGSTER_HOME=/tmp/dagster-home
 USER 1000
-ENTRYPOINT ["python", "-m", "pipeline.main"]
+ENTRYPOINT ["dagster", "asset", "materialize", "-f", "dagster/pipeline.py", "--select", "*"]
 `,
     },
     {
@@ -761,13 +851,57 @@ ENTRYPOINT ["python", "-m", "pipeline.main"]
           python-version: "3.12"
       - name: Install
         run: pip install -r requirements.txt
-      - name: Smoke test
-        run: python -m pipeline.main`,
+      - name: Load the Dagster definitions
+        run: python -c "import runpy; runpy.run_path('dagster/pipeline.py')"`,
       ),
     },
     {
       path: 'deploy/kustomization.yaml',
-      content: kustomizationYaml(['cronworkflow.yaml']),
+      content: kustomizationYaml(['configmap.yaml', 'external-secret.yaml', 'cronworkflow.yaml']),
+    },
+    {
+      path: 'deploy/configmap.yaml',
+      content: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${c.name}-iceberg-catalog
+  labels:
+    app.kubernetes.io/name: ${c.name}
+data:
+  ICEBERG_REST_URI: "${LAKEHOUSE_REST_URI}"
+  ICEBERG_WAREHOUSE: "lakehouse"
+  S3_ENDPOINT: "${LAKEHOUSE_S3_ENDPOINT}"
+  S3_REGION: "us-east-1"
+  TARGET_TABLE: "${ns}.events"
+  SOURCE_CONNECTOR: "sample"
+  TRINO_HOST: "trino.adhar-system.svc"
+  TRINO_PORT: "8080"
+`,
+    },
+    {
+      path: 'deploy/external-secret.yaml',
+      content: `# The platform object-store credential (root-creds), mirrored into this
+# namespace under both the S3_* and AWS_* names PyIceberg needs.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: ${c.name}-object-store
+  labels:
+    app.kubernetes.io/name: ${c.name}
+spec:
+  refreshInterval: 1m
+  secretStoreRef: {name: gitea, kind: ClusterSecretStore}
+  target: {name: ${c.name}-object-store, creationPolicy: Owner}
+  data:
+    - secretKey: S3_ACCESS_KEY_ID
+      remoteRef: {key: root-creds, property: rootUser}
+    - secretKey: S3_SECRET_ACCESS_KEY
+      remoteRef: {key: root-creds, property: rootPassword}
+    - secretKey: AWS_ACCESS_KEY_ID
+      remoteRef: {key: root-creds, property: rootUser}
+    - secretKey: AWS_SECRET_ACCESS_KEY
+      remoteRef: {key: root-creds, property: rootPassword}
+`,
     },
     {
       path: 'deploy/cronworkflow.yaml',
@@ -778,7 +912,7 @@ metadata:
   labels:
     app.kubernetes.io/name: ${c.name}
 spec:
-  schedule: "0 */6 * * *"
+  schedule: "0 6 * * *"
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 300
   successfulJobsHistoryLimit: 3
@@ -791,8 +925,14 @@ spec:
       - name: run
         container:
           image: ${c.image}
-          command: [python, -m, pipeline.main]
+          envFrom:
+            - configMapRef:
+                name: ${c.name}-iceberg-catalog
+            - secretRef:
+                name: ${c.name}-object-store
           env:
+            - name: DAGSTER_HOME
+              value: /tmp/dagster-home
             - name: OTEL_SERVICE_NAME
               value: "${c.name}"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
@@ -806,31 +946,43 @@ spec:
               memory: 1Gi
 `,
     },
-    { path: 'catalog-info.yaml', content: catalogInfoYaml(c, 'service', ['golden-path', 'data-pipeline', 'python', 'argo-workflows']) },
+    { path: 'catalog-info.yaml', content: catalogInfoYaml(c, 'service', ['golden-path', 'data-pipeline', 'dagster', 'iceberg', 'lakehouse']) },
     {
       path: 'README.md',
       content: `# ${c.name}
 
 ${c.description}
 
-Golden-path **data pipeline** scaffolded by the Adhar console.
+Golden-path **data pipeline** scaffolded by the Adhar console — the paved road
+from ADR-0020: source → Apache Iceberg (the platform lakehouse) → Trino.
 
 ## What you get
 
-- Python 3.12 job skeleton (\`pipeline/main.py\`, extract → transform → load)
-- \`Dockerfile\` producing the job image
-- CI (\`.gitea/workflows/ci.yaml\`): install + smoke test, containerize + push on \`main\`
-- \`deploy/cronworkflow.yaml\`: Argo CronWorkflow (every 6h) synced by Argo CD
-- \`OTEL_EXPORTER_OTLP_ENDPOINT\` pre-wired for traces/metrics
+- \`dagster/pipeline.py\`: a Dagster asset that appends a batch to the Iceberg
+  table \`${ns}.events\` through the platform Iceberg REST catalog
+  (RustFS S3 Tables at \`${LAKEHOUSE_REST_URI}\`); the raw table is created
+  through the platform Trino (\`iceberg\` catalog) on first run
+- \`deploy/\`: ConfigMap (catalog endpoints), ExternalSecret (the platform
+  object-store credential) and an Argo CronWorkflow running the materialization
+  daily at 06:00 UTC — all synced by Argo CD
+- CI (\`.gitea/workflows/ci.yaml\`): install + load the definitions; the platform
+  builds and signs the image on every push to \`main\`
+
+## Query it
+
+\`\`\`sql
+SELECT count(*) FROM iceberg.${ns}.events;   -- through the platform Trino
+\`\`\`
 
 ## Run locally
 
 \`\`\`sh
 pip install -r requirements.txt
-python -m pipeline.main
+kubectl -n adhar-system port-forward svc/rustfs 9000:9000   # catalog + data plane
+export AWS_ACCESS_KEY_ID=… AWS_SECRET_ACCESS_KEY=…            # from: adhar get secrets -p rustfs
+ICEBERG_REST_URI=http://localhost:9000/iceberg S3_ENDPOINT=http://localhost:9000 \\
+  dagster asset materialize -f dagster/pipeline.py --select '*'
 \`\`\`
-
-Change the schedule in \`deploy/cronworkflow.yaml\` — Argo CD applies it on merge.
 `,
     },
   ]

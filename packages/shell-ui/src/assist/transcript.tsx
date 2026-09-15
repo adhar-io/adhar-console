@@ -5,7 +5,7 @@ import { GenerativeBlock } from '../agui/generative.tsx'
 import { useToast } from '../toast.tsx'
 import { Markdown } from './markdown.tsx'
 import { pretty, safeArgs, toolLabel } from './tool-label.ts'
-import { Dots, IconBook, IconCheck, IconChevronDown, IconCopy, IconRefresh, IconReturn, IconSave, IconThumbDown, IconThumbUp, IconTool, SparkIcon } from './icons.tsx'
+import { Dots, IconBook, IconCheck, IconChevronDown, IconCopy, IconRefresh, IconReturn, IconSave, IconSpeaker, IconThumbDown, IconThumbUp, IconTool, SparkIcon } from './icons.tsx'
 
 /**
  * The conversation.
@@ -243,6 +243,7 @@ function TurnFooter({ entry, isLast, busy, question }: { entry: ChatEntry; isLas
           </>
         ) : null}
         <FooterBtn onClick={copy} title="Copy the answer">{copied ? <IconCheck size={12} /> : <IconCopy size={12} />} {copied ? 'Copied' : 'Copy'}</FooterBtn>
+        {entry.content ? <ReadAloud text={entry.content} /> : null}
         {entry.content ? (
           <FooterBtn onClick={() => void remember()} title="Keep this answer in the platform's knowledge base so future answers can cite it" disabled={saving}>
             <IconSave size={12} /> {saving ? 'Keeping…' : 'Keep as knowledge'}
@@ -260,6 +261,34 @@ function TurnFooter({ entry, isLast, busy, question }: { entry: ChatEntry; isLas
         </ol>
       ) : null}
     </div>
+  )
+}
+
+/**
+ * Read the answer out with the browser's speech synthesis. Markdown marks are
+ * stripped first — nobody wants to hear "asterisk asterisk". One utterance at
+ * a time: starting a second cancels the first, and unmounting cancels.
+ */
+function ReadAloud({ text }: { text: string }) {
+  const [speaking, setSpeaking] = useState(false)
+  const synth = typeof globalThis !== 'undefined' ? (globalThis as { speechSynthesis?: SpeechSynthesis }).speechSynthesis : undefined
+  useEffect(() => () => { if (speaking) synth?.cancel() }, [speaking, synth])
+  if (!synth || typeof SpeechSynthesisUtterance === 'undefined') return null
+  const toggle = () => {
+    if (speaking) { synth.cancel(); setSpeaking(false); return }
+    synth.cancel()
+    const plain = text.replace(/```[\s\S]*?```/g, ' code block omitted ').replace(/[#*`>_|]/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    const u = new SpeechSynthesisUtterance(plain.slice(0, 4000))
+    u.lang = globalThis.navigator?.language || 'en-US'
+    u.onend = () => setSpeaking(false)
+    u.onerror = () => setSpeaking(false)
+    setSpeaking(true)
+    synth.speak(u)
+  }
+  return (
+    <FooterBtn onClick={toggle} title={speaking ? 'Stop reading' : 'Read the answer aloud'}>
+      <span className={cn(speaking && 'text-brand-600 dark:text-brand-400')}><IconSpeaker size={12} /></span> {speaking ? 'Stop' : 'Listen'}
+    </FooterBtn>
   )
 }
 
@@ -488,7 +517,7 @@ export function AskCard() {
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && text.trim()) assistStore.answerAsk(text.trim()) }}
             placeholder="Your answer…"
-            className="h-9 flex-1 rounded-lg border border-edge-default bg-surface-raised px-3 text-[13px] text-content focus:border-sky-400 focus:outline-none"
+            className="h-9 flex-1 rounded-lg border border-edge-default bg-surface-raised px-3 text-[13px] text-content focus:border-sky-400 focus:outline-none focus-visible:shadow-[0_0_0_3px_var(--color-sky-500)]/20"
           />
           <button type="button" disabled={!text.trim()} onClick={() => assistStore.answerAsk(text.trim())} className="h-9 rounded-lg bg-sky-600 px-3 text-[12.5px] font-semibold text-white hover:bg-sky-700 disabled:opacity-40">
             Answer

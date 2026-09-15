@@ -40,6 +40,11 @@ export const IconSave = ({ size = 12 }: { size?: number }) => <I size={size}><pa
 export const IconSlash = ({ size = 12 }: { size?: number }) => <I size={size}><path d="m16 4-8 16" /></I>
 export const IconAt = ({ size = 12 }: { size?: number }) => <I size={size}><circle cx="12" cy="12" r="4" /><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" /></I>
 export const IconDot = () => <svg width="6" height="6" viewBox="0 0 6 6" aria-hidden><circle cx="3" cy="3" r="2" fill="currentColor" /></svg>
+export const IconExpand = ({ size = 14 }: { size?: number }) => <I size={size}><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></I>
+export const IconShrink = ({ size = 14 }: { size?: number }) => <I size={size}><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" /></I>
+export const IconKeyboard = ({ size = 14 }: { size?: number }) => <I size={size}><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" /></I>
+export const IconMic = ({ size = 14 }: { size?: number }) => <I size={size}><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8" /></I>
+export const IconSpeaker = ({ size = 12 }: { size?: number }) => <I size={size}><path d="M11 5 6 9H3v6h3l5 4z" /><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" /></I>
 
 export function SparkIcon({ size = 14 }: { size?: number }) {
   return (

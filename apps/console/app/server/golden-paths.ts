@@ -265,7 +265,7 @@ spec:
   ports:
     - name: http
       port: 80
-      targetPort: http
+      targetPort: ${port}
       protocol: TCP
 `
 }

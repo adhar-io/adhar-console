@@ -10,7 +10,7 @@ import { ThreadsRail } from './threads.tsx'
 import { Transcript } from './transcript.tsx'
 import { Welcome } from './welcome.tsx'
 import { filterItems, flattenNav, looksLikeNavigation, type CommandItem } from './nav.ts'
-import { IconCanvas, IconPanelRight, IconPlus, IconSidebar, IconX, SparkIcon } from './icons.tsx'
+import { IconCanvas, IconExpand, IconKeyboard, IconPanelRight, IconShrink, IconSidebar, IconX, SparkIcon } from './icons.tsx'
 
 /**
  * Adhar AI — the surface.
@@ -35,13 +35,34 @@ export interface AssistSurfaceProps {
 
 const LAYOUT_KEY = 'adhar.assist.layout.v1'
 
-function loadLayout(): { threads: boolean; inspector: boolean } {
+interface Layout {
+  threads: boolean
+  inspector: boolean
+  /** Edge to edge, no margins — the surface as an app of its own. */
+  full: boolean
+}
+
+function loadLayout(): Layout {
   try {
     const raw = globalThis.localStorage?.getItem(LAYOUT_KEY)
-    if (raw) return { threads: true, inspector: true, ...(JSON.parse(raw) as object) }
+    if (raw) return { threads: true, inspector: true, full: false, ...(JSON.parse(raw) as object) }
   } catch { /* fall through */ }
-  return { threads: true, inspector: true }
+  return { threads: true, inspector: true, full: false }
 }
+
+const SHORTCUTS: Array<[string, string]> = [
+  ['⏎', 'Send'],
+  ['⇧⏎', 'New line'],
+  ['⌘⏎', 'Open the matched page'],
+  ['/', 'Commands'],
+  ['@', 'Switch agent'],
+  ['⌘⇧O', 'New conversation'],
+  ['⌘⇧F', 'Fullscreen'],
+  ['⌘[', 'Toggle conversations'],
+  ['⌘]', 'Toggle inspector'],
+  ['⌘/', 'Focus the composer'],
+  ['Esc', 'Close'],
+]
 
 export function AssistSurface({ onClose, onNavigate, items, sections = DEFAULT_NAV }: AssistSurfaceProps) {
   const state = useAssist()
@@ -110,6 +131,7 @@ export function AssistSurface({ onClose, onNavigate, items, sections = DEFAULT_N
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'o') { e.preventDefault(); assistStore.newThread(); setInput('') }
       if ((e.metaKey || e.ctrlKey) && e.key === '[') { e.preventDefault(); setLayout((l) => ({ ...l, threads: !l.threads })) }
       if ((e.metaKey || e.ctrlKey) && e.key === ']') { e.preventDefault(); setLayout((l) => ({ ...l, inspector: !l.inspector })) }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); setLayout((l) => ({ ...l, full: !l.full })) }
     }
     globalThis.addEventListener('keydown', onKey)
     return () => globalThis.removeEventListener('keydown', onKey)
@@ -177,14 +199,19 @@ export function AssistSurface({ onClose, onNavigate, items, sections = DEFAULT_N
     : state.model ?? ''
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Adhar AI" className="fixed inset-0 z-[70] flex items-center justify-center p-2 sm:p-4">
+    <div role="dialog" aria-modal="true" aria-label="Adhar AI" className={cn('fixed inset-0 z-[70] flex items-center justify-center', layout.full ? 'p-0' : 'p-2 sm:p-4')}>
       <div className="fade-in absolute inset-0 bg-scrim/45 backdrop-blur-[3px]" onClick={onClose} aria-hidden />
-      <div className="pop-in relative flex h-[94vh] w-full max-w-[1500px] flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-app shadow-[0_48px_96px_-24px_rgba(15,23,42,0.55)]">
+      <div
+        className={cn(
+          'pop-in relative flex w-full flex-col overflow-hidden bg-surface-app transition-[border-radius] duration-200',
+          layout.full
+            ? 'h-full max-w-none rounded-none'
+            : 'h-[94vh] max-w-[1500px] rounded-2xl border border-edge-default shadow-[0_48px_96px_-24px_rgba(15,23,42,0.55)]',
+        )}
+      >
         {/* ═══ header ═══ */}
         <header className="flex h-[52px] shrink-0 items-center gap-3 border-b border-edge-subtle bg-surface-raised/80 px-3.5 backdrop-blur">
-          <button type="button" onClick={() => setLayout((l) => ({ ...l, threads: !l.threads }))} title="Toggle conversations (⌘[)" aria-pressed={layout.threads} className={cn('flex h-8 w-8 items-center justify-center rounded-lg transition-colors', layout.threads ? 'text-content hover:bg-surface-sunken' : 'text-content-subtle hover:bg-surface-sunken hover:text-content')}>
-            <IconSidebar />
-          </button>
+          <IconToggle on={layout.threads} onClick={() => setLayout((l) => ({ ...l, threads: !l.threads }))} title="Toggle conversations (⌘[)"><IconSidebar /></IconToggle>
           <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-linear-to-br from-brand-500 to-accent-500 text-white shadow-sm">
             <SparkIcon size={15} />
           </span>
@@ -209,13 +236,15 @@ export function AssistSurface({ onClose, onNavigate, items, sections = DEFAULT_N
                 <IconCanvas /> Canvas <span className="tabular-nums opacity-60">{canvasBlocks.length}</span>
               </HeaderBtn>
             ) : null}
-            <HeaderBtn onClick={() => { assistStore.newThread(); setInput(''); inputRef.current?.focus() }} title="New conversation (⌘⇧O)">
-              <IconPlus /> New
-            </HeaderBtn>
-            <button type="button" onClick={() => setLayout((l) => ({ ...l, inspector: !l.inspector }))} title="Toggle inspector (⌘])" aria-pressed={layout.inspector} className={cn('flex h-8 w-8 items-center justify-center rounded-lg transition-colors', layout.inspector ? 'text-content hover:bg-surface-sunken' : 'text-content-subtle hover:bg-surface-sunken hover:text-content')}>
-              <IconPanelRight />
-            </button>
-            <button type="button" onClick={onClose} aria-label="Close" className="ml-0.5 flex h-8 w-8 items-center justify-center rounded-lg text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content"><IconX /></button>
+            {/* "New" left the header: it lives in the conversations rail and on
+                ⌘⇧O, and a top bar earns its slots with controls that change
+                the SURFACE, not the thread. */}
+            <IconToggle on={layout.inspector} onClick={() => setLayout((l) => ({ ...l, inspector: !l.inspector }))} title="Toggle inspector (⌘])"><IconPanelRight /></IconToggle>
+            <IconToggle on={layout.full} onClick={() => setLayout((l) => ({ ...l, full: !l.full }))} title={layout.full ? 'Exit fullscreen (⌘⇧F)' : 'Fullscreen (⌘⇧F)'}>
+              {layout.full ? <IconShrink /> : <IconExpand />}
+            </IconToggle>
+            <ShortcutsMenu />
+            <button type="button" onClick={onClose} aria-label="Close (Esc)" title="Close (Esc)" className="ml-0.5 flex h-8 w-8 items-center justify-center rounded-lg text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content"><IconX /></button>
           </div>
         </header>
 
@@ -320,6 +349,46 @@ function CanvasBoard({ blocks }: { blocks: UiBlock[] }) {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+function IconToggle({ on, onClick, title, children }: { on: boolean; onClick(): void; title: string; children: React.ReactNode }) {
+  return (
+    <button type="button" onClick={onClick} title={title} aria-label={title} aria-pressed={on} className={cn('flex h-8 w-8 items-center justify-center rounded-lg transition-colors', on ? 'text-content hover:bg-surface-sunken' : 'text-content-subtle hover:bg-surface-sunken hover:text-content')}>
+      {children}
+    </button>
+  )
+}
+
+/** Every key the surface understands, one click away — discoverable, not memorised. */
+function ShortcutsMenu() {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false) } }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey, true)
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey, true) }
+  }, [open])
+  return (
+    <div ref={ref} className="relative">
+      <IconToggle on={open} onClick={() => setOpen((o) => !o)} title="Keyboard shortcuts"><IconKeyboard /></IconToggle>
+      {open ? (
+        <div className="pop-in absolute right-0 top-full z-30 mt-1.5 w-64 overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-xl shadow-black/10">
+          <div className="border-b border-edge-subtle px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Shortcuts</div>
+          <ul className="p-1.5">
+            {SHORTCUTS.map(([k, what]) => (
+              <li key={k} className="flex items-center justify-between gap-3 rounded-md px-1.5 py-1 text-[12px]">
+                <span className="text-content-muted">{what}</span>
+                <kbd className="rounded border border-edge-default bg-surface-sunken px-1.5 py-px font-mono text-[10.5px] text-content">{k}</kbd>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   )
 }

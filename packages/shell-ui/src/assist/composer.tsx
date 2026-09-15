@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { cn } from '@adhar-console/utils'
 import { AUTONOMY_LEVELS, type AgentInfo, type Autonomy } from '../agui/store.ts'
 import type { CommandItem } from './nav.ts'
-import { IconAt, IconChevronDown, IconPin, IconReturn, IconSlash, IconStop, IconX, SparkIcon } from './icons.tsx'
+import { IconAt, IconChevronDown, IconMic, IconPin, IconReturn, IconSlash, IconStop, IconX, SparkIcon } from './icons.tsx'
 import { accentDot } from './accent.ts'
 
 /**
@@ -222,6 +222,7 @@ export function Composer({
           aria-label="Message Adhar AI"
           className="max-h-[200px] min-h-[28px] flex-1 resize-none bg-transparent py-1 text-[14px] leading-6 text-content outline-none placeholder:text-content-subtle focus:outline-none focus:ring-0"
         />
+        <VoiceButton disabled={busy} value={value} onChange={onChange} onDone={() => inputRef.current?.focus()} />
         {busy ? (
           <button type="button" onClick={onStop} className="mb-0.5 inline-flex h-8 items-center gap-1.5 rounded-lg bg-surface-sunken px-3 text-[12px] font-semibold text-content-muted transition-colors hover:text-content">
             <IconStop /> Stop
@@ -254,6 +255,110 @@ export function Composer({
         <span className="hidden sm:inline"><kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">⇧⏎</kbd> newline</span>
       </div>
     </div>
+  )
+}
+
+/* ─────────────────────────────── voice ─────────────────────────────── */
+
+type Recognition = {
+  lang: string
+  continuous: boolean
+  interimResults: boolean
+  onresult: ((e: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal: boolean }> }) => void) | null
+  onend: (() => void) | null
+  onerror: ((e: { error?: string }) => void) | null
+  start(): void
+  stop(): void
+  abort(): void
+}
+
+function recognitionCtor(): (new () => Recognition) | null {
+  const g = globalThis as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition }
+  return g.SpeechRecognition ?? g.webkitSpeechRecognition ?? null
+}
+
+/**
+ * Dictate into the composer.
+ *
+ * The browser's own speech recognition — no audio leaves the page to any
+ * service of ours. Words land in the field as they are recognised (interim
+ * text is replaced, final text is kept), and NOTHING is sent on the
+ * operator's behalf: a spoken question is reviewed and sent with ⏎ like a
+ * typed one, because "did it hear me right" is a question worth answering
+ * before a run costs tokens. Hidden entirely where the API does not exist,
+ * rather than shown and broken.
+ */
+function VoiceButton({ value, onChange, disabled, onDone }: { value: string; onChange(v: string): void; disabled: boolean; onDone(): void }) {
+  const Ctor = useMemo(recognitionCtor, [])
+  const [listening, setListening] = useState(false)
+  const [denied, setDenied] = useState(false)
+  const rec = useRef<Recognition | null>(null)
+  const base = useRef('')
+
+  useEffect(() => () => rec.current?.abort(), [])
+
+  if (!Ctor) return null
+
+  const stop = () => {
+    rec.current?.stop()
+    rec.current = null
+    setListening(false)
+    onDone()
+  }
+  const start = () => {
+    const r = new Ctor()
+    r.lang = globalThis.navigator?.language || 'en-US'
+    r.continuous = true
+    r.interimResults = true
+    base.current = value ? `${value.replace(/\s+$/, '')} ` : ''
+    r.onresult = (e) => {
+      let finalText = ''
+      let interim = ''
+      for (let i = 0; i < e.results.length; i++) {
+        const res = e.results[i]
+        const t = res[0]?.transcript ?? ''
+        if (res.isFinal) finalText += t
+        else interim += t
+      }
+      onChange(`${base.current}${finalText}${interim}`.replace(/\s+/g, ' '))
+    }
+    r.onerror = (e) => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') setDenied(true)
+      setListening(false)
+      rec.current = null
+    }
+    r.onend = () => {
+      setListening(false)
+      rec.current = null
+      onDone()
+    }
+    rec.current = r
+    setDenied(false)
+    setListening(true)
+    r.start()
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={listening ? stop : start}
+      aria-pressed={listening}
+      title={denied ? 'Microphone access was denied — allow it in the browser to dictate' : listening ? 'Stop dictating' : 'Dictate (speech stays in your browser)'}
+      className={cn(
+        'mb-0.5 flex h-8 w-8 items-center justify-center rounded-lg transition-colors disabled:opacity-40',
+        listening
+          ? 'bg-rose-50 text-rose-600 ring-1 ring-rose-300 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/40'
+          : denied
+            ? 'text-content-subtle line-through'
+            : 'text-content-subtle hover:bg-surface-sunken hover:text-content',
+      )}
+    >
+      <span className={cn('relative flex', listening && 'animate-pulse')}>
+        <IconMic size={15} />
+        {listening ? <span className="pulse-ring absolute -inset-1.5 rounded-full ring-2 ring-rose-400/50" aria-hidden /> : null}
+      </span>
+    </button>
   )
 }
 

@@ -53,7 +53,9 @@ export function ThreadsRail({ onPicked }: { onPicked?(): void }) {
         </button>
         <label className="flex h-8 items-center gap-2 rounded-lg bg-surface-sunken/70 px-2.5 focus-within:ring-1 focus-within:ring-edge-default">
           <span className="text-content-subtle"><IconSearch size={12} /></span>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search conversations" className="min-w-0 flex-1 bg-transparent text-[12px] text-content outline-none placeholder:text-content-subtle" />
+          {/* The wrapper draws the focus ring; the field itself must not, or the
+              global input ring paints a second box inside the first. */}
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search conversations" className="min-w-0 flex-1 bg-transparent text-[12px] text-content outline-none placeholder:text-content-subtle focus:ring-0 focus-visible:shadow-none" />
         </label>
       </div>
 

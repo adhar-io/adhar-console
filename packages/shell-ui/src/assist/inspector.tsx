@@ -288,7 +288,7 @@ function KnowledgeTab({ onAskAbout }: { onAskAbout(text: string): void }) {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="What does the platform know about…"
-          className="min-w-0 flex-1 bg-transparent text-[12.5px] text-content outline-none placeholder:text-content-subtle"
+          className="min-w-0 flex-1 bg-transparent text-[12.5px] text-content outline-none placeholder:text-content-subtle focus:ring-0 focus-visible:shadow-none"
         />
         {knowledge.searching ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" /> : null}
       </label>

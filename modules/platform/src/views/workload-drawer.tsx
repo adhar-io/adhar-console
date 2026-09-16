@@ -1252,7 +1252,7 @@ function WorkloadMetricsRollup({
   if (q.isLoading || rollup.counted === 0) return null
 
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
       <Tile label="Pods sampled" value={rollup.counted} />
       <div className="rounded-lg border border-edge-subtle bg-surface-sunken px-2 py-2 text-center">
         <div className="text-lg font-semibold tabular-nums text-content">{formatCpu(rollup.cpu)}</div>

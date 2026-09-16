@@ -42,7 +42,7 @@ interface Props {
    *   • `wide` — `max-w-screen-2xl`, for dense dashboards (Decide / Platform).
    *   • `full` — `max-w-none`, for full-bleed boards (Define Kanban, Discover).
    */
-  contentWidth?: 'standard' | 'wide' | 'full'
+  contentWidth?: 'standard' | 'wide' | 'full' | 'bleed'
 }
 
 const SIDEBAR_KEY = 'adhar.shell.sidebar-collapsed.v1'
@@ -51,6 +51,8 @@ const CONTENT_WIDTH_CLASS = {
   standard: 'max-w-7xl',
   wide: 'max-w-screen-2xl',
   full: 'max-w-none',
+  /** No padding, no max width: the page fills the frame and scrolls its own panes (Adhar AI). */
+  bleed: '',
 } as const
 
 export function AppShell({
@@ -221,18 +223,24 @@ export function AppShell({
           onOpenSidebar={() => setMobileOpen(true)}
           headerControls={headerControls}
         />
-        <main className="isolate flex-1 overflow-y-auto">
-          <ErrorBoundary>
-            <div
-              className={cn(
-                'mx-auto px-4 py-6 sm:px-6 sm:py-8 lg:px-8',
-                CONTENT_WIDTH_CLASS[contentWidth],
-              )}
-            >
-              {children}
-            </div>
-          </ErrorBoundary>
-        </main>
+        {contentWidth === 'bleed' ? (
+          <main className="isolate flex min-h-0 flex-1 flex-col overflow-hidden">
+            <ErrorBoundary>{children}</ErrorBoundary>
+          </main>
+        ) : (
+          <main className="isolate flex-1 overflow-y-auto">
+            <ErrorBoundary>
+              <div
+                className={cn(
+                  'mx-auto px-4 py-6 sm:px-6 sm:py-8 lg:px-8',
+                  CONTENT_WIDTH_CLASS[contentWidth],
+                )}
+              >
+                {children}
+              </div>
+            </ErrorBoundary>
+          </main>
+        )}
       </div>
 
       {commandPaletteEnabled ? (

@@ -95,7 +95,10 @@ export function Topbar({
             </>
           ) : null}
           <LiveIndicator className="hidden sm:inline-flex" />
-          <HelpMenu />
+          {/* Below sm the right cluster is six controls plus the account
+              button, which is wider than a phone. Help is reachable from the
+              user menu; the rest stay. */}
+          <span className="hidden sm:contents"><HelpMenu /></span>
           <ModeToggle />
           <AppLauncher apps={apps} />
           <NotificationsMenu seed={notifications} />
@@ -292,7 +295,7 @@ function UserMenu({ user, onSignOut }: { user: User; onSignOut?(): void }) {
           <div className="text-sm font-medium leading-none text-content">{user.name}</div>
           <div className="mt-0.5 text-[11px] capitalize text-content-muted">{user.roles[0]}</div>
         </div>
-        <IconChevronDown />
+        <span className="hidden sm:block"><IconChevronDown /></span>
       </button>
       {open ? (
         <Dropdown onClose={() => setOpen(false)} anchorRef={ref} widthClass="w-72">
@@ -328,6 +331,11 @@ function UserMenu({ user, onSignOut }: { user: User; onSignOut?(): void }) {
             <DropdownLink to="/settings" icon={<IconSettings />} onNavigate={() => setOpen(false)}>
               Organization settings
             </DropdownLink>
+            <span className="sm:hidden">
+              <DropdownLink to="/help" icon={<IconBookOpen />} onNavigate={() => setOpen(false)}>
+                Help center
+              </DropdownLink>
+            </span>
             <DropdownLink to="/status" icon={<IconActivity />} onNavigate={() => setOpen(false)}>
               Platform status
             </DropdownLink>

@@ -485,7 +485,7 @@ function PolicyDrawer({
       </DrawerSection>
 
       <DrawerSection title="Results" actions={<span className="text-xs text-content-subtle">from PolicyReports</span>}>
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
           {(['pass', 'fail', 'warn', 'error'] as const).map((k) => (
             <div key={k} className="rounded-lg border border-edge-subtle bg-surface-sunken/50 p-2 text-center">
               <div className={cn('text-lg font-semibold tabular-nums', k === 'pass' ? 'text-emerald-600 dark:text-emerald-300' : k === 'fail' ? 'text-rose-600 dark:text-rose-300' : k === 'warn' ? 'text-amber-600 dark:text-amber-300' : 'text-content')}>{tally?.[k] ?? 0}</div>

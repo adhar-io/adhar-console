@@ -898,7 +898,7 @@ function SystemCard({ summary, onPick }: { summary: SystemSummary; onPick(e: Ent
           </p>
         ) : null}
       </div>
-      <div className="grid grid-cols-3 divide-x divide-edge-subtle border-t border-edge-subtle bg-surface-raised text-center">
+      <div className="grid grid-cols-1 sm:grid-cols-3 divide-x divide-edge-subtle border-t border-edge-subtle bg-surface-raised text-center">
         <SystemStat label="Components" value={components.length} kind="Component" />
         <SystemStat label="APIs" value={apis.length} kind="API" />
         <SystemStat label="Resources" value={resources.length} kind="Resource" />

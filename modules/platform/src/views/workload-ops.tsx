@@ -355,7 +355,7 @@ function RolloutStatus({ resolved }: { resolved: Resolved }) {
           {label}
         </StatusBadge>
       </div>
-      <div className="grid grid-cols-4 gap-2 text-center">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-center">
         <Stat label="Desired" value={desired} />
         <Stat label="Updated" value={updated} />
         <Stat

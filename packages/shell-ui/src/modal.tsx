@@ -49,7 +49,9 @@ export function Modal({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-60 flex items-start justify-center px-4 py-10"
+      // A bottom sheet on phones — a centred dialog in a 390px viewport is a
+      // postage stamp with the keyboard up — and a dialog from sm upward.
+      className="fixed inset-0 z-60 flex items-end justify-center sm:items-start sm:px-4 sm:py-10"
     >
       <button
         type="button"
@@ -59,7 +61,7 @@ export function Modal({
       />
       <div
         className={cn(
-          'relative w-full overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-2xl ring-1 ring-edge-default',
+          'relative flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-edge-default bg-surface-raised shadow-2xl ring-1 ring-edge-default sm:max-h-none sm:rounded-2xl',
           WIDTH[width],
         )}
       >
@@ -94,7 +96,7 @@ export function Modal({
           </button>
         </header>
 
-        <div className="max-h-[70vh] overflow-y-auto px-6 py-5">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:max-h-[70vh] sm:px-6 sm:py-5">{children}</div>
 
         {footer ? (
           <footer className="flex items-center justify-end gap-2 border-t border-edge-subtle bg-surface-sunken/60 px-6 py-3">

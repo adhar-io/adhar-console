@@ -529,3 +529,44 @@ a {
   background-color: oklch(0.42 0.12 265);
   color: oklch(0.98 0.005 265);
 }
+
+/*
+ * Mobile groundwork.
+ *
+ *   - `text-size-adjust`: iOS Safari inflates text in landscape otherwise.
+ *   - `overscroll-behavior`: the document must not rubber-band behind a
+ *     drawer or the AI surface; those scroll their own panes.
+ *   - `.pb-safe` / `.pt-safe`: bottom-pinned composers and sheets respect the
+ *     home indicator; the viewport meta declares `viewport-fit=cover`.
+ */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+body {
+  overscroll-behavior-y: none;
+}
+@layer utilities {
+  .pb-safe { padding-bottom: max(0.75rem, env(safe-area-inset-bottom)); }
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+}
+
+/*
+ * Phones: a wide table scrolls sideways inside its card instead of pushing
+ * the page wider. `display: block` on the table element leaves its row groups
+ * intact (they wrap in an anonymous table box) and gives the element its own
+ * horizontal scrollbar; the console's tables are all `w-full`, so that one
+ * selector reaches every raw <table> without touching thirty-five views.
+ * DataTable has its own scroller and is excluded.
+ */
+@media (max-width: 639px) {
+  table.w-full:not([data-datatable]) {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  table.w-full:not([data-datatable]) th,
+  table.w-full:not([data-datatable]) td {
+    white-space: nowrap;
+  }
+}

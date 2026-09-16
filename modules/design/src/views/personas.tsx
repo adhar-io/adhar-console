@@ -143,7 +143,7 @@ function PersonaCard({ p, onOpen }: { p: Persona; onOpen(): void }) {
             </span>
           ) : null}
         </div>
-        <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+        <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
           <Mini label="Goals" value={p.goals.length} accent="emerald" />
           <Mini label="Pains" value={p.frustrations.length} accent="rose" />
           <Mini label="Behaviors" value={p.behaviors.length} accent="brand" />

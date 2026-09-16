@@ -171,7 +171,7 @@ function ModuleCard({
       <CardBody className="relative z-0 space-y-4">
         <BreakdownBar mod={m} />
 
-        <div className="grid grid-cols-4 gap-2 text-center text-xs">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-center text-xs">
           <Pill label="Done" value={m.completed_issues ?? 0} color="var(--color-brand-500)" />
           <Pill label="Active" value={m.started_issues ?? 0} color="var(--color-accent-500)" />
           <Pill label="Unstarted" value={m.unstarted_issues ?? 0} color="#f59e0b" />

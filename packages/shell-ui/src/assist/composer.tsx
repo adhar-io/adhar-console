@@ -114,7 +114,7 @@ export function Composer({
   const menuLen = menu === 'slash' ? slashMatches.length : menu === 'agent' ? agentMatches.length : 0
 
   return (
-    <div className="relative border-t border-edge-subtle bg-surface-raised/80 px-4 pb-3.5 pt-2.5 backdrop-blur">
+    <div className="pb-safe relative border-t border-edge-subtle bg-surface-raised/80 px-3 pt-2 backdrop-blur sm:px-4 sm:pb-3.5 sm:pt-2.5">
       {/* ── controls row ── */}
       {configured && agents.length ? (
         <div className="mb-2 flex flex-wrap items-center gap-1.5">
@@ -220,7 +220,9 @@ export function Composer({
           }}
           placeholder={configured ? `Ask ${agent?.name ?? 'Adhar AI'} anything — or type a page name and press ⌘⏎` : 'Search pages, apps and settings…'}
           aria-label="Message Adhar AI"
-          className="max-h-[200px] min-h-[28px] flex-1 resize-none bg-transparent py-1 text-[14px] leading-6 text-content outline-none placeholder:text-content-subtle focus:outline-none focus:ring-0"
+          // 16px on phones: anything smaller makes iOS Safari zoom the page
+          // into the field on focus, and it does not zoom back out.
+          className="max-h-[200px] min-h-[28px] flex-1 resize-none bg-transparent py-1 text-[16px] leading-6 text-content outline-none placeholder:text-content-subtle focus:outline-none focus:ring-0 md:text-[14px]"
         />
         <VoiceButton disabled={busy} value={value} onChange={onChange} onDone={() => inputRef.current?.focus()} />
         {busy ? (
@@ -240,7 +242,7 @@ export function Composer({
       </div>
 
       {/* ── hint line ── */}
-      <div className="mt-1.5 flex items-center justify-between px-1 text-[10.5px] text-content-subtle">
+      <div className="mt-1.5 hidden items-center justify-between px-1 text-[10.5px] text-content-subtle sm:flex">
         <span>
           {navHint && value.trim() && !menu ? (
             <button type="button" onClick={onOpenNavHint} className="inline-flex items-center gap-1 rounded px-1 hover:bg-surface-sunken hover:text-content">

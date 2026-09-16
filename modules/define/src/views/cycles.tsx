@@ -287,7 +287,7 @@ function CycleBreakdownBar({ cycle, compact = false }: { cycle: plane.Cycle; com
 
 function CycleStatsRow({ cycle, compact = false }: { cycle: plane.Cycle; compact?: boolean }) {
   return (
-    <div className={cn('grid grid-cols-3 gap-2 text-center', compact ? 'text-xs' : '')}>
+    <div className={cn('grid grid-cols-1 sm:grid-cols-3 gap-2 text-center', compact ? 'text-xs' : '')}>
       <Stat label="Total" value={cycle.total_issues ?? 0} />
       <Stat label="Done" value={cycle.completed_issues ?? 0} accent="emerald" />
       <Stat

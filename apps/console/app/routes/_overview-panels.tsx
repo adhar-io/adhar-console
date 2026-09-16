@@ -80,7 +80,7 @@ export function DefineIssuesPanel() {
   return (
     <PanelCard>
       <PanelHead title="Define" subtitle={project?.name ?? 'No project'} to="/define" />
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Stat label="Open" value={open} tone="amber" />
         <Stat label="Done" value={done} tone="emerald" />
         <Stat label="% done" value={`${pct}%`} tone="brand" />
@@ -118,7 +118,7 @@ export function DevelopPRsPanel() {
         subtitle={`${repos.data?.length ?? 0} repos · ${list.length} open PRs`}
         to="/develop"
       />
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Stat label="Open PRs" value={list.length} tone="amber" />
         <Stat label="Conflicts" value={conflicts} tone={conflicts ? 'rose' : 'slate'} />
         <Stat label="Repos" value={repos.data?.length ?? 0} tone="brand" />
@@ -156,7 +156,7 @@ export function PipelinesPanel() {
   return (
     <PanelCard>
       <PanelHead title="Data pipelines" subtitle="Airbyte connections" to="/develop?pipelines" />
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Stat label="Connections" value={list.length} tone="brand" />
         <Stat label="Running" value={running} tone={running ? 'amber' : 'slate'} />
         <Stat label="Failed" value={failed} tone={failed ? 'rose' : 'emerald'} />
@@ -182,7 +182,7 @@ export function DeliverAppsPanel() {
   return (
     <PanelCard>
       <PanelHead title="Deliver · GitOps" subtitle="ArgoCD applications" to="/deliver?apps" />
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Stat label="Apps" value={list.length} tone="brand" />
         <Stat label="Drift" value={drift} tone={drift ? 'amber' : 'slate'} />
         <Stat label="Degraded" value={degraded} tone={degraded ? 'rose' : 'emerald'} />
@@ -233,7 +233,7 @@ export function VulnSummaryPanel() {
   return (
     <PanelCard>
       <PanelHead title="Vulnerabilities" subtitle="Trivy reports" to="/deliver?scans" />
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
         <SevTile label="Crit" value={totals.critical} tone="rose" />
         <SevTile label="High" value={totals.high} tone="amber" />
         <SevTile label="Med" value={totals.medium} tone="sky" />
@@ -262,7 +262,7 @@ export function AlertsPanel() {
   return (
     <PanelCard>
       <PanelHead title="Alerts" subtitle="Alertmanager · live" to="/discover?alerts" />
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Stat label="Firing" value={firing.length} tone={firing.length ? 'rose' : 'emerald'} />
         <Stat label="Critical" value={critical} tone={critical ? 'rose' : 'slate'} />
         <Stat label="Pending" value={list.filter((a) => a.state === 'pending').length} tone="amber" />
@@ -302,7 +302,7 @@ export function SloPanel() {
   return (
     <PanelCard>
       <PanelHead title="SLO health" subtitle={`${list.length} objectives`} to="/discover?slos" />
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Stat label="Meeting" value={meeting} tone="emerald" />
         <Stat label="Burning" value={burning} tone={burning ? 'rose' : 'slate'} />
         <Stat label="Min budget" value={`${minBudget.toFixed(0)}%`} tone={minBudget < 30 ? 'rose' : minBudget < 70 ? 'amber' : 'emerald'} />
@@ -345,7 +345,7 @@ export function GoldenSignalsPanel() {
   return (
     <PanelCard>
       <PanelHead title="Golden signals" subtitle="Last hour · all services" to="/discover?metrics" />
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <SignalTile
           label="RPS"
           value={rpsTotal.toFixed(0)}
@@ -380,7 +380,7 @@ export function RuntimePanel() {
   return (
     <PanelCard>
       <PanelHead title="Runtime · 6h" subtitle="Falco events" to="/discover?runtime" />
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Stat label="Total" value={list.length} tone="brand" />
         <Stat label="Critical" value={critical} tone={critical ? 'rose' : 'slate'} />
         <Stat label="Warnings" value={list.filter((e) => e.priority === 'Warning').length} tone="amber" />
@@ -586,7 +586,7 @@ export function CostTrendPanel() {
           <span>today</span>
         </div>
       </div>
-      <div className="mt-3 grid grid-cols-3 gap-2 border-t border-edge-subtle pt-3 text-[11px]">
+      <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 border-t border-edge-subtle pt-3 text-[11px]">
         <CostBreak label="Compute" value={Math.round(data!.compute)} share={share(data!.compute)} />
         <CostBreak label="Storage" value={Math.round(data!.storage)} share={share(data!.storage)} />
         <CostBreak label="Network" value={Math.round(data!.network)} share={share(data!.network)} />
@@ -3101,7 +3101,7 @@ export function KafkaBrokersPanel() {
   return (
     <PanelCard>
       <PanelHead title="Kafka brokers" subtitle="Strimzi · broker liveness" to="/platform" />
-      <div className="mb-3 grid grid-cols-3 gap-2">
+      <div className="mb-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
         <Stat
           label="Online"
           value={`${onlineCount}/${brokers.length}`}
@@ -3208,7 +3208,7 @@ export function ToolsHealthPanel() {
   return (
     <PanelCard>
       <PanelHead title="Platform tools" subtitle="Wiring across the stack" to="/platform" />
-      <div className="mb-3 grid grid-cols-3 gap-2">
+      <div className="mb-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
         <Stat label="Configured" value={configured} tone="emerald" />
         <Stat label="Unconfigured" value={unconfigured} tone={unconfigured > 0 ? 'amber' : 'slate'} />
         <Stat label="Total" value={tools.length} tone="brand" />
@@ -3413,7 +3413,7 @@ export function GiteaRepoMetricsPanel() {
   return (
     <PanelCard>
       <PanelHead title="Code repositories" subtitle="Gitea · org-wide activity" to="/develop" />
-      <div className="mb-3 grid grid-cols-4 gap-2">
+      <div className="mb-3 grid grid-cols-2 lg:grid-cols-4 gap-2">
         <Stat label="Repos" value={total} tone="brand" />
         <Stat label="Stars" value={stars} tone="amber" />
         <Stat label="Forks" value={forks} tone="slate" />
@@ -3547,7 +3547,7 @@ export function GitOpsSyncPanel() {
   return (
     <PanelCard>
       <PanelHead title="GitOps sync" subtitle="ArgoCD · drift + recent syncs" to="/deliver" />
-      <div className="mb-3 grid grid-cols-3 gap-2">
+      <div className="mb-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
         <Stat label="Apps" value={apps.length} tone="brand" />
         <Stat label="Synced" value={synced} tone={outOfSync === 0 ? 'emerald' : 'amber'} />
         <Stat label="Drift" value={outOfSync} tone={outOfSync === 0 ? 'emerald' : 'rose'} />
@@ -3574,7 +3574,7 @@ export function GitOpsSyncPanel() {
             )
           })}
         </div>
-        <ul className="mt-1.5 grid grid-cols-3 gap-x-2 text-[10px]">
+        <ul className="mt-1.5 grid grid-cols-1 sm:grid-cols-3 gap-x-2 text-[10px]">
           {driftBars.map((b) => (
             <li key={b.label} className="flex items-center gap-1.5">
               <span
@@ -3843,7 +3843,7 @@ export function SprintProgressPanel() {
         subtitle={active?.name ?? 'No active cycle'}
         to="/define"
       />
-      <div className="mb-3 grid grid-cols-4 gap-2">
+      <div className="mb-3 grid grid-cols-2 lg:grid-cols-4 gap-2">
         <Stat label="Total" value={total} tone="brand" />
         <Stat label="Done" value={completed} tone="emerald" />
         <Stat label="In-flight" value={started} tone="amber" />
@@ -3980,7 +3980,7 @@ export function IssueBacklogPanel() {
           </span>
           <span className={cn('tabular-nums', groomingTone)}>{triagePct}% untriaged</span>
         </div>
-        <div className="grid grid-cols-4 gap-1.5 text-[10px]">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5 text-[10px]">
           {(
             [
               { key: 'week', label: 'This week', tone: 'bg-emerald-500/80' },
@@ -4111,7 +4111,7 @@ export function TenantUsagePanel() {
         subtitle={`${tenants.length} ${grouped} · quota consumption`}
         to="/settings"
       />
-      <div className="mb-3 grid grid-cols-3 gap-2">
+      <div className="mb-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
         <Stat
           label={grouped === 'tenants' ? 'Tenants' : 'Namespaces'}
           value={tenants.length}
@@ -4152,7 +4152,7 @@ export function TenantUsagePanel() {
                   {hot}%
                 </span>
               </div>
-              <div className="mt-1.5 grid grid-cols-3 gap-1.5">
+              <div className="mt-1.5 grid grid-cols-1 sm:grid-cols-3 gap-1.5">
                 <UsageBar label="CPU" pct={cpuPct} fill="bg-sky-500" />
                 <UsageBar label="Mem" pct={memPct} fill="bg-violet-500" />
                 <UsageBar label="Disk" pct={storagePct} fill="bg-emerald-500" />
@@ -4421,7 +4421,7 @@ export function BackupStatusPanel() {
         subtitle={`Velero + CloudNativePG · ${scheduleCount} schedule${scheduleCount === 1 ? '' : 's'}`}
         to="/platform"
       />
-      <div className="mb-3 grid grid-cols-3 gap-2">
+      <div className="mb-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
         <Stat label="OK" value={completed} tone="emerald" />
         <Stat label="Partial" value={partial} tone={partial > 0 ? 'amber' : 'slate'} />
         <Stat label="Failed" value={failed} tone={failed > 0 ? 'rose' : 'slate'} />
@@ -4561,7 +4561,7 @@ export function WorkflowRunsPanel() {
         subtitle="Argo Workflows · live executions"
         to="/develop"
       />
-      <div className="mb-3 grid grid-cols-3 gap-2">
+      <div className="mb-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
         <Stat label="Running" value={running} tone="brand" />
         <Stat label="Success" value={`${successRate}%`} tone={successRate >= 90 ? 'emerald' : 'amber'} />
         <Stat label="Failed" value={failed24h} tone={failed24h > 0 ? 'rose' : 'slate'} />
@@ -4727,7 +4727,7 @@ export function PipelineStagePerformancePanel() {
         subtitle="Per-stage duration · last 7 days"
         to="/develop"
       />
-      <div className="mb-3 grid grid-cols-3 gap-2">
+      <div className="mb-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
         <Stat label="Total avg" value={fmt(totalAvg)} tone="brand" />
         <Stat label="Slowest" value={slowest.name} tone="violet" />
         <Stat label="Flakiest" value={flakiest.name} tone={flakiest.failRate > 3 ? 'rose' : 'amber'} />
@@ -4831,7 +4831,7 @@ export function CiliumNetworkFlowPanel() {
         subtitle="cilium.io · policy posture"
         to="/platform"
       />
-      <div className="mb-3 grid grid-cols-3 gap-2">
+      <div className="mb-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
         <Stat label="Policies" value={total} tone="brand" />
         <Stat label="Namespaced" value={nsPolicies.length} tone="violet" />
         <Stat label="Cluster-wide" value={cwPolicies.length} tone="emerald" />
@@ -4941,7 +4941,7 @@ export function MtlsCoveragePanel() {
   return (
     <PanelCard>
       <PanelHead title="mTLS coverage" subtitle="Istio PeerAuthentication" to="/platform" />
-      <div className="mb-3 grid grid-cols-3 gap-2">
+      <div className="mb-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
         <Stat label="Strict" value={`${encrypted}/${total}`} tone={coveragePct >= 95 ? 'emerald' : 'amber'} />
         <Stat label="Coverage" value={`${coveragePct}%`} tone={coveragePct >= 95 ? 'emerald' : 'amber'} />
         <Stat label="Disabled" value={plain} tone={plain === 0 ? 'emerald' : 'rose'} />
@@ -5075,7 +5075,7 @@ export function IngressTrafficPanel() {
         subtitle="networking.k8s.io · edge routing"
         to="/discover"
       />
-      <div className="mb-3 grid grid-cols-3 gap-2">
+      <div className="mb-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
         <Stat label="Ingresses" value={ingressCount} tone="brand" />
         <Stat label="Routes" value={routes.length} tone="violet" />
         <Stat label="Hosts" value={hosts} tone="emerald" />

@@ -447,7 +447,7 @@ function OnboardingWizard() {
 
         {/* Stepper */}
         <nav aria-label="Onboarding progress" className="mb-8">
-          <ol className="hidden grid-cols-5 gap-2 md:grid">
+          <ol className="hidden grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 md:grid">
             {STEPS.map((s) => {
               const done = s.id < step
               const active = s.id === step

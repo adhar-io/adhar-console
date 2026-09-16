@@ -94,7 +94,7 @@ export function Integrations() {
                     </div>
                     <TestBadge integration={i} />
                   </div>
-                  <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
                     <KV label="Type" value={INTEGRATION_TYPES.find((t) => t.value === i.type)?.label ?? i.type} />
                     <KV label="State" value={i.enabled ? 'enabled' : 'disabled'} />
                     <KV label="Token" value={i.tokenMasked ?? 'not set'} />

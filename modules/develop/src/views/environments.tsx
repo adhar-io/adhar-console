@@ -361,7 +361,7 @@ function WorkspaceCard({ workspace: w, dashboard, onOpen, actions, pending }: { 
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-3 gap-1.5 text-[11px]">
+        <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-1.5 text-[11px]">
           <Mini label="Last used" value={w.last_used_at ? formatRelative(w.last_used_at) : '—'} />
           <Mini label="Build" value={w.latest_build.created_at ? `#${w.latest_build.build_number ?? '?'} · ${formatRelative(w.latest_build.created_at)}` : w.latest_build.transition} />
           <Mini label="TTL" value={w.ttl_ms ? `${Math.round(w.ttl_ms / 3_600_000)}h` : 'none'} />

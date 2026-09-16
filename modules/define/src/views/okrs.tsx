@@ -560,7 +560,7 @@ function ObjectiveModal({
                     </button>
                   ) : null}
                 </div>
-                <div className="mt-2 grid grid-cols-4 gap-2">
+                <div className="mt-2 grid grid-cols-2 lg:grid-cols-4 gap-2">
                   <NumField label="Start" value={k.start} onChange={(v) => setKr(i, { start: v })} />
                   <NumField
                     label="Current"

@@ -391,7 +391,7 @@ function TeamCard({ team, onManage, onDelete }: { team: WsTeam; onManage(): void
         <p className="line-clamp-2 min-h-[2.5rem] text-[12.5px] leading-relaxed text-content-muted">
           {team.description || 'No description yet.'}
         </p>
-        <dl className="grid grid-cols-3 gap-2">
+        <dl className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <Fact label="Members" value={team.memberCount} />
           <Fact label="Projects" value={team.projectCount} />
           <Fact label="Created" value={formatRelative(team.createdAt)} small />
@@ -432,7 +432,7 @@ function TeamCardSkeleton() {
         </div>
         <div className="h-2.5 w-full rounded bg-surface-sunken" />
         <div className="h-2.5 w-3/4 rounded bg-surface-sunken" />
-        <div className="grid grid-cols-3 gap-2">{[0, 1, 2].map((i) => <div key={i} className="h-12 rounded-lg bg-surface-sunken" />)}</div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">{[0, 1, 2].map((i) => <div key={i} className="h-12 rounded-lg bg-surface-sunken" />)}</div>
       </div>
     </div>
   )

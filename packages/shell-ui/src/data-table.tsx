@@ -565,7 +565,7 @@ export function DataTable<T>({
       ) : null}
 
       <div className="overflow-x-auto">
-        <table
+        <table data-datatable=""
           ref={tableRef}
           className="w-full border-collapse text-sm"
           style={hasWidths ? { tableLayout: 'fixed' } : undefined}

@@ -55,7 +55,7 @@ export function Databases() {
             {d.description ? (
               <p className="line-clamp-2 text-xs leading-relaxed text-content-muted">{d.description}</p>
             ) : null}
-            <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
               <Mini label="Schemas" value={d.schema_count ?? 0} />
               <Mini label="Tables" value={d.table_count ?? 0} />
               <Mini label="Used by" value={usedBy(d.id)} accent="brand" />

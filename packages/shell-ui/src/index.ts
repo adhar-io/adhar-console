@@ -76,7 +76,7 @@ export { PageHeader } from './page-header.tsx'
 export { EmptyState } from './empty-state.tsx'
 export { DataTable, type Column } from './data-table.tsx'
 export { StatusBadge, type StatusKind } from './status-badge.tsx'
-export { CommandPalette, type CommandItem } from './command-palette.tsx'
+export { AssistHost, CommandPalette, type AssistHostProps, type CommandItem } from './command-palette.tsx'
 export { Modal } from './modal.tsx'
 export {
   applyColorMode,
@@ -182,6 +182,7 @@ export { notifyUnauthorized, subscribeUnauthorized, UNAUTHORIZED_EVENT } from '.
 export { liveClient, useLiveInvalidate, useLiveK8sList, useLivePoll, useLiveRefetch, useLiveStatus, useLiveToolPoll, usePollingInterval, type LiveListState, type LiveStatus as LiveHubStatus, type LiveTopic, type LiveWatchRef } from './live.ts'
 export { ToastProvider, useToast, type Toast, type ToastApi, type ToastKind, type ToastOptions } from './toast.tsx'
 export { useOverlayDismiss } from './overlay.ts'
+export { useIsWide, useMediaQuery } from './use-media-query.ts'
 export { TeamScopeBar, type TeamProject, type TeamProjects, useTeamProjects } from './team-scope.tsx'
 export { type TeamAction, type TeamSummary, useTeams, type UseTeams } from './use-teams.ts'
 export {

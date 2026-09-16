@@ -75,7 +75,7 @@ function SloCard({ slo: s }: { slo: lgtm.Slo }) {
         </div>
       </CardHeader>
       <CardBody className="space-y-3">
-        <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
           <Stat label="Current" value={`${s.current.toFixed(2)}%`} accent={meeting ? 'emerald' : 'rose'} />
           <Stat label="Objective" value={`${s.objective}%`} />
           <Stat

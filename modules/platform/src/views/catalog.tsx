@@ -585,7 +585,7 @@ function KindCard({
 
       <div className="mt-3">
         {loading ? (
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <Skeleton height={44} rounded="lg" />
             <Skeleton height={44} rounded="lg" />
             <Skeleton height={44} rounded="lg" />
@@ -604,7 +604,7 @@ function KindCard({
             <Badge tone="slate">0</Badge>
           </div>
         ) : (
-          <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
             <Counter label="Total" value={total} />
             <Counter label="Ready" value={`${ready}/${total}`} tone={ready === total ? 'healthy' : 'degraded'} />
             <Counter label="Synced" value={`${synced}/${total}`} tone={synced === total ? 'healthy' : 'degraded'} />

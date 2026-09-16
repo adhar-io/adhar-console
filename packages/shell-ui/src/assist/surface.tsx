@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { cn } from '@adhar-console/utils'
 import { assistStore, useAssist, type UiBlock } from '../agui/store.ts'
 import { GenerativeBlock } from '../agui/generative.tsx'
 import { useSelection } from '../selection-store.ts'
 import { DEFAULT_NAV, type NavSection } from '../nav-tree.tsx'
+import { useIsWide } from '../use-media-query.ts'
 import { Composer, type ContextChip, type SlashCommand } from './composer.tsx'
 import { Inspector, type InspectorTab } from './inspector.tsx'
 import { ThreadsRail } from './threads.tsx'
@@ -18,16 +19,27 @@ import { IconCanvas, IconExpand, IconKeyboard, IconPanelRight, IconShrink, IconS
  * A workspace, not a chat box: conversations on the left, the conversation
  * in the middle, and on the right everything about it that is not prose —
  * the live run, the knowledge it draws on, the tools it really has, the
- * visuals it produced, and the console's own pages. Both side rails collapse
- * and the choice is remembered, so on a laptop it is a focused chat and on a
- * wide screen it is a cockpit.
+ * visuals it produced, and the console's own pages.
+ *
+ * It renders in two places from one component:
+ *   • `overlay` — the ⌘K palette, a modal over whatever page you were on;
+ *   • `page`    — /ai, a first-class page that fills the console frame.
+ *
+ * And in two shapes. From `md` up, the rails are columns that collapse and
+ * remember it. Below `md` — a phone — there is one column: the conversation.
+ * The rails become slide-over sheets summoned from the header, the composer is
+ * pinned to the bottom above the home indicator, and the header keeps only
+ * the controls a thumb needs. Same store, same components, different tree —
+ * which is why the breakpoint is read in JavaScript rather than styled.
  *
  * Router-free by design: navigation is a callback the host supplies, which is
  * what lets the whole surface render in a harness with no router and no
  * server behind it.
  */
 export interface AssistSurfaceProps {
-  onClose(): void
+  variant?: 'overlay' | 'page'
+  /** Overlay: close it. Page: leave it (the host decides where to). */
+  onClose?(): void
   onNavigate(to: string, search?: Record<string, unknown>): void
   items?: CommandItem[]
   sections?: NavSection[]
@@ -38,7 +50,7 @@ const LAYOUT_KEY = 'adhar.assist.layout.v1'
 interface Layout {
   threads: boolean
   inspector: boolean
-  /** Edge to edge, no margins — the surface as an app of its own. */
+  /** Edge to edge, no margins — the overlay as an app of its own. */
   full: boolean
 }
 
@@ -64,11 +76,15 @@ const SHORTCUTS: Array<[string, string]> = [
   ['Esc', 'Close'],
 ]
 
-export function AssistSurface({ onClose, onNavigate, items, sections = DEFAULT_NAV }: AssistSurfaceProps) {
+export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items, sections = DEFAULT_NAV }: AssistSurfaceProps) {
   const state = useAssist()
   const selection = useSelection()
+  const wide = useIsWide()
   const [input, setInput] = useState('')
   const [layout, setLayout] = useState(loadLayout)
+  // On a phone the rails are sheets: closed by default, never remembered —
+  // a sheet that reopens itself on every visit is a modal you did not ask for.
+  const [sheet, setSheet] = useState<'threads' | 'inspector' | null>(null)
   const [tab, setTab] = useState<InspectorTab>('run')
   const [canvas, setCanvas] = useState(false)
   const [attachContext, setAttachContext] = useState(true)
@@ -76,6 +92,7 @@ export function AssistSurface({ onClose, onNavigate, items, sections = DEFAULT_N
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const threadRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
+  const overlay = variant === 'overlay'
 
   useEffect(() => {
     try { globalThis.localStorage?.setItem(LAYOUT_KEY, JSON.stringify(layout)) } catch { /* ignore */ }
@@ -83,8 +100,7 @@ export function AssistSurface({ onClose, onNavigate, items, sections = DEFAULT_N
 
   // The agent to show for THIS conversation. A thread remembers who answered
   // it; the switcher's selection only applies once there is a new thread to
-  // apply it to — otherwise reopening an old Delivery thread would relabel
-  // every turn as whichever agent is currently selected.
+  // apply it to.
   const threadAgentId = state.thread.messages.length ? state.thread.agentId || state.agentId : state.agentId
   const agent = state.agents.find((a) => a.id === threadAgentId) ?? state.agents.find((a) => a.id === state.agentId)
   const allItems = useMemo<CommandItem[]>(() => (items && items.length ? items : flattenNav(sections)), [items, sections])
@@ -92,7 +108,7 @@ export function AssistSurface({ onClose, onNavigate, items, sections = DEFAULT_N
   const navResults = useMemo(() => filterItems(allItems, navQuery).slice(0, 12), [allItems, navQuery])
   const navHint = navResults[activeNav] ?? navResults[0]
   const page = typeof location !== 'undefined' ? location.pathname : ''
-  const pageItem = useMemo(() => allItems.find((i) => i.to && page.startsWith(i.to) && i.to !== '/') ?? allItems.find((i) => i.to === page), [allItems, page])
+  const pageItem = useMemo(() => allItems.find((i) => i.to && page.startsWith(i.to) && i.to !== '/' && i.to !== '/ai') ?? allItems.find((i) => i.to === page), [allItems, page])
 
   useEffect(() => setActiveNav(0), [navQuery])
 
@@ -103,14 +119,15 @@ export function AssistSurface({ onClose, onNavigate, items, sections = DEFAULT_N
     else if (tab === 'navigate' && !navQuery.trim()) setTab('run')
   }, [navQuery, input, navHint?.label, state.configured]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // A run underway or a question pending is worth showing.
+  // A run underway or a question pending is worth showing — on a laptop. On a
+  // phone the answer is what you are watching; the rail stays out of the way.
   useEffect(() => {
     if (state.busy || state.pendingAsk) setTab('run')
   }, [state.busy, state.pendingAsk])
 
   // Asking something new means you want the answer, not the board.
   useEffect(() => {
-    if (state.busy) setCanvas(false)
+    if (state.busy) { setCanvas(false); setSheet(null) }
   }, [state.busy])
 
   useLayoutEffect(() => {
@@ -119,23 +136,36 @@ export function AssistSurface({ onClose, onNavigate, items, sections = DEFAULT_N
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight
   }, [state.thread.messages, state.run, canvas])
 
+  // Autofocus is a desktop courtesy; on a phone it summons the keyboard over
+  // the conversation before anyone has read it.
   useEffect(() => {
+    if (!wide) return
     const id = requestAnimationFrame(() => inputRef.current?.focus())
     return () => cancelAnimationFrame(id)
-  }, [state.thread.id])
+  }, [state.thread.id, wide])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.preventDefault(); onClose() }
+      if (e.key === 'Escape') {
+        if (sheet) { e.preventDefault(); setSheet(null); return }
+        if (overlay && onClose) { e.preventDefault(); onClose() }
+        return
+      }
       if ((e.metaKey || e.ctrlKey) && e.key === '/') { e.preventDefault(); inputRef.current?.focus() }
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'o') { e.preventDefault(); assistStore.newThread(); setInput('') }
-      if ((e.metaKey || e.ctrlKey) && e.key === '[') { e.preventDefault(); setLayout((l) => ({ ...l, threads: !l.threads })) }
-      if ((e.metaKey || e.ctrlKey) && e.key === ']') { e.preventDefault(); setLayout((l) => ({ ...l, inspector: !l.inspector })) }
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); setLayout((l) => ({ ...l, full: !l.full })) }
+      if ((e.metaKey || e.ctrlKey) && e.key === '[') { e.preventDefault(); toggleRail('threads') }
+      if ((e.metaKey || e.ctrlKey) && e.key === ']') { e.preventDefault(); toggleRail('inspector') }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f' && overlay) { e.preventDefault(); setLayout((l) => ({ ...l, full: !l.full })) }
     }
     globalThis.addEventListener('keydown', onKey)
     return () => globalThis.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }) // deliberately unmemoised: closes over the latest `sheet`, `wide`, `overlay`
+
+  const toggleRail = (rail: 'threads' | 'inspector') => {
+    if (wide) setLayout((l) => ({ ...l, [rail]: !l[rail] }))
+    else setSheet((s) => (s === rail ? null : rail))
+  }
+  const railOn = (rail: 'threads' | 'inspector') => (wide ? layout[rail] : sheet === rail)
 
   const canvasBlocks = useMemo<UiBlock[]>(
     () => state.thread.messages.flatMap((m) => m.ui).filter((b) => b.component !== 'proposal').reverse(),
@@ -145,14 +175,21 @@ export function AssistSurface({ onClose, onNavigate, items, sections = DEFAULT_N
   const runItem = useCallback((item: CommandItem) => {
     if (item.onSelect) item.onSelect()
     else if (item.to) onNavigate(item.to, item.search)
-    onClose()
-  }, [onNavigate, onClose])
+    setSheet(null)
+    if (overlay) onClose?.()
+  }, [onNavigate, onClose, overlay])
 
   const send = (text: string) => {
     if (!text.trim() || state.busy) return
     stickToBottom.current = true
     if (!attachContext) assistStore.setContext(undefined)
     assistStore.send(text)
+  }
+
+  const openInspector = (t: InspectorTab) => {
+    setTab(t)
+    if (wide) setLayout((l) => ({ ...l, inspector: true }))
+    else setSheet('inspector')
   }
 
   const commands: SlashCommand[] = useMemo(() => [
@@ -163,13 +200,13 @@ export function AssistSurface({ onClose, onNavigate, items, sections = DEFAULT_N
       if (hit) assistStore.setAgent(hit.id)
       else return '@'
     } },
-    { cmd: '/knowledge', hint: 'Search what the platform knows — /knowledge gateway', run: (rest) => { setLayout((l) => ({ ...l, inspector: true })); setTab('knowledge'); void assistStore.searchKnowledge(rest) } },
+    { cmd: '/knowledge', hint: 'Search what the platform knows — /knowledge gateway', run: (rest) => { openInspector('knowledge'); void assistStore.searchKnowledge(rest) } },
     { cmd: '/canvas', hint: 'Lay out every visual from this conversation', run: () => { if (canvasBlocks.length) setCanvas(true) } },
-    { cmd: '/tools', hint: 'What the runtime can actually do', run: () => { setLayout((l) => ({ ...l, inspector: true })); setTab('tools') } },
+    { cmd: '/tools', hint: 'What the runtime can actually do', run: () => openInspector('tools') },
     { cmd: '/readonly', hint: 'Autonomy: investigate only', run: () => assistStore.setAutonomy('read-only') },
     { cmd: '/suggest', hint: 'Autonomy: describe the change it would make', run: () => assistStore.setAutonomy('suggest') },
     { cmd: '/propose', hint: 'Autonomy: open a pull request for review', run: () => assistStore.setAutonomy('approve-to-apply') },
-  ], [state.agents, canvasBlocks.length])
+  ], [state.agents, canvasBlocks.length, wide]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = () => {
     const text = input.trim()
@@ -198,131 +235,176 @@ export function AssistSurface({ onClose, onNavigate, items, sections = DEFAULT_N
     ? `${runtime.mcp?.connected.length ?? 0} MCP servers · ${runtime.tools?.length ?? 0} tools${runtime.rag ? ` · knowledge ${runtime.rag}` : ''}`
     : state.model ?? ''
 
+  const askInComposer = (text: string) => { setInput(text); setSheet(null); inputRef.current?.focus() }
+
+  const threadsRail = <ThreadsRail onPicked={() => setSheet(null)} />
+  const inspector = (
+    <Inspector
+      tab={tab}
+      onTab={setTab}
+      nav={{ results: navResults, query: navQuery, active: activeNav, all: allItems, onHover: setActiveNav, onPick: runItem }}
+      canvasBlocks={canvasBlocks}
+      onAskAbout={askInComposer}
+    />
+  )
+
+  const frame = (
+    <>
+      {/* ═══ header ═══ */}
+      <header className="flex h-[52px] shrink-0 items-center gap-2 border-b border-edge-subtle bg-surface-raised/80 px-2 backdrop-blur sm:gap-3 sm:px-3.5">
+        <IconToggle on={railOn('threads')} onClick={() => toggleRail('threads')} title="Conversations (⌘[)"><IconSidebar /></IconToggle>
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-brand-500 to-accent-500 text-white shadow-sm">
+          <SparkIcon size={15} />
+        </span>
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 text-[14px] font-semibold tracking-tight text-content">
+            Adhar AI
+            {state.configured ? <span className="hidden rounded bg-surface-sunken px-1 py-px font-mono text-[9px] font-medium uppercase tracking-wider text-content-subtle sm:inline">AG-UI</span> : null}
+            {runtime?.configured ? (
+              <span
+                title={runtime.reachable ? 'adhar-ai runtime reachable' : 'adhar-ai runtime unreachable'}
+                className={cn('inline-flex items-center gap-1 rounded-full text-[9.5px] font-medium sm:px-1.5 sm:py-px', runtime.reachable ? 'text-emerald-700 sm:bg-emerald-50 dark:text-emerald-300 dark:sm:bg-emerald-500/10' : 'text-rose-700 sm:bg-rose-50 dark:text-rose-300 dark:sm:bg-rose-500/10')}
+              >
+                <span className={cn('h-2 w-2 rounded-full sm:h-1.5 sm:w-1.5', runtime.reachable ? 'bg-emerald-500' : 'bg-rose-500')} /> <span className="hidden sm:inline">runtime</span>
+              </span>
+            ) : null}
+          </div>
+          <div className="hidden truncate text-[11px] text-content-subtle sm:block">
+            {state.configured ? runtimeLine || 'reads with your RBAC · changes become pull requests' : 'AI not configured — search & navigate still work'}
+          </div>
+        </div>
+
+        <div className="ml-auto flex items-center gap-0.5 sm:gap-1">
+          {canvasBlocks.length ? (
+            <HeaderBtn onClick={() => setCanvas((v) => !v)} title={canvas ? 'Back to the conversation' : `Lay out all ${canvasBlocks.length} visuals side by side`} active={canvas}>
+              <IconCanvas /> <span className="hidden sm:inline">Canvas</span> <span className="tabular-nums opacity-60">{canvasBlocks.length}</span>
+            </HeaderBtn>
+          ) : null}
+          <IconToggle on={railOn('inspector')} onClick={() => toggleRail('inspector')} title="Inspector (⌘])"><IconPanelRight /></IconToggle>
+          {overlay && wide ? (
+            <IconToggle on={layout.full} onClick={() => setLayout((l) => ({ ...l, full: !l.full }))} title={layout.full ? 'Exit fullscreen (⌘⇧F)' : 'Fullscreen (⌘⇧F)'}>
+              {layout.full ? <IconShrink /> : <IconExpand />}
+            </IconToggle>
+          ) : null}
+          {wide ? <ShortcutsMenu /> : null}
+          {onClose ? (
+            <button type="button" onClick={onClose} aria-label={overlay ? 'Close (Esc)' : 'Leave Adhar AI'} title={overlay ? 'Close (Esc)' : 'Leave Adhar AI'} className="ml-0.5 flex h-8 w-8 items-center justify-center rounded-lg text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content"><IconX /></button>
+          ) : null}
+        </div>
+      </header>
+
+      {/* ═══ body ═══ */}
+      <div
+        className="relative grid min-h-0 flex-1"
+        style={{ gridTemplateColumns: wide ? `${layout.threads ? '256px' : '0px'} minmax(0,1fr) ${layout.inspector ? '340px' : '0px'}` : 'minmax(0,1fr)' }}
+      >
+        {wide ? <div className={cn('min-h-0 overflow-hidden', !layout.threads && 'hidden')}>{threadsRail}</div> : null}
+
+        <section className="flex min-h-0 flex-col">
+          <div
+            ref={threadRef}
+            onScroll={(e) => { const el = e.currentTarget; stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48 }}
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-5 sm:py-5 md:px-8"
+          >
+            {canvas && canvasBlocks.length ? (
+              <CanvasBoard blocks={canvasBlocks} />
+            ) : !hasThread ? (
+              <Welcome
+                configured={state.configured}
+                agent={agent}
+                agents={state.agents}
+                onPick={(p) => send(p)}
+                onAgent={(id) => assistStore.setAgent(id)}
+                navHint={navHint}
+                findings={state.operatorFindings}
+                runtime={runtime}
+              />
+            ) : (
+              <Transcript
+                messages={state.thread.messages}
+                busy={state.busy}
+                run={state.run}
+                agentName={agent?.name}
+                accent={agent?.accent}
+                onAsk={askInComposer}
+                onCanvas={() => setCanvas(true)}
+                onSend={(text) => send(text)}
+              />
+            )}
+          </div>
+
+          <Composer
+            value={input}
+            onChange={setInput}
+            onSubmit={submit}
+            onStop={() => assistStore.stop()}
+            busy={state.busy}
+            configured={state.configured}
+            agents={state.agents}
+            agentId={state.agentId}
+            onAgent={(id) => assistStore.setAgent(id)}
+            autonomy={state.autonomy}
+            onAutonomy={(a) => assistStore.setAutonomy(a)}
+            chips={chips}
+            attachContext={attachContext}
+            onToggleContext={() => setAttachContext((v) => !v)}
+            navHint={navQuery.trim() ? navHint : undefined}
+            onOpenNavHint={() => { if (navHint) runItem(navHint) }}
+            commands={commands}
+            inputRef={inputRef}
+            onArrow={(dir) => setActiveNav((i) => Math.max(0, Math.min(navResults.length - 1, i + dir)))}
+          />
+        </section>
+
+        {wide ? <div className={cn('min-h-0 overflow-hidden', !layout.inspector && 'hidden')}>{inspector}</div> : null}
+
+        {/* Phone: the rails as sheets over the conversation. */}
+        {!wide && sheet ? (
+          <Sheet side={sheet === 'threads' ? 'left' : 'right'} onClose={() => setSheet(null)} label={sheet === 'threads' ? 'Conversations' : 'Inspector'}>
+            {sheet === 'threads' ? threadsRail : inspector}
+          </Sheet>
+        ) : null}
+      </div>
+    </>
+  )
+
+  if (!overlay) {
+    return (
+      <div className="flex h-full min-h-0 flex-col bg-surface-app" aria-label="Adhar AI">
+        {frame}
+      </div>
+    )
+  }
+
+  const edge = layout.full || !wide
   return (
-    <div role="dialog" aria-modal="true" aria-label="Adhar AI" className={cn('fixed inset-0 z-[70] flex items-center justify-center', layout.full ? 'p-0' : 'p-2 sm:p-4')}>
+    <div role="dialog" aria-modal="true" aria-label="Adhar AI" className={cn('fixed inset-0 z-[70] flex items-center justify-center', edge ? 'p-0' : 'p-2 sm:p-4')}>
       <div className="fade-in absolute inset-0 bg-scrim/45 backdrop-blur-[3px]" onClick={onClose} aria-hidden />
       <div
         className={cn(
           'pop-in relative flex w-full flex-col overflow-hidden bg-surface-app transition-[border-radius] duration-200',
-          layout.full
-            ? 'h-full max-w-none rounded-none'
+          edge
+            ? 'h-dvh max-w-none rounded-none'
             : 'h-[94vh] max-w-[1500px] rounded-2xl border border-edge-default shadow-[0_48px_96px_-24px_rgba(15,23,42,0.55)]',
         )}
       >
-        {/* ═══ header ═══ */}
-        <header className="flex h-[52px] shrink-0 items-center gap-3 border-b border-edge-subtle bg-surface-raised/80 px-3.5 backdrop-blur">
-          <IconToggle on={layout.threads} onClick={() => setLayout((l) => ({ ...l, threads: !l.threads }))} title="Toggle conversations (⌘[)"><IconSidebar /></IconToggle>
-          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-linear-to-br from-brand-500 to-accent-500 text-white shadow-sm">
-            <SparkIcon size={15} />
-          </span>
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-[14px] font-semibold tracking-tight text-content">
-              Adhar AI
-              {state.configured ? <span className="rounded bg-surface-sunken px-1 py-px font-mono text-[9px] font-medium uppercase tracking-wider text-content-subtle">AG-UI</span> : null}
-              {runtime?.configured ? (
-                <span className={cn('inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[9.5px] font-medium', runtime.reachable ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300')}>
-                  <span className={cn('h-1.5 w-1.5 rounded-full', runtime.reachable ? 'bg-emerald-500' : 'bg-rose-500')} /> runtime
-                </span>
-              ) : null}
-            </div>
-            <div className="truncate text-[11px] text-content-subtle">
-              {state.configured ? runtimeLine || 'reads with your RBAC · changes become pull requests' : 'AI not configured — search & navigate still work'}
-            </div>
-          </div>
+        {frame}
+      </div>
+    </div>
+  )
+}
 
-          <div className="ml-auto flex items-center gap-1">
-            {canvasBlocks.length ? (
-              <HeaderBtn onClick={() => setCanvas((v) => !v)} title={canvas ? 'Back to the conversation' : `Lay out all ${canvasBlocks.length} visuals side by side`} active={canvas}>
-                <IconCanvas /> Canvas <span className="tabular-nums opacity-60">{canvasBlocks.length}</span>
-              </HeaderBtn>
-            ) : null}
-            {/* "New" left the header: it lives in the conversations rail and on
-                ⌘⇧O, and a top bar earns its slots with controls that change
-                the SURFACE, not the thread. */}
-            <IconToggle on={layout.inspector} onClick={() => setLayout((l) => ({ ...l, inspector: !l.inspector }))} title="Toggle inspector (⌘])"><IconPanelRight /></IconToggle>
-            <IconToggle on={layout.full} onClick={() => setLayout((l) => ({ ...l, full: !l.full }))} title={layout.full ? 'Exit fullscreen (⌘⇧F)' : 'Fullscreen (⌘⇧F)'}>
-              {layout.full ? <IconShrink /> : <IconExpand />}
-            </IconToggle>
-            <ShortcutsMenu />
-            <button type="button" onClick={onClose} aria-label="Close (Esc)" title="Close (Esc)" className="ml-0.5 flex h-8 w-8 items-center justify-center rounded-lg text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content"><IconX /></button>
-          </div>
-        </header>
-
-        {/* ═══ body ═══ */}
-        <div
-          className="grid min-h-0 flex-1"
-          style={{ gridTemplateColumns: `${layout.threads ? '256px' : '0px'} minmax(0,1fr) ${layout.inspector ? '340px' : '0px'}` }}
-        >
-          <div className={cn('min-h-0 overflow-hidden transition-[width]', !layout.threads && 'hidden')}>
-            <ThreadsRail />
-          </div>
-
-          <section className="flex min-h-0 flex-col">
-            <div
-              ref={threadRef}
-              onScroll={(e) => { const el = e.currentTarget; stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48 }}
-              className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-8"
-            >
-              {canvas && canvasBlocks.length ? (
-                <CanvasBoard blocks={canvasBlocks} />
-              ) : !hasThread ? (
-                <Welcome
-                  configured={state.configured}
-                  agent={agent}
-                  agents={state.agents}
-                  onPick={(p) => send(p)}
-                  onAgent={(id) => assistStore.setAgent(id)}
-                  navHint={navHint}
-                  findings={state.operatorFindings}
-                  runtime={runtime}
-                />
-              ) : (
-                <Transcript
-                  messages={state.thread.messages}
-                  busy={state.busy}
-                  run={state.run}
-                  agentName={agent?.name}
-                  accent={agent?.accent}
-                  onAsk={(text) => { setInput(text); inputRef.current?.focus() }}
-                  onCanvas={() => setCanvas(true)}
-                  onSend={(text) => send(text)}
-                />
-              )}
-            </div>
-
-            <Composer
-              value={input}
-              onChange={setInput}
-              onSubmit={submit}
-              onStop={() => assistStore.stop()}
-              busy={state.busy}
-              configured={state.configured}
-              agents={state.agents}
-              agentId={state.agentId}
-              onAgent={(id) => assistStore.setAgent(id)}
-              autonomy={state.autonomy}
-              onAutonomy={(a) => assistStore.setAutonomy(a)}
-              chips={chips}
-              attachContext={attachContext}
-              onToggleContext={() => setAttachContext((v) => !v)}
-              navHint={navQuery.trim() ? navHint : undefined}
-              onOpenNavHint={() => { if (navHint) runItem(navHint) }}
-              commands={commands}
-              inputRef={inputRef}
-              onArrow={(dir) => setActiveNav((i) => Math.max(0, Math.min(navResults.length - 1, i + dir)))}
-            />
-          </section>
-
-          <div className={cn('min-h-0 overflow-hidden', !layout.inspector && 'hidden')}>
-            <Inspector
-              tab={tab}
-              onTab={setTab}
-              nav={{ results: navResults, query: navQuery, active: activeNav, all: allItems, onHover: setActiveNav, onPick: runItem }}
-              canvasBlocks={canvasBlocks}
-              onAskAbout={(text) => { setInput(text); inputRef.current?.focus() }}
-            />
-          </div>
-        </div>
+/**
+ * A rail as a phone sheet: slides in from its side over the conversation,
+ * scrim behind it, Esc or a tap outside closes it. Positioned inside the
+ * surface (which is already a fixed layer), so no portal is needed.
+ */
+function Sheet({ side, label, onClose, children }: { side: 'left' | 'right'; label: string; onClose(): void; children: ReactNode }) {
+  return (
+    <div className="absolute inset-0 z-20 flex" role="dialog" aria-modal="true" aria-label={label}>
+      <button type="button" aria-label={`Close ${label.toLowerCase()}`} onClick={onClose} className="fade-in absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" />
+      <div className={cn('rise-in relative flex h-full w-[min(88vw,360px)] flex-col overflow-hidden bg-surface-app shadow-2xl', side === 'left' ? 'mr-auto border-r border-edge-default' : 'ml-auto border-l border-edge-default')}>
+        {children}
       </div>
     </div>
   )
@@ -353,9 +435,9 @@ function CanvasBoard({ blocks }: { blocks: UiBlock[] }) {
   )
 }
 
-function IconToggle({ on, onClick, title, children }: { on: boolean; onClick(): void; title: string; children: React.ReactNode }) {
+function IconToggle({ on, onClick, title, children }: { on: boolean; onClick(): void; title: string; children: ReactNode }) {
   return (
-    <button type="button" onClick={onClick} title={title} aria-label={title} aria-pressed={on} className={cn('flex h-8 w-8 items-center justify-center rounded-lg transition-colors', on ? 'text-content hover:bg-surface-sunken' : 'text-content-subtle hover:bg-surface-sunken hover:text-content')}>
+    <button type="button" onClick={onClick} title={title} aria-label={title} aria-pressed={on} className={cn('flex h-9 w-9 items-center justify-center rounded-lg transition-colors sm:h-8 sm:w-8', on ? 'text-content hover:bg-surface-sunken' : 'text-content-subtle hover:bg-surface-sunken hover:text-content')}>
       {children}
     </button>
   )
@@ -393,9 +475,9 @@ function ShortcutsMenu() {
   )
 }
 
-function HeaderBtn({ children, onClick, title, active = false }: { children: React.ReactNode; onClick(): void; title: string; active?: boolean }) {
+function HeaderBtn({ children, onClick, title, active = false }: { children: ReactNode; onClick(): void; title: string; active?: boolean }) {
   return (
-    <button type="button" onClick={onClick} title={title} className={cn('inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium transition-colors', active ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-500/40 dark:bg-brand-500/10 dark:text-brand-300' : 'border-edge-default bg-surface-raised text-content-muted hover:border-edge-strong hover:text-content')}>
+    <button type="button" onClick={onClick} title={title} className={cn('inline-flex h-8 items-center gap-1.5 rounded-lg border px-2 text-[12px] font-medium transition-colors sm:px-2.5', active ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-500/40 dark:bg-brand-500/10 dark:text-brand-300' : 'border-edge-default bg-surface-raised text-content-muted hover:border-edge-strong hover:text-content')}>
       {children}
     </button>
   )

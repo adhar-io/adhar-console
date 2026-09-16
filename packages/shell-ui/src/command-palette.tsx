@@ -11,12 +11,15 @@ export type { CommandItem } from './assist/nav.ts'
 export { Markdown } from './assist/markdown.tsx'
 
 /**
- * Adhar AI — the ⌘K overlay, and the primary way to talk to the platform.
+ * Adhar AI — the router-aware mount.
  *
- * This file is the router-aware shim. The surface itself lives in
- * `./assist/` and is deliberately router-free so it can be rendered and
- * verified without one; what needs the router — following a navigation item,
- * and the `navigate_to` frontend tool the agent calls — is supplied here.
+ * The surface itself (`./assist/`) is deliberately router-free so it can be
+ * rendered and verified without one; what needs the router — following a
+ * navigation item, and the `navigate_to` frontend tool the agent calls — is
+ * supplied here. Two hosts share it:
+ *
+ *   • `CommandPalette` — the ⌘K overlay AppShell renders over any page;
+ *   • the `/ai` route  — the same surface as a first-class page.
  *
  * The conversation runs on **AG-UI**: the BFF is an AG-UI server and the
  * surface an AG-UI client, so everything on screen is driven by protocol
@@ -33,10 +36,18 @@ export interface CommandPaletteProps {
 
 export function CommandPalette({ open, onClose, items, sections = DEFAULT_NAV }: CommandPaletteProps) {
   if (!open) return null
-  return <Mounted onClose={onClose} items={items} sections={sections} />
+  return <AssistHost variant="overlay" onClose={onClose} items={items} sections={sections} />
 }
 
-function Mounted({ onClose, items, sections }: { onClose(): void; items?: CommandItem[]; sections: NavSection[] }) {
+export interface AssistHostProps {
+  variant: 'overlay' | 'page'
+  onClose?(): void
+  items?: CommandItem[]
+  sections?: NavSection[]
+}
+
+/** Boots config, drains a queued `ask()`, wires the frontend tools, mounts the surface. */
+export function AssistHost({ variant, onClose, items, sections = DEFAULT_NAV }: AssistHostProps) {
   const navigate = useNavigate()
 
   const onNavigate = useCallback((to: string, search?: Record<string, unknown>) => {
@@ -55,9 +66,9 @@ function Mounted({ onClose, items, sections }: { onClose(): void; items?: Comman
   }, [])
 
   /**
-   * Frontend tools. Registered while the overlay is mounted because they need
-   * the router; the store outlives the overlay so a run keeps going if the
-   * agent navigates and the panel closes.
+   * Frontend tools. Registered while a host is mounted because they need the
+   * router; the store outlives the host so a run keeps going if the agent
+   * navigates and the panel closes.
    */
   useEffect(() => {
     assistStore.setFrontendHandler('navigate_to', (args) => {
@@ -70,7 +81,7 @@ function Mounted({ onClose, items, sections }: { onClose(): void; items?: Comman
       } catch {
         return JSON.stringify({ error: `no such console route: ${pathname}` })
       }
-      onClose()
+      if (variant === 'overlay') onClose?.()
       return JSON.stringify({ ok: true, navigated: path, note: 'The operator is now on this page.' })
     })
     assistStore.setFrontendHandler('open_resource', (args) => {
@@ -81,7 +92,7 @@ function Mounted({ onClose, items, sections }: { onClose(): void; items?: Comman
       assistStore.setFrontendHandler('navigate_to', null)
       assistStore.setFrontendHandler('open_resource', null)
     }
-  }, [navigate, onClose])
+  }, [navigate, onClose, variant])
 
-  return <AssistSurface onClose={onClose} onNavigate={onNavigate} items={items} sections={sections} />
+  return <AssistSurface variant={variant} onClose={onClose} onNavigate={onNavigate} items={items} sections={sections} />
 }

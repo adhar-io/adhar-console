@@ -383,7 +383,7 @@ function RepoCard({ repo: r, prs, onOpen, onArchive, onDelete }: {
           )
           : null}
 
-        <div className='mt-3 grid grid-cols-4 gap-1.5 text-center'>
+        <div className='mt-3 grid grid-cols-2 lg:grid-cols-4 gap-1.5 text-center'>
           <Stat label='Issues' value={r.open_issues_count} accent={r.open_issues_count > 0 ? 'amber' : 'emerald'} />
           <Stat label='PRs' value={prs} accent={prs > 0 ? 'brand' : 'slate'} />
           <Stat label='Stars' value={r.stars_count} />

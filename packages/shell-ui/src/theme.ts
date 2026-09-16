@@ -164,10 +164,61 @@ export type ColorMode = 'light' | 'dark' | 'system'
 const MODE_STORAGE_KEY = 'adhar.theme.mode'
 export const DEFAULT_COLOR_MODE: ColorMode = 'system'
 
+/*
+ * The mode is ALSO kept in a cookie scoped one label up the host
+ * (console.platform.adhar.io → .platform.adhar.io). The Keycloak login page
+ * runs on a sibling subdomain, and a sign-in that happens on a different origin
+ * cannot read this app's localStorage — so a dark console redirecting to a
+ * white login page was the rule, not the exception. Keycloak's theme
+ * (`adhar-theme.js`) reads and writes the same `adhar-theme` cookie, which is
+ * what makes the choice round-trip: pick dark here, land on a dark login;
+ * pick light there, come back to a light console.
+ *
+ * The cookie wins over localStorage when both exist, because it is the one
+ * either surface may have changed most recently.
+ */
+const MODE_COOKIE = 'adhar-theme'
+
+function isMode(v: unknown): v is ColorMode {
+  return v === 'light' || v === 'dark' || v === 'system'
+}
+
+function cookieDomain(): string | null {
+  if (typeof location === 'undefined') return null
+  const host = location.hostname
+  if (/^[0-9.]+$/.test(host) || host.includes(':')) return null
+  const labels = host.split('.')
+  if (labels.length < 3) return null
+  return `.${labels.slice(1).join('.')}`
+}
+
+function readModeCookie(): ColorMode | null {
+  if (typeof document === 'undefined') return null
+  const hit = `; ${document.cookie}`.split(`; ${MODE_COOKIE}=`)
+  if (hit.length !== 2) return null
+  try {
+    const v = decodeURIComponent(hit.pop()!.split(';').shift() ?? '')
+    return isMode(v) ? v : null
+  } catch {
+    return null
+  }
+}
+
+function writeModeCookie(mode: ColorMode): void {
+  if (typeof document === 'undefined' || typeof location === 'undefined') return
+  const domain = cookieDomain()
+  document.cookie =
+    `${MODE_COOKIE}=${encodeURIComponent(mode)};path=/;max-age=31536000;samesite=lax` +
+    (location.protocol === 'https:' ? ';secure' : '') +
+    (domain ? `;domain=${domain}` : '')
+}
+
 export function getStoredMode(): ColorMode {
+  const fromCookie = readModeCookie()
+  if (fromCookie) return fromCookie
   if (typeof globalThis === 'undefined' || !globalThis.localStorage) return DEFAULT_COLOR_MODE
   const v = globalThis.localStorage.getItem(MODE_STORAGE_KEY)
-  return v === 'light' || v === 'dark' || v === 'system' ? v : DEFAULT_COLOR_MODE
+  return isMode(v) ? v : DEFAULT_COLOR_MODE
 }
 
 /**
@@ -200,6 +251,7 @@ export function applyColorMode(mode: ColorMode): void {
   root.dataset.mode = mode
   root.style.colorScheme = resolved
   globalThis.localStorage?.setItem(MODE_STORAGE_KEY, mode)
+  writeModeCookie(mode)
 }
 
 /**

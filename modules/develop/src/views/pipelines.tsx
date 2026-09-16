@@ -177,7 +177,7 @@ function ConnectionCard({
           {last ? <StatusBadge kind={tone}>{last}</StatusBadge> : null}
         </div>
 
-        <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+        <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
           <Mini label="Streams" value={c.streams_count} />
           <Mini label="Records" value={fmtNum(c.last_sync_records ?? 0)} />
           <Mini label="Bytes" value={fmtBytes(c.last_sync_bytes ?? 0)} />

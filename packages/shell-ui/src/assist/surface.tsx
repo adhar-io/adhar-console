@@ -54,7 +54,18 @@ export interface AssistSurfaceProps {
   sections?: NavSection[]
 }
 
-const LAYOUT_KEY = 'adhar.assist.layout.v1'
+/*
+ * v2 because the DEFAULT changed, and v1 cannot be migrated.
+ *
+ * The layout is written to storage by an effect on every change — including
+ * the very first render — so every existing user has `{threads:true,
+ * inspector:true}` stored whether or not they ever touched a toggle. There is
+ * no way to tell a preference from a default that got persisted, so keeping
+ * the old key would leave both rails open for everyone forever and the new
+ * default would only ever apply to brand-new browsers. A new key forgets the
+ * ambiguity once; anything set deliberately after this is honoured.
+ */
+const LAYOUT_KEY = 'adhar.assist.layout.v2'
 
 interface Layout {
   threads: boolean
@@ -63,12 +74,27 @@ interface Layout {
   full: boolean
 }
 
+/**
+ * Both rails start closed.
+ *
+ * The conversation is self-sufficient: the live run renders inline as the
+ * working card, and a question the agent puts to you renders inline as the
+ * ask card. Nothing that blocks you lives only in a rail. So the rails are
+ * genuinely supplementary — history you might want, and detail you might
+ * want — and opening with both is three columns of chrome around the thing
+ * you actually came to do.
+ *
+ * They are one keystroke away (⌘[ and ⌘]) and one click away in the header,
+ * and the choice sticks once made.
+ */
+const CLOSED: Layout = { threads: false, inspector: false, full: false }
+
 function loadLayout(): Layout {
   try {
     const raw = globalThis.localStorage?.getItem(LAYOUT_KEY)
-    if (raw) return { threads: true, inspector: true, full: false, ...(JSON.parse(raw) as object) }
+    if (raw) return { ...CLOSED, ...(JSON.parse(raw) as object) }
   } catch { /* fall through */ }
-  return { threads: true, inspector: true, full: false }
+  return CLOSED
 }
 
 const SHORTCUTS: Array<[string, string]> = [

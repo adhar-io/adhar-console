@@ -114,7 +114,17 @@ export function Composer({
   const menuLen = menu === 'slash' ? slashMatches.length : menu === 'agent' ? agentMatches.length : 0
 
   return (
-    <div className="pb-safe relative border-t border-edge-subtle bg-surface-raised/80 px-3 pt-2 backdrop-blur sm:px-4 sm:pb-3.5 sm:pt-2.5">
+    <div className="pb-safe border-t border-edge-subtle bg-surface-raised/80 px-3 pt-2 backdrop-blur sm:px-4 sm:pb-3.5 sm:pt-2.5">
+      {/*
+        The bar spans the surface; its CONTENTS track the conversation's
+        column. The transcript is `max-w-3xl` centred, so without this the
+        composer stretched to whatever width the surface had and the input
+        sat twice as wide as the messages above it — which is exactly the
+        shape you get once both rails are closed and the surface is 1500px.
+        `relative` lives here too, so the slash/agent popover anchors to the
+        field rather than to the full-width bar.
+      */}
+      <div className="relative mx-auto w-full max-w-3xl">
       {/* ── controls row ── */}
       {configured && agents.length ? (
         <div className="mb-2 flex flex-wrap items-center gap-1.5">
@@ -255,6 +265,7 @@ export function Composer({
           )}
         </span>
         <span className="hidden sm:inline"><kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">⇧⏎</kbd> newline</span>
+      </div>
       </div>
     </div>
   )

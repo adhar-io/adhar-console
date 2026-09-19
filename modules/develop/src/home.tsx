@@ -9,6 +9,7 @@ import { Environments } from './views/environments.tsx'
 import { WorkflowList } from './views/workflow-list.tsx'
 import { CodeBuilder } from './views/code-builder.tsx'
 import { Pipelines } from './views/pipelines.tsx'
+import { Performance } from './views/performance.tsx'
 
 type Section =
   | 'dashboard'
@@ -20,6 +21,7 @@ type Section =
   | 'environments'
   | 'workflows'
   | 'pipelines'
+  | 'performance'
   | 'codebuilder'
 
 const SECTIONS: Record<Section, { label: string; description: string }> = {
@@ -60,6 +62,11 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
     label: 'Data Pipelines',
     description: 'Airbyte source × destination connections — sync schedules, jobs, throughput.',
   },
+  performance: {
+    label: 'Performance Center',
+    description:
+      'k6 load and API performance tests — run them on the cluster, watch the stages, read the thresholds that passed or failed.',
+  },
   codebuilder: {
     label: 'Code Builder',
     description: 'Drag-and-drop code scaffolder — wire components, generate source.',
@@ -81,6 +88,7 @@ export default function DevelopHome({ section }: { section?: string } = {}) {
       {active === 'environments' && <Environments />}
       {active === 'workflows' && <WorkflowList />}
       {active === 'pipelines' && <Pipelines />}
+      {active === 'performance' && <Performance />}
       {active === 'codebuilder' && <CodeBuilder />}
     </div>
   )

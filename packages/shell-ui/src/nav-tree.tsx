@@ -359,6 +359,15 @@ export const DEFAULT_NAV: NavSection[] = [
           { id: 'platform.metrics', label: 'Metrics', to: '/platform', search: 'metrics' },
           { id: 'platform.ci', label: 'CI / CD', to: '/platform', search: 'ci' },
           {
+            id: 'platform.chaos',
+            label: 'Chaos Engineering',
+            to: '/platform',
+            search: 'chaos',
+            // Injecting faults into running workloads is a platform operation,
+            // not a read — it sits with shell and RBAC, not with the browsers.
+            roles: PLATFORM_OPS_ROLES,
+          },
+          {
             id: 'platform.policy',
             label: 'Policy',
             to: '/platform',

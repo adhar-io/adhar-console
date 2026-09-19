@@ -1,5 +1,6 @@
 import { PageHeader } from '@adhar-console/shell-ui'
 import { ConnectionGate } from './components/connection-banner.tsx'
+import { ChaosView } from './views/chaos.tsx'
 import { PlatformDashboard } from './views/dashboard.tsx'
 import { ClusterView } from './views/cluster-list.tsx'
 import { NodesView } from './views/nodes-list.tsx'
@@ -66,6 +67,7 @@ type Section =
   | 'logs'
   | 'metrics'
   | 'ci'
+  | 'chaos'
   | 'policy'
   | 'observability'
   | 'marketplace'
@@ -183,6 +185,13 @@ const SECTIONS: Record<Section, SectionDef> = {
     id: 'explore',
     label: 'Explore',
     description: 'Discovery-driven browser for every Kubernetes kind — live tables with an inline manifest editor.',
+    kind: 'k8s',
+  },
+  chaos: {
+    id: 'chaos',
+    label: 'Chaos Engineering',
+    description:
+      'Chaos Mesh experiments — inject pod, network, I/O and clock faults on purpose, with the blast radius stated and a way back.',
     kind: 'k8s',
   },
   shell: {
@@ -398,6 +407,8 @@ function SectionBody({
       return <CrdBrowser namespace={namespace} />
     case 'explore':
       return <ResourceBrowser namespace={namespace} />
+    case 'chaos':
+      return <ChaosView namespace={namespace} />
     case 'shell':
       return <CloudShell namespace={namespace} />
     case 'logs':

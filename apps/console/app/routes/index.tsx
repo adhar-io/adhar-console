@@ -13,7 +13,7 @@ import {
   useOverlayDismiss,
 } from '@adhar-console/shell-ui'
 import { cn, formatRelative } from '@adhar-console/utils'
-import { STUB_USER, useOptionalSession } from '@adhar-console/auth'
+import { PENDING_USER, useOptionalSession } from '@adhar-console/auth'
 import { summarizeCluster, useClusterSignals } from '~/data/cluster-signals.ts'
 import { useDoraApps } from '~/data/platform-signals.ts'
 import {
@@ -681,7 +681,7 @@ function resolveOrder(layout: OverviewLayout): PanelDef[] {
 
 function LandingPage() {
   const { tenants, activeTenant, notifications } = Route.useLoaderData()
-  const user = useOptionalSession()?.user ?? STUB_USER
+  const user = useOptionalSession()?.user ?? PENDING_USER
   const firstName = user.name.split(' ')[0]
 
   const layoutQuery = useOverviewLayout()

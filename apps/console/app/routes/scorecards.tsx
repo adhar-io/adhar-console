@@ -15,7 +15,7 @@ import {
   StatusBadge,
 } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
-import { STUB_USER, useOptionalSession } from '@adhar-console/auth'
+import { PENDING_USER, useOptionalSession } from '@adhar-console/auth'
 import { getLayoutData } from '~/server/session.ts'
 import { type EntityKind, parseRef } from '~/data/catalog.ts'
 import {
@@ -63,7 +63,7 @@ export const Route = createFileRoute('/scorecards')({
 
 function ScorecardsPage() {
   const { tenants, activeTenant, notifications } = Route.useLoaderData()
-  const user = useOptionalSession()?.user ?? STUB_USER
+  const user = useOptionalSession()?.user ?? PENDING_USER
   return (
     <AppShell
       user={user}

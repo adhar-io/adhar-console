@@ -7,7 +7,7 @@ import {
   ModeToggle,
   useAppConfig,
 } from '@adhar-console/shell-ui'
-import { getStubSession, useAuth } from '@adhar-console/auth'
+import { getDemoSession, useAuth } from '@adhar-console/auth'
 import { z } from 'zod'
 
 /**
@@ -124,7 +124,7 @@ function LoginPage() {
 
   function continueAsDemo() {
     setBusy('demo')
-    setSession(getStubSession())
+    setSession(getDemoSession())
     // `returnTo` may carry a query string (`/deliver?section=flow`); the router
     // wants path and search separately, so split them instead of dropping it.
     const [path, query = ''] = (returnTo ?? '/').split('?')

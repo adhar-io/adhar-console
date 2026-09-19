@@ -7,7 +7,7 @@ import {
   PLATFORM_VERSION,
   ROADMAP_HIGHLIGHTS,
 } from '@adhar-console/platform-info'
-import { STUB_USER, useOptionalSession } from '@adhar-console/auth'
+import { PENDING_USER, useOptionalSession } from '@adhar-console/auth'
 import { getLayoutData } from '~/server/session.ts'
 
 export const Route = createFileRoute('/changelog')({
@@ -18,7 +18,7 @@ export const Route = createFileRoute('/changelog')({
 
 function ChangelogPage() {
   const { tenants, activeTenant, notifications } = Route.useLoaderData()
-  const user = useOptionalSession()?.user ?? STUB_USER
+  const user = useOptionalSession()?.user ?? PENDING_USER
   return (
     <AppShell
       user={user}

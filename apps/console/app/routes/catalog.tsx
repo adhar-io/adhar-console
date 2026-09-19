@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { z } from 'zod'
 import { AppShell } from '@adhar-console/shell-ui'
 import { getLayoutData } from '~/server/session.ts'
-import { STUB_USER, useOptionalSession } from '@adhar-console/auth'
+import { PENDING_USER, useOptionalSession } from '@adhar-console/auth'
 import { CatalogBrowse } from './_catalog-browse.tsx'
 import { CatalogTemplates } from './_catalog-templates.tsx'
 
@@ -46,7 +46,7 @@ export const Route = createFileRoute('/catalog')({
 
 function CatalogPage() {
   const { tenants, activeTenant, notifications } = Route.useLoaderData()
-  const user = useOptionalSession()?.user ?? STUB_USER
+  const user = useOptionalSession()?.user ?? PENDING_USER
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
   const isCreate = search.section === 'create'

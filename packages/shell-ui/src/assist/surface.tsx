@@ -4,7 +4,8 @@ import { assistStore, useAssist, type UiBlock } from '../agui/store.ts'
 import { GenerativeBlock } from '../agui/generative.tsx'
 import { useSelection } from '../selection-store.ts'
 import { DEFAULT_NAV, type NavSection } from '../nav-tree.tsx'
-import { useIsWide } from '../use-media-query.ts'
+import { useElementWidth } from '../use-element-size.ts'
+import { useMediaQuery } from '../use-media-query.ts'
 import { Composer, type ContextChip, type SlashCommand } from './composer.tsx'
 import { Inspector, type InspectorTab } from './inspector.tsx'
 import { ThreadsRail } from './threads.tsx'
@@ -25,12 +26,20 @@ import { IconCanvas, IconExpand, IconKeyboard, IconPanelRight, IconShrink, IconS
  *   • `overlay` — the ⌘K palette, a modal over whatever page you were on;
  *   • `page`    — /ai, a first-class page that fills the console frame.
  *
- * And in two shapes. From `md` up, the rails are columns that collapse and
- * remember it. Below `md` — a phone — there is one column: the conversation.
- * The rails become slide-over sheets summoned from the header, the composer is
- * pinned to the bottom above the home indicator, and the header keeps only
- * the controls a thumb needs. Same store, same components, different tree —
- * which is why the breakpoint is read in JavaScript rather than styled.
+ * And in as many shapes as it has room for. The rails are columns when they
+ * FIT and slide-over sheets when they do not, and "fit" is measured on this
+ * component's own width — not the window's. The distinction is the whole
+ * point: the shell's sidebar is 256px open and 64px collapsed, so the same
+ * 1024px window gives this surface either 768px or 960px. Keyed to the
+ * viewport it claimed three columns at 768px and rendered the conversation at
+ * 172px, and collapsing the sidebar was the only way to get it back — which
+ * is what "collapsing breaks the layout" looked like from the outside.
+ *
+ * So: a rail becomes a column only while the conversation keeps
+ * `MIN_CONVERSATION`, the inspector yielding last because a live run is what
+ * you watch. Below that everything is a sheet and the composer pins to the
+ * bottom above the home indicator. Same store, same components, and no
+ * arrangement in which the conversation is a gutter.
  *
  * Router-free by design: navigation is a callback the host supplies, which is
  * what lets the whole surface render in a harness with no router and no
@@ -76,10 +85,35 @@ const SHORTCUTS: Array<[string, string]> = [
   ['Esc', 'Close'],
 ]
 
+/** Rail widths, and the floor below which the conversation stops being one. */
+const RAIL_THREADS = 256
+const RAIL_INSPECTOR = 340
+const MIN_CONVERSATION = 420
+
 export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items, sections = DEFAULT_NAV }: AssistSurfaceProps) {
   const state = useAssist()
   const selection = useSelection()
-  const wide = useIsWide()
+  const frameRef = useRef<HTMLDivElement>(null)
+  const frameWidth = useElementWidth(frameRef)
+  /*
+   * Is this a phone? A VIEWPORT question, deliberately — it decides whether the
+   * overlay goes edge to edge, and the overlay's own width is what the frame
+   * measurement then reports. Deriving it from the frame would be circular:
+   * narrow → edge-to-edge → wide → windowed → narrow.
+   */
+  const phone = !useMediaQuery('(min-width: 640px)')
+
+  /*
+   * What fits. Before the first measurement `frameWidth` is 0 — treat that as
+   * the narrow case so the server and first paint agree, then settle.
+   */
+  const fits = useMemo(() => {
+    const w = frameWidth || 0
+    if (w === 0) return { threads: false, inspector: false }
+    const inspector = w - RAIL_INSPECTOR >= MIN_CONVERSATION
+    const threads = inspector && w - RAIL_INSPECTOR - RAIL_THREADS >= MIN_CONVERSATION
+    return { threads, inspector }
+  }, [frameWidth])
   const [input, setInput] = useState('')
   const [layout, setLayout] = useState(loadLayout)
   // On a phone the rails are sheets: closed by default, never remembered —
@@ -139,10 +173,10 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
   // Autofocus is a desktop courtesy; on a phone it summons the keyboard over
   // the conversation before anyone has read it.
   useEffect(() => {
-    if (!wide) return
+    if (phone) return
     const id = requestAnimationFrame(() => inputRef.current?.focus())
     return () => cancelAnimationFrame(id)
-  }, [state.thread.id, wide])
+  }, [state.thread.id, phone])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -159,13 +193,15 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
     }
     globalThis.addEventListener('keydown', onKey)
     return () => globalThis.removeEventListener('keydown', onKey)
-  }) // deliberately unmemoised: closes over the latest `sheet`, `wide`, `overlay`
+  }) // deliberately unmemoised: closes over the latest `sheet`, `fits`, `overlay`
 
+  /** A rail is a column only when the operator wants it AND it fits. */
+  const asColumn = (rail: 'threads' | 'inspector') => fits[rail] && layout[rail]
   const toggleRail = (rail: 'threads' | 'inspector') => {
-    if (wide) setLayout((l) => ({ ...l, [rail]: !l[rail] }))
+    if (fits[rail]) setLayout((l) => ({ ...l, [rail]: !l[rail] }))
     else setSheet((s) => (s === rail ? null : rail))
   }
-  const railOn = (rail: 'threads' | 'inspector') => (wide ? layout[rail] : sheet === rail)
+  const railOn = (rail: 'threads' | 'inspector') => (fits[rail] ? layout[rail] : sheet === rail)
 
   const canvasBlocks = useMemo<UiBlock[]>(
     () => state.thread.messages.flatMap((m) => m.ui).filter((b) => b.component !== 'proposal').reverse(),
@@ -188,7 +224,7 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
 
   const openInspector = (t: InspectorTab) => {
     setTab(t)
-    if (wide) setLayout((l) => ({ ...l, inspector: true }))
+    if (fits.inspector) setLayout((l) => ({ ...l, inspector: true }))
     else setSheet('inspector')
   }
 
@@ -206,7 +242,7 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
     { cmd: '/readonly', hint: 'Autonomy: investigate only', run: () => assistStore.setAutonomy('read-only') },
     { cmd: '/suggest', hint: 'Autonomy: describe the change it would make', run: () => assistStore.setAutonomy('suggest') },
     { cmd: '/propose', hint: 'Autonomy: open a pull request for review', run: () => assistStore.setAutonomy('approve-to-apply') },
-  ], [state.agents, canvasBlocks.length, wide]) // eslint-disable-line react-hooks/exhaustive-deps
+  ], [state.agents, canvasBlocks.length, fits.inspector]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = () => {
     const text = input.trim()
@@ -281,12 +317,12 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
             </HeaderBtn>
           ) : null}
           <IconToggle on={railOn('inspector')} onClick={() => toggleRail('inspector')} title="Inspector (⌘])"><IconPanelRight /></IconToggle>
-          {overlay && wide ? (
+          {overlay && !phone ? (
             <IconToggle on={layout.full} onClick={() => setLayout((l) => ({ ...l, full: !l.full }))} title={layout.full ? 'Exit fullscreen (⌘⇧F)' : 'Fullscreen (⌘⇧F)'}>
               {layout.full ? <IconShrink /> : <IconExpand />}
             </IconToggle>
           ) : null}
-          {wide ? <ShortcutsMenu /> : null}
+          {!phone ? <ShortcutsMenu /> : null}
           {onClose ? (
             <button type="button" onClick={onClose} aria-label={overlay ? 'Close (Esc)' : 'Leave Adhar AI'} title={overlay ? 'Close (Esc)' : 'Leave Adhar AI'} className="ml-0.5 flex h-8 w-8 items-center justify-center rounded-lg text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content"><IconX /></button>
           ) : null}
@@ -296,9 +332,15 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
       {/* ═══ body ═══ */}
       <div
         className="relative grid min-h-0 flex-1"
-        style={{ gridTemplateColumns: wide ? `${layout.threads ? '256px' : '0px'} minmax(0,1fr) ${layout.inspector ? '340px' : '0px'}` : 'minmax(0,1fr)' }}
+        style={{
+          gridTemplateColumns: [
+            asColumn('threads') ? `${RAIL_THREADS}px` : null,
+            'minmax(0,1fr)',
+            asColumn('inspector') ? `${RAIL_INSPECTOR}px` : null,
+          ].filter(Boolean).join(' '),
+        }}
       >
-        {wide ? <div className={cn('min-h-0 overflow-hidden', !layout.threads && 'hidden')}>{threadsRail}</div> : null}
+        {asColumn('threads') ? <div className="min-h-0 overflow-hidden">{threadsRail}</div> : null}
 
         <section className="flex min-h-0 flex-col">
           <div
@@ -356,10 +398,10 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
           />
         </section>
 
-        {wide ? <div className={cn('min-h-0 overflow-hidden', !layout.inspector && 'hidden')}>{inspector}</div> : null}
+        {asColumn('inspector') ? <div className="min-h-0 overflow-hidden">{inspector}</div> : null}
 
-        {/* Phone: the rails as sheets over the conversation. */}
-        {!wide && sheet ? (
+        {/* Whatever does not fit as a column opens as a sheet over the conversation. */}
+        {sheet && !asColumn(sheet) ? (
           <Sheet side={sheet === 'threads' ? 'left' : 'right'} onClose={() => setSheet(null)} label={sheet === 'threads' ? 'Conversations' : 'Inspector'}>
             {sheet === 'threads' ? threadsRail : inspector}
           </Sheet>
@@ -370,17 +412,18 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
 
   if (!overlay) {
     return (
-      <div className="flex h-full min-h-0 flex-col bg-surface-app" aria-label="Adhar AI">
+      <div ref={frameRef} className="flex h-full min-h-0 flex-col bg-surface-app" aria-label="Adhar AI">
         {frame}
       </div>
     )
   }
 
-  const edge = layout.full || !wide
+  const edge = layout.full || phone
   return (
     <div role="dialog" aria-modal="true" aria-label="Adhar AI" className={cn('fixed inset-0 z-[70] flex items-center justify-center', edge ? 'p-0' : 'p-2 sm:p-4')}>
       <div className="fade-in absolute inset-0 bg-scrim/45 backdrop-blur-[3px]" onClick={onClose} aria-hidden />
       <div
+        ref={frameRef}
         className={cn(
           'pop-in relative flex w-full flex-col overflow-hidden bg-surface-app transition-[border-radius] duration-200',
           edge

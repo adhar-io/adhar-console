@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { STUB_USER, useOptionalSession } from '@adhar-console/auth'
+import { PENDING_USER, useOptionalSession } from '@adhar-console/auth'
 import {
   Button,
   Card,
@@ -223,7 +223,7 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
   const stars = useStars()
   const recents = useRecentlyViewed()
   const savedViews = useSavedViews()
-  const user = useOptionalSession()?.user ?? STUB_USER
+  const user = useOptionalSession()?.user ?? PENDING_USER
   const navigate = useNavigate()
   const searchInputRef = useRef<HTMLInputElement>(null)
   const [selected, setSelected] = useState<Entity | null>(null)

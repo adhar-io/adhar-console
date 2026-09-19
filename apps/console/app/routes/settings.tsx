@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { z } from 'zod'
 import { AppShell } from '@adhar-console/shell-ui'
 import { RemoteModule } from '@adhar-console/mf-utils'
-import { STUB_USER, useOptionalSession } from '@adhar-console/auth'
+import { PENDING_USER, useOptionalSession } from '@adhar-console/auth'
 import { getLayoutData } from '~/server/session.ts'
 
 const SettingsSearchSchema = z.object({
@@ -18,7 +18,7 @@ export const Route = createFileRoute('/settings')({
 
 function SettingsPage() {
   const { tenants, activeTenant, notifications } = Route.useLoaderData()
-  const user = useOptionalSession()?.user ?? STUB_USER
+  const user = useOptionalSession()?.user ?? PENDING_USER
   const { section } = Route.useSearch()
   return (
     <AppShell

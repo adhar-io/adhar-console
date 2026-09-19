@@ -8,7 +8,7 @@ import {
   type StatusKind,
 } from '@adhar-console/shell-ui'
 import { BACKING_TOOLS, PLATFORM_VERSION } from '@adhar-console/platform-info'
-import { STUB_USER, useOptionalSession } from '@adhar-console/auth'
+import { PENDING_USER, useOptionalSession } from '@adhar-console/auth'
 import { getLayoutData } from '~/server/session.ts'
 import { overallHealth, useBackingHealth } from '~/data/backing-health.ts'
 
@@ -45,7 +45,7 @@ function relTime(ms?: number): string {
 
 function StatusPage() {
   const { tenants, activeTenant, notifications } = Route.useLoaderData()
-  const user = useOptionalSession()?.user ?? STUB_USER
+  const user = useOptionalSession()?.user ?? PENDING_USER
   const live = useBackingHealth()
   const overall = overallHealth(live.byId)
 

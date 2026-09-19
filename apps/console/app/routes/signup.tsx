@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { AdharLogo, Button } from '@adhar-console/shell-ui'
-import { getStubSession, useAuth } from '@adhar-console/auth'
+import { getDemoSession, useAuth } from '@adhar-console/auth'
 
 /**
  * Sign-up landing page.
@@ -34,7 +34,7 @@ function SignupPage() {
         await signup({ returnTo: '/onboarding' })
         // browser navigates away — nothing else to do
       } else {
-        setSession(getStubSession())
+        setSession(getDemoSession())
         nav({ to: '/onboarding', replace: true })
       }
     } catch (e) {

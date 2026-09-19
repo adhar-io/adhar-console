@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { AppShell, AssistHost } from '@adhar-console/shell-ui'
-import { STUB_USER, useOptionalSession } from '@adhar-console/auth'
+import { PENDING_USER, useOptionalSession } from '@adhar-console/auth'
 import { getLayoutData } from '~/server/session.ts'
 
 /**
@@ -19,7 +19,7 @@ export const Route = createFileRoute('/ai')({
 
 function AiPage() {
   const { tenants, activeTenant, notifications } = Route.useLoaderData()
-  const user = useOptionalSession()?.user ?? STUB_USER
+  const user = useOptionalSession()?.user ?? PENDING_USER
   const navigate = useNavigate()
   return (
     <AppShell

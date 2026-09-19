@@ -7,7 +7,7 @@
  */
 export type { Session, User, Claims, Role } from './types.ts'
 export { SessionSchema, UserSchema, ClaimsSchema } from './types.ts'
-export { STUB_SESSION, STUB_USER, getStubSession } from './stub.ts'
+export { DEMO_USER, PENDING_USER, getDemoSession } from './stub.ts'
 export { claimsToUser } from './claims.ts'
 export {
   AuthProvider,

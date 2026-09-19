@@ -1,7 +1,7 @@
 import { createFileRoute, notFound, Outlet } from '@tanstack/react-router'
 import { z } from 'zod'
 import { AppShell, PlatformSelectionControls } from '@adhar-console/shell-ui'
-import { STUB_USER, useOptionalSession } from '@adhar-console/auth'
+import { PENDING_USER, useOptionalSession } from '@adhar-console/auth'
 import { getLayoutData } from '~/server/session.ts'
 
 const PhaseSchema = z.enum([
@@ -59,7 +59,7 @@ export const Route = createFileRoute('/$phase')({
 function PhaseLayout() {
   const { phase } = Route.useParams()
   const { tenants, activeTenant, notifications } = Route.useLoaderData()
-  const user = useOptionalSession()?.user ?? STUB_USER
+  const user = useOptionalSession()?.user ?? PENDING_USER
   return (
     <AppShell
       user={user}

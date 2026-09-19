@@ -23,7 +23,7 @@ import {
   THEMES,
 } from '@adhar-console/shell-ui'
 import { formatAbsolute, formatRelative } from '@adhar-console/utils'
-import { STUB_USER, useOptionalSession, type Session, type User } from '@adhar-console/auth'
+import { PENDING_USER, useOptionalSession, type Session, type User } from '@adhar-console/auth'
 import { getLayoutData } from '~/server/session.ts'
 import {
   applyAppearance,
@@ -80,7 +80,7 @@ const SECTION_TABS = [
 function ProfilePage() {
   const { tenants, activeTenant, notifications } = Route.useLoaderData()
   const session = useOptionalSession()
-  const user = session?.user ?? STUB_USER
+  const user = session?.user ?? PENDING_USER
   const [section, setSection] = useState<SectionId>('profile')
 
   const prefsQ = useProfilePrefs()

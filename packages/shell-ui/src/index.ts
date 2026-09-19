@@ -183,6 +183,7 @@ export { liveClient, useLiveInvalidate, useLiveK8sList, useLivePoll, useLiveRefe
 export { ToastProvider, useToast, type Toast, type ToastApi, type ToastKind, type ToastOptions } from './toast.tsx'
 export { useOverlayDismiss } from './overlay.ts'
 export { useIsWide, useMediaQuery } from './use-media-query.ts'
+export { useElementWidth } from './use-element-size.ts'
 export { TeamScopeBar, type TeamProject, type TeamProjects, useTeamProjects } from './team-scope.tsx'
 export { type TeamAction, type TeamSummary, useTeams, type UseTeams } from './use-teams.ts'
 export {

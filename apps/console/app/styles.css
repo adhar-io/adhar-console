@@ -1,6 +1,30 @@
 @import 'tailwindcss';
 
 /*
+ * Make `dark:` follow the app's own theme switch.
+ *
+ * Tailwind v4's default `dark:` variant compiles to
+ * `@media (prefers-color-scheme: dark)` — the OS setting. This app does not
+ * theme itself that way: `applyColorMode` resolves light / dark / system to a
+ * single `.dark` class on <html> (see theme.ts), and everything below flips
+ * off that class.
+ *
+ * Without this line the two never met. Every one of the ~2000 `dark:`
+ * utilities across shell-ui and the modules was inert whenever the app's
+ * resolved mode disagreed with the OS — pick dark in the console on a
+ * light-mode laptop and the semantic colours (emerald/rose/amber status
+ * pills, callouts, banners) stayed in their light form on dark surfaces,
+ * while the surface/content/edge/slate ramps flipped correctly via the
+ * variable swap below. That mismatch is most of the "dark mode looks wrong"
+ * reports, and it is invisible to code review: the classes are written
+ * correctly, they just never applied.
+ *
+ * `:where()` keeps specificity at zero so these behave exactly like the
+ * media-query version they replace, and ordering still decides.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
  * Tell Tailwind v4 to scan these source trees for utility classes.
  * The host's `app/` dir is picked up automatically via @tailwindcss/vite.
  */

@@ -52,7 +52,20 @@ export interface UseTeams {
   error: string | null
   switchTeam(id: string): Promise<void>
   refresh(): void
+  /** Which write is in flight, so one button can show progress without a global spinner. */
+  busy: TeamAction | null
+  /**
+   * Create a team in the active organization. Resolves to the new team, or
+   * null when the server refused — the caller keeps its dialog open and shows
+   * `error` rather than guessing.
+   */
+  createTeam(input: { name: string; slug?: string; description?: string }): Promise<TeamSummary | null>
+  renameTeam(id: string, name: string): Promise<boolean>
+  deleteTeam(id: string): Promise<boolean>
 }
+
+/** A team write in flight. */
+export type TeamAction = 'create' | 'rename' | 'delete'
 
 const PREFS_SCOPE = 'active-team'
 
@@ -154,6 +167,85 @@ export function useTeams(orgId: string | undefined): UseTeams {
 
   const refresh = useCallback(() => setNonce((n) => n + 1), [])
 
+  /* ─────────── writes ─────────── */
+
+  const [busy, setBusy] = useState<TeamAction | null>(null)
+
+  /**
+   * One shape for all three writes: mark busy, call, surface the server's own
+   * message on failure, re-read the list on success. Teams are mirrored into
+   * Keycloak groups server-side, so the list is re-fetched rather than patched
+   * locally — `keycloakSynced` is decided there and a local guess about it
+   * would be a guess about whether access actually works.
+   */
+  const write = useCallback(
+    async <T,>(action: TeamAction, run: () => Promise<Response>, parse?: (r: Response) => Promise<T>): Promise<T | null> => {
+      setBusy(action)
+      setError(null)
+      try {
+        const res = await run()
+        if (!res.ok) throw new Error(await readError(res))
+        // No parser means "nothing to read back" — resolve to a truthy marker
+        // so callers can tell success from the null this returns on failure.
+        const value = parse ? await parse(res) : (true as unknown as T)
+        if (alive.current) refresh()
+        return value
+      } catch (e) {
+        if (alive.current) setError(e instanceof Error ? e.message : `Failed to ${action} team`)
+        return null
+      } finally {
+        if (alive.current) setBusy(null)
+      }
+    },
+    [refresh],
+  )
+
+  const createTeam = useCallback(
+    (input: { name: string; slug?: string; description?: string }) =>
+      write('create', () =>
+        fetch('/api/workspace/teams', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { ...json, 'content-type': 'application/json' },
+          body: JSON.stringify(input),
+        }),
+        async (res) => {
+          const t = (await res.json()) as WsTeam
+          return { id: t.id, slug: t.slug, name: t.name, description: t.description, keycloakSynced: t.keycloakSynced, mine: true }
+        },
+      ),
+    [write],
+  )
+
+  const renameTeam = useCallback(
+    async (id: string, name: string) => {
+      const res = await write('rename', () =>
+        fetch(`/api/workspace/teams/${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: { ...json, 'content-type': 'application/json' },
+          body: JSON.stringify({ name }),
+        }),
+      )
+      return res !== null
+    },
+    [write],
+  )
+
+  const deleteTeam = useCallback(
+    async (id: string) => {
+      const ok = await write('delete', () =>
+        fetch(`/api/workspace/teams/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'same-origin', headers: json }),
+      )
+      // Deleting the team you were scoped to leaves the scope dangling; fall
+      // back to whatever the refreshed list settles on rather than filtering
+      // every page by a team that no longer exists.
+      if (ok !== null && id === activeId) setActiveId('')
+      return ok !== null
+    },
+    [write, activeId],
+  )
+
   const switchTeam = useCallback(
     async (id: string) => {
       if (id === activeId) return
@@ -215,5 +307,9 @@ export function useTeams(orgId: string | undefined): UseTeams {
     error,
     switchTeam,
     refresh,
+    busy,
+    createTeam,
+    renameTeam,
+    deleteTeam,
   }
 }

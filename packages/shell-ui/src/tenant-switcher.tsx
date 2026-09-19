@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@adhar-console/utils'
 import type { Tenant } from '@adhar-console/tenancy'
@@ -35,6 +35,9 @@ export function TenantSwitcher({
   const [createOpen, setCreateOpen] = useState(false)
   const [renameFor, setRenameFor] = useState<OrgItem | null>(null)
   const [deleteFor, setDeleteFor] = useState<OrgItem | null>(null)
+  const [teamCreateOpen, setTeamCreateOpen] = useState(false)
+  const [teamRenameFor, setTeamRenameFor] = useState<TeamSummary | null>(null)
+  const [teamDeleteFor, setTeamDeleteFor] = useState<TeamSummary | null>(null)
 
   // Teams belong to the active organization, so the hook re-fetches whenever
   // the org changes. Passing undefined before the live list arrives keeps it
@@ -117,10 +120,23 @@ export function TenantSwitcher({
           canDelete={usingLive && items.length > 1}
           teams={usingLive && teams.ready ? teams.teams : []}
           activeTeamId={teams.activeId}
-          teamBusy={teams.switching}
+          teamBusy={teams.switching || teams.busy !== null}
+          teamsReady={usingLive && teams.ready}
           onSelectTeam={(id) => {
             setOpen(false)
             void teams.switchTeam(id)
+          }}
+          onNewTeam={() => {
+            setOpen(false)
+            setTeamCreateOpen(true)
+          }}
+          onRenameTeam={(t) => {
+            setOpen(false)
+            setTeamRenameFor(t)
+          }}
+          onDeleteTeam={(t) => {
+            setOpen(false)
+            setTeamDeleteFor(t)
           }}
           onSelect={select}
           onClose={() => setOpen(false)}
@@ -173,14 +189,82 @@ export function TenantSwitcher({
       ) : null}
       {deleteFor ? (
         <ConfirmDeleteDialog
+          entity="organization"
           name={deleteFor.name}
-          isActive={deleteFor.id === activeId}
+          body={
+            <>
+              <span className="font-medium text-content">{deleteFor.name}</span> will be removed from
+              your organization list{deleteFor.id === activeId ? ' and you will be switched to another organization' : ''}.
+              Resources provisioned on the platform for it are not deleted.
+            </>
+          }
           busy={org.busy === 'delete'}
           error={org.busy === 'delete' ? null : org.error}
           onClose={() => setDeleteFor(null)}
           onConfirm={async () => {
             // Deleting the active org reloads; otherwise the list refreshes.
             if (await org.deleteOrg(deleteFor.id)) setDeleteFor(null)
+          }}
+        />
+      ) : null}
+
+      {/* ── teams ── */}
+      {teamCreateOpen ? (
+        <OrgNameDialog
+          title="New team"
+          description="Teams divide an organization's projects and access. Members you add to a team inherit its access to repositories, namespaces and dashboards."
+          submitLabel="Create team"
+          busyLabel="Creating…"
+          busy={teams.busy === 'create'}
+          error={teams.busy === 'create' ? null : teams.error}
+          onClose={() => setTeamCreateOpen(false)}
+          onSubmit={async (name) => {
+            const created = await teams.createTeam({ name })
+            // Land in the team just created — creating one is how you say you
+            // intend to work in it.
+            if (created) {
+              await teams.switchTeam(created.id)
+              setTeamCreateOpen(false)
+            }
+            return !!created
+          }}
+        />
+      ) : null}
+      {teamRenameFor ? (
+        <OrgNameDialog
+          title="Rename team"
+          description="The new name shows everywhere this team appears. Its slug, members and the Keycloak group behind it are unchanged."
+          initial={teamRenameFor.name}
+          submitLabel="Save name"
+          busyLabel="Saving…"
+          busy={teams.busy === 'rename'}
+          error={teams.busy === 'rename' ? null : teams.error}
+          onClose={() => setTeamRenameFor(null)}
+          onSubmit={async (name) => {
+            const ok = await teams.renameTeam(teamRenameFor.id, name)
+            if (ok) setTeamRenameFor(null)
+            return ok
+          }}
+        />
+      ) : null}
+      {teamDeleteFor ? (
+        <ConfirmDeleteDialog
+          entity="team"
+          name={teamDeleteFor.name}
+          body={
+            <>
+              <span className="font-medium text-content">{teamDeleteFor.name}</span> will be removed
+              from this organization and from every member who belongs to it
+              {teamDeleteFor.id === teams.activeId ? ', and your view will stop being scoped to it' : ''}.
+              Projects the team owns are not deleted, and neither are the repositories, namespaces or
+              dashboards it had access to — but access granted through it goes away.
+            </>
+          }
+          busy={teams.busy === 'delete'}
+          error={teams.busy === 'delete' ? null : teams.error}
+          onClose={() => setTeamDeleteFor(null)}
+          onConfirm={async () => {
+            if (await teams.deleteTeam(teamDeleteFor.id)) setTeamDeleteFor(null)
           }}
         />
       ) : null}
@@ -198,7 +282,11 @@ function Menu({
   teams,
   activeTeamId,
   teamBusy,
+  teamsReady,
   onSelectTeam,
+  onNewTeam,
+  onRenameTeam,
+  onDeleteTeam,
   onSelect,
   onClose,
   onNew,
@@ -216,7 +304,12 @@ function Menu({
   teams: TeamSummary[]
   activeTeamId: string
   teamBusy: boolean
+  /** The live team list has loaded — show the section even when it is empty. */
+  teamsReady: boolean
   onSelectTeam(id: string): void
+  onNewTeam(): void
+  onRenameTeam(t: TeamSummary): void
+  onDeleteTeam(t: TeamSummary): void
   onSelect(id: string): void
   onClose(): void
   onNew(): void
@@ -295,7 +388,7 @@ function Menu({
             within the same tenant, so unlike an org switch it neither re-signs
             the session nor reloads the page. Hidden entirely when the live list
             is unavailable rather than showing an empty, unexplained heading. */}
-        {teams.length > 0 ? (
+        {teamsReady ? (
           <>
             <div className="flex items-center justify-between gap-2 border-y border-edge-subtle px-3 py-2">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
@@ -307,15 +400,16 @@ function Menu({
               {teams.map((t) => {
                 const isActive = t.id === activeTeamId
                 return (
-                  <li key={t.id}>
+                  <li key={t.id} className="group relative">
                     <button
                       type="button"
                       role="option"
                       aria-selected={isActive}
                       onClick={() => onSelectTeam(t.id)}
                       className={cn(
-                        'flex w-full items-center gap-2.5 py-1.5 pl-3 pr-3 text-left transition-colors',
+                        'flex w-full items-center gap-2.5 py-1.5 pl-3 text-left transition-colors',
                         isActive ? 'bg-surface-sunken' : 'hover:bg-surface-sunken',
+                        manageable ? 'pr-16' : 'pr-3',
                       )}
                     >
                       {/* Indented under the org list to show the nesting. */}
@@ -349,10 +443,52 @@ function Menu({
                         : null}
                       {isActive ? <IconCheck /> : null}
                     </button>
+                    {manageable ? (
+                      <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                        <button
+                          type="button"
+                          title={`Rename ${t.name}`}
+                          aria-label={`Rename team ${t.name}`}
+                          onClick={() => onRenameTeam(t)}
+                          className="rounded-md p-1.5 text-content-subtle transition-colors hover:bg-surface-raised hover:text-content"
+                        >
+                          <IconPencil />
+                        </button>
+                        <button
+                          type="button"
+                          title={`Delete ${t.name}`}
+                          aria-label={`Delete team ${t.name}`}
+                          onClick={() => onDeleteTeam(t)}
+                          className="rounded-md p-1.5 text-content-subtle transition-colors hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
+                        >
+                          <IconTrash />
+                        </button>
+                      </div>
+                    ) : null}
                   </li>
                 )
               })}
             </ul>
+            {/* An organization with no teams still needs a way to get its
+                first one — the section used to disappear entirely when the
+                list was empty, which hid the only route to creating one. */}
+            {teams.length === 0 ? (
+              <p className="px-3 pb-2 text-[11.5px] leading-snug text-content-subtle">
+                No teams yet. A team groups projects and the access that comes with them.
+              </p>
+            ) : null}
+            {manageable ? (
+              <div className="px-1 pb-1">
+                <button
+                  type="button"
+                  onClick={onNewTeam}
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[13px] font-medium text-content-muted transition-colors hover:bg-surface-sunken hover:text-content"
+                >
+                  <IconPlus />
+                  New team
+                </button>
+              </div>
+            ) : null}
           </>
         ) : null}
 
@@ -515,28 +651,28 @@ function OrgNameDialog({
 }
 
 function ConfirmDeleteDialog({
+  entity,
   name,
-  isActive,
+  body,
   busy,
   error,
   onClose,
   onConfirm,
 }: {
+  /** What is being deleted — used for the heading and the aria label. */
+  entity: 'organization' | 'team'
   name: string
-  isActive: boolean
+  /** What deleting it actually does. Spelling out what SURVIVES is the point. */
+  body: ReactNode
   busy: boolean
   error: string | null
   onClose(): void
   onConfirm(): Promise<void>
 }) {
   return (
-    <DialogFrame label="Delete organization" busy={busy} onClose={onClose}>
-      <h2 className="text-base font-semibold tracking-tight text-content">Delete organization</h2>
-      <p className="mt-1 text-[13px] text-content-muted">
-        <span className="font-medium text-content">{name}</span> will be removed from your
-        organization list{isActive ? ' and you will be switched to another organization' : ''}.
-        Resources provisioned on the platform for it are not deleted.
-      </p>
+    <DialogFrame label={`Delete ${entity} ${name}`} busy={busy} onClose={onClose}>
+      <h2 className="text-base font-semibold tracking-tight text-content">Delete {entity}</h2>
+      <p className="mt-1 text-[13px] text-content-muted">{body}</p>
       <div className="mt-4 space-y-3">
         <ErrorNote text={error} />
         <div className="flex items-center justify-end gap-2 pt-1">
@@ -550,7 +686,7 @@ function ConfirmDeleteDialog({
             className="inline-flex h-9 items-center gap-2 rounded-lg bg-rose-600 px-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-rose-700 disabled:opacity-60"
           >
             {busy ? <MiniSpinner light /> : null}
-            {busy ? 'Deleting…' : 'Delete organization'}
+            {busy ? 'Deleting…' : `Delete ${entity}`}
           </button>
         </div>
       </div>

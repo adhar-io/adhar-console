@@ -1,7 +1,9 @@
 import { assertEquals } from 'jsr:@std/assert@^1.0.0'
 import { resolveTemplateSource } from './scaffolder.ts'
 
-const REPO = 'adhar/adhar-templates'
+// The repo the installer actually creates: `platform/stack/packages` is
+// copied wholesale into one Gitea repo called `packages`.
+const REPO = 'adhar/packages'
 
 Deno.test('a golden path GENERATES — it is not a stored skeleton', () => {
   // The regression this exists for: `templateId: golden-microservice` used to
@@ -22,8 +24,22 @@ Deno.test('a golden path GENERATES — it is not a stored skeleton', () => {
 Deno.test('a templateId with no golden-path family renders the stored skeleton', () => {
   const r = resolveTemplateSource({ templateId: 'go-rest-service', templatesRepo: REPO })
   assertEquals(r.isBackstage, true)
-  assertEquals(r.templatePath, 'templates/go-rest-service')
+  // The real layout. This used to default to `templates/go-rest-service`,
+  // a path that exists on no install, so the render 404'd.
+  assertEquals(r.templatePath, 'application/adhar-templates/go-rest-service')
   assertEquals(r.goldenPath, undefined)
+})
+
+Deno.test('the templates directory is configurable, and a bare one still joins', () => {
+  assertEquals(
+    resolveTemplateSource({ templateId: 'svc', templatesRepo: REPO, templatesPath: 'custom/dir' }).templatePath,
+    'custom/dir/svc',
+  )
+  // An install that puts templates at the repo root gets no stray slash.
+  assertEquals(
+    resolveTemplateSource({ templateId: 'svc', templatesRepo: REPO, templatesPath: '' }).templatePath,
+    'svc',
+  )
 })
 
 Deno.test('an explicitly named Backstage source wins over a golden-path family', () => {

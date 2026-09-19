@@ -6,6 +6,7 @@ import { apiServerFetch, resolveIdentity } from './k8s/gateway.ts'
 import { defaultImage, generateGoldenPathFiles, isGoldenPathFamily } from './golden-paths.ts'
 import type { GoldenPathFamily } from './golden-paths.ts'
 import { parseYaml } from './yaml-lite.ts'
+import { templatesLocation } from './templates.ts'
 import { computeValues, renderContent, renderPath, skeletonDir } from './template-render.ts'
 import { toolPublicUrl, toPublicToolUrl } from './domain.ts'
 
@@ -43,9 +44,9 @@ interface ScaffoldRequest {
   type?: string
   tags?: string[]
   scaffold?: {
-    /** Backstage templates repo, "owner/repo" (default adhar/adhar-templates). */
+    /** Backstage templates repo, "owner/repo" (default adhar/packages). */
     templatesRepo?: string
-    /** Path of the chosen template within that repo, e.g. templates/nodejs-web-service. */
+    /** Path within that repo, e.g. application/adhar-templates/basic. */
     templatePath?: string
     /** Legacy Gitea template-repo generate source (kept for back-compat). */
     sourceRepo?: string
@@ -254,14 +255,15 @@ async function scaffold(
   // So: a declared golden-path family wins, unless the caller explicitly names a
   // Backstage source (`templatePath` / `templatesRepo`), in which case they have
   // asked for a skeleton render and get one.
-  const templatesOrg = env('GITEA_TEMPLATES_ORG') || env('GITEA_ORG') || 'adhar'
-  const templatesRepo = sc.templatesRepo || `${templatesOrg}/${env('GITEA_TEMPLATES_REPO') || 'adhar-templates'}`
+  const location = templatesLocation()
+  const templatesRepo = sc.templatesRepo || `${location.org}/${location.repo}`
   const { templatePath, isBackstage, goldenPath } = resolveTemplateSource({
     templateId: body.templateId,
     templatePath: sc.templatePath,
     templatesRepo,
     explicitTemplatesRepo: Boolean(sc.templatesRepo),
     goldenPath: sc.goldenPath,
+    templatesPath: location.path,
   })
 
   /* ── 1. create the (empty) repo ── */
@@ -571,12 +573,18 @@ export function resolveTemplateSource(o: {
   templatesRepo: string
   explicitTemplatesRepo?: boolean
   goldenPath?: unknown
+  /**
+   * Directory the templates sit under in `templatesRepo`. Defaults to the
+   * real layout; the old hard-coded `templates/` matched no install.
+   */
+  templatesPath?: string
 }): { templatePath?: string; isBackstage: boolean; goldenPath?: GoldenPathFamily } {
   const family = isGoldenPathFamily(o.goldenPath) ? o.goldenPath : undefined
   const explicitBackstage = Boolean(o.templatePath || o.explicitTemplatesRepo)
   const generating = Boolean(family) && !explicitBackstage
+  const base = (o.templatesPath ?? 'application/adhar-templates').replace(/^\/+|\/+$/g, '')
   const templatePath = o.templatePath ??
-    (o.templateId && !generating ? `templates/${o.templateId}` : undefined)
+    (o.templateId && !generating ? (base ? `${base}/${o.templateId}` : o.templateId) : undefined)
   const isBackstage = Boolean(templatePath && o.templatesRepo.includes('/'))
   return { templatePath, isBackstage, goldenPath: isBackstage ? undefined : family }
 }

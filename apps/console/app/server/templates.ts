@@ -274,16 +274,64 @@ function extractTargets(doc: YamlValue): string[] {
     .filter((t) => t.endsWith('template.yaml'))
 }
 
+/**
+ * Where Backstage templates live in Gitea — the single source of truth, used
+ * by discovery here and by the scaffolder when it renders a skeleton.
+ *
+ * The platform installer copies `platform/stack/packages` wholesale into ONE
+ * Gitea repo named `packages`, so the templates end up nested rather than in
+ * a repo of their own. Both readers previously guessed a repo called
+ * `adhar-templates` and a path of `templates/<id>`; neither has ever existed
+ * on an install, and having two independent guesses is how they stayed wrong.
+ */
+export function templatesLocation(): { org: string; repo: string; path: string } {
+  return {
+    org: env('GITEA_TEMPLATES_ORG') || env('GITEA_ORG') || 'adhar',
+    repo: env('GITEA_TEMPLATES_REPO') || 'packages',
+    path: env('GITEA_TEMPLATES_PATH') ?? 'application/adhar-templates',
+  }
+}
+
 type Api = (path: string, init?: RequestInit) => Promise<Response>
 
-/** Fallback discovery: list each `templates/<name>` dir via the contents API. */
-async function listTargetsFromContents(api: Api, org: string, repo: string): Promise<string[]> {
-  const r = await api(`/repos/${encodeURIComponent(org)}/${encodeURIComponent(repo)}/contents/templates`)
+/**
+ * Discovery by EXISTENCE: every directory under the templates path that
+ * contains a `template.yaml` is a template.
+ *
+ * This is the primary path, not a fallback, and that is the whole fix. The
+ * old primary was `catalog-info.yaml`'s `spec.targets` — a hand-maintained
+ * list that has to be edited whenever anyone adds a template directory, and
+ * which had silently gone stale: the packages repo carried seven template
+ * directories and the list named three, so `data-pipeline`, `frontend`,
+ * `microservice` and `ml` were complete, valid templates that simply never
+ * appeared in the console. Nothing failed; they were just never asked for.
+ *
+ * `catalog-info.yaml` is still read and unioned in, because it can legitimately
+ * point outside this directory, but it is no longer the only way to be seen.
+ */
+async function listTargetsFromContents(
+  api: Api,
+  org: string,
+  repo: string,
+  basePath: string,
+): Promise<string[]> {
+  const path = basePath ? `/${basePath.replace(/^\/+|\/+$/g, '')}` : ''
+  const r = await api(`/repos/${encodeURIComponent(org)}/${encodeURIComponent(repo)}/contents${path}`)
   if (!r.ok) return []
   const entries = (await r.json().catch(() => [])) as Array<{ type?: string; name?: string; path?: string }>
+  if (!Array.isArray(entries)) return []
   return entries
     .filter((e) => e?.type === 'dir' && e.name)
-    .map((e) => `templates/${e.name}/template.yaml`)
+    // `organization/` holds Backstage User/Group entities, not a template, and
+    // it has no template.yaml — the per-target fetch below drops it anyway,
+    // but naming it here keeps the intent obvious.
+    .map((e) => joinPath(basePath, `${e.name}/template.yaml`))
+}
+
+/** Join without producing `//` or a leading slash. */
+function joinPath(base: string, rest: string): string {
+  const b = base.replace(/^\/+|\/+$/g, '')
+  return b ? `${b}/${rest}` : rest
 }
 
 export async function handleListTemplates(req: Request): Promise<Response> {
@@ -298,16 +346,24 @@ export async function handleListTemplates(req: Request): Promise<Response> {
     )
   }
 
-  const org = env('GITEA_TEMPLATES_ORG') || env('GITEA_ORG') || 'adhar'
-  const templatesRepo = env('GITEA_TEMPLATES_REPO') || 'adhar-templates'
+  const { org, repo: templatesRepo, path: templatesPath } = templatesLocation()
   const browseBase = getTool('gitea')?.baseUrl ?? ''
   const api = giteaFetcher(conn)
 
   let targets: string[] = []
   try {
-    const ci = await api(`/repos/${encodeURIComponent(org)}/${encodeURIComponent(templatesRepo)}/raw/catalog-info.yaml`)
-    if (ci.ok) targets = extractTargets(parseYaml(await ci.text()))
-    if (!targets.length) targets = await listTargetsFromContents(api, org, templatesRepo)
+    // Directory enumeration first — a template registers by existing. The
+    // curated list is unioned on top so it can still point outside this path.
+    targets = await listTargetsFromContents(api, org, templatesRepo, templatesPath)
+    const ci = await api(
+      `/repos/${encodeURIComponent(org)}/${encodeURIComponent(templatesRepo)}/raw/${joinPath(templatesPath, 'catalog-info.yaml')}`,
+    )
+    if (ci.ok) {
+      const listed = extractTargets(parseYaml(await ci.text())).map((t) => joinPath(templatesPath, t))
+      targets = [...new Set([...targets, ...listed])]
+    } else {
+      await ci.body?.cancel()
+    }
   } catch (e) {
     return withCookie(
       Response.json(

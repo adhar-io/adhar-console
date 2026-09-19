@@ -81,13 +81,30 @@ export type MetricSeries = z.infer<typeof MetricSeriesSchema>
 
 /* ─────────── traces ─────────── */
 
+/*
+ * Tempo speaks protobuf JSON, and protobuf JSON OMITS ZERO-VALUED SCALARS.
+ *
+ * A sub-millisecond trace arrives with no `durationMs` key at all; a span with
+ * no service name has no `rootServiceName`. The fields are not optional in any
+ * meaningful sense — every trace has a duration — they are simply absent when
+ * they are zero or empty. Declaring them as plain required values made the
+ * TYPE say `number` while the VALUE was `undefined`, which is how the traces
+ * page came to crash on `durationMs.toFixed(0)` for any fast trace.
+ *
+ * Defaulting restores the truth rather than papering over it: absent means
+ * zero, because that is exactly what the encoder meant. `.catch` additionally
+ * absorbs a wrong-typed value so one odd trace cannot blank the page.
+ */
+const zeroNumber = z.number().default(0).catch(0)
+const emptyString = z.string().default('').catch('')
+
 export const TraceSchema = z.object({
   traceID: z.string(),
-  rootServiceName: z.string(),
-  rootTraceName: z.string(),
-  startTimeUnixNano: z.string(),
-  durationMs: z.number(),
-  spanCount: z.number(),
+  rootServiceName: emptyString,
+  rootTraceName: emptyString,
+  startTimeUnixNano: emptyString,
+  durationMs: zeroNumber,
+  spanCount: zeroNumber,
   status: z.enum(['ok', 'error']).optional(),
 })
 export type Trace = z.infer<typeof TraceSchema>
@@ -104,10 +121,10 @@ export type SpanEvent = z.infer<typeof SpanEventSchema>
 export const SpanSchema = z.object({
   spanID: z.string(),
   parentSpanID: z.string().optional(),
-  serviceName: z.string(),
-  operationName: z.string(),
-  startTimeMs: z.number(),
-  durationMs: z.number(),
+  serviceName: emptyString,
+  operationName: emptyString,
+  startTimeMs: zeroNumber,
+  durationMs: zeroNumber,
   status: z.enum(['ok', 'error']).optional(),
   /** Span status message (e.g. the OTel status description on errors). */
   statusMessage: z.string().optional(),
@@ -207,6 +224,11 @@ export interface LgtmClient {
   listSlos(): Promise<Slo[]>
   grafanaEmbedUrl(dashboardUid: string, params?: Record<string, string>): string
   listDashboards(): Promise<Array<{ uid: string; title: string; tags: string[]; folder?: string }>>
+}
+
+/** A non-negative finite millisecond value; anything else becomes 0. */
+export function finite(n: number): number {
+  return Number.isFinite(n) && n > 0 ? n : 0
 }
 
 /* ─────────── OTLP trace parsing ─────────── */
@@ -315,8 +337,10 @@ function parseOtlpTrace(res: OtlpTraceResponse): Span[] {
       parentSpanID: (span.parentSpanId ?? span.parentSpanID) || undefined,
       serviceName,
       operationName: span.name ?? '',
-      startTimeMs: Math.max(0, startMs - traceStartMs),
-      durationMs: Math.max(0, endMs - startMs),
+      // `Math.max(0, NaN)` is NaN, not 0 — an unparseable timestamp would have
+      // reached the view and rendered "NaN ms" in the timeline.
+      startTimeMs: finite(startMs - traceStartMs),
+      durationMs: finite(endMs - startMs),
       status: statusFromCode(span.status?.code),
       statusMessage: span.status?.message || undefined,
       tags: Object.keys(tags).length ? tags : undefined,
@@ -453,8 +477,20 @@ function build(be: LgtmBackends, grafanaUrl: string): LgtmClient {
       const qs = new URLSearchParams()
       if (tags.length) qs.set('tags', tags.join(' '))
       if (filter.minDurationMs) qs.set('minDuration', `${filter.minDurationMs}ms`)
-      const res = await be.tempo.get<{ traces: Trace[] }>(`/api/search?${qs}`)
-      return res.traces
+      // PARSE, do not cast. The previous `get<{ traces: Trace[] }>` was a bare
+      // type assertion over an upstream that omits zero-valued fields, so the
+      // compiler was told `durationMs: number` about values that were often
+      // `undefined`. Validating per trace keeps one malformed entry from
+      // emptying the whole page, and `traces` itself is absent — not `[]` —
+      // when Tempo finds nothing.
+      const res = await be.tempo.get<{ traces?: unknown }>(`/api/search?${qs}`)
+      const raw = Array.isArray(res?.traces) ? res.traces : []
+      const parsed: Trace[] = []
+      for (const t of raw) {
+        const r = TraceSchema.safeParse(t)
+        if (r.success) parsed.push(r.data)
+      }
+      return parsed
     },
     getTrace: async (id) => {
       const res = await be.tempo.get<OtlpTraceResponse>(`/api/traces/${id}`)
@@ -855,14 +891,21 @@ const STUB_DASHBOARDS = [
 
 export const LgtmClient = {
   create: (opts: HttpClientOptions & { grafanaUrl?: string }) =>
-    build(makeBackends(opts), opts.grafanaUrl ?? 'https://grafana.adhar.local'),
+    build(makeBackends(opts), opts.grafanaUrl ?? ''),
   /**
    * Environment-aware client. Prod build → real backends, each through its OWN
    * BFF tool proxy (`prometheus` / `loki` / `tempo` / `grafana`,
    * cookie-authenticated); dev → stub. The `tool` option is accepted for call-site
-   * compatibility but ignored — routing is per-signal, not per-tool. The
-   * `grafanaUrl` (for embed deep-links) defaults to the conventional host and
-   * can be overridden from `/api/config`.
+   * compatibility but ignored — routing is per-signal, not per-tool.
+   *
+   * `grafanaUrl` (for embed deep-links) defaults to EMPTY, not to a guessed
+   * host. It used to default to `https://grafana.adhar.local`, and because
+   * this client is constructed at module load — long before `/api/config`
+   * resolves — that guess is what every caller actually got. Grafana boards
+   * embedded an iframe pointing at a domain that resolves nowhere, and the
+   * panel simply stayed blank with no error to explain it. An empty string is
+   * honest: callers that need a real URL resolve it from `/api/config`
+   * (`useGrafanaEmbedUrl`) and render a reason when it is not yet known.
    */
   auto(
     opts: { tool?: string; mode?: 'real' | 'stub'; grafanaUrl?: string } & Partial<HttpClientOptions> = {},
@@ -872,7 +915,7 @@ export const LgtmClient = {
     // Drop `tool`/`grafanaUrl` before spreading into HttpClientOptions; each
     // backend derives its own `/api/svc/<tool>` base URL.
     const { tool: _tool, mode: _mode, grafanaUrl, ...httpOpts } = opts
-    return build(makeBackends(httpOpts), grafanaUrl ?? 'https://grafana.adhar.local')
+    return build(makeBackends(httpOpts), grafanaUrl ?? '')
   },
   stub: (): LgtmClient => ({
     queryLogs: async (q) => {

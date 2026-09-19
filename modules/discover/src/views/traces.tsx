@@ -200,7 +200,10 @@ function TraceDetail({
               {meta?.rootServiceName} · {meta?.rootTraceName}
             </h2>
             <div className="mt-1 text-[11px] text-content-muted">
-              {meta?.spanCount} spans · {meta?.durationMs.toFixed(0)} ms
+              {/* `meta?.durationMs.toFixed()` guarded the object but not the
+                  field, and Tempo omits a zero duration entirely — so any
+                  sub-millisecond trace threw here and took the page down. */}
+              {meta?.spanCount ?? 0} spans · {(meta?.durationMs ?? 0).toFixed(0)} ms
             </div>
           </div>
           <button

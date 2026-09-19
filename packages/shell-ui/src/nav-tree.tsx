@@ -347,6 +347,13 @@ export const DEFAULT_NAV: NavSection[] = [
           { id: 'platform.events', label: 'Events', to: '/platform', search: 'events' },
           { id: 'platform.crds', label: 'Custom Resources', to: '/platform', search: 'crds' },
           { id: 'platform.explore', label: 'Explore', to: '/platform', search: 'explore' },
+          {
+            id: 'platform.graph',
+            label: 'Knowledge Graph',
+            to: '/platform',
+            search: 'graph',
+            description: 'What runs here and how it all connects',
+          },
           { id: 'platform.releases', label: 'Helm Releases', to: '/platform', search: 'releases' },
           {
             id: 'platform.shell',

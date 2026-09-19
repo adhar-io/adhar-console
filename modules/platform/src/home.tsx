@@ -1,6 +1,7 @@
 import { PageHeader } from '@adhar-console/shell-ui'
 import { ConnectionGate } from './components/connection-banner.tsx'
 import { ChaosView } from './views/chaos.tsx'
+import { KnowledgeGraph } from './views/knowledge-graph.tsx'
 import { PlatformDashboard } from './views/dashboard.tsx'
 import { ClusterView } from './views/cluster-list.tsx'
 import { NodesView } from './views/nodes-list.tsx'
@@ -68,6 +69,7 @@ type Section =
   | 'metrics'
   | 'ci'
   | 'chaos'
+  | 'graph'
   | 'policy'
   | 'observability'
   | 'marketplace'
@@ -185,6 +187,13 @@ const SECTIONS: Record<Section, SectionDef> = {
     id: 'explore',
     label: 'Explore',
     description: 'Discovery-driven browser for every Kubernetes kind — live tables with an inline manifest editor.',
+    kind: 'k8s',
+  },
+  graph: {
+    id: 'graph',
+    label: 'Knowledge Graph',
+    description:
+      'Everything the platform runs and how it connects — workloads, pods, images, services, Argo CD applications and the namespaces that own them, live from the cluster. Adhar AI reads the same graph.',
     kind: 'k8s',
   },
   chaos: {
@@ -407,6 +416,8 @@ function SectionBody({
       return <CrdBrowser namespace={namespace} />
     case 'explore':
       return <ResourceBrowser namespace={namespace} />
+    case 'graph':
+      return <KnowledgeGraph namespace={namespace} />
     case 'chaos':
       return <ChaosView namespace={namespace} />
     case 'shell':

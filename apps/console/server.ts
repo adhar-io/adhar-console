@@ -36,6 +36,7 @@ import { handleListTemplates } from './app/server/templates.ts'
 import { handleScorecards } from './app/server/scorecards.ts'
 import { handleListTeams } from './app/server/teams.ts'
 import { handleWorkspace } from './app/server/workspace/handlers.ts'
+import { startPlatformEvents } from './app/server/events/platform-events.ts'
 import { handleBilling } from './app/server/billing/handlers.ts'
 import { handleOrganizations } from './app/server/organizations.ts'
 import { registerDbSessionStore, sessionStoreStatus } from './app/server/session-store-db.ts'
@@ -407,6 +408,11 @@ async function handler(req: Request): Promise<Response> {
 
 const server = Deno.serve({ port: PORT, hostname: HOSTNAME }, handler)
 
+// Watch the platform and turn its state transitions into notifications. Needs
+// no request in flight and no user: it authenticates as the console's own
+// ServiceAccount, and stays off (loudly, once) when there isn't one.
+const stopPlatformEvents = startPlatformEvents()
+
 console.log(`adhar-console listening on http://${HOSTNAME}:${PORT}  (dist: ${DIST})`)
 console.log(`  auth: ${isServerAuthConfigured() ? 'keycloak' : 'stub (KEYCLOAK_URL/AUTH_* not set)'}`)
 
@@ -414,6 +420,7 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
   try {
     Deno.addSignalListener(sig, () => {
       console.log(`[server] ${sig} received — draining…`)
+      stopPlatformEvents()
       server.shutdown().finally(() => Deno.exit(0))
     })
   } catch {

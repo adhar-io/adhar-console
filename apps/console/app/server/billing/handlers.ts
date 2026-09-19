@@ -801,7 +801,7 @@ async function providerAction(req: Request, auth: Auth, action: string): Promise
   const provider = getBillingProvider()
   const body = (await readJson(req)) ?? {}
   const returnUrl =
-    typeof body.returnUrl === 'string' ? body.returnUrl : new URL(req.url).origin + '/workspace'
+    typeof body.returnUrl === 'string' ? body.returnUrl : new URL(req.url).origin + '/settings?section=plan'
 
   if (action === 'checkout') {
     const plan = getPlan(String(body.tier))

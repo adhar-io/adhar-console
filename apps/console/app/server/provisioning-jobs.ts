@@ -148,7 +148,7 @@ async function notifyDone(store: Store, job: ProvisioningJob, userId: string) {
             : `Workspace "${job.orgName}" could not be provisioned`,
       description:
         (failed.length ? `${failed.map((s) => s.label).join(', ')} need attention. ` : 'Identity, namespace, GitOps project and Git organization are in place. ') + emailNote.trim(),
-      href: '/workspace?section=organization',
+      href: '/settings?section=organization',
       target: { type: 'organization', id: job.orgId, label: job.orgName },
       severity: job.status === 'failed' ? 'high' : job.status === 'partial' ? 'medium' : 'low',
       audience: [userId],

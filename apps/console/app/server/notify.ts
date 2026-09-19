@@ -101,19 +101,28 @@ const VERB: Record<string, string> = {
   save: 'saved',
 }
 
+/**
+ * Where a workspace notification points.
+ *
+ * `/settings` — NOT `/workspace`, which every one of these used to say and
+ * which is not a route: the workspace remote is mounted at `/settings`, and
+ * `$phase` accepts only the six lifecycle phases plus `platform`. Every one
+ * of these links 404'd. The section names were always right; only the base
+ * was wrong.
+ */
 const HREF_BY_TYPE: Record<string, string> = {
-  team: '/workspace?section=teams',
-  member: '/workspace?section=members',
-  invitation: '/workspace?section=members',
-  role: '/workspace?section=roles',
-  project: '/workspace?section=projects',
-  environment: '/workspace?section=environments',
-  token: '/workspace?section=tokens',
-  'api-token': '/workspace?section=tokens',
-  webhook: '/workspace?section=webhooks',
-  approval: '/workspace?section=approvals',
-  organization: '/workspace?section=organization',
-  settings: '/workspace',
+  team: '/settings?section=teams',
+  member: '/settings?section=members',
+  invitation: '/settings?section=members',
+  role: '/settings?section=roles',
+  project: '/settings?section=projects',
+  environment: '/settings?section=environments',
+  token: '/settings?section=tokens',
+  'api-token': '/settings?section=tokens',
+  webhook: '/settings?section=webhooks',
+  approval: '/settings?section=approvals',
+  organization: '/settings?section=organization',
+  settings: '/settings',
 }
 
 /** `team.create` + target → "Team created: Platform Engineering". */
@@ -131,7 +140,7 @@ export function notifyFromAudit(store: Store, audit: AuditDoc): Promise<string |
       source: 'workspace',
       title: failed ? `Failed — ${title}` : title,
       description: `${audit.actor.label} · ${audit.action}${audit.ip ? ` · ${audit.ip}` : ''}`,
-      href: HREF_BY_TYPE[audit.target.type] ?? HREF_BY_TYPE[noun] ?? '/workspace?section=audit',
+      href: HREF_BY_TYPE[audit.target.type] ?? HREF_BY_TYPE[noun] ?? '/settings?section=audit',
       actor: { id: audit.actor.id, label: audit.actor.label },
       target: audit.target,
       severity: failed ? 'high' : 'low',

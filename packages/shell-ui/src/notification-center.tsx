@@ -14,6 +14,7 @@ import {
 import { useAi } from './ai-assistant.tsx'
 import { useToast } from './toast.tsx'
 import { EmptyState } from './empty-state.tsx'
+import { routeTarget } from './notification-route.ts'
 
 /**
  * Notification Center — the full page (`/notifications`).
@@ -216,6 +217,7 @@ export function NotificationCard({
 }) {
   const tone = notificationTone(n.kind)
   const external = n.href?.startsWith('http')
+  const target = n.href && !external ? routeTarget(n.href) : null
   return (
     <li className={cn('group relative flex gap-3 px-4 transition-colors hover:bg-surface-sunken/60', compact ? 'py-2.5' : 'py-3', !n.read && 'bg-brand-50/30 dark:bg-brand-500/5')}>
       {onSelect ? (
@@ -226,7 +228,11 @@ export function NotificationCard({
         <div className="flex items-start gap-2">
           <div className={cn('min-w-0 flex-1 text-[13.5px] leading-snug', n.read ? 'text-content-muted' : 'font-semibold text-content')}>
             {n.href ? (
-              external ? <a href={n.href} target="_blank" rel="noreferrer" onClick={onRead} className="hover:underline">{n.title} ↗</a> : <Link to={n.href as never} onClick={onRead} className="hover:underline">{n.title}</Link>
+              external
+                ? <a href={n.href} target="_blank" rel="noreferrer" onClick={onRead} className="hover:underline">{n.title} ↗</a>
+                : target
+                ? <Link to={target.to as never} search={target.search as never} onClick={onRead} className="hover:underline">{n.title}</Link>
+                : <button type="button" onClick={onRead} className="text-left">{n.title}</button>
             ) : (
               <button type="button" onClick={onRead} className="text-left">{n.title}</button>
             )}

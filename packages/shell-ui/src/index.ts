@@ -164,6 +164,7 @@ export {
   type NotificationSource,
 } from './notifications.ts'
 export { KindIcon as NotificationKindIcon, NotificationCard, NotificationCenter } from './notification-center.tsx'
+export { routeTarget, type RouteTarget } from './notification-route.ts'
 export { docStore, DocStoreError, type StoredDoc } from './doc-store.ts'
 export {
   useAppConfig,

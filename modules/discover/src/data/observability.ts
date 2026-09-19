@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lgtm, posthog } from '@adhar-console/api-clients'
-import { useLiveInvalidate, useLivePoll, usePollingInterval } from '@adhar-console/shell-ui'
+import { useLiveInvalidate, useLivePoll, usePollingInterval, useToolPublicUrl } from '@adhar-console/shell-ui'
 
 /**
  * Discover hooks layer — wraps the LGTM stack (Loki / Mimir / Tempo /
@@ -396,8 +396,27 @@ export function useGrafanaDashboards() {
   })
 }
 
-export function grafanaEmbedUrl(uid: string, params?: Record<string, string>) {
-  return lgtmClient.grafanaEmbedUrl(uid, params)
+/**
+ * Build Grafana deep-links against the URL this install actually serves.
+ *
+ * `lgtmClient.grafanaEmbedUrl` cannot do this on its own: the client is
+ * constructed at module load, before `/api/config` has been fetched, so it
+ * fell back to the compiled-in `https://grafana.adhar.local` — a host that
+ * exists on no install. Every board embedded an iframe pointing at a domain
+ * that does not resolve, which is why the panel stayed blank.
+ *
+ * `useToolPublicUrl` resolves the real public URL the server reports for the
+ * tool (or derives `grafana.<base domain>`), so the link works both in the
+ * iframe and in the "Open in Grafana" anchor.
+ */
+export function useGrafanaEmbedUrl(): (uid: string, params?: Record<string, string>) => string {
+  const base = useToolPublicUrl('grafana')
+  return (uid, params = {}) => {
+    if (!base) return ''
+    // `kiosk=tv` hides Grafana's chrome; callers may override or extend.
+    const qs = new URLSearchParams({ kiosk: 'tv', ...params })
+    return `${base.replace(/\/$/, '')}/d/${encodeURIComponent(uid)}?${qs}`
+  }
 }
 
 /* ─────────── PostHog ─────────── */

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Card, CardBody, CardHeader, EmptyState, GrafanaIcon, StatusBadge } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
-import { grafanaEmbedUrl, useGrafanaDashboards } from '../data/observability.ts'
+import { useGrafanaDashboards, useGrafanaEmbedUrl } from '../data/observability.ts'
 import { LoadingCard, SourceError } from './states.tsx'
 
 /**
@@ -10,6 +10,7 @@ import { LoadingCard, SourceError } from './states.tsx'
  */
 export function Dashboards() {
   const q = useGrafanaDashboards()
+  const embedUrl = useGrafanaEmbedUrl()
   const [activeUid, setActiveUid] = useState<string | null>(null)
 
   useEffect(() => {
@@ -22,6 +23,8 @@ export function Dashboards() {
   }
   const list = q.data ?? []
   const active = list.find((d) => d.uid === activeUid)
+  // Empty until `/api/config` resolves a public URL for Grafana.
+  const src = active ? embedUrl(active.uid) : ''
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
@@ -78,9 +81,9 @@ export function Dashboards() {
               <div className="text-sm font-semibold text-content">{active?.title ?? '—'}</div>
               <div className="text-[11px] text-content-subtle">{active?.folder ?? ''}</div>
             </div>
-            {active ? (
+            {active && src ? (
               <a
-                href={grafanaEmbedUrl(active.uid)}
+                href={src}
                 target="_blank"
                 rel="noopener"
                 className="inline-flex items-center gap-1 text-xs font-medium text-brand-700 hover:underline"
@@ -91,16 +94,24 @@ export function Dashboards() {
           </div>
         </CardHeader>
         <CardBody className="p-0!">
-          {active ? (
+          {!active ? (
+            <EmptyState compact title="Pick a dashboard" />
+          ) : src ? (
             <iframe
               key={active.uid}
               title={active.title}
-              src={grafanaEmbedUrl(active.uid)}
+              src={src}
               className="block h-[70vh] w-full border-0"
               sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
             />
           ) : (
-            <EmptyState compact title="Pick a dashboard" />
+            /* An empty `src` makes the iframe re-load the console inside
+               itself, which looks like the page duplicating. Say why instead. */
+            <EmptyState
+              compact
+              title="Grafana's address is not known yet"
+              description="The console could not resolve a public URL for Grafana. Check that the grafana tool is configured, or that ADHAR_BASE_DOMAIN is set."
+            />
           )}
         </CardBody>
       </Card>

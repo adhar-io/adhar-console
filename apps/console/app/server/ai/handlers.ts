@@ -5,6 +5,7 @@ import { openStore } from '../workspace/store.ts'
 import { emitNotification } from '../notify.ts'
 import { runAgent } from './agui/run.ts'
 import { AGENTS, DEFAULT_AGENT } from './agui/agents.ts'
+import { giteaConn } from '../gitea-auth.ts'
 import {
   adharAiAddNote,
   adharAiFeedback,
@@ -260,12 +261,21 @@ function publicAgent(a: (typeof AGENTS)[number]) {
 /**
  * The roster the UI may offer.
  *
- * A delegated agent is only listed when its runtime is actually configured —
- * offering "Adhar AI" on an install without `ADHAR_AI_URL` would put a choice
- * in the switcher whose every message fails. The console's own agents need no
- * such gate: they run on the LLM endpoint this handler already checked.
+ * An agent is listed only when the thing it reads actually exists, because a
+ * choice in the switcher whose every message fails is worse than no choice:
+ *
+ *   • delegated agents ("Adhar AI") need `ADHAR_AI_URL`;
+ *   • Review and Design read source, so they need Gitea — without it every
+ *     one of their tools returns "not configured" and the agent can only
+ *     apologise. The rest read the cluster through the gateway this handler
+ *     has already checked, so they need no gate.
  */
 function availableAgents() {
   const adharAi = isAdharAiConfigured()
-  return AGENTS.filter((a) => a.delegateTo !== 'adhar-ai' || adharAi)
+  const source = giteaConn() !== null
+  return AGENTS.filter((a) => {
+    if (a.delegateTo === 'adhar-ai') return adharAi
+    if (a.id === 'review' || a.id === 'design') return source
+    return true
+  })
 }

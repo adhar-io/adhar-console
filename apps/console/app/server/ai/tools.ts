@@ -2,6 +2,7 @@ import { env } from '@adhar-console/utils'
 import { apiServerFetch } from '../k8s/gateway.ts'
 import type { K8sIdentity } from '../k8s/gateway.ts'
 import type { ToolDef } from './provider.ts'
+import { executeGitTool, GIT_TOOL_DEFS } from './git-tools.ts'
 
 /**
  * Read-only Kubernetes tools exposed to the model. Every tool runs against the
@@ -188,6 +189,10 @@ export const TOOL_DEFS: ToolDef[] = [
       },
     },
   },
+  // Source-code tools (Gitea). Declared here so there is one list the provider
+  // layer reads, while their implementation and their different auth story
+  // stay in git-tools.ts.
+  ...GIT_TOOL_DEFS,
 ]
 
 function root(group: string, version: string): string {
@@ -210,6 +215,13 @@ export async function executeTool(name: string, argsJson: string, token: K8sIden
     return { content: JSON.stringify({ error: 'invalid tool arguments (not JSON)' }) }
   }
   try {
+    // Source tools first — they are a separate module because they talk to
+    // Gitea with service credentials rather than the user's cluster token,
+    // and that difference is worth keeping visible rather than blending into
+    // one switch. Returns null for anything it does not own.
+    const git = await executeGitTool(name, args)
+    if (git !== null) return { content: git }
+
     switch (name) {
       case 'k8s_list': {
         const { group = '', version, resource, namespace, labelSelector, fieldSelector } = args as Record<string, string>

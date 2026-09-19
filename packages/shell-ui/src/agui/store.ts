@@ -19,6 +19,7 @@ import {
   type AguiMessage,
   type FrontendTool,
 } from './client.ts'
+import { resolveInitialAgent, type RouteHint } from './agent-routing.ts'
 
 /**
  * Adhar AI — the AG-UI conversation store.
@@ -314,12 +315,27 @@ function saveHistory(list: Thread[]) {
   }
 }
 
-function storedAgent(): string {
+/**
+ * The agent the user picked, or null if they never have.
+ *
+ * The distinction matters: null is what lets the route choose a sensible
+ * agent for the page, and a stored value is what stops it doing so ever
+ * again. Returning a default here instead of null would make "never chose"
+ * indistinguishable from "chose Reliability" and the routing would be dead.
+ */
+function storedAgent(): string | null {
   try {
-    return globalThis.localStorage?.getItem(AGENT_KEY) || 'sre'
+    return globalThis.localStorage?.getItem(AGENT_KEY) || null
   } catch {
-    return 'sre'
+    return null
   }
+}
+
+/** Where the browser is now, for route-based agent selection. */
+function currentRoute(): RouteHint {
+  if (typeof globalThis.location === 'undefined') return { path: '/' }
+  const { pathname, search } = globalThis.location
+  return { path: pathname, section: new URLSearchParams(search).get('section') ?? undefined }
 }
 
 /** Remembered autonomy, floored at read-only if the stored value is stale. */
@@ -337,8 +353,12 @@ let state: State = {
   configured: false,
   configLoaded: false,
   agents: [],
-  agentId: storedAgent(),
-  thread: newThread(storedAgent()),
+  // Before `/api/ai/config` lands the roster is unknown, so the route cannot
+  // be honoured yet (it could name an agent this install does not offer).
+  // `loadConfig` re-resolves with the real roster; this is only what the first
+  // paint shows.
+  agentId: storedAgent() ?? 'sre',
+  thread: newThread(storedAgent() ?? 'sre'),
   history: loadHistory(),
   busy: false,
   run: null,
@@ -637,8 +657,20 @@ export const assistStore = {
     if (state.configLoaded) return
     const c = await getAiConfig()
     const agents = c.agents ?? []
-    const agentId = agents.some((a) => a.id === state.agentId) ? state.agentId : (c.defaultAgent ?? agents[0]?.id ?? 'sre')
+    // Now that the real roster is known, resolve properly: an explicit choice
+    // wins, otherwise the page decides, otherwise the roster's default.
+    const agentId = resolveInitialAgent(
+      storedAgent(),
+      currentRoute(),
+      agents.map((a) => a.id),
+      c.defaultAgent ?? agents[0]?.id ?? 'sre',
+    )
     set({ configured: c.configured, model: c.model, agents, agentId, configLoaded: true })
+    // A thread nobody has typed into yet should follow the resolved agent —
+    // otherwise the first message goes to whoever the first paint guessed.
+    if (!state.thread.messages.length && state.thread.agentId !== agentId) {
+      set((s) => ({ thread: { ...s.thread, agentId } }))
+    }
     // Not awaited: what the operators noticed is worth showing, but nobody
     // should wait on the runtime to start typing a question.
     if (agents.some((a) => a.delegated)) {

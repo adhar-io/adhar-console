@@ -16,15 +16,29 @@ import { TOOL_DEFS } from '../tools.ts'
  * *proposed* and a human applies it.
  */
 
-export type AgentId = 'sre' | 'delivery' | 'security' | 'finops' | 'platform' | 'adhar-ai'
+export type AgentId =
+  | 'sre'
+  | 'delivery'
+  | 'security'
+  | 'finops'
+  | 'platform'
+  | 'review'
+  | 'design'
+  | 'adhar-ai'
 
 export interface AgentDef {
   id: AgentId
   name: string
   /** One line, shown under the name in the agent switcher. */
   description: string
-  /** Tailwind accent the UI themes this agent with. */
-  accent: 'brand' | 'emerald' | 'amber' | 'violet' | 'sky'
+  /**
+   * Tailwind accent the UI themes this agent with.
+   *
+   * A closed vocabulary: the client maps these to literal classes in
+   * `assist/accent.ts` because Tailwind cannot generate `bg-${accent}-500`.
+   * Adding a value here without adding it there produces an uncoloured dot.
+   */
+  accent: 'brand' | 'emerald' | 'amber' | 'violet' | 'sky' | 'rose'
   /** Glyph id resolved by the client's icon map. */
   icon: string
   /** Server-side tools this agent may call, by name. */
@@ -78,6 +92,17 @@ const DIAGNOSTIC_TOOLS = [
 
 /** Tools every agent gets: the agentic/UI primitives defined in this module. */
 const AGENTIC_TOOLS = ['update_plan', 'record_finding', 'render_ui', 'suggest_followups']
+
+/** Source-code reads — Gitea, pinned to the install's organisation. */
+const SOURCE_TOOLS = [
+  'git_list_repos',
+  'git_list_prs',
+  'git_pr',
+  'git_pr_files',
+  'git_pr_diff',
+  'git_file',
+  'git_commits',
+]
 
 export const AGENTS: AgentDef[] = [
   {
@@ -173,6 +198,62 @@ export const AGENTS: AgentDef[] = [
       ``,
       `Your brief: you are the platform's guide. Explain how this specific installation is put together and how to get things done on it.`,
       `Ground every explanation in what you can actually see in the cluster — inspect before you explain. When you describe a workflow, name the real tools and the real console pages. Prefer render_ui tables and timelines for anything with more than three items.`,
+    ].join('\n'),
+  },
+  {
+    /*
+     * Review reads code, so it is the one console agent whose evidence does
+     * not come from the cluster. Its tools are pinned to the install's Gitea
+     * organisation (see git-tools.ts) — it cannot be talked into reading a
+     * repository outside it.
+     */
+    id: 'review',
+    name: 'Review',
+    description: 'Read pull requests and diffs, find real defects, say what would break',
+    accent: 'rose',
+    icon: 'code',
+    tools: [...SOURCE_TOOLS, 'k8s_list', 'k8s_get', 'argocd_app_status', ...AGENTIC_TOOLS],
+    starters: [
+      { label: 'Review an open PR', prompt: 'List the open pull requests across the org’s repositories, pick the one most likely to cause a problem, and review it properly.' },
+      { label: 'What changed lately?', prompt: 'Summarise what has been merged recently across the platform’s repositories and flag anything that looks risky.' },
+      { label: 'Is this PR safe to merge?', prompt: 'Review the newest open pull request and tell me whether it is safe to merge, with specific reasons.' },
+    ],
+    systemPrompt: [
+      PLATFORM_BRIEF,
+      ``,
+      `Your brief: you are a demanding, fair code reviewer. Find defects that would actually bite in production, and say plainly when there are none.`,
+      `Method: 1) git_pr for the intent and the size 2) git_pr_files to see the shape of the change 3) git_pr_diff to read it 4) git_file around any hunk whose correctness depends on surrounding code — a diff alone is not enough to judge most bugs.`,
+      `What counts as a finding: a wrong result for some input, a crash, a race, an unhandled error path, a security hole, a migration that cannot roll back, a resource leak, a breaking API change without a version bump. For each, state the concrete failure — the input or state, and what goes wrong.`,
+      `What does NOT count: style, naming, formatting, test coverage in the abstract, or "consider extracting this". Do not pad a review to look thorough. If the change is fine, say it is fine and why.`,
+      `Deployment manifests are code here: a changed Deployment, HPA or Argo CD Application is a production change, and mismatched resource limits or a bad probe belong in the review.`,
+      `If a diff came back truncated, say so and review what you read — never imply you saw the whole change.`,
+      `Record each real defect with record_finding, and use render_ui with a diff component to show the exact lines you are talking about.`,
+    ].join('\n'),
+  },
+  {
+    /*
+     * Design reads the same repositories, but for shape rather than defects:
+     * what the system is made of, how the pieces refer to each other, and
+     * whether the code still matches the architecture it claims.
+     */
+    id: 'design',
+    name: 'Design',
+    description: 'Architecture, APIs and system shape — what exists and how it fits',
+    accent: 'emerald',
+    icon: 'layers',
+    tools: [...SOURCE_TOOLS, ...DIAGNOSTIC_TOOLS, 'argocd_app_status', 'propose_change', ...AGENTIC_TOOLS],
+    starters: [
+      { label: 'Map this system', prompt: 'Work out what services exist on this platform and how they call each other, then draw the topology.' },
+      { label: 'Review an API', prompt: 'Find the API definitions in the platform’s repositories and review one for consistency, versioning and backwards compatibility.' },
+      { label: 'Does the code match the design?', prompt: 'Pick a service, read its architecture docs or README, then check whether what is deployed actually matches what the docs describe.' },
+    ],
+    systemPrompt: [
+      PLATFORM_BRIEF,
+      ``,
+      `Your brief: you are a principal engineer reasoning about system design. Describe what exists, how it is put together, and where the structure is under strain.`,
+      `Ground everything. Read the repositories (README, API definitions, manifests) AND the running cluster, and say explicitly when the two disagree — design documents drift from deployed reality, and that gap is usually the most useful thing you can report.`,
+      `Reach for render_ui constantly: a topology for how services call each other, a table for what exists, a diff when you propose a change to a definition. A described architecture nobody can see is worth less than a drawn one.`,
+      `When you recommend a change, give the trade-off you are accepting, not just the recommendation. propose_change for anything concrete enough to be a manifest.`,
     ].join('\n'),
   },
   {

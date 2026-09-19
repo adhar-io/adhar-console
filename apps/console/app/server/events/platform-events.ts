@@ -3,6 +3,7 @@ import { getK8sServiceToken } from '../tool-registry.ts'
 import { emitNotification, type NotificationDoc } from '../notify.ts'
 import { openStore } from '../workspace/store.ts'
 import { env } from '@adhar-console/utils'
+import { type KubeObject as SaKubeObject, runWatch, type WatchSpec } from '../k8s/sa-watch.ts'
 
 /**
  * Platform events → notifications, with nobody pressing a button.
@@ -87,22 +88,9 @@ const EVENT_MIN_COUNT: Record<string, number> = { BackOff: 3, Unhealthy: 5, Fail
 
 /* ─────────────────────────── kube shapes ─────────────────────────── */
 
-interface KubeMeta {
-  uid?: string
-  name?: string
-  namespace?: string
-  resourceVersion?: string
-  labels?: Record<string, string>
-  creationTimestamp?: string
-}
-interface KubeObject {
-  metadata?: KubeMeta
-  [k: string]: unknown
-}
-interface WatchFrame {
-  type?: 'ADDED' | 'MODIFIED' | 'DELETED' | 'BOOKMARK' | 'ERROR'
-  object?: KubeObject
-}
+/** Re-exported from the shared watcher so the signal functions read the same
+ *  objects the watch delivers. */
+type KubeObject = SaKubeObject
 
 /** One thing worth telling somebody about. */
 interface Signal {
@@ -390,122 +378,6 @@ async function deliver(obj: KubeObject, signal: Signal): Promise<void> {
   await emitNotification(store, { ...signal.doc, at: new Date().toISOString() } as NotificationDoc, 'system')
 }
 
-/**
- * List once to prime, then watch.
- *
- * The priming list is deliberately SILENT: on boot every Argo CD application
- * has a health status and every finished PipelineRun has an outcome, and
- * announcing all of it would fill the feed with history the moment the console
- * restarts. The first list teaches the watcher what "unchanged" looks like;
- * only transitions after that are news.
- */
-async function runSource(source: Source, token: string, stopped: () => boolean): Promise<void> {
-  const root = source.group ? `/apis/${source.group}/${source.version}` : `/api/${source.version}`
-  const path = `${root}/${source.resource}`
-  let backoff = 1_000
-  let primed = false
-
-  while (!stopped()) {
-    try {
-      await refreshNamespaces(token)
-
-      const listQuery = new URLSearchParams({ limit: '2000', ...(source.search ?? {}) })
-      const listRes = await apiServerFetch(token, path, { search: `?${listQuery}` })
-      if (!listRes.ok) {
-        // 404 means the CRD is not installed — Tekton or Argo Workflows may
-        // simply not be part of this install. That is not an error to retry
-        // forever; the source just has nothing to watch.
-        if (listRes.status === 404) {
-          console.log(`[events] ${source.id}: not installed on this cluster — source disabled`)
-          return
-        }
-        if (listRes.status === 401 || listRes.status === 403) {
-          console.warn(`[events] ${source.id}: the console ServiceAccount may not list ${source.resource} (${listRes.status}) — source disabled`)
-          return
-        }
-        throw new Error(`list failed (${listRes.status})`)
-      }
-
-      const list = (await listRes.json()) as { items?: KubeObject[]; metadata?: { resourceVersion?: string } }
-      for (const obj of list.items ?? []) {
-        const s = source.signal(obj)
-        if (!s) continue
-        if (!primed) {
-          lastSignature.set(keyOf(obj), s.signature)
-          continue
-        }
-        // Every LATER list is a re-list after the watch ended — a 9-minute
-        // timeout, or an error we backed off from. Anything that changed while
-        // we were not connected has to be caught here, or it is lost: priming
-        // silently a second time would swallow exactly the transitions the
-        // reconnect exists to recover. `emitNotification` de-dupes on `key`
-        // for 6 h, so re-reporting a state we already sent costs nothing.
-        if (remember(keyOf(obj), s.signature)) {
-          await deliver(obj, s).catch((e) => console.warn(`[events] ${source.id}: emit failed:`, e))
-        }
-      }
-      if (!primed) {
-        primed = true
-        console.log(`[events] ${source.id}: watching (${(list.items ?? []).length} objects primed)`)
-      }
-
-      const version = list.metadata?.resourceVersion ?? ''
-      const watchQuery = new URLSearchParams({
-        watch: '1',
-        resourceVersion: version,
-        timeoutSeconds: '540',
-        allowWatchBookmarks: 'true',
-        ...(source.search ?? {}),
-      })
-      const watchRes = await apiServerFetch(token, path, { search: `?${watchQuery}` })
-      if (!watchRes.ok || !watchRes.body) throw new Error(`watch failed (${watchRes.status})`)
-
-      backoff = 1_000
-      const reader = watchRes.body.pipeThrough(new TextDecoderStream()).getReader()
-      let buffered = ''
-      while (!stopped()) {
-        const { value, done } = await reader.read()
-        if (done) break
-        buffered += value
-        // The apiserver emits one JSON object per line.
-        let nl = buffered.indexOf('\n')
-        while (nl >= 0) {
-          const line = buffered.slice(0, nl).trim()
-          buffered = buffered.slice(nl + 1)
-          nl = buffered.indexOf('\n')
-          if (!line) continue
-          let frame: WatchFrame
-          try {
-            frame = JSON.parse(line) as WatchFrame
-          } catch {
-            continue
-          }
-          if (frame.type === 'ERROR') throw new Error('watch stream reported ERROR — relisting')
-          if (!frame.object || frame.type === 'BOOKMARK') continue
-          const obj = frame.object
-          if (frame.type === 'DELETED') {
-            lastSignature.delete(keyOf(obj))
-            continue
-          }
-          const s = source.signal(obj)
-          if (!s) continue
-          // False only when this exact state was already reported. A resync or
-          // a no-op update writes nothing; a real transition — including an
-          // object becoming interesting for the first time — notifies once.
-          if (remember(keyOf(obj), s.signature)) {
-            await deliver(obj, s).catch((e) => console.warn(`[events] ${source.id}: emit failed:`, e))
-          }
-        }
-      }
-    } catch (e) {
-      if (stopped()) return
-      console.warn(`[events] ${source.id}: ${e instanceof Error ? e.message : String(e)} — retrying in ${backoff}ms`)
-      await new Promise((r) => setTimeout(r, backoff))
-      backoff = Math.min(backoff * 2, 60_000)
-    }
-  }
-}
-
 let running = false
 
 /**
@@ -530,15 +402,58 @@ export function startPlatformEvents(): () => void {
   running = true
   let stopped = false
   const isStopped = () => stopped
+
+  // The namespace→tenant map is refreshed on its own timer rather than inside
+  // the watch loop: it is shared by every source, and its own TTL already
+  // decides when a refresh is due.
+  void refreshNamespaces(token)
+  const nsTimer = setInterval(() => void refreshNamespaces(token), NAMESPACE_REFRESH_MS)
+
   for (const source of SOURCES) {
-    void runSource(source, token, isStopped).catch((e) =>
-      console.warn(`[events] ${source.id}: watcher exited:`, e),
-    )
+    const spec: WatchSpec = {
+      id: source.id,
+      group: source.group,
+      version: source.version,
+      resource: source.resource,
+      search: source.search,
+    }
+    void runWatch(
+      spec,
+      token,
+      {
+        async upsert(obj, { priming }) {
+          const signal = source.signal(obj as KubeObject)
+          if (!signal) return
+          const key = keyOf(obj as KubeObject)
+          // The priming list establishes the baseline in silence: on boot
+          // every application has a health status and every finished run has
+          // an outcome, and announcing all of it would fill the feed with
+          // history every time the console restarts.
+          if (priming) {
+            lastSignature.set(key, signal.signature)
+            return
+          }
+          // Everything after that — including a resync list after the watch
+          // dropped — is a real transition if the signature changed.
+          if (remember(key, signal.signature)) {
+            await deliver(obj as KubeObject, signal).catch((e) =>
+              console.warn(`[events] ${source.id}: emit failed:`, e)
+            )
+          }
+        },
+        remove(obj) {
+          lastSignature.delete(keyOf(obj as KubeObject))
+        },
+      },
+      isStopped,
+      (m) => console.log(m.replace('[watch]', '[events]')),
+    ).catch((e) => console.warn(`[events] ${source.id}: watcher exited:`, e))
   }
   console.log(`[events] platform event watcher started (${SOURCES.length} sources)`)
 
   return () => {
     stopped = true
     running = false
+    clearInterval(nsTimer)
   }
 }

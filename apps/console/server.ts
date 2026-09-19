@@ -37,6 +37,8 @@ import { handleScorecards } from './app/server/scorecards.ts'
 import { handleListTeams } from './app/server/teams.ts'
 import { handleWorkspace } from './app/server/workspace/handlers.ts'
 import { startPlatformEvents } from './app/server/events/platform-events.ts'
+import { startGraph } from './app/server/graph/builder.ts'
+import { handleGraph } from './app/server/graph/handlers.ts'
 import { handleBilling } from './app/server/billing/handlers.ts'
 import { handleOrganizations } from './app/server/organizations.ts'
 import { registerDbSessionStore, sessionStoreStatus } from './app/server/session-store-db.ts'
@@ -338,6 +340,10 @@ async function route(req: Request): Promise<Response> {
   if (prefs) return handlePreferences(req, prefs[1])
 
   // Notification Center: feed, state, create, insights scan.
+  // Platform knowledge graph: /api/graph/<search|node|neighbourhood|path|overview>
+  const gr = path.match(/^\/api\/graph(\/.*)?$/)
+  if (gr) return handleGraph(req, gr[1] ?? '')
+
   const notif = path.match(/^\/api\/notifications(\/.*)?$/)
   if (notif) return handleNotificationsApi(req, notif[1] ?? '')
 
@@ -413,6 +419,11 @@ const server = Deno.serve({ port: PORT, hostname: HOSTNAME }, handler)
 // ServiceAccount, and stays off (loudly, once) when there isn't one.
 const stopPlatformEvents = startPlatformEvents()
 
+// The platform knowledge graph — what exists and how it is connected, kept
+// current from the apiserver. Adhar AI reads it to answer relationship
+// questions that list tools cannot, and the Knowledge Graph page renders it.
+const stopGraph = startGraph()
+
 console.log(`adhar-console listening on http://${HOSTNAME}:${PORT}  (dist: ${DIST})`)
 console.log(`  auth: ${isServerAuthConfigured() ? 'keycloak' : 'stub (KEYCLOAK_URL/AUTH_* not set)'}`)
 
@@ -421,6 +432,7 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
     Deno.addSignalListener(sig, () => {
       console.log(`[server] ${sig} received — draining…`)
       stopPlatformEvents()
+      stopGraph()
       server.shutdown().finally(() => Deno.exit(0))
     })
   } catch {

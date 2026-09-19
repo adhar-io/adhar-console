@@ -67,6 +67,10 @@ const PLATFORM_BRIEF = [
   `Working style:`,
   `- Gather evidence with tools BEFORE concluding. Never invent resource names, statuses or log lines — cite what you actually observed.`,
   `- Prefer the focused diagnostics (k8s_pod_diagnostics, k8s_workload_health, k8s_events_scan) over raw lists when triaging.`,
+  // Without this the model reaches for k8s_list out of habit, spends its
+  // context paging through kinds, and infers relationships by naming
+  // convention — which is exactly what the graph exists to stop.
+  `- START from the knowledge graph, not from lists. It already holds what exists and how it is connected, computed from what the objects actually say. graph_overview for "what is wrong right now"; graph_search to turn a name the operator used into a real object; graph_node for one thing WITH its context (owning workload, pods, node, images, the Argo CD application managing it) in a single call; graph_neighbourhood for blast radius; graph_path to answer whether two things are related and how. Reach for k8s_* afterwards, to read logs or a full manifest for the specific object the graph identified. Never guess a relationship from a name when graph_path can state it.`,
   `- Call update_plan at the start of any multi-step investigation and mark steps done as you go; the operator watches it live.`,
   // The schema enumerates the components; this says WHEN to reach for one,
   // which is the part a tool description cannot carry. Without it the model
@@ -90,6 +94,16 @@ const DIAGNOSTIC_TOOLS = [
   'k8s_workload_health',
 ]
 
+/**
+ * The platform knowledge graph — what exists and how it is connected.
+ *
+ * Given to every agent that looks at the cluster, because the relationships
+ * are what the list tools cannot supply: which application owns this pod,
+ * what else runs this image, what a namespace actually contains. Filtered to
+ * the caller's own RBAC like every other read.
+ */
+const GRAPH_TOOLS = ['graph_search', 'graph_node', 'graph_neighbourhood', 'graph_path', 'graph_overview']
+
 /** Tools every agent gets: the agentic/UI primitives defined in this module. */
 const AGENTIC_TOOLS = ['update_plan', 'record_finding', 'render_ui', 'suggest_followups']
 
@@ -111,7 +125,7 @@ export const AGENTS: AgentDef[] = [
     description: 'Triage failing workloads, read logs and events, find the root cause',
     accent: 'brand',
     icon: 'pulse',
-    tools: [...DIAGNOSTIC_TOOLS, 'argocd_app_status', 'propose_change', ...AGENTIC_TOOLS],
+    tools: [...DIAGNOSTIC_TOOLS, ...GRAPH_TOOLS, 'argocd_app_status', 'propose_change', ...AGENTIC_TOOLS],
     starters: [
       { label: 'What is unhealthy right now?', prompt: 'Scan the cluster for Warning events and unhealthy workloads, then summarise what needs attention, worst first.' },
       { label: 'Triage a crashlooping pod', prompt: 'Find pods that are crashlooping or in ImagePullBackOff, diagnose the most serious one and explain the root cause.' },
@@ -130,7 +144,7 @@ export const AGENTS: AgentDef[] = [
     description: 'Argo CD sync state, rollouts, drift and release readiness',
     accent: 'emerald',
     icon: 'rocket',
-    tools: [...DIAGNOSTIC_TOOLS, 'argocd_app_status', 'propose_change', ...AGENTIC_TOOLS],
+    tools: [...DIAGNOSTIC_TOOLS, ...GRAPH_TOOLS, 'argocd_app_status', 'propose_change', ...AGENTIC_TOOLS],
     starters: [
       { label: 'Which apps are out of sync?', prompt: 'List the Argo CD Applications that are OutOfSync or Degraded and explain what drifted for each.' },
       { label: 'Is this release healthy?', prompt: 'Check the health and sync status of the Argo CD Applications and report which ones are safe and which need attention.' },
@@ -149,7 +163,7 @@ export const AGENTS: AgentDef[] = [
     description: 'Policy denials, RBAC exposure, image and workload hardening',
     accent: 'amber',
     icon: 'shield',
-    tools: [...DIAGNOSTIC_TOOLS, 'propose_change', ...AGENTIC_TOOLS],
+    tools: [...DIAGNOSTIC_TOOLS, ...GRAPH_TOOLS, 'propose_change', ...AGENTIC_TOOLS],
     starters: [
       { label: 'Any policy denials?', prompt: 'Scan for admission-webhook and Kyverno policy denials in recent events and explain what each one blocked and why.' },
       { label: 'Audit workload hardening', prompt: 'Check running workloads for containers with no resource limits, privileged security contexts or :latest image tags, and rank the risk.' },
@@ -168,7 +182,7 @@ export const AGENTS: AgentDef[] = [
     description: 'Requests vs usage, waste, right-sizing and capacity headroom',
     accent: 'violet',
     icon: 'coins',
-    tools: [...DIAGNOSTIC_TOOLS, 'propose_change', ...AGENTIC_TOOLS],
+    tools: [...DIAGNOSTIC_TOOLS, ...GRAPH_TOOLS, 'propose_change', ...AGENTIC_TOOLS],
     starters: [
       { label: 'Where is the waste?', prompt: 'Find workloads whose CPU/memory requests look oversized relative to their replica count and usage, and rank the biggest savings.' },
       { label: 'Do we have headroom?', prompt: 'Summarise node capacity versus total pod requests and tell me how much headroom the cluster has.' },
@@ -187,7 +201,7 @@ export const AGENTS: AgentDef[] = [
     description: 'How the platform works, where things live, how to get things done',
     accent: 'sky',
     icon: 'compass',
-    tools: [...DIAGNOSTIC_TOOLS, 'argocd_app_status', ...AGENTIC_TOOLS],
+    tools: [...DIAGNOSTIC_TOOLS, ...GRAPH_TOOLS, 'argocd_app_status', ...AGENTIC_TOOLS],
     starters: [
       { label: 'What runs on this cluster?', prompt: 'Give me an inventory of the platform: namespaces, the main workloads in each and what they are for.' },
       { label: 'How do I ship a service?', prompt: 'Walk me through shipping a new service on this platform, from scaffolding to production, naming the actual tools this cluster runs.' },
@@ -212,7 +226,10 @@ export const AGENTS: AgentDef[] = [
     description: 'Read pull requests and diffs, find real defects, say what would break',
     accent: 'rose',
     icon: 'code',
-    tools: [...SOURCE_TOOLS, 'k8s_list', 'k8s_get', 'argocd_app_status', ...AGENTIC_TOOLS],
+    // The graph matters here too: a PR that changes a Deployment is a
+    // production change, and `graph_node` says what that Deployment currently
+    // runs and which application manages it before the reviewer judges it.
+    tools: [...SOURCE_TOOLS, ...GRAPH_TOOLS, 'k8s_list', 'k8s_get', 'argocd_app_status', ...AGENTIC_TOOLS],
     starters: [
       { label: 'Review an open PR', prompt: 'List the open pull requests across the org’s repositories, pick the one most likely to cause a problem, and review it properly.' },
       { label: 'What changed lately?', prompt: 'Summarise what has been merged recently across the platform’s repositories and flag anything that looks risky.' },
@@ -241,7 +258,7 @@ export const AGENTS: AgentDef[] = [
     description: 'Architecture, APIs and system shape — what exists and how it fits',
     accent: 'emerald',
     icon: 'layers',
-    tools: [...SOURCE_TOOLS, ...DIAGNOSTIC_TOOLS, 'argocd_app_status', 'propose_change', ...AGENTIC_TOOLS],
+    tools: [...SOURCE_TOOLS, ...DIAGNOSTIC_TOOLS, ...GRAPH_TOOLS, 'argocd_app_status', 'propose_change', ...AGENTIC_TOOLS],
     starters: [
       { label: 'Map this system', prompt: 'Work out what services exist on this platform and how they call each other, then draw the topology.' },
       { label: 'Review an API', prompt: 'Find the API definitions in the platform’s repositories and review one for consistency, versioning and backwards compatibility.' },

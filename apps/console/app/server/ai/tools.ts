@@ -3,6 +3,7 @@ import { apiServerFetch } from '../k8s/gateway.ts'
 import type { K8sIdentity } from '../k8s/gateway.ts'
 import type { ToolDef } from './provider.ts'
 import { executeGitTool, GIT_TOOL_DEFS } from './git-tools.ts'
+import { executeGraphTool, GRAPH_TOOL_DEFS } from './graph-tools.ts'
 
 /**
  * Read-only Kubernetes tools exposed to the model. Every tool runs against the
@@ -193,6 +194,9 @@ export const TOOL_DEFS: ToolDef[] = [
   // layer reads, while their implementation and their different auth story
   // stay in git-tools.ts.
   ...GIT_TOOL_DEFS,
+  // Knowledge-graph tools. They answer relationship questions the k8s tools
+  // above cannot, and answer context questions far more cheaply.
+  ...GRAPH_TOOL_DEFS,
 ]
 
 function root(group: string, version: string): string {
@@ -221,6 +225,11 @@ export async function executeTool(name: string, argsJson: string, token: K8sIden
     // one switch. Returns null for anything it does not own.
     const git = await executeGitTool(name, args)
     if (git !== null) return { content: git }
+
+    // Graph tools read a ServiceAccount-built index, so they take the caller's
+    // identity explicitly and filter by it — see graph/access.ts.
+    const graphResult = await executeGraphTool(name, args, token)
+    if (graphResult !== null) return { content: graphResult }
 
     switch (name) {
       case 'k8s_list': {

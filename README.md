@@ -12,11 +12,10 @@
 
 [![CI](https://github.com/adhar-io/adhar-console/actions/workflows/ci.yml/badge.svg)](./.github/workflows/ci.yml)
 [![Release](https://github.com/adhar-io/adhar-console/actions/workflows/release.yml/badge.svg)](./.github/workflows/release.yml)
-[![Image](https://img.shields.io/badge/docker-adhario%2Fadhar--console-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/adhario/adhar-console)
+[![Image](https://img.shields.io/badge/ghcr.io-adhar--io%2Fadhar--console-2496ED?logo=github&logoColor=white)](https://github.com/adhar-io/adhar-console/pkgs/container/adhar-console)
 [![Deno](https://img.shields.io/badge/deno-2.x-000000?logo=deno&logoColor=white)](https://deno.com)
 [![React](https://img.shields.io/badge/react-19.2-61DAFB?logo=react&logoColor=black)](https://react.dev)
 [![Module Federation](https://img.shields.io/badge/module_federation-8_remotes-7C3AED)](./docs/architecture/module-federation.md)
-[![Auth](https://img.shields.io/badge/auth-OIDC_confidential_client-success?logo=keycloak&logoColor=white)](./docs/architecture/auth.md)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green?logo=apache)](./LICENSE)
 [![Slack](https://img.shields.io/badge/slack-join_community-4A154B?logo=slack)](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww)
 

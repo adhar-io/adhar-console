@@ -53,7 +53,13 @@ export async function handleExec(req: Request): Promise<Response> {
 
   // Build the apiserver exec URL. `command` may repeat.
   const upstream = new URLSearchParams()
-  upstream.set('container', q.get('container') ?? '')
+  // Only when it has a value. `container=` (empty) is NOT the same request as
+  // omitting it: with the parameter absent the apiserver picks the pod's default
+  // container, which is what `kubectl exec` without `-c` relies on. Sending an
+  // empty name asks it to resolve a container called "", and how that is treated
+  // is version-dependent rather than specified.
+  const containerName = (q.get('container') ?? '').trim()
+  if (containerName) upstream.set('container', containerName)
   upstream.set('stdin', q.get('stdin') ?? 'true')
   upstream.set('stdout', q.get('stdout') ?? 'true')
   upstream.set('stderr', q.get('stderr') ?? 'true')

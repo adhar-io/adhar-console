@@ -426,6 +426,8 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
                       else handles.current.delete(s.id)
                     }}
                     fill
+                    // A terminal is dark; see PodTerminal's alwaysDark note.
+                    alwaysDark
                     cluster={s.cluster}
                     namespace={s.namespace}
                     pod={s.pod}

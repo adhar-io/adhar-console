@@ -316,17 +316,20 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
       {/*
         ═══ header ═══
 
-        On the PAGE variant the identity block is not rendered. Reaching /ai
-        from the sidebar already puts "Adhar AI" in the nav and in the
-        breadcrumb, so a third title directly under the app's own topbar was a
-        second header bar saying what the first one said. The controls stay —
-        they are the only way to reach the conversation rail, the inspector and
-        the canvas — but the bar collapses to a borderless toolbar that reads as
-        part of the page rather than as a frame around it.
+        OVERLAY ONLY. Launched over whatever the user was doing, the overlay
+        has to say what it is and offer a way out, so it keeps the full
+        identity block.
 
-        The OVERLAY keeps the full identity block: launched over whatever the
-        user was doing, it has to say what it is.
+        The PAGE has no header at all. Reaching /ai from the sidebar already
+        puts "Adhar AI" in the nav and in the breadcrumb, and the app's own
+        topbar sits directly above — a third bar restating it was a frame
+        around the conversation rather than part of it. The rail toggles it
+        used to hold move into the body as floating controls (see RailPeek):
+        they take no layout height, so the conversation starts at the top of
+        the page, but the rails stay reachable by mouse and not only by
+        ⌘[ / ⌘].
       */}
+      {overlay ? (
       <header
         className={cn(
           'flex shrink-0 items-center gap-2 sm:gap-3',
@@ -373,6 +376,7 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
           ) : null}
         </div>
       </header>
+      ) : null}
 
       {/* ═══ body ═══ */}
       <div
@@ -386,6 +390,30 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
         }}
       >
         {asColumn('threads') ? <div className="min-h-0 overflow-hidden">{threadsRail}</div> : null}
+
+        {/*
+          The page's only chrome: two quiet toggles floating over the top
+          corners of the conversation. They replace the removed header bar —
+          same controls, no band, no height taken from the transcript.
+        */}
+        {!overlay ? (
+          <>
+            {!asColumn('threads') ? (
+              <div className="absolute left-2 top-2 z-20">
+                <RailPeek onClick={() => toggleRail('threads')} title="Conversations (⌘[)">
+                  <IconSidebar />
+                </RailPeek>
+              </div>
+            ) : null}
+            {!asColumn('inspector') ? (
+              <div className="absolute right-2 top-2 z-20">
+                <RailPeek onClick={() => toggleRail('inspector')} title="Inspector (⌘])">
+                  <IconPanelRight />
+                </RailPeek>
+              </div>
+            ) : null}
+          </>
+        ) : null}
 
         <section className="flex min-h-0 flex-col">
           <div
@@ -560,6 +588,29 @@ function ShortcutsMenu() {
         </div>
       ) : null}
     </div>
+  )
+}
+
+/**
+ * A rail toggle for the header-less page variant.
+ *
+ * Deliberately low-contrast and small: it sits ON the conversation rather
+ * than in a bar of its own, so it has to be findable without competing with
+ * the content. It disappears once its rail is open — the rail's own close
+ * control takes over, and leaving both visible put two "close this" affordances
+ * side by side.
+ */
+function RailPeek({ children, onClick, title }: { children: ReactNode; onClick(): void; title: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      className="flex h-8 w-8 items-center justify-center rounded-lg border border-edge-subtle bg-surface-raised/70 text-content-subtle shadow-sm backdrop-blur transition-colors hover:border-edge-default hover:bg-surface-raised hover:text-content"
+    >
+      {children}
+    </button>
   )
 }
 

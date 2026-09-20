@@ -329,7 +329,10 @@ export function getToolRegistry(): Record<string, ToolDef> {
     // RustFS is the platform's S3-compatible store; MINIO_URL kept as the
     // conventional var name with RUSTFS_URL as an alias.
     minio: {
-      baseUrl: toolUrl('minio', 'MINIO_URL', 'RUSTFS_URL'),
+      // The platform's S3 store is RustFS, exposed at `rustfs.<domain>`;
+      // `minio.<domain>` has no route, so deriving from the tool id gave a
+      // dead URL. The tool id stays `minio` as the conventional name.
+      baseUrl: toolUrl('rustfs', 'RUSTFS_URL', 'MINIO_URL'),
       authMode: 'service',
       serviceToken: env('MINIO_TOKEN') ?? env('RUSTFS_TOKEN'),
     },

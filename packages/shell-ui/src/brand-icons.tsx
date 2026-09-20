@@ -16,6 +16,10 @@ import {
   FARO_PNG_URI,
   KUBEFLOW_MARKUP,
   KUBEFLOW_VIEWBOX,
+  LIBREDB_MARKUP,
+  LIBREDB_VIEWBOX,
+  LITMUS_MARKUP,
+  LITMUS_VIEWBOX,
   LAKEFS_MARKUP,
   LAKEFS_VIEWBOX,
   MIMIR_PNG_URI,
@@ -289,6 +293,12 @@ export function FaroIcon(props: BrandProps) {
 }
 export function RustFSIcon(props: BrandProps) {
   return <RasterTile {...props} src={RUSTFS_PNG_URI} alt="RustFS" />
+}
+export function LitmusIcon(props: BrandProps) {
+  return <LogoTile {...props} viewBox={LITMUS_VIEWBOX} markup={LITMUS_MARKUP} />
+}
+export function LibreDBIcon(props: BrandProps) {
+  return <LogoTile {...props} viewBox={LIBREDB_VIEWBOX} markup={LIBREDB_MARKUP} />
 }
 export function MLflowIcon(props: BrandProps) {
   return <MonoTile {...props} hex={MLFLOW_HEX} d={MLFLOW_D} />

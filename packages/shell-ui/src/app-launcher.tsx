@@ -18,17 +18,17 @@ import {
   KubernetesIcon,
   KyvernoIcon,
   MetabaseIcon,
-  MinIOIcon,
   NexusIcon,
   OpenCostIcon,
   PlaneIcon,
   PostHogIcon,
   PrometheusIcon,
   TektonIcon,
-  ChaosMeshIcon,
   DagsterIcon,
   FaroIcon,
   KubeflowIcon,
+  LibreDBIcon,
+  LitmusIcon,
   MLflowIcon,
   LakeFSIcon,
   LokiIcon,
@@ -241,14 +241,6 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     icon: <MetabaseIcon />,
   },
   {
-    id: 'minio',
-    name: 'MinIO',
-    description: 'S3 object storage (RustFS)',
-    url: 'https://minio.adhar.localtest.me:8443',
-    category: 'Data',
-    icon: <MinIOIcon />,
-  },
-  {
     id: 'posthog',
     name: 'PostHog',
     description: 'Product analytics & flags',
@@ -312,12 +304,16 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     icon: <HeadlampIcon />,
   },
   {
-    id: 'chaos-mesh',
-    name: 'Chaos Mesh',
+    // The platform ships LitmusChaos, not Chaos Mesh: `chaos-mesh.<domain>`
+    // has no route any more and `litmus.<domain>` does. (Chaos Mesh's CRDs
+    // are still installed, so the console's own chaos views keep working —
+    // only this external link moved.)
+    id: 'litmus',
+    name: 'LitmusChaos',
     description: 'Chaos engineering experiments',
-    url: 'https://chaos-mesh.adhar.localtest.me:8443',
+    url: 'https://litmus.adhar.localtest.me:8443',
     category: 'Platform',
-    icon: <ChaosMeshIcon />,
+    icon: <LitmusIcon />,
   },
   {
     id: 'n8n',
@@ -466,6 +462,14 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     url: 'https://rustfs.adhar.localtest.me:8443',
     category: 'Data',
     icon: <RustFSIcon />,
+  },
+  {
+    id: 'libredb',
+    name: 'LibreDB Studio',
+    description: 'SQL browser & database studio',
+    url: 'https://libredb.adhar.localtest.me:8443',
+    category: 'Data',
+    icon: <LibreDBIcon />,
   },
 ]
 

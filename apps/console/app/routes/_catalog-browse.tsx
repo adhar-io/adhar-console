@@ -880,7 +880,10 @@ function SystemCard({ summary, onPick }: { summary: SystemSummary; onPick(e: Ent
       onClick={() => onPick(system)}
       className="group relative flex h-full flex-col items-stretch overflow-hidden rounded-2xl border border-edge-default bg-surface-raised text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-300/70 hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-500"
     >
-      <div className="relative bg-linear-to-br from-violet-50/60 dark:from-violet-500/10 to-surface-raised px-5 py-5">
+      {/* `flex-1` so every card's stat strip sits on its bottom edge. Without
+          it a two-line description pushed one card's strip lower than its
+          neighbours', and a row of cards lost its baseline. */}
+      <div className="relative flex-1 bg-linear-to-br from-brand-50/60 to-surface-raised px-5 py-5 dark:from-brand-500/8">
         <div className="flex items-start justify-between gap-2">
           <KindGlyph kind="System" size="lg" />
           {ownerName ? (
@@ -5671,14 +5674,38 @@ function KindGlyph({
   )
 }
 
+/**
+ * Entity KIND is a category, not a status — so it does not get status colours.
+ *
+ * These were seven arbitrary hues, and three of them were the console's status
+ * palette: emerald for API, amber for Domain, rose for Group. On this very
+ * page emerald/amber/rose already mean healthy / needs-attention / failed —
+ * the "Needs attention" tile is amber, and it sits directly above a row of
+ * amber Domain chips that are not warnings at all. Colour was doing two
+ * contradictory jobs at once, which is what made the page read as noisy and
+ * the chips read as alarming.
+ *
+ * Two families now, and the LETTER does the distinguishing within each:
+ *
+ *   software you build and run  → brand tint   (Component, API, Resource)
+ *   how the org is arranged     → neutral tint (System, Domain, Group, User)
+ *
+ * That leaves emerald / amber / rose free to mean only what they mean
+ * everywhere else in the console.
+ */
+const KIND_SOFTWARE =
+  'bg-brand-50 dark:bg-brand-500/12 text-brand-700 dark:text-brand-300 ring-1 ring-brand-200/70 dark:ring-brand-400/20'
+const KIND_ORG =
+  'bg-surface-sunken text-content-muted ring-1 ring-edge-default'
+
 const KIND_TONES: Record<EntityKind, string> = {
-  Component: 'bg-brand-100 dark:bg-brand-500/15 text-brand-700 dark:text-brand-300 ring-1 ring-brand-200/60',
-  API: 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-200/60',
-  Resource: 'bg-sky-100 dark:bg-sky-500/15 text-sky-700 dark:text-sky-300 ring-1 ring-sky-200/60',
-  System: 'bg-violet-100 dark:bg-violet-500/15 text-violet-700 dark:text-violet-300 ring-1 ring-violet-200/60',
-  Domain: 'bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300 ring-1 ring-amber-200/60',
-  Group: 'bg-rose-100 dark:bg-rose-500/15 text-rose-700 dark:text-rose-300 ring-1 ring-rose-200/60',
-  User: 'bg-slate-200 text-content-muted ring-1 ring-slate-300/60',
+  Component: KIND_SOFTWARE,
+  API: KIND_SOFTWARE,
+  Resource: KIND_SOFTWARE,
+  System: KIND_ORG,
+  Domain: KIND_ORG,
+  Group: KIND_ORG,
+  User: KIND_ORG,
 }
 
 const LETTER_FOR: Record<EntityKind, Record<string, string>> = {

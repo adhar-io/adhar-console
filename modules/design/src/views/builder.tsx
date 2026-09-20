@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
-import { Button, Spinner } from '@adhar-console/shell-ui'
-import { RemoteModule, getBuilderHost, loadBuilderApp } from '@adhar-console/mf-utils'
+import { useMemo } from 'react'
+import { AdharSymbol, Spinner } from '@adhar-console/shell-ui'
+import { RemoteModule, loadBuilderApp } from '@adhar-console/mf-utils'
 import { cn } from '@adhar-console/utils'
 import type { Wireframe } from '../data/types.ts'
 
@@ -120,10 +120,6 @@ function FederatedBuilder({
   title,
   eyebrow,
 }: FederatedBuilderProps) {
-  const host = getBuilderHost()
-  const [reloadKey, setReloadKey] = useState(0)
-  const reload = () => setReloadKey((k) => k + 1)
-
   const componentProps = useMemo(
     () =>
       ({
@@ -140,16 +136,13 @@ function FederatedBuilder({
     <div className={cn('flex min-h-0 flex-col gap-3', !embedded && 'h-[calc(100vh-180px)]')}>
       <Toolbar
         title={title ?? MODE_LABEL[mode]}
-        eyebrow={eyebrow ?? `Federated Adhar Builder · ${mode}`}
-        host={host}
-        onReload={reload}
+        eyebrow={eyebrow ?? MODE_LABEL[mode]}
         onBack={onBack}
       />
 
       <div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm ring-1 ring-black/5">
         <div className="absolute inset-0 overflow-auto">
           <RemoteModule
-            key={reloadKey}
             loader={loadVisualApp}
             label={MODE_LABEL[mode]}
             componentProps={componentProps}
@@ -157,67 +150,56 @@ function FederatedBuilder({
           />
         </div>
       </div>
-
-      <div className="text-[11px] text-content-subtle">
-        External app at{' '}
-        <code className="rounded bg-surface-sunken px-1 py-0.5 font-mono text-[10px] text-content-muted">
-          {host}
-        </code>{' '}
-        · override via{' '}
-        <code className="rounded bg-surface-sunken px-1 py-0.5 font-mono text-[10px] text-content-muted">
-          VITE_ADHAR_BUILDER_URL
-        </code>
-        .
-      </div>
     </div>
   )
 }
 
+/**
+ * The builder's own header.
+ *
+ * It used to carry a Reload button, a "Module-federated" pill and a footer
+ * naming the remote's host and the `VITE_ADHAR_BUILDER_URL` override. All
+ * three describe how the page is BUILT, not what it does — the person
+ * editing a wireframe has no use for the federation topology, and a config
+ * env var is not something to put in front of them. Back stays: when a
+ * wireframe is open the builder replaces the list, so it is the only way out.
+ *
+ * The mark is the real Adhar symbol rather than the generic four-square glyph
+ * that stood in for it, on a soft brand-tinted tile instead of a flat fill.
+ */
 function Toolbar({
   title,
   eyebrow,
-  host,
-  onReload,
   onBack,
 }: {
   title: string
   eyebrow: string
-  host: string
-  onReload(): void
   onBack?(): void
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-edge-default bg-surface-raised px-3 py-2 shadow-sm">
-      <div className="flex items-center gap-2">
-        {onBack ? (
-          <button
-            type="button"
-            onClick={onBack}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-content-muted transition-colors hover:bg-surface-sunken hover:text-content"
-            aria-label="Back"
-          >
-            <BackGlyph />
-          </button>
-        ) : null}
-        <span className="flex h-7 w-7 items-center justify-center rounded-md bg-brand-600 text-white shadow-sm">
-          <CanvasGlyph />
-        </span>
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-content">{title}</div>
-          <div className="truncate text-[11px] text-content-muted">{eyebrow}</div>
-        </div>
-        <span
-          className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700"
-          title={`Backed by ${host}`}
+    <div className="flex items-center gap-3 rounded-xl border border-edge-default bg-surface-raised px-3 py-2.5 shadow-sm">
+      {onBack ? (
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-content-muted transition-colors hover:bg-surface-sunken hover:text-content"
+          aria-label="Back"
         >
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-          Module-federated
-        </span>
-      </div>
-      <div className="flex items-center gap-1.5">
-        <Button variant="secondary" size="sm" onClick={onReload}>
-          <ReloadGlyph /> Reload
-        </Button>
+          <BackGlyph />
+        </button>
+      ) : null}
+
+      <span className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-brand-50 ring-1 ring-inset ring-brand-200/70 dark:bg-brand-500/12 dark:ring-brand-400/25">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-linear-to-br from-white/70 to-transparent dark:from-white/10"
+        />
+        <AdharSymbol size={22} className="relative" />
+      </span>
+
+      <div className="min-w-0">
+        <div className="truncate text-sm font-semibold tracking-tight text-content">{title}</div>
+        <div className="truncate text-[11.5px] text-content-muted">{eyebrow}</div>
       </div>
     </div>
   )
@@ -234,25 +216,6 @@ function LoadingPanel({ label }: { label: string }) {
   )
 }
 
-function CanvasGlyph() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <rect x="3" y="3" width="7" height="7" rx="1.5" />
-      <rect x="14" y="3" width="7" height="7" rx="1.5" />
-      <rect x="3" y="14" width="7" height="7" rx="1.5" />
-      <rect x="14" y="14" width="7" height="7" rx="1.5" />
-    </svg>
-  )
-}
-
-function ReloadGlyph() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
-      <path d="M21 3v5h-5" />
-    </svg>
-  )
-}
 
 function BackGlyph() {
   return (

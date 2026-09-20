@@ -226,3 +226,116 @@ export function createChaosExperiment(input: NewChaosExperiment): Promise<ChaosE
     },
   })
 }
+
+/* ─────────────────────────── game days ─────────────────────────── */
+
+/**
+ * A game day is a Chaos Mesh `Workflow`: a whole sequence of experiments as
+ * one object, with recovery pauses and a steady-state probe that aborts the
+ * run if the system genuinely stops serving.
+ *
+ * Nodes are tracked separately (`WorkflowNode`), one per template instance,
+ * and they carry the real progress — the Workflow's own status only says when
+ * it started, when it ended, and which node is the entry.
+ */
+const WORKFLOWS_GVR = { group: CHAOS_GROUP, version: CHAOS_VERSION, resource: 'workflows', namespaced: true }
+const WORKFLOW_NODES_GVR = { group: CHAOS_GROUP, version: CHAOS_VERSION, resource: 'workflownodes', namespaced: true }
+
+export interface WorkflowCondition {
+  type: string
+  status: 'True' | 'False' | 'Unknown'
+  reason?: string
+  startTime?: string
+}
+
+export interface ChaosWorkflow {
+  apiVersion?: string
+  kind?: string
+  metadata: {
+    name: string
+    namespace?: string
+    uid?: string
+    creationTimestamp?: string
+    labels?: Record<string, string>
+  }
+  spec?: { entry?: string; templates?: Array<Record<string, unknown>> }
+  status?: {
+    startTime?: string
+    endTime?: string
+    entryNode?: string
+    conditions?: WorkflowCondition[]
+  }
+}
+
+export interface ChaosWorkflowNode {
+  metadata: { name: string; namespace?: string; creationTimestamp?: string }
+  spec?: { templateType?: string; deadline?: string; name?: string; children?: string[] }
+  status?: {
+    conditions?: WorkflowCondition[]
+    activeChildren?: Array<{ name?: string }>
+    finishedChildren?: Array<{ name?: string }>
+    chaosResource?: { name?: string; namespace?: string; kind?: string }
+  }
+}
+
+export function useChaosWorkflows(namespace?: string) {
+  const queryKey = ['chaos', 'workflows', namespace ?? 'all']
+  return useQuery({
+    queryKey,
+    queryFn: async () => {
+      const res = await kube.list<ChaosWorkflow>(WORKFLOWS_GVR, { namespace, limit: 200 })
+      return (res.items ?? []).sort((a, b) =>
+        (b.metadata.creationTimestamp ?? '').localeCompare(a.metadata.creationTimestamp ?? '')
+      )
+    },
+    refetchInterval: 10_000,
+    retry: false,
+  })
+}
+
+export function useChaosWorkflow(namespace: string | undefined, name: string | null) {
+  const enabled = Boolean(namespace && name)
+  return useQuery({
+    queryKey: ['chaos', 'workflow', namespace, name],
+    queryFn: () => kube.get<ChaosWorkflow>(WORKFLOWS_GVR, namespace, name!),
+    // A game day is minutes long and people watch it; poll faster than the list.
+    refetchInterval: enabled ? 5_000 : false,
+    enabled,
+    retry: false,
+  })
+}
+
+/**
+ * The nodes belonging to one workflow.
+ *
+ * Chaos Mesh labels each node with its owning workflow, which is the only
+ * reliable link — node names carry a generated suffix, so matching on the
+ * name prefix would also catch a second run of the same game day.
+ */
+export function useChaosWorkflowNodes(namespace: string | undefined, workflow: string | null) {
+  const enabled = Boolean(namespace && workflow)
+  return useQuery({
+    queryKey: ['chaos', 'workflow-nodes', namespace, workflow],
+    queryFn: async () => {
+      const res = await kube.list<ChaosWorkflowNode>(WORKFLOW_NODES_GVR, {
+        namespace,
+        labelSelector: `chaos-mesh.org/workflow=${workflow}`,
+        limit: 500,
+      })
+      return res.items ?? []
+    },
+    refetchInterval: enabled ? 5_000 : false,
+    enabled,
+    retry: false,
+  })
+}
+
+export function createGameDay(manifest: Record<string, unknown>): Promise<ChaosWorkflow> {
+  return kube.apply<ChaosWorkflow>(manifest)
+}
+
+export function deleteGameDay(namespace: string, name: string): Promise<unknown> {
+  return kube.delete(WORKFLOWS_GVR, namespace, name)
+}
+
+export { WORKFLOWS_GVR as CHAOS_WORKFLOWS_GVR }

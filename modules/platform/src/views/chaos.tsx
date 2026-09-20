@@ -35,6 +35,7 @@ import {
   type ChaosKindId,
   type ChaosPhase,
 } from '../data/chaos-kinds.ts'
+import { ChaosGameDays } from './chaos-gameday.tsx'
 import {
   createChaosExperiment,
   deleteChaosExperiment,
@@ -61,7 +62,16 @@ import {
  *     and high-blast kinds require typing the name to confirm. Slower on
  *     purpose.
  */
+type ChaosTab = 'experiments' | 'gamedays'
+
 export function ChaosView({ namespace }: { namespace?: string }) {
+  /*
+   * "Experiments" is every individual fault on the cluster. "Game days" is
+   * the automated side: a catalogue of scenarios composed into one Chaos Mesh
+   * workflow. Tabs rather than pages because the second is how you should
+   * normally run the first.
+   */
+  const [tab, setTab] = useState<ChaosTab>('experiments')
   const { experiments, installedKinds, anyInstalled, isLoading, error } = useChaosExperiments(namespace)
   const schedules = useChaosSchedules(namespace)
   const [launching, setLaunching] = useState(false)
@@ -92,8 +102,37 @@ export function ChaosView({ namespace }: { namespace?: string }) {
 
   const live = experiments.filter(isLive)
 
+  const tabs = (
+    <div className="flex gap-1">
+      {([['experiments', 'Experiments'], ['gamedays', 'Game days']] as Array<[ChaosTab, string]>).map(([id, label]) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => setTab(id)}
+          className={cn(
+            'rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-colors',
+            tab === id ? 'bg-brand-600 text-white' : 'text-content-muted hover:bg-surface-sunken hover:text-content',
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+
+  if (tab === 'gamedays') {
+    return (
+      <div className="space-y-4">
+        {tabs}
+        {live.length > 0 ? <LiveBanner experiments={live} /> : null}
+        <ChaosGameDays namespace={namespace} />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
+      {tabs}
       {live.length > 0 ? <LiveBanner experiments={live} /> : null}
 
       <Summary experiments={experiments} loading={isLoading} scheduleCount={schedules.data?.length ?? 0} />

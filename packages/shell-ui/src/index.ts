@@ -75,6 +75,36 @@ export { ErrorBoundary } from './error-boundary.tsx'
 export { PageHeader } from './page-header.tsx'
 export { EmptyState } from './empty-state.tsx'
 export { DataTable, type Column } from './data-table.tsx'
+export {
+  FilterBar,
+  SearchInput,
+  VIEW_ICONS,
+  type FilterBarProps,
+  type SearchInputProps,
+  type SortOption,
+  type ViewOption,
+} from './filter-bar.tsx'
+export {
+  clearFacet,
+  countActiveFilters,
+  decodeFacetValues,
+  encodeFacetValues,
+  facetValue,
+  filterChips,
+  hasActiveFilters,
+  isFacetSelected,
+  matchesFacets,
+  matchesQuery,
+  NO_FILTERS,
+  optionsFromItems,
+  setFacetValue,
+  toggleFacetValue,
+  type Facet,
+  type FacetAccessors,
+  type FacetOption,
+  type FacetValues,
+  type FilterChip,
+} from './filter-model.ts'
 export { StatusBadge, type StatusKind } from './status-badge.tsx'
 export { AssistHost, CommandPalette, type AssistHostProps, type CommandItem } from './command-palette.tsx'
 export { Modal } from './modal.tsx'

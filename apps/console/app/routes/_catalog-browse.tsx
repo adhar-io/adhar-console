@@ -1652,7 +1652,12 @@ function Toolbar({
   }, [open])
 
   return (
-    <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm">
+    // NOT `overflow-hidden`: the filter popover is an absolutely-positioned
+    // child of this box, so clipping it cut the popover off at the toolbar's
+    // own bottom edge — 1px of a 499px panel rendered, which made the Filters
+    // button look like it did nothing at all. ActiveFilterChips rounds its own
+    // bottom corners instead.
+    <div className="rounded-xl border border-edge-default bg-surface-raised shadow-sm">
       <div className="flex flex-wrap items-center gap-2 px-3 py-2">
         <div className="relative h-9 min-w-72 flex-1">
           <input
@@ -2385,7 +2390,7 @@ function ActiveFilterChips({
   if (chips.length === 0) return null
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 border-t border-edge-subtle bg-surface-sunken/40 px-3 py-2 text-[11px]">
+    <div className="flex flex-wrap items-center gap-1.5 rounded-b-xl border-t border-edge-subtle bg-surface-sunken/40 px-3 py-2 text-[11px]">
       <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
         Active
       </span>

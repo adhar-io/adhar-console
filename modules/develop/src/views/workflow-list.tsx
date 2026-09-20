@@ -27,6 +27,7 @@ import {
   type CanvasEdge,
 } from '../components/canvas.tsx'
 import { CrdMissing } from '../components/crd-missing.tsx'
+import { WorkflowDesigner } from './wf-designer.tsx'
 import {
   deleteWorkflow,
   durationSecs,
@@ -75,7 +76,7 @@ const PHASE_KIND: Record<string, StatusKind> = {
 
 const PHASES = ['Running', 'Succeeded', 'Failed', 'Pending'] as const
 
-type Tab = 'workflows' | 'templates' | 'cron'
+type Tab = 'workflows' | 'templates' | 'cron' | 'designer'
 type PhaseFilter = 'all' | 'Running' | 'Succeeded' | 'Failed' | 'Pending'
 
 export function WorkflowList() {
@@ -175,6 +176,22 @@ export function WorkflowList() {
 
   const activeQ = tab === 'templates' ? tplq : tab === 'cron' ? cronq : wfq
 
+  // The designer owns the full width and carries its own toolbar, so it
+  // replaces the list body rather than rendering inside the filter chrome.
+  if (tab === 'designer') {
+    return (
+      <div className='space-y-3'>
+        <div className='inline-flex items-center rounded-lg border border-edge-default bg-surface-sunken/60 p-0.5'>
+          <TabBtn on={false} onClick={() => setTab('workflows')}>Workflows</TabBtn>
+          <TabBtn on={false} onClick={() => setTab('templates')}>Templates</TabBtn>
+          <TabBtn on={false} onClick={() => setTab('cron')}>Cron</TabBtn>
+          <TabBtn on onClick={() => setTab('designer')}>Designer</TabBtn>
+        </div>
+        <WorkflowDesigner namespace={nsF !== 'all' ? nsF : 'argo'} onClose={() => setTab('workflows')} />
+      </div>
+    )
+  }
+
   return (
     <div className='space-y-4'>
       {/* ── stats · each tile is also the phase filter ── */}
@@ -201,6 +218,7 @@ export function WorkflowList() {
           <TabBtn on={tab === 'workflows'} onClick={() => setTab('workflows')}>Workflows</TabBtn>
           <TabBtn on={tab === 'templates'} onClick={() => setTab('templates')}>Templates</TabBtn>
           <TabBtn on={tab === 'cron'} onClick={() => setTab('cron')}>Cron</TabBtn>
+          <TabBtn on={tab === 'designer'} onClick={() => setTab('designer')}>Designer</TabBtn>
         </div>
         <div className='min-w-48 flex-1'>
           <Input

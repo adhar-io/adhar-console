@@ -324,3 +324,30 @@ export function fmtDuration(secs: number | undefined): string {
   if (secs < 3600) return `${Math.floor(secs / 60)}m ${secs % 60}s`
   return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`
 }
+
+/* ─────────── designer ─────────── */
+
+/**
+ * Submit a designed workflow.
+ *
+ * Uses `generateName`, so every run gets its own object and a second click
+ * does not overwrite the first — Argo keeps run history as separate objects,
+ * and a fixed name would silently discard it.
+ */
+export function submitWorkflow(spec: Record<string, unknown>): Promise<Workflow> {
+  return kube.apply<Workflow>(spec)
+}
+
+/**
+ * Create or update a reusable template.
+ *
+ * Unlike a run, a template DOES have a stable name — that is the point of
+ * one — so saving twice updates in place.
+ */
+export function upsertWorkflowTemplate(spec: Record<string, unknown>): Promise<WorkflowTemplate> {
+  return kube.apply<WorkflowTemplate>(spec)
+}
+
+export function deleteWorkflowTemplate(namespace: string, name: string): Promise<unknown> {
+  return kube.delete(WORKFLOW_TEMPLATES_GVR, namespace, name)
+}

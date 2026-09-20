@@ -16,7 +16,12 @@
     "tailwindcss": "npm:tailwindcss@^4.0.0",
     "vite": "npm:vite@^7.1.12",
     "clsx": "npm:clsx@^2.1.1",
-    "tailwind-merge": "npm:tailwind-merge@^2.5.0"
+    "tailwind-merge": "npm:tailwind-merge@^2.5.0",
+    "@xyflow/react": "npm:@xyflow/react@^12.3.5",
+    "@xyflow/react/": "npm:/@xyflow/react@^12.3.5/"
   },
-  "compilerOptions": { "jsx": "react-jsx", "jsxImportSource": "react" }
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "react"
+  }
 }

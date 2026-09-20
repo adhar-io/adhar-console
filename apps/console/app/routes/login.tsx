@@ -11,8 +11,8 @@ import { getDemoSession, useAuth } from '@adhar-console/auth'
 import { z } from 'zod'
 
 /**
- * Sign-in page — a split hero: an immersive, brand-saturated story panel on the
- * left and an SSO-first action card on the right.
+ * Sign-in page — a brand-saturated story panel floating beside an SSO-first
+ * action card, both sitting on one ambient field.
  *
  * When Keycloak is configured the primary CTA triggers the OIDC redirect
  * (Keycloak owns the credentials form — the console never sees a password).
@@ -23,6 +23,24 @@ import { z } from 'zod'
  * Theme-aware throughout: the action side runs on design tokens (light/dark),
  * and the hero uses the brand-token gradient (brand-900→brand-950) that stays
  * legible with light type in either color mode — no bare white/black surfaces.
+ *
+ * ---------------------------------------------------------------------------
+ * LAYOUT NOTES (why it is built this way)
+ * ---------------------------------------------------------------------------
+ * The hero is an INSET rounded panel, not a flush half. Butting a saturated
+ * blue panel against the page surface produced a hard vertical seam down the
+ * middle of the screen — the single most unfinished-looking thing here. Given
+ * a margin and a radius it reads as a surface resting on the page instead.
+ *
+ * The ambient layer (aurora + hairline mesh) therefore lives on the ROOT, not
+ * inside the right-hand column, so both halves share one field and the hero
+ * has something to float on. The page background is opaque, so the global
+ * `body::before` texture never reaches this route — without this layer the
+ * sign-in side is a flat void holding a small card.
+ *
+ * Below `lg` the hero is hidden entirely. That used to leave a phone with no
+ * statement of what the product is and a third of a screen of empty space, so
+ * the compact logo line and `COMPACT_PROOF` strip stand in for it.
  */
 export const Route = createFileRoute('/login')({
   validateSearch: z.object({
@@ -33,16 +51,26 @@ export const Route = createFileRoute('/login')({
   component: LoginPage,
 })
 
-/* A few concise, benefit-led highlights — kept deliberately minimal so the
- * sign-in panel reads clean and professional rather than a wall of logos. */
+/*
+ * Proof points for the hero. Four, not six, and each makes a claim the others
+ * don't: the previous list said "GitOps delivery" twice and repeated the
+ * paragraph's "no black boxes, no lock-in" verbatim, which reads as padding.
+ */
 const HIGHLIGHTS = [
-  'One console for the whole delivery lifecycle — plan, build, ship, observe.',
-  'GitOps delivery, progressive rollouts, and policy guardrails built in.',
-  'Self-hosted and multi-tenant. 100% open source — no black boxes, no lock-in.',
+  'GitOps delivery with progressive rollouts and policy guardrails.',
+  'Logs, metrics, traces, cost and policy in one lifecycle view.',
   'Single sign-on — your Kubernetes RBAC applies everywhere.',
-  'Golden paths, GitOps delivery and live cluster operations.',
-  'Logs, metrics, traces, policy and cost in one lifecycle view.',
+  'Self-hosted, multi-tenant and 100% open source.',
 ]
+
+/* The same promise, compressed — shown under the card on small screens, where
+ * the hero panel is hidden and the page would otherwise say nothing about the
+ * product at all. */
+const COMPACT_PROOF = [
+  ['Lifecycle', 'Plan → ship → observe'],
+  ['Delivery', 'GitOps + rollouts'],
+  ['Open', 'Self-hosted, no lock-in'],
+] as const
 
 /**
  * Map the raw `?error=` string the OIDC handlers redirect back with to a
@@ -135,7 +163,61 @@ function LoginPage() {
   const redirecting = busy === 'login' || busy === 'register'
 
   return (
-    <div className="flex min-h-screen bg-surface-app">
+    <div className="relative flex min-h-screen overflow-hidden bg-surface-app">
+      {/*
+        One ambient field behind the whole page, not a per-column decoration.
+        The page background is opaque, so the global body texture never showed
+        through here and the sign-in side was a flat void. A drifting
+        brand/accent wash plus a hairline mesh (masked out under the card, so
+        it never fights the form) give both halves the same surface to sit on
+        — which is also what lets the hero read as a panel floating on the page
+        rather than one half of a hard vertical split.
+      */}
+      <div aria-hidden className="pointer-events-none absolute inset-0">
+        <div
+          className="adhar-aurora absolute -top-1/4 left-[58%] h-184 w-184 -translate-x-1/2 rounded-full opacity-60 blur-3xl dark:opacity-40"
+          style={{
+            background:
+              'radial-gradient(circle, color-mix(in oklch, var(--color-brand-500) 22%, transparent) 0%, transparent 70%)',
+          }}
+        />
+        <div
+          className="adhar-aurora-slow absolute -bottom-1/4 right-[-10%] h-136 w-136 rounded-full opacity-50 blur-3xl dark:opacity-30"
+          style={{
+            background:
+              'radial-gradient(circle, color-mix(in oklch, var(--color-accent-500) 20%, transparent) 0%, transparent 70%)',
+          }}
+        />
+        {/*
+          Two grids rather than one: the hole in the mask has to sit under the
+          card, and the card is centred below `lg` but sits at ~72% once the
+          hero panel takes the left half. A single mask tuned for one of those
+          turns the other into graph paper behind the form.
+        */}
+        <div
+          className="absolute inset-0 opacity-40 lg:hidden dark:opacity-35"
+          style={{
+            backgroundImage:
+              'linear-gradient(var(--color-edge-default) 1px, transparent 1px), linear-gradient(90deg, var(--color-edge-default) 1px, transparent 1px)',
+            backgroundSize: '52px 52px',
+            maskImage: 'radial-gradient(ellipse 70% 45% at 50% 50%, transparent 20%, black 100%)',
+            WebkitMaskImage:
+              'radial-gradient(ellipse 70% 45% at 50% 50%, transparent 20%, black 100%)',
+          }}
+        />
+        <div
+          className="absolute inset-0 hidden opacity-40 lg:block dark:opacity-35"
+          style={{
+            backgroundImage:
+              'linear-gradient(var(--color-edge-default) 1px, transparent 1px), linear-gradient(90deg, var(--color-edge-default) 1px, transparent 1px)',
+            backgroundSize: '52px 52px',
+            maskImage: 'radial-gradient(ellipse 60% 55% at 72% 50%, transparent 25%, black 100%)',
+            WebkitMaskImage:
+              'radial-gradient(ellipse 60% 55% at 72% 50%, transparent 25%, black 100%)',
+          }}
+        />
+      </div>
+
       <BrandPanel />
 
       {/* Sign-in column */}
@@ -146,26 +228,21 @@ function LoginPage() {
           <ModeToggle variant="icon" />
         </div>
 
-        {/* Ambient tint (mobile / narrow — hero panel is hidden below lg) */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 lg:hidden"
-          style={{
-            backgroundImage:
-              'radial-gradient(ellipse at 50% -10%, color-mix(in oklch, var(--color-brand-500) 16%, transparent) 0, transparent 55%)',
-          }}
-        />
-
-        <div className="relative w-full max-w-sm">
-          {/* Logo — shown here on small screens (brand panel is hidden) */}
-          <div className="mb-8 flex items-center justify-center lg:hidden">
+        <div className="relative w-full max-w-104">
+          {/* Logo — shown here on small screens (brand panel is hidden). It
+              carries the positioning line too, so a phone still learns what
+              this is before being asked to sign in. */}
+          <div className="mb-7 flex flex-col items-center gap-3 text-center lg:hidden">
             <span className="flex items-center gap-2.5">
               <AdharSymbol size={40} />
               <AdharWordmark fontSize={26} />
             </span>
+            <p className="text-[13px] font-medium text-content-muted">
+              Your entire platform, one console.
+            </p>
           </div>
 
-          <div className="relative overflow-hidden rounded-3xl border border-edge-default bg-surface-raised/95 p-7 shadow-2xl shadow-black/10 ring-1 ring-black/5 backdrop-blur-xl dark:shadow-black/50 dark:ring-white/8 sm:p-9">
+          <div className="relative overflow-hidden rounded-3xl border border-edge-default bg-surface-raised/85 p-7 shadow-2xl shadow-brand-950/10 ring-1 ring-black/5 backdrop-blur-xl dark:bg-surface-raised/70 dark:shadow-black/50 dark:ring-white/8 sm:p-9">
             {/* Brand accent: a soft top glow plus a hairline, so the card reads
                 as the lit surface of the page rather than a plain box. */}
             <span
@@ -193,27 +270,28 @@ function LoginPage() {
               </div>
             ) : null}
 
+            {/*
+              The eyebrow pill here used to read "Your platform, one console" —
+              word for word the hero headline two columns to the left, both on
+              screen at once. The card leads with the headline instead.
+            */}
             <div className="relative space-y-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-brand-700 ring-1 ring-inset ring-brand-200 dark:bg-brand-500/10 dark:text-brand-300 dark:ring-brand-500/25">
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-400 opacity-70" />
-                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-brand-500" />
-                </span>
-                Your platform, one console
-              </span>
-              <h1 className="pt-1 text-[27px] font-semibold leading-tight tracking-tight text-content">
+              <h1 className="text-[28px] font-semibold leading-tight tracking-tight text-content">
                 {configured ? (
                   <>
-                    Welcome back to <span className="bg-linear-to-r from-brand-600 to-accent-600 bg-clip-text text-transparent">Adhar</span>
+                    Welcome back to{' '}
+                    <span className="bg-linear-to-r from-brand-600 to-accent-600 bg-clip-text text-transparent dark:from-brand-300 dark:to-accent-500">
+                      Adhar
+                    </span>
                   </>
                 ) : (
                   'Explore the console'
                 )}
               </h1>
               <p className="text-[13.5px] leading-relaxed text-content-muted">
-                Design, build, ship and operate every service from one place — with your
-                Kubernetes clusters, GitOps delivery, policies and telemetry already wired
-                together.
+                {configured
+                  ? 'Sign in with your organisation account to pick up where you left off.'
+                  : 'Walk the whole console with a stubbed session — no identity provider required.'}
               </p>
             </div>
 
@@ -331,6 +409,24 @@ function LoginPage() {
             </div>
           </div>
 
+          {/* Below `lg` the hero panel is hidden, so the page said nothing
+              about the product and left a third of a phone screen empty under
+              the card. Three compressed proof points fill it and carry the
+              same promise the hero makes on desktop. */}
+          <ul className="mt-6 grid grid-cols-3 gap-2 lg:hidden">
+            {COMPACT_PROOF.map(([label, detail]) => (
+              <li
+                key={label}
+                className="rounded-xl border border-edge-subtle bg-surface-raised/60 px-2.5 py-2 text-center backdrop-blur-sm"
+              >
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-brand-600 dark:text-brand-300">
+                  {label}
+                </div>
+                <div className="mt-0.5 text-[11px] leading-snug text-content-muted">{detail}</div>
+              </li>
+            ))}
+          </ul>
+
           <p className="mt-6 text-center text-xs text-content-subtle">
             By continuing you agree to the{' '}
             <a href="#terms" className="font-medium text-content-muted underline-offset-2 hover:text-content hover:underline">
@@ -353,21 +449,26 @@ function LoginPage() {
 function BrandPanel() {
   return (
     <aside
-      className="relative hidden w-[48%] max-w-3xl shrink-0 overflow-hidden lg:flex lg:flex-col"
+      className="relative hidden w-[46%] max-w-3xl shrink-0 overflow-hidden shadow-2xl shadow-brand-950/20 ring-1 ring-white/10 lg:m-3 lg:flex lg:w-[calc(46%-0.75rem)] lg:flex-col lg:rounded-[28px] dark:shadow-black/40"
       style={{
         backgroundImage:
           'radial-gradient(ellipse at 20% -5%, color-mix(in oklch, var(--color-brand-500) 55%, transparent), transparent 55%), linear-gradient(150deg, var(--color-brand-950), var(--color-brand-900) 55%, var(--color-accent-950, var(--color-brand-950)))',
       }}
     >
-      {/* Animated gradient orbs */}
+      {/*
+        Drifting light fields. These were `animate-pulse` before — a 2s opacity
+        throb on a 24rem orb, which reads as a loading skeleton rather than
+        atmosphere. `adhar-aurora` moves them slowly instead, and both stop
+        under `prefers-reduced-motion`.
+      */}
       <div
         aria-hidden
-        className="absolute -left-24 -top-24 h-96 w-96 animate-pulse rounded-full opacity-50 blur-3xl"
+        className="adhar-aurora absolute -left-24 -top-24 h-96 w-96 rounded-full opacity-50 blur-3xl"
         style={{ background: 'radial-gradient(circle, var(--color-brand-400) 0%, transparent 70%)' }}
       />
       <div
         aria-hidden
-        className="absolute -bottom-32 -right-16 h-[28rem] w-[28rem] rounded-full opacity-40 blur-3xl"
+        className="adhar-aurora-slow absolute -bottom-32 -right-16 h-112 w-112 rounded-full opacity-40 blur-3xl"
         style={{ background: 'radial-gradient(circle, var(--color-accent-500) 0%, transparent 70%)' }}
       />
       {/* Faint grid mesh */}
@@ -379,7 +480,14 @@ function BrandPanel() {
             'linear-gradient(rgba(255,255,255,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.6) 1px, transparent 1px)',
           backgroundSize: '44px 44px',
           maskImage: 'radial-gradient(ellipse 80% 80% at 40% 30%, black, transparent 75%)',
+          WebkitMaskImage: 'radial-gradient(ellipse 80% 80% at 40% 30%, black, transparent 75%)',
         }}
+      />
+      {/* A lit top edge, so the floating panel catches light where a real
+          surface would rather than ending on a flat cut. */}
+      <div
+        aria-hidden
+        className="absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-white/30 to-transparent"
       />
 
       <div className="relative z-10 flex h-full flex-col justify-between p-10 xl:p-14">
@@ -398,16 +506,16 @@ function BrandPanel() {
             one console.
           </h2>
           <p className="mt-4 max-w-md text-[15px] leading-relaxed text-white/70">
-            Plan, build, ship, and observe without stitching together a dozen dashboards. Every
-            capability is powered by a best-in-class open-source project — self-hosted, tenant-aware,
-            and yours. No black boxes, no lock-in.
+            Plan, build, ship and observe without stitching together a dozen dashboards — every
+            capability powered by a best-in-class open-source project, running on your own
+            infrastructure.
           </p>
 
-          {/* Clean, professional highlights — no logo wall */}
-          <ul className="mt-8 space-y-3">
+          {/* Distinct proof points — see HIGHLIGHTS. */}
+          <ul className="mt-8 space-y-3.5">
             {HIGHLIGHTS.map((h) => (
               <li key={h} className="flex items-start gap-3 text-[14.5px] leading-relaxed text-white/75">
-                <span className="mt-0.5 flex-none text-white/50">
+                <span className="mt-0.5 flex-none rounded-full bg-white/10 p-1 text-white/70 ring-1 ring-inset ring-white/15">
                   <IconCheck />
                 </span>
                 <span>{h}</span>

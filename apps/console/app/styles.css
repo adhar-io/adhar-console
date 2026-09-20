@@ -443,6 +443,35 @@ a {
   animation: adhar-rise-in 240ms var(--ease-smooth, cubic-bezier(0.32, 0.72, 0, 1)) both;
 }
 
+/*
+ * Sign-in aurora — the slow light drift behind the login hero.
+ *
+ * Deliberately long-period and low-amplitude: it should read as ambient light
+ * moving across a surface, not as an animation demanding attention. The two
+ * classes run at different speeds and opposite directions so the overlapping
+ * fields never fall into a visible common rhythm.
+ *
+ * `animate-pulse` used to do this job and was wrong for it — a 2s ease-in-out
+ * opacity throb on a 24rem orb reads as a loading state, not as atmosphere.
+ */
+@keyframes adhar-aurora {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(7%, -5%, 0) scale(1.14);
+  }
+}
+.adhar-aurora {
+  animation: adhar-aurora 26s var(--ease-smooth, cubic-bezier(0.32, 0.72, 0, 1)) infinite;
+  will-change: transform;
+}
+.adhar-aurora-slow {
+  animation: adhar-aurora 39s var(--ease-smooth, cubic-bezier(0.32, 0.72, 0, 1)) infinite reverse;
+  will-change: transform;
+}
+
 /* Honour the user's reduced-motion preference everywhere these run. */
 @media (prefers-reduced-motion: reduce) {
   .fade-in,
@@ -451,7 +480,9 @@ a {
   .pulse-ring,
   .dag-edge-flow,
   .dag-node-shimmer,
-  .dag-node-active {
+  .dag-node-active,
+  .adhar-aurora,
+  .adhar-aurora-slow {
     animation: none !important;
   }
   .dag-edge {

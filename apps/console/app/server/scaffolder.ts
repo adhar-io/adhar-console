@@ -8,7 +8,7 @@ import type { GoldenPathFamily } from './golden-paths.ts'
 import { parseYaml } from './yaml-lite.ts'
 import { templatesLocation } from './templates.ts'
 import { computeValues, renderContent, renderPath, skeletonDir } from './template-render.ts'
-import { toolPublicUrl, toPublicToolUrl } from './domain.ts'
+import { platformDomain, toolPublicUrl, toPublicToolUrl } from './domain.ts'
 
 /**
  * Component scaffolder — the real GitOps engine behind Catalog → Create.
@@ -357,6 +357,25 @@ async function scaffold(
       // Pin repo identity to the repo we actually created (not the picker guess).
       values.gitOwner = org
       values.repoName = name
+      // Pin the public hostname to THIS platform's domain.
+      //
+      // The templates carry `${{ parameters.name }}.adhar.localtest.me` as their
+      // hostname, which is the local-development domain. On any real install that
+      // produced an HTTPRoute for a hostname the cluster does not serve, so a
+      // freshly scaffolded service came with a URL that could never resolve —
+      // reported as "wrong url for newly created service".
+      //
+      // A template cannot know the domain and should not try: the scaffolder is
+      // the only party that does, which is the same reason gitOwner/repoName are
+      // pinned here rather than trusted from the picker. The port is stripped
+      // because a Gateway API hostname must not carry one (a laptop install
+      // publishes on :8443 and the route would never match).
+      const domain = platformDomain()
+      if (domain?.host) {
+        const bare = domain.host.replace(/:\d+$/, '')
+        values.platformBaseDomain = bare
+        values.hostname = `${name}.${bare}`
+      }
 
       let committed = 0
       let failed = 0

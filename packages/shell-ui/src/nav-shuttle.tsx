@@ -5,6 +5,11 @@ import { cn } from '@adhar-console/utils'
  * The sidebar's active-row indicator — one rail that SLIDES between rows
  * instead of a mark that blinks out in one place and in at another.
  *
+ * It tracks TOP-LEVEL rows only (see `data-nav-active` in nav-item.tsx). Sub
+ * items have their own smaller rail, and when a sub item is the current route
+ * this one parks on its parent, so the column shows both "which section" and
+ * "which page" without two full-height marks competing.
+ *
  * Why a single moving element rather than a border on each row: continuous
  * motion between the old and new position is what tells the eye the two rows
  * are the same control in two states. Per-row borders give no such signal —

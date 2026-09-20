@@ -264,7 +264,27 @@ export function Composer({
             <span>AI is not configured — search & navigate still work</span>
           )}
         </span>
-        <span className="hidden sm:inline"><kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">⇧⏎</kbd> newline</span>
+        {/*
+          The rail shortcuts are listed here because on the /ai page they are
+          the ONLY way to open the conversation list and the inspector — that
+          page carries no chrome at all, by design. In the overlay they are
+          redundant with the header buttons, which is harmless; a shortcut
+          worth knowing is worth showing in both.
+        */}
+        <span className="hidden items-center gap-2.5 sm:inline-flex">
+          <span>
+            <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">⌘[</kbd>{' '}
+            conversations
+          </span>
+          <span>
+            <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">⌘]</kbd>{' '}
+            inspector
+          </span>
+          <span>
+            <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">⇧⏎</kbd>{' '}
+            newline
+          </span>
+        </span>
       </div>
       </div>
     </div>

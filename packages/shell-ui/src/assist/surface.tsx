@@ -320,14 +320,15 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
         has to say what it is and offer a way out, so it keeps the full
         identity block.
 
-        The PAGE has no header at all. Reaching /ai from the sidebar already
-        puts "Adhar AI" in the nav and in the breadcrumb, and the app's own
-        topbar sits directly above — a third bar restating it was a frame
-        around the conversation rather than part of it. The rail toggles it
-        used to hold move into the body as floating controls (see RailPeek):
-        they take no layout height, so the conversation starts at the top of
-        the page, but the rails stay reachable by mouse and not only by
-        ⌘[ / ⌘].
+        The PAGE has NO chrome — no bar, and no floating controls either.
+        Reaching /ai from the sidebar already puts "Adhar AI" in the nav and
+        in the breadcrumb, with the app's own topbar directly above, so
+        anything more was a frame around the conversation rather than part of
+        it. The whole frame is the conversation.
+
+        The rails are reached with ⌘[ and ⌘] there, and both are listed in the
+        composer's shortcut hint so the path is discoverable without a button
+        sitting on the transcript.
       */}
       {overlay ? (
       <header
@@ -391,39 +392,24 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
       >
         {asColumn('threads') ? <div className="min-h-0 overflow-hidden">{threadsRail}</div> : null}
 
-        {/*
-          The page's only chrome: two quiet toggles floating over the top
-          corners of the conversation. They replace the removed header bar —
-          same controls, no band, no height taken from the transcript.
-        */}
-        {!overlay ? (
-          <>
-            {!asColumn('threads') ? (
-              <div className="absolute left-2 top-2 z-20">
-                <RailPeek onClick={() => toggleRail('threads')} title="Conversations (⌘[)">
-                  <IconSidebar />
-                </RailPeek>
-              </div>
-            ) : null}
-            {!asColumn('inspector') ? (
-              <div className="absolute right-2 top-2 z-20">
-                <RailPeek onClick={() => toggleRail('inspector')} title="Inspector (⌘])">
-                  <IconPanelRight />
-                </RailPeek>
-              </div>
-            ) : null}
-          </>
-        ) : null}
-
         <section className="flex min-h-0 flex-col">
           <div
             ref={threadRef}
             onScroll={(e) => { const el = e.currentTarget; stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48 }}
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-5 sm:py-5 md:px-8"
+            className={cn(
+              'min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-5 sm:py-5 md:px-8',
+              // An empty conversation used to sit at the very top with the
+              // rest of the page a void down to the composer. `flex` + an
+              // `m-auto` child centres it in whatever space there is —
+              // `justify-center` would clip the top once the content grows
+              // taller than the viewport, `m-auto` does not.
+              'flex flex-col',
+            )}
           >
             {canvas && canvasBlocks.length ? (
               <CanvasBoard blocks={canvasBlocks} />
             ) : !hasThread ? (
+              <div className="m-auto w-full">
               <Welcome
                 configured={state.configured}
                 agent={agent}
@@ -434,6 +420,7 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
                 findings={state.operatorFindings}
                 runtime={runtime}
               />
+              </div>
             ) : (
               <Transcript
                 messages={state.thread.messages}
@@ -588,29 +575,6 @@ function ShortcutsMenu() {
         </div>
       ) : null}
     </div>
-  )
-}
-
-/**
- * A rail toggle for the header-less page variant.
- *
- * Deliberately low-contrast and small: it sits ON the conversation rather
- * than in a bar of its own, so it has to be findable without competing with
- * the content. It disappears once its rail is open — the rail's own close
- * control takes over, and leaving both visible put two "close this" affordances
- * side by side.
- */
-function RailPeek({ children, onClick, title }: { children: ReactNode; onClick(): void; title: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      aria-label={title}
-      className="flex h-8 w-8 items-center justify-center rounded-lg border border-edge-subtle bg-surface-raised/70 text-content-subtle shadow-sm backdrop-blur transition-colors hover:border-edge-default hover:bg-surface-raised hover:text-content"
-    >
-      {children}
-    </button>
   )
 }
 

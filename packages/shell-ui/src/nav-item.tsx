@@ -93,24 +93,29 @@ export function NavItem({
   return (
     <div>
       {/*
-        data-nav-active is how the shuttle (nav-shuttle.tsx) finds the current
-        row and sizes its rail: the attribute must sit on the ROW element, since
+        data-nav-active is how the shuttle (nav-shuttle.tsx) finds the row to
+        park its rail against: the attribute must sit on the ROW element, since
         that is the box the rail is measured against.
+
+        TOP-LEVEL ONLY. Sub-items carry their own indicator (ChildRail turns
+        brand-coloured when active), so a second full-height rail beside them
+        was two marks doing one job. When a sub-item is the current route the
+        rail stays on its PARENT — which is what keeps the top-level "you are
+        in Deliver" context visible while the child rail says which page.
       */}
       <div
-        data-nav-active={isActive ? 'true' : undefined}
+        data-nav-active={!isSub && (isActive || hasActiveDescendant) ? 'true' : undefined}
         className={cn(
           'group relative flex items-center gap-2.5 rounded-lg text-sm',
           'transition-[background-color,color,box-shadow,transform] duration-200 ease-out',
           'active:scale-[0.985] active:duration-75 motion-reduce:transform-none motion-reduce:transition-none',
-          // A floor on the row height, not a height derived from the content.
-          // Most top-level rows carry a description and measure 45.3px; the
-          // few without one (Overview, Workspace, Platform status) collapsed
-          // to 30px, so the column's rhythm broke wherever one appeared — and
-          // the sliding rail, which takes its height from the row, shrank to
-          // match. Every row now occupies the same box whether or not it has
-          // a second line.
-          isSub ? 'py-1 pl-3 pr-2' : 'min-h-11.5 py-1.5 pl-2.5 pr-2',
+          // Rows size to their content. A floor was tried here to even out the
+          // few rows with no description (Overview, Workspace, Platform
+          // status) and it padded them into the same box as two-line rows,
+          // which read as loose rather than regular. The rail measures
+          // whichever row is active, so it tracks either height correctly
+          // without the rows having to match.
+          isSub ? 'py-1 pl-3 pr-2' : 'py-1.5 pl-2.5 pr-2',
           // A tinted row rather than a solid brand fill. The fill competed with
           // the sliding rail for the same job — two strong marks saying "you are
           // here" — and at 14 rows it made the column read as a stack of

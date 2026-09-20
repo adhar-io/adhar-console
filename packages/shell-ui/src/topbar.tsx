@@ -114,14 +114,19 @@ const IconButton = ({
   onClick,
   children,
   label,
-  indicator,
+  count,
   active,
   buttonRef,
 }: {
   onClick(): void
   children: React.ReactNode
   label: string
-  indicator?: boolean
+  /**
+   * Unread count shown on the button. Notifications are no longer toasted on
+   * arrival, so this badge is how a new one announces itself — a bare dot could
+   * not say whether one thing happened or twenty. 0 or undefined hides it.
+   */
+  count?: number
   active?: boolean
   buttonRef?: RefObject<HTMLButtonElement | null>
 }) => (
@@ -140,8 +145,20 @@ const IconButton = ({
     )}
   >
     {children}
-    {indicator ? (
-      <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-surface-raised" />
+    {count && count > 0 ? (
+      // Capped at 99+ so a large backlog cannot stretch the button and push the
+      // rest of the toolbar around. aria-label carries the exact number for
+      // screen readers, which the visual cap would otherwise hide.
+      <span
+        aria-label={`${count} unread`}
+        className={cn(
+          'absolute -right-0.5 -top-0.5 flex items-center justify-center rounded-full bg-rose-500 px-1',
+          'text-[10px] font-semibold leading-none text-white ring-2 ring-surface-raised',
+          count > 9 ? 'h-4 min-w-[1.125rem]' : 'h-4 w-4',
+        )}
+      >
+        {count > 99 ? '99+' : count}
+      </span>
     ) : null}
   </button>
 )
@@ -199,7 +216,7 @@ function NotificationsMenu({ seed }: { seed: Notification[] }) {
       <IconButton
         onClick={() => setOpen((o) => !o)}
         label={`Notifications${unreadCount ? ` — ${unreadCount} unread` : ''}`}
-        indicator={unreadCount > 0}
+        count={unreadCount}
         active={open}
         buttonRef={ref}
       >

@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useToast } from './toast.tsx'
 import { useLiveInvalidate, usePollingInterval } from './live.ts'
 
 /**
@@ -138,24 +137,6 @@ function postJson(body: unknown): Promise<Response> {
   })
 }
 
-/* ─────────── new-arrival toasts (module-level so it fires once) ─────────── */
-
-let lastSeenAt: string | null = null
-let seenIds = new Set<string>()
-
-function pickNewArrivals(items: Notification[]): Notification[] {
-  if (lastSeenAt === null) {
-    // First load: baseline, don't toast history.
-    lastSeenAt = items[0]?.at ?? new Date(0).toISOString()
-    seenIds = new Set(items.map((n) => n.id))
-    return []
-  }
-  const fresh = items.filter((n) => !seenIds.has(n.id) && !n.read && n.at > lastSeenAt!)
-  for (const n of items) seenIds.add(n.id)
-  if (items[0]?.at && items[0].at > lastSeenAt) lastSeenAt = items[0].at
-  return fresh
-}
-
 /* ─────────── the hooks ─────────── */
 
 export interface NotificationsApi {
@@ -184,7 +165,6 @@ export interface NotificationsApi {
  */
 export function useNotifications(seed: Notification[] = []): NotificationsApi {
   const qc = useQueryClient()
-  const toast = useToast()
   const prod = isProdBuild()
   const storedRef = useRef<StoredState>(loadStored())
 
@@ -213,19 +193,12 @@ export function useNotifications(seed: Notification[] = []): NotificationsApi {
   const unreadCount = live ? feed.data!.unread : items.filter((n) => !n.read).length
   const total = live ? feed.data!.total : items.length
 
-  // Toast newly arrived high-signal items (once per browser).
-  useEffect(() => {
-    if (!live) return
-    const fresh = pickNewArrivals(feed.data!.items)
-    for (const n of fresh.slice(0, 3)) {
-      const fn = n.kind === 'error' ? toast.error : n.kind === 'warning' ? toast.warning : n.kind === 'insight' ? toast.info : n.kind === 'success' ? toast.success : toast.info
-      fn(n.title, {
-        description: n.description,
-        action: n.href ? { label: 'View', onClick: () => globalThis.location.assign(n.href!) } : undefined,
-        duration: n.kind === 'error' ? 9000 : 6000,
-      })
-    }
-  }, [feed.data, live, toast])
+  // Arriving notifications are NOT toasted. They land in the feed this hook
+  // already exposes, which the bell badge counts and the notification centre
+  // lists, so nothing has to be appended by hand: the server pushes
+  // `invalidate` over /api/live, the feed refetches, and both the count and the
+  // list update from the same query. Toasts remain for things the user just did
+  // (a save, a copy), where the feedback belongs next to the action.
 
   const setLocal = (id: string, patch: { read?: boolean; dismissed?: boolean }) => {
     const st = storedRef.current

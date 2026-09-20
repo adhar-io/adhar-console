@@ -2479,6 +2479,11 @@
           "npm:vite@^7.1.12"
         ]
       },
+      "packages/api-clients": {
+        "dependencies": [
+          "npm:zod@^3.23.0"
+        ]
+      },
       "packages/auth": {
         "packageJson": {
           "dependencies": [

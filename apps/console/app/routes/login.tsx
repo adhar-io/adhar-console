@@ -167,11 +167,10 @@ function LoginPage() {
       {/*
         One ambient field behind the whole page, not a per-column decoration.
         The page background is opaque, so the global body texture never showed
-        through here and the sign-in side was a flat void. A drifting
-        brand/accent wash plus a hairline mesh (masked out under the card, so
-        it never fights the form) give both halves the same surface to sit on
-        — which is also what lets the hero read as a panel floating on the page
-        rather than one half of a hard vertical split.
+        through here and the sign-in side was a flat void holding a small card.
+        A drifting brand/accent wash plus a hairline mesh (masked out under the
+        card, so it never fights the form) give the form side a surface of its
+        own, and carry the hero's colour across the seam.
       */}
       <div aria-hidden className="pointer-events-none absolute inset-0">
         <div
@@ -186,6 +185,21 @@ function LoginPage() {
           style={{
             background:
               'radial-gradient(circle, color-mix(in oklch, var(--color-accent-500) 20%, transparent) 0%, transparent 70%)',
+          }}
+        />
+        {/*
+          Light spilling out of the hero, across the join. The hero is flush
+          against the form side, so without this the two halves meet on a hard
+          vertical cut down the middle of the screen — the most obviously
+          unfinished thing on the page. A brand glow fading over ~14rem makes
+          the boundary a falloff rather than an edge, and it is the same colour
+          the hero's own right edge is lit with, so the two agree.
+        */}
+        <div
+          className="absolute inset-y-0 left-1/2 hidden w-56 lg:block"
+          style={{
+            background:
+              'linear-gradient(90deg, color-mix(in oklch, var(--color-brand-500) 26%, transparent), transparent 85%)',
           }}
         />
         {/*
@@ -449,7 +463,12 @@ function LoginPage() {
 function BrandPanel() {
   return (
     <aside
-      className="relative hidden w-[46%] max-w-3xl shrink-0 overflow-hidden shadow-2xl shadow-brand-950/20 ring-1 ring-white/10 lg:m-3 lg:flex lg:w-[calc(46%-0.75rem)] lg:flex-col lg:rounded-[28px] dark:shadow-black/40"
+      // Flush, full-bleed half of the screen — no margin, no radius. The seam
+      // that treatment leaves is handled with light rather than with a gap:
+      // an inner edge highlight here, and a brand glow bleeding rightwards
+      // from the join (see the ambient layer), so the two halves read as one
+      // lit surface meeting another instead of two panels butted together.
+      className="relative hidden w-1/2 shrink-0 overflow-hidden lg:flex lg:flex-col"
       style={{
         backgroundImage:
           'radial-gradient(ellipse at 20% -5%, color-mix(in oklch, var(--color-brand-500) 55%, transparent), transparent 55%), linear-gradient(150deg, var(--color-brand-950), var(--color-brand-900) 55%, var(--color-accent-950, var(--color-brand-950)))',
@@ -483,11 +502,28 @@ function BrandPanel() {
           WebkitMaskImage: 'radial-gradient(ellipse 80% 80% at 40% 30%, black, transparent 75%)',
         }}
       />
-      {/* A lit top edge, so the floating panel catches light where a real
-          surface would rather than ending on a flat cut. */}
+      {/*
+        Depth at the edges. A flat rectangle of gradient reads as a swatch;
+        these give it the falloff a lit surface has — darker into the bottom
+        corners, and a hairline of light down the right edge where the panel
+        meets the page, so the join is where the light is brightest rather
+        than where the colour stops.
+      */}
       <div
         aria-hidden
-        className="absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-white/30 to-transparent"
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(120% 85% at 30% 25%, transparent 45%, color-mix(in oklch, var(--color-brand-950) 70%, transparent) 100%)',
+        }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-y-0 right-0 w-24 bg-linear-to-r from-transparent to-white/6"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-y-0 right-0 w-px bg-linear-to-b from-transparent via-white/35 to-transparent"
       />
 
       <div className="relative z-10 flex h-full flex-col justify-between p-10 xl:p-14">
@@ -499,23 +535,29 @@ function BrandPanel() {
           </span>
         </div>
 
+        {/* The panel is now a full half of the screen, so the measure is
+            capped rather than left to fill it — a 900px line of body copy is
+            unreadable however much room there is for it. */}
         <div className="max-w-xl">
-          <h2 className="text-[2.1rem] font-semibold leading-[1.12] tracking-tight text-white xl:text-[2.6rem]">
+          <h2 className="text-[2.35rem] font-semibold leading-[1.08] tracking-[-0.02em] text-white xl:text-[3rem]">
             Your entire platform,
             <br />
             one console.
           </h2>
-          <p className="mt-4 max-w-md text-[15px] leading-relaxed text-white/70">
+          <p className="mt-5 max-w-md text-[15px] leading-relaxed text-white/70">
             Plan, build, ship and observe without stitching together a dozen dashboards — every
             capability powered by a best-in-class open-source project, running on your own
             infrastructure.
           </p>
 
           {/* Distinct proof points — see HIGHLIGHTS. */}
-          <ul className="mt-8 space-y-3.5">
+          <ul className="mt-9 space-y-3.5">
             {HIGHLIGHTS.map((h) => (
-              <li key={h} className="flex items-start gap-3 text-[14.5px] leading-relaxed text-white/75">
-                <span className="mt-0.5 flex-none rounded-full bg-white/10 p-1 text-white/70 ring-1 ring-inset ring-white/15">
+              <li
+                key={h}
+                className="flex items-start gap-3 text-[14.5px] leading-relaxed text-white/80"
+              >
+                <span className="mt-px flex-none rounded-full bg-white/10 p-1 text-accent-500 ring-1 ring-inset ring-white/15">
                   <IconCheck />
                 </span>
                 <span>{h}</span>

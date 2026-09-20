@@ -99,10 +99,18 @@ export function NavShuttle({
     <span
       aria-hidden
       className={cn(
-        'pointer-events-none absolute z-10 w-[3px] rounded-full',
-        'bg-gradient-to-b from-brand-400 to-brand-600',
-        'shadow-[0_0_10px_-1px_var(--color-brand-500)]',
-        collapsed ? 'left-0.5' : 'left-0',
+        // `top-0` is load-bearing. Without an explicit `top`, an absolutely
+        // positioned box stays at its STATIC position — where it would have
+        // sat in flow — which here is below the container's `pt-2`. The
+        // translateY from `measure()` is relative to the container's padding
+        // box, so the two stacked and the rail rendered 8px below the row it
+        // was marking, at every row, in both sidebar states.
+        'pointer-events-none absolute top-0 z-10 w-[3px] rounded-full',
+        'bg-linear-to-b from-brand-400 to-brand-600',
+        // Inset rather than flush at x=0: the sidebar is the leftmost element
+        // on the page, so `left-0` put the rail hard against the window edge
+        // where it read as clipped chrome rather than as a marker.
+        'left-0.5',
         // A short overshoot-free ease: the rail should arrive before the page
         // content does, or the motion reads as lag rather than polish.
         settled.current
@@ -114,6 +122,10 @@ export function NavShuttle({
         transform: `translateY(${box?.top ?? 0}px)`,
         height: box?.height ?? 0,
         opacity: box ? 1 : 0,
+        // Set here, not as `shadow-[...]`: Tailwind's arbitrary shadow sets
+        // the geometry but leaves `--tw-shadow-color` unset, so the glow
+        // computed to a fully transparent shadow and never painted.
+        boxShadow: '0 0 10px -1px var(--color-brand-500)',
       }}
     />
   )

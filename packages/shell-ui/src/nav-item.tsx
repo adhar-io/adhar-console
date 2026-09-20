@@ -103,7 +103,14 @@ export function NavItem({
           'group relative flex items-center gap-2.5 rounded-lg text-sm',
           'transition-[background-color,color,box-shadow,transform] duration-200 ease-out',
           'active:scale-[0.985] active:duration-75 motion-reduce:transform-none motion-reduce:transition-none',
-          isSub ? 'py-1 pl-3 pr-2' : 'py-1.5 pl-2.5 pr-2',
+          // A floor on the row height, not a height derived from the content.
+          // Most top-level rows carry a description and measure 45.3px; the
+          // few without one (Overview, Workspace, Platform status) collapsed
+          // to 30px, so the column's rhythm broke wherever one appeared — and
+          // the sliding rail, which takes its height from the row, shrank to
+          // match. Every row now occupies the same box whether or not it has
+          // a second line.
+          isSub ? 'py-1 pl-3 pr-2' : 'min-h-11.5 py-1.5 pl-2.5 pr-2',
           // A tinted row rather than a solid brand fill. The fill competed with
           // the sliding rail for the same job — two strong marks saying "you are
           // here" — and at 14 rows it made the column read as a stack of

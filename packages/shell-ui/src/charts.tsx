@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode } from 'react'
 import { cn } from '@adhar-console/utils'
+import { chartMax, chartPeak } from './chart-scale.ts'
 
 /**
  * Zero-dep SVG charts used throughout the console.
@@ -48,7 +49,7 @@ export function Sparkline({
       </svg>
     )
   }
-  const max = Math.max(1, ...data.map((d) => d.v))
+  const max = chartMax(data.map((d) => d.v))
   const step = W / (data.length - 1)
   const ys = data.map((d) => H - (d.v / max) * (H - 2) - 1)
   const path = ys.map((y, i) => `${i === 0 ? 'M' : 'L'}${(i * step).toFixed(2)},${y.toFixed(2)}`).join(' ')
@@ -97,7 +98,11 @@ export function AreaChart({
       </div>
     )
   }
-  const max = Math.max(1, ...data.map((d) => d.v))
+  const values = data.map((d) => d.v)
+  // `max` scales the drawing and is never 0; `peak` is what was measured and
+  // is what the axis reports — a flat-zero series must not claim a peak of 1.
+  const max = chartMax(values)
+  const peak = chartPeak(values)
   const step = W / (data.length - 1)
   const ys = data.map((d) => H - (d.v / max) * (H - 6) - 3)
   const path = ys.map((y, i) => `${i === 0 ? 'M' : 'L'}${(i * step).toFixed(2)},${y.toFixed(2)}`).join(' ')
@@ -127,9 +132,9 @@ export function AreaChart({
         <div className="mt-1 flex items-baseline justify-between text-[10px] text-content-subtle">
           <span>{formatY(0)}</span>
           <span className="tabular-nums">
-            {data.length} pts · peak {formatY(max)}
+            {data.length} pts · peak {formatY(peak)}
           </span>
-          <span>{formatY(max)}</span>
+          <span>{formatY(peak)}</span>
         </div>
       ) : null}
     </div>

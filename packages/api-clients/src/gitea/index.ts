@@ -300,6 +300,17 @@ export interface GiteaClient {
     path: string,
     body: { content: string; message: string; sha?: string },
   ): Promise<{ commit: { sha: string } }>
+  /**
+   * Delete a file. `sha` is the blob sha of the version being removed — Gitea
+   * refuses without it, which is what stops a delete racing an edit.
+   */
+  deleteFile(
+    org: string,
+    repo: string,
+    ref: string,
+    path: string,
+    body: { message: string; sha: string },
+  ): Promise<void>
 
   /* ── repository management ── */
   createRepo(org: string, body: CreateRepoBody): Promise<Repo>
@@ -442,6 +453,12 @@ function build(http: HttpClient): GiteaClient {
         `/api/v1/repos/${org}/${repo}/contents/${path}`,
         { ...body, branch: ref },
       ),
+    deleteFile: async (org, repo, ref, path, body) => {
+      await http.delete(`/api/v1/repos/${org}/${repo}/contents/${path}`, {
+        body: { ...body, branch: ref },
+        response: 'raw',
+      })
+    },
 
     createRepo: (org, body) => http.post<Repo>(`/api/v1/orgs/${org}/repos`, body),
     updateRepo: (org, repo, body) => http.patch<Repo>(`/api/v1/repos/${org}/${repo}`, body),
@@ -975,6 +992,9 @@ export const GiteaClient = defineClient<GiteaClient>(build, () => ({
   saveFile: async (_, _repo, _ref, path, body) => {
     STUB_FILES[path] = body.content
     return { commit: { sha: 'stub-' + Date.now().toString(36) } }
+  },
+  deleteFile: async (_, _repo, _ref, path) => {
+    delete STUB_FILES[path]
   },
 
   createRepo: async (org, body) => {

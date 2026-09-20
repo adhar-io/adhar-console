@@ -279,7 +279,16 @@ export class HttpClient {
   patch<T>(path: string, body?: unknown, opts?: Omit<RequestOptions, 'body'>) {
     return this.request<T>('PATCH', path, { ...opts, body })
   }
-  delete<T>(path: string, opts?: Omit<RequestOptions, 'body'>) {
+  /**
+   * DELETE, optionally with a body.
+   *
+   * A body on DELETE is unusual but legal, and some APIs require one: Gitea
+   * will not delete a file without `{message, sha, branch}`, because the sha
+   * is what stops a delete racing someone else's edit. This used to exclude
+   * `body` from its options, which made those endpoints unreachable through
+   * this client.
+   */
+  delete<T>(path: string, opts?: RequestOptions) {
     return this.request<T>('DELETE', path, opts)
   }
 }

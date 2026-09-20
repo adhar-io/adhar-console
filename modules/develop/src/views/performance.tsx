@@ -25,6 +25,10 @@ import {
 } from '@adhar-console/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar-console/utils'
 import { CrdMissing } from '../components/crd-missing.tsx'
+import { PerfSuite } from './perf-suite.tsx'
+import { PerfReport } from './perf-report.tsx'
+import { DEFAULT_CONFIG, LABEL_COMMIT, LABEL_TEST } from '../data/perf-format.ts'
+import { usePerfTest, useSuiteRepo } from '../data/perf-suite.ts'
 import {
   createTestRun,
   deleteTestRun,
@@ -65,11 +69,55 @@ import {
  * it out of the logs. When there is no summary yet the page says so rather
  * than rendering empty tables that look like a test with no results.
  */
+type PerfTab = 'tests' | 'runs'
+
 export function Performance() {
+  /*
+   * Two halves of one job. "Tests" is the authoring side — scripts and their
+   * configuration, in git. "Runs" is what actually happened on the cluster.
+   * They are tabs rather than separate pages because the loop between them is
+   * tight: edit, commit, run, read the report, edit again.
+   */
+  const [tab, setTab] = useState<PerfTab>('tests')
   const runs = useTestRuns()
   const [selected, setSelected] = useState<{ namespace: string; name: string } | null>(null)
   const [creating, setCreating] = useState(false)
   const canCreate = useCan('develop')
+
+  const tabs = (
+    <div className="flex gap-1">
+      {([['tests', 'Tests'], ['runs', 'Runs']] as Array<[PerfTab, string]>).map(([id, label]) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => setTab(id)}
+          className={cn(
+            'rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-colors',
+            tab === id ? 'bg-brand-600 text-white' : 'text-content-muted hover:bg-surface-sunken hover:text-content',
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+
+  if (tab === 'tests') {
+    return (
+      <div className="space-y-4">
+        {tabs}
+        <PerfSuite
+          onOpenRun={(namespace, name) => {
+            setSelected({ namespace, name })
+            setTab('runs')
+          }}
+        />
+        {selected ? (
+          <RunDrawer namespace={selected.namespace} name={selected.name} onClose={() => setSelected(null)} />
+        ) : null}
+      </div>
+    )
+  }
 
   if (runs.isError && isCrdMissing(runs.error)) {
     return (
@@ -89,6 +137,7 @@ export function Performance() {
 
   return (
     <div className="space-y-4">
+      {tabs}
       <Summary runs={items} loading={runs.isLoading} />
 
       <Card>
@@ -297,7 +346,7 @@ function RunDrawer({
 }) {
   const run = useTestRun(namespace, name)
   const pods = useTestRunPods(run.data)
-  const [tab, setTab] = useState<'summary' | 'logs' | 'spec'>('summary')
+  const [tab, setTab] = useState<'summary' | 'report' | 'logs' | 'spec'>('summary')
   const [pod, setPod] = useState<string | null>(null)
   useOverlayDismiss(true, onClose)
 
@@ -319,7 +368,7 @@ function RunDrawer({
             and tabs are squeezed below their content height — the subtitle
             ends up drawn on top of the tab row. */}
         <div className="flex shrink-0 gap-1 border-b border-edge-default px-4">
-          {(['summary', 'logs', 'spec'] as const).map((t) => (
+          {(['summary', 'report', 'logs', 'spec'] as const).map((t) => (
             <button
               key={t}
               type="button"
@@ -345,6 +394,8 @@ function RunDrawer({
             <EmptyState title="Test run not found" description="It may have been deleted while this drawer was open." />
           ) : tab === 'summary' ? (
             <SummaryTab run={run.data} pods={podList} podName={pod} />
+          ) : tab === 'report' ? (
+            <ReportTab run={run.data} podName={pod} />
           ) : tab === 'logs' ? (
             <LogsTab run={run.data} pods={podList} podName={pod} onPod={setPod} />
           ) : (
@@ -714,6 +765,61 @@ function PodStrip({ pods }: { pods: PodRef[] }) {
         </span>
       ))}
     </div>
+  )
+}
+
+/* ─────────────────────────── report tab ─────────────────────────── */
+
+/**
+ * Bridge a TestRun to the report.
+ *
+ * The run knows three things the report needs and nothing else does: the
+ * window it occupied, which pods generated the load, and — through the labels
+ * the console stamped at launch — which committed test it came from. The
+ * test's own configuration supplies the target selector, so a run started
+ * from the workbench charts the system under test, and one started by hand
+ * charts what it can and says what it cannot.
+ */
+function ReportTab({ run, podName }: { run: TestRun; podName: string | null }) {
+  const testName = run.metadata.labels?.[LABEL_TEST]
+  const commit = run.metadata.labels?.[LABEL_COMMIT]
+  const suite = useSuiteRepo()
+  const test = usePerfTest(suite.data, testName ?? null)
+
+  // One-shot read of the runner's stdout for the end-of-test summary.
+  const stream = useLogStream({
+    namespace: run.metadata.namespace,
+    sources: podName ? [{ pod: podName, label: podName }] : [],
+    follow: false,
+    tailLines: 4000,
+    enabled: Boolean(podName),
+  })
+  const summary = useMemo(() => {
+    const text = stream.lines.map((l) => l.text).join('\n')
+    const parsed = parseK6Summary(text)
+    return parsed.complete ? parsed : null
+  }, [stream.lines])
+
+  const window = useMemo(() => {
+    const startMs = run.metadata.creationTimestamp ? new Date(run.metadata.creationTimestamp).getTime() : NaN
+    if (!Number.isFinite(startMs)) return null
+    const finished = finishedAt(run)
+    // A run still going is charted up to now, so the picture fills in live.
+    const endMs = finished ? new Date(finished).getTime() : Date.now()
+    return { startMs, endMs: Math.max(endMs, startMs + 60_000) }
+  }, [run])
+
+  return (
+    <PerfReport
+      testName={testName ?? run.metadata.name}
+      config={test.data?.config ?? DEFAULT_CONFIG}
+      summary={summary}
+      window={window}
+      // The operator names every pod for a TestRun after the run itself.
+      runnerSelector={`${run.metadata.name}.*`}
+      runnerNamespace={run.metadata.namespace ?? 'default'}
+      commit={commit}
+    />
   )
 }
 

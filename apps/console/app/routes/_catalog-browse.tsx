@@ -3563,93 +3563,27 @@ function EntityDrawer({
                       </div>
                     ) : null}
 
-                    <Card>
-                      <CardHeader>
-                        <h3 className="text-sm font-semibold text-content">About</h3>
-                      </CardHeader>
-                      <CardBody className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <Field
-                          label="Owner"
-                          value={
-                            ownerEnt ? (
-                              <RefChip ent={ownerEnt} onPick={onPick} />
-                            ) : (
-                              entity.spec.owner ?? '—'
-                            )
-                          }
-                        />
-                        <Field
-                          label="System"
-                          value={systemEnt ? <RefChip ent={systemEnt} onPick={onPick} /> : '—'}
-                        />
-                        <Field
-                          label="Domain"
-                          value={domainEnt ? <RefChip ent={domainEnt} onPick={onPick} /> : '—'}
-                        />
-                        <Field
-                          label="Type"
-                          value={
-                            entity.spec.type ? (
-                              <code className="text-xs text-content-muted">{entity.spec.type}</code>
-                            ) : (
-                              '—'
-                            )
-                          }
-                        />
-                        <Field
-                          label="Lifecycle"
-                          value={
-                            entity.spec.lifecycle ? (
-                              <StatusBadge kind={LIFECYCLE_TONE[entity.spec.lifecycle]}>
-                                {entity.spec.lifecycle}
-                              </StatusBadge>
-                            ) : (
-                              '—'
-                            )
-                          }
-                        />
-                        <Field label="Origin" value={ORIGIN_LABEL[entity.origin ?? 'seed']} />
-                        <Field
-                          label="Tech stack"
-                          value={
-                            stack.length ? <TechBadges stack={stack} max={8} /> : (
-                              <span className="text-content-subtle">—</span>
-                            )
-                          }
-                        />
-                        <Field
-                          label="Tags"
-                          value={
-                            generics.length === 0 ? (
-                              <span className="text-content-subtle">—</span>
-                            ) : (
-                              <div className="flex flex-wrap gap-1">
-                                {generics.map((t) => (
-                                  <span
-                                    key={t}
-                                    className="rounded bg-surface-sunken px-1.5 py-0.5 text-[10px] text-content-muted"
-                                  >
-                                    {t}
-                                  </span>
-                                ))}
-                              </div>
-                            )
-                          }
-                        />
-                        <Field
-                          label="Created"
-                          value={
-                            <code className="text-xs">{formatDate(entity.metadata.createdAt)}</code>
-                          }
-                        />
-                        <Field
-                          label="Updated"
-                          value={
-                            <code className="text-xs">{formatDate(entity.metadata.updatedAt)}</code>
-                          }
-                        />
-                      </CardBody>
-                    </Card>
+                    {/*
+                      About shows what is SET, and names what is not exactly
+                      once.
+
+                      It used to render a fixed eight-cell grid whether or not
+                      the values existed — on a typical seeded entity six of
+                      the eight read "—", so the panel was three-quarters
+                      placeholder and the two facts that did exist were buried
+                      among them. Missing metadata is still worth surfacing
+                      (it is what the scorecard grades), but as one quiet line
+                      that says what to fill in, not as six empty rows.
+                    */}
+                    <AboutCard
+                      entity={entity}
+                      ownerEnt={ownerEnt}
+                      systemEnt={systemEnt}
+                      domainEnt={domainEnt}
+                      stack={stack}
+                      generics={generics}
+                      onPick={onPick}
+                    />
 
                     <SignalsCard signals={signals} score={score} />
                     <ActivityCard events={activity} />
@@ -3813,6 +3747,113 @@ function RefChip({ ent, onPick }: { ent: Entity; onPick(e: Entity): void }) {
       <span className="font-medium text-content">{ent.metadata.title ?? ent.metadata.name}</span>
       <span className="text-content-subtle">· {ent.kind.toLowerCase()}</span>
     </button>
+  )
+}
+
+/**
+ * The entity's facts panel.
+ *
+ * Every row is built as `{ label, node | null }` and only the non-null ones
+ * reach the grid; the rest collapse into a single "Not set" line. That line is
+ * deliberately kept — unset owner/lifecycle/docs is exactly what the scorecard
+ * marks an entity down for, so naming the gaps is useful. Rendering each gap
+ * as its own empty row is not.
+ *
+ * Created/Updated move to a footer rule: they are provenance, not identity,
+ * and they were taking two of the eight prime cells.
+ */
+function AboutCard({
+  entity,
+  ownerEnt,
+  systemEnt,
+  domainEnt,
+  stack,
+  generics,
+  onPick,
+}: {
+  entity: Entity
+  ownerEnt?: Entity
+  systemEnt?: Entity
+  domainEnt?: Entity
+  stack: string[]
+  generics: string[]
+  onPick(e: Entity): void
+}) {
+  const rows: Array<{ label: string; node: React.ReactNode | null }> = [
+    {
+      label: 'Owner',
+      node: ownerEnt
+        ? <RefChip ent={ownerEnt} onPick={onPick} />
+        : entity.spec.owner
+        ? <span className="text-content">{entity.spec.owner}</span>
+        : null,
+    },
+    { label: 'System', node: systemEnt ? <RefChip ent={systemEnt} onPick={onPick} /> : null },
+    { label: 'Domain', node: domainEnt ? <RefChip ent={domainEnt} onPick={onPick} /> : null },
+    {
+      label: 'Type',
+      node: entity.spec.type
+        ? <code className="text-xs text-content-muted">{entity.spec.type}</code>
+        : null,
+    },
+    {
+      label: 'Lifecycle',
+      node: entity.spec.lifecycle
+        ? (
+          <StatusBadge kind={LIFECYCLE_TONE[entity.spec.lifecycle]}>
+            {entity.spec.lifecycle}
+          </StatusBadge>
+        )
+        : null,
+    },
+    { label: 'Tech stack', node: stack.length ? <TechBadges stack={stack} max={8} /> : null },
+    {
+      label: 'Tags',
+      node: generics.length
+        ? (
+          <div className="flex flex-wrap gap-1">
+            {generics.map((t) => (
+              <span
+                key={t}
+                className="rounded bg-surface-sunken px-1.5 py-0.5 text-[10px] text-content-muted"
+              >
+                {t}
+              </span>
+            ))}
+          </div>
+        )
+        : null,
+    },
+    { label: 'Origin', node: <span className="text-content">{ORIGIN_LABEL[entity.origin ?? 'seed']}</span> },
+  ]
+
+  const set = rows.filter((r) => r.node !== null)
+  const unset = rows.filter((r) => r.node === null).map((r) => r.label)
+
+  return (
+    <Card>
+      <CardHeader>
+        <h3 className="text-sm font-semibold text-content">About</h3>
+      </CardHeader>
+      <CardBody className="space-y-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {set.map((r) => <Field key={r.label} label={r.label} value={r.node} />)}
+        </div>
+
+        {unset.length ? (
+          <p className="text-[11.5px] leading-relaxed text-content-subtle">
+            <span className="font-medium text-content-muted">Not set:</span>{' '}
+            {unset.join(', ').toLowerCase()} — add these to the entity's YAML to lift its
+            scorecard.
+          </p>
+        ) : null}
+
+        <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-edge-subtle pt-3 text-[11px] text-content-subtle">
+          <span>Created {formatDate(entity.metadata.createdAt)}</span>
+          <span>Updated {formatDate(entity.metadata.updatedAt)}</span>
+        </div>
+      </CardBody>
+    </Card>
   )
 }
 

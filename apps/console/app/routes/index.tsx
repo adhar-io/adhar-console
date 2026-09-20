@@ -15,7 +15,15 @@ import {
 import { cn, formatRelative } from '@adhar-console/utils'
 import { PENDING_USER, useOptionalSession } from '@adhar-console/auth'
 import { summarizeCluster, useClusterSignals } from '~/data/cluster-signals.ts'
-import { useDoraApps } from '~/data/platform-signals.ts'
+import { appWorkloads, useDoraApps } from '~/data/platform-signals.ts'
+import { useDoraLeadTime, useDoraOps } from '~/data/dora-ops.ts'
+import {
+  changeFailureRate,
+  type DeployEvent,
+  formatDuration,
+  formatRate,
+  mttrSummary,
+} from '~/data/dora-incidents.ts'
 import {
   ALL_PANEL_IDS,
   DEFAULT_ORDER,
@@ -1592,8 +1600,25 @@ const DORA_COLOR: Record<DoraStat['tone'], string> = {
   rose: '#f43f5e',
 }
 
+/**
+ * The four DORA tiles, each from a real source.
+ *
+ *   Deploys (7d)      Argo CD `status.history` — deploy timestamps.
+ *   Change fail rate  Argo CD deploys correlated with Prometheus incidents
+ *                     that STARTED in the same namespace shortly after.
+ *   Lead time         Gitea PR open→merge median (`useDoraFlow`).
+ *   MTTR              Prometheus `ALERTS` firing runs (`useDoraOps`).
+ *
+ * Lead time and MTTR used to be hardcoded `'—'` with "needs Four Keys source"
+ * / "needs incident source". Lead time had in fact been computed in
+ * `dora-flow.ts` for the radar panel all along and simply was not wired here;
+ * MTTR needed `ALERTS` range-queried rather than `/api/v1/alerts`, which only
+ * reports what is firing at this instant.
+ */
 function DoraPanel() {
   const q = useDoraApps()
+  const ops = useDoraOps()
+  const flow = useDoraLeadTime(q.data)
 
   const stats = useMemo(() => {
     const apps = q.data ?? []
@@ -1601,28 +1626,32 @@ function DoraPanel() {
     const day = 24 * 3600_000
     // Real 14-day daily deploy histogram from ArgoCD sync history.
     const series14 = new Array(14).fill(0) as number[]
-    let withOps = 0
-    let failed = 0
+    const deploys: DeployEvent[] = []
     for (const a of apps) {
+      const namespace = a.spec?.destination?.namespace || null
+      const workloads = appWorkloads(a)
       for (const h of a.status?.history ?? []) {
         if (!h.deployedAt) continue
         const t = new Date(h.deployedAt).getTime()
         if (!Number.isFinite(t)) continue
         const ago = Math.floor((now - t) / day)
         if (ago >= 0 && ago < 14) series14[13 - ago] += 1
-      }
-      const phase = a.status?.operationState?.phase
-      if (phase) {
-        withOps += 1
-        if (phase === 'Failed') failed += 1
+        // Change failure rate is measured over the same 7 days the headline
+        // deploy count covers, so the two tiles describe one period.
+        if (ago >= 0 && ago < 7) deploys.push({ namespace, atMs: t, workloads })
       }
     }
     const last7 = series14.slice(7).reduce((s, n) => s + n, 0)
     const prior7 = series14.slice(0, 7).reduce((s, n) => s + n, 0)
     const deltaPct = prior7 > 0 ? Math.round(((last7 - prior7) / prior7) * 100) : null
-    const cfr = withOps ? failed / withOps : null
-    return { series14, last7, deltaPct, cfr, hasHistory: series14.some((n) => n > 0) }
+    return { series14, last7, deltaPct, deploys, hasHistory: series14.some((n) => n > 0) }
   }, [q.data])
+
+  const cfr = useMemo(
+    () => changeFailureRate(stats.deploys, ops.incidents),
+    [stats.deploys, ops.incidents],
+  )
+  const mttr = useMemo(() => mttrSummary(ops.incidents), [ops.incidents])
 
   type Tone = 'emerald' | 'amber' | 'rose' | 'slate'
   const loading = q.isLoading
@@ -1646,15 +1675,57 @@ function DoraPanel() {
     },
     {
       label: 'Change fail rate',
-      value: loading ? '···' : stats.cfr == null ? '—' : `${(stats.cfr * 100).toFixed(1)}%`,
+      value: loading || ops.isLoading ? '···' : cfr.rate == null ? '—' : formatRate(cfr.rate),
       delta: '',
-      deltaTone: stats.cfr != null && stats.cfr > 0.15 ? 'rose' : 'amber',
+      deltaTone: cfr.rate != null && cfr.rate > 0.15 ? 'rose' : 'amber',
       color: DORA_COLOR.amber,
       series: [],
-      muted: loading ? undefined : stats.cfr == null ? 'no sync operations yet' : undefined,
+      muted: loading || ops.isLoading
+        ? undefined
+        : ops.isError
+        ? 'Prometheus unreachable'
+        : cfr.rate == null
+        ? 'no deploys in the last 7 days'
+        : `${cfr.failed} of ${cfr.total} deploys`,
     },
-    { label: 'Lead time', value: '—', delta: '', deltaTone: 'slate', color: DORA_COLOR.amber, series: [], muted: 'needs Four Keys source' },
-    { label: 'MTTR', value: '—', delta: '', deltaTone: 'slate', color: DORA_COLOR.amber, series: [], muted: 'needs incident source' },
+    {
+      label: 'Lead time',
+      value: flow.isLoading ? '···' : flow.medianHours == null ? '—' : formatDuration(flow.medianHours),
+      delta: '',
+      deltaTone: 'slate',
+      color: DORA_COLOR.amber,
+      series: [],
+      // Commit → running, not PR cycle time: this platform pushes to `main`
+      // and had zero merged PRs, so a PR-based figure would read "—" forever.
+      muted: flow.isLoading
+        ? undefined
+        : flow.isError
+        ? 'Gitea unreachable'
+        : flow.medianHours == null
+        ? 'no deploys with a resolvable commit'
+        : `commit→live, ${flow.sampleSize} deploy${flow.sampleSize === 1 ? '' : 's'}`,
+    },
+    {
+      label: 'MTTR',
+      value: ops.isLoading ? '···' : mttr.medianHours == null ? '—' : formatDuration(mttr.medianHours),
+      delta: '',
+      deltaTone: 'slate',
+      color: DORA_COLOR.amber,
+      series: [],
+      // The ongoing count matters: an MTTR over two recoveries while nine
+      // incidents are still open is not a number to draw conclusions from.
+      muted: ops.isLoading
+        ? undefined
+        : ops.isError
+        ? 'Prometheus unreachable'
+        : mttr.medianHours == null
+        ? mttr.ongoingCount > 0
+          ? `${mttr.ongoingCount} open, none resolved yet`
+          : 'no incidents in 7 days'
+        : `median of ${mttr.resolvedCount} recover${mttr.resolvedCount === 1 ? 'y' : 'ies'}${
+          mttr.ongoingCount ? ` · ${mttr.ongoingCount} open` : ''
+        }`,
+    },
   ]
 
   return (

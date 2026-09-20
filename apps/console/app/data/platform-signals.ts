@@ -243,14 +243,50 @@ export function useToolsConfig() {
   })
 }
 
-/** Raw ArgoCD applications (with `status.history`) for DORA derivation. */
+/**
+ * Raw ArgoCD applications (with `status.history`) for DORA derivation.
+ *
+ * `destination.namespace` is here so a deploy can be matched against the
+ * incidents that followed it in the namespace it deployed into — the
+ * attribution change-failure rate needs (see `dora-incidents.ts`).
+ */
 export interface DoraApp {
   metadata?: { name?: string }
-  spec?: { project?: string }
-  status?: {
-    history?: Array<{ deployedAt?: string }>
-    operationState?: { phase?: string }
+  spec?: {
+    project?: string
+    destination?: { namespace?: string }
+    source?: { repoURL?: string }
+    sources?: Array<{ repoURL?: string }>
   }
+  status?: {
+    /**
+     * `revisions`/`sources` (plural) are what multi-source applications use,
+     * and on a real cluster every application is multi-source — reading only
+     * the singular spellings made every deploy look like it had no commit.
+     */
+    history?: Array<{
+      deployedAt?: string
+      revision?: string
+      revisions?: string[]
+      source?: { repoURL?: string }
+      sources?: Array<{ repoURL?: string }>
+    }>
+    operationState?: { phase?: string }
+    /** Owned resources — workload names are what an incident is matched against. */
+    resources?: Array<{ kind?: string; name?: string; namespace?: string }>
+  }
+}
+
+/** Resource kinds that can be the subject of a workload alert. */
+const WORKLOAD_KINDS = new Set(['Deployment', 'StatefulSet', 'DaemonSet', 'Rollout'])
+
+/** The workload names an Argo CD application owns, for incident attribution. */
+export function appWorkloads(app: DoraApp): string[] {
+  const out: string[] = []
+  for (const r of app.status?.resources ?? []) {
+    if (r.kind && WORKLOAD_KINDS.has(r.kind) && r.name) out.push(r.name)
+  }
+  return out
 }
 
 /**

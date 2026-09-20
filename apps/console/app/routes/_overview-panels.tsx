@@ -55,7 +55,15 @@ import {
   parseBytes,
   parseCpu,
 } from '~/data/platform-signals.ts'
-import { formatLeadTime, leadTimeScore, useDoraFlow } from '~/data/dora-flow.ts'
+import { leadTimeScore } from '~/data/dora-flow.ts'
+import { useDoraLeadTime, useDoraOps } from '~/data/dora-ops.ts'
+import {
+  appWorkloads,
+  changeFailureRate,
+  type DeployEvent,
+  formatDuration,
+  mttrSummary,
+} from '~/data/dora-radar-sources.ts'
 import type { Generic } from '@adhar-console/api-clients/k8s'
 
 /**
@@ -999,28 +1007,35 @@ function cloudOf(providerID?: string): string {
 
 export function DoraRadarPanel() {
   const q = useDoraApps()
-  const flow = useDoraFlow()
+  const flow = useDoraLeadTime(q.data)
+  const ops = useDoraOps()
 
-  // Real DORA axes: deploy frequency + change-failure rate from ArgoCD, lead
-  // time from Gitea PR cycle time (see dora-flow.ts). MTTR still needs an
-  // incident source with resolve timestamps, so it stays honestly "—".
+  // All four axes come from the same sources as the DORA tiles on this page,
+  // deliberately: the radar used to read lead time from PR cycle time and
+  // change-fail rate from a point-in-time sync snapshot, so the two panels
+  // sitting side by side could disagree about the same week.
   const { metrics, tier, avgAvailable } = useMemo(() => {
     const apps = q.data ?? []
     const now = Date.now()
     const windowDays = 30
     const windowMs = windowDays * 24 * 3600_000
     let deploys = 0
+    const events: DeployEvent[] = []
     for (const a of apps) {
+      const namespace = a.spec?.destination?.namespace || null
+      const workloads = appWorkloads(a)
       for (const h of a.status?.history ?? []) {
         if (!h.deployedAt) continue
         const t = new Date(h.deployedAt).getTime()
-        if (Number.isFinite(t) && now - t < windowMs) deploys += 1
+        if (!Number.isFinite(t) || now - t >= windowMs) continue
+        deploys += 1
+        events.push({ namespace, atMs: t, workloads })
       }
     }
     const perDay = deploys / windowDays
-    const withOps = apps.filter((a) => a.status?.operationState?.phase)
-    const failed = withOps.filter((a) => a.status?.operationState?.phase === 'Failed').length
-    const cfr = withOps.length ? failed / withOps.length : null
+    const cf = changeFailureRate(events, ops.incidents)
+    const cfr = cf.rate
+    const mttr = mttrSummary(ops.incidents)
 
     const list: Array<{ label: string; value: number; raw: string; target: number; available: boolean }> = [
       {
@@ -1030,36 +1045,52 @@ export function DoraRadarPanel() {
         target: 1,
         available: true,
       },
-      flow.leadTimeHours != null
+      flow.medianHours != null
         ? {
             label: 'Lead time',
-            value: leadTimeScore(flow.leadTimeHours),
-            raw: formatLeadTime(flow.leadTimeHours),
+            value: leadTimeScore(flow.medianHours),
+            raw: formatDuration(flow.leadTimeHours),
             target: 1,
             available: true,
           }
         : {
             label: 'Lead time',
             value: 0,
-            raw: flow.isLoading ? '…' : 'no merged PRs',
+            raw: flow.isLoading ? '…' : 'no resolvable commits',
             target: 1,
             available: false,
           },
       {
         label: 'Change-fail rate',
         value: cfr == null ? 0 : Math.max(0, Math.min(1, 1 - cfr / 0.3)),
-        raw: cfr == null ? 'no operations' : `${(cfr * 100).toFixed(1)}%`,
+        raw: cfr == null ? 'no measurable deploys' : `${(cfr * 100).toFixed(1)}%`,
         target: 1,
         available: cfr != null,
       },
-      { label: 'MTTR', value: 0, raw: 'needs incident source', target: 1, available: false },
+      mttr.medianHours != null
+        ? {
+            label: 'MTTR',
+            // Elite restores service in under an hour; the score falls off
+            // from there and bottoms out at a day.
+            value: Math.max(0, Math.min(1, 1 - (mttr.medianHours - 1) / 23)),
+            raw: formatDuration(mttr.medianHours),
+            target: 1,
+            available: true,
+          }
+        : {
+            label: 'MTTR',
+            value: 0,
+            raw: ops.isLoading ? '…' : ops.isError ? 'Prometheus unreachable' : 'no recoveries yet',
+            target: 1,
+            available: false,
+          },
     ]
     const avail = list.filter((m) => m.available)
     const avgAvailable = avail.length ? avail.reduce((s, m) => s + m.value, 0) / avail.length : 0
     const tier: 'Elite' | 'High' | 'Medium' =
       avgAvailable >= 0.85 ? 'Elite' : avgAvailable >= 0.6 ? 'High' : 'Medium'
     return { metrics: list, tier, avgAvailable }
-  }, [q.data, flow.leadTimeHours, flow.isLoading])
+  }, [q.data, flow.medianHours, flow.isLoading, ops.incidents, ops.isLoading, ops.isError])
 
   if (q.isLoading || q.isError) {
     return (

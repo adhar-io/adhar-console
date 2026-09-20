@@ -48,6 +48,20 @@ export interface NavItem {
   defaultExpanded?: boolean
   /** Requires at least one of these roles to render. */
   roles?: string[]
+  /**
+   * This row is a CONVENIENCE LINK to a page another group owns, so it never
+   * claims the active highlight.
+   *
+   * Two rows pointing at the same route+section used to both light up, and the
+   * sidebar's auto-expansion followed whichever it found first — so opening "CI
+   * Pipelines" under Develop highlighted "CI / CD" under Platform as well and
+   * flipped the open group out from under the click. Ownership has to be stated;
+   * it cannot be inferred from two identical destinations.
+   *
+   * (A PARENT sharing its first child's destination is a different case and is
+   * already handled by the `!hasActiveDescendant` rule in nav-item.tsx.)
+   */
+  crossLink?: boolean
 }
 
 /*
@@ -209,7 +223,9 @@ export const DEFAULT_NAV: NavSection[] = [
           { id: 'develop.issues', label: 'Issues', to: '/develop', search: 'issues' },
           { id: 'develop.environments', label: 'Cloud Envs', to: '/develop', search: 'environments' },
           { id: 'develop.workflows', label: 'Workflows', to: '/develop', search: 'workflows' },
-          { id: 'develop.ci', label: 'CI Pipelines', to: '/platform', search: 'ci' },
+          // Platform owns this page (modules/platform/src/views/tekton.tsx); this
+          // row is a shortcut for developers, so it must not steal the highlight.
+          { id: 'develop.ci', label: 'CI Pipelines', to: '/platform', search: 'ci', crossLink: true },
           { id: 'develop.pipelines', label: 'Data Pipelines', to: '/develop', search: 'pipelines' },
           { id: 'develop.performance', label: 'Performance', to: '/develop', search: 'performance' },
           { id: 'develop.codebuilder', label: 'Code Builder', to: '/develop', search: 'codebuilder' },

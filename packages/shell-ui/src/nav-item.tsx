@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Link, useRouterState } from '@tanstack/react-router'
 import { cn } from '@adhar-console/utils'
 import type { NavBadge, NavItem as TNavItem } from './nav-tree.tsx'
+import { ownsDestination } from './nav-ownership.ts'
 
 interface Props {
   item: TNavItem
@@ -538,6 +539,9 @@ export function isItemActive(
   search: Record<string, unknown>,
 ): boolean {
   if (!item.to) return false
+  // A cross-link borrows another group's page and never owns the highlight, so a
+  // single URL always resolves to exactly one active row (nav-ownership.ts).
+  if (!ownsDestination(item)) return false
   if (item.to === '/') {
     if (pathname !== '/') return false
   } else if (pathname !== item.to && !pathname.startsWith(item.to + '/')) {

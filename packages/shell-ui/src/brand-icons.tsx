@@ -19,10 +19,14 @@ import {
   LAKEFS_MARKUP,
   LAKEFS_VIEWBOX,
   MIMIR_PNG_URI,
+  MLFLOW_D,
+  MLFLOW_HEX,
   N8N_D,
   N8N_HEX,
   ONCALL_MARKUP,
   ONCALL_VIEWBOX,
+  OPENBAO_MARKUP,
+  OPENBAO_VIEWBOX,
   OPENMETADATA_MARKUP,
   OPENMETADATA_VIEWBOX,
   OPENSEARCH_D,
@@ -286,8 +290,14 @@ export function FaroIcon(props: BrandProps) {
 export function RustFSIcon(props: BrandProps) {
   return <RasterTile {...props} src={RUSTFS_PNG_URI} alt="RustFS" />
 }
+export function MLflowIcon(props: BrandProps) {
+  return <MonoTile {...props} hex={MLFLOW_HEX} d={MLFLOW_D} />
+}
 export function N8nIcon(props: BrandProps) {
   return <MonoTile {...props} hex={N8N_HEX} d={N8N_D} />
+}
+export function OpenBaoIcon(props: BrandProps) {
+  return <LogoTile {...props} viewBox={OPENBAO_VIEWBOX} markup={OPENBAO_MARKUP} />
 }
 export function OpenSearchIcon(props: BrandProps) {
   return <MonoTile {...props} hex={OPENSEARCH_HEX} d={OPENSEARCH_D} />

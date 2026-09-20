@@ -1,5 +1,14 @@
-import { assertEquals } from 'jsr:@std/assert'
+import { assertEquals, assertExists } from 'jsr:@std/assert'
 import { routeTarget } from './notification-route.ts'
+
+/** Route an href the test expects to be routable, narrowing away the `null`
+ *  so a regression that starts returning null fails here rather than at a
+ *  property read. */
+function must(href: string) {
+  const target = routeTarget(href)
+  assertExists(target, `${href} should route`)
+  return target
+}
 
 /**
  * Notification hrefs are stored as plain strings (`/settings?section=teams`)
@@ -26,13 +35,13 @@ Deno.test('a path with no query still routes', () => {
 })
 
 Deno.test('encoded values are decoded, as the router expects them', () => {
-  assertEquals(routeTarget('/deliver?section=apps&app=my%20app').search.app, 'my app')
+  assertEquals(must('/deliver?section=apps&app=my%20app').search.app, 'my app')
 })
 
 Deno.test('a trailing slash does not make a second route', () => {
-  assertEquals(routeTarget('/settings/').to, '/settings')
+  assertEquals(must('/settings/').to, '/settings')
   // The root is a path in its own right.
-  assertEquals(routeTarget('/').to, '/')
+  assertEquals(must('/').to, '/')
 })
 
 Deno.test('anything that is not an internal path is refused', () => {

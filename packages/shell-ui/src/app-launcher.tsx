@@ -25,17 +25,18 @@ import {
   PostHogIcon,
   PrometheusIcon,
   TektonIcon,
-  VaultIcon,
   ChaosMeshIcon,
   DagsterIcon,
   FaroIcon,
   KubeflowIcon,
+  MLflowIcon,
   LakeFSIcon,
   LokiIcon,
   MimirIcon,
   N8nIcon,
   OnCallIcon,
   OpenMetadataIcon,
+  OpenBaoIcon,
   OpenSearchIcon,
   PenpotIcon,
   PrefectIcon,
@@ -266,12 +267,17 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     icon: <KeycloakIcon />,
   },
   {
+    // The platform ships OpenBao, the Linux Foundation fork of Vault. Its
+    // ingress is `openbao.<base>`; the `vault` Service is only an in-cluster
+    // compatibility alias, so deriving the host from the id gave a dead link.
+    // The id stays `vault` so existing pins and the BFF tool id keep working.
     id: 'vault',
-    name: 'Vault',
+    name: 'OpenBao',
     description: 'Secrets management',
-    url: 'https://vault.adhar.localtest.me:8443',
+    sub: 'openbao',
+    url: 'https://openbao.adhar.localtest.me:8443',
     category: 'Security',
-    icon: <VaultIcon />,
+    icon: <OpenBaoIcon />,
   },
   {
     // Kyverno + Trivy have no standalone UI; Policy Reporter is where their
@@ -404,6 +410,14 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     url: 'https://kubeflow.adhar.localtest.me:8443',
     category: 'Data',
     icon: <KubeflowIcon />,
+  },
+  {
+    id: 'mlflow',
+    name: 'MLflow',
+    description: 'Experiment tracking & model registry',
+    url: 'https://mlflow.adhar.localtest.me:8443',
+    category: 'Data',
+    icon: <MLflowIcon />,
   },
   {
     id: 'lakefs',

@@ -316,7 +316,15 @@ export function getToolRegistry(): Record<string, ToolDef> {
     tooljet: { baseUrl: toolUrl('tooljet', 'TOOLJET_URL'), authMode: 'none' },
     penpot: { baseUrl: toolUrl('penpot', 'PENPOT_URL'), authMode: 'none' },
     opensearch: { baseUrl: toolUrl('opensearch', 'OPENSEARCH_URL'), authMode: 'none' },
-    vault: { baseUrl: toolUrl('vault', 'VAULT_URL'), authMode: 'service', serviceToken: env('VAULT_TOKEN') },
+    mlflow: { baseUrl: toolUrl('mlflow', 'MLFLOW_URL'), authMode: 'none' },
+    // OpenBao (the Vault fork the platform ships) is exposed at `openbao.<domain>`;
+    // `vault.<domain>` has no ingress, so deriving from the tool id gave a URL
+    // that 404s. OPENBAO_URL is the preferred override, VAULT_URL the alias.
+    vault: {
+      baseUrl: toolUrl('openbao', 'OPENBAO_URL', 'VAULT_URL'),
+      authMode: 'service',
+      serviceToken: env('OPENBAO_TOKEN') ?? env('VAULT_TOKEN'),
+    },
     tekton: { baseUrl: toolUrl('tekton', 'TEKTON_URL'), authMode: 'service', serviceToken: env('TEKTON_TOKEN') },
     // RustFS is the platform's S3-compatible store; MINIO_URL kept as the
     // conventional var name with RUSTFS_URL as an alias.

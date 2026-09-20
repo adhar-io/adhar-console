@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { cn } from '@adhar-console/utils'
+import { NavShuttle } from './nav-shuttle.tsx'
 import type { Tenant } from '@adhar-console/tenancy'
 import type { User } from '@adhar-console/auth'
 import { TenantSwitcher } from './tenant-switcher.tsx'
@@ -71,6 +72,8 @@ export function Sidebar({
    * different section like Workspace settings.
    */
   const pathname = useRouterState({ select: (s) => s.location.pathname })
+  // The shuttle measures rows against this scroll container.
+  const navRef = useRef<HTMLElement | null>(null)
   const routeSearch = useRouterState({ select: (s) => s.location.search })
 
   const autoExpandedId = useMemo<string | null>(() => {
@@ -119,60 +122,11 @@ export function Sidebar({
 
   // ⌘K is handled once, in AppShell (it toggles the Adhar AI overlay).
 
-  // Two-key Vim-style shortcut sequences declared on nav items via the
-  // `shortcut` field (e.g. "g h"). The dispatcher is global so the user
-  // can fire shortcuts from anywhere except inside an editable element.
-  const navigate = useNavigate()
-  const lastKeyRef = useRef<{ key: string; at: number } | null>(null)
-  const shortcutsMap = useMemo(() => {
-    const m = new Map<string, TNavItem>()
-    const walk = (items: TNavItem[]) => {
-      for (const it of items) {
-        if (it.shortcut) m.set(it.shortcut.toLowerCase().replace(/\s+/g, ' ').trim(), it)
-        if (it.children?.length) walk(it.children)
-      }
-    }
-    for (const s of visibleSections) walk(s.items)
-    return m
-  }, [visibleSections])
-
-  useEffect(() => {
-    if (!shortcutsMap.size) return
-    const onKey = (e: KeyboardEvent) => {
-      // Bail when typing — the palette / inputs / textareas / contenteditable.
-      const eventTarget = e.target as HTMLElement | null
-      if (
-        eventTarget &&
-        (eventTarget.tagName === 'INPUT' ||
-          eventTarget.tagName === 'TEXTAREA' ||
-          eventTarget.tagName === 'SELECT' ||
-          eventTarget.isContentEditable)
-      ) {
-        return
-      }
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      if (e.key.length !== 1) return
-      const now = performance.now()
-      const ch = e.key.toLowerCase()
-      const prev = lastKeyRef.current
-      if (prev && now - prev.at < 1200) {
-        const seq = `${prev.key} ${ch}`
-        const matched = shortcutsMap.get(seq)
-        if (matched?.to) {
-          e.preventDefault()
-          lastKeyRef.current = null
-          navigate({
-            to: matched.to,
-            search: matched.search ? ({ section: matched.search } as never) : undefined,
-          })
-          return
-        }
-      }
-      lastKeyRef.current = { key: ch, at: now }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [shortcutsMap, navigate])
+  // No two-key nav sequences. This used to hold a global dispatcher for the
+  // "g h" / "g c" bindings declared on nav items (see nav-tree.tsx): it matched
+  // bare single letters with no modifier, so typing anywhere that was not an
+  // input could navigate the app out from under the reader. ⌘K opens the
+  // command palette instead — discoverable, and it cannot misfire.
 
   return (
     <aside
@@ -186,6 +140,7 @@ export function Sidebar({
       {collapsed ? <ExpandRow onToggle={toggleCollapsed} /> : null}
 
       <nav
+        ref={navRef}
         aria-label="Primary navigation"
         className={cn(
           // Hide the scrollbar visually but keep wheel / trackpad / keyboard
@@ -193,9 +148,17 @@ export function Sidebar({
           // `::-webkit-scrollbar { display: none }` covers Chromium + Safari.
           // `overscroll-contain` stops scroll-chaining into the main content.
           'sidebar-scroll flex-1 overflow-y-auto overscroll-contain',
+          // `relative` so the shuttle's absolute rail is positioned against the
+          // scroll container's content box and therefore scrolls with the rows.
+          'relative',
           collapsed ? 'px-2 py-3' : 'px-3 pb-4 pt-2',
         )}
       >
+        <NavShuttle
+          containerRef={navRef}
+          collapsed={collapsed}
+          deps={[pathname, expandedId, visibleSections.length]}
+        />
         {visibleSections.map((section, i) => (
           <Section
             key={section.id}

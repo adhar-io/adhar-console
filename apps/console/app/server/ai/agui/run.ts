@@ -176,7 +176,15 @@ export function runAgent(rawInput: unknown, opts: RunOptions): Response {
     forwardedProps?: Record<string, unknown>
   }
 
-  const cfg = getAiConfig()
+  // Forward the caller's bearer to the LLM endpoint. On an Adhar platform that
+  // endpoint is agentgateway, whose jwtAuthentication is Strict: without a token the
+  // browser gets
+  //     AI provider error 401: authentication failure: no bearer token found
+  // and the console's whole assistant is dead while every other surface works. The
+  // same token already authorizes this run's cluster reads (opts.identity, used for
+  // tool execution below), so the LLM call is metered and authorized as the person
+  // who asked — which is what ADR-0025 specifies.
+  const cfg = getAiConfig(typeof opts.identity === 'string' ? opts.identity : opts.identity.token)
   if (!cfg) {
     return Response.json({ error: 'ai_not_configured', hint: 'set AI_BASE_URL / AI_MODEL' }, { status: 503 })
   }

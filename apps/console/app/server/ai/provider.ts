@@ -15,10 +15,23 @@ export interface AiConfig {
   model: string
 }
 
-export function getAiConfig(): AiConfig | null {
+export function getAiConfig(bearer?: string): AiConfig | null {
   const baseUrl = env('AI_BASE_URL')?.replace(/\/$/, '')
   if (!baseUrl) return null
-  return { baseUrl, apiKey: env('AI_API_KEY'), model: env('AI_MODEL') ?? 'default' }
+  // The SIGNED-IN USER's access token takes precedence over a static AI_API_KEY.
+  //
+  // On an Adhar platform AI_BASE_URL points at agentgateway, whose
+  // jwtAuthentication is Strict: a request with no bearer is refused outright and
+  // the browser shows
+  //     AI provider error 401: authentication failure: no bearer token found
+  // A static key cannot satisfy it either — the gateway validates a Keycloak JWT
+  // and authorizes on its `groups` claim. Forwarding the caller's token is also
+  // what ADR-0025 specifies: the bearer is preserved so the request is metered and
+  // authorized as the person who made it, not as the console.
+  //
+  // AI_API_KEY remains the fallback for a plain OpenAI-compatible endpoint (vLLM,
+  // Ollama, LiteLLM) that wants a shared key and has no notion of users.
+  return { baseUrl, apiKey: bearer ?? env('AI_API_KEY'), model: env('AI_MODEL') ?? 'default' }
 }
 
 export function isAiConfigured(): boolean {

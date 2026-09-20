@@ -92,14 +92,24 @@ export function NavItem({
   const isSub = depth > 0
   return (
     <div>
+      {/*
+        data-nav-active is how the shuttle (nav-shuttle.tsx) finds the current
+        row and sizes its rail: the attribute must sit on the ROW element, since
+        that is the box the rail is measured against.
+      */}
       <div
+        data-nav-active={isActive ? 'true' : undefined}
         className={cn(
-          'group relative flex items-center gap-2.5 rounded-md text-sm',
+          'group relative flex items-center gap-2.5 rounded-lg text-sm',
           'transition-[background-color,color,box-shadow,transform] duration-200 ease-out',
           'active:scale-[0.985] active:duration-75 motion-reduce:transform-none motion-reduce:transition-none',
-          isSub ? 'py-1 pl-3 pr-2' : 'py-1.5 pl-2 pr-2',
+          isSub ? 'py-1 pl-3 pr-2' : 'py-1.5 pl-2.5 pr-2',
+          // A tinted row rather than a solid brand fill. The fill competed with
+          // the sliding rail for the same job — two strong marks saying "you are
+          // here" — and at 14 rows it made the column read as a stack of
+          // buttons. The rail carries the emphasis; the row carries the context.
           isActive
-            ? 'bg-brand-600 font-medium text-white shadow-sm ring-1 ring-inset ring-white/10'
+            ? 'bg-brand-600/12 font-semibold text-brand-700 dark:bg-brand-400/15 dark:text-brand-100'
             : hasActiveDescendant
               ? 'font-medium text-content'
               : 'text-content-muted hover:bg-surface-sunken hover:text-content',
@@ -120,25 +130,14 @@ export function NavItem({
 
         {item.badge !== undefined ? <Badge value={item.badge} active={isActive} /> : null}
 
-        {item.shortcut ? (
-          <kbd
-            className={cn(
-              'shrink-0 rounded border px-1 py-0.5 font-mono text-[10px]',
-              isActive
-                ? 'border-white/30 bg-white/10 text-white/80'
-                : 'border-edge-default bg-surface-raised text-content-muted',
-            )}
-          >
-            {item.shortcut}
-          </kbd>
-        ) : null}
-
         {hasChildren ? (
           <span
             aria-hidden
             className={cn(
               'flex h-5 w-5 shrink-0 items-center justify-center transition-transform duration-150',
-              isActive ? 'text-white/70' : 'text-content-subtle group-hover:text-content-muted',
+              isActive
+                ? 'text-brand-600 dark:text-brand-200'
+                : 'text-content-subtle group-hover:text-content-muted',
               expanded && 'rotate-180',
             )}
           >
@@ -191,7 +190,7 @@ function IconSlot({
       className={cn(
         'flex h-4.5 w-4.5 shrink-0 items-center justify-center transition-colors',
         isActive
-          ? 'text-white'
+          ? 'text-brand-600 dark:text-brand-200'
           : hasActiveDescendant
             ? 'text-brand-700 dark:text-brand-300'
             : 'text-content-subtle group-hover:text-content',
@@ -241,7 +240,7 @@ function ItemLink({
         <div
           className={cn(
             'mt-0.5 truncate text-[11px] font-normal leading-tight',
-            isActive ? 'text-white/70' : 'text-content-subtle',
+            isActive ? 'text-brand-700/70 dark:text-brand-100/70' : 'text-content-subtle',
           )}
         >
           {item.description}
@@ -493,7 +492,12 @@ function Badge({ value, active }: { value: NavBadge; active: boolean }) {
   if (typeof value === 'string' || typeof value === 'number') {
     return (
       <span
-        className={cn(base, active ? 'bg-white/20 text-white' : 'bg-surface-sunken text-content-muted')}
+        className={cn(
+          base,
+          active
+            ? 'bg-brand-600/20 text-brand-800 dark:bg-brand-300/20 dark:text-brand-100'
+            : 'bg-surface-sunken text-content-muted',
+        )}
       >
         {value}
       </span>
@@ -509,7 +513,14 @@ function Badge({ value, active }: { value: NavBadge; active: boolean }) {
     info: 'bg-sky-100 dark:bg-sky-500/15 text-sky-800 dark:text-sky-300',
   }
   return (
-    <span className={cn(base, active ? 'bg-white/20 text-white' : toneMap[value.kind])}>
+    <span
+      className={cn(
+        base,
+        active
+          ? 'bg-brand-600/20 text-brand-800 dark:bg-brand-300/20 dark:text-brand-100'
+          : toneMap[value.kind],
+      )}
+    >
       {value.value}
     </span>
   )

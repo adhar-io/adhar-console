@@ -40,8 +40,6 @@ export interface NavItem {
   icon?: ReactNode
   /** Short descriptive text rendered below the label in expanded mode. */
   description?: string
-  /** Keyboard shortcut text — rendered right-aligned in a kbd pill. */
-  shortcut?: string
   badge?: NavBadge
   children?: NavItem[]
   /** Group items are expanded by default when true. */
@@ -100,6 +98,13 @@ export interface NavSection {
 /**
  * Default nav tree — **2 levels max**.
  *
+ * No per-item keyboard bindings. The rows used to carry two-key Vim sequences
+ * ("g h", "g c", …) shown in a kbd pill on every row. They were removed for two
+ * reasons: the pills were visual noise on the one section the eye returns to
+ * most, and the dispatcher matched bare single letters with no modifier, so
+ * reading a page and typing anywhere outside an input could navigate away. ⌘K
+ * opens the command palette, which is discoverable and cannot misfire.
+ *
  * Level 1 = top-level items (always have an icon).
  * Level 2 = sub-items (labels only, shown when the parent is expanded).
  *
@@ -111,22 +116,20 @@ export const DEFAULT_NAV: NavSection[] = [
   {
     id: 'main',
     items: [
-      { id: 'home', label: 'Overview', to: '/', icon: <IconHome />, shortcut: 'g h' },
+      { id: 'home', label: 'Overview', to: '/', icon: <IconHome /> },
       {
         id: 'ai',
         label: 'Adhar AI',
         to: '/ai',
         icon: <IconSparkNav />,
         description: 'Ask, investigate, propose — the platform’s agents',
-        shortcut: 'g a',
       },
       {
         id: 'notifications',
-        label: 'Notifications',
+        label: 'Notifications & Insights',
         to: '/notifications',
         icon: <IconBellNav />,
         description: 'Operations, insights & Adhar AI outcomes',
-        shortcut: 'g i',
       },
       {
         id: 'catalog',
@@ -134,7 +137,6 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/catalog',
         icon: <IconCatalog />,
         description: 'Services, APIs, resources & teams',
-        shortcut: 'g c',
       },
       {
         id: 'scorecards',
@@ -142,7 +144,6 @@ export const DEFAULT_NAV: NavSection[] = [
         to: '/scorecards',
         icon: <IconGauge />,
         description: 'Production-readiness scoring per service',
-        shortcut: 'g s',
       },
       {
         id: 'catalog.create',
@@ -151,7 +152,6 @@ export const DEFAULT_NAV: NavSection[] = [
         search: 'create',
         icon: <IconPlusCircle />,
         description: 'Scaffold from a golden-path template',
-        shortcut: 'g n',
         badge: { kind: 'info', value: 'templates' },
         roles: LIFECYCLE_ROLES,
       },

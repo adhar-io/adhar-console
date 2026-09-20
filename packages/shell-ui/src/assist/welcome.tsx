@@ -4,6 +4,7 @@ import type { OperatorFinding, RuntimeInfo } from '../agui/client.ts'
 import { useNotifications } from '../notifications.ts'
 import type { CommandItem } from './nav.ts'
 import { IconBook, IconReturn, IconServer, IconShield, SparkIcon } from './icons.tsx'
+import { AdharAiMark } from './mark.tsx'
 import { accentDot } from './accent.ts'
 
 /**
@@ -44,9 +45,7 @@ export function Welcome({
     <div className="mx-auto w-full max-w-3xl pt-2">
       {/* hero */}
       <div className="rise-in flex flex-col items-center pb-6 pt-4 text-center">
-        <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-linear-to-br from-brand-500 to-accent-500 text-white shadow-lg shadow-brand-600/25">
-          <SparkIcon size={26} />
-        </span>
+        <AdharAiMark size={58} className="shadow-lg shadow-brand-600/25" />
         <h2 className="mt-4 text-[22px] font-semibold tracking-tight text-content">
           {configured ? 'What would you like to know?' : 'Where would you like to go?'}
         </h2>

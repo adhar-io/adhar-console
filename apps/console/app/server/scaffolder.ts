@@ -44,9 +44,9 @@ interface ScaffoldRequest {
   type?: string
   tags?: string[]
   scaffold?: {
-    /** Backstage templates repo, "owner/repo" (default adhar/packages). */
+    /** Backstage templates repo, "owner/repo" (default adhar/adhar-templates). */
     templatesRepo?: string
-    /** Path within that repo, e.g. application/adhar-templates/basic. */
+    /** Path within that repo, e.g. templates/go-web-service. */
     templatePath?: string
     /** Legacy Gitea template-repo generate source (kept for back-compat). */
     sourceRepo?: string
@@ -575,14 +575,14 @@ export function resolveTemplateSource(o: {
   goldenPath?: unknown
   /**
    * Directory the templates sit under in `templatesRepo`. Defaults to the
-   * real layout; the old hard-coded `templates/` matched no install.
+   * layout of the curated `adhar/adhar-templates` collection.
    */
   templatesPath?: string
 }): { templatePath?: string; isBackstage: boolean; goldenPath?: GoldenPathFamily } {
   const family = isGoldenPathFamily(o.goldenPath) ? o.goldenPath : undefined
   const explicitBackstage = Boolean(o.templatePath || o.explicitTemplatesRepo)
   const generating = Boolean(family) && !explicitBackstage
-  const base = (o.templatesPath ?? 'application/adhar-templates').replace(/^\/+|\/+$/g, '')
+  const base = (o.templatesPath ?? 'templates').replace(/^\/+|\/+$/g, '')
   const templatePath = o.templatePath ??
     (o.templateId && !generating ? (base ? `${base}/${o.templateId}` : o.templateId) : undefined)
   const isBackstage = Boolean(templatePath && o.templatesRepo.includes('/'))

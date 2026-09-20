@@ -33,7 +33,8 @@ import { handleNotificationsApi } from './app/server/notifications.ts'
 import { handleScaffold } from './app/server/scaffolder.ts'
 import { handleAppsetToggle } from './app/server/appset.ts'
 import { handleListTemplates } from './app/server/templates.ts'
-import { handleScorecards } from './app/server/scorecards.ts'
+import { handleScorecardHistory, handleScorecardRerun, handleScorecards } from './app/server/scorecards.ts'
+import { handleEntityRoutes } from './app/server/entity-routes.ts'
 import { handleListTeams } from './app/server/teams.ts'
 import { handleWorkspace } from './app/server/workspace/handlers.ts'
 import { startPlatformEvents } from './app/server/events/platform-events.ts'
@@ -357,6 +358,17 @@ async function route(req: Request): Promise<Response> {
   // Production-readiness scorecards published by the platform's in-cluster
   // scorer (the `scorecards` package) — `configured: false` when it isn't installed.
   if (path === '/api/scorecards') return handleScorecards(req)
+  // The scorer's rolling series, so a score can be read as a trend.
+  if (path === '/api/scorecards/history') return handleScorecardHistory(req)
+  // Score now rather than at the next half-hour tick: creates a Job from the
+  // scorer CronJob's own template, as the caller, so a manual run and a
+  // scheduled run cannot produce different numbers.
+  if (path === '/api/scorecards/rerun') return handleScorecardRerun(req)
+
+  // Where a catalog entity is reachable — HTTPRoutes/Ingresses whose backend is
+  // the entity's Service. Powers the drawer's "Open" button and the full URLs
+  // on its Deployment tab.
+  if (path === '/api/catalog/routes') return handleEntityRoutes(req)
 
   // Owner/team (Group entity) picker for Catalog → Create New — discovered
   // from the adhar/adhar-templates Gitea repo, always incl. the two defaults.

@@ -437,3 +437,244 @@ async function readScorecardCrs(id: Parameters<typeof apiServerFetch>[0]): Promi
     return []
   }
 }
+
+/* ─────────── history + re-evaluate ─────────── */
+
+/**
+ * One past run, as the scorer records it in `<configmap>-history`.
+ *
+ * Compact on purpose: the scorer keeps the full per-signal ledger for the
+ * CURRENT run only. Twenty-four of those would push the ConfigMap past etcd's
+ * 1 MiB object limit on a platform this size, and a write that fails takes the
+ * live results down with the history — so a run's history entry carries the
+ * totals, the grade distribution and a per-service score, which is what a trend
+ * is made of.
+ */
+export interface ScorecardHistoryEntry {
+  at: string
+  serviceCount: number
+  averageScore?: number
+  grades: Partial<Record<PlatformGrade, number>>
+  services: Record<string, { score: number; grade: PlatformGrade }>
+}
+
+export interface ScorecardHistory {
+  configured: boolean
+  namespace: string
+  configMap: string
+  entries: ScorecardHistoryEntry[]
+  error?: string
+  detail?: string
+}
+
+const DEFAULT_CRONJOB = 'adhar-scorecard-scorer'
+
+function historyEntry(v: unknown): ScorecardHistoryEntry | undefined {
+  if (!v || typeof v !== 'object') return undefined
+  const o = v as Record<string, unknown>
+  const at = str(o.at)
+  if (!at) return undefined
+  const services: ScorecardHistoryEntry['services'] = {}
+  if (o.services && typeof o.services === 'object') {
+    for (const [k, raw] of Object.entries(o.services as Record<string, unknown>)) {
+      if (!raw || typeof raw !== 'object') continue
+      const r = raw as Record<string, unknown>
+      const grade = coerceGrade(r.grade)
+      if (!grade) continue
+      services[k] = { score: clamp(num(r.score, 0), 0, 100), grade }
+    }
+  }
+  const grades: ScorecardHistoryEntry['grades'] = {}
+  if (o.grades && typeof o.grades === 'object') {
+    for (const [k, raw] of Object.entries(o.grades as Record<string, unknown>)) {
+      const g = coerceGrade(k)
+      if (g) grades[g] = num(raw, 0)
+    }
+  }
+  return {
+    at,
+    serviceCount: num(o.serviceCount, Object.keys(services).length),
+    ...(typeof o.averageScore === 'number' ? { averageScore: clamp(o.averageScore, 0, 100) } : {}),
+    grades,
+    services,
+  }
+}
+
+/**
+ * `GET /api/scorecards/history` — the scorer's rolling series.
+ *
+ * A missing ConfigMap is not an error: a platform that has only ever run the
+ * scorer once has no history yet, and an empty series with `configured: false`
+ * says exactly that. The page then shows the current score without a trend
+ * rather than an error banner about a file nobody asked for.
+ */
+export async function handleScorecardHistory(req: Request): Promise<Response> {
+  if (req.method.toUpperCase() !== 'GET') return new Response('Method Not Allowed', { status: 405 })
+  const auth = await getRequestUser(req)
+  if (!auth) return unauthorized()
+
+  const namespace = env('ADHAR_SCORECARDS_NAMESPACE') || DEFAULT_NAMESPACE
+  const configMap = `${env('ADHAR_SCORECARDS_CONFIGMAP') || DEFAULT_CONFIGMAP}-history`
+  const base: ScorecardHistory = { configured: false, namespace, configMap, entries: [] }
+
+  const id = await resolveIdentity(req)
+  if (!id) return withCookie(unauthorized('session_expired'), auth.refreshedCookie)
+
+  try {
+    const res = await apiServerFetch(
+      id,
+      `/api/v1/namespaces/${encodeURIComponent(namespace)}/configmaps/${encodeURIComponent(configMap)}`,
+    )
+    if (res.status === 404) {
+      await res.body?.cancel()
+      return withCookie(Response.json({ ...base, error: 'not_installed' }), auth.refreshedCookie)
+    }
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '')
+      const code = res.status === 401 || res.status === 403 ? 'forbidden' : 'apiserver_error'
+      return withCookie(
+        Response.json({ ...base, error: code, detail: detail.slice(0, 500) }, { status: res.status === 403 ? 403 : 502 }),
+        auth.refreshedCookie,
+      )
+    }
+    const cm = (await res.json()) as { data?: Record<string, string> }
+    const raw = cm.data?.['history.json']
+    if (!raw) return withCookie(Response.json({ ...base, error: 'unreadable' }), auth.refreshedCookie)
+    const parsed = JSON.parse(raw) as unknown
+    const entries = (Array.isArray(parsed) ? parsed : [])
+      .map(historyEntry)
+      .filter((e): e is ScorecardHistoryEntry => !!e)
+      .sort((a, b) => a.at.localeCompare(b.at))
+    return withCookie(
+      Response.json({ ...base, configured: entries.length > 0, entries }),
+      auth.refreshedCookie,
+    )
+  } catch (e) {
+    return withCookie(
+      Response.json({ ...base, error: 'apiserver_error', detail: e instanceof Error ? e.message : String(e) }, { status: 502 }),
+      auth.refreshedCookie,
+    )
+  }
+}
+
+/**
+ * `POST /api/scorecards/rerun` — score the platform now instead of waiting for
+ * the next half-hour tick.
+ *
+ * It does NOT re-implement scoring. It creates a Job from the scorer CronJob's
+ * own `jobTemplate`, which is how `kubectl create job --from=cronjob/…` works
+ * and is the only way to be sure a manual run and a scheduled run produce the
+ * same numbers. The scorer's `concurrencyPolicy: Forbid` applies to the
+ * schedule, not to this, so the handler refuses while one of its own runs is
+ * still active — two scorers racing on the same results ConfigMap is a
+ * last-writer-wins corruption of the very thing being read.
+ *
+ * Identity is the caller's: creating a Job requires `create jobs` in the
+ * namespace, so a viewer gets a 403 from the apiserver rather than from a rule
+ * invented here.
+ */
+export async function handleScorecardRerun(req: Request): Promise<Response> {
+  if (req.method.toUpperCase() !== 'POST') return new Response('Method Not Allowed', { status: 405 })
+  const auth = await getRequestUser(req)
+  if (!auth) return unauthorized()
+
+  const namespace = env('ADHAR_SCORECARDS_NAMESPACE') || DEFAULT_NAMESPACE
+  const cronName = env('ADHAR_SCORECARDS_CRONJOB') || DEFAULT_CRONJOB
+  const id = await resolveIdentity(req)
+  if (!id) return withCookie(unauthorized('session_expired'), auth.refreshedCookie)
+
+  const fail = (status: number, error: string, detail?: string) =>
+    withCookie(Response.json({ started: false, error, ...(detail ? { detail: detail.slice(0, 500) } : {}) }, { status }), auth.refreshedCookie)
+
+  try {
+    const cronRes = await apiServerFetch(
+      id,
+      `/apis/batch/v1/namespaces/${encodeURIComponent(namespace)}/cronjobs/${encodeURIComponent(cronName)}`,
+    )
+    if (cronRes.status === 404) {
+      await cronRes.body?.cancel()
+      return fail(404, 'not_installed', `CronJob ${namespace}/${cronName} not found — enable the "adhar-scorecards" package`)
+    }
+    if (!cronRes.ok) {
+      const detail = await cronRes.text().catch(() => '')
+      return fail(cronRes.status === 403 ? 403 : 502, cronRes.status === 403 ? 'forbidden' : 'apiserver_error', detail)
+    }
+    const cron = (await cronRes.json()) as {
+      metadata?: { uid?: string; name?: string }
+      spec?: { jobTemplate?: { metadata?: Record<string, unknown>; spec?: Record<string, unknown> } }
+    }
+    const template = cron.spec?.jobTemplate
+    if (!template?.spec) return fail(502, 'unreadable', 'CronJob has no jobTemplate.spec')
+
+    // An already-running manual job means the previous click is still working.
+    const active = await apiServerFetch(
+      id,
+      `/apis/batch/v1/namespaces/${encodeURIComponent(namespace)}/jobs`,
+      { search: `?labelSelector=${encodeURIComponent('adhar.io/scorecard-run=manual')}` },
+    )
+    if (active.ok) {
+      const list = (await active.json()) as { items?: Array<{ metadata?: { name?: string }; status?: { active?: number } }> }
+      const running = (list.items ?? []).find((j) => (j.status?.active ?? 0) > 0)
+      if (running) {
+        return withCookie(
+          Response.json({ started: false, error: 'already_running', job: running.metadata?.name }, { status: 409 }),
+          auth.refreshedCookie,
+        )
+      }
+    } else {
+      await active.body?.cancel()
+    }
+
+    const name = `${cronName}-manual-${Date.now().toString(36)}`
+    const tplMeta = (template.metadata ?? {}) as { labels?: Record<string, string>; annotations?: Record<string, string> }
+    const body = {
+      apiVersion: 'batch/v1',
+      kind: 'Job',
+      metadata: {
+        name,
+        namespace,
+        labels: {
+          ...(tplMeta.labels ?? {}),
+          'adhar.io/component': 'scorecards',
+          // Both the "is one running?" check above and any operator looking at
+          // the namespace need to tell a click apart from the schedule.
+          'adhar.io/scorecard-run': 'manual',
+        },
+        annotations: {
+          ...(tplMeta.annotations ?? {}),
+          'adhar.io/triggered-by': auth.user?.email || auth.user?.name || 'console',
+          'cronjob.kubernetes.io/instantiate': 'manual',
+        },
+        // Owned by the CronJob, exactly as `kubectl create job --from` does, so
+        // deleting the package cleans the manual runs up too.
+        ...(cron.metadata?.uid
+          ? {
+            ownerReferences: [{
+              apiVersion: 'batch/v1',
+              kind: 'CronJob',
+              name: cron.metadata.name ?? cronName,
+              uid: cron.metadata.uid,
+              controller: false,
+              blockOwnerDeletion: false,
+            }],
+          }
+          : {}),
+      },
+      spec: template.spec,
+    }
+
+    const created = await apiServerFetch(
+      id,
+      `/apis/batch/v1/namespaces/${encodeURIComponent(namespace)}/jobs`,
+      { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } },
+    )
+    if (!created.ok) {
+      const detail = await created.text().catch(() => '')
+      return fail(created.status === 403 ? 403 : 502, created.status === 403 ? 'forbidden' : 'apiserver_error', detail)
+    }
+    await created.body?.cancel()
+    return withCookie(Response.json({ started: true, job: name, namespace }), auth.refreshedCookie)
+  } catch (e) {
+    return fail(502, 'apiserver_error', e instanceof Error ? e.message : String(e))
+  }
+}

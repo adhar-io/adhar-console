@@ -12,7 +12,8 @@ import { ThreadsRail } from './threads.tsx'
 import { Transcript } from './transcript.tsx'
 import { Welcome } from './welcome.tsx'
 import { filterItems, flattenNav, looksLikeNavigation, type CommandItem } from './nav.ts'
-import { IconCanvas, IconExpand, IconKeyboard, IconPanelRight, IconShrink, IconSidebar, IconX, SparkIcon } from './icons.tsx'
+import { IconCanvas, IconExpand, IconKeyboard, IconPanelRight, IconShrink, IconSidebar, IconX } from './icons.tsx'
+import { AdharAiMark } from './mark.tsx'
 
 /**
  * Adhar AI — the surface.
@@ -312,13 +313,31 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
 
   const frame = (
     <>
-      {/* ═══ header ═══ */}
-      <header className="flex h-[52px] shrink-0 items-center gap-2 border-b border-edge-subtle bg-surface-raised/80 px-2 backdrop-blur sm:gap-3 sm:px-3.5">
+      {/*
+        ═══ header ═══
+
+        On the PAGE variant the identity block is not rendered. Reaching /ai
+        from the sidebar already puts "Adhar AI" in the nav and in the
+        breadcrumb, so a third title directly under the app's own topbar was a
+        second header bar saying what the first one said. The controls stay —
+        they are the only way to reach the conversation rail, the inspector and
+        the canvas — but the bar collapses to a borderless toolbar that reads as
+        part of the page rather than as a frame around it.
+
+        The OVERLAY keeps the full identity block: launched over whatever the
+        user was doing, it has to say what it is.
+      */}
+      <header
+        className={cn(
+          'flex shrink-0 items-center gap-2 sm:gap-3',
+          overlay
+            ? 'h-[52px] border-b border-edge-subtle bg-surface-raised/80 px-2 backdrop-blur sm:px-3.5'
+            : 'h-11 px-2 sm:px-3',
+        )}
+      >
         <IconToggle on={railOn('threads')} onClick={() => toggleRail('threads')} title="Conversations (⌘[)"><IconSidebar /></IconToggle>
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-brand-500 to-accent-500 text-white shadow-sm">
-          <SparkIcon size={15} />
-        </span>
-        <div className="min-w-0">
+        {overlay ? <AdharAiMark size={30} busy={state.busy} /> : null}
+        <div className={cn('min-w-0', !overlay && 'sr-only')}>
           <div className="flex items-center gap-1.5 text-[14px] font-semibold tracking-tight text-content">
             Adhar AI
             {state.configured ? <span className="hidden rounded bg-surface-sunken px-1 py-px font-mono text-[9px] font-medium uppercase tracking-wider text-content-subtle sm:inline">AG-UI</span> : null}

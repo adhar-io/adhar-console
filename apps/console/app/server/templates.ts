@@ -278,17 +278,23 @@ function extractTargets(doc: YamlValue): string[] {
  * Where Backstage templates live in Gitea — the single source of truth, used
  * by discovery here and by the scaffolder when it renders a skeleton.
  *
- * The platform installer copies `platform/stack/packages` wholesale into ONE
- * Gitea repo named `packages`, so the templates end up nested rather than in
- * a repo of their own. Both readers previously guessed a repo called
- * `adhar-templates` and a path of `templates/<id>`; neither has ever existed
- * on an install, and having two independent guesses is how they stayed wrong.
+ * `adhar/adhar-templates` is the platform's curated template collection: it is
+ * mirrored from github.com/adhar-io/adhar-templates by the `adhar-libraries`
+ * package, and its templates sit in `templates/<id>/template.yaml` alongside
+ * the `skeleton/` tree each one renders.
+ *
+ * This deliberately does NOT read the copies nested in the `packages` repo
+ * (`application/adhar-templates/...`). That tree is the stack package that
+ * SHIPS the mirror job; treating it as the catalogue meant the console listed a
+ * stale in-repo snapshot while the real, maintained collection — nine
+ * templates — never appeared. One collection, one location, and it is the
+ * upstream one.
  */
 export function templatesLocation(): { org: string; repo: string; path: string } {
   return {
     org: env('GITEA_TEMPLATES_ORG') || env('GITEA_ORG') || 'adhar',
-    repo: env('GITEA_TEMPLATES_REPO') || 'packages',
-    path: env('GITEA_TEMPLATES_PATH') ?? 'application/adhar-templates',
+    repo: env('GITEA_TEMPLATES_REPO') || 'adhar-templates',
+    path: env('GITEA_TEMPLATES_PATH') ?? 'templates',
   }
 }
 

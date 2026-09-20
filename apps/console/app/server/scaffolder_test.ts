@@ -1,9 +1,9 @@
 import { assertEquals } from 'jsr:@std/assert@^1.0.0'
 import { resolveTemplateSource } from './scaffolder.ts'
 
-// The repo the installer actually creates: `platform/stack/packages` is
-// copied wholesale into one Gitea repo called `packages`.
-const REPO = 'adhar/packages'
+// The curated template collection, mirrored from
+// github.com/adhar-io/adhar-templates by the `adhar-libraries` package.
+const REPO = 'adhar/adhar-templates'
 
 Deno.test('a golden path GENERATES — it is not a stored skeleton', () => {
   // The regression this exists for: `templateId: golden-microservice` used to
@@ -24,9 +24,9 @@ Deno.test('a golden path GENERATES — it is not a stored skeleton', () => {
 Deno.test('a templateId with no golden-path family renders the stored skeleton', () => {
   const r = resolveTemplateSource({ templateId: 'go-rest-service', templatesRepo: REPO })
   assertEquals(r.isBackstage, true)
-  // The real layout. This used to default to `templates/go-rest-service`,
-  // a path that exists on no install, so the render 404'd.
-  assertEquals(r.templatePath, 'application/adhar-templates/go-rest-service')
+  // The layout of the curated collection: templates/<id>/ holds template.yaml
+  // plus the skeleton/ tree it renders.
+  assertEquals(r.templatePath, 'templates/go-rest-service')
   assertEquals(r.goldenPath, undefined)
 })
 

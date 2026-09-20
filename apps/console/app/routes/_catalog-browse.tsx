@@ -41,6 +41,7 @@ import {
   type EntityEnvironment,
   useEntityDeployment,
 } from '~/data/catalog-deployment.ts'
+import { type EntityRoute, routeLabel, useEntityRoutes } from '~/data/catalog-routes.ts'
 import {
   CATEGORY_LABEL,
   CHECK_CATEGORIES,
@@ -3374,6 +3375,9 @@ function EntityDrawer({
     Boolean(repoUrl) ||
     Boolean(ann['adhar.io/argocd-app'] || ann['adhar.io/ci'] || ann['adhar.io/ci-pipeline'])
   const deployment = useEntityDeployment(entity, wantsDeploy)
+  // Where the thing actually IS. Asked for the same entities as the deployment
+  // query: a Group or a Domain has no HTTP surface, so it never hits the API.
+  const routes = useEntityRoutes(entity, wantsDeploy)
   const showDeploy = wantsDeploy || deployment.apps.length > 0
   const deployBadge =
     deployment.apps.length > 0
@@ -3492,6 +3496,7 @@ function EntityDrawer({
               <div className="space-y-5">
                 {active === 'overview' ? (
                   <>
+                    <EntityRoutesBar routes={routes.routes} onSeeAll={() => setTab('deploy')} />
                     {entity.metadata.links?.length ? (
                       <div className="flex flex-wrap gap-2">
                         {entity.metadata.links.map((l) => (
@@ -3603,7 +3608,12 @@ function EntityDrawer({
                 ) : null}
 
                 {active === 'deploy' ? (
-                  <DeploymentTab entity={entity} deployment={deployment} repoUrl={repoUrl} />
+                  <DeploymentTab
+                    entity={entity}
+                    deployment={deployment}
+                    repoUrl={repoUrl}
+                    routes={routes.routes}
+                  />
                 ) : null}
 
                 {active === 'tech' ? (
@@ -3860,19 +3870,176 @@ function DeploymentTab({
   entity,
   deployment,
   repoUrl,
+  routes,
 }: {
   entity: Entity
   deployment: EntityDeployment
   repoUrl?: string
+  routes: EntityRoute[]
 }) {
   return (
     <div className="space-y-5">
+      {/*
+        Endpoints first, repository second. The order is the question order: a
+        deployment tab is opened to find out where the running thing is, and the
+        source is how you change it. Both are on this tab so "what is live" and
+        "what produced it" are one glance apart.
+      */}
+      <EndpointsCard routes={routes} repoUrl={repoUrl} />
       <RepositoryCard entity={entity} repoUrl={repoUrl} primary={deployment.primary} />
       <EnvironmentsCard entity={entity} deployment={deployment} />
       <GitOpsCard entity={entity} deployment={deployment} />
       <PipelinesCard entity={entity} repoUrl={repoUrl} />
       <MonitoringCard entity={entity} />
     </div>
+  )
+}
+
+/**
+ * The Overview tab's primary action: open the running thing.
+ *
+ * This is the top of the drawer because it is the question the catalog is most
+ * often opened to answer, and until now the drawer could tell you a service was
+ * Healthy without telling you where it was — so people guessed hostnames or
+ * went digging in Argo CD's resource tree.
+ *
+ * One button, not a list. Additional hosts are summarised behind a count that
+ * jumps to the Deployment tab, where every URL is listed in full with its route
+ * and backend. A row of six equally-weighted links is not a primary action.
+ */
+function EntityRoutesBar({ routes, onSeeAll }: { routes: EntityRoute[]; onSeeAll(): void }) {
+  // No routes is a normal answer, not a failure: a library, a database or a
+  // queue consumer has no HTTP surface. Say nothing rather than showing an
+  // empty state for something that was never expected to exist.
+  if (!routes.length) return null
+  const [primary, ...rest] = routes
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <a
+        href={primary.url}
+        target="_blank"
+        rel="noreferrer"
+        className={cn(
+          'group inline-flex min-w-0 items-center gap-2 rounded-lg bg-brand-600 px-3.5 py-2',
+          'text-xs font-semibold text-white shadow-sm ring-1 ring-inset ring-white/10',
+          'transition-colors visited:text-white hover:bg-brand-700 hover:text-white',
+        )}
+        title={primary.url}
+      >
+        <IconGlobe />
+        <span className="truncate">Open {routeLabel(primary)}</span>
+        <IconArrowUpRight />
+      </a>
+      <CopyButton text={primary.url} />
+      {rest.length ? (
+        <button
+          type="button"
+          onClick={onSeeAll}
+          className="rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300"
+        >
+          +{rest.length} more {rest.length === 1 ? 'endpoint' : 'endpoints'}
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * Every URL the entity answers on, in full.
+ *
+ * Full URLs, not hostnames: a path-prefixed route (`/api`) is a different
+ * endpoint from the root, and a truncated display is not something anyone can
+ * copy into a terminal or a ticket.
+ *
+ * Each row states HOW the route was attributed — a `backendRefs` entry naming
+ * the entity's Service is the cluster asserting the link, while a name match is
+ * a guess this console made. Showing that distinction is what lets someone trust
+ * or discount the row instead of wondering why an unrelated URL appeared.
+ */
+function EndpointsCard({ routes, repoUrl }: { routes: EntityRoute[]; repoUrl?: string }) {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <IconGlobe />
+            <h3 className="text-sm font-semibold text-content">Endpoints</h3>
+            {routes.length ? (
+              <span className="rounded-full bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-content-muted">
+                {routes.length}
+              </span>
+            ) : null}
+          </div>
+          {repoUrl ? (
+            <a
+              href={repoUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300"
+              title={repoUrl}
+            >
+              <IconGit />
+              Source
+              <IconArrowUpRight />
+            </a>
+          ) : null}
+        </div>
+      </CardHeader>
+      <CardBody className="space-y-2">
+        {routes.length === 0 ? (
+          <EmptyState
+            compact
+            title="No public endpoint"
+            description={
+              <>
+                Nothing routes to this entity yet. A golden-path service gets its{' '}
+                <code>HTTPRoute</code> from <code>deploy/</code>; a worker or library
+                legitimately has none.
+              </>
+            }
+          />
+        ) : (
+          routes.map((r) => (
+            <div
+              key={r.url}
+              className="flex items-center gap-2 rounded-lg border border-edge-subtle bg-surface-sunken px-3 py-2"
+            >
+              <span
+                className={cn(
+                  'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium',
+                  r.via === 'backend'
+                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300'
+                    : 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300',
+                )}
+                title={
+                  r.via === 'backend'
+                    ? `Matched by backendRefs -> Service/${r.service ?? '?'}`
+                    : 'Matched by route name only — verify this belongs to this entity'
+                }
+              >
+                {r.via === 'backend' ? 'backend' : 'by name'}
+              </span>
+              <a
+                href={r.url}
+                target="_blank"
+                rel="noreferrer"
+                className="min-w-0 flex-1 truncate font-mono text-[11px] text-brand-700 hover:underline dark:text-brand-300"
+                title={r.url}
+              >
+                {r.url}
+              </a>
+              <code
+                className="hidden shrink-0 font-mono text-[10px] text-content-subtle sm:inline"
+                title={`${r.kind} ${r.namespace}/${r.name}`}
+              >
+                {r.kind}
+              </code>
+              <CopyButton text={r.url} />
+            </div>
+          ))
+        )}
+      </CardBody>
+    </Card>
   )
 }
 
@@ -5543,6 +5710,23 @@ const Svg14 = ({ children }: { children: React.ReactNode }) => (
     {children}
   </svg>
 )
+
+function IconGlobe({ size = 14 }: { size?: number } = {}) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" />
+    </svg>
+  )
+}
+
+function IconArrowUpRight({ size = 12 }: { size?: number } = {}) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0 opacity-70">
+      <path d="M7 17 17 7M9 7h8v8" />
+    </svg>
+  )
+}
 
 function IconGit() {
   return (

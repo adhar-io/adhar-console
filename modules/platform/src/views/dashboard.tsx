@@ -129,6 +129,36 @@ export function PlatformDashboard() {
   const pressure = countNodePressure(nodes.data ?? [])
   const pendingPods = (pods.data ?? []).filter((p) => p.status?.phase === 'Pending')
   const failedPods = (pods.data ?? []).filter((p) => p.status?.phase === 'Failed')
+
+  // Nine more signals, all derived from state the apiserver already returned to
+  // the queries above — no new requests, no metrics-server dependency.
+  //
+  // The first six tiles answered "is the cluster up". These answer "is anything
+  // quietly broken", which is the class of problem that does not show up in a
+  // node condition or a pod phase: a container that crash-loops is `Running`,
+  // a pod that fails its readiness probe is `Running`, an image that cannot be
+  // pulled is `Pending` (already counted) but says nothing about WHY, and a
+  // Deployment stuck at 1 of 3 replicas is none of the above.
+  const containers = containerSignals(pods.data as PodWithContainers[] | undefined)
+  const unboundPvcs = (pvcs.data as PvcWithMeta[] | undefined ?? []).filter((p) => p.status?.phase !== 'Bound')
+  const cordoned = (nodes.data as NodeWithSpec[] | undefined ?? []).filter((n) => n.spec?.unschedulable === true)
+  const failedJobs = (jobs.data as JobWithStatus[] | undefined ?? []).filter(
+    (j) => (j.status?.failed ?? 0) > 0 && !(j.status?.succeeded ?? 0),
+  )
+  const degradedWorkloads = underReplicated(
+    deployments.data as ReplicaWorkload[] | undefined,
+    statefulSets.data as ReplicaWorkload[] | undefined,
+  )
+  const skewed = kubeletSkew(nodes.data as NodeWithSpec[] | undefined, version.data?.gitVersion)
+
+  // Rose tiles are "something is broken now"; amber tiles are "something will
+  // break". The card's badge reports both counts so it cannot claim healthy
+  // while a tile below it is red.
+  const critical = notReadyNodes.length + failedPods.length + containers.crashLoop.length +
+    containers.imagePull.length + containers.oomKilled.length + failedJobs.length
+  const warning = pressure.memory + pressure.disk + pressure.pid + pendingPods.length +
+    containers.restarting.length + containers.notReady.length + degradedWorkloads.length +
+    unboundPvcs.length + cordoned.length + skewed.length
   const recentWarnings = (events.data ?? [])
     .filter((e) => e.type === 'Warning')
     .sort(byNewest)
@@ -197,23 +227,20 @@ export function PlatformDashboard() {
               <div>
                 <div className="text-sm font-semibold text-content">Cluster health signals</div>
                 <div className="text-[11px] text-content-subtle">
-                  Node conditions + pod phases, live from the apiserver
+                  Node conditions, pod phases and container state — live from the apiserver
                 </div>
               </div>
-              <StatusBadge
-                kind={
-                  notReadyNodes.length + failedPods.length > 0
-                    ? 'failed'
-                    : pressure.memory + pressure.disk + pressure.pid + pendingPods.length > 0
-                      ? 'degraded'
-                      : 'healthy'
-                }
-              >
-                {notReadyNodes.length + failedPods.length > 0
-                  ? 'attention'
-                  : pressure.memory + pressure.disk + pressure.pid + pendingPods.length > 0
-                    ? 'degraded'
-                    : 'healthy'}
+              {/*
+                The badge summarises every tile, not the first six. A cluster
+                with a crash-looping container and no node problems used to read
+                "healthy" here while the tile beside it was red.
+              */}
+              <StatusBadge kind={signalSeverity(critical, warning)}>
+                {critical > 0
+                  ? `attention · ${critical}`
+                  : warning > 0
+                  ? `degraded · ${warning}`
+                  : 'healthy'}
               </StatusBadge>
             </div>
           </CardHeader>
@@ -223,21 +250,112 @@ export function PlatformDashboard() {
               count={notReadyNodes.length}
               names={notReadyNodes.map((n) => n.metadata.name)}
               severity="rose"
+              hint="Nodes whose kubelet is not reporting Ready=True. Pods on them are not being scheduled or are already being evicted."
             />
-            <SignalTile label="Memory pressure" count={pressure.memory} names={pressure.memoryNames} severity="amber" />
-            <SignalTile label="Disk pressure" count={pressure.disk} names={pressure.diskNames} severity="amber" />
-            <SignalTile label="PID pressure" count={pressure.pid} names={pressure.pidNames} severity="amber" />
+            <SignalTile
+              label="Memory pressure"
+              count={pressure.memory}
+              names={pressure.memoryNames}
+              severity="amber"
+              hint="MemoryPressure=True: the kubelet is reclaiming and will start evicting the lowest-priority pods on these nodes."
+            />
+            <SignalTile
+              label="Disk pressure"
+              count={pressure.disk}
+              names={pressure.diskNames}
+              severity="amber"
+              hint="DiskPressure=True: image garbage collection is running and new pulls on these nodes will fail."
+            />
+            <SignalTile
+              label="PID pressure"
+              count={pressure.pid}
+              names={pressure.pidNames}
+              severity="amber"
+              hint="PIDPressure=True: these nodes are near their process limit and cannot fork new containers."
+            />
             <SignalTile
               label="Pending pods"
               count={pendingPods.length}
               names={pendingPods.map((p) => p.metadata.name)}
               severity="amber"
+              hint="Admitted but not placed — usually no node satisfies the request, or a volume cannot be attached."
             />
             <SignalTile
               label="Failed pods"
               count={failedPods.length}
               names={failedPods.map((p) => p.metadata.name)}
               severity="rose"
+              hint="Terminated without success and not restarted. Argo CD will not clear these; they need deleting or a fix."
+            />
+            <SignalTile
+              label="Crash looping"
+              count={containers.crashLoop.length}
+              names={containers.crashLoop}
+              severity="rose"
+              hint="Containers in CrashLoopBackOff. The pod phase stays Running, so this never appears as a failed pod."
+            />
+            <SignalTile
+              label="Image pull failing"
+              count={containers.imagePull.length}
+              names={containers.imagePull}
+              severity="rose"
+              hint="ImagePullBackOff or ErrImagePull — a missing tag, a private registry with no pull secret, or certs.d trust not in place on the node."
+            />
+            <SignalTile
+              label="OOMKilled"
+              count={containers.oomKilled.length}
+              names={containers.oomKilled}
+              severity="rose"
+              hint="Containers whose last termination was OOMKilled: the memory limit is below what the process actually needs."
+            />
+            <SignalTile
+              label="Restart churn"
+              count={containers.restarting.length}
+              names={containers.restarting}
+              severity="amber"
+              hint="Containers with 5 or more restarts. Often a probe that is too tight rather than a broken process."
+            />
+            <SignalTile
+              label="Running, not ready"
+              count={containers.notReady.length}
+              names={containers.notReady}
+              severity="amber"
+              hint="Pods Running with Ready=False — failing a readiness probe, so they are receiving no Service traffic."
+            />
+            <SignalTile
+              label="Under-replicated"
+              count={degradedWorkloads.length}
+              names={degradedWorkloads}
+              severity="amber"
+              hint="Deployments and StatefulSets with fewer ready replicas than desired — degraded, but still serving."
+            />
+            <SignalTile
+              label="Failed jobs"
+              count={failedJobs.length}
+              names={failedJobs.map((j) => j.metadata.name)}
+              severity="rose"
+              hint="Jobs with a failed pod and no success. A migration, backup or scorer run that did not complete."
+            />
+            <SignalTile
+              label="Unbound PVCs"
+              count={unboundPvcs.length}
+              names={unboundPvcs.map((p) => p.metadata.name)}
+              severity="amber"
+              hint="Claims not Bound: no matching volume, an absent StorageClass, or the CSI driver's attach limit reached."
+            />
+            <SignalTile
+              label="Cordoned nodes"
+              count={cordoned.length}
+              names={cordoned.map((n) => n.metadata.name)}
+              severity="amber"
+              hint="Nodes marked unschedulable. Expected during an upgrade or a drain; otherwise capacity is silently missing."
+            />
+            <SignalTile
+              label="Kubelet skew"
+              count={skewed.length}
+              names={skewed}
+              severity="amber"
+              hint="Nodes whose kubelet minor version differs from the control plane. Supported for one minor only — beyond that, behaviour is undefined."
             />
           </CardBody>
         </Card>
@@ -607,11 +725,18 @@ function SignalTile({
   count,
   names,
   severity,
+  hint,
 }: {
   label: string
   count: number
   names: string[]
   severity: 'amber' | 'rose'
+  /**
+   * What the signal MEANS and what it usually indicates. Sixteen tiles of bare
+   * numbers is a wall, not a dashboard: the hint is what turns "Restart churn:
+   * 7" into something the reader can act on without going to look it up.
+   */
+  hint?: string
 }) {
   const ok = count === 0
   const countCls = ok
@@ -620,9 +745,17 @@ function SignalTile({
       ? 'text-rose-700 dark:text-rose-300'
       : 'text-amber-700 dark:text-amber-300'
   return (
-    <div className="rounded-md border border-edge-subtle bg-surface-sunken/40 p-2.5">
+    <div
+      className={cn(
+        'rounded-md border border-edge-subtle bg-surface-sunken/40 p-2.5 transition-colors',
+        !ok && (severity === 'rose' ? 'border-rose-200 dark:border-rose-500/25' : 'border-amber-200 dark:border-amber-500/25'),
+      )}
+    >
       <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+        <span
+          className="truncate text-[10px] font-semibold uppercase tracking-wider text-content-subtle"
+          title={hint}
+        >
           {label}
         </span>
         <span
@@ -634,9 +767,12 @@ function SignalTile({
       </div>
       <div className={cn('mt-1 text-base font-semibold tabular-nums', countCls)}>{count}</div>
       {ok ? (
-        <div className="text-[10px] text-content-subtle">none</div>
+        <div className="truncate text-[10px] text-content-subtle" title={hint}>none</div>
       ) : (
-        <div className="truncate font-mono text-[10px] text-content-muted" title={names.join(', ')}>
+        <div
+          className="truncate font-mono text-[10px] text-content-muted"
+          title={`${names.join(', ')}${hint ? `\n\n${hint}` : ''}`}
+        >
           {names.slice(0, 2).join(', ')}
           {names.length > 2 ? ` +${names.length - 2}` : ''}
         </div>
@@ -1287,3 +1423,153 @@ function IconArrow() {
 
 // Sparkline kept in scope for future per-node trend charts.
 export const _pin = { Sparkline }
+
+
+/* ─────────── container-level health signals ─────────── */
+
+interface PodWithContainers {
+  metadata: { name: string; namespace?: string }
+  status?: {
+    phase?: string
+    conditions?: Array<{ type: string; status: string }>
+    containerStatuses?: Array<{
+      name?: string
+      ready?: boolean
+      restartCount?: number
+      state?: { waiting?: { reason?: string } }
+      lastState?: { terminated?: { reason?: string } }
+    }>
+  }
+}
+
+interface PvcWithMeta {
+  metadata: { name: string }
+  status?: { phase?: string }
+}
+
+interface NodeWithSpec {
+  metadata: { name: string }
+  spec?: { unschedulable?: boolean }
+  status?: { nodeInfo?: { kubeletVersion?: string } }
+}
+
+interface JobWithStatus {
+  metadata: { name: string }
+  status?: { failed?: number; succeeded?: number }
+}
+
+interface ReplicaWorkload {
+  metadata: { name: string }
+  spec?: { replicas?: number }
+  status?: { readyReplicas?: number }
+}
+
+/** `namespace/pod` — a bare pod name is ambiguous across namespaces. */
+function podRef(p: { metadata: { name: string; namespace?: string } }): string {
+  return p.metadata.namespace ? `${p.metadata.namespace}/${p.metadata.name}` : p.metadata.name
+}
+
+/** Restart count at which churn stops being noise. */
+const RESTART_CHURN_THRESHOLD = 5
+
+/**
+ * The failures that hide INSIDE a Running pod.
+ *
+ * A pod whose container is in CrashLoopBackOff has `phase: Running`; so does one
+ * failing its readiness probe, and one that was OOMKilled and restarted. None of
+ * them appear in the pod-phase counts, which is why a cluster can show zero
+ * failed pods while a service is completely down.
+ *
+ * One pass over the pods already fetched — the container statuses are on the
+ * objects the dashboard has, so this costs nothing extra.
+ */
+function containerSignals(pods: PodWithContainers[] | undefined) {
+  const crashLoop: string[] = []
+  const imagePull: string[] = []
+  const oomKilled: string[] = []
+  const restarting: string[] = []
+  const notReady: string[] = []
+
+  for (const p of pods ?? []) {
+    const ref = podRef(p)
+    const statuses = p.status?.containerStatuses ?? []
+
+    for (const c of statuses) {
+      const waiting = c.state?.waiting?.reason ?? ''
+      if (waiting === 'CrashLoopBackOff') crashLoop.push(ref)
+      if (waiting === 'ImagePullBackOff' || waiting === 'ErrImagePull') imagePull.push(ref)
+      if (c.lastState?.terminated?.reason === 'OOMKilled') oomKilled.push(ref)
+      if ((c.restartCount ?? 0) >= RESTART_CHURN_THRESHOLD) restarting.push(ref)
+    }
+
+    // Running but not Ready is a readiness-probe failure, and it matters more
+    // than it looks: the pod is receiving no Service traffic while reporting a
+    // phase that reads as fine. Succeeded/Failed pods are excluded — a completed
+    // Job pod is legitimately not Ready and is not a problem.
+    if (p.status?.phase === 'Running') {
+      const ready = (p.status.conditions ?? []).find((c) => c.type === 'Ready')
+      if (ready && ready.status !== 'True') notReady.push(ref)
+    }
+  }
+
+  // A pod with three crash-looping containers is one problem to investigate.
+  const uniq = (xs: string[]) => [...new Set(xs)]
+  return {
+    crashLoop: uniq(crashLoop),
+    imagePull: uniq(imagePull),
+    oomKilled: uniq(oomKilled),
+    restarting: uniq(restarting),
+    notReady: uniq(notReady),
+  }
+}
+
+/**
+ * Deployments and StatefulSets serving fewer replicas than asked for.
+ *
+ * Scaled to zero is not degraded — nothing is expected to run — which is the
+ * same rule `workloadHealth` applies, deliberately: two different definitions of
+ * "healthy workload" on one page is how a dashboard loses trust.
+ */
+function underReplicated(
+  deployments: ReplicaWorkload[] | undefined,
+  statefulSets: ReplicaWorkload[] | undefined,
+): string[] {
+  const out: string[] = []
+  for (const w of [...(deployments ?? []), ...(statefulSets ?? [])]) {
+    const desired = w.spec?.replicas ?? 0
+    if (desired > 0 && (w.status?.readyReplicas ?? 0) < desired) out.push(w.metadata.name)
+  }
+  return out
+}
+
+/**
+ * Nodes whose kubelet minor version differs from the control plane.
+ *
+ * Kubernetes supports a kubelet at most one minor BEHIND the apiserver; beyond
+ * that, and in front of it at all, behaviour is undefined. A half-finished
+ * upgrade or a node the autoscaler added from a stale image shows up here and
+ * nowhere else.
+ */
+function kubeletSkew(nodes: NodeWithSpec[] | undefined, serverVersion: string | undefined): string[] {
+  const control = minorOf(serverVersion)
+  if (control === null) return []
+  const out: string[] = []
+  for (const n of nodes ?? []) {
+    const m = minorOf(n.status?.nodeInfo?.kubeletVersion)
+    if (m !== null && m !== control) out.push(`${n.metadata.name} (${n.status?.nodeInfo?.kubeletVersion})`)
+  }
+  return out
+}
+
+/** `v1.37.0+abc` → 37. Null when the string is not a recognisable version. */
+function minorOf(v: string | undefined): number | null {
+  const m = /^v?(\d+)\.(\d+)/.exec((v ?? '').trim())
+  return m ? Number(m[2]) : null
+}
+
+/** One badge kind for the whole signals card. */
+function signalSeverity(critical: number, warning: number): 'failed' | 'degraded' | 'healthy' {
+  if (critical > 0) return 'failed'
+  if (warning > 0) return 'degraded'
+  return 'healthy'
+}

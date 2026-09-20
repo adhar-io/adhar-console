@@ -779,3 +779,131 @@ export function platformCategoryAverages(
     }
   })
 }
+
+/* ─────────── scorer history + manual re-evaluation ─────────── */
+
+/**
+ * One past scorer run. Compact by design — see `~/server/scorecards.ts` for why
+ * the full per-signal ledger is kept for the current run only.
+ */
+export interface ScorecardHistoryEntry {
+  at: string
+  serviceCount: number
+  averageScore?: number
+  grades: Partial<Record<Grade, number>>
+  services: Record<string, { score: number; grade: Grade }>
+}
+
+export interface ScorecardHistoryState {
+  configured: boolean
+  entries: ScorecardHistoryEntry[]
+  error?: string
+}
+
+/**
+ * `GET /api/scorecards/history` — the scorer's rolling series.
+ *
+ * A platform that has run the scorer once has no trend yet, and that is not an
+ * error: `configured: false` with an empty series is the honest answer and the
+ * page simply shows no sparkline.
+ */
+export function useScorecardHistory() {
+  return useQuery({
+    queryKey: ['platform-scorecards', 'history'],
+    queryFn: async (): Promise<ScorecardHistoryState> => {
+      const res = await fetch('/api/scorecards/history', {
+        headers: { accept: 'application/json' },
+        credentials: 'same-origin',
+      })
+      if (!res.ok && res.status !== 403) throw new Error(`history: ${res.status}`)
+      const body = (await res.json()) as ScorecardHistoryState
+      return {
+        configured: body.configured === true,
+        entries: Array.isArray(body.entries) ? body.entries : [],
+        ...(body.error ? { error: body.error } : {}),
+      }
+    },
+    refetchInterval: 300_000,
+    staleTime: 120_000,
+    retry: false,
+    placeholderData: keepPreviousData,
+  })
+}
+
+/** What one service's score did over the retained window. */
+export interface ScoreTrend {
+  /** Oldest → newest, for a sparkline. */
+  points: number[]
+  first?: number
+  last?: number
+  /** `last - first`, or undefined with fewer than two runs. */
+  delta?: number
+}
+
+export function serviceTrend(entries: ScorecardHistoryEntry[], service: string): ScoreTrend {
+  const points: number[] = []
+  for (const e of entries) {
+    const v = e.services[service]
+    if (v && Number.isFinite(v.score)) points.push(v.score)
+  }
+  if (!points.length) return { points: [] }
+  const first = points[0]
+  const last = points[points.length - 1]
+  return { points, first, last, ...(points.length > 1 ? { delta: last - first } : {}) }
+}
+
+/** The platform-wide average over the retained window. */
+export function averageTrend(entries: ScorecardHistoryEntry[]): ScoreTrend {
+  const points = entries
+    .map((e) => e.averageScore)
+    .filter((n): n is number => typeof n === 'number' && Number.isFinite(n))
+  if (!points.length) return { points: [] }
+  const first = points[0]
+  const last = points[points.length - 1]
+  return { points, first, last, ...(points.length > 1 ? { delta: last - first } : {}) }
+}
+
+export interface RerunResult {
+  started: boolean
+  job?: string
+  error?: string
+  detail?: string
+}
+
+/**
+ * `POST /api/scorecards/rerun` — run the scorer now.
+ *
+ * Deliberately not a react-query mutation wrapper: the caller needs the outcome
+ * (started / already running / forbidden) to say something specific, and a
+ * thrown error would flatten those into one failure.
+ */
+export async function rerunScorecards(): Promise<RerunResult> {
+  try {
+    const res = await fetch('/api/scorecards/rerun', {
+      method: 'POST',
+      headers: { accept: 'application/json' },
+      credentials: 'same-origin',
+    })
+    const body = (await res.json().catch(() => ({}))) as RerunResult
+    return { started: body.started === true, ...body }
+  } catch (e) {
+    return { started: false, error: 'network', detail: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/** Human sentence for a rerun outcome — one place, so every caller agrees. */
+export function rerunMessage(r: RerunResult): string {
+  if (r.started) return 'Scoring started — results appear here when the job finishes (about a minute).'
+  switch (r.error) {
+    case 'already_running':
+      return 'A scoring run is already in progress.'
+    case 'forbidden':
+      return 'You do not have permission to start a scoring run in this namespace.'
+    case 'not_installed':
+      return 'The adhar-scorecards package is not installed on this cluster.'
+    case 'network':
+      return 'Could not reach the console API.'
+    default:
+      return r.detail ? `Could not start scoring: ${r.detail}` : 'Could not start scoring.'
+  }
+}

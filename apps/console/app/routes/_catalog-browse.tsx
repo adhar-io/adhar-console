@@ -2961,13 +2961,35 @@ function EntityCard({
           onClick()
         }
       }}
-      className="group relative flex h-full flex-col items-stretch overflow-hidden rounded-xl border border-edge-default bg-surface-raised text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-300/70 hover:shadow-md focus-visible:outline-2 focus-visible:outline-brand-500"
+      className={cn(
+        'group relative flex h-full flex-col items-stretch overflow-hidden rounded-xl text-left',
+        // A card is a raised surface, so it gets a hairline ring and a soft
+        // shadow rather than a 1px border. The border read as a table cell at
+        // five-across, and the grid looked like a spreadsheet.
+        'border border-edge-default bg-surface-raised shadow-sm ring-1 ring-black/[0.02] dark:ring-white/[0.03]',
+        'transition-[transform,box-shadow,border-color] duration-200 ease-out',
+        'hover:-translate-y-0.5 hover:border-brand-300/70 hover:shadow-lg hover:shadow-brand-900/5',
+        'active:translate-y-0 active:duration-75 motion-reduce:transform-none motion-reduce:transition-none',
+        'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500',
+      )}
     >
+      {/*
+        A soft top highlight. One CSS gradient is what separates a surface that
+        looks lit from a flat swatch, and it costs nothing — no extra element in
+        the accessibility tree, no layout.
+      */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-white/50 to-transparent dark:via-white/10"
+      />
       {entity.spec.lifecycle ? (
         <span
           aria-hidden
           className={cn(
-            'absolute inset-y-0 left-0 w-1',
+            // Wider and rounded at the inner edge so it reads as a deliberate
+            // spine rather than a clipped border, and it brightens on hover so
+            // the lifecycle is part of the card's response to the pointer.
+            'absolute inset-y-0 left-0 w-1 rounded-r-full opacity-80 transition-opacity duration-200 group-hover:opacity-100',
             LIFECYCLE_ACCENT[entity.spec.lifecycle],
           )}
         />
@@ -3072,7 +3094,17 @@ function EntityCard({
         <QuickLinks links={links} monitorUrl={entity.kind === 'Component' || entity.kind === 'Resource' ? monitorUrl : undefined} />
         <div className="flex shrink-0 items-center gap-2">
           <ScoreBadge score={score} />
-          <span className="font-mono text-[10px] uppercase tracking-wider text-content-subtle opacity-0 transition-opacity group-hover:text-brand-700 dark:group-hover:text-brand-300 group-hover:opacity-100">
+          <span
+            className={cn(
+              'font-mono text-[10px] uppercase tracking-wider text-content-subtle',
+              // Translate as well as fade: motion toward the edge the drawer
+              // opens from reads as an invitation, where a fade alone just
+              // appears.
+              'translate-x-1 opacity-0 transition-[opacity,transform,color] duration-200',
+              'group-hover:translate-x-0 group-hover:text-brand-700 group-hover:opacity-100 dark:group-hover:text-brand-300',
+              'motion-reduce:transform-none motion-reduce:transition-none',
+            )}
+          >
             open →
           </span>
         </div>
@@ -3431,7 +3463,19 @@ function EntityDrawer({
         onClick={onClose}
       />
       <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
+        {/*
+          The header is the drawer's anchor: it stays while the tabs change under
+          it, so it carries a tint and a lifecycle spine of its own. Flat and
+          borderless, it read as the first row of the content rather than as the
+          frame around it.
+        */}
+        <header className="relative flex items-start justify-between gap-4 overflow-hidden border-b border-edge-default bg-linear-to-b from-surface-raised to-surface-raised/60 px-6 py-4">
+          {entity.spec.lifecycle ? (
+            <span
+              aria-hidden
+              className={cn('absolute inset-y-0 left-0 w-1', LIFECYCLE_ACCENT[entity.spec.lifecycle])}
+            />
+          ) : null}
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wider text-content-subtle">
               <KindGlyph kind={entity.kind} type={entity.spec.type} />
@@ -3451,7 +3495,12 @@ function EntityDrawer({
             <h2 className="mt-1 truncate text-xl font-semibold text-content">
               {entity.metadata.title ?? entity.metadata.name}
             </h2>
-            <div className="mt-1 font-mono text-[11px] text-content-muted">{entityRef(entity)}</div>
+            <div className="mt-1 flex items-center gap-1.5">
+              <span className="truncate font-mono text-[11px] text-content-muted">{entityRef(entity)}</span>
+              {/* The ref is what goes into a template, an annotation or a
+                  ticket, so it should not have to be retyped from the screen. */}
+              <CopyButton text={entityRef(entity)} />
+            </div>
             {stack.length ? (
               <div className="mt-2">
                 <TechBadges stack={stack} max={8} />

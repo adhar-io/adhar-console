@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { createFileRoute } from '@tanstack/react-router'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   AppShell,
+  AreaChart,
   Card,
   CardBody,
   CardHeader,
@@ -30,11 +32,17 @@ import {
   type PlatformService,
   platformCategoryAverages,
   platformSignalLabel,
+  averageTrend,
+  rerunMessage,
+  rerunScorecards,
   SCORE_SOURCE_LABEL,
   SCOREABLE_KINDS,
   type Scorecard,
   type ScoreSource,
+  type ScorecardHistoryEntry,
+  serviceTrend,
   useLiveScorecards,
+  useScorecardHistory,
 } from '~/data/scorecard.ts'
 
 /**
@@ -91,6 +99,12 @@ type SortKey = 'score-asc' | 'score-desc' | 'name' | 'owner'
 
 function ScorecardsDashboard() {
   const { scorecards, isLoading, offline, live, platform } = useLiveScorecards()
+  // The scorer's rolling series. A single score answers "how are we doing"; only
+  // a series answers "are we getting better", which is the question a readiness
+  // programme is actually run to answer.
+  const history = useScorecardHistory()
+  const historyEntries = history.data?.entries ?? []
+  const queryClient = useQueryClient()
   const [grade, setGrade] = useState<GradeFilter>('all')
   const [kind, setKind] = useState<KindFilter>('all')
   const [category, setCategory] = useState<CategoryFilter>('all')
@@ -290,7 +304,15 @@ function ScorecardsDashboard() {
         }
       />
 
-      <PlatformStrip platform={platform} averages={platformAverages} />
+      <PlatformStrip
+        platform={platform}
+        averages={platformAverages}
+        history={historyEntries}
+        // One invalidation covers both queries: the history key is nested under
+        // the same ['platform-scorecards'] prefix, so a finished run refreshes
+        // the score and the trend together rather than leaving them disagreeing.
+        onRefetch={() => void queryClient.invalidateQueries({ queryKey: ['platform-scorecards'] })}
+      />
 
       <section className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
         <SummaryTile
@@ -461,7 +483,15 @@ function ScorecardsDashboard() {
         }
       />
 
-      {selected ? <ScorecardDrawer card={selected} onClose={() => setSelected(null)} /> : null}
+      {selected
+        ? (
+          <ScorecardDrawer
+            card={selected}
+            history={historyEntries}
+            onClose={() => setSelected(null)}
+          />
+        )
+        : null}
     </>
   )
 }
@@ -619,7 +649,15 @@ function CategoryBars({ card }: { card: Scorecard }) {
 
 /* ─────────── drawer: full check breakdown ─────────── */
 
-function ScorecardDrawer({ card, onClose }: { card: Scorecard; onClose(): void }) {
+function ScorecardDrawer({
+  card,
+  history,
+  onClose,
+}: {
+  card: Scorecard
+  history: ScorecardHistoryEntry[]
+  onClose(): void
+}) {
   const closeBtnRef = useRef<HTMLButtonElement>(null)
   const failing = card.checks.filter((c) => !c.pass)
   const topFixes = [...failing].sort((a, b) => b.weight - a.weight).slice(0, 3)
@@ -689,6 +727,7 @@ function ScorecardDrawer({ card, onClose }: { card: Scorecard; onClose(): void }
 
         <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
           {card.platform ? <PlatformPanel service={card.platform} card={card} /> : null}
+          {card.platform ? <ScoreHistoryCard service={card.platform.name} history={history} /> : null}
 
           {topFixes.length ? (
             <Card>
@@ -840,9 +879,13 @@ function formatWhen(iso: string | undefined): { label: string; title: string } |
 function PlatformStrip({
   platform,
   averages,
+  history,
+  onRefetch,
 }: {
   platform: PlatformScorecardsState
   averages: Array<{ cat: (typeof PLATFORM_CATEGORIES)[number]; score: number | null; count: number }>
+  history: ScorecardHistoryEntry[]
+  onRefetch(): void
 }) {
   if (platform.isLoading && !platform.configured) return null
 
@@ -881,6 +924,7 @@ function PlatformStrip({
   }
 
   const when = formatWhen(platform.lastRun)
+  const trend = averageTrend(history)
   const weightTotal = platform.weights
     ? PLATFORM_CATEGORIES.reduce((sum, c) => sum + (platform.weights?.[c] ?? 0), 0)
     : 0
@@ -904,12 +948,16 @@ function PlatformStrip({
             </span>
           ) : null}
         </div>
-        <span className="text-[11px] text-content-subtle" title={when?.title}>
-          {when ? `last run ${when.label}` : 'last run unknown'}
-          {platform.gradeThresholds
-            ? ` · A ≥ ${platform.gradeThresholds.A} · B ≥ ${platform.gradeThresholds.B} · C ≥ ${platform.gradeThresholds.C} · D ≥ ${platform.gradeThresholds.D}`
-            : ''}
-        </span>
+        <div className="flex flex-wrap items-center gap-3">
+          <TrendChip trend={trend} runs={history.length} label="platform average" />
+          <span className="text-[11px] text-content-subtle" title={when?.title}>
+            {when ? `last run ${when.label}` : 'last run unknown'}
+            {platform.gradeThresholds
+              ? ` · A ≥ ${platform.gradeThresholds.A} · B ≥ ${platform.gradeThresholds.B} · C ≥ ${platform.gradeThresholds.C} · D ≥ ${platform.gradeThresholds.D}`
+              : ''}
+          </span>
+          <RerunButton onDone={onRefetch} />
+        </div>
       </div>
       <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
         {averages.map(({ cat, score, count }) => {
@@ -946,6 +994,255 @@ function PlatformStrip({
         })}
       </div>
     </section>
+  )
+}
+
+/**
+ * Run the scorer now.
+ *
+ * The scorer's schedule is every 30 minutes, which is right for a background
+ * grade and wrong for the moment someone has just fixed a probe and wants to see
+ * the score move. Without this the only options were to wait or to go and create
+ * a Job by hand.
+ *
+ * The button reports what actually happened rather than optimistically claiming
+ * success: a run already in flight, a namespace the user cannot create Jobs in
+ * and a missing package are three different answers and each is actionable.
+ */
+function RerunButton({ onDone }: { onDone(): void }) {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  // The job takes about a minute; poll a few times so the new score arrives
+  // without the user reloading. Cleared on unmount so a navigation mid-run does
+  // not keep firing invalidations at a page that is gone.
+  const timers = useRef<number[]>([])
+  useEffect(() => () => {
+    for (const t of timers.current) clearTimeout(t)
+  }, [])
+
+  const run = async () => {
+    setBusy(true)
+    setMsg(null)
+    const res = await rerunScorecards()
+    setBusy(false)
+    setMsg({ ok: res.started, text: rerunMessage(res) })
+    if (res.started) {
+      for (const delay of [20_000, 45_000, 75_000]) {
+        timers.current.push(setTimeout(onDone, delay) as unknown as number)
+      }
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        onClick={() => void run()}
+        disabled={busy}
+        className={cn(
+          'inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-2.5 py-1.5',
+          'text-[11px] font-medium text-content-muted shadow-sm transition-colors',
+          'hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300',
+          'disabled:cursor-not-allowed disabled:opacity-60',
+        )}
+        title="Create a Job from the scorer CronJob and grade every service now"
+      >
+        <IconRefresh spinning={busy} />
+        {busy ? 'Starting…' : 'Re-evaluate'}
+      </button>
+      {msg ? (
+        <span
+          role="status"
+          className={cn(
+            'text-[11px]',
+            msg.ok ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300',
+          )}
+        >
+          {msg.text}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * A score and where it is heading.
+ *
+ * The delta is the point, not the sparkline: "72" tells nobody whether the last
+ * fortnight of work helped. `runs` is shown because a two-run series is not a
+ * trend and the reader deserves to know which they are looking at.
+ */
+function TrendChip({
+  trend,
+  runs,
+  label,
+  compact = false,
+}: {
+  trend: { points: number[]; delta?: number; last?: number }
+  runs: number
+  label: string
+  compact?: boolean
+}) {
+  if (trend.points.length < 2) return null
+  const delta = trend.delta ?? 0
+  const rising = delta > 0
+  const flat = delta === 0
+  return (
+    <span
+      className="inline-flex items-center gap-2"
+      title={`${label}: ${trend.points.length} of ${runs} retained runs · ${
+        flat ? 'no change' : `${rising ? '+' : ''}${delta} points`
+      }`}
+    >
+      <span className={cn('inline-block', compact ? 'h-4 w-12' : 'h-5 w-20')}>
+        <AreaChart
+          points={trend.points}
+          color={flat ? 'var(--color-content-subtle)' : rising ? 'var(--color-emerald-500)' : 'var(--color-rose-500)'}
+          height={compact ? 16 : 20}
+          showAxis={false}
+        />
+      </span>
+      <span
+        className={cn(
+          'font-mono text-[11px] font-semibold tabular-nums',
+          flat
+            ? 'text-content-subtle'
+            : rising
+            ? 'text-emerald-700 dark:text-emerald-300'
+            : 'text-rose-700 dark:text-rose-300',
+        )}
+      >
+        {flat ? '±0' : `${rising ? '+' : ''}${delta}`}
+      </span>
+    </span>
+  )
+}
+
+function IconRefresh({ spinning = false }: { spinning?: boolean }) {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      aria-hidden
+      className={cn('shrink-0', spinning && 'animate-spin motion-reduce:animate-none')}
+    >
+      <path d="M21 12a9 9 0 1 1-3-6.7" />
+      <path d="M21 4v5h-5" />
+    </svg>
+  )
+}
+
+/**
+ * What this service's score has done over the retained window.
+ *
+ * A grade on its own invites an argument about whether it is fair. A grade next
+ * to its own history turns the conversation into "this went from D to B when we
+ * added probes", which is the only version of the conversation that changes
+ * anything.
+ *
+ * Runs are listed newest first with the score at each, because the common
+ * question is "when did this drop?" and that is answered by reading downward
+ * until the number changes.
+ */
+function ScoreHistoryCard({
+  service,
+  history,
+}: {
+  service: string
+  history: ScorecardHistoryEntry[]
+}) {
+  const trend = serviceTrend(history, service)
+  // With one retained run there is no history to show, and an empty card that
+  // explains itself is better than a chart of a single point.
+  if (trend.points.length < 2) {
+    return (
+      <Card>
+        <CardHeader>
+          <h3 className="text-sm font-semibold text-content">Score history</h3>
+        </CardHeader>
+        <CardBody>
+          <p className="text-[11px] leading-relaxed text-content-muted">
+            {history.length === 0
+              ? (
+                <>
+                  No history yet. The scorer appends each run to{' '}
+                  <span className="font-mono text-content">adhar-scorecards-history</span>; a trend
+                  appears after its second run.
+                </>
+              )
+              : 'Only one run has scored this service so far — a trend needs two.'}
+          </p>
+        </CardBody>
+      </Card>
+    )
+  }
+
+  const rows = history
+    .filter((e) => e.services[service])
+    .slice()
+    .reverse()
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-content">Score history</h3>
+          <div className="flex items-center gap-3">
+            <TrendChip trend={trend} runs={history.length} label={service} />
+            <span className="text-[11px] text-content-subtle">
+              {rows.length} {rows.length === 1 ? 'run' : 'runs'} retained
+            </span>
+          </div>
+        </div>
+      </CardHeader>
+      <CardBody className="space-y-3">
+        <div className="h-16 w-full">
+          <AreaChart points={trend.points} color="var(--color-brand-500)" height={64} showAxis={false} />
+        </div>
+        <ol className="divide-y divide-edge-subtle overflow-hidden rounded-lg border border-edge-subtle">
+          {rows.map((e, i) => {
+            const rec = e.services[service]
+            const prev = rows[i + 1]?.services[service]
+            const delta = prev ? rec.score - prev.score : undefined
+            const when = formatWhen(e.at)
+            return (
+              <li key={e.at} className="flex items-center gap-3 bg-surface-raised px-3 py-1.5">
+                <span className="w-28 shrink-0 text-[11px] text-content-muted" title={when?.title}>
+                  {when?.label ?? e.at}
+                </span>
+                <GradeBadge grade={rec.grade} />
+                <span className={cn('w-8 font-mono text-[12px] font-semibold tabular-nums', scoreTextTone(rec.score))}>
+                  {rec.score}
+                </span>
+                <span
+                  className={cn(
+                    'font-mono text-[11px] tabular-nums',
+                    delta === undefined
+                      ? 'text-content-subtle'
+                      : delta > 0
+                      ? 'text-emerald-700 dark:text-emerald-300'
+                      : delta < 0
+                      ? 'text-rose-700 dark:text-rose-300'
+                      : 'text-content-subtle',
+                  )}
+                  title={delta === undefined ? 'earliest retained run' : 'change from the previous run'}
+                >
+                  {delta === undefined ? '—' : delta === 0 ? '±0' : `${delta > 0 ? '+' : ''}${delta}`}
+                </span>
+                <span className="ml-auto block h-1.5 w-24 overflow-hidden rounded-full bg-surface-sunken">
+                  <span className={cn('block h-full rounded-full', barTone(rec.score))} style={{ width: `${rec.score}%` }} />
+                </span>
+              </li>
+            )
+          })}
+        </ol>
+      </CardBody>
+    </Card>
   )
 }
 

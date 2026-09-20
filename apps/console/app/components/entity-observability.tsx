@@ -46,14 +46,43 @@ interface PanelDef {
   hint: string
 }
 
-/** `pod=~"<name>.*"` — Deployments own ReplicaSet-suffixed pods. */
-function podSelector(t: EntityTarget): string {
-  const ns = t.namespace ? `namespace="${t.namespace}",` : ''
-  return `${ns}pod=~"${t.name}(-[a-z0-9]+)*"`
+/**
+ * PromQL label values are double-quoted strings: a name containing `"` or `\`
+ * ends the string early and the query fails to parse, which shows up as the
+ * whole tab erroring rather than as one malformed panel. Regex metacharacters
+ * are escaped too — a workload with a `.` in its name would otherwise match any
+ * character there.
+ */
+function quoted(v: string): string {
+  return v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
-function workloadSelector(t: EntityTarget): string {
-  const ns = t.namespace ? `namespace="${t.namespace}",` : ''
-  return `${ns}deployment="${t.name}"`
+function regexQuoted(v: string): string {
+  return quoted(v).replace(/[.*+?^${}()|[\]\\]/g, (c) => `\\${c}`)
+}
+
+/** `pod=~"<name>(-hash)*"` — Deployments own ReplicaSet-suffixed pods. */
+function podSelector(t: EntityTarget): string {
+  const ns = t.namespace ? `namespace="${quoted(t.namespace)}",` : ''
+  return `${ns}pod=~"${regexQuoted(t.name)}(-[a-z0-9]+)*"`
+}
+
+/**
+ * Ready replicas, for any workload kind.
+ *
+ * This used to ask only `kube_deployment_status_replicas_ready`, so a
+ * StatefulSet or DaemonSet — a database, a queue consumer, a node agent — always
+ * rendered "No series", which reads as "metrics are broken" rather than "this
+ * panel asked the wrong question". kube-state-metrics publishes a different
+ * metric per kind, so all three are asked and whichever answers wins.
+ */
+function readyReplicasQuery(t: EntityTarget): string {
+  const ns = t.namespace ? `namespace="${quoted(t.namespace)}",` : ''
+  const n = quoted(t.name)
+  return [
+    `max(kube_deployment_status_replicas_ready{${ns}deployment="${n}"})`,
+    `max(kube_statefulset_status_replicas_ready{${ns}statefulset="${n}"})`,
+    `max(kube_daemonset_status_number_ready{${ns}daemonset="${n}"})`,
+  ].join(' or ')
 }
 
 const PANELS: PanelDef[] = [
@@ -82,8 +111,8 @@ const PANELS: PanelDef[] = [
     id: 'replicas',
     label: 'Ready replicas',
     unit: 'count',
-    hint: 'kube_deployment_status_replicas_ready',
-    query: (t) => `max(kube_deployment_status_replicas_ready{${workloadSelector(t)}})`,
+    hint: 'kube_{deployment,statefulset,daemonset} ready replicas',
+    query: readyReplicasQuery,
   },
   {
     id: 'restarts',
@@ -112,7 +141,12 @@ function usePanel(query: string, range: RangeId, enabled: boolean) {
     },
     refetchInterval: usePollingInterval(REFRESH_MS),
     enabled,
-    retry: false,
+    // `retry: false` meant one transient failure — a proxy connection reset, a
+    // Prometheus pod rolling — painted all five panels "unavailable" until the
+    // next 15s poll. Opening the tab during that window is indistinguishable
+    // from metrics being broken, so allow one fast retry.
+    retry: 1,
+    retryDelay: 700,
   })
 }
 

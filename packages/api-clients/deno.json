@@ -17,6 +17,9 @@
     "./lgtm": "./src/lgtm/index.ts",
     "./workspace": "./src/workspace/index.ts"
   },
+  "imports": {
+    "zod": "npm:zod@^3.23.0"
+  },
   "tasks": {
     "check": "deno check src/index.ts"
   }

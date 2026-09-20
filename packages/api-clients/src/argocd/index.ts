@@ -72,9 +72,19 @@ const RawApplicationSchema = z.object({
         .optional(),
       conditions: z.array(z.object({ type: z.string(), message: z.string().optional(), lastTransitionTime: z.string().optional() })).optional(),
       summary: z.object({ images: z.array(z.string()).optional(), externalURLs: z.array(z.string()).optional() }).optional(),
-      history: z.array(z.object({ id: z.number(), revision: z.string().optional(), deployedAt: z.string().optional() })).optional(),
+      // `revisions`/`sources` (plural) are what MULTI-SOURCE applications write,
+      // and on a real cluster every application is multi-source — parsing only
+      // the singular spellings made every deploy look like it had no commit.
+      history: z.array(z.object({
+        id: z.number(),
+        revision: z.string().optional(),
+        revisions: z.array(z.string()).optional(),
+        deployedAt: z.string().optional(),
+        source: z.object({ repoURL: z.string().optional() }).optional(),
+        sources: z.array(z.object({ repoURL: z.string().optional() })).optional(),
+      })).optional(),
       reconciledAt: z.string().optional(),
-      resources: z.array(z.object({ kind: z.string().optional(), status: z.string().optional(), health: z.object({ status: z.string().optional() }).optional() })).optional(),
+      resources: z.array(z.object({ kind: z.string().optional(), name: z.string().optional(), namespace: z.string().optional(), status: z.string().optional(), health: z.object({ status: z.string().optional() }).optional() })).optional(),
     })
     .optional(),
 })
@@ -116,6 +126,27 @@ export interface Application {
     reconciledAt?: string
     /** Managed-resource counts (from `.status.resources`). */
     resources: { total: number; outOfSync: number; unhealthy: number }
+    /**
+     * The managed resources themselves.
+     *
+     * `resources` above is a COUNT summary, and callers that wanted the actual
+     * workloads had nothing to read — one iterated the summary object with
+     * `for...of` and threw "object is not iterable". Kept as a separate field
+     * so the summary's existing callers are untouched.
+     */
+    resourceList: Array<{ kind?: string; name?: string; namespace?: string }>
+    /**
+     * Sync history, newest last. `deployments` above is only its length, so
+     * anything deriving deploy frequency or lead time from it got nothing.
+     */
+    history: Array<{
+      id: number
+      revision?: string
+      revisions?: string[]
+      deployedAt?: string
+      source?: { repoURL?: string }
+      sources?: Array<{ repoURL?: string }>
+    }>
   }
 }
 
@@ -170,6 +201,8 @@ export function normalizeApplication(raw: RawApplication): Application {
         outOfSync: res.filter((r) => r.status === 'OutOfSync').length,
         unhealthy: res.filter((r) => r.health?.status === 'Degraded' || r.health?.status === 'Missing').length,
       },
+      resourceList: res.map((r) => ({ kind: r.kind, name: r.name, namespace: r.namespace })),
+      history: st.history ?? [],
     },
   }
 }

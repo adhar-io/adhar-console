@@ -244,11 +244,16 @@ export function useToolsConfig() {
 }
 
 /**
- * Raw ArgoCD applications (with `status.history`) for DORA derivation.
+ * Argo CD applications as the DORA panels read them.
  *
- * `destination.namespace` is here so a deploy can be matched against the
- * incidents that followed it in the namespace it deployed into — the
- * attribution change-failure rate needs (see `dora-incidents.ts`).
+ * This must match what `listApplications()` actually RETURNS — a normalized
+ * `Application`, not the raw CRD. It previously did not: it declared
+ * `status.resources` as an array of resources when the normalizer makes it a
+ * `{ total, outOfSync, unhealthy }` count summary, so iterating it threw
+ * "object is not iterable", and it declared a `status.history` the normalized
+ * shape did not carry at all, so deploy frequency and lead time silently read
+ * nothing. The client now exposes `resourceList` and `history`; this mirrors
+ * them.
  */
 export interface DoraApp {
   metadata?: { name?: string }
@@ -259,11 +264,6 @@ export interface DoraApp {
     sources?: Array<{ repoURL?: string }>
   }
   status?: {
-    /**
-     * `revisions`/`sources` (plural) are what multi-source applications use,
-     * and on a real cluster every application is multi-source — reading only
-     * the singular spellings made every deploy look like it had no commit.
-     */
     history?: Array<{
       deployedAt?: string
       revision?: string
@@ -272,19 +272,23 @@ export interface DoraApp {
       sources?: Array<{ repoURL?: string }>
     }>
     operationState?: { phase?: string }
-    /** Owned resources — workload names are what an incident is matched against. */
-    resources?: Array<{ kind?: string; name?: string; namespace?: string }>
+    /** Per-resource list (names included) — NOT the `resources` count summary. */
+    resourceList?: Array<{ kind?: string; name?: string; namespace?: string }>
   }
 }
 
 /** Resource kinds that can be the subject of a workload alert. */
 const WORKLOAD_KINDS = new Set(['Deployment', 'StatefulSet', 'DaemonSet', 'Rollout'])
 
-/** The workload names an Argo CD application owns, for incident attribution. */
 export function appWorkloads(app: DoraApp): string[] {
+  const list = app.status?.resourceList
+  // Defensive as well as correctly typed: this field comes through a cast at
+  // the fetch boundary, and a shape drift here used to crash the whole
+  // Overview rather than degrade one tile.
+  if (!Array.isArray(list)) return []
   const out: string[] = []
-  for (const r of app.status?.resources ?? []) {
-    if (r.kind && WORKLOAD_KINDS.has(r.kind) && r.name) out.push(r.name)
+  for (const r of list) {
+    if (r?.kind && WORKLOAD_KINDS.has(r.kind) && r.name) out.push(r.name)
   }
   return out
 }

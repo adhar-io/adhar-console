@@ -141,13 +141,14 @@ export function NavItem({
           // the sliding rail for the same job — two strong marks saying "you are
           // here" — and at 14 rows it made the column read as a stack of
           // buttons. The rail carries the emphasis; the row carries the context.
-          // A HIGHLIGHTED row squares off its left corners so the sliding rail
-          // butts flush against it and the two read as one shape; the right
-          // side stays rounded. Every other row keeps all four corners, since
-          // there is nothing on its left to join.
           highlighted
-            ? 'rounded-l-none rounded-r-lg bg-brand-600/12 text-brand-700 dark:bg-brand-400/15 dark:text-brand-100'
-            : 'rounded-lg text-content-muted hover:bg-surface-sunken hover:text-content',
+            ? 'bg-brand-600/12 text-brand-700 dark:bg-brand-400/15 dark:text-brand-100'
+            : 'text-content-muted hover:bg-surface-sunken hover:text-content',
+          // Only a TOP-LEVEL highlight squares its left corner, because only
+          // that one has the sliding rail butted against it to continue the
+          // shape. A sub-item has nothing on its left, so squaring it there
+          // just read as a clipped corner — it keeps all four.
+          highlighted && !isSub ? 'rounded-l-none rounded-r-lg' : 'rounded-lg',
           // The page you are ON is bolder than the section you are IN, so a
           // parent holding the highlight for its open child never looks like
           // the current page itself.
@@ -243,17 +244,24 @@ function IconSlot({
 function ChildRail({ active }: { active: boolean }) {
   // Fixed-width spacer that aligns sub-item text with parent text (icon col
   // is 18px + 10px gap = ~28px, rail sits in the middle of that column).
+  //
+  // The bar is 3px, not 2px. `rounded-full` on a 2px bar is a 1px radius —
+  // technically round, visibly square. 3px is the narrowest width at which the
+  // cap actually reads, and it matches the top-level rail's weight. The
+  // margins absorb the extra pixel (8 + 3 + 13 = 24) so sub-item text stays
+  // exactly where it was.
   return (
     <span
       aria-hidden
-      className={cn(
-        'relative ml-2 mr-3.5 flex h-5 w-0.5 shrink-0 items-center justify-center',
-      )}
+      className="relative ml-2 mr-3.25 flex h-5 w-[3px] shrink-0 items-center justify-center"
     >
       <span
         className={cn(
-          'absolute inset-y-0 left-0 w-0.5 rounded-full transition-colors',
-          active ? 'bg-brand-600' : 'bg-edge-default group-hover:bg-edge-strong',
+          'absolute inset-y-0 left-0 w-[3px] rounded-full transition-colors',
+          // Accent, not brand: the top-level rail is the brand ramp, so giving
+          // the child a different hue makes the two levels distinguishable at
+          // a glance instead of looking like the same marker drawn twice.
+          active ? 'bg-accent-500' : 'bg-edge-default group-hover:bg-edge-strong',
         )}
       />
     </span>

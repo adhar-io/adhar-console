@@ -106,7 +106,7 @@ export function NavItem({
       <div
         data-nav-active={!isSub && (isActive || hasActiveDescendant) ? 'true' : undefined}
         className={cn(
-          'group relative flex items-center gap-2.5 rounded-lg text-sm',
+          'group relative flex items-center gap-2.5 text-sm',
           'transition-[background-color,color,box-shadow,transform] duration-200 ease-out',
           'active:scale-[0.985] active:duration-75 motion-reduce:transform-none motion-reduce:transition-none',
           // Rows size to their content. A floor was tried here to even out the
@@ -120,11 +120,15 @@ export function NavItem({
           // the sliding rail for the same job — two strong marks saying "you are
           // here" — and at 14 rows it made the column read as a stack of
           // buttons. The rail carries the emphasis; the row carries the context.
+          // The ACTIVE row squares off its left corners so the sliding rail
+          // butts flush against it and the two read as one shape; the right
+          // side stays rounded. Every other row keeps all four corners, since
+          // there is nothing on its left to join.
           isActive
-            ? 'bg-brand-600/12 font-semibold text-brand-700 dark:bg-brand-400/15 dark:text-brand-100'
+            ? 'rounded-l-none rounded-r-lg bg-brand-600/12 font-semibold text-brand-700 dark:bg-brand-400/15 dark:text-brand-100'
             : hasActiveDescendant
-              ? 'font-medium text-content'
-              : 'text-content-muted hover:bg-surface-sunken hover:text-content',
+              ? 'rounded-lg font-medium text-content'
+              : 'rounded-lg text-content-muted hover:bg-surface-sunken hover:text-content',
         )}
       >
         {isSub ? (

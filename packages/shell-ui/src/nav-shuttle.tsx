@@ -110,12 +110,18 @@ export function NavShuttle({
         // translateY from `measure()` is relative to the container's padding
         // box, so the two stacked and the rail rendered 8px below the row it
         // was marking, at every row, in both sidebar states.
-        'pointer-events-none absolute top-0 z-10 w-[3px] rounded-full',
+        // The rail BUTTS AGAINST the active row rather than floating in the
+        // gutter: its right edge sits exactly on the row's left edge, and the
+        // row squares off its own left corners to meet it (see nav-item.tsx),
+        // so the two read as one shape rather than two marks for one state.
+        //
+        // That is why `left` is the nav's horizontal padding minus the rail's
+        // width — 12px − 3px expanded, 8px − 3px collapsed. Rounding is on the
+        // left only; a rounded right edge would leave a sliver of gap against
+        // the row.
+        'pointer-events-none absolute top-0 z-10 w-[3px] rounded-l-full',
         'bg-linear-to-b from-brand-400 to-brand-600',
-        // Inset rather than flush at x=0: the sidebar is the leftmost element
-        // on the page, so `left-0` put the rail hard against the window edge
-        // where it read as clipped chrome rather than as a marker.
-        'left-0.5',
+        collapsed ? 'left-[5px]' : 'left-[9px]',
         // A short overshoot-free ease: the rail should arrive before the page
         // content does, or the motion reads as lag rather than polish.
         settled.current

@@ -2,32 +2,39 @@ import { useId } from 'react'
 import { cn } from '@adhar-console/utils'
 
 /**
- * The Adhar AI mark.
+ * The Adhar AI mark — built from the Adhar symbol, not from a generic sparkle.
  *
- * It replaces a flat four-point star sitting on a CSS gradient square. That
- * read as a generic "sparkle = AI" glyph from any of a dozen products, and at
- * 15px the straight-armed star turned into a blob.
+ * The brand symbol (see `AdharSymbol` in brand.tsx) is three pointy-top
+ * hexagons in a blue→indigo→violet gradient with a white arrowhead rising
+ * through the middle. This mark keeps that vocabulary and drops what cannot
+ * survive at 15px:
  *
- * What is different here, and why:
- *   - The arms are CONCAVE (quadratic curves pulled toward the centre), which
- *     keeps the four points legible at 14px where straight edges merge.
- *   - A second, smaller spark sets up a diagonal, so the mark has a direction
- *     rather than being radially symmetric — that is what stops it reading as
- *     an asterisk.
- *   - The spark sits on a soft radial glow, so it reads as emitting light
- *     rather than as a white cut-out stuck on a coloured tile.
- *   - The gradient lives in the SVG, not on a wrapper div, so the mark can be
- *     dropped anywhere (menus, buttons, a favicon) and keep its identity.
- *   - `busy` turns the surrounding ring into a slow sweep. A spinner next to a
- *     logo says "loading"; a logo that is itself alive says "thinking", which
- *     is the true state while a run streams.
+ *   - ONE hexagon, not three. At tile size three hexagons collapse into a
+ *     blob; a single one still reads unmistakably as the Adhar unit shape,
+ *     and it is the silhouette people actually recognise.
+ *   - The arrowhead, kept at the logo's own proportions (≈1.4 tall to wide,
+ *     with the notch ≈76% down) so it is the same shape, just scaled.
+ *   - The exact brand gradient stops — #3B82F6 → #6366F1 → #8B5CF6 on the
+ *     logo's 105° axis. The previous mark mixed `brand-400/600` with
+ *     `accent-500`, which is a different palette; beside the real logo it read
+ *     as a near-miss rather than a relative.
  *
- * Gradient ids come from `useId`. They must be unique per instance — SVG ids
- * are document-global, and two marks sharing one id make the second render
- * with the first's stops — but the previous module-level counter was
- * incremented DURING RENDER. That is not a pure render: the ids changed on
- * every pass, so every re-render threw away and re-created the gradients, and
- * under StrictMode's double-render the markup differed between passes.
+ * What says "AI" is the spark at the top-right, deliberately small and
+ * subordinate: it is an accent on the Adhar mark, not a competing symbol. Its
+ * arms are concave (quadratic curves pulled toward its centre) because at this
+ * size straight arms merge into a dot.
+ *
+ * No drop shadow: the mark is a filled silhouette with no tile behind it, so
+ * it sits directly on whatever surface it is placed on. A shadow would make it
+ * a sticker floating above the page instead of part of it, and it showed as a
+ * grey halo on the dark sidebar.
+ *
+ * `busy` turns the surrounding ring into a slow sweep. A spinner next to a
+ * logo says "loading"; a logo that is itself alive says "thinking", which is
+ * the true state while a run streams.
+ *
+ * Gradient ids come from `useId` — SVG ids are document-global, and two marks
+ * sharing one id make the second render with the first's stops.
  */
 export function AdharAiMark({
   size = 28,
@@ -47,12 +54,12 @@ export function AdharAiMark({
       {busy ? (
         <span
           aria-hidden
-          className="absolute inset-[-2px] animate-spin rounded-[32%] opacity-70 [animation-duration:2.4s] motion-reduce:animate-none"
+          className="absolute -inset-0.75 animate-spin rounded-full opacity-70 [animation-duration:2.4s] motion-reduce:animate-none"
           style={{
             background:
               'conic-gradient(from 0deg, transparent 0deg, var(--color-accent-500) 90deg, transparent 200deg)',
-            mask: 'radial-gradient(circle, transparent 58%, black 62%)',
-            WebkitMask: 'radial-gradient(circle, transparent 58%, black 62%)',
+            mask: 'radial-gradient(circle, transparent 60%, black 64%)',
+            WebkitMask: 'radial-gradient(circle, transparent 60%, black 64%)',
           }}
         />
       ) : null}
@@ -61,59 +68,68 @@ export function AdharAiMark({
         height={size}
         viewBox="0 0 32 32"
         aria-hidden
-        className="relative drop-shadow-[0_1px_1.5px_rgba(0,0,0,0.14)]"
+        className="relative"
       >
         <defs>
-          <linearGradient id={`${uid}-bg`} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="var(--color-brand-400)" />
-            <stop offset="55%" stopColor="var(--color-brand-600)" />
-            <stop offset="100%" stopColor="var(--color-accent-500)" />
+          {/* The logo's own axis and stops, so the two marks are the same blue. */}
+          <linearGradient id={`${uid}-hex`} x1="3" y1="1" x2="29" y2="31" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#3B82F6" />
+            <stop offset="0.5" stopColor="#6366F1" />
+            <stop offset="1" stopColor="#8B5CF6" />
           </linearGradient>
-          {/* A soft top-left highlight so the tile reads as a lit surface
-              rather than a flat swatch — the thing that makes a small mark
-              look considered at 15px. */}
+          {/* A top-left highlight so the face reads as lit rather than flat —
+              what makes a small mark look considered at 15px. */}
           <linearGradient id={`${uid}-gloss`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="white" stopOpacity="0.32" />
-            <stop offset="55%" stopColor="white" stopOpacity="0.04" />
-            <stop offset="100%" stopColor="white" stopOpacity="0" />
+            <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.30" />
+            <stop offset="55%" stopColor="#FFFFFF" stopOpacity="0.05" />
+            <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
           </linearGradient>
-          {/* The light the spark sits in. Without it the white shape reads as
-              a sticker on the tile; with it the tile looks lit from within. */}
-          <radialGradient id={`${uid}-glow`} cx="44%" cy="42%" r="46%">
-            <stop offset="0%" stopColor="white" stopOpacity="0.42" />
-            <stop offset="100%" stopColor="white" stopOpacity="0" />
-          </radialGradient>
         </defs>
 
-        <rect x="0" y="0" width="32" height="32" rx="10" fill={`url(#${uid}-bg)`} />
-        <rect x="0" y="0" width="32" height="32" rx="10" fill={`url(#${uid}-gloss)`} />
-        <rect x="0" y="0" width="32" height="32" rx="10" fill={`url(#${uid}-glow)`} />
-        <rect
-          x="0.6"
-          y="0.6"
-          width="30.8"
-          height="30.8"
-          rx="9.5"
-          fill="none"
-          stroke="white"
-          strokeOpacity="0.24"
-          strokeWidth="1.1"
+        {/*
+          One pointy-top hexagon, the Adhar unit shape. Half-height 15,
+          half-width 15·(√3/2) ≈ 13 — the same 0.866 ratio the logo's hexagons
+          use, so this is that shape scaled rather than an approximation.
+          `strokeLinejoin="round"` softens the six corners the way the logo's
+          6px stroke does.
+        */}
+        <polygon
+          points="16,1.4 28.5,8.7 28.5,23.3 16,30.6 3.5,23.3 3.5,8.7"
+          fill={`url(#${uid}-hex)`}
+          stroke={`url(#${uid}-hex)`}
+          strokeWidth="2.2"
+          strokeLinejoin="round"
+        />
+        <polygon
+          points="16,1.4 28.5,8.7 28.5,23.3 16,30.6 3.5,23.3 3.5,8.7"
+          fill={`url(#${uid}-gloss)`}
         />
 
-        {/* Primary spark. Each arm is two quadratic curves whose control point
-            sits at the centre, which is what produces the concave waist. */}
+        {/*
+          The logo's arrowhead: apex, out to the base corners, back up to a
+          notch ~76% of the way down. Same proportions as
+          `M 240,102 L 281,219 L 240,192 L 199,219 Z`, scaled into the hexagon.
+        */}
         <path
-          d="M14 6 Q15 12.4 20.6 13.4 Q15 14.4 14 20.8 Q13 14.4 7.4 13.4 Q13 12.4 14 6 Z"
-          fill="white"
-          fillOpacity="0.98"
+          d="M16 7.4 L22 24.4 L16 20.4 L10 24.4 Z"
+          fill="#FFFFFF"
+          stroke="#FFFFFF"
+          strokeWidth="1.4"
+          strokeLinejoin="round"
         />
-        {/* Satellite — smaller, offset down-right, sets the diagonal. Kept
-            dimmer than the primary so the eye reads one mark with an accent,
-            not two competing sparks. */}
+
+        {/*
+          The AI accent. Small and offset so it reads as a mark ON the Adhar
+          symbol rather than a second symbol beside it. Concave arms — the
+          control point of each quadratic sits at the spark's centre — keep the
+          four points distinct where straight edges would merge into a dot.
+        */}
         <path
-          d="M22.6 18.2 Q23.1 21.2 26 21.7 Q23.1 22.2 22.6 25.2 Q22.1 22.2 19.2 21.7 Q22.1 21.2 22.6 18.2 Z"
-          fill="white"
-          fillOpacity="0.72"
+          d="M26.4 2.2 Q27 5.6 30.2 6.2 Q27 6.8 26.4 10.2 Q25.8 6.8 22.6 6.2 Q25.8 5.6 26.4 2.2 Z"
+          fill="#FFFFFF"
+          stroke={`url(#${uid}-hex)`}
+          strokeWidth="1.1"
+          strokeLinejoin="round"
         />
       </svg>
     </span>

@@ -116,7 +116,13 @@ export const DEFAULT_NAV: NavSection[] = [
   {
     id: 'main',
     items: [
-      { id: 'home', label: 'Overview', to: '/', icon: <IconHome /> },
+      {
+        id: 'home',
+        label: 'Overview',
+        to: '/',
+        icon: <IconHome />,
+        description: 'Personalised widgets at your fingertips',
+      },
       {
         id: 'ai',
         label: 'Adhar AI',

@@ -258,10 +258,15 @@ function ChildRail({ active }: { active: boolean }) {
       <span
         className={cn(
           'absolute inset-y-0 left-0 w-[3px] rounded-full transition-colors',
-          // Accent, not brand: the top-level rail is the brand ramp, so giving
-          // the child a different hue makes the two levels distinguishable at
-          // a glance instead of looking like the same marker drawn twice.
-          active ? 'bg-accent-500' : 'bg-edge-default group-hover:bg-edge-strong',
+          // Warm, against the top-level rail's cool brand ramp. The two rails
+          // are the same shape at different indents, so hue is what separates
+          // them — blue flush at the edge for the section you are in, amber
+          // indented for the page you are on. Gradient top-to-bottom for the
+          // same reason the parent rail has one: a 3px bar of flat colour
+          // reads as a printed line, a graded one as lit.
+          active
+            ? 'bg-linear-to-b from-amber-400 to-orange-600'
+            : 'bg-edge-default group-hover:bg-edge-strong',
         )}
       />
     </span>

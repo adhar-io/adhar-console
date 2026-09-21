@@ -45,7 +45,10 @@ export function Welcome({
     <div className="mx-auto w-full max-w-3xl pt-2">
       {/* hero */}
       <div className="rise-in flex flex-col items-center pb-6 pt-4 text-center">
-        <AdharAiMark size={58} className="shadow-lg shadow-brand-600/25" />
+        {/* No shadow. The mark is a transparent silhouette in a square box, so
+            a box-shadow draws the BOX — it rendered as a dark rounded square
+            floating behind the artwork rather than as a shadow of it. */}
+        <AdharAiMark size={58} />
         <h2 className="mt-4 text-[22px] font-semibold tracking-tight text-content">
           {configured ? 'What would you like to know?' : 'Where would you like to go?'}
         </h2>

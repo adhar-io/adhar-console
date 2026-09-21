@@ -2,39 +2,44 @@ import { useId } from 'react'
 import { cn } from '@adhar-console/utils'
 
 /**
- * The Adhar AI mark — built from the Adhar symbol, not from a generic sparkle.
+ * The Adhar AI mark — the brand hexagon, lit from inside.
  *
- * The brand symbol (see `AdharSymbol` in brand.tsx) is three pointy-top
- * hexagons in a blue→indigo→violet gradient with a white arrowhead rising
- * through the middle. This mark keeps that vocabulary and drops what cannot
- * survive at 15px:
+ * The Adhar symbol (see `AdharSymbol` in brand.tsx) is pointy-top hexagons in
+ * a blue→violet gradient with a white arrowhead. This mark keeps both of those
+ * — the silhouette and the arrow are the brand's, at the brand's proportions —
+ * and spends its detail on the FACE: a colour mesh that runs cyan through
+ * indigo to magenta, a glass rim, and a soft bloom behind. That is what makes
+ * it read as the AI surface rather than as a shrunk product logo.
  *
- *   - ONE hexagon, not three. At tile size three hexagons collapse into a
- *     blob; a single one still reads unmistakably as the Adhar unit shape,
- *     and it is the silhouette people actually recognise.
- *   - The arrowhead, kept at the logo's own proportions (≈1.4 tall to wide,
- *     with the notch ≈76% down) so it is the same shape, just scaled.
- *   - The exact brand gradient stops — #3B82F6 → #6366F1 → #8B5CF6 on the
- *     logo's 105° axis. The previous mark mixed `brand-400/600` with
- *     `accent-500`, which is a different palette; beside the real logo it read
- *     as a near-miss rather than a relative.
+ * Why the face, and not an added glyph: the obvious way to say "AI" is a
+ * four-point sparkle, which is the badge a dozen products already wear — it
+ * names the category, not this product. Treating the brand shape as a lit
+ * material says the same thing without borrowing anyone's mark.
  *
- * What says "AI" is the spark at the top-right, deliberately small and
- * subordinate: it is an accent on the Adhar mark, not a competing symbol. Its
- * arms are concave (quadratic curves pulled toward its centre) because at this
- * size straight arms merge into a dot.
+ * How it is built, bottom to top:
+ *   1. `bloom`  — a radial wash behind the hexagon so it sits in its own light
+ *                 rather than being pasted onto the page.
+ *   2. `base`   — the brand ramp, extended one stop to #A855F7 so the mesh has
+ *                 somewhere warm to land.
+ *   3. mesh A/B — two radial fields (cyan top-left, magenta bottom-right),
+ *                 clipped to the hexagon. Two overlapping radials read as a
+ *                 mesh gradient; SVG has no conic gradient to do it directly.
+ *   4. `rim`    — a top-down white fade, the highlight a glass edge catches.
+ *   5. stroke   — a 34% white outline that keeps the silhouette crisp where
+ *                 the mesh goes pale against a light background.
+ *   6. arrow    — the logo's arrowhead at its real proportions (≈1.43 tall to
+ *                 wide, notch ≈76% down), solid white so it survives at 15px.
  *
- * No drop shadow: the mark is a filled silhouette with no tile behind it, so
- * it sits directly on whatever surface it is placed on. A shadow would make it
- * a sticker floating above the page instead of part of it, and it showed as a
- * grey halo on the dark sidebar.
+ * No drop shadow. The mark is a transparent silhouette in a square box, so a
+ * box-shadow draws the BOX — it rendered as a dark rounded square floating
+ * behind the artwork. The bloom does the job a shadow was reaching for.
  *
  * `busy` turns the surrounding ring into a slow sweep. A spinner next to a
  * logo says "loading"; a logo that is itself alive says "thinking", which is
  * the true state while a run streams.
  *
- * Gradient ids come from `useId` — SVG ids are document-global, and two marks
- * sharing one id make the second render with the first's stops.
+ * Gradient and clip ids come from `useId` — SVG ids are document-global, and
+ * two marks sharing one id make the second render with the first's fills.
  */
 export function AdharAiMark({
   size = 28,
@@ -45,7 +50,8 @@ export function AdharAiMark({
   busy?: boolean
   className?: string
 }) {
-  const uid = useId().replace(/:/g, '')
+  const id = useId().replace(/:/g, '')
+  const HEX = '16,1.6 28.4,8.8 28.4,23.2 16,30.4 3.6,23.2 3.6,8.8'
   return (
     <span
       className={cn('relative inline-flex shrink-0 items-center justify-center', className)}
@@ -63,74 +69,64 @@ export function AdharAiMark({
           }}
         />
       ) : null}
-      <svg
-        width={size}
-        height={size}
-        viewBox="0 0 32 32"
-        aria-hidden
-        className="relative"
-      >
+      <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden className="relative">
         <defs>
-          {/* The logo's own axis and stops, so the two marks are the same blue. */}
-          <linearGradient id={`${uid}-hex`} x1="3" y1="1" x2="29" y2="31" gradientUnits="userSpaceOnUse">
+          <linearGradient
+            id={`${id}-base`}
+            x1="3"
+            y1="2"
+            x2="29"
+            y2="30"
+            gradientUnits="userSpaceOnUse"
+          >
             <stop offset="0" stopColor="#3B82F6" />
-            <stop offset="0.5" stopColor="#6366F1" />
-            <stop offset="1" stopColor="#8B5CF6" />
+            <stop offset="0.45" stopColor="#6366F1" />
+            <stop offset="0.78" stopColor="#8B5CF6" />
+            <stop offset="1" stopColor="#A855F7" />
           </linearGradient>
-          {/* A top-left highlight so the face reads as lit rather than flat —
-              what makes a small mark look considered at 15px. */}
-          <linearGradient id={`${uid}-gloss`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.30" />
-            <stop offset="55%" stopColor="#FFFFFF" stopOpacity="0.05" />
-            <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+          <radialGradient id={`${id}-bloom`} cx="50%" cy="50%" r="50%">
+            <stop offset="0" stopColor="#818CF8" stopOpacity="0.55" />
+            <stop offset="1" stopColor="#818CF8" stopOpacity="0" />
+          </radialGradient>
+          <radialGradient id={`${id}-meshA`} cx="22%" cy="18%" r="55%">
+            <stop offset="0" stopColor="#22D3EE" stopOpacity="0.85" />
+            <stop offset="1" stopColor="#22D3EE" stopOpacity="0" />
+          </radialGradient>
+          <radialGradient id={`${id}-meshB`} cx="82%" cy="78%" r="58%">
+            <stop offset="0" stopColor="#D946EF" stopOpacity="0.7" />
+            <stop offset="1" stopColor="#D946EF" stopOpacity="0" />
+          </radialGradient>
+          <linearGradient id={`${id}-rim`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#FFFFFF" stopOpacity="0.55" />
+            <stop offset="0.5" stopColor="#FFFFFF" stopOpacity="0.08" />
+            <stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
           </linearGradient>
+          <clipPath id={`${id}-clip`}>
+            <polygon points={HEX} />
+          </clipPath>
         </defs>
 
-        {/*
-          One pointy-top hexagon, the Adhar unit shape. Half-height 15,
-          half-width 15·(√3/2) ≈ 13 — the same 0.866 ratio the logo's hexagons
-          use, so this is that shape scaled rather than an approximation.
-          `strokeLinejoin="round"` softens the six corners the way the logo's
-          6px stroke does.
-        */}
-        <polygon
-          points="16,1.4 28.5,8.7 28.5,23.3 16,30.6 3.5,23.3 3.5,8.7"
-          fill={`url(#${uid}-hex)`}
-          stroke={`url(#${uid}-hex)`}
-          strokeWidth="2.2"
-          strokeLinejoin="round"
-        />
-        <polygon
-          points="16,1.4 28.5,8.7 28.5,23.3 16,30.6 3.5,23.3 3.5,8.7"
-          fill={`url(#${uid}-gloss)`}
-        />
+        <circle cx="16" cy="16" r="15.5" fill={`url(#${id}-bloom)`} />
 
-        {/*
-          The logo's arrowhead: apex, out to the base corners, back up to a
-          notch ~76% of the way down. Same proportions as
-          `M 240,102 L 281,219 L 240,192 L 199,219 Z`, scaled into the hexagon.
-        */}
-        <path
-          d="M16 7.4 L22 24.4 L16 20.4 L10 24.4 Z"
-          fill="#FFFFFF"
+        <g clipPath={`url(#${id}-clip)`}>
+          <polygon points={HEX} fill={`url(#${id}-base)`} />
+          {/* Full-box rects, clipped to the hexagon — a radial that stopped at
+              the polygon's bounds would band at the corners. */}
+          <rect x="0" y="0" width="32" height="32" fill={`url(#${id}-meshA)`} />
+          <rect x="0" y="0" width="32" height="32" fill={`url(#${id}-meshB)`} />
+          <polygon points={HEX} fill={`url(#${id}-rim)`} />
+        </g>
+
+        <polygon
+          points={HEX}
+          fill="none"
           stroke="#FFFFFF"
-          strokeWidth="1.4"
-          strokeLinejoin="round"
-        />
-
-        {/*
-          The AI accent. Small and offset so it reads as a mark ON the Adhar
-          symbol rather than a second symbol beside it. Concave arms — the
-          control point of each quadratic sits at the spark's centre — keep the
-          four points distinct where straight edges would merge into a dot.
-        */}
-        <path
-          d="M26.4 2.2 Q27 5.6 30.2 6.2 Q27 6.8 26.4 10.2 Q25.8 6.8 22.6 6.2 Q25.8 5.6 26.4 2.2 Z"
-          fill="#FFFFFF"
-          stroke={`url(#${uid}-hex)`}
+          strokeOpacity="0.34"
           strokeWidth="1.1"
           strokeLinejoin="round"
         />
+
+        <path d="M16 8.2 L21.4 23.6 L16 20 L10.6 23.6 Z" fill="#FFFFFF" />
       </svg>
     </span>
   )

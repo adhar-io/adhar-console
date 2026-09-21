@@ -90,6 +90,21 @@ export function NavItem({
   }
 
   const isSub = depth > 0
+  /**
+   * Whether this row wears the highlight.
+   *
+   * A top-level row keeps it while one of its CHILDREN is the current page —
+   * otherwise opening a sub-item made the section it belongs to look inactive,
+   * and the only thing marking your place was a small rail beside a row with
+   * no other emphasis. The sliding rail already parks on the parent for the
+   * same reason (see `data-nav-active` below), so this makes the row it lands
+   * on look like it was landed on.
+   *
+   * Sub-items are excluded: they carry their own ChildRail, and bleeding them
+   * to the sidebar edge would break the indent that shows they are nested.
+   */
+  const highlighted = isActive || (!isSub && hasActiveDescendant)
+
   return (
     <div>
       {/*
@@ -115,20 +130,28 @@ export function NavItem({
           // which read as loose rather than regular. The rail measures
           // whichever row is active, so it tracks either height correctly
           // without the rows having to match.
-          isSub ? 'py-1 pl-3 pr-2' : 'py-1.5 pl-2.5 pr-2',
+          isSub ? 'py-1 pl-3 pr-2' : 'py-1.5 pr-2',
+          // The HIGHLIGHTED row bleeds through the nav's own `px-3` to touch the
+          // sidebar's left edge: `-ml-3` pulls it out by the 12px of padding,
+          // and `pl-5.5` (22px) puts the content back exactly where an
+          // unhighlighted row's `pl-2.5` inside that padding would put it — so
+          // selecting a row moves the highlight, never the label.
+          !isSub && (highlighted ? '-ml-3 pl-5.5' : 'pl-2.5'),
           // A tinted row rather than a solid brand fill. The fill competed with
           // the sliding rail for the same job — two strong marks saying "you are
           // here" — and at 14 rows it made the column read as a stack of
           // buttons. The rail carries the emphasis; the row carries the context.
-          // The ACTIVE row squares off its left corners so the sliding rail
+          // A HIGHLIGHTED row squares off its left corners so the sliding rail
           // butts flush against it and the two read as one shape; the right
           // side stays rounded. Every other row keeps all four corners, since
           // there is nothing on its left to join.
-          isActive
-            ? 'rounded-l-none rounded-r-lg bg-brand-600/12 font-semibold text-brand-700 dark:bg-brand-400/15 dark:text-brand-100'
-            : hasActiveDescendant
-              ? 'rounded-lg font-medium text-content'
-              : 'rounded-lg text-content-muted hover:bg-surface-sunken hover:text-content',
+          highlighted
+            ? 'rounded-l-none rounded-r-lg bg-brand-600/12 text-brand-700 dark:bg-brand-400/15 dark:text-brand-100'
+            : 'rounded-lg text-content-muted hover:bg-surface-sunken hover:text-content',
+          // The page you are ON is bolder than the section you are IN, so a
+          // parent holding the highlight for its open child never looks like
+          // the current page itself.
+          isActive ? 'font-semibold' : highlighted ? 'font-medium' : '',
         )}
       >
         {isSub ? (

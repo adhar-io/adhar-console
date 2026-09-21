@@ -27,8 +27,15 @@ import { cn } from '@adhar-console/utils'
  *   4. `rim`    — a top-down white fade, the highlight a glass edge catches.
  *   5. stroke   — a 34% white outline that keeps the silhouette crisp where
  *                 the mesh goes pale against a light background.
- *   6. arrow    — the logo's arrowhead at its real proportions (≈1.43 tall to
- *                 wide, notch ≈76% down), solid white so it survives at 15px.
+ *   6. shade    — the far side falling away from the light, so the face reads
+ *                 as a solid rather than a flat fill.
+ *   7. bevel    — the lit top facet, and a small specular sweep across it.
+ *                 These two are what make it a gem instead of a silhouette.
+ *   8. edge     — a rim brightest where the light is (top-left) rather than an
+ *                 even outline, which reads as a sticker cut-out.
+ *   9. arrow    — the logo's arrowhead at its real proportions (≈1.43 tall to
+ *                 wide, notch ≈76% down), itself faintly lit: flat white beside
+ *                 a lit face looks pasted on.
  *
  * No drop shadow. The mark is a transparent silhouette in a square box, so a
  * box-shadow draws the BOX — it rendered as a dark rounded square floating
@@ -101,6 +108,38 @@ export function AdharAiMark({
             <stop offset="0.5" stopColor="#FFFFFF" stopOpacity="0.08" />
             <stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
           </linearGradient>
+          {/* Interior depth: the far side of a solid falls away from the light. */}
+          <linearGradient id={`${id}-shade`} x1="0.35" y1="0.4" x2="1" y2="1">
+            <stop offset="0" stopColor="#1E1B4B" stopOpacity="0" />
+            <stop offset="1" stopColor="#1E1B4B" stopOpacity="0.34" />
+          </linearGradient>
+          {/* The lit top facet — what turns a flat hexagon into a solid. */}
+          <linearGradient id={`${id}-bevel`} x1="0" y1="0" x2="0.3" y2="1">
+            <stop offset="0" stopColor="#FFFFFF" stopOpacity="0.42" />
+            <stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
+          </linearGradient>
+          <radialGradient id={`${id}-spec`} cx="50%" cy="50%" r="50%">
+            <stop offset="0" stopColor="#FFFFFF" stopOpacity="0.55" />
+            <stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
+          </radialGradient>
+          {/* A rim that is brightest where the light is, not uniform all round. */}
+          <linearGradient
+            id={`${id}-edge`}
+            x1="4"
+            y1="3"
+            x2="28"
+            y2="29"
+            gradientUnits="userSpaceOnUse"
+          >
+            <stop offset="0" stopColor="#FFFFFF" stopOpacity="0.85" />
+            <stop offset="0.45" stopColor="#FFFFFF" stopOpacity="0.28" />
+            <stop offset="1" stopColor="#FFFFFF" stopOpacity="0.10" />
+          </linearGradient>
+          {/* The arrow is lit too — flat white beside a lit face looks pasted on. */}
+          <linearGradient id={`${id}-arrow`} x1="0" y1="0.1" x2="0" y2="1">
+            <stop offset="0" stopColor="#FFFFFF" />
+            <stop offset="1" stopColor="#DBEAFE" />
+          </linearGradient>
           <clipPath id={`${id}-clip`}>
             <polygon points={HEX} />
           </clipPath>
@@ -114,19 +153,33 @@ export function AdharAiMark({
               the polygon's bounds would band at the corners. */}
           <rect x="0" y="0" width="32" height="32" fill={`url(#${id}-meshA)`} />
           <rect x="0" y="0" width="32" height="32" fill={`url(#${id}-meshB)`} />
+          {/* Depth, then the glass fade, then the two highlights — in that
+              order, because each is lit BY what precedes it. */}
+          <polygon points={HEX} fill={`url(#${id}-shade)`} />
           <polygon points={HEX} fill={`url(#${id}-rim)`} />
+          <path
+            d="M3.6 8.8 L16 1.6 L28.4 8.8 L28.4 12 L16 5 L3.6 12 Z"
+            fill={`url(#${id}-bevel)`}
+          />
+          <ellipse
+            cx="11"
+            cy="8.5"
+            rx="7.5"
+            ry="3.6"
+            transform="rotate(-27 11 8.5)"
+            fill={`url(#${id}-spec)`}
+          />
         </g>
 
         <polygon
           points={HEX}
           fill="none"
-          stroke="#FFFFFF"
-          strokeOpacity="0.34"
-          strokeWidth="1.1"
+          stroke={`url(#${id}-edge)`}
+          strokeWidth="1.2"
           strokeLinejoin="round"
         />
 
-        <path d="M16 8.2 L21.4 23.6 L16 20 L10.6 23.6 Z" fill="#FFFFFF" />
+        <path d="M16 8.2 L21.4 23.6 L16 20 L10.6 23.6 Z" fill={`url(#${id}-arrow)`} />
       </svg>
     </span>
   )

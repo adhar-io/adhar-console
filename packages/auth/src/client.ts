@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react'
 import type { Role, Session, User } from './types.ts'
+import { rememberUser } from './last-user.ts'
 
 /**
  * Browser auth state for the running tab — cookie/session model.
@@ -110,6 +111,9 @@ export function AuthProvider({ children, initialSession }: AuthProviderProps) {
       if (data.authenticated && data.session) {
         setSessionState(data.session)
         setStatus('authenticated')
+        // A server-issued session is the only kind worth remembering — see
+        // last-user.ts. The demo session never passes through here.
+        rememberUser(data.session.user)
       } else {
         setStatus('anonymous')
       }

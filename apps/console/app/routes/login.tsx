@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { createFileRoute, Link, useNavigate, useSearch } from '@tanstack/react-router'
 import {
   AdharSymbol,
@@ -7,7 +7,7 @@ import {
   ModeToggle,
   useAppConfig,
 } from '@adhar-console/shell-ui'
-import { getDemoSession, useAuth } from '@adhar-console/auth'
+import { forgetLastUser, getDemoSession, getLastUser, useAuth } from '@adhar-console/auth'
 import { z } from 'zod'
 
 /**
@@ -124,9 +124,19 @@ function LoginPage() {
   const { configured, signin, signup, setSession } = useAuth()
   const { returnTo, error } = useSearch({ from: '/login' })
   // Whether this platform lets people sign themselves up (a Keycloak realm
-  // setting, probed server-side and reported on /api/config).
-  const selfRegistration = useAppConfig().data?.selfRegistration ?? false
+  // setting, probed server-side and reported on /api/config). Until the
+  // answer arrives the slot below the button is held open rather than
+  // guessed: guessing "off" drew the administrator note and then swapped it
+  // for a button a moment later, on every load.
+  const config = useAppConfig()
+  const selfRegistration = config.data?.selfRegistration ?? false
+  const configPending = config.isLoading && !config.data
   const nav = useNavigate()
+  // Who signed in last from this browser (name + email, local only), so a
+  // returning person is greeted by name and can see which account "Continue"
+  // resumes. "Not you?" forgets it.
+  const [last, setLast] = useState(() => (typeof window === 'undefined' ? null : getLastUser()))
+  const greetName = last?.name ? last.name.trim().split(/\s+/)[0] : ''
   const [busy, setBusy] = useState<'login' | 'register' | 'demo' | null>(null)
   const [localError, setLocalError] = useState<string | null>(error ?? null)
   const landing = returnLabel(returnTo)
@@ -358,9 +368,9 @@ function LoginPage() {
               <h1 className="text-[28px] font-semibold leading-tight tracking-tight text-content">
                 {configured ? (
                   <>
-                    Welcome back to{' '}
+                    Welcome back{greetName ? ',' : ' to'}{' '}
                     <span className="bg-linear-to-r from-brand-600 to-accent-600 bg-clip-text text-transparent dark:from-brand-300 dark:to-accent-500">
-                      Adhar
+                      {greetName || 'Adhar'}
                     </span>
                   </>
                 ) : (
@@ -372,6 +382,24 @@ function LoginPage() {
                   ? 'Sign in with your organisation account to pick up where you left off.'
                   : 'Walk the whole console with a stubbed session — no identity provider required.'}
               </p>
+              {configured && last?.email ? (
+                <p className="flex flex-wrap items-center gap-x-1.5 pt-1 text-[12px] text-content-subtle">
+                  <span>
+                    Last signed in as{' '}
+                    <span className="font-medium text-content-muted">{last.email}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      forgetLastUser()
+                      setLast(null)
+                    }}
+                    className="rounded font-medium text-brand-700 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 dark:text-brand-300"
+                  >
+                    Not you?
+                  </button>
+                </p>
+              ) : null}
               {/* Where they were headed. A visitor bounced here from a deep
                   link deserves to know the link survives sign-in. */}
               {landing ? (
@@ -448,14 +476,21 @@ function LoginPage() {
                       </span>
                     )}
                   </button>
-                  {/* The keyboard route, said once and quietly. */}
-                  <p className="text-center text-[11px] text-content-subtle">
+                  {/* The keyboard route, said once and quietly — and only where
+                      there is a keyboard: a phone has no Enter to press. */}
+                  <p className="hidden text-center text-[11px] text-content-subtle [@media(hover:hover)]:block">
                     or press{' '}
                     <kbd className="rounded border border-edge-default bg-surface-sunken px-1.5 py-px font-sans text-[10px] font-medium text-content-muted">
                       Enter
                     </kbd>
                   </p>
-                  {selfRegistration ? (
+                  {configPending ? (
+                    /* Same height as either resolved state so nothing moves. */
+                    <div
+                      aria-hidden
+                      className="h-11 animate-pulse rounded-md bg-surface-sunken/70"
+                    />
+                  ) : selfRegistration ? (
                     <Button
                       type="button"
                       variant="secondary"
@@ -564,9 +599,6 @@ function LoginPage() {
 /* ─────────────── brand / marketing panel ─────────────── */
 
 function BrandPanel() {
-  const config = useAppConfig().data
-  const version = config?.version && config.version !== 'dev' ? config.version : null
-  const domain = config?.publicBaseDomain || null
   return (
     <aside
       // Flush, full-bleed half of the screen — no margin, no radius. The seam
@@ -670,17 +702,22 @@ function BrandPanel() {
             infrastructure.
           </p>
 
-          {/* Distinct proof points — see HIGHLIGHTS. */}
+          {/*
+            Distinct proof points — see HIGHLIGHTS. The mark is the brand's
+            hexagon, drawn as a gradient outline with the tick inside, and the
+            items are staggered in so the list arrives as a sequence rather
+            than a block. Not a filled tile and not a grey circle: one is a
+            row of buttons, the other is every checkout page.
+          */}
           <ul className="mt-9 space-y-3.5">
-            {HIGHLIGHTS.map((h) => (
+            {HIGHLIGHTS.map((h, i) => (
               <li
                 key={h}
-                className="flex items-start gap-3 text-[14.5px] leading-relaxed text-white/80"
+                className="rise-in flex items-start gap-3.5 text-[14.5px] leading-relaxed text-white/80"
+                style={{ animationDelay: `${120 + i * 90}ms` }}
               >
-                <span className="mt-px flex-none rounded-full bg-white/10 p-1 text-accent-500 ring-1 ring-inset ring-white/15">
-                  <IconCheck />
-                </span>
-                <span>{h}</span>
+                <HexCheck />
+                <span className="pt-0.5">{h}</span>
               </li>
             ))}
           </ul>
@@ -691,15 +728,6 @@ function BrandPanel() {
             <IconShield /> SSO by Keycloak
           </span>
           <span className="hidden xl:inline">Kubernetes-native · Multi-tenant · 100% open source</span>
-          {/* Which install this is, and which build — the two facts a person
-              staring at a sign-in page most often has to go and find. */}
-          {domain || version ? (
-            <span className="ml-auto inline-flex items-center gap-2 font-mono text-[11px] text-white/45">
-              {domain ? <span>{domain}</span> : null}
-              {domain && version ? <span aria-hidden>·</span> : null}
-              {version ? <span>{version}</span> : null}
-            </span>
-          ) : null}
         </div>
       </div>
     </aside>
@@ -707,6 +735,47 @@ function BrandPanel() {
 }
 
 /* ─────────────── icons ─────────────── */
+
+/**
+ * The proof-point bullet: the brand hexagon as a thin gradient outline (the
+ * same cyan→indigo the AI mark is lit with) with a tick inside and a faint
+ * glow behind. Gradient ids come from `useId` — SVG ids are document-global.
+ */
+function HexCheck() {
+  const id = useId().replace(/:/g, '')
+  return (
+    <span className="relative mt-0.5 flex h-6 w-6 flex-none items-center justify-center">
+      <span
+        aria-hidden
+        className="absolute inset-0 rounded-full opacity-70 blur-md"
+        style={{ background: 'color-mix(in oklch, var(--color-accent-500) 45%, transparent)' }}
+      />
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden className="relative">
+        <defs>
+          <linearGradient id={`${id}-hex`} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="#67E8F9" />
+            <stop offset="1" stopColor="#818CF8" />
+          </linearGradient>
+        </defs>
+        <polygon
+          points="12,1.9 20.8,7 20.8,17 12,22.1 3.2,17 3.2,7"
+          fill="rgba(255,255,255,0.06)"
+          stroke={`url(#${id}-hex)`}
+          strokeWidth="1.5"
+          strokeLinejoin="round"
+        />
+        <path
+          d="m8.2 12.3 2.5 2.5 5.1-5.4"
+          fill="none"
+          stroke="#FFFFFF"
+          strokeWidth="2.1"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </span>
+  )
+}
 
 function Spinner() {
   return (
@@ -737,13 +806,6 @@ function IconLock() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <rect x="4" y="11" width="16" height="10" rx="2" />
       <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-    </svg>
-  )
-}
-function IconCheck() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="m20 6-11 11-5-5" />
     </svg>
   )
 }

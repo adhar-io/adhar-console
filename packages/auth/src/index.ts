@@ -9,6 +9,7 @@ export type { Session, User, Claims, Role } from './types.ts'
 export { SessionSchema, UserSchema, ClaimsSchema } from './types.ts'
 export { DEMO_USER, PENDING_USER, getDemoSession } from './stub.ts'
 export { claimsToUser } from './claims.ts'
+export { forgetLastUser, getLastUser, rememberUser, type LastUser } from './last-user.ts'
 export {
   AuthProvider,
   SessionContext,

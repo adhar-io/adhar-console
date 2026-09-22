@@ -19,9 +19,10 @@ import {
   PrometheusIcon,
   StatusBadge,
   TempoIcon,
+  useAppConfig,
   usePlatformApps,
 } from '@adhar-console/shell-ui'
-import { useAuth, type Session } from '@adhar-console/auth'
+import { getDemoSession, useAuth, type Session } from '@adhar-console/auth'
 import { BACKING_TOOLS } from '@adhar-console/platform-info'
 import { cn } from '@adhar-console/utils'
 import {
@@ -106,12 +107,18 @@ interface StepDef {
   description: string
 }
 
+/*
+ * Step 0 is the account step. Its heading depends on who is here: a visitor
+ * with no session is asked to create one (or sign in) before anything else,
+ * because the workspace is created under an account and there is nothing to
+ * own it otherwise; a signed-in user gets the welcome. See `accountHeading`.
+ */
 const STEPS: StepDef[] = [
   {
     id: 0,
-    eyebrow: 'Welcome',
+    eyebrow: 'Account',
     title: 'Set up your Adhar workspace',
-    description: "A couple of minutes to name your org, pick your capabilities, and provision.",
+    description: 'A couple of minutes to name your org, pick your capabilities, and provision.',
   },
   {
     id: 1,
@@ -288,9 +295,33 @@ function takeResume(): { step: Step; state: State } | null {
   }
 }
 
+/** The account step's heading for the three ways someone can arrive at it. */
+function accountHeading(
+  session: Session | null,
+  configured: boolean,
+): Pick<StepDef, 'title' | 'description'> {
+  if (session) return STEPS[0]
+  if (!configured) {
+    return {
+      title: 'Explore the console',
+      description:
+        'Keycloak isn\u2019t configured, so there is no account to create — walk the setup with a demo session instead.',
+    }
+  }
+  return {
+    title: 'First, an account',
+    description:
+      'Your workspace is created under your account, so that comes first. It takes a minute, and everything you enter here is kept while you do it.',
+  }
+}
+
 function OnboardingWizard() {
   const nav = useNavigate()
-  const { session, setSession } = useAuth()
+  const { session, setSession, configured, signup } = useAuth()
+  // Whether this platform lets people register themselves (a Keycloak realm
+  // setting, probed server-side). Off means an administrator creates accounts.
+  const selfRegistration = useAppConfig().data?.selfRegistration ?? false
+  const [authBusy, setAuthBusy] = useState<'signup' | 'signin' | null>(null)
   // Restore a wizard parked before a sign-in trip, so the round trip is
   // invisible: same step, same answers.
   const resumed = useRef(takeResume())
@@ -381,6 +412,29 @@ function OnboardingWizard() {
     reauthenticate('/onboarding')
   }
 
+  /*
+   * The account step's three exits. Registration and sign-in are both a
+   * full-page trip to Keycloak; the wizard is parked at the organization step
+   * so the round trip lands on the next thing to do, with the header showing
+   * who is now signed in. (After registration Keycloak always returns to
+   * /onboarding — see the callback handler — so this is the resume point in
+   * both cases.)
+   */
+  function createAccount() {
+    setAuthBusy('signup')
+    saveResume(1, state)
+    void signup({ returnTo: '/onboarding' })
+  }
+  function signInFromAccountStep() {
+    setAuthBusy('signin')
+    saveResume(1, state)
+    reauthenticate('/onboarding')
+  }
+  function continueAsDemo() {
+    setSession(getDemoSession())
+    setStep(1)
+  }
+
   function skipOnboarding() {
     // Skipping counts as "seen" so the app never forces onboarding again.
     try {
@@ -391,19 +445,50 @@ function OnboardingWizard() {
     nav({ to: '/' })
   }
 
-  const current = STEPS[step]
+  const current = step === 0 ? { ...STEPS[0], ...accountHeading(session, configured) } : STEPS[step]
   const progressPct = ((step + 1) / STEPS.length) * 100
   const provisioning = step === 4
+  // On the account step the step's own buttons are the way forward for a
+  // visitor with no session (register, sign in, or the demo session); the
+  // footer's Continue would be a second, vaguer one. It returns once signed in.
+  const accountGate = step === 0 && !session
 
   return (
-    <div
-      className="relative min-h-screen overflow-hidden bg-surface-app"
-      style={{
-        backgroundImage:
-          'radial-gradient(ellipse at 20% -10%, color-mix(in oklch, var(--color-brand-500) 22%, transparent) 0, transparent 45%), radial-gradient(ellipse at 110% 110%, color-mix(in oklch, var(--color-accent-500) 18%, transparent) 0, transparent 45%)',
-      }}
-    >
-      <div className="relative mx-auto flex min-h-screen max-w-5xl flex-col px-4 py-10 sm:px-6 lg:px-8">
+    <div className="relative min-h-screen overflow-hidden bg-surface-app">
+      {/*
+        The same ambient field as the sign-in page — drifting brand and accent
+        light plus a hairline mesh that fades out under the card — so arriving
+        here from "Create a new account" feels like the next room of the same
+        building, not a different product.
+      */}
+      <div aria-hidden className="pointer-events-none absolute inset-0">
+        <div
+          className="adhar-aurora absolute -top-1/3 left-[30%] h-184 w-184 -translate-x-1/2 rounded-full opacity-60 blur-3xl dark:opacity-40"
+          style={{
+            background:
+              'radial-gradient(circle, color-mix(in oklch, var(--color-brand-500) 22%, transparent) 0%, transparent 70%)',
+          }}
+        />
+        <div
+          className="adhar-aurora-slow absolute -bottom-1/4 right-[-10%] h-136 w-136 rounded-full opacity-50 blur-3xl dark:opacity-30"
+          style={{
+            background:
+              'radial-gradient(circle, color-mix(in oklch, var(--color-accent-500) 20%, transparent) 0%, transparent 70%)',
+          }}
+        />
+        <div
+          className="absolute inset-0 opacity-40 dark:opacity-35"
+          style={{
+            backgroundImage:
+              'linear-gradient(var(--color-edge-default) 1px, transparent 1px), linear-gradient(90deg, var(--color-edge-default) 1px, transparent 1px)',
+            backgroundSize: '52px 52px',
+            maskImage: 'radial-gradient(ellipse 70% 60% at 50% 45%, transparent 30%, black 100%)',
+            WebkitMaskImage: 'radial-gradient(ellipse 70% 60% at 50% 45%, transparent 30%, black 100%)',
+          }}
+        />
+      </div>
+
+      <div className="relative mx-auto flex min-h-screen max-w-5xl flex-col px-4 py-8 sm:px-6 lg:px-8 lg:py-10">
         {/* Top chrome. The brand sits on the left for the whole flow — this is
             the first screen of the product, so it should look like it. The
             right-hand side identifies who is signed in; when there is no
@@ -446,38 +531,54 @@ function OnboardingWizard() {
         </header>
 
         {/* Stepper */}
+        {/* Stepper: nodes joined by a track, the track filled up to the
+            current step. Five loose circles in a grid read as a legend; a
+            line between them reads as a journey with a position on it. */}
         <nav aria-label="Onboarding progress" className="mb-8">
-          <ol className="hidden grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 md:grid">
-            {STEPS.map((s) => {
+          <ol className="hidden items-start md:flex">
+            {STEPS.map((s, i) => {
               const done = s.id < step
               const active = s.id === step
+              const last = i === STEPS.length - 1
+              // Every node owns an equal column, so a connector that runs
+              // from this node's centre for one column's width ends exactly
+              // at the next node's centre.
               return (
-                <li key={s.id} className="flex items-center gap-2">
+                <li key={s.id} className="relative flex flex-1 flex-col items-center">
+                  {!last ? (
+                    <span
+                      aria-hidden
+                      className="absolute left-1/2 top-3.5 h-0.5 w-full bg-edge-default"
+                    >
+                      <span
+                        className="block h-full bg-brand-500 transition-[width] duration-500 ease-smooth"
+                        style={{ width: done ? '100%' : '0%' }}
+                      />
+                    </span>
+                  ) : null}
                   <span
                     className={cn(
-                      'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold transition-all',
-                      done && 'bg-brand-600 text-white shadow-sm',
-                      active && 'bg-brand-600 text-white shadow-sm ring-4 ring-brand-500/20',
-                      !done && !active && 'bg-surface-sunken text-content-subtle ring-1 ring-edge-default',
+                      'relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold transition-all duration-300',
+                      done && 'bg-brand-600 text-white',
+                      active && 'bg-brand-600 text-white ring-4 ring-brand-500/20 shadow-md shadow-brand-600/30',
+                      !done && !active && 'bg-surface-raised text-content-subtle ring-1 ring-inset ring-edge-strong',
                     )}
                   >
                     {done ? <IconCheck /> : s.id + 1}
                   </span>
-                  <div className="min-w-0">
-                    <div
-                      className={cn(
-                        'truncate text-[10px] font-semibold uppercase tracking-widest',
-                        active ? 'text-brand-700 dark:text-brand-300' : 'text-content-subtle',
-                      )}
-                    >
-                      {s.eyebrow}
-                    </div>
-                  </div>
+                  <span
+                    className={cn(
+                      'mt-2 text-[10px] font-semibold uppercase tracking-widest transition-colors',
+                      active ? 'text-brand-700 dark:text-brand-300' : done ? 'text-content-muted' : 'text-content-subtle',
+                    )}
+                  >
+                    {s.eyebrow}
+                  </span>
                 </li>
               )
             })}
           </ol>
-          <div className="h-1 overflow-hidden rounded-full bg-surface-sunken md:mt-3">
+          <div className="h-1 overflow-hidden rounded-full bg-surface-sunken md:hidden">
             <div
               className="h-full rounded-full bg-brand-500 transition-[width] duration-500 ease-smooth"
               style={{ width: `${progressPct}%` }}
@@ -493,21 +594,49 @@ function OnboardingWizard() {
 
         {/* Main card */}
         <main className="flex-1">
-          <div className="overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-lg">
-            <div className="border-b border-edge-subtle bg-linear-to-br from-brand-50 dark:from-brand-500/10 to-surface-raised px-6 py-6 sm:px-10 sm:py-8">
-              <div className="text-[11px] font-semibold uppercase tracking-widest text-brand-700 dark:text-brand-300">
-                Step {step + 1} · {current.eyebrow}
+          <div className="relative overflow-hidden rounded-3xl border border-edge-default bg-surface-raised/90 shadow-2xl shadow-brand-950/10 ring-1 ring-black/5 backdrop-blur-xl dark:bg-surface-raised/80 dark:shadow-black/40 dark:ring-white/8">
+            {/* The lit top edge the sign-in card has, so the two match. */}
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-brand-500/70 to-transparent"
+            />
+            <div className="relative border-b border-edge-subtle px-6 py-6 sm:px-10 sm:py-8">
+              <span
+                aria-hidden
+                className="pointer-events-none absolute -top-24 left-0 h-48 w-2/3 opacity-60 blur-3xl"
+                style={{
+                  backgroundImage:
+                    'radial-gradient(60% 100% at 30% 100%, color-mix(in oklch, var(--color-brand-500) 26%, transparent), transparent 70%)',
+                }}
+              />
+              <div className="relative">
+                <div className="text-[11px] font-semibold uppercase tracking-widest text-brand-700 dark:text-brand-300">
+                  Step {step + 1} · {current.eyebrow}
+                </div>
+                <h1 className="mt-1.5 text-2xl font-semibold tracking-tight text-content sm:text-3xl">
+                  {current.title}
+                </h1>
+                <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-content-muted">
+                  {current.description}
+                </p>
               </div>
-              <h1 className="mt-1.5 text-2xl font-semibold tracking-tight text-content sm:text-3xl">
-                {current.title}
-              </h1>
-              <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-content-muted">
-                {current.description}
-              </p>
             </div>
 
-            <div className="px-6 py-6 sm:px-10 sm:py-8">
-              {step === 0 && <StepWelcome session={session} />}
+            {/* `key` remounts the panel per step so each one rises in. */}
+            <div key={step} className="rise-in px-6 py-6 sm:px-10 sm:py-8">
+              {step === 0 && (
+                <StepAccount
+                  session={session}
+                  authed={authed}
+                  configured={configured}
+                  selfRegistration={selfRegistration}
+                  busy={authBusy}
+                  onCreateAccount={createAccount}
+                  onSignIn={signInFromAccountStep}
+                  onDemo={continueAsDemo}
+                  onLater={() => setStep(1)}
+                />
+              )}
               {step === 1 && <StepOrg state={state} setState={setState} />}
               {step === 2 && (
                 <StepConnect
@@ -556,15 +685,17 @@ function OnboardingWizard() {
                   >
                     I'll finish later
                   </button>
-                  <Button
-                    variant="primary"
-                    size="md"
-                    onClick={next}
-                    disabled={!canContinue}
-                    trailing={<IconArrowRight />}
-                  >
-                    {step === 3 ? (needsSignIn ? 'Sign in & provision' : 'Provision workspace') : 'Continue'}
-                  </Button>
+                  {accountGate ? null : (
+                    <Button
+                      variant="primary"
+                      size="md"
+                      onClick={next}
+                      disabled={!canContinue}
+                      trailing={<IconArrowRight />}
+                    >
+                      {step === 3 ? (needsSignIn ? 'Sign in & provision' : 'Provision workspace') : 'Continue'}
+                    </Button>
+                  )}
                 </div>
               </div>
             ) : null}
@@ -581,76 +712,279 @@ function OnboardingWizard() {
 
 /* ───── step panels ───── */
 
-function StepWelcome({ session }: { session: Session | null }) {
+/**
+ * Step 0 — the account.
+ *
+ * The workspace is created under an account, so a visitor with no session is
+ * offered the two ways to get one before anything else: register (when the
+ * realm allows it) or sign in. Both are a full-page trip to Keycloak; the
+ * wizard is parked and resumes at the organization step. Someone who would
+ * rather look around first can still go on and sign in before provisioning —
+ * that path is kept, just not made the headline.
+ *
+ * A signed-in user sees who they are and moves on. With no identity provider
+ * at all (local dev) the only honest offer is the demo session.
+ */
+function StepAccount({
+  session,
+  authed,
+  configured,
+  selfRegistration,
+  busy,
+  onCreateAccount,
+  onSignIn,
+  onDemo,
+  onLater,
+}: {
+  session: Session | null
+  /** null while the server is still being asked whether a cookie session exists. */
+  authed: boolean | null
+  configured: boolean
+  selfRegistration: boolean
+  busy: 'signup' | 'signin' | null
+  onCreateAccount: () => void
+  onSignIn: () => void
+  onDemo: () => void
+  onLater: () => void
+}) {
   const highlights = [
     {
       title: 'Unified operator UI',
-      body:
-        'One canvas for requirements, design, delivery, observability, and cost. No more 12 browser tabs.',
+      body: 'One canvas for requirements, design, delivery, observability, and cost. No more 12 browser tabs.',
     },
     {
       title: 'Open source all the way down',
-      body:
-        'Every feature is aggregated from a real OSS project — Gitea, Argo, Kargo, Harbor, Kyverno, LGTM, Plane, Keycloak.',
+      body: 'Every feature is aggregated from a real OSS project — Gitea, Argo, Kargo, Harbor, Kyverno, LGTM, Plane, Keycloak.',
     },
     {
       title: 'Your access, everywhere',
-      body:
-        'The console acts as you, not as a shared admin — so you see exactly what your Kubernetes permissions allow, and every action is attributed to you.',
+      body: 'The console acts as you, not as a shared admin — you see exactly what your Kubernetes permissions allow, and every action is attributed to you.',
     },
     {
       title: 'Set up for you',
-      body:
-        'Pick the capabilities you want and the platform installs them onto your cluster. It runs in the background and tells you when it is done.',
+      body: 'Pick the capabilities you want and the platform installs them onto your cluster. It runs in the background and tells you when it is done.',
     },
   ]
+
+  let identity: ReactNode
+  if (session) {
+    identity = (
+      <div className="flex items-center gap-4 rounded-2xl border border-edge-subtle bg-linear-to-br from-brand-50 dark:from-brand-500/10 via-surface-raised to-accent-50/40 dark:to-accent-500/5 p-4 sm:p-5">
+        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br from-brand-500 to-accent-500 text-lg font-semibold text-white shadow-sm">
+          {initials(session.user.name)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+            <IconShieldMini /> {configured ? 'Signed in via single sign-on' : 'Demo session'}
+          </div>
+          <div className="mt-0.5 truncate text-lg font-semibold text-content">
+            Welcome, {firstName(session.user.name)} 👋
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <span className="truncate rounded-full bg-surface-raised px-2 py-0.5 text-[11px] text-content-muted ring-1 ring-inset ring-edge-default">
+              {session.user.email}
+            </span>
+            {session.user.roles.map((r) => (
+              <span
+                key={r}
+                className="rounded-full bg-brand-50 dark:bg-brand-500/10 px-2 py-0.5 text-[10px] font-medium text-brand-700 dark:text-brand-300 ring-1 ring-inset ring-brand-200"
+              >
+                {r}
+              </span>
+            ))}
+          </div>
+        </div>
+        <span className="hidden shrink-0 items-center gap-1.5 self-start rounded-full bg-surface-raised px-2.5 py-1 text-[10px] font-semibold text-content-muted shadow-sm ring-1 ring-inset ring-edge-default sm:inline-flex">
+          <AdharMark /> {configured ? 'Keycloak' : 'Demo'}
+        </span>
+      </div>
+    )
+  } else if (authed === null) {
+    identity = (
+      <div className="flex items-center gap-3 rounded-2xl border border-edge-subtle bg-surface-sunken/50 px-4 py-4 text-sm text-content-muted">
+        <span className="text-brand-600 dark:text-brand-400">
+          <MiniSpinner />
+        </span>
+        Checking whether you’re already signed in…
+      </div>
+    )
+  } else if (!configured) {
+    identity = (
+      <div className="flex flex-col gap-4 rounded-2xl border border-edge-subtle bg-linear-to-br from-brand-50 dark:from-brand-500/10 via-surface-raised to-accent-50/40 dark:to-accent-500/5 p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="text-[15px] font-semibold text-content">Walk the setup with a demo session</div>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-content-muted">
+            Keycloak isn’t configured, so there is no real account to create. Set{' '}
+            <code className="rounded bg-surface-sunken px-1 font-mono text-[11px]">KEYCLOAK_URL</code> to
+            enable single sign-on.
+          </p>
+        </div>
+        <Button variant="primary" size="md" onClick={onDemo} trailing={<IconArrowRight />}>
+          Continue as demo user
+        </Button>
+      </div>
+    )
+  } else {
+    identity = (
+      <div className="grid gap-4 lg:grid-cols-[3fr_2fr] lg:items-start">
+        {/* The account card — the one thing this step is for. */}
+        <div className="relative overflow-hidden rounded-2xl border border-edge-default bg-surface-raised p-5 shadow-sm sm:p-6">
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 -top-20 h-32 opacity-70 blur-2xl"
+            style={{
+              backgroundImage:
+                'radial-gradient(60% 100% at 30% 100%, color-mix(in oklch, var(--color-brand-500) 30%, transparent), transparent 70%)',
+            }}
+          />
+          <div className="relative">
+            <div className="flex items-center gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-brand-500 to-accent-500 text-white shadow-md shadow-brand-600/25">
+                <IconUserPlus />
+              </span>
+              <div className="min-w-0">
+                <div className="text-[15px] font-semibold text-content">
+                  {selfRegistration ? 'Create your account' : 'Sign in to continue'}
+                </div>
+                <div className="text-[12px] text-content-muted">
+                  Handled by Keycloak — your password never touches the console.
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-2.5">
+              {selfRegistration ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={onCreateAccount}
+                    disabled={busy !== null}
+                    className="group relative flex h-11 w-full items-center justify-center gap-2.5 overflow-hidden rounded-xl bg-linear-to-r from-brand-600 to-accent-600 px-4 text-sm font-semibold text-white shadow-lg shadow-brand-600/25 ring-1 ring-inset ring-white/15 transition-all hover:shadow-brand-600/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:opacity-80"
+                  >
+                    <span
+                      aria-hidden
+                      className="absolute inset-0 -translate-x-full bg-linear-to-r from-transparent via-white/20 to-transparent transition-transform duration-700 group-hover:translate-x-full"
+                    />
+                    {busy === 'signup' ? <MiniSpinner /> : null}
+                    {busy === 'signup' ? 'Taking you to Keycloak…' : 'Create account'}
+                    {busy === 'signup' ? null : (
+                      <span aria-hidden className="text-white/70 transition-transform duration-300 group-hover:translate-x-1">
+                        <IconArrowRight />
+                      </span>
+                    )}
+                  </button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="md"
+                    block
+                    onClick={onSignIn}
+                    loading={busy === 'signin'}
+                  >
+                    {busy === 'signin' ? 'Taking you to sign in…' : 'I already have an account'}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="md"
+                    block
+                    onClick={onSignIn}
+                    loading={busy === 'signin'}
+                    trailing={busy === 'signin' ? undefined : <IconArrowRight />}
+                  >
+                    {busy === 'signin' ? 'Taking you to sign in…' : 'Sign in with Single Sign-On'}
+                  </Button>
+                  {/* Registration is closed on this platform; say so rather
+                      than end at an identity-provider error page. */}
+                  <div className="flex items-start gap-2.5 rounded-lg border border-dashed border-edge-default px-3 py-2.5 text-[12px] leading-relaxed text-content-muted">
+                    <span className="mt-0.5 text-brand-600 dark:text-brand-400">
+                      <IconUserPlus size={14} />
+                    </span>
+                    <span>
+                      Need an account?{' '}
+                      <span className="font-medium text-content">Ask your platform administrator to create one</span>{' '}
+                      — self sign-up is turned off for this platform.
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <p className="mt-4 text-[11.5px] leading-relaxed text-content-subtle">
+              You’ll come straight back here afterwards, at the next step.
+            </p>
+          </div>
+        </div>
+
+        {/* What the account unlocks, in three lines — so the ask has a reason. */}
+        <div className="rounded-2xl border border-edge-subtle bg-surface-sunken/50 p-5">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">
+            Why an account first
+          </div>
+          <ul className="mt-3 space-y-3 text-[12.5px] leading-relaxed text-content-muted">
+            <li className="flex gap-2.5">
+              <span className="mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-brand-500/12 text-brand-700 dark:text-brand-300">
+                <IconCheck />
+              </span>
+              <span>
+                <span className="font-medium text-content">Your workspace is yours.</span> The organization is
+                created under your account, so someone has to own it.
+              </span>
+            </li>
+            <li className="flex gap-2.5">
+              <span className="mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-brand-500/12 text-brand-700 dark:text-brand-300">
+                <IconCheck />
+              </span>
+              <span>
+                <span className="font-medium text-content">One sign-in for everything.</span> The same account
+                opens every tool on the platform, with your permissions applied.
+              </span>
+            </li>
+            <li className="flex gap-2.5">
+              <span className="mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-brand-500/12 text-brand-700 dark:text-brand-300">
+                <IconCheck />
+              </span>
+              <span>
+                <span className="font-medium text-content">Nothing is lost.</span> What you type in this wizard
+                is kept across the trip to Keycloak and back.
+              </span>
+            </li>
+          </ul>
+          <button
+            type="button"
+            onClick={onLater}
+            className="mt-4 inline-flex items-start gap-1.5 text-left text-[12px] font-medium text-brand-700 underline-offset-4 hover:underline dark:text-brand-300"
+          >
+            <span>Set up the workspace first, sign in before provisioning</span>
+            <span className="mt-0.5 shrink-0">
+              <IconArrowRight />
+            </span>
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
-      {session ? (
-        <div className="flex items-center gap-4 rounded-2xl border border-edge-subtle bg-linear-to-br from-brand-50 dark:from-brand-500/10 via-surface-raised to-accent-50/40 dark:to-accent-500/5 p-4 sm:p-5">
-          <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br from-brand-500 to-accent-500 text-lg font-semibold text-white shadow-sm">
-            {initials(session.user.name)}
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-              <IconShieldMini /> Signed in via single sign-on
-            </div>
-            <div className="mt-0.5 truncate text-lg font-semibold text-content">
-              Welcome, {firstName(session.user.name)} 👋
-            </div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              <span className="truncate rounded-full bg-surface-raised px-2 py-0.5 text-[11px] text-content-muted ring-1 ring-inset ring-edge-default">
-                {session.user.email}
-              </span>
-              {session.user.roles.map((r) => (
-                <span
-                  key={r}
-                  className="rounded-full bg-brand-50 dark:bg-brand-500/10 px-2 py-0.5 text-[10px] font-medium text-brand-700 dark:text-brand-300 ring-1 ring-inset ring-brand-200"
-                >
-                  {r}
-                </span>
-              ))}
-            </div>
-          </div>
-          <span className="hidden shrink-0 items-center gap-1.5 self-start rounded-full bg-surface-raised px-2.5 py-1 text-[10px] font-semibold text-content-muted shadow-sm ring-1 ring-inset ring-edge-default sm:inline-flex">
-            <AdharMark /> Keycloak
-          </span>
-        </div>
-      ) : null}
+      {identity}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {highlights.map((h, i) => (
           <div
             key={h.title}
-            className="rounded-xl border border-edge-subtle bg-surface-sunken/60 p-4"
+            className="rounded-xl border border-edge-subtle bg-surface-sunken/50 p-4 transition-colors hover:border-edge-default hover:bg-surface-sunken/80"
           >
             <div className="flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-50 dark:bg-brand-500/10 text-xs font-semibold text-brand-700 dark:text-brand-300 ring-1 ring-inset ring-brand-200">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-50 dark:bg-brand-500/10 text-[11px] font-semibold text-brand-700 dark:text-brand-300 ring-1 ring-inset ring-brand-200 dark:ring-brand-500/30">
                 {i + 1}
               </span>
-              <div className="text-sm font-semibold text-content">{h.title}</div>
+              <div className="text-[13px] font-semibold text-content">{h.title}</div>
             </div>
-            <p className="mt-2 text-sm leading-relaxed text-content-muted">{h.body}</p>
+            <p className="mt-2 text-[12.5px] leading-relaxed text-content-muted">{h.body}</p>
           </div>
         ))}
       </div>
@@ -1639,6 +1973,16 @@ function AdharMark() {
     >
       A
     </span>
+  )
+}
+
+function IconUserPlus({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M19 8v6M22 11h-6" />
+    </svg>
   )
 }
 

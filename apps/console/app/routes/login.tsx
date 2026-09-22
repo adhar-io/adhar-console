@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createFileRoute, Link, useNavigate, useSearch } from '@tanstack/react-router'
 import {
   AdharSymbol,
@@ -73,6 +73,19 @@ const COMPACT_PROOF = [
 ] as const
 
 /**
+ * Where sign-in will land — for the "you'll be returned to…" hint.
+ *
+ * Only worth saying when it is somewhere specific: the root is where sign-in
+ * goes anyway, and a bare pathname reads better than a query string.
+ */
+function returnLabel(returnTo: string | undefined): string | null {
+  if (!returnTo) return null
+  const path = returnTo.split('?')[0]
+  if (!path || path === '/' || path === '/login') return null
+  return path
+}
+
+/**
  * Map the raw `?error=` string the OIDC handlers redirect back with to a
  * calmer title + guidance. Unknown errors pass through verbatim so we never
  * hide a real message. `retryable` decides whether we offer a one-click retry
@@ -116,6 +129,29 @@ function LoginPage() {
   const nav = useNavigate()
   const [busy, setBusy] = useState<'login' | 'register' | 'demo' | null>(null)
   const [localError, setLocalError] = useState<string | null>(error ?? null)
+  const landing = returnLabel(returnTo)
+
+  /*
+   * Enter starts sign-in. There is one action on this page and nothing to
+   * type, so a return-key that does nothing until the button is tabbed to is
+   * a page that ignores the most natural thing to press. Modified keys and
+   * key presses inside a control are left alone.
+   */
+  useEffect(() => {
+    if (!configured) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
+      const t = e.target as HTMLElement | null
+      if (t && t.closest('button, a, input, textarea, select, [contenteditable]')) return
+      if (busy) return
+      e.preventDefault()
+      void handleSignin()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+    // handleSignin closes over nothing that changes between renders except `busy`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configured, busy, returnTo])
 
   async function handleSignin() {
     setBusy('login')
@@ -271,6 +307,35 @@ function LoginPage() {
               aria-hidden
               className="pointer-events-none absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-brand-500/70 to-transparent"
             />
+            {/*
+              A slow sweep of light around the card's edge. The border is a
+              1px ring (the mask keeps only the outer pixel of this span) and
+              the light is a conic gradient turning inside it — the card
+              looks lit from a source moving around it, not outlined. Faint
+              on purpose; it should be noticed on the second look, not the
+              first. Still under `prefers-reduced-motion`.
+            */}
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-0 rounded-3xl opacity-60 dark:opacity-80"
+              style={{
+                padding: 1,
+                mask: 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)',
+                WebkitMask: 'linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)',
+                maskComposite: 'exclude',
+                WebkitMaskComposite: 'xor',
+              }}
+            >
+              {/* Wide, symmetric ramps: a stop that jumps to full colour reads
+                  as a painted stroke sliding along the edge, not as light. */}
+              <span
+                className="adhar-orbit absolute left-1/2 top-1/2 h-[200%] w-[200%] -translate-x-1/2 -translate-y-1/2"
+                style={{
+                  background:
+                    'conic-gradient(from 0deg, transparent 0deg, color-mix(in oklch, var(--color-brand-500) 70%, transparent) 60deg, transparent 120deg, transparent 180deg, color-mix(in oklch, var(--color-accent-500) 55%, transparent) 240deg, transparent 300deg)',
+                }}
+              />
+            </span>
 
             {/* Seamless redirect overlay — covers the card while we hand off to
                 Keycloak, so the transition reads as one smooth step. */}
@@ -307,6 +372,19 @@ function LoginPage() {
                   ? 'Sign in with your organisation account to pick up where you left off.'
                   : 'Walk the whole console with a stubbed session — no identity provider required.'}
               </p>
+              {/* Where they were headed. A visitor bounced here from a deep
+                  link deserves to know the link survives sign-in. */}
+              {landing ? (
+                <p className="flex items-center gap-1.5 pt-1 text-[12px] text-content-subtle">
+                  <IconReturn />
+                  <span>
+                    You’ll be returned to{' '}
+                    <code className="rounded bg-surface-sunken px-1 py-px font-mono text-[11px] text-content-muted">
+                      {landing}
+                    </code>
+                  </span>
+                </p>
+              ) : null}
             </div>
 
             {localError ? (
@@ -349,15 +427,34 @@ function LoginPage() {
                     type="button"
                     onClick={handleSignin}
                     disabled={redirecting}
-                    className="group relative flex h-12 w-full items-center justify-center gap-2.5 overflow-hidden rounded-xl bg-linear-to-r from-brand-600 to-accent-600 px-4 font-semibold text-white shadow-lg shadow-brand-600/25 transition-all hover:shadow-brand-600/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:opacity-80"
+                    className="group relative flex h-12 w-full items-center justify-center gap-2.5 overflow-hidden rounded-xl bg-linear-to-r from-brand-600 to-accent-600 px-4 font-semibold text-white shadow-lg shadow-brand-600/25 ring-1 ring-inset ring-white/15 transition-all hover:shadow-brand-600/40 hover:ring-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:opacity-80"
                   >
                     <span
                       aria-hidden
-                      className="absolute inset-0 -translate-x-full bg-linear-to-r from-transparent via-surface-raised/20 to-transparent transition-transform duration-700 group-hover:translate-x-full"
+                      className="absolute inset-0 -translate-x-full bg-linear-to-r from-transparent via-white/20 to-transparent transition-transform duration-700 group-hover:translate-x-full"
                     />
                     {busy === 'login' ? <Spinner /> : <IconShield />}
-                    {busy === 'login' ? 'Redirecting to Keycloak…' : 'Continue with Single Sign-On'}
+                    <span className="whitespace-nowrap">
+                      {busy === 'login' ? 'Redirecting to Keycloak…' : 'Continue with Single Sign-On'}
+                    </span>
+                    {/* The arrow is dropped on phones: at 390px the label plus
+                        both icons no longer fits on one line. */}
+                    {busy === 'login' ? null : (
+                      <span
+                        aria-hidden
+                        className="hidden text-white/70 transition-transform duration-300 group-hover:translate-x-1 sm:inline-flex"
+                      >
+                        <IconArrow />
+                      </span>
+                    )}
                   </button>
+                  {/* The keyboard route, said once and quietly. */}
+                  <p className="text-center text-[11px] text-content-subtle">
+                    or press{' '}
+                    <kbd className="rounded border border-edge-default bg-surface-sunken px-1.5 py-px font-sans text-[10px] font-medium text-content-muted">
+                      Enter
+                    </kbd>
+                  </p>
                   {selfRegistration ? (
                     <Button
                       type="button"
@@ -373,14 +470,20 @@ function LoginPage() {
                     /* Sign-up is closed on this platform. Saying so is kinder
                        than a button that ends at an identity-provider error —
                        and an account has to exist before a workspace can be
-                       created for it. */
-                    <p className="text-center text-[12px] leading-relaxed text-content-muted">
-                      Need an account?{' '}
-                      <span className="font-medium text-content">
-                        Ask your platform administrator to create one
-                      </span>{' '}
-                      — self sign-up is turned off for this platform.
-                    </p>
+                       created for it. Set as a row with the same shape as the
+                       trust line below, so the two notes read as a pair. */
+                    <div className="flex items-start gap-2.5 rounded-lg border border-dashed border-edge-default px-3 py-2.5 text-[12px] leading-relaxed text-content-muted">
+                      <span className="mt-0.5 text-brand-600 dark:text-brand-400">
+                        <IconUserPlus />
+                      </span>
+                      <span>
+                        Need an account?{' '}
+                        <span className="font-medium text-content">
+                          Ask your platform administrator to create one
+                        </span>{' '}
+                        — self sign-up is turned off for this platform.
+                      </span>
+                    </div>
                   )}
                 </>
               ) : (
@@ -406,8 +509,8 @@ function LoginPage() {
             </div>
 
             {/* Trust line */}
-            <div className="mt-6 flex items-center gap-2 rounded-lg bg-surface-sunken/70 px-3 py-2.5 text-[11px] leading-snug text-content-muted">
-              <span className="text-emerald-600">
+            <div className="mt-5 flex items-center gap-2.5 rounded-lg bg-surface-sunken/70 px-3 py-2.5 text-[11px] leading-snug text-content-muted">
+              <span className="text-emerald-600 dark:text-emerald-400">
                 <IconLock />
               </span>
               {configured ? (
@@ -461,6 +564,9 @@ function LoginPage() {
 /* ─────────────── brand / marketing panel ─────────────── */
 
 function BrandPanel() {
+  const config = useAppConfig().data
+  const version = config?.version && config.version !== 'dev' ? config.version : null
+  const domain = config?.publicBaseDomain || null
   return (
     <aside
       // Flush, full-bleed half of the screen — no margin, no radius. The seam
@@ -525,6 +631,18 @@ function BrandPanel() {
         aria-hidden
         className="pointer-events-none absolute inset-y-0 right-0 w-px bg-linear-to-b from-transparent via-white/35 to-transparent"
       />
+      {/*
+        The mark itself, very large and very faint, sitting behind the copy in
+        the lower-right. A watermark rather than an illustration: it gives the
+        empty half of the panel a shape without giving it a subject, and it is
+        the one graphic this page can use that nothing else could.
+      */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -bottom-32 -right-24 opacity-[0.05] blur-[1px] xl:-bottom-40 xl:-right-28"
+      >
+        <AdharSymbol size={560} title="" />
+      </div>
 
       <div className="relative z-10 flex h-full flex-col justify-between p-10 xl:p-14">
         <div className="flex items-center gap-2.5">
@@ -542,7 +660,9 @@ function BrandPanel() {
           <h2 className="text-[2.35rem] font-semibold leading-[1.08] tracking-[-0.02em] text-white xl:text-[3rem]">
             Your entire platform,
             <br />
-            one console.
+            <span className="bg-linear-to-r from-white via-white to-brand-200 bg-clip-text text-transparent">
+              one console.
+            </span>
           </h2>
           <p className="mt-5 max-w-md text-[15px] leading-relaxed text-white/70">
             Plan, build, ship and observe without stitching together a dozen dashboards — every
@@ -566,11 +686,20 @@ function BrandPanel() {
           </ul>
         </div>
 
-        <div className="flex items-center gap-3 text-xs text-white/55">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-white/55">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 font-medium text-white/80 ring-1 ring-inset ring-white/10">
             <IconShield /> SSO by Keycloak
           </span>
           <span className="hidden xl:inline">Kubernetes-native · Multi-tenant · 100% open source</span>
+          {/* Which install this is, and which build — the two facts a person
+              staring at a sign-in page most often has to go and find. */}
+          {domain || version ? (
+            <span className="ml-auto inline-flex items-center gap-2 font-mono text-[11px] text-white/45">
+              {domain ? <span>{domain}</span> : null}
+              {domain && version ? <span aria-hidden>·</span> : null}
+              {version ? <span>{version}</span> : null}
+            </span>
+          ) : null}
         </div>
       </div>
     </aside>
@@ -615,6 +744,30 @@ function IconCheck() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="m20 6-11 11-5-5" />
+    </svg>
+  )
+}
+function IconArrow() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M5 12h14M13 6l6 6-6 6" />
+    </svg>
+  )
+}
+function IconReturn() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h11a5 5 0 0 1 0 10h-3" />
+    </svg>
+  )
+}
+function IconUserPlus() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M19 8v6M22 11h-6" />
     </svg>
   )
 }

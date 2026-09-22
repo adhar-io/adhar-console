@@ -472,6 +472,22 @@ a {
   will-change: transform;
 }
 
+/* A light source travelling around an edge (the sign-in card's border). The
+ * element is centred with translate(-50%, -50%), so the rotation has to keep
+ * that translate or the sweep would orbit the element's corner. */
+@keyframes adhar-orbit {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+.adhar-orbit {
+  animation: adhar-orbit 14s linear infinite;
+  will-change: transform;
+}
+
 /* Honour the user's reduced-motion preference everywhere these run. */
 @media (prefers-reduced-motion: reduce) {
   .fade-in,
@@ -482,7 +498,8 @@ a {
   .dag-node-shimmer,
   .dag-node-active,
   .adhar-aurora,
-  .adhar-aurora-slow {
+  .adhar-aurora-slow,
+  .adhar-orbit {
     animation: none !important;
   }
   .dag-edge {

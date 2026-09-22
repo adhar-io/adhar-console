@@ -643,9 +643,14 @@ function CoveragePanel({
   const total = Math.max(1, coverage.total)
   const tiles = [
     {
+      // A percentage, like the two tiles beside it. It used to show a raw
+      // count against a sub-line describing the TOTAL — so the one number the
+      // eye compares across the row was measuring something different in the
+      // first tile, and "0 / 8 total entities" left you working out which
+      // quantity was which.
       label: 'Production tier',
-      value: `${coverage.byLifecycle.production ?? 0}`,
-      sub: `${coverage.total} total entities`,
+      value: `${pct(coverage.byLifecycle.production ?? 0, total)}%`,
+      sub: `${coverage.byLifecycle.production ?? 0}/${coverage.total} in production`,
       pct: ((coverage.byLifecycle.production ?? 0) / total) * 100,
       tone: 'emerald' as const,
       icon: <IconShield />,
@@ -732,7 +737,11 @@ function CoverageTile({
           <div className="mt-1 font-mono text-[20px] font-semibold tabular-nums leading-none text-content">
             {value}
           </div>
-          <div className="mt-1 truncate text-[11px] text-content-muted">{sub}</div>
+          {/* Wraps rather than truncates. "Missing owner, runbook, or lifecycle"
+              was cut to "Missing owner, runboo…", and tuning the copy to a
+              pixel width breaks again in any other locale. The tiles are grid
+              items, so they all stretch to match and the row stays aligned. */}
+          <div className="mt-1 line-clamp-2 text-[11px] leading-snug text-content-muted">{sub}</div>
         </div>
         <span
           className={cn(
@@ -3020,10 +3029,23 @@ function EntityCard({
           <h3 className="truncate text-[14px] font-semibold leading-tight text-content">
             {entity.metadata.title ?? entity.metadata.name}
           </h3>
+          {/*
+            What this thing IS, not its ref. The line used to read
+            `component:adhar-kit` directly under the heading "adhar-kit" — the
+            name twice, plus a kind the glyph beside it already shows. The
+            entity's type ("service", "library") is the fact that was missing,
+            and the raw name earns its place only when the title differs from
+            it.
+          */}
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="truncate font-mono text-[11px] text-content-subtle">
-              {entity.kind.toLowerCase()}:{entity.metadata.name}
+            <span className="truncate text-[11px] font-medium capitalize text-content-muted">
+              {entity.spec.type ?? entity.kind}
             </span>
+            {(entity.metadata.title ?? entity.metadata.name) !== entity.metadata.name ? (
+              <span className="truncate font-mono text-[11px] text-content-subtle">
+                {entity.metadata.name}
+              </span>
+            ) : null}
             {entity.spec.lifecycle ? <LifecycleTag lifecycle={entity.spec.lifecycle} /> : null}
             <OriginTag origin={entity.origin} />
           </div>
@@ -3034,14 +3056,12 @@ function EntityCard({
           {entity.metadata.description}
         </p>
       ) : null}
-      {stack.length > 0 ? (
-        <div className="mt-3 px-4">
-          <TechBadges stack={stack} max={4} />
-        </div>
-      ) : null}
-      {generics.length > 0 ? (
-        <div className="mt-2 flex flex-wrap gap-1 px-4">
-          {generics.slice(0, 4).map((t) => (
+      {/* Tech and tags share ONE wrapping row. As two stacked rows a card with
+          a single language and a single tag spent two lines on two chips. */}
+      {stack.length > 0 || generics.length > 0 ? (
+        <div className="mt-2.5 flex flex-wrap items-center gap-1 px-4">
+          {stack.length > 0 ? <TechBadges stack={stack} max={3} /> : null}
+          {generics.slice(0, 3).map((t) => (
             <span
               key={t}
               className="rounded-md bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium text-content-muted"
@@ -3052,17 +3072,27 @@ function EntityCard({
         </div>
       ) : null}
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 pb-3 text-[11px] text-content-muted">
+        {/* Health and score sit together because they are the same judgement
+            at two resolutions — "At risk" IS grade D/F. Apart, with the score
+            alone in the footer, they read as two unrelated verdicts, and the
+            score's width competed with the quick links until the footer
+            wrapped onto a second line. */}
         <StatusBadge kind={health.kind} className="px-1.5 py-0 text-[10px]">
           {health.label}
         </StatusBadge>
+        <ScoreBadge score={score} />
         {entity.spec.owner ? (
           <span className="inline-flex items-center gap-1" title={`Owned by ${parseRef(entity.spec.owner).name}`}>
             <IconUsers />
             <span className="font-medium text-content">{parseRef(entity.spec.owner).name}</span>
           </span>
         ) : (
-          <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
-            <IconAlert />
+          // Stated, not alarmed. The health chip to its left is already the
+          // card's alarm — and it is red BECAUSE of this — so repeating it in
+          // amber with a warning triangle made every card shout twice about
+          // one fact. Same shape as the owned case, just muted.
+          <span className="inline-flex items-center gap-1 text-content-subtle" title="No owner set">
+            <IconUsers />
             no owner
           </span>
         )}
@@ -3086,17 +3116,22 @@ function EntityCard({
             <span className="font-medium text-content">{parseRef(entity.spec.system).name}</span>
           </span>
         ) : null}
-        {ageLabel ? (
-          <span className="inline-flex items-center gap-1">
-            <IconClock />
-            {ageLabel}
-          </span>
-        ) : null}
       </div>
       <div className="mt-auto flex items-center justify-between gap-3 border-t border-edge-subtle bg-surface-sunken/40 px-3 py-2 text-[11px]">
         <QuickLinks links={links} monitorUrl={entity.kind === 'Component' || entity.kind === 'Resource' ? monitorUrl : undefined} />
         <div className="flex shrink-0 items-center gap-2">
-          <ScoreBadge score={score} />
+          {/* Age lives here, not in the status row above. It is the least
+              urgent fact on the card, and up there it was the item that
+              pushed health/score/owner onto a second line. */}
+          {ageLabel ? (
+            <span
+              className="inline-flex items-center gap-1 text-[10px] text-content-subtle"
+              title="Last updated"
+            >
+              <IconClock />
+              {ageLabel}
+            </span>
+          ) : null}
           <span
             className={cn(
               'font-mono text-[10px] uppercase tracking-wider text-content-subtle',
@@ -3169,6 +3204,9 @@ function ScoreBadge({ score }: { score: Scorecard }) {
     >
       <span className={cn('h-1.5 w-1.5 rounded-full', t.dot)} />
       {score.score}
+      {/* Without a denominator a red "14" in a card corner reads as a count of
+          something wrong, not as a readiness score out of 100. */}
+      <span className="font-normal opacity-60">/100</span>
     </span>
   )
 }

@@ -246,24 +246,112 @@ Deno.test('a steps-style workflow is refused rather than mangled', () => {
 
 /* ─────────── layout ─────────── */
 
-Deno.test('layout puts each step below its deepest dependency', () => {
+Deno.test('layout puts each step to the right of its deepest dependency', () => {
+  // A pipeline reads left to right: one column per dependency depth.
   const laid = layoutGraph([step('a'), step('b', ['a']), step('c', ['a']), step('d', ['b', 'c'])])
-  const y = (id: string) => laid.find((s) => s.id === id)!.y
-  assertEquals(y('a') < y('b'), true)
-  assertEquals(y('b'), y('c'))
-  // Longest path: d is below BOTH b and c, not beside them.
-  assertEquals(y('d') > y('b'), true)
+  const x = (id: string) => laid.find((s) => s.id === id)!.x
+  assertEquals(x('a') < x('b'), true)
+  assertEquals(x('b'), x('c'))
+  // Longest path: d is after BOTH b and c, not beside them.
+  assertEquals(x('d') > x('b'), true)
 })
 
 Deno.test('a long chain does not cut back across the canvas', () => {
   const laid = layoutGraph([step('a'), step('b', ['a']), step('c', ['a', 'b'])])
-  const y = (id: string) => laid.find((s) => s.id === id)!.y
-  // c depends on both a and b; it must sit under b, not beside it.
-  assertEquals(y('c') > y('b'), true)
+  const x = (id: string) => laid.find((s) => s.id === id)!.x
+  // c depends on both a and b; it must sit after b, not beside it.
+  assertEquals(x('c') > x('b'), true)
 })
 
 Deno.test('layout terminates on a cycle instead of hanging', () => {
   // Cycles are reported by validateGraph; layout must not recurse forever.
   const laid = layoutGraph([step('a', ['b']), step('b', ['a'])])
   assertEquals(laid.length, 2)
+})
+
+/* ─────────────────────────── schedules & stages ─────────────────────────── */
+
+import {
+  cronForDate,
+  describeCron,
+  scheduleFromArgo,
+  STAGES_ANNOTATION,
+  stepDepths,
+} from './wf-model.ts'
+
+Deno.test('common cron shapes are described in words; odd ones are left alone', () => {
+  assertEquals(describeCron('0 2 * * *'), 'Every day at 02:00')
+  assertEquals(describeCron('*/15 * * * *'), 'Every 15 minutes')
+  assertEquals(describeCron('0 * * * *'), 'Every hour')
+  assertEquals(describeCron('30 6 * * 1-5', 'Europe/London'), 'On weekdays at 06:30 (Europe/London)')
+  assertEquals(describeCron('0 6 * * 1'), 'Every Monday at 06:00')
+  assertEquals(describeCron('0 0 1 * *'), 'On the 1st of every month at 00:00')
+  assertEquals(describeCron('5 4 * * 2,4'), 'On Tuesday, Thursday at 04:05')
+  assertEquals(describeCron('0 0 * 6 *'), '0 0 * 6 *')
+  assertEquals(describeCron('nonsense'), 'nonsense')
+})
+
+Deno.test('a one-off time becomes the cron for that minute, in local calendar terms', () => {
+  const d = new Date(2026, 9, 5, 14, 30) // 5 Oct 2026 14:30 local
+  assertEquals(cronForDate(d), '30 14 5 10 *')
+  assertEquals(describeCron(cronForDate(d)), 'Once, on 5 October at 14:30')
+})
+
+Deno.test('a scheduled run wraps the workflow in a CronWorkflow', () => {
+  const spec = toArgoSpec(graph([step('a')]), {
+    kind: 'CronWorkflow',
+    schedule: { cron: '0 2 * * *', timezone: 'UTC', concurrencyPolicy: 'Forbid' },
+  })
+  assertEquals(spec.kind, 'CronWorkflow')
+  const s = spec.spec as Record<string, unknown>
+  assertEquals(s.schedules, ['0 2 * * *'])
+  assertEquals(s.timezone, 'UTC')
+  assertEquals(s.concurrencyPolicy, 'Forbid')
+  assertEquals(s.stopStrategy, undefined)
+  const inner = s.workflowSpec as Record<string, unknown>
+  assertEquals(inner.entrypoint, 'main')
+  // A schedule has a stable name — it IS the schedule — never generateName.
+  assertEquals((spec.metadata as Record<string, unknown>).name, 'build-and-ship')
+})
+
+Deno.test('a one-off schedule carries a stop strategy so it fires exactly once', () => {
+  const spec = toArgoSpec(graph([step('a')]), {
+    kind: 'CronWorkflow',
+    schedule: { cron: '30 14 5 10 *', oneShot: true },
+  })
+  const s = spec.spec as Record<string, unknown>
+  assertEquals(s.stopStrategy, { expression: 'cron.succeeded >= 1 || cron.failed >= 1' })
+  assertEquals(scheduleFromArgo(spec)?.mode, 'once')
+})
+
+Deno.test('a CronWorkflow opens in the designer, and its schedule is read back', () => {
+  const original = graph([step('extract'), step('load', ['extract'])])
+  const spec = toArgoSpec(original, { kind: 'CronWorkflow', schedule: { cron: '0 3 * * *', timezone: 'Asia/Kolkata', suspend: true } })
+  const back = fromArgoSpec(spec)!
+  assertEquals(back.steps.map((s) => s.id), ['extract', 'load'])
+  assertEquals(back.steps[1].dependsOn, ['extract'])
+  assertEquals(scheduleFromArgo(spec), { mode: 'cron', cron: '0 3 * * *', timezone: 'Asia/Kolkata', concurrencyPolicy: 'Forbid', suspend: true })
+})
+
+Deno.test('stage names ride in an annotation and survive a round trip', () => {
+  const original = { ...graph([step('a'), step('b', ['a'])]), stages: ['Prepare', 'Ship'] }
+  const spec = toArgoSpec(original)
+  const ann = (spec.metadata as { annotations: Record<string, string> }).annotations
+  assertEquals(JSON.parse(ann[STAGES_ANNOTATION]), ['Prepare', 'Ship'])
+  assertEquals(fromArgoSpec(spec)?.stages, ['Prepare', 'Ship'])
+  // All-blank names are not persisted at all.
+  const blank = toArgoSpec({ ...original, stages: ['', ''] })
+  assertEquals((blank.metadata as { annotations: Record<string, string> }).annotations[STAGES_ANNOTATION], undefined)
+})
+
+Deno.test('stages are dependency depth: parallel steps share a column, a join comes after', () => {
+  const steps = [step('checkout'), step('build', ['checkout']), step('test', ['checkout']), step('publish', ['build', 'test'])]
+  const depth = stepDepths(steps)
+  assertEquals([...depth.entries()], [['checkout', 0], ['build', 1], ['test', 1], ['publish', 2]])
+  // And the layout puts each depth in its own column, left to right.
+  const laid = layoutGraph(steps)
+  const x = (id: string) => laid.find((s) => s.id === id)!.x
+  assertEquals(x('checkout') < x('build'), true)
+  assertEquals(x('build'), x('test'))
+  assertEquals(x('test') < x('publish'), true)
 })

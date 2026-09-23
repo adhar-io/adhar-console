@@ -28,6 +28,7 @@ import {
 } from '../components/canvas.tsx'
 import { CrdMissing } from '../components/crd-missing.tsx'
 import { WorkflowDesigner } from './wf-designer.tsx'
+import { describeCron, fromArgoSpec, scheduleFromArgo, type Schedule, type WorkflowGraph } from '../data/wf-model.ts'
 import {
   deleteWorkflow,
   durationSecs,
@@ -45,6 +46,8 @@ import {
   type Workflow,
   type WorkflowNode,
   type WorkflowTemplate,
+  deleteCronWorkflow,
+  setCronSuspended,
 } from '../data/workflows.ts'
 
 /**
@@ -86,12 +89,46 @@ export function WorkflowList() {
   const [phaseF, setPhaseF] = useState<PhaseFilter>('all')
   const [nsF, setNsF] = useState('all')
   const [open, setOpen] = useState<{ namespace: string; name: string } | null>(null)
+  // What the designer opens with: nothing (the starter picker), or an
+  // existing template / cron workflow read back into a graph.
+  const [design, setDesign] = useState<{ graph: WorkflowGraph; schedule?: Schedule } | null>(null)
+  const toast = useToast()
+  const canEdit = useCan('develop')
 
   // Workflows always load — the stats strip reads from them whichever tab is
   // showing. Templates and cron load only when asked for.
   const wfq = useWorkflows()
   const tplq = useWorkflowTemplates(tab === 'templates')
   const cronq = useCronWorkflows(tab === 'cron')
+
+  const openInDesigner = (obj: WorkflowTemplate | CronWorkflow) => {
+    const g = fromArgoSpec(obj as unknown as Record<string, unknown>)
+    if (!g) {
+      toast.error('Only DAG workflows open in the designer', { description: 'This one uses steps: or a template reference the canvas cannot represent.' })
+      return
+    }
+    setDesign({ graph: g, schedule: scheduleFromArgo(obj as unknown as Record<string, unknown>) ?? undefined })
+    setTab('designer')
+  }
+  const toggleCron = async (c: CronWorkflow) => {
+    try {
+      await setCronSuspended(c.metadata.namespace ?? '', c.metadata.name, !c.spec?.suspend)
+      toast.success(c.spec?.suspend ? `Resumed ${c.metadata.name}` : `Paused ${c.metadata.name}`)
+      cronq.refetch()
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
+  const removeCron = async (c: CronWorkflow) => {
+    if (!globalThis.confirm(`Delete the schedule "${c.metadata.name}"? Runs it already started are kept.`)) return
+    try {
+      await deleteCronWorkflow(c.metadata.namespace ?? '', c.metadata.name)
+      toast.success(`Deleted ${c.metadata.name}`)
+      cronq.refetch()
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
 
   const workflows = useMemo(() => wfq.data ?? [], [wfq.data])
   const templates = useMemo(() => tplq.data ?? [], [tplq.data])
@@ -165,17 +202,6 @@ export function WorkflowList() {
     )
   }
 
-  if (wfq.error) {
-    return (
-      <EmptyState
-        title="Couldn't load workflows"
-        description={wfq.error instanceof Error ? wfq.error.message : 'The apiserver rejected the request.'}
-      />
-    )
-  }
-
-  const activeQ = tab === 'templates' ? tplq : tab === 'cron' ? cronq : wfq
-
   // The designer owns the full width and carries its own toolbar, so it
   // replaces the list body rather than rendering inside the filter chrome.
   if (tab === 'designer') {
@@ -187,10 +213,50 @@ export function WorkflowList() {
           <TabBtn on={false} onClick={() => setTab('cron')}>Cron</TabBtn>
           <TabBtn on onClick={() => setTab('designer')}>Designer</TabBtn>
         </div>
-        <WorkflowDesigner namespace={nsF !== 'all' ? nsF : 'argo'} onClose={() => setTab('workflows')} />
+        <WorkflowDesigner
+          key={design ? `${design.graph.namespace}/${design.graph.name}` : 'new'}
+          namespace={design?.graph.namespace ?? (nsF !== 'all' ? nsF : 'argo')}
+          initial={design?.graph}
+          initialSchedule={design?.schedule}
+          onClose={() => {
+            setDesign(null)
+            setTab('workflows')
+          }}
+          onScheduled={() => {
+            setDesign(null)
+            setTab('cron')
+            void cronq.refetch()
+          }}
+          onSubmitted={() => {
+            setDesign(null)
+            setTab('workflows')
+            void wfq.refetch()
+          }}
+        />
       </div>
     )
   }
+
+  if (wfq.error) {
+    // A list that cannot load must not take the designer with it: a workflow
+    // can be designed and submitted without reading any existing ones.
+    return (
+      <div className='space-y-3'>
+        <div className='inline-flex items-center rounded-lg border border-edge-default bg-surface-sunken/60 p-0.5'>
+          <TabBtn on={tab === 'workflows'} onClick={() => setTab('workflows')}>Workflows</TabBtn>
+          <TabBtn on={tab === 'templates'} onClick={() => setTab('templates')}>Templates</TabBtn>
+          <TabBtn on={tab === 'cron'} onClick={() => setTab('cron')}>Cron</TabBtn>
+          <TabBtn on={tab === 'designer'} onClick={() => { setDesign(null); setTab('designer') }}>Designer</TabBtn>
+        </div>
+        <EmptyState
+          title="Couldn't load workflows"
+          description={wfq.error instanceof Error ? wfq.error.message : 'The apiserver rejected the request.'}
+        />
+      </div>
+    )
+  }
+
+  const activeQ = tab === 'templates' ? tplq : tab === 'cron' ? cronq : wfq
 
   return (
     <div className='space-y-4'>
@@ -218,7 +284,7 @@ export function WorkflowList() {
           <TabBtn on={tab === 'workflows'} onClick={() => setTab('workflows')}>Workflows</TabBtn>
           <TabBtn on={tab === 'templates'} onClick={() => setTab('templates')}>Templates</TabBtn>
           <TabBtn on={tab === 'cron'} onClick={() => setTab('cron')}>Cron</TabBtn>
-          <TabBtn on={tab === 'designer'} onClick={() => setTab('designer')}>Designer</TabBtn>
+          <TabBtn on={tab === 'designer'} onClick={() => { setDesign(null); setTab('designer') }}>Designer</TabBtn>
         </div>
         <div className='min-w-48 flex-1'>
           <Input
@@ -281,7 +347,7 @@ export function WorkflowList() {
           tableId='develop.argo.workflowtemplates'
           loading={tplq.isLoading}
           features={{ columns: true, density: true, export: true }}
-          columns={templateColumns(argoUrl)}
+          columns={templateColumns(argoUrl, canEdit ? openInDesigner : undefined)}
           rows={tplRows}
           rowKey={(t) => `${t.metadata.namespace ?? ''}/${t.metadata.name}`}
           empty={
@@ -305,7 +371,7 @@ export function WorkflowList() {
           tableId='develop.argo.cronworkflows'
           loading={cronq.isLoading}
           features={{ columns: true, density: true, export: true }}
-          columns={cronColumns(argoUrl)}
+          columns={cronColumns(argoUrl, canEdit ? { onDesign: openInDesigner, onToggle: toggleCron, onDelete: removeCron } : undefined)}
           rows={cronRows}
           rowKey={(c) => `${c.metadata.namespace ?? ''}/${c.metadata.name}`}
           empty={
@@ -414,7 +480,7 @@ function workflowColumns(): Column<Workflow>[] {
   ]
 }
 
-function templateColumns(argoUrl: string): Column<WorkflowTemplate>[] {
+function templateColumns(argoUrl: string, onDesign?: (t: WorkflowTemplate) => void): Column<WorkflowTemplate>[] {
   const cols: Column<WorkflowTemplate>[] = [
     {
       key: 'name',
@@ -454,6 +520,21 @@ function templateColumns(argoUrl: string): Column<WorkflowTemplate>[] {
           : '—',
     },
   ]
+  if (onDesign) {
+    cols.push({
+      key: 'design',
+      header: '',
+      width: 96,
+      sortable: false,
+      filter: false,
+      align: 'right',
+      cell: (t) => (
+        <Button variant="ghost" size="xs" onClick={(e) => { e.stopPropagation(); onDesign(t) }}>
+          Open in designer
+        </Button>
+      ),
+    })
+  }
   if (argoUrl) {
     cols.push({
       key: 'open',
@@ -475,7 +556,10 @@ function templateColumns(argoUrl: string): Column<WorkflowTemplate>[] {
   return cols
 }
 
-function cronColumns(argoUrl: string): Column<CronWorkflow>[] {
+function cronColumns(
+  argoUrl: string,
+  actions?: { onDesign(c: CronWorkflow): void; onToggle(c: CronWorkflow): void; onDelete(c: CronWorkflow): void },
+): Column<CronWorkflow>[] {
   const cols: Column<CronWorkflow>[] = [
     {
       key: 'name',
@@ -496,12 +580,19 @@ function cronColumns(argoUrl: string): Column<CronWorkflow>[] {
       key: 'schedule',
       header: 'Schedule',
       value: (c) => scheduleOf(c) ?? '',
-      cell: (c) => (
-        <span className='flex items-center gap-1.5'>
-          <code className='text-[11px] text-content'>{scheduleOf(c) ?? '—'}</code>
-          {c.spec?.timezone ? <span className='text-[10px] text-content-subtle'>{c.spec.timezone}</span> : null}
-        </span>
-      ),
+      cell: (c) => {
+        const sched = scheduleOf(c)
+        const once = /cron\.(succeeded|failed)\s*>=\s*1/.test(String((c.spec as { stopStrategy?: { expression?: string } } | undefined)?.stopStrategy?.expression ?? ''))
+        return (
+          <span className='flex min-w-0 flex-col'>
+            <span className='truncate text-[12px] text-content'>{sched ? describeCron(sched.split(',')[0].trim(), c.spec?.timezone) : '—'}</span>
+            <span className='flex items-center gap-1.5'>
+              <code className='text-[10.5px] text-content-subtle'>{sched ?? '—'}</code>
+              {once ? <span className='rounded bg-surface-sunken px-1 text-[10px] text-content-muted'>once</span> : null}
+            </span>
+          </span>
+        )
+      },
     },
     {
       key: 'suspended',
@@ -532,6 +623,23 @@ function cronColumns(argoUrl: string): Column<CronWorkflow>[] {
           : 'never',
     },
   ]
+  if (actions) {
+    cols.push({
+      key: 'actions',
+      header: '',
+      width: 220,
+      sortable: false,
+      filter: false,
+      align: 'right',
+      cell: (c) => (
+        <span className='inline-flex items-center gap-1' onClick={(e) => e.stopPropagation()}>
+          <Button variant='ghost' size='xs' onClick={() => actions.onDesign(c)}>Open in designer</Button>
+          <Button variant='ghost' size='xs' onClick={() => actions.onToggle(c)}>{c.spec?.suspend ? 'Resume' : 'Pause'}</Button>
+          <Button variant='ghost' size='xs' onClick={() => actions.onDelete(c)}>Delete</Button>
+        </span>
+      ),
+    })
+  }
   if (argoUrl) {
     cols.push({
       key: 'open',

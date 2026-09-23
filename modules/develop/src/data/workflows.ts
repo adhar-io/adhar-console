@@ -351,3 +351,20 @@ export function upsertWorkflowTemplate(spec: Record<string, unknown>): Promise<W
 export function deleteWorkflowTemplate(namespace: string, name: string): Promise<unknown> {
   return kube.delete(WORKFLOW_TEMPLATES_GVR, namespace, name)
 }
+
+/**
+ * Create or update a schedule. A CronWorkflow has a stable name — it IS the
+ * schedule — so saving the same design again updates it in place.
+ */
+export function upsertCronWorkflow(spec: Record<string, unknown>): Promise<CronWorkflow> {
+  return kube.apply<CronWorkflow>(spec)
+}
+
+export function deleteCronWorkflow(namespace: string, name: string): Promise<unknown> {
+  return kube.delete(CRON_WORKFLOWS_GVR, namespace, name)
+}
+
+/** Pause or resume a schedule without touching anything else on it. */
+export function setCronSuspended(namespace: string, name: string, suspend: boolean): Promise<unknown> {
+  return kube.patch(CRON_WORKFLOWS_GVR, namespace, name, { spec: { suspend } })
+}

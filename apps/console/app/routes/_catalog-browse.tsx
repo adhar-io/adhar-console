@@ -51,6 +51,7 @@ import {
 } from '~/data/catalog-deployment.ts'
 import { type EntityRoute, routeLabel, useEntityRoutes } from '~/data/catalog-routes.ts'
 import { type PipelineRunSummary, usePipelineRuns } from '~/data/catalog-pipelines.ts'
+import { type DocPage, type DocsSource, editUrl, headingOf, rawBase, useDocPage, useDocsPages, useDocsSource } from '~/data/catalog-docs.ts'
 import { useDiscoverAlerts } from '~/data/cross-module-signals.ts'
 import {
   CATEGORY_LABEL,
@@ -4444,7 +4445,7 @@ function EntityDrawer({
                   />
                 ) : null}
 
-                {active === 'docs' ? <TechDocsCard url={docsUrl} entity={entity} monitorUrl={monitorUrl} /> : null}
+                {active === 'docs' ? <TechDocsTab url={docsUrl} entity={entity} monitorUrl={monitorUrl} /> : null}
                 {active === 'metrics' && metricTarget ? (
                   <EntityMetrics target={metricTarget} range={metricRange} onRange={setMetricRange} grafanaUrl={monitorUrl || grafanaBase} />
                 ) : null}
@@ -7450,6 +7451,216 @@ function docCandidates(url: string): string[] {
  * can't be embedded (external origin / CORS) or fail to load. Reading
  * position and heading anchors work, so long runbooks are navigable.
  */
+/**
+ * TechDocs as a site, not a file.
+ *
+ * When the docs live in a repository the console can read (the platform's
+ * Gitea through the BFF, GitHub best-effort), every Markdown page under the
+ * docs root becomes a page here: a nav on the left grouped by folder, the
+ * page on the right with its own table of contents, search across page
+ * titles, and "Edit this page" straight into the forge. A published docs
+ * site is framed in place; a single Markdown file falls back to the
+ * one-document reader; nothing at all says what to add.
+ */
+function TechDocsTab({ url, entity, monitorUrl }: { url?: string; entity: Entity; monitorUrl?: string }) {
+  const giteaBase = useToolPublicUrl('gitea')
+  const source = useDocsSource(entity, giteaBase)
+  const isRepo = source?.kind === 'gitea' || source?.kind === 'github'
+  const pagesQ = useDocsPages(isRepo ? source : null)
+  const pages = pagesQ.data ?? []
+  const [slug, setSlug] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const current = useMemo(() => pages.find((p) => p.slug === slug) ?? pages[0], [pages, slug])
+  const pageQ = useDocPage(isRepo ? source : null, current?.path)
+  const text = pageQ.data ?? null
+  const bodyRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ top: 0 })
+  }, [current?.path])
+
+  const sections = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const list = q ? pages.filter((p) => p.title.toLowerCase().includes(q) || p.slug.toLowerCase().includes(q)) : pages
+    const map = new Map<string, DocPage[]>()
+    for (const p of list) map.set(p.section, [...(map.get(p.section) ?? []), p])
+    return [...map.entries()]
+  }, [pages, query])
+
+  const toc = useMemo(() => {
+    if (!text) return [] as Array<{ level: number; title: string; id: string }>
+    const out: Array<{ level: number; title: string; id: string }> = []
+    let inFence = false
+    for (const line of text.split('\n')) {
+      if (/^\s*```/.test(line)) inFence = !inFence
+      if (inFence) continue
+      const m = /^(#{2,3})\s+(.+?)\s*#*$/.exec(line)
+      if (!m) continue
+      const title = m[2].replace(/[*_`]/g, '').trim()
+      out.push({ level: m[1].length, title, id: slugifyHeading(title) })
+    }
+    return out
+  }, [text])
+
+  // Every hook above runs on every render; only now do the other shapes
+  // of docs take over — a site is framed, a single file uses the reader.
+  if (!source || source.kind === 'markdown') return <TechDocsCard url={url} entity={entity} monitorUrl={monitorUrl} />
+  if (source.kind === 'site') return <DocsSiteFrame url={source.url} entity={entity} monitorUrl={monitorUrl} />
+
+  const title = text ? headingOf(text) ?? current?.title : current?.title
+  const edit = current ? editUrl(source, current.path) : undefined
+  const base = current ? rawBase(source, current.path) : undefined
+  const words = text ? text.split(/\s+/).length : 0
+  const repoLabel = `${source.org}/${source.repo}${source.dir ? `/${source.dir}` : ''} @ ${source.ref}`
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-edge-default bg-surface-raised px-4 py-2.5 shadow-sm">
+        <div className="flex min-w-0 items-center gap-2">
+          <LinkGlyph icon="docs" />
+          <span className="text-[13px] font-semibold text-content">TechDocs</span>
+          <span className="truncate font-mono text-[11px] text-content-subtle" title={source.url}>{repoLabel}</span>
+          {pages.length ? <span className="rounded-full bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-content-muted">{pages.length} {pages.length === 1 ? 'page' : 'pages'}</span> : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {edit ? <DocAction href={edit} icon="repo" label="Edit this page" /> : null}
+          <DocAction href={source.url} icon="docs" label={source.kind === 'gitea' ? 'Open in Gitea' : 'Open on GitHub'} primary />
+          {monitorUrl ? <MonitorButton url={monitorUrl} compact /> : null}
+        </div>
+      </div>
+
+      {pagesQ.isLoading ? (
+        <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised px-4 py-6 text-xs text-content-muted"><Spinner /> Reading the docs tree…</div>
+      ) : pagesQ.isError ? (
+        <EmptyState
+          compact
+          title="Couldn't read the repository"
+          description={source.kind === 'github' ? 'GitHub did not answer (private repository, or the API rate limit). Open it on GitHub instead.' : `Gitea did not answer for ${repoLabel} — the repository may be private to another team, or the branch may not exist.`}
+        />
+      ) : pages.length === 0 ? (
+        <EmptyState
+          compact
+          title="No documentation in the repository"
+          description={<>Add a <code>docs/</code> folder with Markdown pages (an <code>index.md</code> first), or a <code>README.md</code>, and it renders here. Point <code>backstage.io/techdocs-ref</code> at another folder if the docs live elsewhere.</>}
+        />
+      ) : (
+        <div className="grid items-start gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
+          {/* The drawer body is the scroll container; the nav and the TOC stick below its tab bar so the page can be as long as it is. */}
+          <nav className="rounded-xl border border-edge-default bg-surface-raised p-2 lg:sticky lg:top-14 lg:max-h-[calc(100vh-9rem)] lg:overflow-y-auto" aria-label="Documentation pages">
+            <div className="relative mb-2 flex items-center">
+              <span className="pointer-events-none absolute left-2.5 text-content-subtle"><DocSearchGlyph /></span>
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Find a page…"
+                className="h-8 w-full rounded-lg border border-edge-default bg-surface-app pl-8 pr-2 text-[12px] text-content placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+              />
+            </div>
+            {sections.map(([section, list]) => (
+              <div key={section || '~'} className="mb-1.5">
+                {section ? <div className="px-2 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{section.replace(/[-_]+/g, ' ')}</div> : null}
+                <ul>
+                  {list.map((p) => {
+                    const on = p.slug === current?.slug
+                    return (
+                      <li key={p.slug}>
+                        <button
+                          type="button"
+                          onClick={() => setSlug(p.slug)}
+                          aria-current={on ? 'page' : undefined}
+                          className={cn(
+                            'block w-full truncate rounded-md px-2 py-1 text-left text-[12px] transition-colors',
+                            on ? 'bg-brand-50 font-medium text-brand-800 dark:bg-brand-500/10 dark:text-brand-200' : 'text-content-muted hover:bg-surface-sunken hover:text-content',
+                          )}
+                          title={p.path}
+                        >
+                          {p.title}
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            ))}
+            {sections.length === 0 ? <div className="px-2 py-2 text-[11.5px] text-content-subtle">No page matches.</div> : null}
+          </nav>
+
+          <div className="min-w-0">
+            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2 px-1">
+              <div className="min-w-0">
+                <h3 className="truncate text-[16px] font-semibold text-content">{title}</h3>
+                <div className="truncate font-mono text-[10.5px] text-content-subtle">{current?.path}{words ? ` · ${words.toLocaleString()} words · ~${Math.max(1, Math.round(words / 220))} min` : ''}</div>
+              </div>
+            </div>
+            <div className={cn('grid items-start gap-4', toc.length > 2 ? 'xl:grid-cols-[minmax(0,1fr)_170px]' : '')}>
+              <div ref={bodyRef} className="min-w-0 rounded-xl border border-edge-default bg-surface-raised px-6 py-5 [&_:is(h1,h2,h3,h4)]:scroll-mt-16">
+                {pageQ.isLoading ? (
+                  <div className="flex items-center gap-2 text-xs text-content-muted"><Spinner /> Loading page…</div>
+                ) : pageQ.isError ? (
+                  <div className="text-xs text-content-muted">Couldn&apos;t load {current?.path}.</div>
+                ) : text ? (
+                  <Markdown source={text} base={base} />
+                ) : null}
+              </div>
+              {toc.length > 2 ? (
+                <nav className="hidden xl:sticky xl:top-14 xl:block xl:max-h-[calc(100vh-9rem)] xl:overflow-y-auto">
+                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">On this page</div>
+                  <ul className="space-y-0.5 border-l border-edge-subtle">
+                    {toc.map((h, i) => (
+                      <li key={`${h.id}-${i}`}>
+                        <button
+                          type="button"
+                          onClick={() => bodyRef.current?.querySelector(`#${CSS.escape(h.id)}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                          className={cn('-ml-px block w-full border-l-2 border-transparent py-0.5 pl-2.5 text-left text-[11.5px] text-content-muted transition-colors hover:border-brand-400 hover:text-content', h.level === 3 && 'pl-5 text-[11px]')}
+                        >
+                          {h.title}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </nav>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** A published documentation site, framed in place. */
+function DocsSiteFrame({ url, entity, monitorUrl }: { url: string; entity: Entity; monitorUrl?: string }) {
+  const sourceUrl = (entity.metadata.links ?? []).find((l) => l.icon === 'repo')?.url
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-edge-default bg-surface-raised px-4 py-2.5 shadow-sm">
+        <div className="flex min-w-0 items-center gap-2">
+          <LinkGlyph icon="docs" />
+          <span className="text-[13px] font-semibold text-content">TechDocs</span>
+          <span className="truncate font-mono text-[11px] text-content-subtle" title={url}>{url.replace(/^https?:\/\//, '')}</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {sourceUrl ? <DocAction href={sourceUrl} icon="repo" label="Source" /> : null}
+          <DocAction href={url} icon="docs" label="Open in new tab" primary />
+          {monitorUrl ? <MonitorButton url={monitorUrl} compact /> : null}
+        </div>
+      </div>
+      <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm">
+        <iframe
+          src={url}
+          title={`Documentation for ${entity.metadata.title ?? entity.metadata.name}`}
+          className="h-[40rem] w-full bg-white"
+          sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+          referrerPolicy="no-referrer"
+        />
+      </div>
+      <p className="text-[11px] text-content-subtle">
+        If the frame stays blank the site refuses to be embedded (X-Frame-Options) — use "Open in new tab". A Markdown docs folder in the repository renders natively here instead.
+      </p>
+    </div>
+  )
+}
+
 function TechDocsCard({ url, entity, monitorUrl }: { url?: string; entity?: Entity; monitorUrl?: string }) {
   const [text, setText] = useState<string | null>(null)
   const [resolvedUrl, setResolvedUrl] = useState<string | undefined>(url)

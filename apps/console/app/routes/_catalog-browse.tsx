@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { PENDING_USER, useOptionalSession } from '@adhar-console/auth'
 import {
+  BarChart,
   Button,
   Card,
   CardBody,
@@ -20,9 +21,10 @@ import {
   Textarea,
   useAi,
   useToast,
+  useToolPublicUrl,
 } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
-import { EntityMetrics, MonitorButton, useGrafanaMonitorUrl, type RangeId } from '~/components/entity-observability.tsx'
+import { EntityMetrics, EntitySparklines, MonitorButton, useGrafanaMonitorUrl, type RangeId } from '~/components/entity-observability.tsx'
 import {
   type Entity,
   type EntityKind,
@@ -48,6 +50,7 @@ import {
 import { type EntityRoute, routeLabel, useEntityRoutes } from '~/data/catalog-routes.ts'
 import {
   CATEGORY_LABEL,
+  type Check,
   CHECK_CATEGORIES,
   type Grade,
   type Scorecard,
@@ -86,6 +89,8 @@ type ViewMode = 'grid' | 'table' | 'compact'
 type SortKey = 'name' | 'recent' | 'lifecycle' | 'score'
 /** How the grid is sectioned. `none` is one flat grid. */
 type GroupKey = 'none' | 'system' | 'owner' | 'kind' | 'lifecycle'
+/** One matched Argo CD Application, as the deployment module normalises it. */
+type ArgoApp = EntityDeployment['apps'][number]
 type Tristate = null | true | false
 
 interface FilterState {
@@ -233,9 +238,10 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
   const user = useOptionalSession()?.user ?? PENDING_USER
   const navigate = useNavigate()
   const searchInputRef = useRef<HTMLInputElement>(null)
-  // The open drawer, and which tab it opens on — a card's menu can jump
-  // straight to Deployment or Scorecard.
-  const [selected, setSelected] = useState<{ entity: Entity; tab?: DrawerTab } | null>(null)
+  // Which tab the drawer should open on — a card's menu can jump straight
+  // to Deployment or Scorecard. WHICH entity is open lives in the URL
+  // (`?entity=`), so a drawer can be linked to and Back closes it.
+  const [drawerTab, setDrawerTab] = useState<DrawerTab | undefined>(undefined)
   const [text, setText] = useState<string>(search.q ?? '')
 
   // Filter / view / sort are derived from the URL so the state is shareable and
@@ -309,10 +315,15 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
     return () => globalThis.removeEventListener('keydown', onKey)
   }, [])
 
-  const openEntity = useCallback((e: Entity, tab?: DrawerTab) => {
-    pushRecentlyViewed(entityRef(e))
-    setSelected({ entity: e, tab })
-  }, [])
+  const openEntity = useCallback(
+    (e: Entity, tab?: DrawerTab, opts?: { replace?: boolean }) => {
+      pushRecentlyViewed(entityRef(e))
+      setDrawerTab(tab)
+      patchSearch({ entity: entityRef(e) }, opts)
+    },
+    [patchSearch],
+  )
+  const closeEntity = useCallback(() => patchSearch({ entity: undefined }), [patchSearch])
 
   const myOwnerRefs = useMemo(() => computeMyOwnerRefs(list, user), [list, user])
   const mineCount = useMemo(
@@ -472,6 +483,11 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
 
   const attentionCount = useMemo(() => list.filter(needsAttention).length, [list])
 
+  const selectedEntity = useMemo(
+    () => (search.entity ? findEntity(list, search.entity) : undefined),
+    [search.entity, list],
+  )
+
   return (
     <div className="space-y-8">
       <CatalogHeader onRegister={() => setRegisterOpen(true)} />
@@ -531,14 +547,15 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
         onDeleteView={deleteView}
       />
 
-      {selected ? (
+      {selectedEntity ? (
         <EntityDrawer
-          // Keyed by entity so following a relation chip remounts the drawer
-          // on its Overview tab rather than keeping the previous tab.
-          key={entityRef(selected.entity)}
-          entity={selected.entity}
-          initialTab={selected.tab}
-          onClose={() => setSelected(null)}
+          entity={selectedEntity}
+          initialTab={drawerTab}
+          // Previous / next walk the list as currently filtered and sorted —
+          // the order on screen, not the catalog's.
+          siblings={filtered}
+          onNavigate={(e) => openEntity(e, undefined, { replace: true })}
+          onClose={closeEntity}
           catalog={list}
           onPick={openEntity}
           stars={stars}
@@ -1244,16 +1261,7 @@ function BrowseAll({
   // "Ask Adhar AI" on a card: a question already scoped to the entity, so the
   // answer comes back grounded in this thing rather than the whole cluster.
   const ai = useAi()
-  const askAbout = useCallback(
-    (e: Entity) => {
-      const title = e.metadata.title ?? e.metadata.name
-      ai.ask({
-        title,
-        prompt: `Tell me about ${entityRef(e)} (${title}, a ${e.spec.type ?? e.kind.toLowerCase()}). Summarise what it is and who owns it, its deployment and health right now, what its scorecard says needs fixing, and what I should look at first.`,
-      })
-    },
-    [ai],
-  )
+  const askAbout = useCallback((e: Entity) => askAboutEntity(ai, e), [ai])
 
   const groups = useMemo(() => groupEntities(shown, group), [shown, group])
   const resultLabel = `${list.length} ${list.length === 1 ? 'result' : 'results'}${
@@ -2789,6 +2797,47 @@ interface TechBadge {
   label: string
   tone: TechTone
   group: TechGroup
+  /** A version, when the tag or annotation carried one (`java-21` → "21"). */
+  version?: string
+}
+
+/**
+ * Split a tech tag into the TECH_MAP key and an optional version.
+ *
+ * `java-21`, `java@21`, `java:21`, `spring-boot-3.3.2`, `node_20` all read as
+ * the tech plus a version; `java` alone reads as the tech. The key must be a
+ * known tech — otherwise `python3` would become Python 3 by accident.
+ */
+function parseTechTag(raw: string): { key: string; version?: string } {
+  const t = raw.trim().toLowerCase()
+  const m = t.match(/^([a-z#.+][a-z0-9#.+-]*?)[-@:_ ]v?(\d+(?:\.\d+)*)$/)
+  if (m && TECH_MAP[m[1]]) return { key: m[1], version: m[2] }
+  return { key: t }
+}
+
+/**
+ * Versions declared as an annotation, for installs that keep tags for
+ * classification and record the stack elsewhere:
+ *   adhar.io/tech-stack: "java@21, spring-boot@3.3.2, postgres@16"
+ *   adhar.io/java-version: "21"   (any `<tech>-version` key TECH_MAP knows)
+ */
+function techFromAnnotations(entity: Entity): Array<{ key: string; version?: string }> {
+  const ann = entityAnnotations(entity)
+  const out: Array<{ key: string; version?: string }> = []
+  const list = (ann['adhar.io/tech-stack'] ?? ann['adhar.io/tech'] ?? '').trim()
+  if (list) {
+    for (const part of list.split(/[,;]/)) {
+      const item = part.trim().toLowerCase()
+      if (!item) continue
+      const m = item.match(/^([a-z#.+][a-z0-9#.+-]*?)(?:\s*[@:= ]\s*v?(\d+(?:\.\d+)*))?$/)
+      if (m && TECH_MAP[m[1]]) out.push({ key: m[1], version: m[2] })
+    }
+  }
+  for (const [k, v] of Object.entries(ann)) {
+    const m = k.match(/^adhar\.io\/([a-z0-9.+#-]+)-version$/)
+    if (m && TECH_MAP[m[1]] && v.trim()) out.push({ key: m[1], version: v.trim().replace(/^v/i, '') })
+  }
+  return out
 }
 
 /** Section headings, in the order a reader builds a mental model of a service. */
@@ -2913,8 +2962,7 @@ const TECH_PILL: Record<TechTone, string> = {
 function techTagKeys(entity: Entity): Set<string> {
   const out = new Set<string>()
   for (const t of entity.metadata.tags ?? []) {
-    const k = t.toLowerCase()
-    if (TECH_MAP[k]) out.add(k)
+    if (TECH_MAP[parseTechTag(t).key]) out.add(t.toLowerCase())
   }
   return out
 }
@@ -2925,18 +2973,26 @@ function genericTags(entity: Entity): string[] {
   return (entity.metadata.tags ?? []).filter((t) => !tech.has(t.toLowerCase()))
 }
 
-/** Detected languages + frameworks, de-duped by label. Empty when none match. */
+/**
+ * Detected languages, frameworks, datastores — de-duped by label, each with
+ * a version when one was recorded anywhere (tag or annotation). A versioned
+ * mention wins over a bare one, so `java` + `adhar.io/java-version: 21`
+ * reads as Java 21.
+ */
 function techStack(entity: Entity): TechBadge[] {
-  const seen = new Set<string>()
-  const out: TechBadge[] = []
-  for (const t of entity.metadata.tags ?? []) {
-    const hit = TECH_MAP[t.toLowerCase()]
-    if (hit && !seen.has(hit.label)) {
-      seen.add(hit.label)
-      out.push(hit)
-    }
+  const byLabel = new Map<string, TechBadge>()
+  const mentions = [
+    ...(entity.metadata.tags ?? []).map(parseTechTag),
+    ...techFromAnnotations(entity),
+  ]
+  for (const m of mentions) {
+    const hit = TECH_MAP[m.key]
+    if (!hit) continue
+    const cur = byLabel.get(hit.label)
+    if (!cur) byLabel.set(hit.label, m.version ? { ...hit, version: m.version } : hit)
+    else if (!cur.version && m.version) byLabel.set(hit.label, { ...hit, version: m.version })
   }
-  return out
+  return [...byLabel.values()]
 }
 
 function TechPill({ badge }: { badge: TechBadge }) {
@@ -2948,6 +3004,7 @@ function TechPill({ badge }: { badge: TechBadge }) {
       )}
     >
       {badge.label}
+      {badge.version ? <span className="ml-1 font-mono font-medium opacity-80">{badge.version}</span> : null}
     </span>
   )
 }
@@ -3665,6 +3722,18 @@ const KIND_PLURAL: Record<EntityKind, string> = {
   User: 'Users',
 }
 
+/**
+ * "Ask Adhar AI" about one entity: a question already scoped to it, so the
+ * answer comes back grounded in this thing rather than the whole cluster.
+ */
+function askAboutEntity(ai: ReturnType<typeof useAi>, e: Entity): void {
+  const title = e.metadata.title ?? e.metadata.name
+  ai.ask({
+    title,
+    prompt: `Tell me about ${entityRef(e)} (${title}, a ${e.spec.type ?? e.kind.toLowerCase()}). Summarise what it is and who owns it, its deployment and health right now, what its scorecard says needs fixing, and what I should look at first.`,
+  })
+}
+
 /** Things that run somewhere, and so can have an Argo CD Application. */
 function isDeployableKind(e: Entity): boolean {
   return e.kind === 'Component' || e.kind === 'Resource'
@@ -3790,6 +3859,8 @@ type DrawerTab = 'overview' | 'deploy' | 'tech' | 'docs' | 'metrics' | 'relation
 function EntityDrawer({
   entity,
   initialTab,
+  siblings,
+  onNavigate,
   onClose,
   catalog,
   onPick,
@@ -3798,6 +3869,9 @@ function EntityDrawer({
   entity: Entity
   /** Open on this tab — a card's menu jumps straight to Deployment or Scorecard. */
   initialTab?: DrawerTab
+  /** The list this entity was opened from, in its on-screen order, for ‹ › navigation. */
+  siblings?: Entity[]
+  onNavigate?(e: Entity): void
   onClose(): void
   catalog: Entity[]
   onPick(e: Entity): void
@@ -3805,20 +3879,44 @@ function EntityDrawer({
 }) {
   const ref = entityRef(entity)
   const starred = isStarred(stars, ref)
-  const signals = computeSignals(entity)
   const score = scoreEntity(entity)
   const activity = buildActivity(entity)
   const apiDef = entity.kind === 'API' ? parseApiDefinition(entity.spec.definition) : null
   const closeBtnRef = useRef<HTMLButtonElement>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
   const [metricRange, setMetricRange] = useState<RangeId>('1h')
+  const toast = useToast()
+  const ai = useAi()
+
+  // Where this entity sits in the list it was opened from.
+  const position = useMemo(() => {
+    if (!siblings?.length) return null
+    const i = siblings.findIndex((e) => entityRef(e) === ref)
+    return i < 0 ? null : { index: i, prev: siblings[i - 1], next: siblings[i + 1] }
+  }, [siblings, ref])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        onClose()
+        return
+      }
+      // ← → step through the list. Not while typing, and not with modifiers
+      // (⌘← is "back" in the browser and should stay that way).
+      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const t = e.target as HTMLElement | null
+        const tag = t?.tagName?.toLowerCase()
+        if (tag === 'input' || tag === 'textarea' || tag === 'select' || t?.isContentEditable) return
+        const target = e.key === 'ArrowLeft' ? position?.prev : position?.next
+        if (target && onNavigate) {
+          e.preventDefault()
+          onNavigate(target)
+        }
+      }
     }
     globalThis.addEventListener('keydown', onKey)
     return () => globalThis.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, onNavigate, position])
 
   // Focus management: move focus into the drawer on open, restore it to the
   // element that opened the drawer (the card) on close.
@@ -3868,6 +3966,14 @@ function EntityDrawer({
   // Controlled so a link inside one panel can move the reader to another —
   // "Read here →" on the tech-stack panel opens the docs tab in place.
   const [tab, setTab] = useState<DrawerTab>(initialTab ?? 'overview')
+  // A menu action on another card while this drawer is open asks for a tab;
+  // plain navigation between entities keeps the tab you were on.
+  useEffect(() => {
+    if (initialTab) setTab(initialTab)
+  }, [initialTab, ref])
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ top: 0 })
+  }, [tab, ref])
   // Live metrics apply to anything that actually runs: a Component or Resource
   // the catalog resolved to a workload. `adhar.io/grafana-dashboard` pins a
   // dashboard when the team has one.
@@ -3915,6 +4021,7 @@ function EntityDrawer({
       ? { kind: argoHealthKind(deployment.primary?.status.health.status), value: deployment.apps.length }
       : undefined
 
+  // Ordered by how often a person needs them: state first, reference last.
   const tabs: TabDef<DrawerTab>[] = [
     { id: 'overview', label: 'Overview' },
     {
@@ -3923,18 +4030,11 @@ function EntityDrawer({
       hidden: !showDeploy,
       badge: deployBadge,
     },
-    { id: 'tech', label: 'Tech stack', hidden: !(stack.length || version || isTechKind) },
     {
-      id: 'docs',
-      label: 'TechDocs',
-      hidden: !(docsUrl || entity.kind === 'Component'),
-      badge: docsUrl ? { kind: 'healthy', value: '✓' } : undefined,
-    },
-    {
-      id: 'metrics',
-      label: 'Metrics',
-      hidden: !metricTarget,
-      badge: monitorUrl ? { kind: 'healthy', value: 'live' } : undefined,
+      id: 'scorecard',
+      label: 'Scorecard',
+      hidden: !scoreable,
+      badge: { kind: gradeKind(score.grade), value: score.grade },
     },
     {
       id: 'relations',
@@ -3943,13 +4043,36 @@ function EntityDrawer({
       badge: relationCount > 0 ? relationCount : undefined,
     },
     {
-      id: 'scorecard',
-      label: 'Scorecard',
-      hidden: !scoreable,
-      badge: { kind: gradeKind(score.grade), value: score.grade },
+      id: 'metrics',
+      label: 'Metrics',
+      hidden: !metricTarget,
+      badge: monitorUrl ? { kind: 'healthy', value: 'live' } : undefined,
+    },
+    { id: 'tech', label: 'Tech stack', hidden: !(stack.length || version || isTechKind) },
+    {
+      id: 'docs',
+      label: 'TechDocs',
+      hidden: !(docsUrl || entity.kind === 'Component'),
+      badge: docsUrl ? { kind: 'healthy', value: '✓' } : undefined,
     },
     { id: 'raw', label: 'Raw' },
   ]
+  // Following a relation chip to a Group while on Deployment would leave the
+  // drawer on a tab that entity does not have; fall back to Overview.
+  const effectiveTab: DrawerTab = tabs.some((t) => t.id === tab && !t.hidden) ? tab : 'overview'
+  const failing = score.checks.filter((c) => !c.pass)
+  const ownerName = ownerEnt
+    ? (ownerEnt.metadata.title ?? ownerEnt.metadata.name)
+    : entity.spec.owner
+      ? parseRef(entity.spec.owner).name
+      : undefined
+  const copyLink = () => {
+    const url = `${globalThis.location.origin}/catalog?entity=${encodeURIComponent(ref)}`
+    navigator.clipboard
+      ?.writeText(url)
+      .then(() => toast.success('Link copied', { description: url }))
+      .catch(() => toast.error('Could not copy link', { description: url }))
+  }
 
   if (typeof document === 'undefined') return null
 
@@ -3961,128 +4084,277 @@ function EntityDrawer({
         className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
-      <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
+      <aside className="relative flex h-full w-full max-w-4xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
         {/*
           The header is the drawer's anchor: it stays while the tabs change under
           it, so it carries a tint of its own. Flat and borderless, it read as
           the first row of the content rather than as the frame around it.
         */}
-        <header className="relative flex items-start justify-between gap-4 overflow-hidden border-b border-edge-default bg-linear-to-b from-surface-raised to-surface-raised/60 px-6 py-4">
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wider text-content-subtle">
-              <KindGlyph kind={entity.kind} type={entity.spec.type} />
-              {entity.kind}
-              {entity.spec.lifecycle ? (
-                <StatusBadge kind={LIFECYCLE_TONE[entity.spec.lifecycle]}>
-                  {entity.spec.lifecycle}
-                </StatusBadge>
-              ) : null}
-              <StatusBadge kind={health.kind}>{health.label}</StatusBadge>
-              {version ? (
-                <span className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold normal-case tracking-normal text-content">
-                  {version}
+        <header className="relative border-b border-edge-default bg-linear-to-b from-surface-raised to-surface-raised/60 px-6 py-4">
+          <div className="flex items-start gap-3.5">
+            <KindGlyph kind={entity.kind} type={entity.spec.type} size="lg" />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
+                <span>
+                  {entity.kind}
+                  {entity.spec.type ? <span className="font-medium normal-case tracking-normal text-content-muted"> · {entity.spec.type}</span> : null}
                 </span>
+                {entity.spec.lifecycle ? (
+                  <StatusBadge kind={LIFECYCLE_TONE[entity.spec.lifecycle]}>
+                    {entity.spec.lifecycle}
+                  </StatusBadge>
+                ) : null}
+                <StatusBadge kind={health.kind}>{health.label}</StatusBadge>
+                {version ? (
+                  <span className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold normal-case tracking-normal text-content">
+                    {version}
+                  </span>
+                ) : null}
+                <OriginTag origin={entity.origin} />
+              </div>
+              <h2 className="mt-1 truncate text-[22px] font-semibold leading-tight tracking-tight text-content">
+                {entity.metadata.title ?? entity.metadata.name}
+              </h2>
+              <div className="mt-1 flex items-center gap-1.5">
+                <span className="truncate font-mono text-[11px] text-content-muted">{ref}</span>
+                {/* The ref is what goes into a template, an annotation or a
+                    ticket, so it should not have to be retyped from the screen. */}
+                <CopyButton text={ref} />
+              </div>
+              {entity.metadata.description ? (
+                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-content-muted">
+                  {entity.metadata.description}
+                </p>
+              ) : null}
+              {/*
+                The things a person opens a drawer to DO, in the frame that
+                stays while the tabs change: open the running thing, go to its
+                source, its docs, its dashboard.
+              */}
+              {routes.routes.length || entity.metadata.links?.length || monitorUrl ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <EntityRoutesBar routes={routes.routes} onSeeAll={() => setTab('deploy')} />
+                  {(entity.metadata.links ?? []).map((l) => (
+                    <a
+                      key={l.url}
+                      href={l.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300"
+                    >
+                      <LinkGlyph icon={l.icon} />
+                      {l.title}
+                    </a>
+                  ))}
+                  {monitorUrl && !(entity.metadata.links ?? []).some((l) => l.icon === 'monitor' || l.icon === 'dashboard') ? (
+                    <MonitorButton url={monitorUrl} />
+                  ) : null}
+                </div>
               ) : null}
             </div>
-            <h2 className="mt-1 truncate text-xl font-semibold text-content">
-              {entity.metadata.title ?? entity.metadata.name}
-            </h2>
-            <div className="mt-1 flex items-center gap-1.5">
-              <span className="truncate font-mono text-[11px] text-content-muted">{entityRef(entity)}</span>
-              {/* The ref is what goes into a template, an annotation or a
-                  ticket, so it should not have to be retyped from the screen. */}
-              <CopyButton text={entityRef(entity)} />
-            </div>
-            {entity.metadata.description ? (
-              <p className="mt-2 max-w-xl text-sm text-content-muted">
-                {entity.metadata.description}
-              </p>
-            ) : null}
-            {/*
-              The things a person opens a drawer to DO, in the frame that
-              stays while the tabs change: open the running thing, go to its
-              source, its docs, its dashboard. They used to be the first rows
-              of the Overview tab, which meant they scrolled away and were
-              absent from every other tab.
-            */}
-            {routes.routes.length || entity.metadata.links?.length || monitorUrl ? (
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <EntityRoutesBar routes={routes.routes} onSeeAll={() => setTab('deploy')} />
-                {(entity.metadata.links ?? []).map((l) => (
-                  <a
-                    key={l.url}
-                    href={l.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300"
+
+            {/* Right cluster: where you are in the list, then the things you
+                can do to the drawer itself. */}
+            <div className="flex shrink-0 items-center gap-1">
+              {position && siblings && siblings.length > 1 ? (
+                <div className="mr-1 hidden items-center gap-0.5 rounded-lg border border-edge-default bg-surface-raised p-0.5 text-[11px] text-content-muted sm:flex">
+                  <button
+                    type="button"
+                    disabled={!position.prev}
+                    onClick={() => position.prev && onNavigate?.(position.prev)}
+                    aria-label="Previous entity"
+                    title="Previous (←)"
+                    className="flex h-6 w-6 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content disabled:opacity-30 disabled:hover:bg-transparent"
                   >
-                    <LinkGlyph icon={l.icon} />
-                    {l.title}
-                  </a>
-                ))}
-                {monitorUrl && !(entity.metadata.links ?? []).some((l) => l.icon === 'monitor' || l.icon === 'dashboard') ? (
-                  <MonitorButton url={monitorUrl} />
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <button
-              type="button"
-              onClick={() => toggleStar(ref)}
-              aria-label={starred ? 'Unstar' : 'Star'}
-              title={starred ? 'Remove from starred' : 'Add to starred'}
-              className={cn(
-                'flex h-8 w-8 items-center justify-center rounded-md transition',
-                starred
-                  ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-500 ring-1 ring-amber-200'
-                  : 'text-content-subtle hover:bg-surface-sunken hover:text-amber-500',
-              )}
-            >
-              {starred ? <IconStarFilled /> : <IconStar />}
-            </button>
-            <button
-              ref={closeBtnRef}
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
-            >
-              <IconClose />
-            </button>
+                    <IconChevronLeft />
+                  </button>
+                  <span className="px-1 font-mono tabular-nums">
+                    {position.index + 1}
+                    <span className="text-content-subtle"> / {siblings.length}</span>
+                  </span>
+                  <button
+                    type="button"
+                    disabled={!position.next}
+                    onClick={() => position.next && onNavigate?.(position.next)}
+                    aria-label="Next entity"
+                    title="Next (→)"
+                    className="flex h-6 w-6 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content disabled:opacity-30 disabled:hover:bg-transparent"
+                  >
+                    <IconChevronRight />
+                  </button>
+                </div>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => askAboutEntity(ai, entity)}
+                aria-label="Ask Adhar AI about this entity"
+                title="Ask Adhar AI"
+                className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-brand-500/10 dark:hover:text-brand-300"
+              >
+                <IconSparkle />
+              </button>
+              <button
+                type="button"
+                onClick={copyLink}
+                aria-label="Copy link to this entity"
+                title="Copy link"
+                className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content"
+              >
+                <IconLink />
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleStar(ref)}
+                aria-label={starred ? 'Unstar' : 'Star'}
+                title={starred ? 'Remove from starred' : 'Add to starred'}
+                className={cn(
+                  'flex h-8 w-8 items-center justify-center rounded-md transition',
+                  starred
+                    ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-500 ring-1 ring-amber-200'
+                    : 'text-content-subtle hover:bg-surface-sunken hover:text-amber-500',
+                )}
+              >
+                {starred ? <IconStarFilled /> : <IconStar />}
+              </button>
+              <button
+                ref={closeBtnRef}
+                type="button"
+                onClick={onClose}
+                aria-label="Close"
+                title="Close (Esc)"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+              >
+                <IconClose />
+              </button>
+            </div>
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          <Tabs<DrawerTab> tabs={tabs} value={tab} onChange={setTab} ariaLabel="Entity details">
+        {/*
+          The tab bar sticks to the top of the scrolling body (the Tabs
+          component's first child is its tab list), so a long Scorecard or
+          Deployment tab can be switched away from without scrolling back up.
+        */}
+        <div
+          ref={bodyRef}
+          className="flex-1 overflow-y-auto px-6 pb-6 [&>div>div:first-child]:sticky [&>div>div:first-child]:top-0 [&>div>div:first-child]:z-10 [&>div>div:first-child]:-mx-6 [&>div>div:first-child]:bg-surface-app [&>div>div:first-child]:px-6 [&>div>div:first-child]:pt-3"
+        >
+          <Tabs<DrawerTab> tabs={tabs} value={effectiveTab} onChange={setTab} ariaLabel="Entity details">
             {(active) => (
               <div className="space-y-5">
                 {active === 'overview' ? (
                   <>
-                    {/*
-                      About shows what is SET, and names what is not exactly
-                      once.
+                    <StatusStrip
+                      health={health}
+                      score={score}
+                      scoreable={scoreable}
+                      failing={failing.length}
+                      deployment={showDeploy ? deployment : undefined}
+                      ownerName={ownerName}
+                      ownerEnt={ownerEnt}
+                      systemEnt={systemEnt}
+                      domainEnt={domainEnt}
+                      entity={entity}
+                      catalog={catalog}
+                      onTab={setTab}
+                      onPick={onPick}
+                    />
 
-                      It used to render a fixed eight-cell grid whether or not
-                      the values existed — on a typical seeded entity six of
-                      the eight read "—", so the panel was three-quarters
-                      placeholder and the two facts that did exist were buried
-                      among them. Missing metadata is still worth surfacing
-                      (it is what the scorecard grades), but as one quiet line
-                      that says what to fill in, not as six empty rows.
-                    */}
-                    <AboutCard
+                    {/* Identity first, full width: every declared fact in one
+                        grid, so the answer to "what is this" never needs the
+                        scrollbar. */}
+                    <PropertiesPanel
                       entity={entity}
                       ownerEnt={ownerEnt}
                       systemEnt={systemEnt}
                       domainEnt={domainEnt}
                       stack={stack}
                       generics={generics}
+                      version={version}
                       onPick={onPick}
                     />
 
-                    <SignalsCard signals={signals} score={score} />
-                    <ActivityCard events={activity} />
+                    {/* Signals as pictures: readiness by category, how often
+                        it ships, and the last hour of its resources. Only the
+                        ones that apply render; a Group has none. */}
+                    {scoreable || (showDeploy && deployment) || metricTarget ? (
+                      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        {scoreable ? <ReadinessByCategory score={score} onOpen={() => setTab('scorecard')} /> : null}
+                        {showDeploy && deployment ? <DeploymentsChart deployment={deployment} onOpen={() => setTab('deploy')} /> : null}
+                        {metricTarget ? (
+                          <DrawerSection
+                            title="Last hour"
+                            aside={
+                              <button type="button" onClick={() => setTab('metrics')} className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">
+                                Metrics →
+                              </button>
+                            }
+                          >
+                            <EntitySparklines target={metricTarget} onOpen={() => setTab('metrics')} />
+                          </DrawerSection>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    {/*
+                      Left: how it is doing (what to fix, every health signal,
+                      what it is wired to, what happened). Right rail: who and
+                      what (the team and its contacts, the stack with versions).
+                    */}
+                    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_292px]">
+                      <div className="min-w-0 space-y-5">
+                        {scoreable ? (
+                          <FixNext failing={failing} total={score.checks.length} onAll={() => setTab('scorecard')} />
+                        ) : null}
+                        <HealthChecks
+                          entity={entity}
+                          health={health}
+                          score={score}
+                          scoreable={scoreable}
+                          deployment={showDeploy ? deployment : undefined}
+                          monitorUrl={monitorUrl}
+                          docsUrl={docsUrl}
+                          onTab={setTab}
+                        />
+                        {relationCount > 0 ? (
+                          <DrawerSection
+                            title="Relations"
+                            aside={
+                              <button
+                                type="button"
+                                onClick={() => setTab('relations')}
+                                className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300"
+                              >
+                                All {relationCount} →
+                              </button>
+                            }
+                          >
+                            <div className="space-y-3">
+                              {provides.length ? <RelationRow label="Provides APIs" entities={provides.slice(0, 6)} onPick={onPick} /> : null}
+                              {consumes.length ? <RelationRow label="Consumes APIs" entities={consumes.slice(0, 6)} onPick={onPick} /> : null}
+                              {dependsOn.length ? <RelationRow label="Depends on" entities={dependsOn.slice(0, 6)} onPick={onPick} /> : null}
+                              {providedBy.length ? <RelationRow label="Provided by" entities={providedBy.slice(0, 6)} onPick={onPick} /> : null}
+                              {consumedBy.length ? <RelationRow label="Consumed by" entities={consumedBy.slice(0, 6)} onPick={onPick} /> : null}
+                              {childComponents.length ? (
+                                <RelationRow
+                                  label={entity.kind === 'Domain' ? 'In this domain' : 'In this system'}
+                                  entities={childComponents.slice(0, 8)}
+                                  onPick={onPick}
+                                />
+                              ) : null}
+                              {ownedBy.length ? <RelationRow label="Owns" entities={ownedBy.slice(0, 8)} onPick={onPick} /> : null}
+                            </div>
+                          </DrawerSection>
+                        ) : null}
+                        <ActivityCard events={activity} />
+                      </div>
+                      <div className="min-w-0 space-y-5">
+                        <TeamPanel entity={entity} ownerEnt={ownerEnt} catalog={catalog} onPick={onPick} onTab={setTab} />
+                        {isTechKind ? (
+                          <TechPanel stack={stack} version={version} deployment={showDeploy ? deployment : undefined} onTab={setTab} />
+                        ) : null}
+                      </div>
+                    </div>
                   </>
                 ) : null}
 
@@ -4247,105 +4519,901 @@ function RefChip({ ent, onPick }: { ent: Entity; onPick(e: Entity): void }) {
 }
 
 /**
- * The entity's facts panel.
+ * The entity's properties — the side panel of the Overview tab.
  *
- * Every row is built as `{ label, node | null }` and only the non-null ones
- * reach the grid; the rest collapse into a single "Not set" line. That line is
- * deliberately kept — unset owner/lifecycle/docs is exactly what the scorecard
- * marks an entity down for, so naming the gaps is useful. Rendering each gap
- * as its own empty row is not.
- *
- * Created/Updated move to a footer rule: they are provenance, not identity,
- * and they were taking two of the eight prime cells.
+ * A key/value list, one row per fact, in the order a reader looks for them:
+ * who owns it, where it sits, what it is, then provenance. A fact that is
+ * not set is shown as "not set" in place — the scorecard grades exactly
+ * those gaps, so naming them where the value would be is the useful thing;
+ * facts that are optional (tags, tech) simply do not render when empty.
  */
-function AboutCard({
+function PropertiesPanel({
   entity,
   ownerEnt,
   systemEnt,
   domainEnt,
   stack,
   generics,
+  version,
   onPick,
 }: {
   entity: Entity
   ownerEnt?: Entity
   systemEnt?: Entity
   domainEnt?: Entity
-  stack: string[]
+  stack: TechBadge[]
   generics: string[]
+  version?: string
   onPick(e: Entity): void
 }) {
-  const rows: Array<{ label: string; node: React.ReactNode | null }> = [
+  const unset = <span className="text-[12px] italic text-content-subtle">not set</span>
+  const text = (v: string) => <span className="text-[13px] text-content">{v}</span>
+  const cells: Array<{ label: string; node: React.ReactNode; wide?: boolean }> = [
     {
       label: 'Owner',
       node: ownerEnt
         ? <RefChip ent={ownerEnt} onPick={onPick} />
         : entity.spec.owner
-        ? <span className="text-content">{entity.spec.owner}</span>
-        : null,
+          ? text(parseRef(entity.spec.owner).name)
+          : unset,
     },
-    { label: 'System', node: systemEnt ? <RefChip ent={systemEnt} onPick={onPick} /> : null },
-    { label: 'Domain', node: domainEnt ? <RefChip ent={domainEnt} onPick={onPick} /> : null },
-    {
-      label: 'Type',
-      node: entity.spec.type
-        ? <code className="text-xs text-content-muted">{entity.spec.type}</code>
-        : null,
-    },
+    { label: 'System', node: systemEnt ? <RefChip ent={systemEnt} onPick={onPick} /> : entity.spec.system ? text(parseRef(entity.spec.system).name) : unset },
+    { label: 'Domain', node: domainEnt ? <RefChip ent={domainEnt} onPick={onPick} /> : entity.spec.domain ? text(parseRef(entity.spec.domain).name) : unset },
     {
       label: 'Lifecycle',
       node: entity.spec.lifecycle
-        ? (
-          <StatusBadge kind={LIFECYCLE_TONE[entity.spec.lifecycle]}>
-            {entity.spec.lifecycle}
-          </StatusBadge>
-        )
-        : null,
+        ? <StatusBadge kind={LIFECYCLE_TONE[entity.spec.lifecycle]}>{entity.spec.lifecycle}</StatusBadge>
+        : unset,
     },
-    { label: 'Tech stack', node: stack.length ? <TechBadges stack={stack} max={8} /> : null },
-    {
-      label: 'Tags',
-      node: generics.length
-        ? (
-          <div className="flex flex-wrap gap-1">
-            {generics.map((t) => (
-              <span
-                key={t}
-                className="rounded bg-surface-sunken px-1.5 py-0.5 text-[10px] text-content-muted"
-              >
-                {t}
-              </span>
-            ))}
-          </div>
-        )
-        : null,
-    },
-    { label: 'Origin', node: <span className="text-content">{ORIGIN_LABEL[entity.origin ?? 'seed']}</span> },
+    { label: 'Kind · type', node: text(`${entity.kind}${entity.spec.type ? ` · ${entity.spec.type}` : ''}`) },
+    { label: 'Version', node: version ? <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[12px] font-semibold text-content">{version}</code> : unset },
+    { label: 'Origin', node: text(ORIGIN_LABEL[entity.origin ?? 'seed']) },
+    { label: 'Namespace', node: <code className="font-mono text-[12px] text-content">{entity.metadata.namespace ?? 'default'}</code> },
   ]
-
-  const set = rows.filter((r) => r.node !== null)
-  const unset = rows.filter((r) => r.node === null).map((r) => r.label)
+  if (stack.length) cells.push({ label: 'Tech stack', node: <TechBadges stack={stack} max={6} />, wide: true })
+  if (generics.length) {
+    cells.push({
+      label: 'Tags',
+      wide: true,
+      node: (
+        <div className="flex flex-wrap gap-1">
+          {generics.map((t) => (
+            <span key={t} className="rounded bg-surface-sunken px-1.5 py-0.5 text-[10px] text-content-muted">
+              {t}
+            </span>
+          ))}
+        </div>
+      ),
+    })
+  }
+  cells.push({ label: 'Created', node: <span className="text-[12px] text-content-muted">{formatDate(entity.metadata.createdAt)}</span> })
+  cells.push({ label: 'Updated', node: <span className="text-[12px] text-content-muted">{formatDate(entity.metadata.updatedAt)}{relativeTime(entity.metadata.updatedAt) ? ` · ${relativeTime(entity.metadata.updatedAt)}` : ''}</span> })
 
   return (
-    <DrawerSection title="About">
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {set.map((r) => <Field key={r.label} label={r.label} value={r.node} />)}
+    <DrawerSection title="Properties">
+      <dl className="grid grid-cols-2 gap-x-6 gap-y-3.5 sm:grid-cols-3 lg:grid-cols-4">
+        {cells.map((c) => (
+          <div key={c.label} className={cn('min-w-0', c.wide && 'col-span-2')}>
+            <dt className="text-[10px] font-semibold uppercase tracking-[0.1em] text-content-subtle">{c.label}</dt>
+            <dd className="mt-1 min-w-0 truncate">{c.node}</dd>
+          </div>
+        ))}
+      </dl>
+    </DrawerSection>
+  )
+}
+
+/* ─────────── overview graphs ─────────── */
+
+/** Readiness per category as bars — the shape of the score, not just the number. */
+function ReadinessByCategory({ score, onOpen }: { score: Scorecard; onOpen(): void }) {
+  const cats = CHECK_CATEGORIES.map((cat) => ({ cat, c: score.byCategory[cat] })).filter(({ c }) => c.total > 0)
+  return (
+    <DrawerSection
+      title="Readiness by category"
+      aside={
+        <button type="button" onClick={onOpen} className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">
+          Scorecard →
+        </button>
+      }
+    >
+      <ul className="space-y-2">
+        {cats.map(({ cat, c }) => (
+          <li key={cat}>
+            <div className="flex items-baseline justify-between text-[11px]">
+              <span className="font-medium text-content-muted">{CATEGORY_LABEL[cat]}</span>
+              <span className="font-mono tabular-nums text-content">
+                {c.pass}/{c.total} <span className="text-content-subtle">· {c.score}%</span>
+              </span>
+            </div>
+            <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
+              <div className={cn('h-full rounded-full transition-[width] duration-300', scoreTone(c.score).dot)} style={{ width: `${c.score}%` }} />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </DrawerSection>
+  )
+}
+
+/**
+ * Deployments per week for the last eight weeks, from Argo CD's sync
+ * history across every matched application. Frequency is the one delivery
+ * number that needs no interpretation: a bar that has been empty for a
+ * month says more than a "last synced 31d ago".
+ */
+function DeploymentsChart({ deployment, onOpen }: { deployment: EntityDeployment; onOpen?(): void }) {
+  const WEEKS = 8
+  const now = Date.now()
+  const weekMs = 7 * 86_400_000
+  const stamps = deployment.apps
+    .flatMap((a) => a.status.history.map((h) => h.deployedAt))
+    .filter((d): d is string => Boolean(d))
+    .map((d) => new Date(d).getTime())
+    .filter((t) => Number.isFinite(t))
+  const bars = Array.from({ length: WEEKS }, (_, i) => {
+    const end = now - (WEEKS - 1 - i) * weekMs
+    const start = end - weekMs
+    const n = stamps.filter((t) => t > start && t <= end).length
+    const label = i === WEEKS - 1 ? 'this wk' : `-${WEEKS - 1 - i}w`
+    return { label, value: n }
+  })
+  const total = bars.reduce((a, b) => a + b.value, 0)
+  const last = stamps.length ? Math.max(...stamps) : null
+  return (
+    <DrawerSection
+      title="Deployments"
+      aside={
+        onOpen ? (
+          <button type="button" onClick={onOpen} className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">
+            Deployment →
+          </button>
+        ) : (
+          <span className="text-[11px] text-content-subtle">per week · from Argo CD sync history</span>
+        )
+      }
+    >
+      {deployment.isLoading ? (
+        <div className="flex h-24 items-center justify-center text-[11px] text-content-subtle"><Spinner size={12} /></div>
+      ) : deployment.isError ? (
+        <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-edge-default text-[11px] text-content-subtle">Argo CD not reachable</div>
+      ) : !deployment.apps.length ? (
+        <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-edge-default text-[11px] text-content-subtle">Not deployed via Argo CD</div>
+      ) : (
+        <>
+          <BarChart bars={bars} height={72} color="var(--color-brand-500)" formatY={(v) => String(Math.round(v))} />
+          <div className="mt-2 flex items-baseline justify-between text-[11px] text-content-muted">
+            <span>
+              <span className="font-mono font-semibold tabular-nums text-content">{total}</span> in {WEEKS} weeks
+            </span>
+            <span>{last ? `last ${relativeTime(new Date(last).toISOString()) || formatDate(new Date(last).toISOString())}` : 'no sync history'}</span>
+          </div>
+        </>
+      )}
+    </DrawerSection>
+  )
+}
+
+/* ─────────── team & contacts ─────────── *//* ─────────── team & contacts ─────────── */
+
+/** A User entity's initials, for the avatar. */
+function userInitials(u: Entity): string {
+  const name = (u.metadata.title ?? u.metadata.name).trim()
+  const parts = name.split(/[\s._-]+/).filter(Boolean)
+  return (parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : name.slice(0, 2)).toUpperCase()
+}
+
+/**
+ * Who to talk to about this entity.
+ *
+ * The owning team is the answer everyone needs first, so it leads; the
+ * contact person is the next question, so it is named — explicitly when the
+ * entity or its team says who (`adhar.io/contact`, `adhar.io/lead`, or an
+ * `on-call` link), and honestly labelled as "first listed member" when the
+ * only thing known is the roster. Members and the team's channels follow.
+ * No owner at all is the most common real gap in a catalog, so it is said
+ * in amber with the fix, not left as an empty panel.
+ */
+function TeamPanel({
+  entity,
+  ownerEnt,
+  catalog,
+  onPick,
+  onTab,
+}: {
+  entity: Entity
+  ownerEnt?: Entity
+  catalog: Entity[]
+  onPick(e: Entity): void
+  onTab(t: DrawerTab): void
+}) {
+  const team = entity.kind === 'Group' ? entity : ownerEnt
+  const ann = entityAnnotations(entity)
+  const teamAnn = team ? entityAnnotations(team) : {}
+
+  if (entity.kind === 'User') {
+    const memberOf = catalog.filter((g) => g.kind === 'Group' && (g.spec.members ?? []).includes(entityRef(entity)))
+    return (
+      <DrawerSection title="Contact">
+        <div className="space-y-3">
+          {entity.spec.email ? (
+            <a href={`mailto:${entity.spec.email}`} className="block truncate text-[12.5px] font-medium text-brand-700 hover:underline dark:text-brand-300">
+              {entity.spec.email}
+            </a>
+          ) : (
+            <span className="text-[12px] italic text-content-subtle">no email recorded</span>
+          )}
+          {memberOf.length ? (
+            <div>
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Member of</div>
+              <div className="flex flex-wrap gap-1.5">
+                {memberOf.map((g) => <RefChip key={entityRef(g)} ent={g} onPick={onPick} />)}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </DrawerSection>
+    )
+  }
+
+  if (!team) {
+    const named = entity.spec.owner ? parseRef(entity.spec.owner).name : undefined
+    return (
+      <DrawerSection title="Team & contacts">
+        <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2.5 text-[12px] leading-relaxed text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+          {named ? (
+            <>
+              Owned by <span className="font-semibold">{named}</span>, but that Group is not in the catalog — nobody can be contacted from here.
+            </>
+          ) : (
+            <>
+              <span className="font-semibold">No owning team.</span> Set <code className="font-mono">spec.owner</code> to a Group so people know who to ask.
+            </>
+          )}
+          {entity.kind !== 'Group' && entity.kind !== 'Domain' ? (
+            <button type="button" onClick={() => onTab('scorecard')} className="mt-1 block text-[11px] font-medium underline-offset-2 hover:underline">
+              See the ownership check →
+            </button>
+          ) : null}
+        </div>
+      </DrawerSection>
+    )
+  }
+
+  const members = (team.spec.members ?? [])
+    .map((r) => findEntity(catalog, r))
+    .filter((u): u is Entity => Boolean(u))
+
+  // Explicit contact first: on the entity, then on the team. A `user:` ref
+  // resolves to a member; an email matches a member or is shown as-is.
+  const explicit = (ann['adhar.io/contact'] ?? ann['adhar.io/lead'] ?? teamAnn['adhar.io/lead'] ?? teamAnn['adhar.io/contact'] ?? '').trim()
+  let contact: { user?: Entity; email?: string; label: string } | undefined
+  if (explicit) {
+    const byRef = explicit.startsWith('user:') ? findEntity(catalog, explicit) : undefined
+    const byEmail = explicit.includes('@') ? members.find((m) => m.spec.email?.toLowerCase() === explicit.toLowerCase()) : undefined
+    const u = byRef ?? byEmail
+    contact = { user: u, email: u?.spec.email ?? (explicit.includes('@') ? explicit : undefined), label: ann['adhar.io/lead'] || teamAnn['adhar.io/lead'] ? 'Lead' : 'Contact' }
+  } else if (members.length) {
+    contact = { user: members[0], email: members[0].spec.email, label: 'First listed member' }
+  }
+
+  const channels = [...(team.metadata.links ?? []), ...(entity.metadata.links ?? [])]
+    .filter((l) => l.icon === 'chat' || l.icon === 'on-call')
+    .filter((l, i, arr) => arr.findIndex((x) => x.url === l.url) === i)
+
+  return (
+    <DrawerSection title="Team & contacts">
+      <div className="space-y-3.5">
+        <div>
+          {entity.kind === 'Group' ? (
+            <div className="text-[13px] font-semibold text-content">{team.metadata.title ?? team.metadata.name}</div>
+          ) : (
+            <RefChip ent={team} onPick={onPick} />
+          )}
+          {team.metadata.description ? (
+            <p className="mt-1.5 text-[11.5px] leading-relaxed text-content-muted">{team.metadata.description}</p>
+          ) : null}
         </div>
 
-        {unset.length ? (
-          <p className="text-[11.5px] leading-relaxed text-content-subtle">
-            <span className="font-medium text-content-muted">Not set:</span>{' '}
-            {unset.join(', ').toLowerCase()} — add these to the entity's YAML to lift its
-            scorecard.
-          </p>
+        {contact ? (
+          <div className="flex items-start gap-2.5 rounded-lg border border-edge-subtle bg-surface-sunken/50 px-2.5 py-2">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-brand-500 to-accent-500 text-[11px] font-semibold text-white">
+              {contact.user ? userInitials(contact.user) : (contact.email ?? '?').slice(0, 2).toUpperCase()}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{contact.label}</div>
+              {contact.user ? (
+                <button type="button" onClick={() => onPick(contact!.user!)} className="block truncate text-[12.5px] font-medium text-content hover:underline">
+                  {contact.user.metadata.title ?? contact.user.metadata.name}
+                </button>
+              ) : null}
+              {contact.email ? (
+                <a href={`mailto:${contact.email}`} className="block truncate text-[11.5px] text-brand-700 hover:underline dark:text-brand-300">
+                  {contact.email}
+                </a>
+              ) : null}
+            </div>
+          </div>
         ) : null}
 
-        <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-edge-subtle pt-3 text-[11px] text-content-subtle">
-          <span>Created {formatDate(entity.metadata.createdAt)}</span>
-          <span>Updated {formatDate(entity.metadata.updatedAt)}</span>
-        </div>
+        {members.length ? (
+          <div>
+            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+              {members.length} {members.length === 1 ? 'member' : 'members'}
+            </div>
+            <div className="flex flex-wrap items-center gap-1">
+              {members.slice(0, 8).map((u) => (
+                <button
+                  key={entityRef(u)}
+                  type="button"
+                  onClick={() => onPick(u)}
+                  title={`${u.metadata.title ?? u.metadata.name}${u.spec.email ? ` · ${u.spec.email}` : ''}`}
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-surface-sunken text-[10px] font-semibold text-content-muted ring-1 ring-inset ring-edge-default transition-colors hover:bg-brand-50 hover:text-brand-700 hover:ring-brand-200 dark:hover:bg-brand-500/10 dark:hover:text-brand-300"
+                >
+                  {userInitials(u)}
+                </button>
+              ))}
+              {members.length > 8 ? <span className="pl-1 text-[11px] text-content-subtle">+{members.length - 8}</span> : null}
+            </div>
+          </div>
+        ) : (
+          <div className="text-[11.5px] italic text-content-subtle">No members listed on the team.</div>
+        )}
+
+        {channels.length ? (
+          <div className="flex flex-wrap gap-1.5">
+            {channels.map((l) => (
+              <a
+                key={l.url}
+                href={l.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-[11px] font-medium text-content-muted transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300"
+              >
+                <LinkGlyph icon={l.icon} />
+                {l.title}
+              </a>
+            ))}
+          </div>
+        ) : null}
       </div>
+    </DrawerSection>
+  )
+}
+
+/* ─────────── tech stack with versions ─────────── */
+
+/** `registry/org/name:tag` → `name:tag` — the part a person recognises. */
+function shortImage(image: string): string {
+  const noDigest = image.split('@')[0]
+  const last = noDigest.split('/').pop() ?? noDigest
+  return last
+}
+
+/**
+ * The stack, with versions where they are known — the language, framework
+ * and datastore versions a person needs when they ask "is this on a
+ * supported Java?". Two sources: what the entity declares (tags such as
+ * `java-21`, or the `adhar.io/tech-stack` annotation) and what is actually
+ * running (the images Argo CD deploys, with their tags). When nothing is
+ * recorded the panel says how to record it, because a blank here is a gap
+ * to close, not a fact.
+ */
+function TechPanel({
+  stack,
+  version,
+  deployment,
+  onTab,
+}: {
+  stack: TechBadge[]
+  version?: string
+  deployment?: EntityDeployment
+  onTab(t: DrawerTab): void
+}) {
+  const grouped = TECH_GROUP_ORDER
+    .map((g) => ({ group: g, items: stack.filter((b) => b.group === g) }))
+    .filter((x) => x.items.length > 0)
+  const images = deployment?.primary?.status.images ?? []
+  const versioned = stack.filter((b) => b.version).length
+
+  return (
+    <DrawerSection
+      title="Tech stack"
+      aside={
+        stack.length ? (
+          <button type="button" onClick={() => onTab('tech')} className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">
+            Details →
+          </button>
+        ) : undefined
+      }
+    >
+      {stack.length === 0 && !version && images.length === 0 ? (
+        <p className="text-[11.5px] leading-relaxed text-content-subtle">
+          Nothing recorded. Tag the entity with its stack and versions (e.g.{' '}
+          <code className="font-mono text-content-muted">java-21</code>,{' '}
+          <code className="font-mono text-content-muted">spring-boot-3.3</code>) or set{' '}
+          <code className="font-mono text-content-muted">adhar.io/tech-stack</code>.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {grouped.map(({ group, items }) => (
+            <div key={group}>
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+                {TECH_GROUP_LABEL[group]}
+              </div>
+              <ul className="divide-y divide-edge-subtle">
+                {items.map((b) => (
+                  <li key={b.label} className="flex items-center justify-between gap-2 py-1.5">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className={cn('h-2 w-2 shrink-0 rounded-sm ring-1 ring-inset', TECH_PILL[b.tone])} />
+                      <span className="truncate text-[12.5px] text-content">{b.label}</span>
+                    </span>
+                    {b.version ? (
+                      <span className="shrink-0 rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content">{b.version}</span>
+                    ) : (
+                      <span className="shrink-0 text-[11px] italic text-content-subtle">version unknown</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+          {version ? (
+            <div className="flex items-center justify-between gap-2 border-t border-edge-subtle pt-2.5">
+              <span className="text-[12px] text-content-muted">App version</span>
+              <span className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content">{version}</span>
+            </div>
+          ) : null}
+          {images.length ? (
+            <div className="border-t border-edge-subtle pt-2.5">
+              <div className="mb-1 flex items-baseline justify-between">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Running now</span>
+                <span className="text-[10px] text-content-subtle">from Argo CD</span>
+              </div>
+              <ul className="space-y-1">
+                {images.slice(0, 4).map((img) => (
+                  <li key={img} title={img} className="truncate font-mono text-[11px] text-content">
+                    {shortImage(img)}
+                  </li>
+                ))}
+                {images.length > 4 ? <li className="text-[10px] text-content-subtle">+{images.length - 4} more</li> : null}
+              </ul>
+            </div>
+          ) : null}
+          {stack.length && versioned < stack.length ? (
+            <p className="text-[10.5px] leading-relaxed text-content-subtle">
+              {stack.length - versioned} without a version — add it to the tag (<code className="font-mono">java-21</code>) or to <code className="font-mono">adhar.io/tech-stack</code>.
+            </p>
+          ) : null}
+        </div>
+      )}
+    </DrawerSection>
+  )
+}
+
+/* ─────────── health checks ─────────── */
+
+type CheckState = 'ok' | 'warn' | 'bad' | 'na'
+
+interface HealthRow {
+  id: string
+  label: string
+  state: CheckState
+  detail: string
+  /** Where the row is explained. */
+  tab?: DrawerTab
+}
+
+/**
+ * Every health signal the console has for this entity, in one list — the
+ * catalog's own verdict, Argo CD's, the resource counts, the readiness
+ * score, and the operational hygiene checks (owner, runbook, docs,
+ * dashboard, on-call, freshness). Each row says its state, the fact behind
+ * it, and — where a tab explains it — is the way there. Rows the console
+ * cannot know are "n/a", never guessed.
+ */
+function HealthChecks({
+  entity,
+  health,
+  score,
+  scoreable,
+  deployment,
+  monitorUrl,
+  docsUrl,
+  onTab,
+}: {
+  entity: Entity
+  health: Health
+  score: Scorecard
+  scoreable: boolean
+  deployment?: EntityDeployment
+  monitorUrl?: string
+  docsUrl?: string
+  onTab(t: DrawerTab): void
+}) {
+  const links = entity.metadata.links ?? []
+  const prod = entity.spec.lifecycle === 'production'
+  const failing = score.checks.filter((c) => !c.pass).length
+  const rows: HealthRow[] = []
+
+  rows.push({
+    id: 'catalog',
+    label: 'Catalog health',
+    state: health.kind === 'healthy' ? 'ok' : health.kind === 'degraded' ? 'bad' : 'warn',
+    detail: health.label,
+    tab: scoreable ? 'scorecard' : undefined,
+  })
+
+  if (deployment) {
+    const p = deployment.primary
+    if (deployment.isLoading) {
+      rows.push({ id: 'argo', label: 'Argo CD', state: 'na', detail: 'reading…', tab: 'deploy' })
+    } else if (deployment.isError) {
+      rows.push({ id: 'argo', label: 'Argo CD', state: 'na', detail: 'not reachable', tab: 'deploy' })
+    } else if (!p) {
+      rows.push({ id: 'argo', label: 'Argo CD', state: 'warn', detail: 'no application matched', tab: 'deploy' })
+    } else {
+      const h = p.status.health.status
+      rows.push({
+        id: 'argo-health',
+        label: 'Deployment health',
+        state: h === 'Healthy' ? 'ok' : h === 'Progressing' || h === 'Suspended' ? 'warn' : h === 'Unknown' ? 'na' : 'bad',
+        detail: `${h}${deployment.apps.length > 1 ? ` · ${deployment.apps.length} apps` : ''}`,
+        tab: 'deploy',
+      })
+      const sy = p.status.sync.status
+      rows.push({ id: 'argo-sync', label: 'Sync', state: sy === 'Synced' ? 'ok' : sy === 'OutOfSync' ? 'warn' : 'na', detail: sy, tab: 'deploy' })
+      const r = p.status.resources
+      if (r.total > 0) {
+        rows.push({
+          id: 'resources',
+          label: 'Resources',
+          state: r.unhealthy > 0 ? 'bad' : r.outOfSync > 0 ? 'warn' : 'ok',
+          detail: `${r.total - r.unhealthy}/${r.total} healthy${r.outOfSync ? ` · ${r.outOfSync} out of sync` : ''}`,
+          tab: 'deploy',
+        })
+      }
+      const fin = p.status.operationState?.finishedAt
+      const phase = p.status.operationState?.phase
+      rows.push({
+        id: 'last-sync',
+        label: 'Last sync',
+        state: !phase ? 'na' : phase === 'Succeeded' ? 'ok' : phase === 'Running' ? 'warn' : 'bad',
+        detail: phase ? `${phase}${fin ? ` · ${relativeTime(fin)}` : ''}` : 'no operation recorded',
+        tab: 'deploy',
+      })
+    }
+  }
+
+  if (scoreable) {
+    rows.push({
+      id: 'score',
+      label: 'Readiness',
+      state: score.grade === 'A' || score.grade === 'B' ? 'ok' : score.grade === 'C' ? 'warn' : 'bad',
+      detail: `${score.score}/100 · grade ${score.grade}${failing ? ` · ${failing} to fix` : ''}`,
+      tab: 'scorecard',
+    })
+  }
+  if (entity.kind !== 'User' && entity.kind !== 'Group' && entity.kind !== 'Domain') {
+    rows.push({ id: 'owner', label: 'Owner', state: entity.spec.owner ? 'ok' : 'bad', detail: entity.spec.owner ? parseRef(entity.spec.owner).name : 'none set' })
+  }
+  if (entity.kind === 'Component' || entity.kind === 'Resource' || entity.kind === 'API') {
+    const runbook = links.some((l) => l.icon === 'runbook')
+    rows.push({ id: 'runbook', label: 'Runbook', state: runbook ? 'ok' : prod ? 'warn' : 'na', detail: runbook ? 'linked' : prod ? 'missing for a production entity' : 'none linked' })
+    rows.push({ id: 'docs', label: 'Documentation', state: docsUrl ? 'ok' : 'warn', detail: docsUrl ? 'linked' : 'none linked', tab: 'docs' })
+    const dash = Boolean(monitorUrl) || links.some((l) => l.icon === 'dashboard')
+    rows.push({ id: 'dash', label: 'Dashboard', state: dash ? 'ok' : 'warn', detail: dash ? 'linked' : 'none linked', tab: monitorUrl ? 'metrics' : undefined })
+    const oncall = links.some((l) => l.icon === 'on-call')
+    rows.push({ id: 'oncall', label: 'On-call', state: oncall ? 'ok' : prod ? 'warn' : 'na', detail: oncall ? 'linked' : 'no on-call link' })
+  }
+  const stamp = entity.metadata.updatedAt ?? entity.metadata.createdAt
+  rows.push({
+    id: 'fresh',
+    label: 'Freshness',
+    state: !stamp ? 'na' : isStale(stamp) ? 'warn' : 'ok',
+    detail: stamp ? `updated ${relativeTime(stamp) || formatDate(stamp)}${isStale(stamp) ? ' · stale' : ''}` : 'no timestamp',
+  })
+
+  const tone: Record<CheckState, { dot: string; icon: React.ReactNode }> = {
+    ok: { dot: 'bg-emerald-500', icon: <IconCheck /> },
+    warn: { dot: 'bg-amber-500', icon: <IconAlert /> },
+    bad: { dot: 'bg-rose-500', icon: <IconAlert /> },
+    na: { dot: 'bg-slate-300 dark:bg-slate-600', icon: <IconDash /> },
+  }
+  const counts = rows.reduce(
+    (acc, r) => ({ ...acc, [r.state]: (acc[r.state] ?? 0) + 1 }),
+    {} as Partial<Record<CheckState, number>>,
+  )
+
+  return (
+    <DrawerSection
+      title="Health checks"
+      aside={
+        <span className="inline-flex items-center gap-2 text-[11px] text-content-muted">
+          {counts.ok ? <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />{counts.ok} ok</span> : null}
+          {counts.warn ? <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-amber-500" />{counts.warn} warn</span> : null}
+          {counts.bad ? <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-rose-500" />{counts.bad} failing</span> : null}
+        </span>
+      }
+    >
+      <ul className="grid grid-cols-1 gap-x-6 sm:grid-cols-2">
+        {rows.map((r) => {
+          const Tag = r.tab ? 'button' : 'div'
+          return (
+            <li key={r.id} className="border-b border-edge-subtle last:border-b-0 sm:[&:nth-last-child(2)]:border-b-0">
+              <Tag
+                type={r.tab ? 'button' : undefined}
+                onClick={r.tab ? () => onTab(r.tab!) : undefined}
+                className={cn('group/row flex w-full items-center gap-2.5 py-2 text-left', r.tab && 'cursor-pointer')}
+              >
+                <span
+                  className={cn(
+                    'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full ring-1 ring-inset',
+                    r.state === 'ok'
+                      ? 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30'
+                      : r.state === 'warn'
+                        ? 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30'
+                        : r.state === 'bad'
+                          ? 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30'
+                          : 'bg-surface-sunken text-content-subtle ring-edge-subtle',
+                  )}
+                >
+                  {tone[r.state].icon}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[12.5px] font-medium text-content">{r.label}</span>
+                  <span className="block truncate text-[11px] text-content-muted">{r.detail}</span>
+                </span>
+                {r.tab ? (
+                  <span className="shrink-0 text-content-subtle opacity-0 transition-opacity group-hover/row:opacity-100">
+                    <IconChevronRight />
+                  </span>
+                ) : null}
+              </Tag>
+            </li>
+          )
+        })}
+      </ul>
+    </DrawerSection>
+  )
+}
+
+/**
+ * The four facts a person opens a drawer for, before the tabs: how the
+ * thing is doing, how ready it is, whether it is running, who to ask. Each
+ * tile is the way into the tab (or entity) that explains it.
+ */
+function StatusStrip({
+  health,
+  score,
+  scoreable,
+  failing,
+  deployment,
+  ownerName,
+  ownerEnt,
+  systemEnt,
+  domainEnt,
+  entity,
+  catalog,
+  onTab,
+  onPick,
+}: {
+  health: Health
+  score: Scorecard
+  scoreable: boolean
+  failing: number
+  deployment?: EntityDeployment
+  ownerName?: string
+  ownerEnt?: Entity
+  systemEnt?: Entity
+  domainEnt?: Entity
+  entity: Entity
+  catalog: Entity[]
+  onTab(t: DrawerTab): void
+  onPick(e: Entity): void
+}) {
+  const ok = score.checks.length - failing
+  const dotFor = (kind: StatusKind) =>
+    kind === 'healthy'
+      ? 'bg-emerald-500'
+      : kind === 'degraded' || kind === 'failed'
+        ? 'bg-rose-500'
+        : kind === 'paused'
+          ? 'bg-amber-500'
+          : kind === 'progressing'
+            ? 'bg-sky-500'
+            : 'bg-slate-400'
+
+  const tiles: Array<{
+    key: string
+    label: string
+    value: React.ReactNode
+    sub: string
+    dot?: string
+    onClick?(): void
+    hint?: string
+  }> = []
+
+  tiles.push({
+    key: 'health',
+    label: 'Health',
+    value: health.label,
+    dot: dotFor(health.kind),
+    sub:
+      health.kind === 'healthy'
+        ? 'No findings'
+        : scoreable && failing
+          ? `${failing} ${failing === 1 ? 'check' : 'checks'} to fix`
+          : needsAttention(entity)
+            ? 'Missing owner, lifecycle or runbook'
+            : 'Needs an update',
+    onClick: scoreable ? () => onTab('scorecard') : undefined,
+    hint: scoreable ? 'See the scorecard' : undefined,
+  })
+
+  if (scoreable) {
+    tiles.push({
+      key: 'readiness',
+      label: 'Readiness',
+      value: (
+        <span className="inline-flex items-baseline gap-1.5">
+          <span>{score.score}</span>
+          <span className="text-[11px] font-normal text-content-subtle">/100</span>
+          <span
+            className={cn(
+              'ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded px-1 font-mono text-[11px] font-bold ring-1 ring-inset',
+              TECH_PILL[score.grade === 'A' || score.grade === 'B' ? 'emerald' : score.grade === 'C' ? 'amber' : 'rose'],
+            )}
+          >
+            {score.grade}
+          </span>
+        </span>
+      ),
+      sub: `${ok}/${score.checks.length} checks passing`,
+      onClick: () => onTab('scorecard'),
+      hint: 'See every check',
+    })
+  }
+
+  if (deployment) {
+    const p = deployment.primary
+    const envs = deployment.environments.map((e) => e.label)
+    tiles.push({
+      key: 'deploy',
+      label: 'Deployment',
+      value: deployment.isLoading ? '…' : deployment.isError ? 'Unknown' : p ? p.status.health.status : 'Not deployed',
+      dot: deployment.isLoading || deployment.isError ? 'bg-slate-400' : p ? dotFor(argoHealthKind(p.status.health.status)) : 'bg-slate-300 dark:bg-slate-600',
+      sub: deployment.isLoading
+        ? 'Reading Argo CD…'
+        : deployment.isError
+          ? 'Argo CD not reachable'
+          : p
+            ? `${p.status.sync.status}${envs.length ? ` · ${envs.slice(0, 3).join(', ')}${envs.length > 3 ? ` +${envs.length - 3}` : ''}` : ''}`
+            : 'No Argo CD application matched',
+      onClick: () => onTab('deploy'),
+      hint: 'See environments and history',
+    })
+  }
+
+  if (entity.kind === 'Group') {
+    const members = entity.spec.members?.length ?? 0
+    const owns = catalog.filter((e) => e.spec.owner === entityRef(entity)).length
+    tiles.push({ key: 'team', label: 'Team', value: `${members} ${members === 1 ? 'member' : 'members'}`, sub: `owns ${owns} ${owns === 1 ? 'entity' : 'entities'}` })
+  } else if (entity.kind === 'System' || entity.kind === 'Domain') {
+    const self = entityRef(entity)
+    const n = catalog.filter((e) => (entity.kind === 'System' ? e.spec.system : e.spec.domain) === self).length
+    tiles.push({
+      key: 'contains',
+      label: 'Contains',
+      value: `${n} ${n === 1 ? 'entity' : 'entities'}`,
+      sub: ownerName ? `owned by ${ownerName}` : 'no owner',
+      onClick: ownerEnt ? () => onPick(ownerEnt) : undefined,
+    })
+  } else {
+    tiles.push({
+      key: 'owner',
+      label: 'Owner',
+      value: ownerName ?? 'Unowned',
+      dot: ownerName ? undefined : 'bg-amber-500',
+      sub: systemEnt
+        ? `in ${systemEnt.metadata.title ?? systemEnt.metadata.name}`
+        : domainEnt
+          ? `in ${domainEnt.metadata.title ?? domainEnt.metadata.name}`
+          : ownerName
+            ? 'no system set'
+            : 'assign a Group to own this',
+      onClick: ownerEnt ? () => onPick(ownerEnt) : undefined,
+      hint: ownerEnt ? 'Open the owning team' : undefined,
+    })
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+      {tiles.map((t) => {
+        const Tag = t.onClick ? 'button' : 'div'
+        return (
+          <Tag
+            key={t.key}
+            type={t.onClick ? 'button' : undefined}
+            onClick={t.onClick}
+            title={t.hint}
+            className={cn(
+              'group/tile min-w-0 rounded-xl border border-edge-default bg-surface-raised px-3.5 py-3 text-left shadow-sm',
+              t.onClick && 'transition-colors hover:border-brand-300/70 hover:bg-brand-50/30 dark:hover:bg-brand-500/5',
+            )}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-content-subtle">{t.label}</span>
+              {t.onClick ? (
+                <span className="text-content-subtle opacity-0 transition-opacity group-hover/tile:opacity-100">
+                  <IconChevronRight />
+                </span>
+              ) : null}
+            </div>
+            <div className="mt-1.5 flex items-center gap-2 text-[15px] font-semibold leading-tight text-content">
+              {t.dot ? <span className={cn('h-2 w-2 shrink-0 rounded-full', t.dot)} /> : null}
+              <span className="truncate">{t.value}</span>
+            </div>
+            <div className="mt-1 truncate text-[11px] text-content-muted">{t.sub}</div>
+          </Tag>
+        )
+      })}
+    </div>
+  )
+}
+
+/**
+ * The three checks worth fixing first — highest weight among those failing,
+ * each with its fix. The Scorecard tab has all of them; this is the answer
+ * to "what should I do about this?" without going there.
+ */
+function FixNext({ failing, total, onAll }: { failing: Check[]; total: number; onAll(): void }) {
+  if (!failing.length) {
+    return (
+      <div className="flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-[12.5px] text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
+        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30">
+          <IconCheck />
+        </span>
+        All {total} readiness checks pass.
+      </div>
+    )
+  }
+  const top = [...failing].sort((a, b) => b.weight - a.weight).slice(0, 3)
+  return (
+    <DrawerSection
+      title="Fix next"
+      aside={
+        <button
+          type="button"
+          onClick={onAll}
+          className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300"
+        >
+          All {failing.length} failing of {total} →
+        </button>
+      }
+    >
+      <ol className="space-y-2.5">
+        {top.map((c, i) => (
+          <li key={c.id} className="flex items-start gap-3">
+            <span className="mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-amber-50 text-[10px] font-bold text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30">
+              {i + 1}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="text-[13px] font-medium text-content">{c.label}</span>
+                <span className="text-[10px] uppercase tracking-wider text-content-subtle">
+                  {CATEGORY_LABEL[c.category]} · +{c.weight} pts
+                </span>
+              </div>
+              {c.hint ? (
+                <div className="mt-0.5 text-[12px] leading-relaxed text-content-muted">{c.hint}</div>
+              ) : c.detail ? (
+                <div className="mt-0.5 text-[12px] leading-relaxed text-content-muted">{c.detail}</div>
+              ) : null}
+            </div>
+          </li>
+        ))}
+      </ol>
     </DrawerSection>
   )
 }
@@ -4490,21 +5558,354 @@ function DeploymentTab({
   repoUrl?: string
   routes: EntityRoute[]
 }) {
+  const argoBase = useToolPublicUrl('argocd')
+  const appUrl = (app: ArgoApp): string | undefined =>
+    argoBase ? `${argoBase}/applications/${app.metadata.namespace}/${app.metadata.name}` : undefined
+  const p = deployment.primary
   return (
     <div className="space-y-5">
       {/*
-        Endpoints first, repository second. The order is the question order: a
-        deployment tab is opened to find out where the running thing is, and the
-        source is how you change it. Both are on this tab so "what is live" and
-        "what produced it" are one glance apart.
+        The rollout first — it is what a Deployment tab is opened for. One
+        outcome at a time: loading, Argo CD unreachable, nothing matched, or
+        the real state (summary, environments, history, GitOps details). The
+        static cards (endpoints, repository, pipelines, monitoring) follow,
+        because they are true whether or not Argo CD is answering.
       */}
+      {deployment.isLoading ? (
+        <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised px-4 py-6 text-xs text-content-muted">
+          <Spinner /> Reading rollout state from Argo CD…
+        </div>
+      ) : deployment.isError ? (
+        <DeploymentUnavailable reason="unreachable" entity={entity} argoBase={argoBase} />
+      ) : !p ? (
+        <DeploymentUnavailable reason="unmatched" entity={entity} argoBase={argoBase} />
+      ) : (
+        <>
+          <DeploymentSummary deployment={deployment} appUrl={appUrl(p)} />
+          <EnvironmentsGrid deployment={deployment} appUrl={appUrl} repoUrl={repoUrl} />
+          <div className="grid gap-5 lg:grid-cols-2">
+            <div className="min-w-0 space-y-5">
+              <DeploymentsChart deployment={deployment} />
+              <SyncHistoryCard deployment={deployment} repoUrl={repoUrl} />
+            </div>
+            <GitOpsDetailsCard app={p} appUrl={appUrl(p)} apps={deployment.apps.length} />
+          </div>
+        </>
+      )}
       <EndpointsCard routes={routes} repoUrl={repoUrl} />
       <RepositoryCard entity={entity} repoUrl={repoUrl} primary={deployment.primary} />
-      <EnvironmentsCard entity={entity} deployment={deployment} />
-      <GitOpsCard entity={entity} deployment={deployment} />
       <PipelinesCard entity={entity} repoUrl={repoUrl} />
       <MonitoringCard entity={entity} />
     </div>
+  )
+}
+
+/**
+ * Why there is no rollout to show, and what to do about it — two different
+ * situations that used to render as three near-identical empty states
+ * stacked down the tab.
+ */
+function DeploymentUnavailable({
+  reason,
+  entity,
+  argoBase,
+}: {
+  reason: 'unreachable' | 'unmatched'
+  entity: Entity
+  argoBase: string
+}) {
+  const name = entity.metadata.name
+  return (
+    <div className="rounded-xl border border-dashed border-edge-strong bg-surface-raised px-5 py-5">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-sunken text-content-muted">
+          <IconRocket />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[14px] font-semibold text-content">
+            {reason === 'unreachable' ? 'Argo CD is not reachable' : 'Not deployed via Argo CD'}
+          </div>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-content-muted">
+            {reason === 'unreachable' ? (
+              <>
+                The console could not read Applications from Argo CD, so the rollout state, environments and sync history cannot be shown. This is a
+                connectivity problem, not a statement about <code className="font-mono text-content">{name}</code> — it will appear as soon as Argo CD answers.
+              </>
+            ) : (
+              <>
+                No Argo CD Application matches <code className="font-mono text-content">{name}</code> (by name, by name with an environment suffix such as{' '}
+                <code className="font-mono text-content">{name}-prod</code>, or via the <code className="font-mono text-content">adhar.io/argocd-app</code> annotation).
+              </>
+            )}
+          </p>
+          {reason === 'unmatched' ? (
+            <ol className="mt-3 space-y-1.5 text-[12px] text-content-muted">
+              <li className="flex gap-2"><span className="font-mono text-content-subtle">1.</span><span>If it is already deployed under another name, set <code className="font-mono text-content">adhar.io/argocd-app: &lt;app-name&gt;</code> on the entity.</span></li>
+              <li className="flex gap-2"><span className="font-mono text-content-subtle">2.</span><span>If it is not deployed yet, scaffold it from a Golden Path template or add it to the platform's ApplicationSet.</span></li>
+              <li className="flex gap-2"><span className="font-mono text-content-subtle">3.</span><span>A library or a docs site legitimately has no deployment — that is fine.</span></li>
+            </ol>
+          ) : null}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {argoBase ? (
+              <a href={`${argoBase}/applications`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300">
+                Open Argo CD <IconArrowUpRight />
+              </a>
+            ) : null}
+            <PhaseLink href="/deliver?section=apps">GitOps view</PhaseLink>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** The rollout at a glance: five facts, each the answer to a question people open this tab with. */
+function DeploymentSummary({ deployment, appUrl }: { deployment: EntityDeployment; appUrl?: string }) {
+  const p = deployment.primary!
+  const h = p.status.health.status
+  const sy = p.status.sync.status
+  const r = p.status.resources
+  const op = p.status.operationState
+  const auto = p.spec.syncPolicy.automated
+  const envs = deployment.environments
+  const dotFor = (k: StatusKind) =>
+    k === 'healthy' ? 'bg-emerald-500' : k === 'degraded' || k === 'failed' ? 'bg-rose-500' : k === 'paused' ? 'bg-amber-500' : k === 'progressing' ? 'bg-sky-500 animate-pulse' : 'bg-slate-400'
+  const tiles: Array<{ label: string; value: React.ReactNode; sub: string; dot?: string }> = [
+    { label: 'Health', value: h, dot: dotFor(argoHealthKind(h)), sub: p.status.health.message ? p.status.health.message.slice(0, 60) : `${deployment.apps.length} ${deployment.apps.length === 1 ? 'application' : 'applications'}` },
+    { label: 'Sync', value: sy, dot: dotFor(argoSyncKind(sy)), sub: r.outOfSync ? `${r.outOfSync} of ${r.total} resources drifted` : r.total ? `${r.total} resources in sync` : 'no resources reported' },
+    { label: 'Environments', value: String(envs.length), sub: envs.map((e) => e.label).slice(0, 3).join(', ') + (envs.length > 3 ? ` +${envs.length - 3}` : '') },
+    { label: 'Last sync', value: op?.phase ?? 'none', dot: op ? (op.phase === 'Succeeded' ? 'bg-emerald-500' : op.phase === 'Running' ? 'bg-sky-500 animate-pulse' : 'bg-rose-500') : 'bg-slate-400', sub: op?.finishedAt ? `${relativeTime(op.finishedAt) || formatDate(op.finishedAt)}${op.initiatedBy ? ` · by ${op.initiatedBy}` : ''}` : 'no operation recorded' },
+    { label: 'Auto-sync', value: auto ? 'On' : 'Manual', dot: auto ? 'bg-emerald-500' : 'bg-amber-500', sub: auto ? [auto.prune ? 'prune' : null, auto.selfHeal ? 'self-heal' : null].filter(Boolean).join(' · ') || 'no prune, no self-heal' : 'someone has to press Sync' },
+  ]
+  return (
+    <div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        {tiles.map((t) => (
+          <div key={t.label} className="min-w-0 rounded-xl border border-edge-default bg-surface-raised px-3.5 py-3 shadow-sm">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-content-subtle">{t.label}</div>
+            <div className="mt-1.5 flex items-center gap-2 text-[15px] font-semibold leading-tight text-content">
+              {t.dot ? <span className={cn('h-2 w-2 shrink-0 rounded-full', t.dot)} /> : null}
+              <span className="truncate">{t.value}</span>
+            </div>
+            <div className="mt-1 truncate text-[11px] text-content-muted" title={t.sub}>{t.sub}</div>
+          </div>
+        ))}
+      </div>
+      {appUrl ? (
+        <div className="mt-2 flex justify-end">
+          <a href={appUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">
+            Open {p.metadata.name} in Argo CD <IconArrowUpRight />
+          </a>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/** A commit link when the repository host is one that uses `/commit/<sha>` (Gitea, GitHub, GitLab). */
+function commitUrl(repoUrl: string | undefined, rev: string | undefined): string | undefined {
+  if (!repoUrl || !rev || !/^[0-9a-f]{7,40}$/i.test(rev)) return undefined
+  const base = repoUrl.replace(/\.git$/, '').replace(/\/$/, '')
+  return `${base}/commit/${rev}`
+}
+
+/** One card per environment, production first — what is running there, from which commit, since when. */
+function EnvironmentsGrid({
+  deployment,
+  appUrl,
+  repoUrl,
+}: {
+  deployment: EntityDeployment
+  appUrl(app: ArgoApp): string | undefined
+  repoUrl?: string
+}) {
+  return (
+    <DrawerSection
+      title={`Environments · ${deployment.environments.length}`}
+      aside={<PhaseLink href="/deliver?section=apps">GitOps view →</PhaseLink>}
+    >
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {deployment.environments.map((env) => {
+          const app = env.app
+          const rev = app.status.sync.revision
+          const sha = shortSha(rev)
+          const link = commitUrl(repoUrl ?? app.spec.source.repoURL, rev)
+          const fin = app.status.operationState?.finishedAt
+          const url = appUrl(app)
+          const images = app.status.images
+          return (
+            <div key={app.metadata.name} className="flex min-w-0 flex-col rounded-xl border border-edge-default bg-surface-raised shadow-sm">
+              <div className="flex items-start justify-between gap-2 px-3.5 pt-3">
+                <div className="min-w-0">
+                  <div className="truncate text-[13px] font-semibold text-content">{env.label}</div>
+                  <div className="truncate font-mono text-[10px] text-content-subtle" title={`${app.metadata.name} → ${app.spec.destination.namespace}`}>
+                    {app.spec.destination.namespace}
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <StatusBadge kind={argoHealthKind(app.status.health.status)} className="px-1.5 py-0 text-[10px]" pulse={app.status.health.status === 'Progressing'}>
+                    {app.status.health.status}
+                  </StatusBadge>
+                  <StatusBadge kind={argoSyncKind(app.status.sync.status)} className="px-1.5 py-0 text-[10px]" dot={false}>
+                    {app.status.sync.status}
+                  </StatusBadge>
+                </div>
+              </div>
+              <dl className="mt-2.5 space-y-1.5 px-3.5 text-[11px]">
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="text-content-subtle">Revision</dt>
+                  <dd className="min-w-0 truncate font-mono text-content">
+                    {sha ? (link ? <a href={link} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline dark:text-brand-300">{sha}</a> : sha) : '—'}
+                    {app.spec.source.targetRevision ? <span className="text-content-subtle"> · {app.spec.source.targetRevision}</span> : null}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="text-content-subtle">Last sync</dt>
+                  <dd className="truncate text-content">{fin ? relativeTime(fin) || formatDate(fin) : '—'}</dd>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="text-content-subtle">Resources</dt>
+                  <dd className="truncate text-content">
+                    {app.status.resources.total}
+                    {app.status.resources.unhealthy ? <span className="text-rose-700 dark:text-rose-300"> · {app.status.resources.unhealthy} unhealthy</span> : null}
+                    {app.status.resources.outOfSync ? <span className="text-amber-700 dark:text-amber-300"> · {app.status.resources.outOfSync} drifted</span> : null}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="text-content-subtle">Auto-sync</dt>
+                  <dd className="text-content">{app.spec.syncPolicy.automated ? 'on' : 'manual'}</dd>
+                </div>
+              </dl>
+              {images.length ? (
+                <div className="mt-2.5 border-t border-edge-subtle px-3.5 pt-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Images</div>
+                  <ul className="mt-0.5 space-y-0.5">
+                    {images.slice(0, 2).map((img) => (
+                      <li key={img} title={img} className="truncate font-mono text-[10.5px] text-content">{shortImage(img)}</li>
+                    ))}
+                    {images.length > 2 ? <li className="text-[10px] text-content-subtle">+{images.length - 2} more</li> : null}
+                  </ul>
+                </div>
+              ) : null}
+              <div className="mt-auto flex items-center justify-between border-t border-edge-subtle bg-surface-sunken/40 px-3.5 py-1.5 text-[10.5px]">
+                <span className="truncate font-mono text-content-subtle">{app.metadata.name}</span>
+                {url ? (
+                  <a href={url} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 font-medium text-brand-700 hover:underline dark:text-brand-300">
+                    Argo CD <IconArrowUpRight />
+                  </a>
+                ) : null}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </DrawerSection>
+  )
+}
+
+/** The last syncs across every matched application, newest first. */
+function SyncHistoryCard({ deployment, repoUrl }: { deployment: EntityDeployment; repoUrl?: string }) {
+  const rows = deployment.apps
+    .flatMap((app) =>
+      app.status.history.map((h) => ({
+        app: app.metadata.name,
+        env: deployment.environments.find((e) => e.app.metadata.name === app.metadata.name)?.label ?? app.metadata.name,
+        id: h.id,
+        revision: h.revision ?? h.revisions?.[0],
+        at: h.deployedAt,
+        repo: h.source?.repoURL ?? h.sources?.[0]?.repoURL,
+      })),
+    )
+    .filter((r) => r.at)
+    .sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
+    .slice(0, 8)
+  return (
+    <DrawerSection title="Sync history" aside={<span className="text-[11px] text-content-subtle">newest first</span>}>
+      {rows.length === 0 ? (
+        <p className="text-[11.5px] text-content-subtle">No sync history recorded yet.</p>
+      ) : (
+        <ol className="relative space-y-2.5 border-l border-edge-subtle pl-4">
+          {rows.map((r) => {
+            const sha = shortSha(r.revision)
+            const link = commitUrl(repoUrl ?? r.repo, r.revision)
+            return (
+              <li key={`${r.app}-${r.id}`} className="relative">
+                <span className="absolute -left-[19px] top-1.5 inline-flex h-2.5 w-2.5 rounded-full bg-brand-500 ring-2 ring-surface-raised" />
+                <div className="flex flex-wrap items-baseline gap-x-2 text-[12px]">
+                  <span className="font-medium text-content">{r.env}</span>
+                  {sha ? (
+                    link ? <a href={link} target="_blank" rel="noreferrer" className="font-mono text-brand-700 hover:underline dark:text-brand-300">{sha}</a> : <span className="font-mono text-content-muted">{sha}</span>
+                  ) : null}
+                  <span className="text-[11px] text-content-subtle">{relativeTime(r.at!) || formatDate(r.at)}</span>
+                </div>
+                <div className="truncate font-mono text-[10px] text-content-subtle">#{r.id} · {r.app}</div>
+              </li>
+            )
+          })}
+        </ol>
+      )}
+    </DrawerSection>
+  )
+}
+
+/** Everything Argo CD knows about the primary application, as facts. */
+function GitOpsDetailsCard({ app, appUrl, apps }: { app: ArgoApp; appUrl?: string; apps: number }) {
+  const src = app.spec.source
+  const auto = app.spec.syncPolicy.automated
+  const rows: Array<{ label: string; node: React.ReactNode }> = [
+    { label: 'Application', node: <span className="font-mono text-[12px] text-content">{app.metadata.namespace}/{app.metadata.name}</span> },
+    { label: 'Project', node: <span className="text-[12px] text-content">{app.spec.project}</span> },
+    {
+      label: 'Source',
+      node: (
+        <span className="block min-w-0">
+          {src.repoURL ? (
+            <a href={src.repoURL} target="_blank" rel="noreferrer" className="block truncate font-mono text-[11px] text-brand-700 hover:underline dark:text-brand-300" title={src.repoURL}>
+              {src.repoURL.replace(/^https?:\/\//, '')}
+            </a>
+          ) : <span className="text-[12px] italic text-content-subtle">none</span>}
+          <span className="block truncate font-mono text-[11px] text-content-muted">
+            {src.path ? src.path : '/'}{src.targetRevision ? ` @ ${src.targetRevision}` : ''}
+          </span>
+        </span>
+      ),
+    },
+    { label: 'Destination', node: <span className="font-mono text-[11px] text-content">{app.spec.destination.name || app.spec.destination.server || 'in-cluster'} · {app.spec.destination.namespace}</span> },
+    { label: 'Sync policy', node: <span className="text-[12px] text-content">{auto ? `Automated${auto.prune ? ' · prune' : ''}${auto.selfHeal ? ' · self-heal' : ''}` : 'Manual'}{app.spec.syncPolicy.syncOptions.length ? <span className="text-content-subtle"> · {app.spec.syncPolicy.syncOptions.join(', ')}</span> : null}</span> },
+    { label: 'Resources', node: <span className="text-[12px] text-content">{app.status.resources.total} managed{app.status.resources.outOfSync ? ` · ${app.status.resources.outOfSync} out of sync` : ''}{app.status.resources.unhealthy ? ` · ${app.status.resources.unhealthy} unhealthy` : ''}</span> },
+    { label: 'Reconciled', node: <span className="text-[12px] text-content">{app.status.reconciledAt ? relativeTime(app.status.reconciledAt) || formatDate(app.status.reconciledAt) : '—'}</span> },
+  ]
+  if (apps > 1) rows.push({ label: 'Matched apps', node: <span className="text-[12px] text-content">{apps} — this is the production one</span> })
+  return (
+    <DrawerSection
+      title="GitOps details"
+      aside={appUrl ? (
+        <a href={appUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">
+          Argo CD <IconArrowUpRight />
+        </a>
+      ) : undefined}
+    >
+      <dl className="-my-1 divide-y divide-edge-subtle">
+        {rows.map((r) => (
+          <div key={r.label} className="flex items-start justify-between gap-3 py-2">
+            <dt className="w-24 shrink-0 text-[11px] font-medium text-content-subtle">{r.label}</dt>
+            <dd className="min-w-0 flex-1 text-right">{r.node}</dd>
+          </div>
+        ))}
+      </dl>
+      {app.status.conditions.length ? (
+        <ul className="mt-3 space-y-1.5">
+          {app.status.conditions.map((c, i) => (
+            <li key={`${c.type}-${i}`} className={cn('rounded-md px-3 py-2 text-[11.5px] leading-relaxed', /error/i.test(c.type) ? 'bg-rose-50 text-rose-800 dark:bg-rose-500/10 dark:text-rose-200' : 'bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-200')}>
+              <span className="font-semibold">{c.type}</span>{c.message ? ` — ${c.message}` : ''}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {app.status.health.message ? (
+        <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-[11.5px] text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">{app.status.health.message}</p>
+      ) : null}
+    </DrawerSection>
   )
 }
 
@@ -4690,7 +6091,7 @@ function RepositoryCard({
               href={repoUrl}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors visited:text-white hover:bg-brand-700 hover:text-white"
+              className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300"
             >
               <LinkGlyph icon="repo" />
               Open repo
@@ -4729,185 +6130,6 @@ function RepositoryCard({
               <>
                 Set the <code>adhar.io/source-repo</code> annotation (or add a <code>repo</code> link)
                 so the source, clone command, and pipelines wire up here.
-              </>
-            }
-          />
-        )}
-      </CardBody>
-    </Card>
-  )
-}
-
-function EnvironmentsCard({
-  entity,
-  deployment,
-}: {
-  entity: Entity
-  deployment: EntityDeployment
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <IconRocket />
-            <h3 className="text-sm font-semibold text-content">Deployment environments</h3>
-            {deployment.environments.length > 0 ? (
-              <span className="rounded-full bg-surface-sunken px-1.5 py-0.5 text-[10px] font-semibold text-content-muted">
-                {deployment.environments.length}
-              </span>
-            ) : null}
-          </div>
-          <a
-            href="/deliver?section=apps"
-            className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-300"
-          >
-            View in GitOps →
-          </a>
-        </div>
-      </CardHeader>
-      <CardBody className="space-y-2">
-        {deployment.isLoading ? (
-          <div className="flex items-center gap-2 text-xs text-content-muted">
-            <Spinner /> Loading rollout state…
-          </div>
-        ) : deployment.environments.length > 0 ? (
-          deployment.environments.map((env) => <EnvironmentRow key={env.app.metadata.name} env={env} />)
-        ) : (
-          <EmptyState
-            compact
-            title={deployment.isError ? 'GitOps unavailable' : 'No environments deployed'}
-            description={
-              deployment.isError ? (
-                'Could not reach ArgoCD. The rollout state will appear once it is reachable.'
-              ) : (
-                <>
-                  No ArgoCD Application matches <code>{entity.metadata.name}</code> yet. Deploy it via
-                  GitOps, or set <code>adhar.io/argocd-app</code> to link an existing app.
-                </>
-              )
-            }
-          />
-        )}
-      </CardBody>
-    </Card>
-  )
-}
-
-function EnvironmentRow({ env }: { env: EntityEnvironment }) {
-  const { app } = env
-  const health = app.status.health.status
-  const sync = app.status.sync.status
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-edge-subtle bg-surface-raised px-3 py-2">
-      <div className="flex min-w-0 items-center gap-3">
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-sunken text-content-muted">
-          <IconRocket />
-        </span>
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-content">{env.label}</span>
-            <span className="truncate font-mono text-[10px] text-content-subtle">
-              {app.spec.destination.namespace}
-            </span>
-          </div>
-          <div className="truncate font-mono text-[10px] text-content-subtle">
-            {app.metadata.name}
-            {shortSha(app.status.sync.revision) ? ` · ${shortSha(app.status.sync.revision)}` : ''}
-          </div>
-        </div>
-      </div>
-      <div className="flex shrink-0 items-center gap-1.5">
-        <StatusBadge kind={argoSyncKind(sync)} className="px-1.5 py-0 text-[10px]" dot={false}>
-          {sync}
-        </StatusBadge>
-        <StatusBadge kind={argoHealthKind(health)} className="px-1.5 py-0 text-[10px]">
-          {health}
-        </StatusBadge>
-      </div>
-    </div>
-  )
-}
-
-function GitOpsCard({ entity, deployment }: { entity: Entity; deployment: EntityDeployment }) {
-  const app = deployment.primary
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <IconSync />
-            <h3 className="text-sm font-semibold text-content">GitOps sync</h3>
-          </div>
-          {app ? (
-            <a
-              href="/deliver?section=apps"
-              className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-300"
-            >
-              Open ArgoCD →
-            </a>
-          ) : null}
-        </div>
-      </CardHeader>
-      <CardBody className="space-y-3">
-        {app ? (
-          <>
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge kind={argoSyncKind(app.status.sync.status)}>
-                {app.status.sync.status}
-              </StatusBadge>
-              <StatusBadge
-                kind={argoHealthKind(app.status.health.status)}
-                pulse={app.status.health.status === 'Progressing'}
-              >
-                {app.status.health.status}
-              </StatusBadge>
-              {app.status.operationState?.phase ? (
-                <span className="text-[11px] text-content-muted">
-                  last op: {app.status.operationState.phase}
-                </span>
-              ) : null}
-            </div>
-            {app.status.health.message ? (
-              <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
-                {app.status.health.message}
-              </p>
-            ) : null}
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <Field
-                label="Application"
-                value={<code className="text-xs text-content-muted">{app.metadata.name}</code>}
-              />
-              <Field
-                label="Revision"
-                value={
-                  <code className="text-xs text-content-muted">
-                    {shortSha(app.status.sync.revision) ?? '—'}
-                  </code>
-                }
-              />
-              <Field
-                label="Destination"
-                value={
-                  <code className="text-xs text-content-muted">
-                    {app.spec.destination.namespace}
-                  </code>
-                }
-              />
-            </div>
-          </>
-        ) : deployment.isLoading ? (
-          <div className="flex items-center gap-2 text-xs text-content-muted">
-            <Spinner /> Checking ArgoCD…
-          </div>
-        ) : (
-          <EmptyState
-            compact
-            title="Not managed by GitOps"
-            description={
-              <>
-                No ArgoCD Application is linked to <code>{entity.metadata.name}</code>. Roll it out
-                through GitOps to see sync status, revision, and drift here.
               </>
             }
           />
@@ -5065,106 +6287,6 @@ function MonitoringCard({ entity }: { entity: Entity }) {
         ) : null}
       </CardBody>
     </Card>
-  )
-}
-
-/* ─────────── signals (drawer health card) ─────────── */
-
-interface SignalRow {
-  id: string
-  label: string
-  state: 'ok' | 'warn' | 'na'
-  detail: string
-}
-
-function computeSignals(e: Entity): SignalRow[] {
-  const links = e.metadata.links ?? []
-  const has = (icon: NonNullable<Entity['metadata']['links']>[number]['icon']) =>
-    links.some((l) => l.icon === icon)
-  const ownerOk = Boolean(e.spec.owner)
-  const lifecycleOk = Boolean(e.spec.lifecycle) && e.spec.lifecycle !== 'deprecated'
-  const docsOk = has('docs')
-  const repoOk = has('repo')
-  const dashboardOk = has('dashboard') || has('runbook')
-  const isComponent = e.kind === 'Component'
-
-  return [
-    {
-      id: 'owner',
-      label: 'Has owner',
-      state: ownerOk ? 'ok' : 'warn',
-      detail: ownerOk ? `Owned by ${parseRef(e.spec.owner!).name}` : 'No owner — assign a Group',
-    },
-    {
-      id: 'lifecycle',
-      label: 'Lifecycle declared',
-      state: lifecycleOk ? 'ok' : e.spec.lifecycle === 'deprecated' ? 'warn' : 'warn',
-      detail: e.spec.lifecycle ?? 'Set lifecycle (production / staging / experimental)',
-    },
-    {
-      id: 'docs',
-      label: 'Documentation',
-      state: docsOk ? 'ok' : isComponent ? 'warn' : 'na',
-      detail: docsOk ? 'Docs link registered' : 'Add a docs link to metadata.links',
-    },
-    {
-      id: 'repo',
-      label: 'Source repository',
-      state: repoOk ? 'ok' : isComponent ? 'warn' : 'na',
-      detail: repoOk ? 'Repo link registered' : 'Add a repo link to metadata.links',
-    },
-    {
-      id: 'runbook',
-      label: 'Runbook / dashboard',
-      state: dashboardOk ? 'ok' : isComponent && e.spec.lifecycle === 'production' ? 'warn' : 'na',
-      detail: dashboardOk
-        ? 'Operations link registered'
-        : 'Production components should link a runbook or dashboard',
-    },
-  ]
-}
-
-function SignalsCard({ signals, score }: { signals: SignalRow[]; score: Scorecard }) {
-  const warn = signals.filter((s) => s.state === 'warn').length
-  const ok = score.checks.filter((c) => c.pass).length
-  return (
-    <DrawerSection
-      title="Readiness"
-      aside={
-        /* One verdict, not three. The score already says how many checks
-           pass (it is computed from them) and the health chip in the header
-           already says whether that is a problem. */
-        <span className="inline-flex items-center gap-2 text-[11px] text-content-muted">
-          <ScoreBadge score={score} />
-          <span className="font-mono tabular-nums">
-            {ok}/{score.checks.length} passing{warn > 0 ? ` · ${warn} to fix` : ''}
-          </span>
-        </span>
-      }
-    >
-      <div className="divide-y divide-edge-subtle">
-        {signals.map((s) => (
-          <div key={s.id} className="flex items-start gap-3 py-2 first:pt-0 last:pb-0">
-            <span
-              className={cn(
-                'mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full ring-1',
-                s.state === 'ok'
-                  ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200'
-                  : s.state === 'warn'
-                    ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-200'
-                    : 'bg-surface-sunken text-content-subtle ring-edge-subtle',
-              )}
-            >
-              {s.state === 'ok' ? <IconCheck /> : s.state === 'warn' ? <IconAlert /> : <IconDash />}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="text-[13px] font-medium text-content">{s.label}</div>
-              <div className="mt-0.5 text-[11px] text-content-muted">{s.detail}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </DrawerSection>
   )
 }
 
@@ -6444,6 +7566,40 @@ function IconSearchLg() {
     >
       <circle cx="11" cy="11" r="7" />
       <path d="m21 21-4.35-4.35" />
+    </svg>
+  )
+}
+
+function IconLink() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" />
+      <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" />
+    </svg>
+  )
+}
+
+function IconSparkle() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M12 2l1.9 5.6L19.5 9l-5.6 1.9L12 16.5l-1.9-5.6L4.5 9l5.6-1.4L12 2z" />
+      <path d="M19 15l.9 2.6 2.6.9-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9L19 15z" opacity="0.7" />
+    </svg>
+  )
+}
+
+function IconChevronLeft() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="m15 6-6 6 6 6" />
+    </svg>
+  )
+}
+
+function IconChevronRight() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="m9 6 6 6-6 6" />
     </svg>
   )
 }

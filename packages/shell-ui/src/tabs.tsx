@@ -96,6 +96,25 @@ export function Tabs<T extends string>({
     )
   }
 
+  // Roving focus: ← → move between tabs (wrapping), Home/End jump to the
+  // ends, and the moved-to tab is selected — the WAI-ARIA tabs pattern, so
+  // a keyboard user is not left tabbing through every tab to reach one.
+  const onKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    const enabled = visibleTabs.filter((t) => !t.disabled)
+    if (!enabled.length) return
+    const i = Math.max(0, enabled.findIndex((t) => t.id === active))
+    let next: number | null = null
+    if (e.key === 'ArrowRight') next = (i + 1) % enabled.length
+    else if (e.key === 'ArrowLeft') next = (i - 1 + enabled.length) % enabled.length
+    else if (e.key === 'Home') next = 0
+    else if (e.key === 'End') next = enabled.length - 1
+    if (next === null) return
+    e.preventDefault()
+    const id = enabled[next].id
+    setActive(id)
+    ;(e.currentTarget.querySelector(`#tab-${CSS.escape(id)}`) as HTMLElement | null)?.focus()
+  }
+
   return (
     <div className={cn('space-y-5', className)}>
       <div className="flex items-end justify-between gap-4 border-b border-edge-default">
@@ -103,7 +122,8 @@ export function Tabs<T extends string>({
           role="tablist"
           aria-label={ariaLabel}
           aria-orientation="horizontal"
-          className="-mb-px flex gap-1 overflow-x-auto"
+          onKeyDown={onKeyDown}
+          className="-mb-px flex gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {visibleTabs.map((t) => {
             const isActive = t.id === active
@@ -115,13 +135,18 @@ export function Tabs<T extends string>({
                 id={`tab-${t.id}`}
                 aria-selected={isActive}
                 aria-controls={`panel-${t.id}`}
+                tabIndex={isActive ? 0 : -1}
                 disabled={t.disabled}
                 onClick={() => setActive(t.id)}
                 className={cn(
-                  'flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm transition-all',
+                  'relative flex items-center gap-1.5 whitespace-nowrap rounded-t-md border-b-2 px-3 py-2.5 text-sm transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500/40',
+                  // The active underline is the brand, not a hard black rule;
+                  // a resting tab gets a faint underline on hover so the
+                  // target reads before the click.
                   isActive
-                    ? 'border-slate-900 font-medium text-content'
-                    : 'border-transparent text-content-subtle hover:border-edge-default hover:text-content',
+                    ? 'border-brand-600 font-medium text-content dark:border-brand-400'
+                    : 'border-transparent text-content-subtle hover:border-edge-strong hover:text-content',
                   t.disabled && 'cursor-not-allowed opacity-50',
                 )}
               >

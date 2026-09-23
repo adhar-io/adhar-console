@@ -9,8 +9,7 @@ import {
   GrafanaIcon,
   Spinner,
   usePollingInterval,
-  useToolPublicUrl,
-} from '@adhar-console/shell-ui'
+  useToolPublicUrl, Sparkline } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
 
 /**
@@ -259,6 +258,55 @@ function MetricPanel({
   )
 }
 
+/**
+ * Three sparklines for the drawer's Overview: CPU, memory, ready replicas
+ * over the last hour. Same queries as the Metrics tab, so the tab is the
+ * same picture at full size — this is the glance, that is the look.
+ */
+export function EntitySparklines({ target, onOpen }: { target: EntityTarget; onOpen(): void }) {
+  const panels = PANELS.filter((p) => p.id === 'cpu' || p.id === 'memory' || p.id === 'replicas')
+  // Rows, not three tiles across: in a 300px column three tiles left the
+  // labels as "C…" / "M…" / "R…".
+  return (
+    <div className="divide-y divide-edge-subtle">
+      {panels.map((p) => (
+        <SparkTile key={p.id} panel={p} target={target} onOpen={onOpen} />
+      ))}
+    </div>
+  )
+}
+
+function SparkTile({ panel, target, onOpen }: { panel: PanelDef; target: EntityTarget; onOpen(): void }) {
+  const query = useMemo(() => panel.query(target), [panel, target])
+  const q = usePanel(query, '1h', Boolean(target.name))
+  const series = q.data ?? []
+  const points = useMemo(
+    () => series.flatMap((s) => s.values.map(([t, v]) => ({ t: Number(t) * 1000, v: Number(v) }))).filter((pt) => Number.isFinite(pt.v)),
+    [series],
+  )
+  const last = points.length ? points[points.length - 1].v : null
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title={`${panel.label} — ${panel.hint}. Open the Metrics tab`}
+      className="flex w-full items-center gap-3 py-2 text-left transition-colors first:pt-0 last:pb-0 hover:text-brand-700 dark:hover:text-brand-300"
+    >
+      <span className="w-24 shrink-0 truncate text-[11px] font-medium text-content-muted">{panel.label}</span>
+      <span className="min-w-0 flex-1">
+        {q.isLoading || q.isError || points.length === 0 ? (
+          <span className="block text-[10px] text-content-subtle">{q.isLoading ? '…' : q.isError ? 'unavailable' : 'no series'}</span>
+        ) : (
+          <Sparkline points={points} height={24} color="var(--color-brand-500)" />
+        )}
+      </span>
+      <span className="w-16 shrink-0 text-right font-mono text-[11px] tabular-nums text-content">
+        {q.isLoading ? '…' : last === null ? '—' : fmt(last, panel.unit)}
+      </span>
+    </button>
+  )
+}
+
 export function MonitorButton({ url, compact = false }: { url: string; compact?: boolean }) {
   if (!url) return null
   return (
@@ -269,10 +317,13 @@ export function MonitorButton({ url, compact = false }: { url: string; compact?:
       onClick={(e) => e.stopPropagation()}
       title="Open this workload's Grafana dashboard"
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-md font-semibold transition-colors',
+        'inline-flex items-center gap-1.5 font-medium transition-colors',
+        // A link out, so it looks like the other links beside it (Source,
+        // Docs) rather than like the page's one primary action. The filled
+        // brand button made "open Grafana" the loudest thing in every drawer.
         compact
-          ? 'bg-surface-raised px-1.5 py-1 text-[10px] text-content-muted ring-1 ring-edge-default hover:text-brand-700 dark:hover:text-brand-300'
-          : 'bg-brand-600 px-3 py-1.5 text-xs text-white shadow-sm visited:text-white hover:bg-brand-700 hover:text-white',
+          ? 'rounded-md bg-surface-raised px-1.5 py-1 text-[10px] text-content-muted ring-1 ring-edge-default hover:text-brand-700 dark:hover:text-brand-300'
+          : 'rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-xs text-content-muted shadow-sm hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300',
       )}
     >
       <span className="[&>svg]:h-3.5 [&>svg]:w-3.5">

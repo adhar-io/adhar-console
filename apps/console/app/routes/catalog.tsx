@@ -15,6 +15,8 @@ const SearchSchema = z.object({
   sort: z.enum(['name', 'recent', 'lifecycle', 'score']).optional(),
   /** Section the grid by a shared attribute. */
   group: z.enum(['system', 'owner', 'kind', 'lifecycle']).optional(),
+  /** The entity whose drawer is open (its ref), so a drawer is linkable and Back closes it. */
+  entity: z.string().optional(),
   owner: z.string().optional(),
   system: z.string().optional(),
   /** Comma-separated lifecycle values. */

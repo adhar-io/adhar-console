@@ -15,6 +15,11 @@ import { useAi } from './ai-assistant.tsx'
 import { useToast } from './toast.tsx'
 import { EmptyState } from './empty-state.tsx'
 import { routeTarget } from './notification-route.ts'
+import { PageHeader } from './page-header.tsx'
+import { Button } from './button.tsx'
+import { StatusBadge } from './status-badge.tsx'
+import { FilterBar } from './filter-bar.tsx'
+import type { Facet, FacetValues } from './filter-model.ts'
 
 /**
  * Notification Center — the full page (`/notifications`).
@@ -45,6 +50,17 @@ const SOURCES: Array<{ id: NotificationSource | ''; label: string }> = [
   { id: 'user', label: 'You' },
 ]
 const PAGE_SIZE = 25
+
+/*
+ * The filters as FilterBar facets. Kind and source are single-select (the
+ * feed API takes one of each); "unread" is a one-option facet so it shows up
+ * as a chip like everything else that is applied.
+ */
+const FACETS: Facet[] = [
+  { id: 'kind', label: 'Kind', kind: 'single', options: KINDS.filter((k) => k.id).map((k) => ({ value: k.id, label: k.label })) },
+  { id: 'source', label: 'Source', kind: 'single', options: SOURCES.filter((k) => k.id).map((k) => ({ value: k.id, label: k.label })) },
+  { id: 'state', label: 'State', kind: 'single', options: [{ value: 'unread', label: 'Unread only' }] },
+]
 
 export function NotificationCenter() {
   const api = useNotifications()
@@ -99,58 +115,80 @@ export function NotificationCenter() {
     feed.refetch()
   }
 
+  const values = useMemo<FacetValues>(() => ({
+    ...(kind ? { kind: [kind] } : {}),
+    ...(source ? { source: [source] } : {}),
+    ...(unread ? { state: ['unread'] } : {}),
+  }), [kind, source, unread])
+  const onValuesChange = (next: FacetValues) => {
+    setKind((next.kind?.[0] ?? '') as NotificationKind | '')
+    setSource((next.source?.[0] ?? '') as NotificationSource | '')
+    setUnread(Boolean(next.state?.includes('unread')))
+  }
+  const insightCount = api.items.filter((n) => n.kind === 'insight').length
+  const problemCount = api.items.filter((n) => n.kind === 'error' || n.kind === 'warning').length
+
   return (
-    <div className="space-y-4">
-      {/* header row: title left · actions right */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-content">Notifications</h1>
-          <p className="mt-1 text-[13px] text-content-muted">Every operation, insight and Adhar AI outcome across the platform — {api.unreadCount ? <span className="font-medium text-content">{api.unreadCount} unread</span> : 'all caught up'}{total ? ` · ${total.toLocaleString()} matching` : ''}.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <ActionBtn onClick={runScan} disabled={api.scanning || !live}>{api.scanning ? <Spinner /> : <IconRadar />} Scan for insights</ActionBtn>
-          <ActionBtn onClick={() => { api.markAllRead(); toast.success('All notifications marked as read') }} disabled={!api.unreadCount}><IconCheck /> Mark all read</ActionBtn>
-          <ActionBtn onClick={() => ai.open()} primary><IconSpark /> Ask Adhar AI</ActionBtn>
-        </div>
-      </div>
+    <>
+      {/* The same header every other page has — title, badge, description,
+          actions on the right — so this page sits at the same margins. */}
+      <PageHeader
+        title="Notifications"
+        badge={api.unreadCount ? <StatusBadge kind="info">{api.unreadCount} unread</StatusBadge> : null}
+        description="Every operation, insight and Adhar AI outcome across the platform, in one inbox."
+        actions={
+          <>
+            <Button variant="secondary" size="md" onClick={runScan} disabled={api.scanning || !live} loading={api.scanning} leading={api.scanning ? undefined : <IconRadar />}>
+              Scan for insights
+            </Button>
+            <Button variant="secondary" size="md" onClick={() => { api.markAllRead(); toast.success('All notifications marked as read') }} disabled={!api.unreadCount} leading={<IconCheck />}>
+              Mark all read
+            </Button>
+            <Button variant="primary" size="md" onClick={() => ai.open()} leading={<IconSpark />}>
+              Ask Adhar AI
+            </Button>
+          </>
+        }
+      />
 
       {!live ? (
-        <div className="rounded-xl border border-amber-300/60 bg-amber-50/70 px-4 py-3 text-[12.5px] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
-          The notification feed needs the console database (<code className="font-mono">DATABASE_URL</code>). Until then only the built-in seed is shown.
+        <div className="mb-6 flex items-start gap-2.5 rounded-xl border border-amber-300/60 bg-amber-50/70 px-4 py-3 text-[12.5px] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+          <span className="mt-0.5 shrink-0"><IconInfo /></span>
+          <span>The notification feed needs the console database (<code className="font-mono">DATABASE_URL</code>). Until then only the built-in seed is shown.</span>
         </div>
       ) : null}
 
-      {/* stats */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Unread" value={api.unreadCount} tone={api.unreadCount ? 'brand' : undefined} onClick={() => setUnread((u) => !u)} active={unread} />
-        <Stat label="Insights" value={api.items.filter((n) => n.kind === 'insight').length} tone="violet" onClick={() => setKind(kind === 'insight' ? '' : 'insight')} active={kind === 'insight'} hint="from the latest 50" />
-        <Stat label="Errors & warnings" value={api.items.filter((n) => n.kind === 'error' || n.kind === 'warning').length} tone="rose" onClick={() => setKind(kind === 'error' ? '' : 'error')} active={kind === 'error'} hint="from the latest 50" />
-        <Stat label="Sources" value={new Set(api.items.map((n) => n.source ?? 'system')).size} hint="active producers" />
-      </div>
+      {/* stats — the same tile as the Scorecards page, and each one is a filter */}
+      <section className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Stat label="Unread" value={api.unreadCount} sub={api.unreadCount ? 'waiting for you' : 'all caught up'} tone={api.unreadCount ? 'brand' : undefined} onClick={() => setUnread((u) => !u)} active={unread} />
+        <Stat label="Insights" value={insightCount} sub="from the latest 50" tone="violet" onClick={() => setKind(kind === 'insight' ? '' : 'insight')} active={kind === 'insight'} />
+        <Stat label="Errors & warnings" value={problemCount} sub="from the latest 50" tone={problemCount ? 'rose' : undefined} onClick={() => setKind(kind === 'error' ? '' : 'error')} active={kind === 'error'} />
+        <Stat label="Sources" value={new Set(api.items.map((n) => n.source ?? 'system')).size} sub="active producers" />
+      </section>
 
-      {/* filter bar */}
-      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-edge-default bg-surface-raised px-3 py-2.5 shadow-sm">
-        <div className="relative flex min-w-56 flex-1 items-center">
-          <span className="pointer-events-none absolute left-3 text-content-subtle"><IconSearch /></span>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search titles, descriptions, targets…" className="h-9 w-full rounded-lg border border-edge-default bg-surface-app pl-9 pr-3 text-[13px] text-content placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20" />
-        </div>
-        <Select value={kind} onChange={(v) => setKind(v as NotificationKind | '')} options={KINDS.map((k) => [k.id, k.label])} />
-        <Select value={source} onChange={(v) => setSource(v as NotificationSource | '')} options={SOURCES.map((k) => [k.id, k.label])} />
-        <button type="button" aria-pressed={unread} onClick={() => setUnread((u) => !u)} className={cn('inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-medium transition-colors', unread ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-500/40 dark:bg-brand-500/10 dark:text-brand-300' : 'border-edge-default bg-surface-raised text-content-muted hover:text-content')}>
-          <span className={cn('h-1.5 w-1.5 rounded-full', unread ? 'bg-brand-500' : 'bg-slate-400')} /> Unread only
-        </button>
-        {selected.size ? (
-          <div className="ml-auto flex items-center gap-1.5 text-[12px]">
-            <span className="text-content-muted">{selected.size} selected</span>
-            <ActionBtn onClick={() => bulk('read')}>Mark read</ActionBtn>
-            <ActionBtn onClick={() => bulk('dismiss')}>Dismiss</ActionBtn>
-            <button type="button" onClick={() => setSelected(new Set())} className="text-content-subtle hover:text-content">clear</button>
-          </div>
-        ) : null}
-      </div>
+      <FilterBar
+        className="mb-3"
+        search={{ value: q, onChange: setQ, placeholder: 'Search titles, descriptions, targets…', label: 'Search notifications' }}
+        facets={FACETS}
+        values={values}
+        onValuesChange={onValuesChange}
+        loading={feed.isLoading && !items.length}
+        refreshing={feed.isFetching && items.length > 0}
+        summary={total ? `${total.toLocaleString()} ${total === 1 ? 'notification' : 'notifications'}` : undefined}
+        actions={
+          selected.size ? (
+            <div className="flex items-center gap-1.5 text-[12px]">
+              <span className="text-content-muted">{selected.size} selected</span>
+              <Button size="sm" variant="secondary" onClick={() => bulk('read')}>Mark read</Button>
+              <Button size="sm" variant="secondary" onClick={() => bulk('dismiss')}>Dismiss</Button>
+              <button type="button" onClick={() => setSelected(new Set())} className="text-content-subtle hover:text-content">clear</button>
+            </div>
+          ) : undefined
+        }
+      />
 
       {/* list */}
-      <div className="overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm">
+      <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm">
         {feed.isLoading && !items.length ? (
           <div className="divide-y divide-edge-subtle">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -159,7 +197,7 @@ export function NotificationCenter() {
           </div>
         ) : items.length === 0 ? (
           <div className="p-10">
-            <EmptyState title={q || kind || source || unread ? 'Nothing matches' : "You're all caught up"} description={q || kind || source || unread ? 'Try loosening the filters.' : 'Operations, insights and Assist outcomes will show up here as they happen. Run a scan to look for insights now.'} action={<ActionBtn onClick={runScan} disabled={api.scanning || !live}><IconRadar /> Scan for insights</ActionBtn>} />
+            <EmptyState title={q || kind || source || unread ? 'Nothing matches' : "You're all caught up"} description={q || kind || source || unread ? 'Try loosening the filters.' : 'Operations, insights and Assist outcomes will show up here as they happen. Run a scan to look for insights now.'} action={<Button variant="secondary" size="md" onClick={runScan} disabled={api.scanning || !live} leading={<IconRadar />}>Scan for insights</Button>} />
           </div>
         ) : (
           grouped.map(([day, list]) => (
@@ -185,14 +223,14 @@ export function NotificationCenter() {
           <div className="flex items-center justify-between gap-3 border-t border-edge-subtle bg-surface-sunken/50 px-4 py-2 text-[12px] text-content-muted">
             <span>Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total.toLocaleString()}</span>
             <div className="flex items-center gap-1">
-              <ActionBtn onClick={() => setPage((p) => p - 1)} disabled={page === 0}>Previous</ActionBtn>
+              <Button size="sm" variant="secondary" onClick={() => setPage((p) => p - 1)} disabled={page === 0}>Previous</Button>
               <span className="px-2 font-mono text-[11px]">{page + 1} / {pageCount}</span>
-              <ActionBtn onClick={() => setPage((p) => p + 1)} disabled={page + 1 >= pageCount}>Next</ActionBtn>
+              <Button size="sm" variant="secondary" onClick={() => setPage((p) => p + 1)} disabled={page + 1 >= pageCount}>Next</Button>
             </div>
           </div>
         ) : null}
       </div>
-    </div>
+    </>
   )
 }
 
@@ -259,31 +297,25 @@ export function NotificationCard({
 
 /* ─────────── bits ─────────── */
 
-function Stat({ label, value, hint, tone, onClick, active = false }: { label: string; value: number | string; hint?: string; tone?: 'brand' | 'violet' | 'rose'; onClick?(): void; active?: boolean }) {
+function Stat({ label, value, sub, tone, onClick, active = false }: { label: string; value: number | string; sub?: string; tone?: 'brand' | 'violet' | 'rose'; onClick?(): void; active?: boolean }) {
   const cls = tone === 'brand' ? 'text-brand-700 dark:text-brand-300' : tone === 'violet' ? 'text-violet-700 dark:text-violet-300' : tone === 'rose' ? 'text-rose-700 dark:text-rose-300' : 'text-content'
   const Tag = onClick ? 'button' : 'div'
   return (
-    <Tag type={onClick ? 'button' : undefined} onClick={onClick} aria-pressed={onClick ? active : undefined} className={cn('rounded-xl border bg-surface-raised p-4 text-left shadow-sm transition-colors', active ? 'border-brand-300 dark:border-brand-500/40' : 'border-edge-default', onClick && 'hover:border-edge-strong')}>
-      <div className={cn('text-2xl font-semibold tabular-nums', cls)}>{value}</div>
-      <div className="mt-0.5 text-xs font-medium uppercase tracking-wide text-content-subtle">{label}</div>
-      {hint ? <div className="mt-0.5 text-[10.5px] text-content-subtle">{hint}</div> : null}
+    <Tag
+      type={onClick ? 'button' : undefined}
+      onClick={onClick}
+      aria-pressed={onClick ? active : undefined}
+      title={onClick ? (active ? 'Clear this filter' : `Filter to ${label.toLowerCase()}`) : undefined}
+      className={cn(
+        'rounded-xl border bg-surface-raised px-3 py-2.5 text-left shadow-sm transition-colors',
+        active ? 'border-brand-400 ring-1 ring-brand-400 dark:border-brand-500/60 dark:ring-brand-500/60' : 'border-edge-default',
+        onClick && !active && 'hover:border-edge-strong',
+      )}
+    >
+      <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">{label}</div>
+      <div className={cn('mt-1 font-mono text-[20px] font-semibold tabular-nums leading-none', cls)}>{value}</div>
+      {sub ? <div className="mt-1 truncate text-[10px] text-content-muted">{sub}</div> : null}
     </Tag>
-  )
-}
-
-function ActionBtn({ children, onClick, disabled = false, primary = false }: { children: ReactNode; onClick(): void; disabled?: boolean; primary?: boolean }) {
-  return (
-    <button type="button" onClick={onClick} disabled={disabled} className={cn('inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50', primary ? 'border-brand-600 bg-brand-600 text-white hover:bg-brand-700' : 'border-edge-default bg-surface-raised text-content-muted hover:border-edge-strong hover:text-content')}>
-      {children}
-    </button>
-  )
-}
-
-function Select({ value, onChange, options }: { value: string; onChange(v: string): void; options: Array<[string, string]> }) {
-  return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} className="h-9 rounded-lg border border-edge-default bg-surface-raised px-2 text-[12px] text-content-muted focus:border-brand-400 focus:outline-none">
-      {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-    </select>
   )
 }
 
@@ -301,7 +333,7 @@ export function KindIcon({ kind }: { kind: NotificationKind }) {
 const I = ({ children, size = 13 }: { children: ReactNode; size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0">{children}</svg>
 )
-const IconSearch = () => <I><circle cx="11" cy="11" r="7" /><path d="m21 21-4.35-4.35" /></I>
+const IconInfo = () => <I><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></I>
 const IconCheck = () => <I><path d="M20 6 9 17l-5-5" /></I>
 const IconX = () => <I size={12}><path d="M18 6 6 18M6 6l12 12" /></I>
 const IconRadar = () => <I><circle cx="12" cy="12" r="2" /><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4" /><path d="M19.1 4.9a10 10 0 0 1 0 14.2M4.9 19.1a10 10 0 0 1 0-14.2" /></I>

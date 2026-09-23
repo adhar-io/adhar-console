@@ -12,7 +12,9 @@ const SearchSchema = z.object({
   q: z.string().optional(),
   // Shareable / back-button-friendly browse state.
   view: z.enum(['grid', 'table', 'compact']).optional(),
-  sort: z.enum(['name', 'recent', 'lifecycle']).optional(),
+  sort: z.enum(['name', 'recent', 'lifecycle', 'score']).optional(),
+  /** Section the grid by a shared attribute. */
+  group: z.enum(['system', 'owner', 'kind', 'lifecycle']).optional(),
   owner: z.string().optional(),
   system: z.string().optional(),
   /** Comma-separated lifecycle values. */

@@ -99,6 +99,79 @@ function matchName(appName: string, entityName: string): { hit: boolean; env: st
 }
 
 /**
+ * Match `apps` to `entity` and derive its environments — the pure half of
+ * `useEntityDeployment`, split out so the browse grid can run it for every
+ * card against ONE fetched list instead of mounting a query per card.
+ */
+export function deriveDeployment(
+  entity: Entity,
+  all: readonly argocd.Application[] | undefined,
+  state: { isLoading: boolean; isError: boolean },
+): EntityDeployment {
+  const name = entity.metadata.name
+  const explicit = (entity.metadata.annotations?.['adhar.io/argocd-app'] ?? '').trim().toLowerCase()
+  const seen = new Set<string>()
+  const matched: Array<{ app: argocd.Application; env: string | undefined }> = []
+  for (const app of all ?? []) {
+    const an = app.metadata.name.toLowerCase()
+    const { hit, env } = matchName(app.metadata.name, name)
+    const isExplicit = explicit && an === explicit
+    if ((hit || isExplicit) && !seen.has(an)) {
+      seen.add(an)
+      matched.push({ app, env })
+    }
+  }
+
+  // Derive an environment key per app: name suffix first, else destination
+  // namespace suffix, else "default".
+  const environments: EntityEnvironment[] = matched
+    .map(({ app, env }) => {
+      let key = env
+      if (!key) {
+        const ns = app.spec.destination.namespace.toLowerCase()
+        key =
+          ENV_SUFFIXES.find((s) => ns === s || ns.endsWith(`-${s}`) || ns.startsWith(`${s}-`)) ??
+          (matched.length > 1 ? app.metadata.name : 'default')
+      }
+      return { key, label: envLabel(key), app }
+    })
+    .sort((a, b) => envRank(a.key) - envRank(b.key) || a.label.localeCompare(b.label))
+
+  const apps = matched.map((m) => m.app)
+  const primary =
+    environments.find((e) => e.key.toLowerCase().startsWith('prod'))?.app ?? apps[0]
+
+  return {
+    apps,
+    environments,
+    primary,
+    isLoading: state.isLoading,
+    isError: state.isError,
+    unmatched: !state.isLoading && !state.isError && apps.length === 0,
+  }
+}
+
+/**
+ * The whole Application list, once, for a page that shows many entities.
+ * Same query key as `useEntityDeployment`, so the drawer opening on a card
+ * reuses the fetch rather than repeating it.
+ */
+export function useDeploymentIndex(enabled = true): {
+  apps: argocd.Application[] | undefined
+  isLoading: boolean
+  isError: boolean
+} {
+  const q = useQuery({
+    queryKey: ['catalog', 'argocd', 'apps'],
+    queryFn: () => argocdClient.listApplications(),
+    refetchInterval: enabled ? REFRESH_MS : false,
+    staleTime: REFRESH_MS,
+    enabled,
+  })
+  return { apps: q.data, isLoading: q.isLoading, isError: q.isError }
+}
+
+/**
  * All ArgoCD Applications that belong to `entity`, plus derived environments.
  * Read-only: the drawer surfaces status and deep-links to the GitOps view for
  * actions (the catalog runs under a view-only service account).
@@ -111,50 +184,10 @@ export function useEntityDeployment(entity: Entity, enabled = true): EntityDeplo
     staleTime: REFRESH_MS,
     enabled,
   })
-
-  const name = entity.metadata.name
-  const explicit = (entity.metadata.annotations?.['adhar.io/argocd-app'] ?? '').trim().toLowerCase()
-
-  return useMemo(() => {
-    const all = q.data ?? []
-    const seen = new Set<string>()
-    const matched: Array<{ app: argocd.Application; env: string | undefined }> = []
-    for (const app of all) {
-      const an = app.metadata.name.toLowerCase()
-      const { hit, env } = matchName(app.metadata.name, name)
-      const isExplicit = explicit && an === explicit
-      if ((hit || isExplicit) && !seen.has(an)) {
-        seen.add(an)
-        matched.push({ app, env })
-      }
-    }
-
-    // Derive an environment key per app: name suffix first, else destination
-    // namespace suffix, else "default".
-    const environments: EntityEnvironment[] = matched
-      .map(({ app, env }) => {
-        let key = env
-        if (!key) {
-          const ns = app.spec.destination.namespace.toLowerCase()
-          key =
-            ENV_SUFFIXES.find((s) => ns === s || ns.endsWith(`-${s}`) || ns.startsWith(`${s}-`)) ??
-            (matched.length > 1 ? app.metadata.name : 'default')
-        }
-        return { key, label: envLabel(key), app }
-      })
-      .sort((a, b) => envRank(a.key) - envRank(b.key) || a.label.localeCompare(b.label))
-
-    const apps = matched.map((m) => m.app)
-    const primary =
-      environments.find((e) => e.key.toLowerCase().startsWith('prod'))?.app ?? apps[0]
-
-    return {
-      apps,
-      environments,
-      primary,
-      isLoading: q.isLoading,
-      isError: q.isError,
-      unmatched: !q.isLoading && !q.isError && apps.length === 0,
-    }
-  }, [q.data, q.isLoading, q.isError, name, explicit])
+  const state = { isLoading: q.isLoading, isError: q.isError }
+  return useMemo(
+    () => deriveDeployment(entity, q.data, state),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [q.data, q.isLoading, q.isError, entity],
+  )
 }

@@ -18,6 +18,8 @@ import {
   Tabs,
   type TabDef,
   Textarea,
+  useAi,
+  useToast,
 } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
 import { EntityMetrics, MonitorButton, useGrafanaMonitorUrl, type RangeId } from '~/components/entity-observability.tsx'
@@ -37,8 +39,10 @@ import {
 } from '~/data/catalog.ts'
 import { parseApiDefinition, type ParsedApi, type SourceStatus } from '~/data/catalog-live.ts'
 import {
+  deriveDeployment,
   type EntityDeployment,
   type EntityEnvironment,
+  useDeploymentIndex,
   useEntityDeployment,
 } from '~/data/catalog-deployment.ts'
 import { type EntityRoute, routeLabel, useEntityRoutes } from '~/data/catalog-routes.ts'
@@ -79,7 +83,9 @@ type SearchState = CatalogSearch
 
 type QuickFilter = 'all' | 'starred' | 'production' | 'recent' | 'attention' | 'mine'
 type ViewMode = 'grid' | 'table' | 'compact'
-type SortKey = 'name' | 'recent' | 'lifecycle'
+type SortKey = 'name' | 'recent' | 'lifecycle' | 'score'
+/** How the grid is sectioned. `none` is one flat grid. */
+type GroupKey = 'none' | 'system' | 'owner' | 'kind' | 'lifecycle'
 type Tristate = null | true | false
 
 interface FilterState {
@@ -227,7 +233,9 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
   const user = useOptionalSession()?.user ?? PENDING_USER
   const navigate = useNavigate()
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const [selected, setSelected] = useState<Entity | null>(null)
+  // The open drawer, and which tab it opens on — a card's menu can jump
+  // straight to Deployment or Scorecard.
+  const [selected, setSelected] = useState<{ entity: Entity; tab?: DrawerTab } | null>(null)
   const [text, setText] = useState<string>(search.q ?? '')
 
   // Filter / view / sort are derived from the URL so the state is shareable and
@@ -235,6 +243,7 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
   const filter = useMemo(() => filterFromSearch(search), [search])
   const view: ViewMode = search.view ?? 'grid'
   const sort: SortKey = search.sort ?? 'name'
+  const group: GroupKey = search.group ?? 'none'
   const [registerOpen, setRegisterOpen] = useState(false)
 
   const patchSearch = useCallback(
@@ -259,6 +268,10 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
   )
   const setSort = useCallback(
     (s: SortKey) => patchSearch({ sort: s === 'name' ? undefined : s }),
+    [patchSearch],
+  )
+  const setGroup = useCallback(
+    (g: GroupKey) => patchSearch({ group: g === 'none' ? undefined : g }),
     [patchSearch],
   )
 
@@ -296,9 +309,9 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
     return () => globalThis.removeEventListener('keydown', onKey)
   }, [])
 
-  const openEntity = useCallback((e: Entity) => {
+  const openEntity = useCallback((e: Entity, tab?: DrawerTab) => {
     pushRecentlyViewed(entityRef(e))
-    setSelected(e)
+    setSelected({ entity: e, tab })
   }, [])
 
   const myOwnerRefs = useMemo(() => computeMyOwnerRefs(list, user), [list, user])
@@ -498,6 +511,8 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
         onView={setView}
         sort={sort}
         onSort={setSort}
+        group={group}
+        onGroup={setGroup}
         stars={stars}
         onPick={openEntity}
         loading={q.isLoading}
@@ -518,7 +533,11 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
 
       {selected ? (
         <EntityDrawer
-          entity={selected}
+          // Keyed by entity so following a relation chip remounts the drawer
+          // on its Overview tab rather than keeping the previous tab.
+          key={entityRef(selected.entity)}
+          entity={selected.entity}
+          initialTab={selected.tab}
           onClose={() => setSelected(null)}
           catalog={list}
           onPick={openEntity}
@@ -1155,6 +1174,8 @@ function BrowseAll({
   onView,
   sort,
   onSort,
+  group,
+  onGroup,
   stars,
   onPick,
   loading,
@@ -1186,8 +1207,10 @@ function BrowseAll({
   onView(v: ViewMode): void
   sort: SortKey
   onSort(s: SortKey): void
+  group: GroupKey
+  onGroup(g: GroupKey): void
   stars: readonly string[]
-  onPick(e: Entity): void
+  onPick(e: Entity, tab?: DrawerTab): void
   loading: boolean
   /** Sources are refetching behind data already on screen — never blocks. */
   refreshing?: boolean
@@ -1207,6 +1230,32 @@ function BrowseAll({
   useEffect(() => setVisible(PAGE_SIZE), [list, view])
 
   const shown = list.slice(0, visible)
+
+  // One Argo CD fetch for the whole grid; each card matches against it. Only
+  // asked for when something on the page can actually be deployed.
+  const anyDeployable = useMemo(() => list.some(isDeployableKind), [list])
+  const depIndex = useDeploymentIndex(anyDeployable)
+  const deploymentFor = useCallback(
+    (e: Entity): EntityDeployment | undefined =>
+      isDeployableKind(e) ? deriveDeployment(e, depIndex.apps, depIndex) : undefined,
+    [depIndex],
+  )
+
+  // "Ask Adhar AI" on a card: a question already scoped to the entity, so the
+  // answer comes back grounded in this thing rather than the whole cluster.
+  const ai = useAi()
+  const askAbout = useCallback(
+    (e: Entity) => {
+      const title = e.metadata.title ?? e.metadata.name
+      ai.ask({
+        title,
+        prompt: `Tell me about ${entityRef(e)} (${title}, a ${e.spec.type ?? e.kind.toLowerCase()}). Summarise what it is and who owns it, its deployment and health right now, what its scorecard says needs fixing, and what I should look at first.`,
+      })
+    },
+    [ai],
+  )
+
+  const groups = useMemo(() => groupEntities(shown, group), [shown, group])
   const resultLabel = `${list.length} ${list.length === 1 ? 'result' : 'results'}${
     list.length !== total ? ` of ${total}` : ''
   }`
@@ -1232,6 +1281,11 @@ function BrowseAll({
         }
       />
 
+      {/* One click per kind — the Filters popover still has the multi-select,
+          but "just the APIs" is the most common narrowing and should not
+          need a popover. */}
+      <KindRail counts={kindCounts} total={total} filter={filter} onFilter={onFilter} />
+
       <Toolbar
         filter={filter}
         onFilter={onFilter}
@@ -1246,6 +1300,8 @@ function BrowseAll({
         onView={onView}
         sort={sort}
         onSort={onSort}
+        group={group}
+        onGroup={onGroup}
         filterCount={filterCount}
         text={text}
         onText={onText}
@@ -1287,18 +1343,34 @@ function BrowseAll({
           role="grid"
           aria-label="Catalog entities"
           onKeyDown={handleGridKeyNav}
-          // Two across on a laptop, three on a wide display — not four. At four the
-          // cards were 240px wide and every field truncated; the catalog is browsed
-          // for its details, so each card gets the room to show them.
-          className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3"
+          className="space-y-6"
         >
-          {shown.map((e) => (
-            <EntityCard
-              key={entityRef(e)}
-              entity={e}
-              starred={stars.includes(entityRef(e))}
-              onClick={() => onPick(e)}
-            />
+          {groups.map((g) => (
+            <section key={g.key} aria-label={g.label || undefined}>
+              {g.label ? (
+                <div className="mb-2.5 flex items-baseline gap-2 px-0.5">
+                  <h3 className="text-[12px] font-semibold text-content">{g.label}</h3>
+                  <span className="font-mono text-[11px] tabular-nums text-content-subtle">{g.items.length}</span>
+                </div>
+              ) : null}
+              {/* Two across on a laptop, three on a wide display — not four. At
+                  four the cards were 240px wide and every field truncated; the
+                  catalog is browsed for its details, so each card gets the room
+                  to show them. */}
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+                {g.items.map((e) => (
+                  <EntityCard
+                    key={entityRef(e)}
+                    entity={e}
+                    starred={stars.includes(entityRef(e))}
+                    deployment={deploymentFor(e)}
+                    onClick={() => onPick(e)}
+                    onOpen={(tab) => onPick(e, tab)}
+                    onAsk={() => askAbout(e)}
+                  />
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       ) : view === 'compact' ? (
@@ -1617,6 +1689,8 @@ function Toolbar({
   onView,
   sort,
   onSort,
+  group,
+  onGroup,
   filterCount,
   text,
   onText,
@@ -1638,6 +1712,8 @@ function Toolbar({
   onView(v: ViewMode): void
   sort: SortKey
   onSort(s: SortKey): void
+  group: GroupKey
+  onGroup(g: GroupKey): void
   filterCount: number
   text: string
   onText(v: string): void
@@ -1765,6 +1841,7 @@ function Toolbar({
 
         <ViewSwitch value={view} onChange={onView} />
         <SortMenu value={sort} onChange={onSort} />
+        {view === 'grid' ? <GroupMenu value={group} onChange={onGroup} /> : null}
 
         {loading ? (
           <span
@@ -1856,6 +1933,28 @@ function SortMenu({ value, onChange }: { value: SortKey; onChange(v: SortKey): v
       >
         <option value="name">Name</option>
         <option value="recent">Recently updated</option>
+        <option value="lifecycle">Lifecycle</option>
+        <option value="score">Readiness · worst first</option>
+      </select>
+    </label>
+  )
+}
+
+function GroupMenu({ value, onChange }: { value: GroupKey; onChange(v: GroupKey): void }) {
+  return (
+    <label className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-3 text-[12px] shadow-sm">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+        Group
+      </span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as GroupKey)}
+        className="rounded border-0 bg-transparent px-1 py-0 text-[12px] text-content focus:outline-none"
+      >
+        <option value="none">None</option>
+        <option value="system">System</option>
+        <option value="owner">Owner</option>
+        <option value="kind">Kind</option>
         <option value="lifecycle">Lifecycle</option>
       </select>
     </label>
@@ -2648,6 +2747,18 @@ function sortEntities(rows: Entity[], by: SortKey): Entity[] {
       '': 4,
     }
     out.sort((a, b) => (order[a.spec.lifecycle ?? ''] ?? 4) - (order[b.spec.lifecycle ?? ''] ?? 4))
+  } else if (by === 'score') {
+    // Worst first: the reason to sort by readiness is to find what to fix.
+    // Unscoreable kinds (Groups, Domains) go last, alphabetically.
+    const val = (e: Entity) => {
+      const sc = scoreEntity(e)
+      return sc.checks.length ? sc.score : 101
+    }
+    out.sort(
+      (a, b) =>
+        val(a) - val(b) ||
+        (a.metadata.title ?? a.metadata.name).localeCompare(b.metadata.title ?? b.metadata.name),
+    )
   }
   return out
 }
@@ -2943,11 +3054,19 @@ function entityHealth(e: Entity, score: Scorecard): Health {
 function EntityCard({
   entity,
   starred,
+  deployment,
   onClick,
+  onOpen,
+  onAsk,
 }: {
   entity: Entity
   starred: boolean
+  /** Matched Argo CD state, for kinds that can be deployed. */
+  deployment?: EntityDeployment
   onClick(): void
+  /** Open the drawer on a specific tab. */
+  onOpen(tab: DrawerTab): void
+  onAsk(): void
 }) {
   const ref = entityRef(entity)
   const links = entity.metadata.links ?? []
@@ -2963,6 +3082,29 @@ function EntityCard({
   const version = entityVersion(entity)
   const health = entityHealth(entity, score)
   const docs = hasDocsLink(entity)
+  const toast = useToast()
+  const scoreable = score.checks.length > 0
+
+  // Everything a person might do from the card without opening it. Items
+  // that would open on an empty tab are not offered.
+  const menu: CardMenuItem[] = [
+    { label: 'Open details', onSelect: () => onOpen('overview') },
+    ...(deployment ? [{ label: 'Deployment', onSelect: () => onOpen('deploy') }] : []),
+    ...(scoreable ? [{ label: 'Scorecard', onSelect: () => onOpen('scorecard') }] : []),
+    'sep',
+    { label: 'Ask Adhar AI', onSelect: onAsk },
+    {
+      label: 'Copy ref',
+      onSelect: () => {
+        navigator.clipboard
+          ?.writeText(ref)
+          .then(() => toast.success('Copied', { description: ref }))
+          .catch(() => toast.error('Could not copy', { description: ref }))
+      },
+    },
+    { label: starred ? 'Unstar' : 'Star', onSelect: () => toggleStar(ref) },
+  ]
+
   return (
     <div
       role="button"
@@ -3000,24 +3142,31 @@ function EntityCard({
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-white/50 to-transparent dark:via-white/10"
       />
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation()
-          toggleStar(ref)
-        }}
-        aria-label={starred ? 'Unstar' : 'Star'}
-        title={starred ? 'Remove from starred' : 'Add to starred'}
-        className={cn(
-          'absolute right-2.5 top-2.5 z-10 inline-flex h-7 w-7 items-center justify-center rounded-full transition',
-          starred
-            ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-500 shadow-sm ring-1 ring-amber-200'
-            : 'text-content-subtle opacity-0 hover:bg-surface-sunken hover:text-amber-500 group-hover:opacity-100',
-        )}
-      >
-        {starred ? <IconStarFilled /> : <IconStar />}
-      </button>
-      <div className="flex items-start gap-3.5 p-5 pr-12">
+
+      {/* Star and the actions menu, top-right. Both appear on hover; a set
+          star stays visible because it is state, not an affordance. */}
+      <div className="absolute right-2.5 top-2.5 z-10 flex items-center gap-1">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            toggleStar(ref)
+          }}
+          aria-label={starred ? 'Unstar' : 'Star'}
+          title={starred ? 'Remove from starred' : 'Add to starred'}
+          className={cn(
+            'inline-flex h-7 w-7 items-center justify-center rounded-full transition',
+            starred
+              ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-500 shadow-sm ring-1 ring-amber-200'
+              : 'text-content-subtle opacity-0 hover:bg-surface-sunken hover:text-amber-500 focus-visible:opacity-100 group-hover:opacity-100',
+          )}
+        >
+          {starred ? <IconStarFilled /> : <IconStar />}
+        </button>
+        <CardMenu items={menu} label={`Actions for ${entity.metadata.title ?? entity.metadata.name}`} />
+      </div>
+
+      <div className="flex items-start gap-3.5 p-5 pr-20">
         <KindGlyph kind={entity.kind} type={entity.spec.type} size="lg" />
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-[15px] font-semibold leading-tight text-content">
@@ -3042,6 +3191,11 @@ function EntityCard({
             ) : null}
             {entity.spec.lifecycle ? <LifecycleTag lifecycle={entity.spec.lifecycle} /> : null}
             <OriginTag origin={entity.origin} />
+            {version ? (
+              <span className="font-mono text-[11px] font-semibold text-content" title="Registered version">
+                {version}
+              </span>
+            ) : null}
           </div>
         </div>
       </div>
@@ -3053,28 +3207,26 @@ function EntityCard({
       {/* Tech and tags share ONE wrapping row. As two stacked rows a card with
           a single language and a single tag spent two lines on two chips. */}
       {stack.length > 0 || generics.length > 0 ? (
-        <div className="mt-2.5 flex flex-wrap items-center gap-1 px-4">
-          {stack.length > 0 ? <TechBadges stack={stack} max={3} /> : null}
+        <div className="mt-2.5 flex flex-wrap items-center gap-1 px-5">
+          <TechBadges stack={stack} max={3} />
           {generics.slice(0, 3).map((t) => (
             <span
               key={t}
-              className="rounded-md bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium text-content-muted"
+              className="rounded bg-surface-sunken px-1.5 py-0.5 text-[10px] text-content-muted"
             >
               {t}
             </span>
           ))}
         </div>
       ) : null}
-      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 pb-3 text-[11px] text-content-muted">
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 text-[11px] text-content-muted">
         {/* Health and score sit together because they are the same judgement
-            at two resolutions — "At risk" IS grade D/F. Apart, with the score
-            alone in the footer, they read as two unrelated verdicts, and the
-            score's width competed with the quick links until the footer
-            wrapped onto a second line. */}
+            at two resolutions — "At risk" IS grade D/F. */}
         <StatusBadge kind={health.kind} className="px-1.5 py-0 text-[10px]">
           {health.label}
         </StatusBadge>
-        <ScoreBadge score={score} />
+        {scoreable ? <ScoreBadge score={score} /> : null}
         {entity.spec.owner ? (
           <span className="inline-flex items-center gap-1" title={`Owned by ${parseRef(entity.spec.owner).name}`}>
             <IconUsers />
@@ -3082,19 +3234,12 @@ function EntityCard({
           </span>
         ) : (
           // Stated, not alarmed. The health chip to its left is already the
-          // card's alarm — and it is red BECAUSE of this — so repeating it in
-          // amber with a warning triangle made every card shout twice about
-          // one fact. Same shape as the owned case, just muted.
+          // card's alarm — and it is red BECAUSE of this.
           <span className="inline-flex items-center gap-1 text-content-subtle" title="No owner set">
             <IconUsers />
             no owner
           </span>
         )}
-        {version ? (
-          <span className="inline-flex items-center gap-1 font-mono font-semibold text-content" title="Registered version">
-            {version}
-          </span>
-        ) : null}
         {docs ? (
           <span
             className="inline-flex items-center gap-1 rounded bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium text-content-muted ring-1 ring-inset ring-edge-subtle"
@@ -3105,7 +3250,7 @@ function EntityCard({
           </span>
         ) : null}
         {entity.spec.system ? (
-          <span className="inline-flex items-center gap-1">
+          <span className="inline-flex items-center gap-1" title="System">
             <IconBox />
             <span className="font-medium text-content">{parseRef(entity.spec.system).name}</span>
           </span>
@@ -3117,20 +3262,17 @@ function EntityCard({
           </span>
         ) : null}
       </div>
-      {/*
-        The card now has the width to say what this thing is CONNECTED to and
-        how ready it is, not just that a score exists. Relations are the facts
-        that make a catalog a graph rather than a list; the readiness line names
-        the categories, because "B" alone sends people into the drawer to find
-        out which checks they are failing.
-      */}
+
+      {/* Where it is running, from Argo CD — the fact a card most often
+          exists to answer, and the one the catalog could not show before. */}
+      {deployment ? <DeployLine dep={deployment} /> : null}
+
       <CardFacts entity={entity} score={score} />
       <div className="mt-auto flex items-center justify-between gap-3 border-t border-edge-subtle bg-surface-sunken/40 px-3 py-2 text-[11px]">
         <QuickLinks links={links} monitorUrl={entity.kind === 'Component' || entity.kind === 'Resource' ? monitorUrl : undefined} />
         <div className="flex shrink-0 items-center gap-2">
           {/* Age lives here, not in the status row above. It is the least
-              urgent fact on the card, and up there it was the item that
-              pushed health/score/owner onto a second line. */}
+              urgent fact on the card. */}
           {ageLabel ? (
             <span
               className="inline-flex items-center gap-1 text-[10px] text-content-subtle"
@@ -3155,6 +3297,129 @@ function EntityCard({
           </span>
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * The card's deployment line: primary app health, sync, the environments it
+ * rolls out to, and when the last sync finished. A deployable entity with no
+ * matched Application says so plainly — that is a finding, not an absence.
+ */
+function DeployLine({ dep }: { dep: EntityDeployment }) {
+  if (dep.isLoading || dep.isError) return null
+  if (!dep.apps.length) {
+    return (
+      <div className="mt-2.5 flex items-center gap-1.5 px-5 text-[11px] text-content-subtle" title="No Argo CD Application matches this entity's name or its adhar.io/argocd-app annotation">
+        <span className="h-1.5 w-1.5 rounded-full bg-slate-300 dark:bg-slate-600" />
+        Not deployed via Argo CD
+      </div>
+    )
+  }
+  const p = dep.primary ?? dep.apps[0]
+  const healthStatus = p.status.health.status
+  const syncStatus = p.status.sync.status
+  const dot =
+    healthStatus === 'Healthy'
+      ? 'bg-emerald-500'
+      : healthStatus === 'Progressing'
+        ? 'bg-sky-500 animate-pulse'
+        : healthStatus === 'Degraded' || healthStatus === 'Missing'
+          ? 'bg-rose-500'
+          : healthStatus === 'Suspended'
+            ? 'bg-amber-500'
+            : 'bg-slate-400'
+  const finished = p.status.operationState?.finishedAt
+  const when = finished ? relativeTime(finished) : ''
+  const envs = dep.environments.map((e) => e.label)
+  return (
+    <div
+      className="mt-2.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 px-5 text-[11px] text-content-muted"
+      title={`${dep.apps.length} Argo CD ${dep.apps.length === 1 ? 'application' : 'applications'}: ${dep.apps.map((a) => a.metadata.name).join(', ')}`}
+    >
+      <span className={cn('h-1.5 w-1.5 rounded-full', dot)} />
+      <span className="font-medium text-content">{healthStatus}</span>
+      <span className="text-content-subtle">·</span>
+      <span className={syncStatus === 'OutOfSync' ? 'text-amber-700 dark:text-amber-300' : undefined}>{syncStatus}</span>
+      {envs.length ? (
+        <>
+          <span className="text-content-subtle">·</span>
+          <span>
+            {envs.slice(0, 3).join(', ')}
+            {envs.length > 3 ? ` +${envs.length - 3}` : ''}
+          </span>
+        </>
+      ) : null}
+      {when ? <span className="text-content-subtle">· synced {when}</span> : null}
+    </div>
+  )
+}
+
+type CardMenuItem = { label: string; onSelect(): void } | 'sep'
+
+/**
+ * The card's ⋯ menu. Opens on click, closes on outside click, Esc, or a
+ * pick; every click inside stops propagating so the card itself does not
+ * open underneath it.
+ */
+function CardMenu({ items, label }: { items: CardMenuItem[]; label: string }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    globalThis.addEventListener('mousedown', onDown)
+    globalThis.addEventListener('keydown', onKey)
+    return () => {
+      globalThis.removeEventListener('mousedown', onDown)
+      globalThis.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+  return (
+    <div ref={ref} className="relative" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        aria-label={label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          'inline-flex h-7 w-7 items-center justify-center rounded-full text-content-subtle transition hover:bg-surface-sunken hover:text-content focus-visible:opacity-100 group-hover:opacity-100',
+          open ? 'bg-surface-sunken text-content opacity-100' : 'opacity-0',
+        )}
+      >
+        <IconDots />
+      </button>
+      {open ? (
+        <div
+          role="menu"
+          className="pop-in absolute right-0 top-8 z-20 w-44 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-lg"
+        >
+          {items.map((it, i) =>
+            it === 'sep' ? (
+              <div key={`sep-${i}`} className="my-1 border-t border-edge-subtle" />
+            ) : (
+              <button
+                key={it.label}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false)
+                  it.onSelect()
+                }}
+                className="flex w-full items-center rounded-md px-2.5 py-1.5 text-left text-[12px] text-content transition-colors hover:bg-surface-sunken"
+              >
+                {it.label}
+              </button>
+            ),
+          )}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -3390,6 +3655,112 @@ function relativeTime(iso?: string): string {
 
 /* ─────────── shared section header ─────────── */
 
+const KIND_PLURAL: Record<EntityKind, string> = {
+  Component: 'Components',
+  API: 'APIs',
+  Resource: 'Resources',
+  System: 'Systems',
+  Domain: 'Domains',
+  Group: 'Groups',
+  User: 'Users',
+}
+
+/** Things that run somewhere, and so can have an Argo CD Application. */
+function isDeployableKind(e: Entity): boolean {
+  return e.kind === 'Component' || e.kind === 'Resource'
+}
+
+/**
+ * Section the grid by a shared attribute. Entities without the attribute go
+ * in a trailing "No system" / "No owner" group rather than vanishing — for
+ * a catalog those gaps are the point.
+ */
+function groupEntities(
+  rows: Entity[],
+  by: GroupKey,
+): Array<{ key: string; label: string; items: Entity[] }> {
+  if (by === 'none') return [{ key: 'all', label: '', items: rows }]
+  const keyOf = (e: Entity): string => {
+    if (by === 'system') return e.spec.system ? parseRef(e.spec.system).name : ''
+    if (by === 'owner') return e.spec.owner ? parseRef(e.spec.owner).name : ''
+    if (by === 'kind') return KIND_PLURAL[e.kind]
+    return e.spec.lifecycle ?? ''
+  }
+  const map = new Map<string, Entity[]>()
+  for (const e of rows) {
+    const k = keyOf(e)
+    map.set(k, [...(map.get(k) ?? []), e])
+  }
+  const missing = by === 'system' ? 'No system' : by === 'owner' ? 'No owner' : 'No lifecycle'
+  return [...map.entries()]
+    .map(([k, items]) => ({
+      key: k || '~',
+      label: k ? (by === 'lifecycle' ? k.charAt(0).toUpperCase() + k.slice(1) : k) : missing,
+      items,
+    }))
+    .sort((a, b) => Number(a.key === '~') - Number(b.key === '~') || a.label.localeCompare(b.label))
+}
+
+/**
+ * One click per kind. Selecting a kind here sets the kind filter to exactly
+ * that kind (the popover can still add more); "All" clears it. Kinds with no
+ * entities are not offered — a tab that always shows nothing is a trap.
+ */
+function KindRail({
+  counts,
+  total,
+  filter,
+  onFilter,
+}: {
+  counts: Record<string, number>
+  total: number
+  filter: FilterState
+  onFilter(next: FilterState): void
+}) {
+  const active: EntityKind | 'all' | 'mixed' =
+    filter.kinds.size === 0 ? 'all' : filter.kinds.size === 1 ? [...filter.kinds][0] : 'mixed'
+  const items: Array<{ kind: EntityKind | 'all'; label: string; count: number }> = [
+    { kind: 'all', label: 'All', count: total },
+    ...ALL_KINDS.filter((k) => (counts[k] ?? 0) > 0).map((k) => ({
+      kind: k,
+      label: KIND_PLURAL[k],
+      count: counts[k] ?? 0,
+    })),
+  ]
+  return (
+    <div role="tablist" aria-label="Entity kind" className="flex flex-wrap items-center gap-1">
+      {items.map((it) => {
+        const on = it.kind === active
+        return (
+          <button
+            key={it.kind}
+            type="button"
+            role="tab"
+            aria-selected={on}
+            onClick={() =>
+              onFilter({
+                ...filter,
+                kinds: it.kind === 'all' ? new Set() : new Set([it.kind]),
+              })
+            }
+            className={cn(
+              'inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-medium transition-colors',
+              on
+                ? 'bg-brand-600 text-white shadow-sm'
+                : 'text-content-muted hover:bg-surface-sunken hover:text-content',
+            )}
+          >
+            {it.label}
+            <span className={cn('font-mono text-[10px] tabular-nums', on ? 'text-white/75' : 'text-content-subtle')}>
+              {it.count}
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 function SectionHeader({
   eyebrow,
   title,
@@ -3418,12 +3789,15 @@ type DrawerTab = 'overview' | 'deploy' | 'tech' | 'docs' | 'metrics' | 'relation
 
 function EntityDrawer({
   entity,
+  initialTab,
   onClose,
   catalog,
   onPick,
   stars,
 }: {
   entity: Entity
+  /** Open on this tab — a card's menu jumps straight to Deployment or Scorecard. */
+  initialTab?: DrawerTab
   onClose(): void
   catalog: Entity[]
   onPick(e: Entity): void
@@ -3493,7 +3867,7 @@ function EntityDrawer({
   const docsUrl = techDocsUrl(entity)
   // Controlled so a link inside one panel can move the reader to another —
   // "Read here →" on the tech-stack panel opens the docs tab in place.
-  const [tab, setTab] = useState<DrawerTab>('overview')
+  const [tab, setTab] = useState<DrawerTab>(initialTab ?? 'overview')
   // Live metrics apply to anything that actually runs: a Component or Resource
   // the catalog resolved to a workload. `adhar.io/grafana-dashboard` pins a
   // dashboard when the team has one.
@@ -6070,6 +6444,16 @@ function IconSearchLg() {
     >
       <circle cx="11" cy="11" r="7" />
       <path d="m21 21-4.35-4.35" />
+    </svg>
+  )
+}
+
+function IconDots() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <circle cx="5" cy="12" r="1.8" />
+      <circle cx="12" cy="12" r="1.8" />
+      <circle cx="19" cy="12" r="1.8" />
     </svg>
   )
 }

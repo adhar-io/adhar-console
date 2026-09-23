@@ -337,9 +337,51 @@ const idCache = new Map<string, { at: number; id: K8sIdentity }>()
  * session is present, we intentionally do NOT fall back to it for user-facing
  * calls — per-user impersonation is the security model. Returns null → 401.
  */
+/**
+ * Local development against a real cluster — the ONLY way `resolveIdentity`
+ * returns an identity without a verified user session.
+ *
+ * Why it has to exist: `npm run dev` runs with no Keycloak (the login page
+ * offers a stub "demo user"), and that stub session lives in the browser only
+ * — the BFF never sees a session cookie. Every cluster-backed route then 401s
+ * with "Not signed in", so a laptop shows "Cluster unreachable" no matter how
+ * well the BFF itself can reach the apiserver.
+ *
+ * Why it is safe: three conditions must hold at once, and production fails the
+ * first two on its own.
+ *
+ *   1. Keycloak is NOT configured. A real install always configures it, so
+ *      this branch is unreachable there.
+ *   2. `ADHAR_DEV_CLUSTER_AUTH=true` is set explicitly. Nothing sets it but
+ *      `npm run dev:env`, which writes a gitignored local `.env`.
+ *   3. The process is NOT running in-cluster (`KUBERNETES_SERVICE_HOST`
+ *      unset). Belt and braces: a deployed pod can never take this path even
+ *      if the first two were somehow true.
+ *
+ * What it costs: the caller is the ServiceAccount, so local dev sees whatever
+ * that SA can see and per-user RBAC is NOT exercised. Anything
+ * permission-shaped has to be tested against a real deployment.
+ */
+function devClusterIdentity(): K8sIdentity | null {
+  if (env('ADHAR_DEV_CLUSTER_AUTH') !== 'true') return null
+  if (env('KUBERNETES_SERVICE_HOST')) return null
+  const sa = getK8sServiceToken()
+  if (!sa) return null
+  return {
+    token: sa,
+    user: {
+      id: 'local-dev',
+      name: 'Local Dev',
+      email: '',
+      username: 'local-dev',
+      groups: [],
+    },
+  }
+}
+
 export async function resolveIdentity(req: Request): Promise<K8sIdentity | null> {
   const cfg = getServerAuthConfig()
-  if (!cfg) return null
+  if (!cfg) return devClusterIdentity()
   const cookie = req.headers.get('cookie') ?? ''
   if (cookie) {
     const hit = idCache.get(cookie)

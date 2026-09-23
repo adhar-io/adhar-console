@@ -35,6 +35,7 @@ import { handleAppsetToggle } from './app/server/appset.ts'
 import { handleListTemplates } from './app/server/templates.ts'
 import { handleScorecardHistory, handleScorecardRerun, handleScorecards } from './app/server/scorecards.ts'
 import { handleEntityRoutes } from './app/server/entity-routes.ts'
+import { handleAlertmanagerWebhook } from './app/server/alertmanager.ts'
 import { handleListTeams } from './app/server/teams.ts'
 import { handleWorkspace } from './app/server/workspace/handlers.ts'
 import { startPlatformEvents } from './app/server/events/platform-events.ts'
@@ -364,6 +365,11 @@ async function route(req: Request): Promise<Response> {
   // scorer CronJob's own template, as the caller, so a manual run and a
   // scheduled run cannot produce different numbers.
   if (path === '/api/scorecards/rerun') return handleScorecardRerun(req)
+
+  // Alertmanager's receiver: platform alerts land in the Notification Center
+  // for everyone. Bearer-token auth (Alertmanager is not a user) — see the
+  // handler for why an unset token refuses rather than accepts.
+  if (path === '/api/alerts/alertmanager') return handleAlertmanagerWebhook(req)
 
   // Where a catalog entity is reachable — HTTPRoutes/Ingresses whose backend is
   // the entity's Service. Powers the drawer's "Open" button and the full URLs

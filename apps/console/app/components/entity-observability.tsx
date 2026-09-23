@@ -167,8 +167,8 @@ export function EntityMetrics({
           <div>
             <h3 className="text-sm font-semibold text-content">Live metrics</h3>
             <p className="text-[11px] text-content-subtle">
-              Prometheus, scoped to {target.namespace ? `${target.namespace}/` : ''}
-              {target.name} · refreshes every {REFRESH_MS / 1000}s
+              {PANELS.length} signals from Prometheus, scoped to {target.namespace ? `${target.namespace}/` : ''}
+              {target.name} · last {range} · refreshes every {REFRESH_MS / 1000}s
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -219,14 +219,34 @@ function MetricPanel({
   const points = useMemo(() => series.flatMap((s) => s.values.map(([, v]) => Number(v))).filter((n) => Number.isFinite(n)), [series])
   const last = points.length ? points[points.length - 1] : null
   const peak = points.length ? Math.max(...points) : null
+  const low = points.length ? Math.min(...points) : null
+  const avg = points.length ? points.reduce((a, b) => a + b, 0) / points.length : null
+  // Change over the window, first sample to last — the direction a person
+  // reads a chart for, stated so it does not have to be eyeballed.
+  const first = points.length ? points[0] : null
+  const delta = first !== null && last !== null && first !== 0 ? ((last - first) / Math.abs(first)) * 100 : null
   const explore = grafanaBase ? `${grafanaBase.replace(/\/$/, '')}/explore?left=${encodeURIComponent(JSON.stringify({ queries: [{ expr: query }], range: { from: `now-${range}`, to: 'now' } }))}` : ''
 
   return (
     <div className="rounded-xl border border-edge-subtle bg-surface-sunken/30 p-3">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-[12px] font-semibold text-content">{panel.label}</span>
-        <span className="font-mono text-[11px] tabular-nums text-content-muted">
-          {q.isLoading ? '…' : last === null ? '—' : fmt(last, panel.unit)}
+        <span className="flex items-baseline gap-2">
+          {delta !== null && Math.abs(delta) >= 1 ? (
+            <span
+              className={cn(
+                'font-mono text-[10px] tabular-nums',
+                // Restarts going up is bad; everything else is just a direction.
+                panel.id === 'restarts' ? (delta > 0 ? 'text-rose-600 dark:text-rose-300' : 'text-emerald-600 dark:text-emerald-400') : 'text-content-subtle',
+              )}
+              title="Change from the first to the last sample in this range"
+            >
+              {delta > 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(0)}%
+            </span>
+          ) : null}
+          <span className="font-mono text-[13px] font-semibold tabular-nums text-content">
+            {q.isLoading ? '…' : last === null ? '—' : fmt(last, panel.unit)}
+          </span>
         </span>
       </div>
       <div className="mt-1.5">
@@ -243,11 +263,15 @@ function MetricPanel({
             No series — this metric isn't collected for this workload.
           </div>
         ) : (
-          <AreaChart points={points} color="var(--color-brand-500)" height={56} showAxis={false} />
+          <AreaChart points={points} color="var(--color-brand-500)" height={72} showAxis={false} />
         )}
       </div>
       <div className="mt-1 flex items-center justify-between font-mono text-[10px] text-content-subtle">
-        <span title={panel.hint}>{peak !== null ? `peak ${fmt(peak, panel.unit)}` : panel.hint}</span>
+        <span title={panel.hint}>
+          {peak !== null && low !== null && avg !== null
+            ? `min ${fmt(low, panel.unit)} · avg ${fmt(avg, panel.unit)} · peak ${fmt(peak, panel.unit)}`
+            : panel.hint}
+        </span>
         {explore ? (
           <a href={explore} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline dark:text-brand-300">
             open in Grafana ↗

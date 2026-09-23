@@ -6,6 +6,7 @@ import {
   BarChart,
   Button,
   Card,
+  DonutGauge,
   CardBody,
   CardHeader,
   EmptyState,
@@ -4353,6 +4354,9 @@ function EntityDrawer({
                         {isTechKind ? (
                           <TechPanel stack={stack} version={version} deployment={showDeploy ? deployment : undefined} onTab={setTab} />
                         ) : null}
+                        {routes.routes.length ? <EndpointsPanel routes={routes.routes} onTab={setTab} /> : null}
+                        <LinksPanel entity={entity} docsUrl={docsUrl} monitorUrl={monitorUrl} onTab={setTab} />
+                        <SiblingsPanel entity={entity} ownerEnt={ownerEnt} catalog={catalog} onPick={onPick} />
                       </div>
                     </div>
                   </>
@@ -4368,11 +4372,12 @@ function EntityDrawer({
                 ) : null}
 
                 {active === 'tech' ? (
-                  <TechStackCard
+                  <TechStackTab
                     stack={stack}
                     version={version}
                     entity={entity}
                     docsUrl={docsUrl}
+                    deployment={showDeploy ? deployment : undefined}
                     onOpenDocs={() => setTab('docs')}
                   />
                 ) : null}
@@ -4425,7 +4430,7 @@ function EntityDrawer({
                   </>
                 ) : null}
 
-                {active === 'scorecard' ? <ScorecardBreakdown score={score} /> : null}
+                {active === 'scorecard' ? <ScorecardTab score={score} onAsk={() => askAboutEntity(ai, entity)} /> : null}
 
                 {active === 'raw' ? (
                   <>
@@ -4690,6 +4695,308 @@ function DeploymentsChart({ deployment, onOpen }: { deployment: EntityDeployment
           </div>
         </>
       )}
+    </DrawerSection>
+  )
+}
+
+/* ─────────── overview rail: endpoints, links, siblings ─────────── */
+
+/** The URLs it answers on, compact. The Deployment tab has them in full with how each was matched. */
+function EndpointsPanel({ routes, onTab }: { routes: EntityRoute[]; onTab(t: DrawerTab): void }) {
+  return (
+    <DrawerSection
+      title={`Endpoints · ${routes.length}`}
+      aside={
+        <button type="button" onClick={() => onTab('deploy')} className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">
+          Details →
+        </button>
+      }
+    >
+      <ul className="space-y-1.5">
+        {routes.slice(0, 5).map((r) => (
+          <li key={r.url} className="flex items-center gap-2">
+            <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', r.via === 'backend' ? 'bg-emerald-500' : 'bg-amber-500')} title={r.via === 'backend' ? 'matched by backend' : 'matched by name'} />
+            <a href={r.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate font-mono text-[11px] text-brand-700 hover:underline dark:text-brand-300" title={r.url}>
+              {r.url.replace(/^https?:\/\//, '')}
+            </a>
+            <CopyButton text={r.url} />
+          </li>
+        ))}
+        {routes.length > 5 ? <li className="text-[10px] text-content-subtle">+{routes.length - 5} more</li> : null}
+      </ul>
+    </DrawerSection>
+  )
+}
+
+/**
+ * Every link the entity carries, plus the ones the console derives (docs,
+ * the Grafana dashboard). The header shows the first few as buttons; this is
+ * the complete list, each with what kind of thing it is.
+ */
+function LinksPanel({
+  entity,
+  docsUrl,
+  monitorUrl,
+  onTab,
+}: {
+  entity: Entity
+  docsUrl?: string
+  monitorUrl?: string
+  onTab(t: DrawerTab): void
+}) {
+  const links = entity.metadata.links ?? []
+  const kindLabel: Record<NonNullable<Link['icon']>, string> = {
+    docs: 'Documentation',
+    dashboard: 'Dashboard',
+    repo: 'Repository',
+    runbook: 'Runbook',
+    chat: 'Chat',
+    'on-call': 'On-call',
+  }
+  const rows: Array<{ key: string; title: string; kind: string; url: string; icon?: Link['icon']; internal?: DrawerTab }> = links.map((l) => ({
+    key: l.url,
+    title: l.title,
+    kind: l.icon ? kindLabel[l.icon] : 'Link',
+    url: l.url,
+    icon: l.icon,
+  }))
+  if (docsUrl && !links.some((l) => l.url === docsUrl)) rows.push({ key: 'docs', title: 'TechDocs', kind: 'Documentation', url: docsUrl, icon: 'docs', internal: 'docs' })
+  if (monitorUrl && !links.some((l) => l.url === monitorUrl)) rows.push({ key: 'monitor', title: 'Grafana dashboard', kind: 'Dashboard', url: monitorUrl, icon: 'dashboard', internal: 'metrics' })
+
+  return (
+    <DrawerSection title={`Links · ${rows.length}`}>
+      {rows.length === 0 ? (
+        <p className="text-[11.5px] leading-relaxed text-content-subtle">
+          No links. Add <code className="font-mono text-content-muted">metadata.links</code> with an icon of <code className="font-mono text-content-muted">docs</code>, <code className="font-mono text-content-muted">runbook</code>, <code className="font-mono text-content-muted">dashboard</code>, <code className="font-mono text-content-muted">repo</code>, <code className="font-mono text-content-muted">chat</code> or <code className="font-mono text-content-muted">on-call</code>.
+        </p>
+      ) : (
+        <ul className="-my-1 divide-y divide-edge-subtle">
+          {rows.map((r) => (
+            <li key={r.key} className="flex items-center gap-2.5 py-2">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-surface-sunken text-content-muted">
+                <LinkGlyph icon={r.icon} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <a href={r.url} target="_blank" rel="noreferrer" className="block truncate text-[12.5px] font-medium text-content hover:text-brand-700 hover:underline dark:hover:text-brand-300" title={r.url}>
+                  {r.title}
+                </a>
+                <span className="block truncate text-[10.5px] text-content-subtle">{r.kind} · {r.url.replace(/^https?:\/\//, '').slice(0, 48)}</span>
+              </span>
+              {r.internal ? (
+                <button type="button" onClick={() => onTab(r.internal!)} className="shrink-0 text-[10.5px] font-medium text-brand-700 hover:underline dark:text-brand-300">
+                  open here
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </DrawerSection>
+  )
+}
+
+/** What else the same team owns — the neighbours you usually need next. */
+function SiblingsPanel({
+  entity,
+  ownerEnt,
+  catalog,
+  onPick,
+}: {
+  entity: Entity
+  ownerEnt?: Entity
+  catalog: Entity[]
+  onPick(e: Entity): void
+}) {
+  const self = entityRef(entity)
+  const owner = entity.kind === 'Group' ? self : entity.spec.owner
+  if (!owner) return null
+  const siblings = catalog.filter((e) => e.spec.owner === owner && entityRef(e) !== self && e.kind !== 'User')
+  if (!siblings.length) return null
+  const name = ownerEnt ? (ownerEnt.metadata.title ?? ownerEnt.metadata.name) : parseRef(owner).name
+  const byKind = new Map<EntityKind, number>()
+  for (const e of siblings) byKind.set(e.kind, (byKind.get(e.kind) ?? 0) + 1)
+  return (
+    <DrawerSection
+      title={entity.kind === 'Group' ? `Owned by this team · ${siblings.length}` : `Also owned by ${name}`}
+      aside={<span className="text-[11px] text-content-subtle">{[...byKind.entries()].map(([k, n]) => `${n} ${KIND_PLURAL[k].toLowerCase()}`).join(' · ')}</span>}
+    >
+      <div className="flex flex-wrap gap-1.5">
+        {siblings.slice(0, 8).map((e) => <RefChip key={entityRef(e)} ent={e} onPick={onPick} />)}
+        {siblings.length > 8 ? <span className="self-center text-[11px] text-content-subtle">+{siblings.length - 8} more</span> : null}
+      </div>
+    </DrawerSection>
+  )
+}
+
+/* ─────────── scorecard tab ─────────── */
+
+const GRADE_FLOOR: Array<{ grade: Grade; min: number }> = [
+  { grade: 'A', min: 90 },
+  { grade: 'B', min: 75 },
+  { grade: 'C', min: 60 },
+  { grade: 'D', min: 40 },
+]
+
+/**
+ * The scorecard as a plan, not a report card: the score as a gauge with the
+ * distance to the next grade, the categories as bars, the failing checks as
+ * the points each would earn (largest first), and every check grouped by
+ * category with its fix. "What would it take to get to B?" is answered
+ * without arithmetic.
+ */
+function ScorecardTab({ score, onAsk }: { score: Scorecard; onAsk(): void }) {
+  const checks = score.checks
+  const ok = checks.filter((c) => c.pass).length
+  const failing = checks.filter((c) => !c.pass)
+  const totalWeight = checks.reduce((a, c) => a + c.weight, 0) || 1
+  const pointsFor = (c: Check) => Math.round((c.weight / totalWeight) * 100)
+  const next = GRADE_FLOOR.filter((g) => g.min > score.score).sort((a, b) => a.min - b.min)[0]
+  const tone = score.grade === 'A' || score.grade === 'B' ? 'var(--color-emerald-500)' : score.grade === 'C' ? 'var(--color-amber-500)' : 'var(--color-rose-500)'
+  // The cheapest path to the next grade: failing checks by points, largest
+  // first, until the gap is covered.
+  const path: Check[] = []
+  if (next) {
+    let need = next.min - score.score
+    for (const c of [...failing].sort((a, b) => b.weight - a.weight)) {
+      if (need <= 0) break
+      path.push(c)
+      need -= pointsFor(c)
+    }
+  }
+  const gainBars = [...failing]
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, 8)
+    .map((c) => ({ label: c.label.length > 14 ? `${c.label.slice(0, 13)}…` : c.label, value: pointsFor(c) }))
+
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+        <DrawerSection title="Production readiness">
+          <div className="flex items-center gap-5">
+            <DonutGauge
+              value={score.score}
+              size={128}
+              thickness={12}
+              color={tone}
+              label={
+                <span className="flex flex-col items-center leading-none">
+                  <span className="text-[26px] font-semibold tabular-nums text-content">{score.score}</span>
+                  <span className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">of 100</span>
+                </span>
+              }
+            />
+            <div className="min-w-0 space-y-2">
+              <div className="flex items-center gap-2">
+                <span
+                  className={cn(
+                    'inline-flex h-9 w-9 items-center justify-center rounded-lg text-[18px] font-bold ring-1 ring-inset',
+                    TECH_PILL[score.grade === 'A' || score.grade === 'B' ? 'emerald' : score.grade === 'C' ? 'amber' : 'rose'],
+                  )}
+                >
+                  {score.grade}
+                </span>
+                <span className="text-[13px] text-content-muted">
+                  <span className="font-mono font-semibold tabular-nums text-content">{ok}/{checks.length}</span> checks passing
+                </span>
+              </div>
+              {next ? (
+                <p className="text-[12px] leading-relaxed text-content-muted">
+                  <span className="font-semibold text-content">{next.min - score.score} points</span> to grade {next.grade}
+                  {path.length ? (
+                    <> — {path.length === 1 ? 'one fix' : `${path.length} fixes`}: {path.map((c) => c.label).join(', ')}.</>
+                  ) : null}
+                </p>
+              ) : (
+                <p className="text-[12px] text-content-muted">Top grade — keep it there.</p>
+              )}
+              <button type="button" onClick={onAsk} className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-brand-700 hover:underline dark:text-brand-300">
+                <IconSparkle /> Ask Adhar AI how to raise it
+              </button>
+            </div>
+          </div>
+        </DrawerSection>
+        <ReadinessByCategoryBars score={score} />
+      </div>
+
+      {failing.length ? (
+        <DrawerSection title="Points to gain" aside={<span className="text-[11px] text-content-subtle">per failing check · largest first</span>}>
+          <BarChart bars={gainBars} height={88} color="var(--color-amber-500)" formatY={(v) => `${Math.round(v)} pts`} />
+        </DrawerSection>
+      ) : null}
+
+      {CHECK_CATEGORIES.map((cat) => {
+        const bucket = score.byCategory[cat]
+        if (!bucket || bucket.total === 0) return null
+        const rows = checks.filter((c) => c.category === cat)
+        return (
+          <DrawerSection
+            key={cat}
+            title={CATEGORY_LABEL[cat]}
+            aside={
+              <span className="inline-flex items-center gap-2 text-[11px] text-content-muted">
+                <span className="font-mono tabular-nums">{bucket.pass}/{bucket.total}</span>
+                <span className="h-1.5 w-20 overflow-hidden rounded-full bg-surface-sunken">
+                  <span className={cn('block h-full rounded-full', scoreTone(bucket.score).dot)} style={{ width: `${bucket.score}%` }} />
+                </span>
+                <span className={cn('font-mono font-semibold tabular-nums', scoreTone(bucket.score).text)}>{bucket.score}%</span>
+              </span>
+            }
+          >
+            <ul className="divide-y divide-edge-subtle">
+              {rows.map((c) => (
+                <li key={c.id} className="flex items-start gap-3 py-2.5 first:pt-0 last:pb-0">
+                  <span
+                    className={cn(
+                      'mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full ring-1 ring-inset',
+                      c.pass
+                        ? 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30'
+                        : 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30',
+                    )}
+                  >
+                    {c.pass ? <IconCheck /> : <IconAlert />}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-[13px] font-medium text-content">{c.label}</span>
+                      <span className={cn('shrink-0 font-mono text-[10.5px] tabular-nums', c.pass ? 'text-content-subtle' : 'text-amber-700 dark:text-amber-300')}>
+                        {c.pass ? `${pointsFor(c)} pts` : `+${pointsFor(c)} pts`}
+                      </span>
+                    </div>
+                    {c.detail ? <div className="mt-0.5 break-words text-[11px] text-content-muted">{c.detail}</div> : null}
+                    {!c.pass && c.hint ? (
+                      <div className="mt-1 rounded-md bg-surface-sunken px-2 py-1 text-[11px] leading-relaxed text-content-muted">
+                        <span className="font-semibold text-content">Fix:</span> {c.hint}
+                      </div>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </DrawerSection>
+        )
+      })}
+    </div>
+  )
+}
+
+/** Category bars for the scorecard tab's header row (the Overview has its own with a jump link). */
+function ReadinessByCategoryBars({ score }: { score: Scorecard }) {
+  const cats = CHECK_CATEGORIES.map((cat) => ({ cat, c: score.byCategory[cat] })).filter(({ c }) => c && c.total > 0)
+  return (
+    <DrawerSection title="By category">
+      <ul className="space-y-2.5">
+        {cats.map(({ cat, c }) => (
+          <li key={cat}>
+            <div className="flex items-baseline justify-between text-[11px]">
+              <span className="font-medium text-content-muted">{CATEGORY_LABEL[cat]}</span>
+              <span className="font-mono tabular-nums text-content">{c.pass}/{c.total} <span className="text-content-subtle">· {c.score}%</span></span>
+            </div>
+            <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-surface-sunken">
+              <div className={cn('h-full rounded-full transition-[width] duration-300', scoreTone(c.score).dot)} style={{ width: `${c.score}%` }} />
+            </div>
+          </li>
+        ))}
+      </ul>
     </DrawerSection>
   )
 }
@@ -5934,9 +6241,9 @@ function EntityRoutesBar({ routes, onSeeAll }: { routes: EntityRoute[]; onSeeAll
         target="_blank"
         rel="noreferrer"
         className={cn(
-          'group inline-flex min-w-0 items-center gap-2 rounded-lg bg-brand-600 px-3.5 py-2',
-          'text-xs font-semibold text-white shadow-sm ring-1 ring-inset ring-white/10',
-          'transition-colors visited:text-white hover:bg-brand-700 hover:text-white',
+          'group inline-flex min-w-0 items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3.5 py-2',
+          'text-xs font-semibold text-brand-800 shadow-sm',
+          'transition-colors hover:border-brand-300 hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200 dark:hover:bg-brand-500/15',
         )}
         title={primary.url}
       >
@@ -6472,31 +6779,30 @@ function ActivityCard({ events }: { events: Activity[] }) {
 
 /* ─────────── tech stack card (drawer) ─────────── */
 
-function TechStackCard({
+function TechStackTab({
   stack,
   version,
   entity,
   docsUrl,
+  deployment,
   onOpenDocs,
 }: {
   stack: TechBadge[]
   version?: string
   entity: Entity
   docsUrl?: string
+  deployment?: EntityDeployment
   onOpenDocs?: () => void
 }) {
-  const hasAny = stack.length > 0 || Boolean(version)
   const ann = entityAnnotations(entity)
-  const repoUrl = (entity.metadata.links ?? []).find((l) => l.icon === 'repo')?.url
-
-  // Group the badges so the panel reads as a stack rather than a tag cloud:
-  // what it is written in, what it is built on, what it talks to, how it ships.
+  const repoUrl = repoUrlFor(entity)
   const grouped = TECH_GROUP_ORDER
     .map((g) => ({ group: g, items: stack.filter((b) => b.group === g) }))
     .filter((x) => x.items.length > 0)
-
-  // Where the version came from, named rather than implied — an annotation is a
-  // deliberate statement, a version-shaped tag is an inference.
+  const versioned = stack.filter((b) => b.version)
+  const languages = stack.filter((b) => b.group === 'language')
+  const frameworks = stack.filter((b) => b.group === 'framework')
+  const datastores = stack.filter((b) => b.group === 'datastore')
   const versionSource = ann['adhar.io/version']
     ? 'adhar.io/version annotation'
     : ann['backstage.io/version']
@@ -6506,140 +6812,158 @@ function TechStackCard({
         : version
           ? 'version-shaped tag'
           : undefined
+  // Which tag or annotation each badge came from, so a wrong version can be
+  // traced to the line that set it.
+  const sourceOf = (b: TechBadge): string => {
+    const tag = (entity.metadata.tags ?? []).find((t) => TECH_MAP[parseTechTag(t).key]?.label === b.label)
+    if (tag && (!b.version || parseTechTag(tag).version)) return `tag ${tag}`
+    const fromAnn = techFromAnnotations(entity).find((m) => TECH_MAP[m.key]?.label === b.label)
+    if (fromAnn) return fromAnn.version ? 'adhar.io/tech-stack' : 'annotation'
+    return tag ? `tag ${tag}` : 'catalog'
+  }
+  const envImages = (deployment?.environments ?? []).map((e) => ({ env: e.label, app: e.app.metadata.name, images: e.app.status.images }))
+  const anyImages = envImages.some((e) => e.images.length)
+
+  const tiles: Array<{ label: string; value: string; sub: string }> = [
+    { label: 'Languages', value: languages.length ? languages.map((b) => b.label).join(', ') : '—', sub: languages.length ? `${languages.filter((b) => b.version).length}/${languages.length} with a version` : 'none tagged' },
+    { label: 'Frameworks', value: frameworks.length ? frameworks.map((b) => b.label).join(', ') : '—', sub: frameworks.length ? `${frameworks.filter((b) => b.version).length}/${frameworks.length} with a version` : 'none tagged' },
+    { label: 'Data & messaging', value: datastores.length ? datastores.map((b) => b.label).join(', ') : '—', sub: datastores.length ? `${datastores.length} ${datastores.length === 1 ? 'store' : 'stores'}` : 'none tagged' },
+    { label: 'App version', value: version ?? '—', sub: versionSource ?? 'not published' },
+  ]
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold text-content">Tech stack &amp; versions</h3>
-          {stack.length ? (
-            <span className="font-mono text-[10px] text-content-subtle">
-              {stack.length} detected across {grouped.length}{' '}
-              {grouped.length === 1 ? 'layer' : 'layers'}
-            </span>
-          ) : null}
-        </div>
-      </CardHeader>
-      <CardBody className="space-y-4">
-        {grouped.map(({ group, items }) => (
-          <div key={group}>
-            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
-              {TECH_GROUP_LABEL[group]}
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {items.map((b) => (
-                <TechPill key={b.label} badge={b} />
-              ))}
-            </div>
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+        {tiles.map((t) => (
+          <div key={t.label} className="min-w-0 rounded-xl border border-edge-default bg-surface-raised px-3.5 py-3 shadow-sm">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-content-subtle">{t.label}</div>
+            <div className="mt-1.5 truncate text-[15px] font-semibold leading-tight text-content" title={t.value}>{t.value}</div>
+            <div className="mt-1 truncate text-[11px] text-content-muted">{t.sub}</div>
           </div>
         ))}
+      </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field
-            label="Version"
-            value={
-              version ? (
-                <code className="font-mono text-xs font-semibold text-content">{version}</code>
-              ) : (
-                <span className="text-content-subtle">— not published</span>
-              )
-            }
-          />
-          <Field
-            label="Version source"
-            value={
-              versionSource ? (
-                <span className="text-xs text-content-muted">{versionSource}</span>
-              ) : (
-                <span className="text-content-subtle">—</span>
-              )
-            }
-          />
-          <Field
-            label="Stack detected from"
-            value={
-              stack.length ? (
-                <span className="text-xs text-content-muted">
-                  Catalog tags on {entity.metadata.name}
-                </span>
-              ) : (
-                <span className="text-content-subtle">—</span>
-              )
-            }
-          />
-          <Field
-            label="Source"
-            value={
-              repoUrl ? (
-                <a
-                  href={repoUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs text-brand-700 hover:underline dark:text-brand-300"
-                >
-                  Repository ↗
-                </a>
-              ) : (
-                <span className="text-content-subtle">— not linked</span>
-              )
-            }
-          />
+      {stack.length === 0 && !version ? (
+        <DrawerSection title="Stack">
+          <p className="text-[12.5px] leading-relaxed text-content-muted">
+            Nothing recorded for <code className="font-mono text-content">{entity.metadata.name}</code>. Tag it with its stack and versions — for example{' '}
+            <code className="font-mono text-content">java-21</code>, <code className="font-mono text-content">spring-boot-3.3</code>, <code className="font-mono text-content">postgres-16</code> — or set{' '}
+            <code className="font-mono text-content">adhar.io/tech-stack: "java@21, spring-boot@3.3.2"</code>. Versions are what make this tab useful: "is this on a supported Java?" needs a number.
+          </p>
+        </DrawerSection>
+      ) : (
+        <div className="grid gap-5 lg:grid-cols-2">
+          {grouped.map(({ group, items }) => (
+            <DrawerSection
+              key={group}
+              title={TECH_GROUP_LABEL[group]}
+              aside={<span className="text-[11px] text-content-subtle">{items.filter((b) => b.version).length}/{items.length} versioned</span>}
+            >
+              <ul className="divide-y divide-edge-subtle">
+                {items.map((b) => (
+                  <li key={b.label} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
+                    <span className={cn('inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold ring-1 ring-inset', TECH_PILL[b.tone])}>
+                      {b.label.replace(/[^A-Za-z0-9#.+]/g, '').slice(0, 2).toUpperCase()}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-medium text-content">{b.label}</span>
+                      <span className="block truncate text-[10.5px] text-content-subtle">from {sourceOf(b)}</span>
+                    </span>
+                    {b.version ? (
+                      <span className="shrink-0 rounded-md bg-surface-sunken px-2 py-1 font-mono text-[12px] font-semibold text-content ring-1 ring-inset ring-edge-subtle">{b.version}</span>
+                    ) : (
+                      <span className="shrink-0 rounded-md border border-dashed border-edge-default px-2 py-1 text-[10.5px] italic text-content-subtle" title={`Add the version to the tag, e.g. ${b.label.toLowerCase().replace(/\s+/g, '-')}-<version>`}>
+                        no version
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </DrawerSection>
+          ))}
         </div>
+      )}
 
-        {/* Documentation belongs beside the stack: the two questions "what is
-            this built with" and "how do I work on it" are asked together. */}
-        <div className="rounded-lg border border-edge-subtle bg-surface-sunken/40 px-3 py-2.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
-              Tech docs
-            </span>
+      {deployment ? (
+        <DrawerSection title="Running now" aside={<span className="text-[11px] text-content-subtle">container images per environment · from Argo CD</span>}>
+          {deployment.isLoading ? (
+            <div className="flex items-center gap-2 text-[11px] text-content-subtle"><Spinner size={12} /> Reading Argo CD…</div>
+          ) : !anyImages ? (
+            <p className="text-[11.5px] text-content-subtle">
+              {deployment.isError ? 'Argo CD is not reachable.' : deployment.apps.length ? 'Argo CD reports no images for this application.' : 'Not deployed via Argo CD, so there is nothing running to report.'}
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-[12px]">
+                <thead>
+                  <tr className="text-left text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+                    <th className="pb-1.5 pr-4 font-semibold">Environment</th>
+                    <th className="pb-1.5 pr-4 font-semibold">Image</th>
+                    <th className="pb-1.5 font-semibold">Tag</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-edge-subtle">
+                  {envImages.flatMap((e) =>
+                    e.images.map((img, i) => {
+                      const short = shortImage(img)
+                      const [name, tag] = short.includes(':') ? [short.slice(0, short.lastIndexOf(':')), short.slice(short.lastIndexOf(':') + 1)] : [short, 'latest']
+                      return (
+                        <tr key={`${e.app}-${img}`}>
+                          <td className="py-1.5 pr-4 align-top text-content">{i === 0 ? e.env : ''}</td>
+                          <td className="py-1.5 pr-4 align-top font-mono text-[11px] text-content-muted" title={img}>{name}</td>
+                          <td className="py-1.5 align-top">
+                            <span className={cn('rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold', tag === 'latest' ? 'bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300' : 'bg-surface-sunken text-content')} title={tag === 'latest' ? 'A :latest tag cannot be rolled back to' : undefined}>
+                              {tag}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    }),
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </DrawerSection>
+      ) : null}
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        <DrawerSection title="Where this comes from">
+          <dl className="-my-1 divide-y divide-edge-subtle">
+            {[
+              { label: 'Stack', node: stack.length ? `${stack.length} from catalog tags${techFromAnnotations(entity).length ? ' and adhar.io/tech-stack' : ''}` : 'no tags' },
+              { label: 'Versions', node: versioned.length ? `${versioned.length} of ${stack.length} recorded` : 'none recorded' },
+              { label: 'App version', node: versionSource ?? 'not published' },
+              { label: 'Repository', node: repoUrl ? <a href={repoUrl} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline dark:text-brand-300">{repoUrl.replace(/^https?:\/\//, '')}</a> : 'not linked' },
+            ].map((r) => (
+              <div key={r.label} className="flex items-start justify-between gap-3 py-2">
+                <dt className="shrink-0 text-[11px] font-medium text-content-subtle">{r.label}</dt>
+                <dd className="min-w-0 truncate text-right text-[12px] text-content">{r.node}</dd>
+              </div>
+            ))}
+          </dl>
+        </DrawerSection>
+        <DrawerSection
+          title="Tech docs"
+          aside={docsUrl && onOpenDocs ? (
+            <button type="button" onClick={onOpenDocs} className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">Read here →</button>
+          ) : undefined}
+        >
+          <div className="flex items-center gap-2">
             {docsUrl ? (
-              <>
-                <StatusBadge kind="healthy" className="px-1.5 py-0 text-[10px]">
-                  registered
-                </StatusBadge>
-                {onOpenDocs ? (
-                  <button
-                    type="button"
-                    onClick={onOpenDocs}
-                    className="ml-auto text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300"
-                  >
-                    Read here →
-                  </button>
-                ) : null}
-              </>
+              <StatusBadge kind="healthy" className="px-1.5 py-0 text-[10px]">registered</StatusBadge>
             ) : (
-              <span className="text-[11px] text-content-subtle">not registered</span>
+              <StatusBadge kind="paused" className="px-1.5 py-0 text-[10px]">not registered</StatusBadge>
             )}
           </div>
-          <p className="mt-1.5 text-[11px] leading-relaxed text-content-muted">
+          <p className="mt-2 text-[11.5px] leading-relaxed text-content-muted">
             {docsUrl
               ? 'Markdown kept in the repository renders inside the console, with a table of contents and search.'
               : 'Add a docs link to metadata.links, or the backstage.io/techdocs-ref / adhar.io/docs annotation, to publish documentation for this component.'}
           </p>
-        </div>
-
-        {!hasAny ? (
-          <EmptyState
-            compact
-            title="No tech stack detected"
-            description={
-              <>
-                Add language / framework tags (e.g. <code>java</code>, <code>spring-boot</code>,{' '}
-                <code>postgres</code>, <code>kafka</code>) or the <code>adhar.io/version</code>{' '}
-                annotation on <code>{entity.metadata.name}</code> to surface its stack.
-              </>
-            }
-          />
-        ) : (
-          <p className="text-[11px] leading-relaxed text-content-subtle">
-            The stack is read from the component&apos;s catalog tags, so it is only as complete as
-            those tags. Per-language versions are not published to the catalog — the version above
-            is the registered entity version, and an honest &quot;—&quot; is shown when unknown.
-          </p>
-        )}
-      </CardBody>
-    </Card>
+        </DrawerSection>
+      </div>
+    </div>
   )
 }
 
@@ -7163,8 +7487,11 @@ function DocAction({ href, icon, label, primary = false }: { href: string; icon:
       rel="noreferrer"
       className={cn(
         'inline-flex items-center gap-1.5 rounded-md font-semibold transition-colors',
+        // Emphasis by tint, not by a filled blue block: these are links out
+        // of the console, and a filled button made each one look like the
+        // page's own primary action.
         primary
-          ? 'bg-brand-600 px-3 py-1.5 text-xs text-white shadow-sm visited:text-white hover:bg-brand-700 hover:text-white'
+          ? 'border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs text-brand-800 hover:border-brand-300 hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200 dark:hover:bg-brand-500/15'
           : 'bg-surface-raised px-1.5 py-1 text-[10px] text-content-muted ring-1 ring-edge-default hover:text-brand-700 dark:hover:text-brand-300',
       )}
     >
@@ -7184,103 +7511,6 @@ function DocSearchGlyph() {
 }
 
 /* ─────────── scorecard breakdown (drawer) ─────────── */
-
-function ScorecardBreakdown({ score }: { score: Scorecard }) {
-  const ok = score.checks.filter((c) => c.pass).length
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-content">Production readiness</h3>
-            <ScoreBadge score={score} />
-          </div>
-          <span className="font-mono text-[11px] tabular-nums text-content-muted">
-            {ok}/{score.checks.length} passing
-          </span>
-        </div>
-      </CardHeader>
-      <CardBody className="space-y-4">
-        <div className="flex items-center gap-4">
-          <div
-            className={cn(
-              'flex h-14 w-14 shrink-0 items-center justify-center rounded-xl text-2xl font-bold ring-1 ring-inset',
-              TECH_PILL[
-                score.grade === 'A' || score.grade === 'B'
-                  ? 'emerald'
-                  : score.grade === 'C'
-                    ? 'amber'
-                    : 'rose'
-              ],
-            )}
-          >
-            {score.grade}
-          </div>
-          <div className="grid flex-1 grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
-            {CHECK_CATEGORIES.map((cat) => {
-              const c = score.byCategory[cat]
-              if (c.total === 0) return null
-              return (
-                <div key={cat}>
-                  <div className="flex items-center justify-between text-[10px] font-medium text-content-muted">
-                    <span className="uppercase tracking-wider">{CATEGORY_LABEL[cat]}</span>
-                    <span className="tabular-nums">{c.score}%</span>
-                  </div>
-                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-sunken">
-                    <div
-                      className={cn(
-                        'h-full rounded-full',
-                        c.score >= 80
-                          ? 'bg-emerald-500'
-                          : c.score >= 50
-                            ? 'bg-amber-500'
-                            : 'bg-rose-500',
-                      )}
-                      style={{ width: `${c.score}%` }}
-                    />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        <ul className="divide-y divide-edge-subtle overflow-hidden rounded-lg border border-edge-subtle">
-          {score.checks.map((c) => (
-            <li key={c.id} className="flex items-start gap-3 px-3 py-2.5">
-              <span
-                className={cn(
-                  'mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full ring-1',
-                  c.pass
-                    ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200'
-                    : 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 ring-rose-200',
-                )}
-              >
-                {c.pass ? <IconCheck /> : <IconAlert />}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[13px] font-medium text-content">{c.label}</span>
-                  <span className="shrink-0 text-[10px] uppercase tracking-wider text-content-subtle">
-                    {CATEGORY_LABEL[c.category]} · {c.weight}
-                  </span>
-                </div>
-                {c.detail ? (
-                  <div className="mt-0.5 truncate text-[11px] text-content-muted">{c.detail}</div>
-                ) : null}
-                {!c.pass && c.hint ? (
-                  <div className="mt-0.5 text-[11px] text-amber-700 dark:text-amber-300">
-                    {c.hint}
-                  </div>
-                ) : null}
-              </div>
-            </li>
-          ))}
-        </ul>
-      </CardBody>
-    </Card>
-  )
-}
 
 /* ─────────── icons / glyphs ─────────── */
 

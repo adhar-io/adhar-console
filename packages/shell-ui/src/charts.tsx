@@ -169,8 +169,11 @@ export function BarChart({
       <div className="flex items-end gap-1.5" style={{ height }}>
         {bars.map((b, i) => {
           const h = (b.value / max) * 100
+          // `h-full`: the bar's percentage height resolves against this
+          // column, and a column without an explicit height collapses every
+          // bar to its 3px minimum.
           return (
-            <div key={i} className="group relative flex flex-1 flex-col items-center justify-end">
+            <div key={i} className="group relative flex h-full flex-1 flex-col items-center justify-end">
               <div
                 className="w-full rounded-t-md transition-[height] duration-500 ease-smooth"
                 style={{

@@ -28,13 +28,13 @@ import {
   scenarioById,
   totalSeconds,
 } from '../data/chaos-scenarios.ts'
+import { CHAOS_NAMESPACE, modeLabel, type TargetMode } from '../data/chaos-kinds.ts'
 import {
   type ChaosWorkflow,
   type ChaosWorkflowNode,
   createGameDay,
   deleteGameDay,
   useChaosWorkflow,
-  useChaosWorkflowNodes,
   useChaosWorkflows,
   useTargetNamespaces,
 } from '../data/chaos.ts'
@@ -44,9 +44,9 @@ import {
  *
  * A single fault answers a single question. The failures that actually take
  * production down are the ones nobody rehearses, so the catalogue is the
- * product here: pick the scenarios, point them at a workload, and Chaos Mesh
- * runs them in order with recovery time between each and a probe watching the
- * system throughout.
+ * product here: pick the scenarios, point them at a workload, and an Argo
+ * Workflow runs them as Litmus ChaosEngines in order, with recovery time
+ * between each and a probe on every engine watching the system throughout.
  *
  * Serial with pauses is the default because simultaneous faults tell you the
  * system broke without telling you which one broke it.
@@ -68,7 +68,7 @@ export function ChaosGameDays({ namespace }: { namespace?: string }) {
               <div className="text-sm font-semibold text-content">Game days</div>
               <div className="text-[12px] text-content-muted">
                 A sequence of experiments, run automatically with recovery time between each and a steady-state
-                probe that aborts the run if the system stops serving.
+                probe that fails a scenario — and stops the run — if the system stops serving.
               </div>
             </div>
             {canManage ? <Button className="ml-auto" onClick={() => setBuilding(true)}>New game day</Button> : null}
@@ -104,19 +104,24 @@ export function ChaosGameDays({ namespace }: { namespace?: string }) {
 /* ─────────────────────────── status ─────────────────────────── */
 
 /**
- * A workflow's state, read from its conditions.
+ * A workflow's state, read from Argo's phase.
  *
- * Chaos Mesh reports `Accomplished` when every branch finished, and
- * `WorkflowAborted` when a steady-state check stopped it. Aborted is NOT a
- * failure of the tool — it means the system stopped meeting its steady state,
- * which is the experiment producing its most important answer.
+ * `Failed` here is NOT a failure of the tool — a scenario step exits non-zero
+ * when its hypothesis did not hold (a probe stopped passing, a verdict of
+ * Fail), which is the experiment producing its most important answer.
  */
 export function workflowPhase(wf: ChaosWorkflow): 'running' | 'accomplished' | 'aborted' | 'pending' {
-  const on = (type: string) => wf.status?.conditions?.find((c) => c.type === type)?.status === 'True'
-  if (on('WorkflowAborted')) return 'aborted'
-  if (on('WorkflowAccomplished')) return 'accomplished'
-  if (wf.status?.startTime) return 'running'
-  return 'pending'
+  switch (wf.status?.phase) {
+    case 'Succeeded':
+      return 'accomplished'
+    case 'Failed':
+    case 'Error':
+      return 'aborted'
+    case 'Running':
+      return 'running'
+    default:
+      return wf.status?.startedAt ? 'running' : 'pending'
+  }
 }
 
 const PHASE_KIND: Record<ReturnType<typeof workflowPhase>, StatusKind> = {
@@ -128,16 +133,14 @@ const PHASE_KIND: Record<ReturnType<typeof workflowPhase>, StatusKind> = {
 
 const PHASE_LABEL: Record<ReturnType<typeof workflowPhase>, string> = {
   running: 'running',
-  accomplished: 'completed',
-  aborted: 'aborted — steady state lost',
+  accomplished: 'completed — every hypothesis held',
+  aborted: 'stopped — a hypothesis failed',
   pending: 'pending',
 }
 
 function GameDayRow({ wf, onOpen }: { wf: ChaosWorkflow; onOpen(o: { namespace: string; name: string }): void }) {
   const phase = workflowPhase(wf)
-  const steps = (wf.spec?.templates ?? []).filter((t) =>
-    typeof t.templateType === 'string' && !['Serial', 'Parallel', 'Suspend', 'StatusCheck'].includes(t.templateType)
-  ).length
+  const steps = (wf.metadata.annotations?.['adhar.io/chaos-scenarios'] ?? '').split(',').filter(Boolean).length
 
   return (
     <li>
@@ -150,7 +153,7 @@ function GameDayRow({ wf, onOpen }: { wf: ChaosWorkflow; onOpen(o: { namespace: 
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] font-medium text-content">{wf.metadata.name}</div>
           <div className="truncate text-[11px] text-content-subtle">
-            {wf.metadata.namespace} · {steps} scenario{steps === 1 ? '' : 's'}
+            {wf.metadata.labels?.['adhar.io/chaos-target'] ?? wf.metadata.namespace} · {steps} scenario{steps === 1 ? '' : 's'}
             {wf.metadata.creationTimestamp ? ` · ${formatRelative(wf.metadata.creationTimestamp)}` : ''}
           </div>
         </div>
@@ -161,7 +164,7 @@ function GameDayRow({ wf, onOpen }: { wf: ChaosWorkflow; onOpen(o: { namespace: 
 
 /* ─────────────────────────── builder ─────────────────────────── */
 
-const MODES: ChaosTarget['mode'][] = ['one', 'fixed', 'fixed-percent', 'random-max-percent', 'all']
+const MODES: TargetMode[] = ['one', 'percent', 'all']
 
 function GameDayBuilder({
   onClose,
@@ -175,9 +178,9 @@ function GameDayBuilder({
   const [name, setName] = useState('')
   const [namespace, setNamespace] = useState('')
   const [selector, setSelector] = useState('')
-  const [mode, setMode] = useState<ChaosTarget['mode']>('one')
-  const [value, setValue] = useState('1')
-  const [picked, setPicked] = useState<string[]>(['pod-failure-one'])
+  const [mode, setMode] = useState<TargetMode>('one')
+  const [value, setValue] = useState('50')
+  const [picked, setPicked] = useState<string[]>(['pod-delete-one'])
   const [strategy, setStrategy] = useState<'serial' | 'parallel'>('serial')
   const [recovery, setRecovery] = useState(30)
   const [probeUrl, setProbeUrl] = useState('')
@@ -203,20 +206,18 @@ function GameDayBuilder({
   const launch = async () => {
     setBusy(true)
     try {
+      const target: ChaosTarget = { namespace, label: selector.trim(), mode, percent: mode === 'percent' ? value : undefined }
       const manifest = buildGameDay({
         name: name.trim(),
-        namespace,
-        target: { namespace, selector, mode, value: mode === 'one' || mode === 'all' ? undefined : value },
+        target,
         scenarios: picked,
         strategy,
         recoverySeconds: recovery,
-        ...(probeUrl.trim()
-          ? { steadyState: { url: probeUrl.trim(), statusCode: '200', intervalSeconds: 5, failureThreshold: 3 } }
-          : {}),
+        ...(probeUrl.trim() ? { steadyState: { url: probeUrl.trim(), statusCode: 200, intervalSeconds: 5 } } : {}),
       })
       const created = await createGameDay(manifest)
       toast.success(`${created.metadata.name} started`)
-      onCreated({ namespace: created.metadata.namespace ?? namespace, name: created.metadata.name })
+      onCreated({ namespace: created.metadata.namespace ?? CHAOS_NAMESPACE, name: created.metadata.name })
       onClose()
     } catch (e) {
       toast.error((e as Error).message)
@@ -232,7 +233,7 @@ function GameDayBuilder({
         <div className="border-b border-edge-default px-5 py-3">
           <div className="text-sm font-semibold text-content">New game day</div>
           <div className="text-[11px] text-content-subtle">
-            Chaos Mesh runs these as one workflow. Everything is bounded and reversible.
+            Litmus runs these as one Argo workflow. Everything is bounded and reversible.
           </div>
         </div>
 
@@ -257,7 +258,7 @@ function GameDayBuilder({
             <Field label="Name">
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="friday-gameday" />
             </Field>
-            <Field label="Namespace" hint="Both the workflow and its targets.">
+            <Field label="Target namespace" hint="Where the pods being broken live.">
               <Select
                 value={namespace}
                 onChange={(e) => setNamespace(e.target.value)}
@@ -267,20 +268,20 @@ function GameDayBuilder({
                 ]}
               />
             </Field>
-            <Field label="Label selector" hint="Narrows the blast radius. Empty targets every pod in the namespace.">
+            <Field label="App label" hint="One label, e.g. app=checkout. Empty targets every pod in the namespace.">
               <Input value={selector} onChange={(e) => setSelector(e.target.value)} placeholder="app=checkout" />
             </Field>
             <div className="grid grid-cols-2 gap-2">
               <Field label="Mode">
                 <Select
                   value={mode}
-                  onChange={(e) => setMode(e.target.value as ChaosTarget['mode'])}
-                  options={MODES.map((m) => ({ value: m, label: m }))}
+                  onChange={(e) => setMode(e.target.value as TargetMode)}
+                  options={MODES.map((m) => ({ value: m, label: modeLabel(m, value) }))}
                 />
               </Field>
-              {mode !== 'one' && mode !== 'all'
+              {mode === 'percent'
                 ? (
-                  <Field label="Value">
+                  <Field label="Percent">
                     <Input value={value} onChange={(e) => setValue(e.target.value)} />
                   </Field>
                 )
@@ -312,7 +313,7 @@ function GameDayBuilder({
 
             <Field
               label="Steady-state probe"
-              hint="Polled throughout. Three consecutive failures abort the run — this is what keeps an experiment from becoming an outage."
+              hint="Polled every 5s throughout each fault. One failed poll fails that scenario and stops the run — this is what keeps an experiment from becoming an outage."
             >
               <Input
                 value={probeUrl}
@@ -377,7 +378,7 @@ function ScenarioCard({ scenario, on, onToggle }: { scenario: Scenario; on: bool
         <span className={cn('ml-auto text-[10px] font-medium uppercase', BLAST_TONE[scenario.blast])}>
           {scenario.blast}
         </span>
-        <span className="text-[10px] text-content-subtle">{scenario.duration}</span>
+        <span className="text-[10px] text-content-subtle">{formatSeconds(scenario.seconds)}</span>
       </div>
       {/* The hypothesis is the experiment. Without it this is just breakage. */}
       <div className="mt-1 pl-5.5 text-[11px] text-content-muted">
@@ -392,12 +393,11 @@ function ScenarioCard({ scenario, on, onToggle }: { scenario: Scenario; on: bool
 
 function GameDayDrawer({ namespace, name, onClose }: { namespace: string; name: string; onClose(): void }) {
   const wf = useChaosWorkflow(namespace, name)
-  const nodes = useChaosWorkflowNodes(namespace, name)
   const toast = useToast()
   const canManage = useCan('platform.manage')
 
   const phase = wf.data ? workflowPhase(wf.data) : 'pending'
-  const steps = useMemo(() => orderSteps(wf.data, nodes.data ?? []), [wf.data, nodes.data])
+  const steps = useMemo(() => orderSteps(wf.data), [wf.data])
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -410,8 +410,8 @@ function GameDayDrawer({ namespace, name, onClose }: { namespace: string; name: 
               <span className="truncate text-sm font-semibold text-content">{name}</span>
             </div>
             <div className="mt-0.5 text-[11px] text-content-subtle">
-              {namespace}
-              {wf.data?.status?.startTime ? ` · started ${formatRelative(wf.data.status.startTime)}` : ''}
+              targets {wf.data?.metadata.labels?.['adhar.io/chaos-target'] ?? '—'}
+              {wf.data?.status?.startedAt ? ` · started ${formatRelative(wf.data.status.startedAt)}` : ''}
             </div>
           </div>
           {canManage
@@ -419,6 +419,8 @@ function GameDayDrawer({ namespace, name, onClose }: { namespace: string; name: 
               <Button
                 variant="ghost"
                 size="sm"
+                disabled={phase === 'running'}
+                title={phase === 'running' ? 'A running game day owns live engines — let it finish or fail' : undefined}
                 onClick={async () => {
                   try {
                     await deleteGameDay(namespace, name)
@@ -447,8 +449,8 @@ function GameDayDrawer({ namespace, name, onClose }: { namespace: string; name: 
           {phase === 'aborted'
             ? (
               <div className="mb-4 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-[12px] text-rose-800 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
-                The steady-state probe failed and Chaos Mesh stopped the run. That is the experiment's most
-                valuable result: the system stopped serving under a fault it was expected to survive.
+                A hypothesis did not hold and the run stopped; the revert step recovered the fault. That is the
+                experiment's most valuable result: the system stopped serving under a fault it was expected to survive.
               </div>
             )
             : null}
@@ -456,7 +458,7 @@ function GameDayDrawer({ namespace, name, onClose }: { namespace: string; name: 
           {wf.isLoading
             ? <div className="flex justify-center py-12"><Spinner /></div>
             : !steps.length
-            ? <EmptyState compact title="No steps yet" description="Chaos Mesh creates a node per step as the workflow starts." />
+            ? <EmptyState compact title="No steps yet" description="Argo creates a node per step as the workflow starts." />
             : <Timeline steps={steps} />}
         </div>
       </aside>
@@ -467,52 +469,53 @@ function GameDayDrawer({ namespace, name, onClose }: { namespace: string; name: 
 export interface Step {
   /** Template name, e.g. `2-net-latency`. */
   template: string
-  templateType: string
-  deadline?: string
+  kind: 'scenario' | 'pause' | 'revert'
+  seconds?: number
   scenario?: Scenario
   phase: 'done' | 'running' | 'pending' | 'failed'
   startedAt?: string
+  message?: string
 }
 
 /**
  * The declared steps, in declaration order, joined to whatever nodes exist.
  *
- * Driving the timeline off the SPEC rather than off the nodes matters: nodes
- * are created as the workflow reaches them, so a node-driven list would show
+ * Driving the timeline off the SPEC rather than off the nodes matters: Argo
+ * creates a node as the workflow reaches it, so a node-driven list would show
  * a game day as having only the steps it has already run, and the operator
  * could not see what is still coming.
  */
-export function orderSteps(wf: ChaosWorkflow | undefined, nodes: ChaosWorkflowNode[]): Step[] {
+export function orderSteps(wf: ChaosWorkflow | undefined): Step[] {
   if (!wf?.spec?.templates) return []
-  const structural = new Set(['Serial', 'Parallel'])
-  const declared = wf.spec.templates.filter((t) =>
-    typeof t.templateType === 'string' && !structural.has(t.templateType)
-  )
+  const nodes = Object.values(wf.status?.nodes ?? {}) as ChaosWorkflowNode[]
+  const declared = wf.spec.templates.filter((t) => t.name !== wf.spec?.entrypoint)
 
   const nodeFor = (template: string) =>
-    nodes.find((n) => n.spec?.name === template || n.metadata.name.startsWith(`${template}-`))
+    nodes.find((n) => n.templateName === template && n.type !== 'StepGroup')
 
   return declared.map((t) => {
     const template = String(t.name ?? '')
     const node = nodeFor(template)
-    const cond = (type: string) => node?.status?.conditions?.find((c) => c.type === type)?.status === 'True'
     const phase: Step['phase'] = !node
       ? 'pending'
-      : cond('Accomplished')
+      : node.phase === 'Succeeded'
       ? 'done'
-      : cond('Aborted') || cond('Failed')
+      : node.phase === 'Failed' || node.phase === 'Error'
       ? 'failed'
       : 'running'
+    const kind: Step['kind'] = template === 'revert' ? 'revert' : 'suspend' in t ? 'pause' : 'scenario'
     // Template names are `<index>-<scenario id>`; recover the scenario for
     // its hypothesis, which is what makes the timeline readable.
-    const scenarioId = template.replace(/^\d+-/, '')
+    const scenario = kind === 'scenario' ? scenarioById(template.replace(/^\d+-/, '')) : undefined
+    const suspend = (t as { suspend?: { duration?: string } }).suspend
     return {
       template,
-      templateType: String(t.templateType ?? ''),
-      deadline: typeof t.deadline === 'string' ? t.deadline : undefined,
-      scenario: scenarioById(scenarioId),
+      kind,
+      seconds: scenario?.seconds ?? (suspend?.duration ? Number(String(suspend.duration).replace(/s$/, '')) || undefined : undefined),
+      scenario,
       phase,
-      startedAt: node?.metadata.creationTimestamp,
+      startedAt: node?.startedAt,
+      message: node?.message,
     }
   })
 }
@@ -528,23 +531,23 @@ function Timeline({ steps }: { steps: Step[] }) {
   return (
     <ol className="space-y-2">
       {steps.map((s) => {
-        const isPause = s.templateType === 'Suspend'
-        const isProbe = s.templateType === 'StatusCheck'
+        const isPause = s.kind === 'pause'
+        const isRevert = s.kind === 'revert'
         return (
           <li
             key={s.template}
             className={cn(
               'rounded-lg border px-3 py-2',
-              isPause || isProbe ? 'border-dashed border-edge-default' : 'border-edge-default',
+              isPause || isRevert ? 'border-dashed border-edge-default' : 'border-edge-default',
             )}
           >
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge kind={STEP_KIND[s.phase]} pulse={s.phase === 'running'}>{s.phase}</StatusBadge>
               <span className="text-[12.5px] font-medium text-content">
-                {s.scenario?.title ?? (isPause ? 'Recovery pause' : isProbe ? 'Steady-state probe' : s.template)}
+                {s.scenario?.title ?? (isPause ? 'Recovery pause' : isRevert ? 'Revert — stop and remove every engine' : s.template)}
               </span>
-              {!isPause && !isProbe ? <Badge>{s.templateType}</Badge> : null}
-              {s.deadline ? <span className="ml-auto text-[11px] text-content-subtle">{s.deadline}</span> : null}
+              {s.scenario ? <Badge>{s.scenario.fault}</Badge> : null}
+              {s.seconds ? <span className="ml-auto text-[11px] text-content-subtle">{formatSeconds(s.seconds)}</span> : null}
             </div>
             {s.scenario
               ? (
@@ -554,8 +557,11 @@ function Timeline({ steps }: { steps: Step[] }) {
               )
               : isPause
               ? <div className="mt-1 text-[11px] text-content-subtle">Quiet time, so recovery is observable.</div>
-              : isProbe
-              ? <div className="mt-1 text-[11px] text-content-subtle">Polling throughout; three failures abort the run.</div>
+              : isRevert
+              ? <div className="mt-1 text-[11px] text-content-subtle">Runs whatever happened, so a fault never outlives the game day.</div>
+              : null}
+            {s.phase === 'failed' && s.message
+              ? <div className="mt-1 text-[11px] text-rose-700 dark:text-rose-400">{s.message}</div>
               : null}
           </li>
         )

@@ -1,292 +1,335 @@
-import { useQueries, useQuery } from '@tanstack/react-query'
-import { useLiveRefetch } from '@adhar-console/shell-ui'
+import { useQuery } from '@tanstack/react-query'
 import { k8s } from '@adhar-console/api-clients'
-import { kube } from '@adhar-console/api-clients/k8s'
+import { kube, type KubeObject } from '@adhar-console/api-clients/k8s'
 import {
-  CHAOS_GROUP,
-  CHAOS_KINDS,
-  CHAOS_VERSION,
-  gvrFor,
-  type ChaosExperiment,
-  type ChaosKindId,
+  CHAOS_FAULTS,
+  CHAOS_NAMESPACE,
+  CHAOS_SERVICE_ACCOUNT,
+  ENGINES_GVR,
+  EXPERIMENTS_GVR,
+  LITMUS_GROUP,
+  LITMUS_VERSION,
+  RESULTS_GVR,
+  faultById,
+  isLive,
+  podsAffected,
+  type ChaosEngine,
+  type ChaosFault,
+  type ChaosProbe,
+  type ChaosResult,
+  type TargetMode,
 } from './chaos-kinds.ts'
 
 /**
- * Chaos Mesh — deliberate failure, on purpose, with a way back.
+ * LitmusChaos — deliberate failure, on purpose, with a way back.
  *
- * Chaos Mesh models every fault as its own CRD (`PodChaos`, `NetworkChaos`,
- * `StressChaos`, …) rather than one polymorphic kind, which is right for the
- * operator and awkward for a console: "show me every experiment" is a dozen
- * list calls, not one. This module fans those out and merges the results, so
- * the view can treat chaos as a single list the way an operator thinks about
- * it.
+ * Litmus models a run as one polymorphic object (`ChaosEngine`) that names the
+ * fault it runs, so "show me every experiment" is a single list call, and the
+ * verdict of each run lands in a `ChaosResult` beside it. The catalogue of
+ * faults that can be run is the set of `ChaosExperiment` definitions the
+ * platform installed — read from the cluster, not assumed, so a definition
+ * somebody removed is not offered.
  *
- * Kinds that are not registered on the cluster are dropped rather than
- * surfaced as errors. Chaos Mesh's installation is modular — a cluster can
- * easily have PodChaos and NetworkChaos but no JVMChaos — and a page of red
- * boxes for faults nobody installed is noise, not information.
- *
- * The important safety property is that an experiment is never deleted to stop
- * it. Chaos Mesh recovers the fault on the way out of a running experiment,
- * and deleting the object while it is injected can leave the fault applied
- * with nothing left to undo it. Stopping goes through the pause annotation,
- * which is the operator's own supported path back.
+ * The important safety property is that a run is never deleted to stop it.
+ * Litmus recovers the fault on the way out of a running engine (`engineState:
+ * stop`), and deleting the object while the runner is mid-injection can leave
+ * the fault applied — a NetworkPolicy partition, a tc qdisc — with nothing
+ * left to undo it. Stopping goes through the engine state, which is the
+ * operator's own supported path back.
  */
 
 const client = k8s.K8sClient.auto()
-
-/** The annotation Chaos Mesh itself watches to halt an experiment. */
-export const PAUSE_ANNOTATION = 'experiment.chaos-mesh.org/pause'
 
 export function isNotFound(error: unknown): boolean {
   return (error as { status?: number } | null)?.status === 404
 }
 
-/** A 404 listing every chaos kind means Chaos Mesh is not installed at all. */
+/** A 404 listing engines means Litmus's CRDs are not installed at all. */
 export const isCrdMissing = isNotFound
 
 /* ─────────── reads ─────────── */
 
+const byNewest = (a: { metadata: { creationTimestamp?: string } }, b: { metadata: { creationTimestamp?: string } }) =>
+  (b.metadata.creationTimestamp ?? '').localeCompare(a.metadata.creationTimestamp ?? '')
+
 /**
- * Every chaos experiment on the cluster, across every kind.
+ * Every chaos run on the cluster.
  *
- * One query per kind so a kind that is missing fails alone, and React Query
- * caches them independently — switching a filter does not refetch the rest.
+ * `namespace` filters by the TARGET (`appinfo.appns`), not by where the engine
+ * object lives: runs are created in the platform namespace beside the operator
+ * (see `CHAOS_NAMESPACE`), and an operator looking at a team's namespace wants
+ * the faults pointed at it, wherever the engine sits.
  */
-export function useChaosExperiments(namespace?: string) {
-  const results = useQueries({
-    queries: CHAOS_KINDS.map((kind) => ({
-      queryKey: ['chaos', kind.id, namespace ?? 'all'] as const,
-      queryFn: async (): Promise<ChaosExperiment[]> => {
-        const res = await kube.list<ChaosExperiment>(gvrFor(kind.id), {
-          namespace,
-          limit: 500,
-        })
-        return (res.items ?? []).map((item) => ({ ...item, kind: item.kind || kind.kind }))
-      },
-      retry: false,
-      refetchInterval: 15_000,
-    })),
+export function useChaosEngines(namespace?: string) {
+  const query = useQuery({
+    queryKey: ['chaos', 'engines'] as const,
+    queryFn: async (): Promise<ChaosEngine[]> => {
+      const res = await kube.list<ChaosEngine>(ENGINES_GVR, { limit: 500 })
+      return (res.items ?? []).sort(byNewest)
+    },
+    retry: false,
+    refetchInterval: 10_000,
   })
-
-  const experiments = results.flatMap((r) => (r.isSuccess ? r.data : []))
-  // Installed = the kind answered at all. A 404 is "not part of this install".
-  const installedKinds = CHAOS_KINDS.filter((_, i) => !isNotFound(results[i].error))
-  const anyInstalled = results.some((r) => r.isSuccess)
-  const isLoading = results.some((r) => r.isLoading)
-  // A real error — RBAC, network — as opposed to a kind simply not existing.
-  const error = results.find((r) => r.error && !isNotFound(r.error))?.error
-
+  const all = query.data ?? []
+  const engines = namespace ? all.filter((e) => e.spec?.appinfo?.appns === namespace) : all
   return {
-    experiments: experiments.sort(byNewest),
-    installedKinds,
-    anyInstalled,
-    isLoading,
-    error,
-    refetch: () => results.forEach((r) => void r.refetch()),
+    engines,
+    isLoading: query.isLoading,
+    installed: !isNotFound(query.error),
+    error: query.error && !isNotFound(query.error) ? query.error : undefined,
+    refetch: () => void query.refetch(),
   }
 }
 
-function byNewest(a: ChaosExperiment, b: ChaosExperiment): number {
-  return (b.metadata.creationTimestamp ?? '').localeCompare(a.metadata.creationTimestamp ?? '')
-}
-
-export function useChaosExperiment(
-  kindId: ChaosKindId | undefined,
-  namespace: string | undefined,
-  name: string | undefined,
-) {
-  const enabled = Boolean(kindId && namespace && name)
-  const queryKey = ['chaos', 'one', kindId, namespace, name]
-  return useQuery({
-    queryKey,
-    queryFn: async () => await kube.get<ChaosExperiment>(gvrFor(kindId!), namespace, name!),
-    refetchInterval: useLiveRefetch(enabled ? gvrFor(kindId!) : null, [queryKey], 5_000, enabled),
-    enabled,
-    retry: false,
-  })
-}
-
-/** Chaos Mesh `Schedule` objects — chaos on a cron, the steady-state kind. */
-export function useChaosSchedules(namespace?: string) {
-  const queryKey = ['chaos', 'schedules', namespace ?? 'all']
-  return useQuery({
-    queryKey,
-    queryFn: async () => {
-      const res = await kube.list<ChaosExperiment>(
-        { group: CHAOS_GROUP, version: CHAOS_VERSION, resource: 'schedules', namespaced: true },
-        { namespace, limit: 200 },
-      )
-      return res.items ?? []
-    },
-    refetchInterval: 30_000,
-    retry: false,
-  })
-}
-
 /**
- * Namespaces a chaos experiment could target.
+ * The fault definitions installed on the cluster, matched to the catalogue.
  *
- * Reused by the launch dialog: chaos is only safe when you can see exactly
- * what you are pointing it at, so the dialog picks from the real list rather
- * than taking a free-text namespace.
+ * Only faults with both a definition on the cluster AND an entry in
+ * `CHAOS_FAULTS` are offered: the definition is what makes a run possible, the
+ * catalogue entry is what makes it explainable.
  */
+export function useInstalledFaults() {
+  const query = useQuery({
+    queryKey: ['chaos', 'experiments', CHAOS_NAMESPACE] as const,
+    queryFn: async () => {
+      const res = await kube.list<{ metadata: { name: string } }>(EXPERIMENTS_GVR, { namespace: CHAOS_NAMESPACE, limit: 200 })
+      return new Set((res.items ?? []).map((i) => i.metadata.name))
+    },
+    retry: false,
+    refetchInterval: 60_000,
+  })
+  const names = query.data ?? new Set<string>()
+  const installed: ChaosFault[] = CHAOS_FAULTS.filter((f) => names.has(f.id))
+  return { installed, definitions: names.size, isLoading: query.isLoading }
+}
+
+/** The verdicts of every run, keyed by ChaosResult name (`<engine>-<fault>`). */
+export function useChaosResults() {
+  const query = useQuery({
+    queryKey: ['chaos', 'results'] as const,
+    queryFn: async () => {
+      const res = await kube.list<ChaosResult>(RESULTS_GVR, { namespace: CHAOS_NAMESPACE, limit: 500 })
+      const out = new Map<string, ChaosResult>()
+      for (const r of res.items ?? []) out.set(r.metadata.name, r)
+      return out
+    },
+    retry: false,
+    refetchInterval: 10_000,
+  })
+  return query.data ?? new Map<string, ChaosResult>()
+}
+
 export function useTargetNamespaces() {
   return useQuery({
-    queryKey: ['chaos', 'target-namespaces'],
+    queryKey: ['namespaces', 'chaos-targets'],
     queryFn: async () => (await client.listNamespaces()).map((n) => n.metadata.name).sort(),
     staleTime: 60_000,
-    retry: false,
   })
 }
 
 /* ─────────── writes ─────────── */
 
 /**
- * Stop or resume an experiment.
+ * Stop a run.
  *
- * Never a delete. Chaos Mesh recovers the injected fault when an experiment
- * is paused; deleting the object mid-injection can strand the fault with
- * nothing left to undo it. The annotation is the operator's own supported
- * path, and it is reversible — which is the entire point of a chaos tool.
+ * `engineState: stop` is Litmus's own halt: the runner ends the injection,
+ * recovers the target, and the result records `Stopped`. Deleting the engine
+ * instead would skip that recovery. There is no resume — a stopped run is
+ * over, and running the fault again is a new run with its own verdict.
  */
-export function setChaosPaused(
-  kindId: ChaosKindId,
-  namespace: string,
-  name: string,
-  paused: boolean,
-): Promise<unknown> {
-  return kube.patch(
-    gvrFor(kindId),
-    namespace,
-    name,
-    // null removes the annotation in a merge patch, which is what "resume"
-    // means — absent, not "false".
-    { metadata: { annotations: { [PAUSE_ANNOTATION]: paused ? 'true' : null } } },
-    'merge',
-  )
+export function stopChaosEngine(namespace: string, name: string): Promise<unknown> {
+  return kube.patch(ENGINES_GVR, namespace, name, { spec: { engineState: 'stop' } }, 'merge')
 }
 
 /**
- * Delete an experiment.
+ * Delete a run and its result.
  *
- * Offered only for experiments that are not currently injected — the view
- * gates on that, and the reason is in `setChaosPaused` above.
+ * Offered only for runs that are not currently injecting — the view gates on
+ * that, and the reason is in `stopChaosEngine` above.
  */
-export function deleteChaosExperiment(
-  kindId: ChaosKindId,
-  namespace: string,
-  name: string,
-): Promise<unknown> {
-  return kube.delete(gvrFor(kindId), namespace, name)
+export async function deleteChaosEngine(engine: ChaosEngine): Promise<unknown> {
+  if (isLive(engine)) throw new Error('Stop the run first — deleting it now could leave the fault applied')
+  const ns = engine.metadata.namespace ?? CHAOS_NAMESPACE
+  const fault = engine.spec?.experiments?.[0]?.name
+  await kube.delete(ENGINES_GVR, ns, engine.metadata.name)
+  if (fault) {
+    // Best effort: the result is history, not a lock.
+    await kube.delete(RESULTS_GVR, ns, `${engine.metadata.name}-${fault}`).catch(() => undefined)
+  }
+  return undefined
 }
 
-export interface NewChaosExperiment {
-  kindId: ChaosKindId
+export interface SteadyStateProbe {
+  url: string
+  /** Expected status code; anything else fails the run. */
+  statusCode: number
+  intervalSeconds: number
+}
+
+export interface NewChaosEngine {
+  /** Fault id — a ChaosExperiment name. */
+  fault: string
   name: string
-  /** Namespace the experiment object lives in. */
-  namespace: string
-  action: string
-  /** Namespaces whose pods are targeted. */
-  targetNamespaces: string[]
-  labelSelectors?: Record<string, string>
-  mode: 'one' | 'all' | 'fixed' | 'fixed-percent' | 'random-max-percent'
-  /** Required by fixed / fixed-percent / random-max-percent. */
-  value?: string
-  /** Go duration — `30s`, `5m`. Absent means "until stopped", deliberately. */
-  duration?: string
-  /** Action-specific fields merged into spec (delay, stressors…). */
-  extra?: Record<string, unknown>
+  /** Namespace whose pods are targeted. */
+  targetNamespace: string
+  /** `app=checkout`. Litmus takes one label; empty means every pod. */
+  label?: string
+  appKind?: 'deployment' | 'statefulset' | 'daemonset' | 'rollout'
+  mode: TargetMode
+  percent?: string
+  /** Env overrides for the fault's knobs (TOTAL_CHAOS_DURATION included). */
+  env?: Record<string, string>
+  /** For node faults: the node to hit. */
+  node?: string
+  /**
+   * The hypothesis, as a probe. Litmus runs it continuously through the fault
+   * and fails the verdict when it stops holding — which is what turns
+   * "I broke it" into "the system survived" or "it did not".
+   */
+  steadyState?: SteadyStateProbe
 }
 
-export function createChaosExperiment(input: NewChaosExperiment): Promise<ChaosExperiment> {
-  const kind = CHAOS_KINDS.find((k) => k.id === input.kindId)
-  if (!kind) throw new Error(`unknown chaos kind: ${input.kindId}`)
+/** The ChaosEngine manifest for a run. Pure, so the game-day builder can reuse it. */
+export function engineManifest(input: NewChaosEngine): ChaosEngine {
+  const fault = faultById(input.fault)
+  if (!fault) throw new Error(`unknown chaos fault: ${input.fault}`)
 
-  return kube.apply<ChaosExperiment>({
-    apiVersion: `${CHAOS_GROUP}/${CHAOS_VERSION}`,
-    kind: kind.kind,
+  const env: Record<string, string> = {}
+  for (const k of fault.knobs) if (k.value !== '') env[k.env] = k.value
+  Object.assign(env, input.env ?? {})
+  if (!fault.node) {
+    const pct = podsAffected(input.mode, input.percent)
+    if (pct) env.PODS_AFFECTED_PERC = pct
+  } else if (input.node) {
+    env.TARGET_NODES = input.node
+  }
+
+  const probes: ChaosProbe[] = input.steadyState
+    ? [{
+      name: 'steady-state',
+      type: 'httpProbe',
+      mode: 'Continuous',
+      runProperties: {
+        probeTimeout: '5s',
+        interval: `${input.steadyState.intervalSeconds}s`,
+        retry: 1,
+        // A single failed poll fails the run: the hypothesis is "keeps
+        // serving", not "serves most of the time".
+        stopOnFailure: true,
+      },
+      'httpProbe/inputs': {
+        url: input.steadyState.url,
+        insecureSkipVerify: true,
+        method: { get: { criteria: '==', responseCode: String(input.steadyState.statusCode) } },
+      },
+    }]
+    : []
+
+  return {
+    apiVersion: `${LITMUS_GROUP}/${LITMUS_VERSION}`,
+    kind: 'ChaosEngine',
     metadata: {
       name: input.name,
-      namespace: input.namespace,
-      labels: { 'app.kubernetes.io/managed-by': 'adhar-console' },
+      namespace: CHAOS_NAMESPACE,
+      labels: {
+        'app.kubernetes.io/managed-by': 'adhar-console',
+        'adhar.io/chaos-fault': input.fault,
+        'adhar.io/chaos-target': input.targetNamespace,
+      },
     },
     spec: {
-      action: input.action,
-      mode: input.mode,
-      ...(input.value ? { value: input.value } : {}),
-      ...(input.duration ? { duration: input.duration } : {}),
-      selector: {
-        namespaces: input.targetNamespaces,
-        ...(input.labelSelectors && Object.keys(input.labelSelectors).length
-          ? { labelSelectors: input.labelSelectors }
-          : {}),
-      },
-      ...(input.extra ?? {}),
+      engineState: 'active',
+      // Litmus's annotation gate exists for clusters where every workload must
+      // opt in with a label; the platform gates in the console instead.
+      annotationCheck: 'false',
+      chaosServiceAccount: CHAOS_SERVICE_ACCOUNT,
+      // Runner and experiment pods stay after the run so their logs are the
+      // record of what happened; deleting the engine cleans them up.
+      jobCleanUpPolicy: 'retain',
+      ...(fault.node
+        ? {}
+        : {
+          appinfo: {
+            appns: input.targetNamespace,
+            ...(input.label ? { applabel: input.label } : {}),
+            appkind: input.appKind ?? 'deployment',
+          },
+        }),
+      experiments: [{
+        name: input.fault,
+        spec: {
+          components: { env: Object.entries(env).map(([name, value]) => ({ name, value })) },
+          ...(probes.length ? { probe: probes } : {}),
+        },
+      }],
     },
-  })
+  }
+}
+
+export function createChaosEngine(input: NewChaosEngine): Promise<ChaosEngine> {
+  return kube.apply<ChaosEngine>(engineManifest(input) as unknown as KubeObject)
 }
 
 /* ─────────────────────────── game days ─────────────────────────── */
 
 /**
- * A game day is a Chaos Mesh `Workflow`: a whole sequence of experiments as
- * one object, with recovery pauses and a steady-state probe that aborts the
- * run if the system genuinely stops serving.
+ * A game day is an Argo `Workflow` — the platform's argo-workflows package —
+ * whose steps each create a ChaosEngine and wait for its ChaosResult, with
+ * recovery pauses between them. This is the same shape Litmus's own Chaos
+ * Center generates (`litmus-checker` per step), so a game day made here is
+ * also readable there.
  *
- * Nodes are tracked separately (`WorkflowNode`), one per template instance,
- * and they carry the real progress — the Workflow's own status only says when
- * it started, when it ended, and which node is the entry.
+ * Progress lives in `status.nodes`: one entry per step, with a phase and
+ * timestamps. That is the real record; the workflow's own phase only says
+ * whether the whole run is still going and how it ended.
  */
-const WORKFLOWS_GVR = { group: CHAOS_GROUP, version: CHAOS_VERSION, resource: 'workflows', namespaced: true }
-const WORKFLOW_NODES_GVR = { group: CHAOS_GROUP, version: CHAOS_VERSION, resource: 'workflownodes', namespaced: true }
+export const WORKFLOWS_GVR = { group: 'argoproj.io', version: 'v1alpha1', resource: 'workflows', namespaced: true }
 
-export interface WorkflowCondition {
-  type: string
-  status: 'True' | 'False' | 'Unknown'
-  reason?: string
-  startTime?: string
+export interface ChaosWorkflowNode {
+  id: string
+  name: string
+  displayName?: string
+  type?: string
+  templateName?: string
+  phase?: string
+  message?: string
+  startedAt?: string
+  finishedAt?: string
+  children?: string[]
 }
 
 export interface ChaosWorkflow {
-  apiVersion?: string
-  kind?: string
   metadata: {
     name: string
     namespace?: string
-    uid?: string
     creationTimestamp?: string
     labels?: Record<string, string>
+    annotations?: Record<string, string>
   }
-  spec?: { entry?: string; templates?: Array<Record<string, unknown>> }
+  spec?: { entrypoint?: string; templates?: Array<Record<string, unknown>>; [k: string]: unknown }
   status?: {
-    startTime?: string
-    endTime?: string
-    entryNode?: string
-    conditions?: WorkflowCondition[]
+    phase?: string
+    message?: string
+    startedAt?: string
+    finishedAt?: string
+    progress?: string
+    nodes?: Record<string, ChaosWorkflowNode>
   }
 }
 
-export interface ChaosWorkflowNode {
-  metadata: { name: string; namespace?: string; creationTimestamp?: string }
-  spec?: { templateType?: string; deadline?: string; name?: string; children?: string[] }
-  status?: {
-    conditions?: WorkflowCondition[]
-    activeChildren?: Array<{ name?: string }>
-    finishedChildren?: Array<{ name?: string }>
-    chaosResource?: { name?: string; namespace?: string; kind?: string }
-  }
-}
+export const LABEL_GAMEDAY = 'adhar.io/chaos-gameday'
 
 export function useChaosWorkflows(namespace?: string) {
-  const queryKey = ['chaos', 'workflows', namespace ?? 'all']
   return useQuery({
-    queryKey,
+    queryKey: ['chaos', 'workflows', namespace ?? 'all'],
     queryFn: async () => {
-      const res = await kube.list<ChaosWorkflow>(WORKFLOWS_GVR, { namespace, limit: 200 })
-      return (res.items ?? []).sort((a, b) =>
-        (b.metadata.creationTimestamp ?? '').localeCompare(a.metadata.creationTimestamp ?? '')
-      )
+      const res = await kube.list<ChaosWorkflow>(WORKFLOWS_GVR, {
+        namespace: CHAOS_NAMESPACE,
+        labelSelector: LABEL_GAMEDAY,
+        limit: 200,
+      })
+      const all = (res.items ?? []).sort(byNewest)
+      return namespace ? all.filter((w) => w.metadata.labels?.['adhar.io/chaos-target'] === namespace) : all
     },
     refetchInterval: 10_000,
     retry: false,
@@ -305,37 +348,15 @@ export function useChaosWorkflow(namespace: string | undefined, name: string | n
   })
 }
 
-/**
- * The nodes belonging to one workflow.
- *
- * Chaos Mesh labels each node with its owning workflow, which is the only
- * reliable link — node names carry a generated suffix, so matching on the
- * name prefix would also catch a second run of the same game day.
- */
-export function useChaosWorkflowNodes(namespace: string | undefined, workflow: string | null) {
-  const enabled = Boolean(namespace && workflow)
-  return useQuery({
-    queryKey: ['chaos', 'workflow-nodes', namespace, workflow],
-    queryFn: async () => {
-      const res = await kube.list<ChaosWorkflowNode>(WORKFLOW_NODES_GVR, {
-        namespace,
-        labelSelector: `chaos-mesh.org/workflow=${workflow}`,
-        limit: 500,
-      })
-      return res.items ?? []
-    },
-    refetchInterval: enabled ? 5_000 : false,
-    enabled,
-    retry: false,
-  })
-}
-
 export function createGameDay(manifest: Record<string, unknown>): Promise<ChaosWorkflow> {
-  return kube.apply<ChaosWorkflow>(manifest)
+  return kube.apply<ChaosWorkflow>(manifest as unknown as KubeObject)
 }
 
+/**
+ * Delete a game day. Its engines are its own children (the revert step deletes
+ * them, and the workflow owns nothing else), so removing the workflow is safe
+ * once it is no longer running — the view gates on that.
+ */
 export function deleteGameDay(namespace: string, name: string): Promise<unknown> {
   return kube.delete(WORKFLOWS_GVR, namespace, name)
 }
-
-export { WORKFLOWS_GVR as CHAOS_WORKFLOWS_GVR }

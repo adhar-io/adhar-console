@@ -1,31 +1,33 @@
-import { CHAOS_GROUP, CHAOS_VERSION, type ChaosKindId } from './chaos-kinds.ts'
+import { CHAOS_NAMESPACE, faultById, type TargetMode } from './chaos-kinds.ts'
+import { engineManifest, LABEL_GAMEDAY, type SteadyStateProbe } from './chaos.ts'
 
 /**
- * The scenario library, and the builder that turns scenarios into a Chaos
- * Mesh `Workflow`.
+ * The scenario library, and the builder that turns scenarios into a game day.
  *
  * ---------------------------------------------------------------------------
  * WHY A LIBRARY RATHER THAN A FORM
  * ---------------------------------------------------------------------------
  * A blank chaos form asks the wrong question. "Which fault do you want?"
  * assumes you already know the failure modes worth rehearsing, and in practice
- * people run pod-kill a few times and stop — so the interesting failures, the
- * ones that actually take production down, are the ones never tried: a
+ * people run pod-delete a few times and stop — so the interesting failures,
+ * the ones that actually take production down, are the ones never tried: a
  * dependency that answers slowly instead of failing, DNS returning the wrong
- * answer, a disk that starts returning EIO, a clock that jumps.
+ * answer, a node that goes away, memory that runs out.
  *
  * So the catalogue is the product. Each entry states a HYPOTHESIS — what
  * should happen — because an experiment without one is just breakage. The
- * verdict is whether the hypothesis held, not whether the fault was injected.
+ * verdict is whether the hypothesis held, not whether the fault was injected;
+ * with Litmus that is literal, because the hypothesis becomes a probe the
+ * runner evaluates throughout the fault.
  *
  * ---------------------------------------------------------------------------
  * AUTOMATION
  * ---------------------------------------------------------------------------
- * Chaos Mesh's `Workflow` is a DAG of templates, so a game day is one object:
- * scenarios in series, each with a deadline, separated by recovery pauses, and
- * guarded by a `StatusCheck` that aborts the whole run when the system stops
- * being healthy. Serial-with-recovery is the default because simultaneous
- * faults tell you something broke without telling you which one did it.
+ * A game day is an Argo Workflow: one `ChaosEngine` per scenario, run in
+ * series with recovery pauses, each step waiting for its verdict
+ * (`litmus-checker`) and the whole run stopping at the first failed
+ * hypothesis. Serial-with-recovery is the default because simultaneous faults
+ * tell you something broke without telling you which one did it.
  *
  * This module is pure — it builds manifests and never talks to a cluster —
  * because the manifests are the part that must be exactly right.
@@ -37,26 +39,27 @@ export type ScenarioCategory =
   | 'resource'
   | 'storage'
   | 'dependency'
-  | 'time'
+  | 'node'
 
 export interface Scenario {
   id: string
   title: string
   category: ScenarioCategory
-  kind: ChaosKindId
+  /** The Litmus fault (ChaosExperiment name) this scenario runs. */
+  fault: string
   /** How much of a real outage this resembles. */
   blast: 'low' | 'medium' | 'high'
   /** What SHOULD happen. The experiment tests this, not the injection. */
   hypothesis: string
   /** Why it is worth rehearsing — the failure it is a proxy for. */
   rationale: string
-  /** Default duration; every scenario is bounded. */
-  duration: string
+  /** Seconds the fault runs; every scenario is bounded. */
+  seconds: number
   /**
-   * The chaos spec, minus selector and mode, which the launcher supplies so
-   * one scenario can be pointed at any workload.
+   * Fault knobs, minus the target, which the launcher supplies so one scenario
+   * can be pointed at any workload.
    */
-  spec: Record<string, unknown>
+  env: Record<string, string>
 }
 
 /**
@@ -68,224 +71,193 @@ export interface Scenario {
 export const SCENARIOS: Scenario[] = [
   /* ── availability ── */
   {
-    id: 'pod-failure-one',
-    title: 'One replica becomes unavailable',
+    id: 'pod-delete-one',
+    title: 'One replica is deleted',
     category: 'availability',
-    kind: 'pod',
-    blast: 'low',
-    hypothesis: 'Traffic continues on the remaining replicas; no request fails.',
-    rationale:
-      'The single most common real failure. If this hurts, nothing else in this list matters yet.',
-    duration: '60s',
-    spec: { action: 'pod-failure' },
-  },
-  {
-    id: 'pod-kill-one',
-    title: 'One pod is killed',
-    category: 'availability',
-    kind: 'pod',
+    fault: 'pod-delete',
     blast: 'low',
     hypothesis: 'The pod is rescheduled and ready within its normal startup time; no request fails.',
     rationale:
-      'Distinct from unavailability: this exercises restart, readiness gates and whatever the pod does on boot.',
-    duration: '30s',
-    spec: { action: 'pod-kill' },
+      'The single most common real failure. If this hurts, nothing else in this list matters yet.',
+    seconds: 60,
+    env: { CHAOS_INTERVAL: '20', FORCE: 'false' },
   },
   {
     id: 'container-kill',
     title: 'A container is killed inside a running pod',
     category: 'availability',
-    kind: 'pod',
+    fault: 'container-kill',
     blast: 'medium',
     hypothesis: 'The container restarts in place and the readiness probe removes it from the service until it is back.',
     rationale:
       'Finds pods that keep receiving traffic while a sidecar or main container is restarting — a readiness probe that only checks the process, not the dependency.',
-    duration: '30s',
-    spec: { action: 'container-kill' },
+    seconds: 30,
+    env: { CHAOS_INTERVAL: '10' },
   },
   {
-    id: 'pod-failure-majority',
-    title: 'Most replicas become unavailable',
+    id: 'pod-delete-majority',
+    title: 'Most replicas are deleted at once',
     category: 'availability',
-    kind: 'pod',
+    fault: 'pod-delete',
     blast: 'high',
-    hypothesis: 'The service degrades but stays up; the survivors are not overwhelmed by the redirected load.',
+    hypothesis: 'The remaining replica absorbs the load, or the disruption budget refuses the deletion.',
     rationale:
-      'A node drain or zone loss looks like this. Usually the first place a too-small HPA floor shows up.',
-    duration: '60s',
-    spec: { action: 'pod-failure' },
+      'What a bad node drain or a zone failure looks like. Tests the PodDisruptionBudget and whether one replica can actually carry the service.',
+    seconds: 60,
+    env: { CHAOS_INTERVAL: '60', FORCE: 'true', PODS_AFFECTED_PERC: '67' },
   },
-
   /* ── network ── */
   {
     id: 'net-latency',
     title: 'The network gets slow',
     category: 'network',
-    kind: 'network',
+    fault: 'pod-network-latency',
     blast: 'low',
-    hypothesis: 'Callers absorb the added latency without their own timeouts firing or their queues growing without bound.',
+    hypothesis: 'Latency rises but requests complete; timeouts are longer than the added delay and nothing retries into a storm.',
     rationale:
-      'Slow is harder than down. A dependency that answers in 2s instead of failing fast is what exhausts connection pools.',
-    duration: '120s',
-    spec: { action: 'delay', delay: { latency: '200ms', correlation: '50', jitter: '50ms' } },
+      'Slow is worse than down: a dead dependency fails fast, a slow one ties up every worker until the pool is exhausted.',
+    seconds: 120,
+    env: { NETWORK_LATENCY: '200', JITTER: '50' },
   },
   {
     id: 'net-loss',
     title: 'Packets are dropped',
     category: 'network',
-    kind: 'network',
+    fault: 'pod-network-loss',
     blast: 'medium',
-    hypothesis: 'Retries absorb the loss; the error rate stays within the SLO.',
-    rationale: 'Exercises retry and backoff. Also finds retries that amplify rather than absorb.',
-    duration: '120s',
-    spec: { action: 'loss', loss: { loss: '10', correlation: '25' } },
+    hypothesis: 'TCP retransmits; throughput drops but the error rate stays at zero.',
+    rationale: 'Lossy links between zones and flapping NICs both look exactly like this.',
+    seconds: 120,
+    env: { NETWORK_PACKET_LOSS_PERCENTAGE: '10' },
   },
   {
     id: 'net-partition',
     title: 'The network is partitioned',
     category: 'network',
-    kind: 'network',
+    fault: 'pod-network-partition',
     blast: 'high',
-    hypothesis: 'Each side detects the partition and degrades predictably; nothing corrupts state by assuming it is alone.',
+    hypothesis: 'The targets are unreachable; callers fail fast with a clear error and recover the moment the partition lifts.',
     rationale:
-      'The classic distributed-systems failure. Leader election, quorum and split-brain handling are only ever tested here.',
-    duration: '90s',
-    spec: { action: 'partition', direction: 'both' },
-  },
-  {
-    id: 'net-bandwidth',
-    title: 'Bandwidth is throttled',
-    category: 'network',
-    kind: 'network',
-    blast: 'medium',
-    hypothesis: 'Large responses take longer but nothing times out or truncates.',
-    rationale: 'A noisy neighbour or a saturated uplink. Finds code that assumes bulk transfers are instant.',
-    duration: '120s',
-    spec: { action: 'bandwidth', bandwidth: { rate: '1mbps', limit: 20_971_520, buffer: 10_000 } },
+      'The split-brain rehearsal. Clients that hang instead of failing, and leaders that keep leading without quorum, both show up here.',
+    seconds: 60,
+    env: { POLICY_TYPES: 'all' },
   },
   {
     id: 'net-corrupt',
     title: 'Packets are corrupted',
     category: 'network',
-    kind: 'network',
+    fault: 'pod-network-corruption',
     blast: 'medium',
-    hypothesis: 'Checksums reject the corrupt packets and the transport retransmits; the application never sees bad data.',
-    rationale: 'Verifies that nothing is trusting the wire without validation.',
-    duration: '60s',
-    spec: { action: 'corrupt', corrupt: { corrupt: '5', correlation: '25' } },
+    hypothesis: 'Checksums catch the corruption and TCP retransmits; nothing above the transport notices.',
+    rationale: 'Faulty hardware exists. It tends to show up as inexplicable protocol errors from one host.',
+    seconds: 90,
+    env: { NETWORK_PACKET_CORRUPTION_PERCENTAGE: '5' },
   },
-
   /* ── resource ── */
   {
     id: 'cpu-stress',
     title: 'CPU is contended',
     category: 'resource',
-    kind: 'stress',
+    fault: 'pod-cpu-hog',
     blast: 'low',
-    hypothesis: 'Latency rises but stays inside the SLO; the autoscaler responds before the error budget is spent.',
-    rationale:
-      'A noisy neighbour on the same node. Also the cheapest way to find out whether your HPA thresholds are set anywhere useful.',
-    duration: '120s',
-    spec: { stressors: { cpu: { workers: 2, load: 80 } } },
+    hypothesis: 'Latency degrades gracefully; CPU limits keep the noise from spilling onto neighbours.',
+    rationale: 'A noisy neighbour, a runaway job, or the autoscaler catching up late all look like this.',
+    seconds: 120,
+    env: { CPU_CORES: '1' },
   },
   {
     id: 'memory-stress',
     title: 'Memory is consumed',
     category: 'resource',
-    kind: 'stress',
+    fault: 'pod-memory-hog',
     blast: 'medium',
-    hypothesis: 'The pod stays within its limit, or is OOMKilled and restarts cleanly without losing in-flight work.',
+    hypothesis: 'The pod is OOM-killed and restarted cleanly rather than swapping or taking the node down.',
     rationale:
-      'Finds limits set from guesswork, and the difference between a graceful shutdown and a SIGKILL half way through a request.',
-    duration: '120s',
-    spec: { stressors: { memory: { workers: 1, size: '256MB' } } },
+      'The most common cause of a pod dying in production, and the one whose limits are most often set by guessing.',
+    seconds: 90,
+    env: { MEMORY_CONSUMPTION: '256' },
   },
-
   /* ── storage ── */
   {
-    id: 'io-latency',
-    title: 'Disk reads and writes get slow',
+    id: 'io-stress',
+    title: 'Disk I/O is saturated',
     category: 'storage',
-    kind: 'io',
+    fault: 'pod-io-stress',
     blast: 'medium',
-    hypothesis: 'Requests that touch disk slow down without blocking requests that do not.',
-    rationale: 'A degraded volume. Finds synchronous disk access on the hot path that nobody knew was there.',
-    duration: '120s',
-    spec: { action: 'latency', delay: '100ms', percent: 100, volumePath: '/data', path: '/data/**/*' },
+    hypothesis: 'The service stays within its latency budget; a slow volume does not block the request path.',
+    rationale: 'Throttled cloud volumes and a neighbour compacting a database both slow the disk without failing it.',
+    seconds: 120,
+    env: { FILESYSTEM_UTILIZATION_PERCENTAGE: '10' },
   },
   {
-    id: 'io-fault',
-    title: 'Disk operations fail',
+    id: 'disk-fill',
+    title: 'The disk fills up',
     category: 'storage',
-    kind: 'io',
-    blast: 'high',
-    hypothesis: 'The I/O error is surfaced and handled; the process does not corrupt state or exit without explanation.',
-    rationale:
-      'A full or failing volume returns EIO. Most code has never been run down this path even once.',
-    duration: '60s',
-    spec: { action: 'fault', errno: 5, percent: 50, volumePath: '/data', path: '/data/**/*' },
+    fault: 'disk-fill',
+    blast: 'medium',
+    hypothesis: 'Writes fail with a clear error; the service keeps serving reads and recovers when space returns.',
+    rationale: 'Logs and caches grow until they don’t. Finds services that die instead of degrading when a write fails.',
+    seconds: 90,
+    env: { FILL_PERCENTAGE: '80' },
   },
-
   /* ── dependency ── */
   {
     id: 'dns-error',
     title: 'DNS stops resolving',
     category: 'dependency',
-    kind: 'dns',
+    fault: 'pod-dns-error',
     blast: 'medium',
-    hypothesis: 'Name-resolution failures are retried and reported clearly, not mistaken for the dependency being down.',
+    hypothesis: 'Established connections keep working; new ones fail fast and recover as soon as resolution returns.',
     rationale:
-      'CoreDNS trouble presents as every dependency failing at once. Finds clients that cache nothing and resolve per request.',
-    duration: '60s',
-    spec: { action: 'error', patterns: ['*'] },
+      'CoreDNS restarting, a search-path change, an upstream outage — every service depends on DNS and almost none of them test it.',
+    seconds: 60,
+    env: {},
   },
   {
-    id: 'dns-random',
+    id: 'dns-spoof',
     title: 'DNS returns the wrong address',
     category: 'dependency',
-    kind: 'dns',
+    fault: 'pod-dns-spoof',
     blast: 'high',
-    hypothesis: 'Connections to the wrong address fail fast and are retried; nothing sends data to an unverified endpoint.',
-    rationale: 'The nastier half of DNS failure: an answer that is wrong rather than absent.',
-    duration: '60s',
-    spec: { action: 'random', patterns: ['*'] },
+    hypothesis: 'Connections to the wrong host fail TLS verification and are refused rather than trusted.',
+    rationale: 'A poisoned cache or a stale record. If your clients accept whatever DNS says, this is how you find out.',
+    seconds: 60,
+    env: { SPOOF_MAP: '{"example.invalid":"127.0.0.1"}' },
   },
   {
-    id: 'http-abort',
-    title: 'HTTP requests are aborted',
+    id: 'http-status',
+    title: 'HTTP responses become errors',
     category: 'dependency',
-    kind: 'http',
+    fault: 'pod-http-status-code',
     blast: 'medium',
-    hypothesis: 'The caller retries or fails gracefully; a dropped connection does not leave state half-written.',
-    rationale: 'A dependency that resets the connection mid-response, which is not the same as returning a 500.',
-    duration: '90s',
-    spec: { target: 'Request', abort: true, port: 80 },
+    hypothesis: 'Callers see a 500 and either retry with backoff or fail cleanly; no one treats the error as an empty result.',
+    rationale: 'Half the dependency handling in a codebase is only ever exercised in production. Exercise it here.',
+    seconds: 60,
+    env: { STATUS_CODE: '500', TARGET_SERVICE_PORT: '8080' },
   },
   {
     id: 'http-delay',
     title: 'HTTP responses are delayed',
     category: 'dependency',
-    kind: 'http',
-    blast: 'medium',
-    hypothesis: 'Client timeouts fire before the caller’s own deadline, and the circuit breaker opens.',
+    fault: 'pod-http-latency',
+    blast: 'low',
+    hypothesis: 'Callers time out at their configured deadline, not at the dependency’s, and shed load rather than queue it.',
     rationale:
-      'Tests timeout budgets end to end. Finds the service whose client timeout is longer than its own SLA.',
-    duration: '90s',
-    spec: { target: 'Request', delay: '3s', port: 80 },
+      'The other half: a dependency that answers eventually. This is where missing client timeouts turn one slow service into a slow platform.',
+    seconds: 90,
+    env: { LATENCY: '3000', TARGET_SERVICE_PORT: '8080' },
   },
-
-  /* ── time ── */
+  /* ── node ── */
   {
-    id: 'clock-skew',
-    title: 'The clock jumps forward',
-    category: 'time',
-    kind: 'time',
-    blast: 'medium',
-    hypothesis: 'Tokens, caches and scheduled work behave sensibly; nothing assumes the clock only moves forward slowly.',
-    rationale:
-      'Finds expiry logic that breaks on a jump, and anything measuring elapsed time with a wall clock instead of a monotonic one.',
-    duration: '60s',
-    spec: { timeOffset: '+10m' },
+    id: 'node-drain',
+    title: 'A node is drained',
+    category: 'node',
+    fault: 'node-drain',
+    blast: 'high',
+    hypothesis: 'Every pod on the node reschedules; disruption budgets pace the eviction and the service never loses all replicas.',
+    rationale: 'Every upgrade, every autoscaler scale-down. The rehearsal for the maintenance that is going to happen anyway.',
+    seconds: 90,
+    env: {},
   },
 ]
 
@@ -299,16 +271,16 @@ export const CATEGORY_LABEL: Record<ScenarioCategory, string> = {
   resource: 'Resource contention',
   storage: 'Storage',
   dependency: 'Dependencies',
-  time: 'Time',
+  node: 'Nodes',
 }
 
 export const CATEGORY_BLURB: Record<ScenarioCategory, string> = {
   availability: 'Replicas and containers going away.',
   network: 'The wire being slow, lossy or split.',
   resource: 'Competing for CPU and memory.',
-  storage: 'Volumes that are slow, or failing.',
+  storage: 'Disks that are slow, or full.',
   dependency: 'What you call, misbehaving.',
-  time: 'Clocks that do not agree.',
+  node: 'Whole machines going away.',
 }
 
 /* ─────────────────────────── target ─────────────────────────── */
@@ -316,67 +288,18 @@ export const CATEGORY_BLURB: Record<ScenarioCategory, string> = {
 export interface ChaosTarget {
   namespace: string
   /** `app=checkout` — empty means every pod in the namespace. */
-  selector: string
-  mode: 'one' | 'all' | 'fixed' | 'fixed-percent' | 'random-max-percent'
-  value?: string
-}
-
-/** Chaos Mesh's `selector` block for a target. */
-export function selectorFor(target: ChaosTarget): Record<string, unknown> {
-  const labelSelectors: Record<string, string> = {}
-  for (const pair of target.selector.split(',')) {
-    const [k, v] = pair.split('=').map((s) => s.trim())
-    if (k && v) labelSelectors[k] = v
-  }
-  return {
-    namespaces: [target.namespace],
-    ...(Object.keys(labelSelectors).length ? { labelSelectors } : {}),
-  }
-}
-
-/** The template key Chaos Mesh expects for a kind, e.g. `podChaos`. */
-export const TEMPLATE_KEY: Record<ChaosKindId, string> = {
-  pod: 'podChaos',
-  network: 'networkChaos',
-  stress: 'stressChaos',
-  io: 'ioChaos',
-  time: 'timeChaos',
-  dns: 'dnsChaos',
-  http: 'httpChaos',
-  jvm: 'jvmChaos',
-  block: 'blockChaos',
-  kernel: 'kernelChaos',
-}
-
-/** The `templateType` Chaos Mesh expects, e.g. `PodChaos`. */
-export const TEMPLATE_TYPE: Record<ChaosKindId, string> = {
-  pod: 'PodChaos',
-  network: 'NetworkChaos',
-  stress: 'StressChaos',
-  io: 'IOChaos',
-  time: 'TimeChaos',
-  dns: 'DNSChaos',
-  http: 'HTTPChaos',
-  jvm: 'JVMChaos',
-  block: 'BlockChaos',
-  kernel: 'KernelChaos',
+  label: string
+  appKind?: 'deployment' | 'statefulset' | 'daemonset' | 'rollout'
+  mode: TargetMode
+  percent?: string
+  /** For node scenarios. */
+  node?: string
 }
 
 /* ─────────────────────────── workflow ─────────────────────────── */
 
-export interface SteadyState {
-  /** URL probed throughout the run. */
-  url: string
-  /** Status code considered healthy, e.g. `200` or `2XX`. */
-  statusCode: string
-  intervalSeconds: number
-  /** Consecutive failures before the run is abandoned. */
-  failureThreshold: number
-}
-
 export interface GameDayInput {
   name: string
-  namespace: string
   target: ChaosTarget
   /** Scenario ids, in the order they should run. */
   scenarios: string[]
@@ -384,140 +307,163 @@ export interface GameDayInput {
   strategy: 'serial' | 'parallel'
   /** Quiet time between scenarios for the system to recover. */
   recoverySeconds: number
-  /** Optional probe that aborts the run when the system stops being healthy. */
-  steadyState?: SteadyState
+  /** Optional probe that fails a scenario when the system stops being healthy. */
+  steadyState?: SteadyStateProbe
 }
 
-export const LABEL_GAMEDAY = 'adhar.io/chaos-gameday'
 export const LABEL_SCENARIO = 'adhar.io/chaos-scenario'
 
+/** The step images. Pinned to the platform's Litmus release. */
+export const CHECKER_IMAGE = 'litmuschaos.docker.scarf.sh/litmuschaos/litmus-checker:3.31.0'
+export const KUBECTL_IMAGE = 'litmuschaos.docker.scarf.sh/litmuschaos/k8s:3.31.0'
+export const GAMEDAY_SERVICE_ACCOUNT = 'adhar-chaos-gameday'
+
 /**
- * Build a Chaos Mesh `Workflow` from a list of scenarios.
+ * Build the Argo `Workflow` for a game day.
  *
  * Serial by default, with a pause between each fault. That ordering is the
  * whole value: running everything at once tells you the system broke without
  * telling you which fault did it, and leaves nothing recovered to compare
  * against. The pauses are where recovery is observed.
  *
- * A steady-state probe becomes a `StatusCheck` template that runs alongside
- * the faults, and `abortWithStatusCheck` stops the run the moment the system
- * genuinely stops serving — which is the difference between an experiment and
- * an outage you caused.
+ * Each scenario step hands `litmus-checker` a ChaosEngine manifest; the
+ * checker creates it and blocks until the ChaosResult is written, exiting
+ * non-zero on a failed verdict — so a failed hypothesis stops the run, and a
+ * steady-state probe (a Litmus `httpProbe` on every engine) is what produces
+ * that verdict. A final `revert` step, run whatever happened, stops and
+ * deletes the engines the game day created, so a fault never outlives it.
  */
 export function buildGameDay(input: GameDayInput): Record<string, unknown> {
   const chosen = input.scenarios.map(scenarioById).filter((s): s is Scenario => Boolean(s))
   if (!chosen.length) throw new Error('A game day needs at least one scenario.')
+  for (const s of chosen) {
+    if (!faultById(s.fault)) throw new Error(`scenario ${s.id} names an unknown fault ${s.fault}`)
+  }
 
-  const selector = selectorFor(input.target)
   const templates: Array<Record<string, unknown>> = []
-  const children: string[] = []
+  const steps: Array<Array<{ name: string; template: string }>> = []
+  const engineNames: string[] = []
 
   chosen.forEach((scenario, i) => {
     const stepName = `${i + 1}-${scenario.id}`
+    const engineName = `${input.name}-${i + 1}-${scenario.fault}`.slice(0, 63).replace(/-+$/, '')
+    engineNames.push(engineName)
+    const engine = engineManifest({
+      fault: scenario.fault,
+      name: engineName,
+      targetNamespace: input.target.namespace,
+      label: input.target.label || undefined,
+      appKind: input.target.appKind,
+      mode: input.target.mode,
+      percent: input.target.percent,
+      node: input.target.node,
+      env: { ...scenario.env, TOTAL_CHAOS_DURATION: String(scenario.seconds) },
+      steadyState: input.steadyState,
+    })
+    engine.metadata.labels = {
+      ...engine.metadata.labels,
+      [LABEL_GAMEDAY]: input.name,
+      [LABEL_SCENARIO]: scenario.id,
+    }
     templates.push({
       name: stepName,
-      templateType: TEMPLATE_TYPE[scenario.kind],
-      deadline: scenario.duration,
-      [TEMPLATE_KEY[scenario.kind]]: {
-        ...scenario.spec,
-        mode: input.target.mode,
-        ...(input.target.value ? { value: input.target.value } : {}),
-        selector,
+      inputs: {
+        artifacts: [{
+          name: 'engine',
+          path: `/tmp/${engineName}.yaml`,
+          raw: { data: JSON.stringify(engine) },
+        }],
+      },
+      container: {
+        image: CHECKER_IMAGE,
+        args: [`-file=/tmp/${engineName}.yaml`, `-saveName=/tmp/${engineName}-name`],
       },
     })
-    children.push(stepName)
+    const step = { name: stepName, template: stepName }
 
+    if (input.strategy === 'parallel') {
+      // One parallel group holding every scenario.
+      if (steps.length === 0) steps.push([])
+      steps[0].push(step)
+      return
+    }
+    steps.push([step])
     // Recovery pauses only make sense between faults, and only in serial —
     // in parallel everything overlaps and a pause would delay nothing.
     const isLast = i === chosen.length - 1
-    if (input.strategy === 'serial' && !isLast && input.recoverySeconds > 0) {
+    if (!isLast && input.recoverySeconds > 0) {
       const pause = `${i + 1}-recover`
-      templates.push({ name: pause, templateType: 'Suspend', deadline: `${input.recoverySeconds}s` })
-      children.push(pause)
+      templates.push({ name: pause, suspend: { duration: `${input.recoverySeconds}s` } })
+      steps.push([{ name: pause, template: pause }])
     }
   })
 
-  const entryName = 'entry'
-  const entry: Record<string, unknown> = {
-    name: entryName,
-    templateType: input.strategy === 'serial' ? 'Serial' : 'Parallel',
-    children,
-  }
+  // Runs whatever happened: a failed hypothesis must not leave its fault
+  // applied, and a stopped engine is what lets the runner recover the target.
+  templates.push({
+    name: 'revert',
+    container: {
+      image: KUBECTL_IMAGE,
+      command: ['sh', '-c'],
+      args: [
+        [
+          `set -e`,
+          `for e in ${engineNames.join(' ')}; do`,
+          `  kubectl -n ${CHAOS_NAMESPACE} patch chaosengine "$e" --type merge -p '{"spec":{"engineState":"stop"}}' 2>/dev/null || true`,
+          `done`,
+          `sleep 15`,
+          `for e in ${engineNames.join(' ')}; do`,
+          `  kubectl -n ${CHAOS_NAMESPACE} delete chaosengine "$e" --ignore-not-found`,
+          `done`,
+          `echo "reverted ${engineNames.length} engine(s)"`,
+        ].join('\n'),
+      ],
+    },
+  })
 
-  if (input.steadyState) {
-    const checkName = 'steady-state'
-    templates.push({
-      name: checkName,
-      templateType: 'StatusCheck',
-      // Outlives the faults so recovery is observed too.
-      deadline: `${totalSeconds(chosen, input) + input.recoverySeconds}s`,
-      statusCheck: {
-        mode: 'Continuous',
-        type: 'HTTP',
-        intervalSeconds: input.steadyState.intervalSeconds,
-        failureThreshold: input.steadyState.failureThreshold,
-        http: {
-          url: input.steadyState.url,
-          method: 'GET',
-          criteria: { statusCode: input.steadyState.statusCode },
-        },
-      },
-    })
-    // The probe runs BESIDE the faults, not before them, so the entry becomes
-    // a parallel pair: the fault sequence and the watch over it.
-    const faultsName = 'faults'
-    templates.push({ ...entry, name: faultsName })
-    templates.push({
-      name: entryName,
-      templateType: 'Parallel',
-      children: [faultsName, checkName],
-      abortWithStatusCheck: true,
-    })
-  } else {
-    templates.push(entry)
-  }
+  templates.push({
+    name: 'game-day',
+    steps,
+  })
 
   return {
-    apiVersion: `${CHAOS_GROUP}/${CHAOS_VERSION}`,
+    apiVersion: 'argoproj.io/v1alpha1',
     kind: 'Workflow',
     metadata: {
       name: input.name,
-      namespace: input.namespace,
+      namespace: CHAOS_NAMESPACE,
       labels: {
         'app.kubernetes.io/managed-by': 'adhar-console',
         [LABEL_GAMEDAY]: input.name,
+        'adhar.io/chaos-target': input.target.namespace,
+      },
+      annotations: {
+        'adhar.io/chaos-scenarios': chosen.map((s) => s.id).join(','),
+        'adhar.io/chaos-strategy': input.strategy,
       },
     },
-    spec: { entry: entryName, templates },
+    spec: {
+      entrypoint: 'game-day',
+      serviceAccountName: GAMEDAY_SERVICE_ACCOUNT,
+      // Exit handler: Argo runs it after the entrypoint, success or failure.
+      onExit: 'revert',
+      // The run must not outlive its own budget by much.
+      activeDeadlineSeconds: totalSeconds(chosen, input) + 15 * 60,
+      // Nothing to tidy: the engines are deleted by revert, and finished
+      // workflows are the game-day history.
+      podGC: { strategy: 'OnWorkflowSuccess' },
+      templates,
+    },
   }
 }
 
 /** Wall-clock seconds the fault sequence will take. */
 export function totalSeconds(scenarios: Scenario[], input: Pick<GameDayInput, 'strategy' | 'recoverySeconds'>): number {
-  const durations = scenarios.map((s) => parseDuration(s.duration))
+  const durations = scenarios.map((s) => s.seconds)
   if (input.strategy === 'parallel') return Math.max(0, ...durations)
   const faults = durations.reduce((a, b) => a + b, 0)
   const pauses = Math.max(0, scenarios.length - 1) * input.recoverySeconds
   return faults + pauses
-}
-
-/** `90s`, `2m`, `1h` → seconds. Unknown shapes are 0 rather than NaN. */
-export function parseDuration(d: string): number {
-  const m = d.trim().match(/^(\d+(?:\.\d+)?)(ms|s|m|h)$/)
-  if (!m) return 0
-  const n = Number(m[1])
-  switch (m[2]) {
-    case 'ms':
-      return n / 1000
-    case 's':
-      return n
-    case 'm':
-      return n * 60
-    case 'h':
-      return n * 3600
-    default:
-      return 0
-  }
 }
 
 export function formatSeconds(total: number): string {

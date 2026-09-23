@@ -1,245 +1,125 @@
 import { assertEquals, assertThrows } from 'jsr:@std/assert'
 import {
   buildGameDay,
-  type ChaosTarget,
+  CHECKER_IMAGE,
   formatSeconds,
-  parseDuration,
+  GAMEDAY_SERVICE_ACCOUNT,
   SCENARIOS,
   scenarioById,
-  selectorFor,
-  TEMPLATE_KEY,
-  TEMPLATE_TYPE,
   totalSeconds,
+  type GameDayInput,
 } from './chaos-scenarios.ts'
-import { CHAOS_KINDS } from './chaos-kinds.ts'
-
-/**
- * A game day is one Kubernetes object that will deliberately break a running
- * system. If the manifest is subtly wrong the failure modes are all bad: a
- * fault with no deadline never ends, a missing selector hits every pod in the
- * namespace, an abort that does not wire up means the run continues through a
- * real outage. These tests pin the shape.
- */
-
-const TARGET: ChaosTarget = { namespace: 'payments', selector: 'app=checkout', mode: 'one' }
-
-const gameDay = (over: Partial<Parameters<typeof buildGameDay>[0]> = {}) =>
-  buildGameDay({
-    name: 'friday-gameday',
-    namespace: 'chaos',
-    target: TARGET,
-    scenarios: ['pod-failure-one', 'net-latency'],
-    strategy: 'serial',
-    recoverySeconds: 30,
-    ...over,
-  })
-
-type Tpl = Record<string, unknown>
-const templates = (wf: Record<string, unknown>) => (wf.spec as { templates: Tpl[] }).templates
-const entryOf = (wf: Record<string, unknown>) => (wf.spec as { entry: string }).entry
-const byName = (wf: Record<string, unknown>, name: string) => templates(wf).find((t) => t.name === name)
-
-/* ─────────── the catalogue ─────────── */
+import { CHAOS_NAMESPACE, CHAOS_SERVICE_ACCOUNT, faultById } from './chaos-kinds.ts'
+import { engineManifest } from './chaos.ts'
 
 Deno.test('every scenario states a hypothesis — otherwise it is just breakage', () => {
   for (const s of SCENARIOS) {
-    assertEquals(s.hypothesis.length > 20, true, `${s.id} needs a hypothesis`)
-    assertEquals(s.rationale.length > 20, true, `${s.id} needs a rationale`)
-    // An unbounded fault is an outage, not an experiment.
-    assertEquals(parseDuration(s.duration) > 0, true, `${s.id} must be bounded`)
+    assertEquals(typeof s.hypothesis, 'string', s.id)
+    assertEquals(s.hypothesis.length > 20, true, s.id)
+    assertEquals(s.seconds > 0, true, s.id)
   }
 })
 
-Deno.test('scenario ids are unique and resolvable', () => {
-  assertEquals(new Set(SCENARIOS.map((s) => s.id)).size, SCENARIOS.length)
-  for (const s of SCENARIOS) assertEquals(scenarioById(s.id)?.id, s.id)
-  assertEquals(scenarioById('nope'), undefined)
+Deno.test('scenario ids are unique and resolvable, and every fault they name is catalogued', () => {
+  const ids = SCENARIOS.map((s) => s.id)
+  assertEquals(new Set(ids).size, ids.length)
+  for (const s of SCENARIOS) {
+    assertEquals(scenarioById(s.id)?.id, s.id)
+    assertEquals(faultById(s.fault)?.id, s.fault, `${s.id} names unknown fault ${s.fault}`)
+  }
 })
 
-Deno.test('scenarios never carry their own selector or mode', () => {
-  // The target is supplied at launch so one scenario can point anywhere;
-  // a baked-in selector would silently override it.
+Deno.test('scenarios never carry their own target — the launcher supplies it', () => {
   for (const s of SCENARIOS) {
-    assertEquals('selector' in s.spec, false, `${s.id} must not fix a selector`)
-    assertEquals('mode' in s.spec, false, `${s.id} must not fix a mode`)
+    assertEquals('PODS_AFFECTED_PERC' in s.env && s.blast !== 'high', false, s.id)
+    assertEquals('TARGET_NODES' in s.env, false, s.id)
   }
 })
 
 Deno.test('the catalogue covers the failure families that matter', () => {
-  const categories = new Set(SCENARIOS.map((s) => s.category))
-  for (const c of ['availability', 'network', 'resource', 'storage', 'dependency', 'time']) {
-    assertEquals(categories.has(c as never), true, `no scenario covers ${c}`)
+  const cats = new Set(SCENARIOS.map((s) => s.category))
+  for (const c of ['availability', 'network', 'resource', 'storage', 'dependency', 'node']) assertEquals(cats.has(c as never), true, c)
+})
+
+const target: GameDayInput['target'] = { namespace: 'payments', label: 'app=checkout', mode: 'one' }
+
+Deno.test('an engine manifest is a runnable Litmus ChaosEngine', () => {
+  const m = engineManifest({ fault: 'pod-network-latency', name: 'x', targetNamespace: 'payments', label: 'app=checkout', mode: 'percent', percent: '50', env: { NETWORK_LATENCY: '250' } })
+  assertEquals(m.kind, 'ChaosEngine')
+  assertEquals(m.metadata.namespace, CHAOS_NAMESPACE)
+  assertEquals(m.spec?.chaosServiceAccount, CHAOS_SERVICE_ACCOUNT)
+  assertEquals(m.spec?.engineState, 'active')
+  assertEquals(m.spec?.appinfo, { appns: 'payments', applabel: 'app=checkout', appkind: 'deployment' })
+  const env = Object.fromEntries((m.spec?.experiments?.[0].spec?.components?.env ?? []).map((e) => [e.name, e.value]))
+  assertEquals(env.NETWORK_LATENCY, '250')       // override wins
+  assertEquals(env.TOTAL_CHAOS_DURATION, '60')   // catalogue default kept
+  assertEquals(env.PODS_AFFECTED_PERC, '50')
+})
+
+Deno.test('a steady-state URL becomes a continuous Litmus http probe that fails the run', () => {
+  const m = engineManifest({ fault: 'pod-delete', name: 'x', targetNamespace: 'p', mode: 'one', steadyState: { url: 'http://svc/health', statusCode: 200, intervalSeconds: 5 } })
+  const probe = m.spec?.experiments?.[0].spec?.probe?.[0] as Record<string, unknown>
+  assertEquals(probe.type, 'httpProbe')
+  assertEquals(probe.mode, 'Continuous')
+  assertEquals((probe.runProperties as Record<string, unknown>).stopOnFailure, true)
+  assertEquals(((probe['httpProbe/inputs'] as Record<string, unknown>).method as Record<string, Record<string, string>>).get.responseCode, '200')
+})
+
+Deno.test('a node fault carries no appinfo and names the node', () => {
+  const m = engineManifest({ fault: 'node-drain', name: 'x', targetNamespace: 'p', mode: 'one', node: 'w-1' })
+  assertEquals(m.spec?.appinfo, undefined)
+  const env = Object.fromEntries((m.spec?.experiments?.[0].spec?.components?.env ?? []).map((e) => [e.name, e.value]))
+  assertEquals(env.TARGET_NODES, 'w-1')
+})
+
+Deno.test('a serial game day alternates faults and recovery pauses, then reverts', () => {
+  const wf = buildGameDay({ name: 'gd', target, scenarios: ['pod-delete-one', 'net-latency'], strategy: 'serial', recoverySeconds: 30 }) as {
+    spec: { entrypoint: string; onExit: string; serviceAccountName: string; templates: Array<Record<string, unknown>> }
+    metadata: { namespace: string; labels: Record<string, string> }
   }
+  assertEquals(wf.metadata.namespace, CHAOS_NAMESPACE)
+  assertEquals(wf.spec.serviceAccountName, GAMEDAY_SERVICE_ACCOUNT)
+  assertEquals(wf.spec.onExit, 'revert')
+  const entry = wf.spec.templates.find((t) => t.name === wf.spec.entrypoint) as { steps: Array<Array<{ name: string }>> }
+  assertEquals(entry.steps.map((g) => g.map((s) => s.name)), [['1-pod-delete-one'], ['1-recover'], ['2-net-latency']])
+  const step = wf.spec.templates.find((t) => t.name === '1-pod-delete-one') as { container: { image: string; args: string[] }; inputs: { artifacts: Array<{ raw: { data: string } }> } }
+  assertEquals(step.container.image, CHECKER_IMAGE)
+  const eng = JSON.parse(step.inputs.artifacts[0].raw.data)
+  assertEquals(eng.kind, 'ChaosEngine')
+  assertEquals(eng.metadata.labels['adhar.io/chaos-gameday'], 'gd')
+  assertEquals(eng.spec.experiments[0].name, 'pod-delete')
 })
 
-Deno.test('every chaos kind used has a template key and type', () => {
-  for (const s of SCENARIOS) {
-    assertEquals(typeof TEMPLATE_KEY[s.kind], 'string', `${s.kind} has no template key`)
-    assertEquals(typeof TEMPLATE_TYPE[s.kind], 'string', `${s.kind} has no template type`)
-    assertEquals(CHAOS_KINDS.some((k) => k.id === s.kind), true, `${s.kind} is not a known kind`)
+Deno.test('a parallel game day is one step group with no pauses', () => {
+  const wf = buildGameDay({ name: 'gd', target, scenarios: ['pod-delete-one', 'net-latency'], strategy: 'parallel', recoverySeconds: 30 }) as {
+    spec: { entrypoint: string; templates: Array<Record<string, unknown>> }
   }
+  const entry = wf.spec.templates.find((t) => t.name === wf.spec.entrypoint) as { steps: Array<Array<{ name: string }>> }
+  assertEquals(entry.steps.length, 1)
+  assertEquals(entry.steps[0].length, 2)
+  assertEquals(wf.spec.templates.some((t) => 'suspend' in t), false)
 })
 
-/* ─────────── selectors ─────────── */
-
-Deno.test('a selector becomes namespaces plus labelSelectors', () => {
-  assertEquals(selectorFor(TARGET), {
-    namespaces: ['payments'],
-    labelSelectors: { app: 'checkout' },
-  })
-})
-
-Deno.test('an empty selector scopes to the namespace, and says so by omission', () => {
-  // Chaos Mesh treats a missing labelSelectors as "every pod here", which is
-  // correct — but it must be an explicit choice, not a malformed selector
-  // silently becoming one.
-  assertEquals(selectorFor({ ...TARGET, selector: '' }), { namespaces: ['payments'] })
-  assertEquals(selectorFor({ ...TARGET, selector: 'garbage' }), { namespaces: ['payments'] })
-})
-
-Deno.test('multiple labels are all applied', () => {
-  const s = selectorFor({ ...TARGET, selector: 'app=checkout, tier=web' })
-  assertEquals(s.labelSelectors, { app: 'checkout', tier: 'web' })
-})
-
-/* ─────────── the workflow ─────────── */
-
-Deno.test('a serial game day alternates faults and recovery pauses', () => {
-  const wf = gameDay()
-  const entry = byName(wf, entryOf(wf))!
-  assertEquals(entry.templateType, 'Serial')
-  assertEquals(entry.children, ['1-pod-failure-one', '1-recover', '2-net-latency'])
-  // The pause is a Suspend of exactly the requested length.
-  const pause = byName(wf, '1-recover')!
-  assertEquals(pause.templateType, 'Suspend')
-  assertEquals(pause.deadline, '30s')
-})
-
-Deno.test('there is no trailing pause after the last fault', () => {
-  // A game day that ends in 30 seconds of nothing looks like it hung.
-  const children = (byName(gameDay(), 'entry') as { children: string[] }).children
-  assertEquals(children[children.length - 1], '2-net-latency')
-})
-
-Deno.test('a parallel game day has no pauses at all', () => {
-  const wf = gameDay({ strategy: 'parallel' })
-  const entry = byName(wf, entryOf(wf))!
-  assertEquals(entry.templateType, 'Parallel')
-  assertEquals(entry.children, ['1-pod-failure-one', '2-net-latency'])
-  assertEquals(templates(wf).some((t) => t.templateType === 'Suspend'), false)
-})
-
-Deno.test('each fault carries its deadline, target and selector', () => {
-  const step = byName(gameDay(), '1-pod-failure-one')!
-  assertEquals(step.templateType, 'PodChaos')
-  // Without a deadline the fault never ends on its own.
-  assertEquals(step.deadline, '60s')
-  const chaos = step.podChaos as Record<string, unknown>
-  assertEquals(chaos.action, 'pod-failure')
-  assertEquals(chaos.mode, 'one')
-  assertEquals(chaos.selector, { namespaces: ['payments'], labelSelectors: { app: 'checkout' } })
-})
-
-Deno.test('a mode that needs a value carries it', () => {
-  const wf = gameDay({ target: { ...TARGET, mode: 'fixed-percent', value: '50' } })
-  const chaos = (byName(wf, '1-pod-failure-one') as { podChaos: Record<string, unknown> }).podChaos
-  assertEquals(chaos.mode, 'fixed-percent')
-  assertEquals(chaos.value, '50')
-})
-
-Deno.test('a steady-state probe runs BESIDE the faults and can abort the run', () => {
-  const wf = gameDay({
-    steadyState: { url: 'http://checkout/health', statusCode: '200', intervalSeconds: 5, failureThreshold: 3 },
-  })
-  const entry = byName(wf, entryOf(wf))!
-  // The probe must overlap the faults; running it first would check a system
-  // nothing had happened to yet.
-  assertEquals(entry.templateType, 'Parallel')
-  assertEquals(entry.children, ['faults', 'steady-state'])
-  // This is what stops an experiment becoming an outage.
-  assertEquals(entry.abortWithStatusCheck, true)
-
-  const check = byName(wf, 'steady-state')!
-  assertEquals(check.templateType, 'StatusCheck')
-  const sc = check.statusCheck as Record<string, unknown>
-  assertEquals(sc.mode, 'Continuous')
-  assertEquals(sc.type, 'HTTP')
-  assertEquals(sc.failureThreshold, 3)
-  assertEquals((sc.http as Record<string, unknown>).url, 'http://checkout/health')
-  assertEquals(((sc.http as Record<string, unknown>).criteria as Record<string, unknown>).statusCode, '200')
-
-  // The fault sequence survives intact under its own name.
-  const faults = byName(wf, 'faults')!
-  assertEquals(faults.templateType, 'Serial')
-})
-
-Deno.test('the probe outlives the faults so recovery is observed', () => {
-  const wf = gameDay({
-    steadyState: { url: 'http://x/health', statusCode: '200', intervalSeconds: 5, failureThreshold: 3 },
-  })
-  const check = byName(wf, 'steady-state')!
-  // faults 60 + 120, one 30s pause = 210; plus a recovery tail.
-  assertEquals(check.deadline, '240s')
-})
-
-Deno.test('without a probe there is exactly one entry and no StatusCheck', () => {
-  const wf = gameDay()
-  assertEquals(templates(wf).filter((t) => t.name === 'entry').length, 1)
-  assertEquals(templates(wf).some((t) => t.templateType === 'StatusCheck'), false)
-})
-
-Deno.test('every template name is unique — Chaos Mesh resolves children by name', () => {
-  for (const wf of [gameDay(), gameDay({ strategy: 'parallel' }), gameDay({ steadyState: { url: 'u', statusCode: '200', intervalSeconds: 5, failureThreshold: 3 } })]) {
-    const names = templates(wf).map((t) => t.name)
-    assertEquals(new Set(names).size, names.length)
+Deno.test('the revert step stops and deletes every engine the game day made', () => {
+  const wf = buildGameDay({ name: 'gd', target, scenarios: ['pod-delete-one', 'net-latency'], strategy: 'serial', recoverySeconds: 0 }) as {
+    spec: { templates: Array<Record<string, unknown>> }
   }
+  const revert = wf.spec.templates.find((t) => t.name === 'revert') as { container: { args: string[] } }
+  const script = revert.container.args[0]
+  assertEquals(script.includes('gd-1-pod-delete'), true)
+  assertEquals(script.includes('gd-2-pod-network-latency'), true)
+  assertEquals(script.includes('"engineState":"stop"'), true)
+  assertEquals(script.includes('delete chaosengine'), true)
 })
 
-Deno.test('every child referenced actually exists', () => {
-  // A dangling child makes the workflow fail admission with a message that
-  // does not name the missing template.
-  const wf = gameDay({ steadyState: { url: 'u', statusCode: '200', intervalSeconds: 5, failureThreshold: 3 } })
-  const names = new Set(templates(wf).map((t) => t.name))
-  for (const t of templates(wf)) {
-    for (const child of (t.children as string[] | undefined) ?? []) {
-      assertEquals(names.has(child), true, `${t.name} references missing ${child}`)
-    }
-  }
-  assertEquals(names.has(entryOf(wf)), true)
+Deno.test('a game day needs at least one scenario', () => {
+  assertThrows(() => buildGameDay({ name: 'gd', target, scenarios: [], strategy: 'serial', recoverySeconds: 0 }))
 })
 
-Deno.test('the same scenario twice does not collide', () => {
-  const wf = gameDay({ scenarios: ['pod-kill-one', 'pod-kill-one'], recoverySeconds: 0 })
-  assertEquals((byName(wf, 'entry') as { children: string[] }).children, ['1-pod-kill-one', '2-pod-kill-one'])
-})
-
-Deno.test('an empty game day is refused rather than built empty', () => {
-  assertThrows(() => gameDay({ scenarios: [] }))
-  assertThrows(() => gameDay({ scenarios: ['not-a-scenario'] }))
-})
-
-/* ─────────── durations ─────────── */
-
-Deno.test('durations parse, and nonsense is zero rather than NaN', () => {
-  assertEquals(parseDuration('30s'), 30)
-  assertEquals(parseDuration('2m'), 120)
-  assertEquals(parseDuration('1h'), 3600)
-  assertEquals(parseDuration('500ms'), 0.5)
-  // NaN would propagate into the deadline and produce an invalid manifest.
-  assertEquals(parseDuration('forever'), 0)
-  assertEquals(parseDuration(''), 0)
-})
-
-Deno.test('total time accounts for pauses in serial and overlap in parallel', () => {
-  const chosen = ['pod-failure-one', 'net-latency'].map(scenarioById).filter(Boolean) as never[]
-  assertEquals(totalSeconds(chosen, { strategy: 'serial', recoverySeconds: 30 }), 210)
-  // Parallel is as long as the longest fault, not the sum.
+Deno.test('duration arithmetic', () => {
+  const chosen = ['pod-delete-one', 'net-latency'].map(scenarioById).filter(Boolean) as NonNullable<ReturnType<typeof scenarioById>>[]
+  assertEquals(totalSeconds(chosen, { strategy: 'serial', recoverySeconds: 30 }), 60 + 30 + 120)
   assertEquals(totalSeconds(chosen, { strategy: 'parallel', recoverySeconds: 30 }), 120)
-})
-
-Deno.test('durations render readably', () => {
-  assertEquals(formatSeconds(45), '45s')
-  assertEquals(formatSeconds(120), '2m')
-  assertEquals(formatSeconds(210), '3m 30s')
-  assertEquals(formatSeconds(3700), '1h 1m')
+  assertEquals(formatSeconds(90), '1m 30s')
+  assertEquals(formatSeconds(3600), '1h 0m')
 })

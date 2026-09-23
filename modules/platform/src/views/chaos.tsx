@@ -6,11 +6,11 @@ import {
   Card,
   CardBody,
   CardHeader,
-  ChaosMeshIcon,
   DataTable,
   EmptyState,
   Field,
   Input,
+  LitmusIcon,
   Modal,
   Select,
   StatusBadge,
@@ -21,78 +21,83 @@ import {
 } from '@adhar-console/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar-console/utils'
 import {
-  CHAOS_KINDS,
-  injectedCount,
+  CHAOS_FAULTS,
+  CHAOS_NAMESPACE,
+  durationOf,
+  FAMILY_LABEL,
+  faultById,
+  faultOf,
   isLive,
-  kindById,
-  kindIdOf,
   modeLabel,
-  modeNeedsValue,
   phaseOf,
+  resultNameFor,
   targetSummary,
-  type ChaosExperiment,
-  type ChaosKind,
-  type ChaosKindId,
+  type ChaosEngine,
+  type ChaosFault,
   type ChaosPhase,
+  type ChaosResult,
+  type TargetMode,
 } from '../data/chaos-kinds.ts'
 import { ChaosGameDays } from './chaos-gameday.tsx'
 import {
-  createChaosExperiment,
-  deleteChaosExperiment,
-  setChaosPaused,
-  useChaosExperiments,
-  useChaosSchedules,
+  createChaosEngine,
+  deleteChaosEngine,
+  stopChaosEngine,
+  useChaosEngines,
+  useChaosResults,
+  useInstalledFaults,
   useTargetNamespaces,
 } from '../data/chaos.ts'
 
 /**
- * Chaos Engineering — Chaos Mesh, with the blast radius always on screen.
+ * Chaos Engineering — LitmusChaos, with the blast radius always on screen.
  *
  * A chaos console has one job that no other list view has: it must never let
  * someone be wrong about whether a fault is currently applied to a running
  * system. Three decisions follow from that and are worth stating, because they
  * each cost something:
  *
- *   • "Live" is computed from the injected RECORDS, not from the desired
- *     phase. An experiment that has been asked to stop but is still applied
- *     reads as `recovering`, not `stopped`.
- *   • Stopping is a pause annotation, never a delete. Chaos Mesh unwinds the
- *     fault on the way out; deleting a live experiment can strand it.
+ *   • "Live" is computed from what the RUNNER reports, not from what was
+ *     asked for. A run that has been told to stop but whose runner still says
+ *     the fault is applied reads as `recovering`, not `stopped`.
+ *   • Stopping is `engineState: stop`, never a delete. Litmus unwinds the
+ *     fault on the way out; deleting a live engine can strand it.
  *   • Launching states the blast radius in words — "all pods in payments" —
- *     and high-blast kinds require typing the name to confirm. Slower on
+ *     and high-blast faults require typing the name to confirm. Slower on
  *     purpose.
  */
 type ChaosTab = 'experiments' | 'gamedays'
 
 export function ChaosView({ namespace }: { namespace?: string }) {
   /*
-   * "Experiments" is every individual fault on the cluster. "Game days" is
-   * the automated side: a catalogue of scenarios composed into one Chaos Mesh
-   * workflow. Tabs rather than pages because the second is how you should
-   * normally run the first.
+   * "Experiments" is every individual run on the cluster. "Game days" is the
+   * automated side: a catalogue of scenarios composed into one workflow. Tabs
+   * rather than pages because the second is how you should normally run the
+   * first.
    */
   const [tab, setTab] = useState<ChaosTab>('experiments')
-  const { experiments, installedKinds, anyInstalled, isLoading, error } = useChaosExperiments(namespace)
-  const schedules = useChaosSchedules(namespace)
+  const { engines, installed, isLoading, error } = useChaosEngines(namespace)
+  const faults = useInstalledFaults()
+  const results = useChaosResults()
   const [launching, setLaunching] = useState(false)
   const canManage = useCan('platform.manage')
 
-  if (!isLoading && !anyInstalled) {
+  if (!isLoading && !installed) {
     return (
       <EmptyState
-        title="Chaos Mesh is not installed"
+        title="LitmusChaos is not installed"
         description={
           <>
-            None of the Chaos Mesh CRDs are registered on this cluster, so there are no experiments to show.
-            Chaos Mesh ships with the Adhar platform as an optional application — enable it in the stack and
-            this page populates on its own.{' '}
+            The Litmus CRDs are not registered on this cluster, so there are no experiments to show. LitmusChaos
+            ships with the Adhar platform as the chaos engine (the <code>litmus</code> package) — enable it in the
+            stack and this page populates on its own.{' '}
             <a
               className="text-brand-700 underline dark:text-brand-300"
-              href="https://chaos-mesh.org/docs/production-installation-using-helm/"
+              href="https://docs.litmuschaos.io/docs/getting-started/installation"
               target="_blank"
               rel="noreferrer"
             >
-              Install guide ↗
+              Litmus docs ↗
             </a>
           </>
         }
@@ -100,7 +105,7 @@ export function ChaosView({ namespace }: { namespace?: string }) {
     )
   }
 
-  const live = experiments.filter(isLive)
+  const live = engines.filter(isLive)
 
   const tabs = (
     <div className="flex gap-1">
@@ -124,7 +129,7 @@ export function ChaosView({ namespace }: { namespace?: string }) {
     return (
       <div className="space-y-4">
         {tabs}
-        {live.length > 0 ? <LiveBanner experiments={live} /> : null}
+        {live.length > 0 ? <LiveBanner engines={live} /> : null}
         <ChaosGameDays namespace={namespace} />
       </div>
     )
@@ -133,15 +138,14 @@ export function ChaosView({ namespace }: { namespace?: string }) {
   return (
     <div className="space-y-4">
       {tabs}
-      {live.length > 0 ? <LiveBanner experiments={live} /> : null}
+      {live.length > 0 ? <LiveBanner engines={live} /> : null}
 
-      <Summary experiments={experiments} loading={isLoading} scheduleCount={schedules.data?.length ?? 0} />
+      <Summary engines={engines} loading={isLoading} />
 
       {error ? (
         <Card>
           <CardBody className="text-[12px] text-rose-600 dark:text-rose-400">
-            Some chaos kinds could not be read: {(error as Error).message}. Experiments of those kinds are
-            missing from this list.
+            Chaos runs could not be read: {(error as Error).message}.
           </CardBody>
         </Card>
       ) : null}
@@ -151,10 +155,11 @@ export function ChaosView({ namespace }: { namespace?: string }) {
           <div className="flex flex-wrap items-center gap-2">
             <div>
               <div className="flex items-center gap-2 text-sm font-semibold text-content">
-                <ChaosMeshIcon size={16} /> Experiments
+                <LitmusIcon size={16} /> Experiments
               </div>
               <div className="text-[12px] text-content-muted">
-                {installedKinds.length} of {CHAOS_KINDS.length} fault kinds are installed on this cluster.
+                {faults.installed.length} of {CHAOS_FAULTS.length} catalogued faults are installed on this cluster
+                {faults.definitions > faults.installed.length ? ` (${faults.definitions} definitions in total)` : ''}.
               </div>
             </div>
             {canManage ? (
@@ -165,14 +170,14 @@ export function ChaosView({ namespace }: { namespace?: string }) {
           </div>
         </CardHeader>
         <CardBody className="p-0">
-          <ExperimentTable experiments={experiments} loading={isLoading} canManage={canManage} />
+          <ExperimentTable engines={engines} results={results} loading={isLoading} canManage={canManage} />
         </CardBody>
       </Card>
 
-      <KindCatalog installed={installedKinds} />
+      <FaultCatalog installed={faults.installed} />
 
       {launching ? (
-        <LaunchDialog installed={installedKinds} onClose={() => setLaunching(false)} />
+        <LaunchDialog installed={faults.installed} onClose={() => setLaunching(false)} />
       ) : null}
     </div>
   )
@@ -186,7 +191,7 @@ export function ChaosView({ namespace }: { namespace?: string }) {
  * Someone arriving at this page mid-incident needs to know in the first
  * second whether the thing they are debugging is a fault somebody injected.
  */
-function LiveBanner({ experiments }: { experiments: ChaosExperiment[] }) {
+function LiveBanner({ engines }: { engines: ChaosEngine[] }) {
   return (
     <div className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 dark:border-rose-500/40 dark:bg-rose-500/10">
       <div className="flex items-center gap-2">
@@ -195,14 +200,13 @@ function LiveBanner({ experiments }: { experiments: ChaosExperiment[] }) {
           <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-rose-500" />
         </span>
         <span className="text-sm font-semibold text-rose-800 dark:text-rose-200">
-          {experiments.length} chaos experiment{experiments.length === 1 ? '' : 's'} currently injecting faults
+          {engines.length} chaos experiment{engines.length === 1 ? '' : 's'} currently injecting faults
         </span>
       </div>
       <div className="mt-1.5 space-y-0.5">
-        {experiments.map((e) => (
+        {engines.map((e) => (
           <div key={`${e.metadata.namespace}/${e.metadata.name}`} className="text-[12px] text-rose-700 dark:text-rose-300">
-            <span className="font-medium">{e.metadata.name}</span> — {e.spec?.action ?? e.kind} on{' '}
-            {targetSummary(e)}
+            <span className="font-medium">{e.metadata.name}</span> — {faultOf(e)} on {targetSummary(e)}
           </div>
         ))}
       </div>
@@ -212,27 +216,19 @@ function LiveBanner({ experiments }: { experiments: ChaosExperiment[] }) {
 
 /* ─────────────────────────── summary ─────────────────────────── */
 
-function Summary({
-  experiments,
-  loading,
-  scheduleCount,
-}: {
-  experiments: ChaosExperiment[]
-  loading: boolean
-  scheduleCount: number
-}) {
+function Summary({ engines, loading }: { engines: ChaosEngine[]; loading: boolean }) {
   const stats = useMemo(() => {
-    const live = experiments.filter(isLive).length
-    const paused = experiments.filter((e) => phaseOf(e) === 'paused').length
-    const finished = experiments.filter((e) => phaseOf(e) === 'finished').length
-    return { total: experiments.length, live, paused, finished }
-  }, [experiments])
+    const live = engines.filter(isLive).length
+    const passed = engines.filter((e) => phaseOf(e) === 'passed').length
+    const failed = engines.filter((e) => phaseOf(e) === 'failed').length
+    return { total: engines.length, live, passed, failed }
+  }, [engines])
 
   const tiles: Array<{ label: string; value: ReactNode; hint: string; alarm?: boolean }> = [
-    { label: 'Experiments', value: stats.total, hint: 'Chaos objects on the cluster' },
+    { label: 'Runs', value: stats.total, hint: 'ChaosEngines on the cluster' },
     { label: 'Injecting now', value: stats.live, hint: 'Faults currently applied to targets', alarm: stats.live > 0 },
-    { label: 'Paused', value: stats.paused, hint: 'Stopped and fully recovered' },
-    { label: 'Scheduled', value: scheduleCount, hint: 'Chaos Mesh Schedules — chaos on a cron' },
+    { label: 'Hypothesis held', value: stats.passed, hint: 'Runs whose verdict was Pass' },
+    { label: 'Hypothesis failed', value: stats.failed, hint: 'Runs whose verdict was Fail — the findings', alarm: stats.failed > 0 },
   ]
 
   return (
@@ -263,8 +259,9 @@ const PHASE_KIND: Record<ChaosPhase, StatusKind> = {
   injected: 'failed',
   injecting: 'progressing',
   recovering: 'degraded',
-  paused: 'paused',
-  finished: 'healthy',
+  stopped: 'paused',
+  passed: 'healthy',
+  failed: 'failed',
   unknown: 'unknown',
 }
 
@@ -272,42 +269,52 @@ const PHASE_LABEL: Record<ChaosPhase, string> = {
   injected: 'injecting',
   injecting: 'starting',
   recovering: 'recovering',
-  paused: 'stopped',
-  finished: 'recovered',
+  stopped: 'stopped',
+  passed: 'passed',
+  failed: 'failed',
   unknown: 'unknown',
 }
 
 function ExperimentTable({
-  experiments,
+  engines,
+  results,
   loading,
   canManage,
 }: {
-  experiments: ChaosExperiment[]
+  engines: ChaosEngine[]
+  results: Map<string, ChaosResult>
   loading: boolean
   canManage: boolean
 }) {
-  const columns: Column<ChaosExperiment>[] = [
+  const resultOf = (e: ChaosEngine) => {
+    const n = resultNameFor(e)
+    return n ? results.get(n) : undefined
+  }
+
+  const columns: Column<ChaosEngine>[] = [
     {
       key: 'name',
-      header: 'Experiment',
+      header: 'Run',
       pinned: true,
       cell: (e) => (
         <div className="min-w-0">
           <div className="truncate font-medium text-content">{e.metadata.name}</div>
-          <div className="truncate text-[11px] text-content-subtle">{e.metadata.namespace}</div>
+          <div className="truncate text-[11px] text-content-subtle">
+            {e.metadata.labels?.['adhar.io/chaos-gameday'] ? `game day ${e.metadata.labels['adhar.io/chaos-gameday']}` : e.metadata.namespace}
+          </div>
         </div>
       ),
     },
     {
-      key: 'kind',
+      key: 'fault',
       header: 'Fault',
-      value: (e) => `${kindById(kindIdOf(e.kind) ?? 'pod')?.label ?? e.kind} ${e.spec?.action ?? ''}`,
+      value: (e) => faultOf(e),
       cell: (e) => {
-        const kind = kindById(kindIdOf(e.kind) ?? 'pod')
+        const fault = faultById(faultOf(e))
         return (
           <div className="flex items-center gap-1.5">
-            <Badge>{kind?.label ?? e.kind}</Badge>
-            {e.spec?.action ? <code className="text-[11px] text-content-muted">{e.spec.action}</code> : null}
+            <Badge>{fault ? FAMILY_LABEL[fault.family] : 'fault'}</Badge>
+            <code className="text-[11px] text-content-muted">{faultOf(e)}</code>
           </div>
         )
       },
@@ -318,16 +325,19 @@ function ExperimentTable({
       value: (e) => PHASE_LABEL[phaseOf(e)],
       cell: (e) => {
         const phase = phaseOf(e)
-        const { injected, total } = injectedCount(e)
+        const r = resultOf(e)
+        const probe = r?.status?.experimentStatus?.probeSuccessPercentage
         return (
           <div className="flex items-center gap-1.5">
             <StatusBadge kind={PHASE_KIND[phase]} pulse={isLive(e)}>
               {PHASE_LABEL[phase]}
             </StatusBadge>
-            {total > 0 ? (
-              <span className="text-[11px] tabular-nums text-content-subtle">
-                {injected}/{total}
+            {phase === 'failed' && r?.status?.experimentStatus?.failStep ? (
+              <span className="truncate text-[11px] text-rose-700 dark:text-rose-400" title={r.status.experimentStatus.failStep}>
+                {r.status.experimentStatus.failStep}
               </span>
+            ) : probe && probe !== '' ? (
+              <span className="text-[11px] tabular-nums text-content-subtle">probes {probe}%</span>
             ) : null}
           </div>
         )
@@ -342,11 +352,11 @@ function ExperimentTable({
     {
       key: 'duration',
       header: 'Duration',
-      cell: (e) => (
-        <span className="text-[12px] text-content-muted">
-          {e.spec?.duration ?? <span className="text-amber-700 dark:text-amber-400">until stopped</span>}
-        </span>
-      ),
+      value: (e) => durationOf(e) ?? 0,
+      cell: (e) => {
+        const d = durationOf(e)
+        return <span className="text-[12px] text-content-muted">{d !== undefined ? `${d}s` : '—'}</span>
+      },
     },
     {
       key: 'created',
@@ -369,81 +379,75 @@ function ExperimentTable({
       header: '',
       align: 'right',
       sortable: false,
-      cell: (e) => <RowActions experiment={e} />,
+      cell: (e) => <RowActions engine={e} />,
     })
   }
 
   return (
     <DataTable
       columns={columns}
-      rows={experiments}
-      rowKey={(e) => `${e.kind}/${e.metadata.namespace}/${e.metadata.name}`}
+      rows={engines}
+      rowKey={(e) => `${e.metadata.namespace}/${e.metadata.name}`}
       loading={loading}
       tableId="chaos-experiments"
       features={{ search: true, filters: true, columns: true, density: true, export: true }}
       defaultSort={{ key: 'created', dir: 'desc' }}
-      searchPlaceholder="Search experiments…"
+      searchPlaceholder="Search runs…"
       empty={
         <EmptyState
           title="No chaos experiments"
-          description="Nothing is being broken on purpose right now. Start with a pod-failure on a non-critical workload — it is the experiment real clusters survive."
+          description="Nothing is being broken on purpose right now. Start with pod-delete on a non-critical workload — it is the experiment real clusters survive."
         />
       }
     />
   )
 }
 
-function RowActions({ experiment }: { experiment: ChaosExperiment }) {
+function RowActions({ engine }: { engine: ChaosEngine }) {
   const toast = useToast()
   const qc = useQueryClient()
-  const kindId = kindIdOf(experiment.kind)
-  const live = isLive(experiment)
-  const phase = phaseOf(experiment)
+  const live = isLive(engine)
+  const phase = phaseOf(engine)
 
   const invalidate = () => void qc.invalidateQueries({ queryKey: ['chaos'] })
 
-  const pause = useMutation({
-    mutationFn: (paused: boolean) =>
-      setChaosPaused(kindId!, experiment.metadata.namespace!, experiment.metadata.name, paused),
-    onSuccess: (_d, paused) => {
-      toast.success(paused ? 'Stopping — Chaos Mesh is recovering the fault' : 'Experiment resumed')
+  const stop = useMutation({
+    mutationFn: () => stopChaosEngine(engine.metadata.namespace ?? CHAOS_NAMESPACE, engine.metadata.name),
+    onSuccess: () => {
+      toast.success('Stopping — Litmus is recovering the fault')
       invalidate()
     },
     onError: (e: Error) => toast.error(e.message),
   })
 
   const remove = useMutation({
-    mutationFn: () => deleteChaosExperiment(kindId!, experiment.metadata.namespace!, experiment.metadata.name),
+    mutationFn: () => deleteChaosEngine(engine),
     onSuccess: () => {
-      toast.success('Experiment deleted')
+      toast.success('Run deleted')
       invalidate()
     },
     onError: (e: Error) => toast.error(e.message),
   })
 
-  if (!kindId) return null
+  const over = phase === 'passed' || phase === 'failed' || phase === 'stopped'
 
   return (
     <div className="flex justify-end gap-1">
-      {/* Resume is offered only for an experiment a person paused. A finished
-          one has already recovered and run its course; clearing an annotation
-          it never had would do nothing, so offering the button would lie. */}
-      {phase === 'paused' ? (
-        <Button variant="ghost" size="xs" disabled={pause.isPending} onClick={() => pause.mutate(false)}>
-          Resume
-        </Button>
-      ) : phase === 'finished' ? null : (
-        <Button variant="ghost" size="xs" disabled={pause.isPending} onClick={() => pause.mutate(true)}>
+      {/* A finished run has already recovered; there is nothing to stop and
+          no resume — running the fault again is a new run with its own
+          verdict, which is what the launcher is for. */}
+      {!over ? (
+        <Button variant="ghost" size="xs" disabled={stop.isPending || phase === 'recovering'} onClick={() => stop.mutate()}>
           Stop
         </Button>
-      )}
-      {/* Deleting a live experiment can strand the injected fault with nothing
-          left to recover it, so the only route to delete is: stop, then go. */}
+      ) : null}
+      {/* Deleting a live run can strand the injected fault with nothing left
+          to recover it, so the only route to delete is: stop, then go. */}
       <Button
         variant="ghost"
         size="xs"
         disabled={live || remove.isPending}
-        title={live ? 'Stop the experiment first — deleting it now could leave the fault applied' : undefined}
+        title={live ? 'Stop the run first — deleting it now could leave the fault applied' : undefined}
         onClick={() => remove.mutate()}
       >
         Delete
@@ -452,43 +456,44 @@ function RowActions({ experiment }: { experiment: ChaosExperiment }) {
   )
 }
 
-/* ─────────────────────────── kind catalogue ─────────────────────────── */
+/* ─────────────────────────── fault catalogue ─────────────────────────── */
 
-const BLAST_TONE: Record<ChaosKind['blast'], string> = {
+const BLAST_TONE: Record<ChaosFault['blast'], string> = {
   low: 'text-emerald-700 dark:text-emerald-400',
   medium: 'text-amber-700 dark:text-amber-400',
   high: 'text-rose-700 dark:text-rose-400',
 }
 
-function KindCatalog({ installed }: { installed: ChaosKind[] }) {
+function FaultCatalog({ installed }: { installed: ChaosFault[] }) {
   const ids = new Set(installed.map((k) => k.id))
   return (
     <Card>
       <CardHeader>
-        <div className="text-sm font-semibold text-content">Fault kinds</div>
+        <div className="text-sm font-semibold text-content">Faults</div>
         <div className="text-[12px] text-content-muted">
-          What Chaos Mesh can break, ordered by how much of a real outage it resembles.
+          What Litmus can break, ordered by how much of a real outage it resembles.
         </div>
       </CardHeader>
       <CardBody className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
-        {CHAOS_KINDS.map((kind) => {
-          const present = ids.has(kind.id)
+        {CHAOS_FAULTS.map((fault) => {
+          const present = ids.has(fault.id)
           return (
             <div
-              key={kind.id}
+              key={fault.id}
               className={cn(
                 'rounded-lg border border-edge-default px-3 py-2',
                 !present && 'opacity-50',
               )}
             >
               <div className="flex items-center gap-2">
-                <span className="text-[12px] font-semibold text-content">{kind.label}</span>
-                <span className={cn('text-[10px] font-medium uppercase', BLAST_TONE[kind.blast])}>
-                  {kind.blast}
+                <span className="text-[12px] font-semibold text-content">{fault.label}</span>
+                <span className="text-[10px] text-content-subtle">{FAMILY_LABEL[fault.family]}</span>
+                <span className={cn('text-[10px] font-medium uppercase', BLAST_TONE[fault.blast])}>
+                  {fault.blast}
                 </span>
                 {!present ? <span className="ml-auto text-[10px] text-content-subtle">not installed</span> : null}
               </div>
-              <div className="mt-0.5 text-[11px] text-content-muted">{kind.blurb}</div>
+              <div className="mt-0.5 text-[11px] text-content-muted">{fault.blurb}</div>
             </div>
           )
         })}
@@ -499,70 +504,67 @@ function KindCatalog({ installed }: { installed: ChaosKind[] }) {
 
 /* ─────────────────────────── launch dialog ─────────────────────────── */
 
-const MODES = ['one', 'fixed', 'fixed-percent', 'random-max-percent', 'all'] as const
+const MODES: TargetMode[] = ['one', 'percent', 'all']
+const APP_KINDS = ['deployment', 'statefulset', 'daemonset', 'rollout'] as const
 
-function LaunchDialog({ installed, onClose }: { installed: ChaosKind[]; onClose(): void }) {
+function LaunchDialog({ installed, onClose }: { installed: ChaosFault[]; onClose(): void }) {
   const toast = useToast()
   const qc = useQueryClient()
   const namespaces = useTargetNamespaces()
 
-  const [kindId, setKindId] = useState<ChaosKindId>(installed[0]?.id ?? 'pod')
-  const kind = kindById(kindId)
-  const [action, setAction] = useState(kind?.actions[0] ?? '')
+  const [faultId, setFaultId] = useState<string>(installed[0]?.id ?? 'pod-delete')
+  const fault = faultById(faultId)
   const [name, setName] = useState('')
   const [targetNs, setTargetNs] = useState('')
-  const [labels, setLabels] = useState('')
-  const [mode, setMode] = useState<typeof MODES[number]>('one')
-  const [value, setValue] = useState('1')
-  const [duration, setDuration] = useState('60s')
+  const [label, setLabel] = useState('')
+  const [appKind, setAppKind] = useState<typeof APP_KINDS[number]>('deployment')
+  const [node, setNode] = useState('')
+  const [mode, setMode] = useState<TargetMode>('one')
+  const [percent, setPercent] = useState('50')
+  const [env, setEnv] = useState<Record<string, string>>({})
+  const [probeUrl, setProbeUrl] = useState('')
   const [confirm, setConfirm] = useState('')
 
-  const pickKind = (id: ChaosKindId) => {
-    setKindId(id)
-    setAction(kindById(id)?.actions[0] ?? '')
+  const pickFault = (id: string) => {
+    setFaultId(id)
+    setEnv({})
   }
 
-  const labelSelectors = useMemo(() => {
-    const out: Record<string, string> = {}
-    for (const pair of labels.split(',')) {
-      const [k, v] = pair.split('=').map((s) => s.trim())
-      if (k && v) out[k] = v
-    }
-    return out
-  }, [labels])
+  const knob = (key: string, fallback: string) => env[key] ?? fallback
+  const duration = knob('TOTAL_CHAOS_DURATION', fault?.knobs.find((k) => k.env === 'TOTAL_CHAOS_DURATION')?.value ?? '60')
 
-  // High-blast kinds, or anything pointed at every pod, must be typed out.
-  const needsConfirm = kind?.blast === 'high' || mode === 'all'
+  // High-blast faults, or anything pointed at every pod, must be typed out.
+  const needsConfirm = fault?.blast === 'high' || mode === 'all'
   const confirmed = !needsConfirm || confirm === name
 
   const create = useMutation({
     mutationFn: () =>
-      createChaosExperiment({
-        kindId,
+      createChaosEngine({
+        fault: faultId,
         name,
-        namespace: targetNs,
-        action,
-        targetNamespaces: [targetNs],
-        labelSelectors,
+        targetNamespace: targetNs,
+        label: label.trim() || undefined,
+        appKind,
         mode,
-        value: modeNeedsValue(mode) ? value : undefined,
-        duration: duration || undefined,
+        percent: mode === 'percent' ? percent : undefined,
+        node: fault?.node ? node.trim() || undefined : undefined,
+        env,
+        ...(probeUrl.trim() ? { steadyState: { url: probeUrl.trim(), statusCode: 200, intervalSeconds: 5 } } : {}),
       }),
     onSuccess: (e) => {
-      toast.success(`${e.metadata.name} launched — Chaos Mesh is selecting targets`)
+      toast.success(`${e.metadata.name} launched — Litmus is selecting targets`)
       void qc.invalidateQueries({ queryKey: ['chaos'] })
       onClose()
     },
     onError: (e: Error) => toast.error(e.message),
   })
 
-  const ready = name.trim() && targetNs && action && confirmed &&
-    (!modeNeedsValue(mode) || value.trim())
+  const ready = name.trim() && (fault?.node || targetNs) && confirmed && (mode !== 'percent' || percent.trim())
 
-  const blastSentence = targetNs
-    ? `${action} on ${modeLabel(mode, value)} in ${targetNs}${
-      Object.keys(labelSelectors).length ? ` matching ${Object.entries(labelSelectors).map(([k, v]) => `${k}=${v}`).join(', ')}` : ''
-    }${duration ? ` for ${duration}` : ', until you stop it'}`
+  const blastSentence = fault?.node
+    ? `${faultId} on ${node.trim() ? `node ${node.trim()}` : 'a node the runner picks'} for ${duration}s`
+    : targetNs
+    ? `${faultId} on ${modeLabel(mode, percent)} in ${targetNs}${label.trim() ? ` matching ${label.trim()}` : ''} for ${duration}s`
     : 'Choose a target namespace.'
 
   return (
@@ -585,65 +587,85 @@ function LaunchDialog({ installed, onClose }: { installed: ChaosKind[]; onClose(
       }
     >
       <div className="space-y-3">
-        <Field label="Fault kind">
+        <Field label="Fault">
           <Select
-            value={kindId}
-            onChange={(e) => pickKind(e.target.value as ChaosKindId)}
-            options={installed.map((k) => ({ value: k.id, label: `${k.label} — ${k.blurb}` }))}
+            value={faultId}
+            onChange={(e) => pickFault(e.target.value)}
+            options={installed.map((k) => ({ value: k.id, label: `${FAMILY_LABEL[k.family]} · ${k.label} — ${k.blurb}` }))}
           />
         </Field>
 
-        <Field label="Action">
-          <Select
-            value={action}
-            onChange={(e) => setAction(e.target.value)}
-            options={(kind?.actions ?? []).map((a) => ({ value: a, label: a }))}
-          />
+        <Field label="Name" hint="Lowercase, dashes — it names the ChaosEngine.">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="checkout-pod-delete" />
         </Field>
 
-        <Field label="Name" hint="Lowercase, dashes — it names the Kubernetes object.">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="checkout-pod-failure" />
-        </Field>
+        {fault?.node ? (
+          <Field label="Node" hint="Empty lets the runner pick one. Name a node to be precise.">
+            <Input value={node} onChange={(e) => setNode(e.target.value)} placeholder="production-worker-workers-2" />
+          </Field>
+        ) : (
+          <>
+            <Field label="Target namespace" hint="Where the pods being broken live.">
+              <Select
+                value={targetNs}
+                onChange={(e) => setTargetNs(e.target.value)}
+                options={[
+                  { value: '', label: namespaces.isLoading ? 'Loading namespaces…' : 'Choose a namespace…' },
+                  ...(namespaces.data ?? []).map((n) => ({ value: n, label: n })),
+                ]}
+              />
+            </Field>
 
-        <Field label="Target namespace" hint="The experiment is created here and targets pods here.">
-          <Select
-            value={targetNs}
-            onChange={(e) => setTargetNs(e.target.value)}
-            options={[
-              { value: '', label: namespaces.isLoading ? 'Loading namespaces…' : 'Choose a namespace…' },
-              ...(namespaces.data ?? []).map((n) => ({ value: n, label: n })),
-            ]}
-          />
-        </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="App label" hint="One label, e.g. app=checkout. Optional but strongly advised.">
+                <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="app=checkout" />
+              </Field>
+              <Field label="App kind">
+                <Select
+                  value={appKind}
+                  onChange={(e) => setAppKind(e.target.value as typeof APP_KINDS[number])}
+                  options={APP_KINDS.map((k) => ({ value: k, label: k }))}
+                />
+              </Field>
+            </div>
 
-        <Field label="Label selector" hint="Narrows the target, e.g. app=checkout. Optional but strongly advised.">
-          <Input value={labels} onChange={(e) => setLabels(e.target.value)} placeholder="app=checkout" />
-        </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Mode">
+                <Select
+                  value={mode}
+                  onChange={(e) => setMode(e.target.value as TargetMode)}
+                  options={MODES.map((m) => ({ value: m, label: modeLabel(m, percent) }))}
+                />
+              </Field>
+              {mode === 'percent' ? (
+                <Field label="Percent">
+                  <Input value={percent} onChange={(e) => setPercent(e.target.value)} />
+                </Field>
+              ) : (
+                <div />
+              )}
+            </div>
+          </>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Mode">
-            <Select
-              value={mode}
-              onChange={(e) => setMode(e.target.value as typeof MODES[number])}
-              options={MODES.map((m) => ({ value: m, label: modeLabel(m, value) }))}
-            />
-          </Field>
-          {modeNeedsValue(mode) ? (
-            <Field label={mode === 'fixed' ? 'Pods' : 'Percent'}>
-              <Input value={value} onChange={(e) => setValue(e.target.value)} />
+          {(fault?.knobs ?? []).map((k) => (
+            <Field key={k.env} label={k.label} hint={k.hint}>
+              <Input value={knob(k.env, k.value)} onChange={(e) => setEnv((prev) => ({ ...prev, [k.env]: e.target.value }))} />
             </Field>
-          ) : (
-            <Field label="Duration" hint="Go duration. Empty = until stopped.">
-              <Input value={duration} onChange={(e) => setDuration(e.target.value)} placeholder="60s" />
-            </Field>
-          )}
+          ))}
         </div>
 
-        {modeNeedsValue(mode) ? (
-          <Field label="Duration" hint="Go duration — 30s, 5m. Empty means it runs until you stop it.">
-            <Input value={duration} onChange={(e) => setDuration(e.target.value)} placeholder="60s" />
-          </Field>
-        ) : null}
+        <Field
+          label="Steady-state probe"
+          hint="Polled every 5s through the fault. One failed poll fails the run — that is the hypothesis being tested."
+        >
+          <Input
+            value={probeUrl}
+            onChange={(e) => setProbeUrl(e.target.value)}
+            placeholder="http://checkout.payments.svc.cluster.local/health"
+          />
+        </Field>
 
         {/* The blast radius, in a sentence, before anyone presses the button. */}
         <div
@@ -656,9 +678,9 @@ function LaunchDialog({ installed, onClose }: { installed: ChaosKind[]; onClose(
         >
           <span className="font-medium">This will: </span>
           {blastSentence}
-          {!duration ? (
+          {!probeUrl.trim() ? (
             <div className="mt-1 text-[11px]">
-              With no duration the fault stays applied until someone stops it here.
+              With no probe the verdict only says whether the fault ran, not whether the system survived it.
             </div>
           ) : null}
         </div>
@@ -666,7 +688,7 @@ function LaunchDialog({ installed, onClose }: { installed: ChaosKind[]; onClose(
         {needsConfirm ? (
           <Field
             label="Confirm"
-            hint={`${kind?.blast === 'high' ? 'High blast radius' : 'Targets every matching pod'} — type the name to confirm.`}
+            hint={`${fault?.blast === 'high' ? 'High blast radius' : 'Targets every matching pod'} — type the name to confirm.`}
           >
             <Input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={name || 'experiment name'} />
           </Field>

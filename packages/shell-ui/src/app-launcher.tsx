@@ -305,9 +305,9 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
   },
   {
     // The platform ships LitmusChaos, not Chaos Mesh: `chaos-mesh.<domain>`
-    // has no route any more and `litmus.<domain>` does. (Chaos Mesh's CRDs
-    // are still installed, so the console's own chaos views keep working —
-    // only this external link moved.)
+    // has no route any more and `litmus.<domain>` does. The console's own
+    // Chaos page drives Litmus directly (ChaosEngine / ChaosResult), so this
+    // entry is the Chaos Center UI for what the page does not cover.
     id: 'litmus',
     name: 'LitmusChaos',
     description: 'Chaos engineering experiments',

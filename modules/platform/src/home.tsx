@@ -200,7 +200,7 @@ const SECTIONS: Record<Section, SectionDef> = {
     id: 'chaos',
     label: 'Chaos Engineering',
     description:
-      'Chaos Mesh experiments — inject pod, network, I/O and clock faults on purpose, with the blast radius stated and a way back.',
+      'LitmusChaos experiments — inject pod, network, resource, DNS and node faults on purpose, with the hypothesis stated, a probe judging it, and a way back.',
     kind: 'k8s',
   },
   shell: {

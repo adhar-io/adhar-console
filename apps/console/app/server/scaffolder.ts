@@ -318,6 +318,21 @@ async function scaffold(
       body: JSON.stringify({ content: base64Content, message, branch: 'main' }),
     })
 
+  // ONE commit for a set of files (Gitea's batch contents endpoint). The
+  // scaffold used to commit file by file, so a 14-file skeleton was 14 commits —
+  // and the repository's push webhook fired the app-ci pipeline 14 times in
+  // parallel for a repository that was not even complete yet. A scaffold is one
+  // change; it gets one commit and one pipeline run.
+  const putFiles = (files: Array<{ path: string; base64: string }>, message: string) =>
+    gitea_api(`/repos/${encodeURIComponent(org)}/${encodeURIComponent(name)}/contents`, {
+      method: 'POST',
+      body: JSON.stringify({
+        branch: 'main',
+        message,
+        files: files.map((f) => ({ operation: 'create', path: f.path, content: f.base64 })),
+      }),
+    })
+
   // Track what the skeleton already wrote so later steps don't double-commit.
   const committedPaths = new Set<string>()
 
@@ -377,7 +392,9 @@ async function scaffold(
         values.hostname = `${name}.${bare}`
       }
 
-      let committed = 0
+      // Render everything first; a file that fails to render is reported and
+      // the rest still land, in one commit.
+      const rendered: Array<{ path: string; base64: string }> = []
       let failed = 0
       let firstError: string | undefined
       for (const entry of entries) {
@@ -391,24 +408,28 @@ async function scaffold(
           const content = isBinary
             ? bytesToBase64(buf)
             : toBase64(renderContent(new TextDecoder().decode(buf), values))
-          const put = await putFile(outPath, content, `feat: scaffold ${templatePath} skeleton (adhar)`)
-          if (put.ok) {
-            committed++
-            committedPaths.add(outPath)
-          } else {
-            failed++
-            if (!firstError) firstError = `${outPath}: gitea ${put.status} ${(await put.text().catch(() => '')).slice(0, 120)}`
-          }
+          rendered.push({ path: outPath, base64: content })
         } catch (e) {
           failed++
           if (!firstError) firstError = `${outPath}: ${e instanceof Error ? e.message : String(e)}`
+        }
+      }
+      let committed = 0
+      if (rendered.length > 0) {
+        const put = await putFiles(rendered, `feat: scaffold ${templatePath} skeleton (adhar)`)
+        if (put.ok) {
+          committed = rendered.length
+          for (const f of rendered) committedPaths.add(f.path)
+        } else {
+          failed += rendered.length
+          if (!firstError) firstError = `gitea ${put.status} ${(await put.text().catch(() => '')).slice(0, 160)}`
         }
       }
       step({
         name: 'commit-files',
         ok: failed === 0,
         detail: failed === 0
-          ? `${committed} files committed to main`
+          ? `${committed} files committed to main in one commit`
           : `${committed} committed, ${failed} failed — ${firstError ?? ''}`,
       })
     }
@@ -450,18 +471,22 @@ async function scaffold(
       // then no workload.
       image: defaultImage(name, env('KPACK_REGISTRY'), env('SCAFFOLD_IMAGE_TAG') ?? '0.1.0'),
     })
-    for (const file of files) {
-      if (committedPaths.has(file.path) || file.path === catalogInfoPath || file.path === 'catalog-info.yaml') continue
+    const batch = files
+      .filter((file) => !(committedPaths.has(file.path) || file.path === catalogInfoPath || file.path === 'catalog-info.yaml'))
+      .map((file) => ({ path: file.path, base64: toBase64(file.content) }))
+    if (batch.length > 0) {
       try {
-        const r = await putFile(file.path, toBase64(file.content), `feat: add ${goldenPath} golden-path starter (adhar scaffolder)`)
+        const r = await putFiles(batch, `feat: add ${goldenPath} golden-path starter (adhar scaffolder)`)
         step({
-          name: `commit:${file.path}`,
+          name: 'commit-files',
           ok: r.ok,
-          detail: r.ok ? undefined : `gitea ${r.status}: ${(await r.text().catch(() => '')).slice(0, 160)}`,
+          detail: r.ok
+            ? `${batch.length} files committed to main in one commit`
+            : `gitea ${r.status}: ${(await r.text().catch(() => '')).slice(0, 160)}`,
         })
-        if (r.ok) committedPaths.add(file.path)
+        if (r.ok) for (const f of batch) committedPaths.add(f.path)
       } catch (e) {
-        step({ name: `commit:${file.path}`, ok: false, detail: e instanceof Error ? e.message : '' })
+        step({ name: 'commit-files', ok: false, detail: e instanceof Error ? e.message : '' })
       }
     }
   }

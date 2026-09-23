@@ -11,9 +11,10 @@ import {
   type Column,
   DataTable,
   EmptyState,
-  Input,
+  type Facet,
+  type FacetValues,
+  FilterBar,
   PageHeader,
-  Select,
   StatusBadge,
 } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
@@ -96,6 +97,38 @@ type KindFilter = 'all' | EntityKind
 type CategoryFilter = 'all' | CheckCategory
 type SourceFilter = 'all' | ScoreSource
 type SortKey = 'score-asc' | 'score-desc' | 'name' | 'owner'
+
+/*
+ * The filters as FilterBar facets — one row, applied state shown as chips,
+ * instead of four `<select>`s whose current values were invisible once
+ * collapsed. Every facet is single-select because each maps to one query.
+ */
+const FACETS: Facet[] = [
+  { id: 'grade', label: 'Grade', kind: 'single', options: GRADES.map((g) => ({ value: g, label: `Grade ${g}` })) },
+  { id: 'kind', label: 'Kind', kind: 'single', options: SCOREABLE_KINDS.map((k) => ({ value: k, label: k })) },
+  {
+    id: 'source',
+    label: 'Scored by',
+    kind: 'single',
+    options: [
+      { value: 'platform', label: 'Platform scorer' },
+      { value: 'catalog', label: 'Catalog-derived' },
+    ],
+  },
+  {
+    id: 'category',
+    label: 'Gaps in',
+    kind: 'single',
+    options: CHECK_CATEGORIES.map((c) => ({ value: c, label: CATEGORY_LABEL[c] })),
+  },
+]
+
+const SORTS: Array<{ value: SortKey; label: string }> = [
+  { value: 'score-asc', label: 'Worst score first' },
+  { value: 'score-desc', label: 'Best score first' },
+  { value: 'name', label: 'Name A→Z' },
+  { value: 'owner', label: 'Owner A→Z' },
+]
 
 function ScorecardsDashboard() {
   const { scorecards, isLoading, offline, live, platform } = useLiveScorecards()
@@ -279,6 +312,19 @@ function ScorecardsDashboard() {
   const filtering =
     grade !== 'all' || kind !== 'all' || category !== 'all' || source !== 'all' || query.trim() !== ''
 
+  const facetValues = useMemo<FacetValues>(() => ({
+    ...(grade !== 'all' ? { grade: [grade] } : {}),
+    ...(kind !== 'all' ? { kind: [kind] } : {}),
+    ...(source !== 'all' ? { source: [source] } : {}),
+    ...(category !== 'all' ? { category: [category] } : {}),
+  }), [grade, kind, source, category])
+  const onFacetValues = (next: FacetValues) => {
+    setGrade((next.grade?.[0] as Grade | undefined) ?? 'all')
+    setKind((next.kind?.[0] as EntityKind | undefined) ?? 'all')
+    setSource((next.source?.[0] as ScoreSource | undefined) ?? 'all')
+    setCategory((next.category?.[0] as CheckCategory | undefined) ?? 'all')
+  }
+
   return (
     <>
       <PageHeader
@@ -314,7 +360,13 @@ function ScorecardsDashboard() {
         onRefetch={() => void queryClient.invalidateQueries({ queryKey: ['platform-scorecards'] })}
       />
 
-      <section className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
+      {/*
+        Three numbers and one picture. Eight equal tiles put "Services scored"
+        and "Grade D: 0" at the same visual weight; the grades are one
+        distribution, so they get one tile with a stacked bar and the five
+        counts as filters under it.
+      */}
+      <section className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,2.3fr)]">
         <SummaryTile
           label="Services scored"
           value={String(scorecards.length)}
@@ -326,15 +378,6 @@ function ScorecardsDashboard() {
           sub={weakestCategory ? `Weakest: ${CATEGORY_LABEL[weakestCategory.cat]}` : '—'}
           tone={scoreTextTone(average)}
         />
-        {GRADES.map((g) => (
-          <GradeTile
-            key={g}
-            grade={g}
-            count={distribution[g]}
-            active={grade === g}
-            onToggle={() => setGrade((cur) => (cur === g ? 'all' : g))}
-          />
-        ))}
         <SummaryTile
           label="Passing (A/B)"
           value={String(distribution.A + distribution.B)}
@@ -344,13 +387,28 @@ function ScorecardsDashboard() {
               : '—'
           }
         />
+        <GradeDistribution
+          distribution={distribution}
+          total={scorecards.length}
+          active={grade}
+          onToggle={(g) => setGrade((cur) => (cur === g ? 'all' : g))}
+        />
       </section>
 
       {scorecards.length ? (
         <section
           aria-label="Fleet readiness by category"
-          className="mb-6 grid grid-cols-1 gap-x-6 gap-y-3 rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-5"
+          className="mb-6 rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm"
         >
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-content-subtle">
+              Fleet readiness by category
+            </h2>
+            <span className="text-[11px] text-content-subtle">
+              Average across services where the category applies · click one to see the services with gaps
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-5">
           {categoryAverages.map(({ cat, score, count }) => {
             const on = category === cat
             return (
@@ -384,83 +442,36 @@ function ScorecardsDashboard() {
                     style={{ width: `${score ?? 0}%` }}
                   />
                 </span>
+                <span className="text-[10px] text-content-subtle">
+                  {count} {count === 1 ? 'service' : 'services'}
+                </span>
               </button>
             )
           })}
+          </div>
         </section>
       ) : null}
 
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="w-full sm:w-64">
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search service, ref, or owner…"
-            aria-label="Search scorecards"
-            className="h-9 py-0 text-[13px]"
-          />
-        </div>
-        <Select
-          aria-label="Filter by grade"
-          value={grade}
-          onChange={(e) => setGrade(e.target.value as GradeFilter)}
-          className="h-9 w-auto py-0 text-[13px]"
-          options={[
-            { value: 'all', label: 'All grades' },
-            ...GRADES.map((g) => ({ value: g, label: `Grade ${g}` })),
-          ]}
-        />
-        <Select
-          aria-label="Filter by kind"
-          value={kind}
-          onChange={(e) => setKind(e.target.value as KindFilter)}
-          className="h-9 w-auto py-0 text-[13px]"
-          options={[
-            { value: 'all', label: 'All kinds' },
-            ...SCOREABLE_KINDS.map((k) => ({ value: k, label: k })),
-          ]}
-        />
-        <Select
-          aria-label="Filter by scorer"
-          value={source}
-          onChange={(e) => setSource(e.target.value as SourceFilter)}
-          className="h-9 w-auto py-0 text-[13px]"
-          options={[
-            { value: 'all', label: 'Any scorer' },
-            { value: 'platform', label: 'Platform scorer' },
-            { value: 'catalog', label: 'Catalog-derived' },
-          ]}
-        />
-        <Select
-          aria-label="Filter by category gap"
-          value={category}
-          onChange={(e) => setCategory(e.target.value as CategoryFilter)}
-          className="h-9 w-auto py-0 text-[13px]"
-          options={[
-            { value: 'all', label: 'All categories' },
-            ...CHECK_CATEGORIES.map((c) => ({
-              value: c,
-              label: `Gaps in ${CATEGORY_LABEL[c]}`,
-            })),
-          ]}
-        />
-        <Select
-          aria-label="Sort"
-          value={sort}
-          onChange={(e) => setSort(e.target.value as SortKey)}
-          className="h-9 w-auto py-0 text-[13px]"
-          options={[
-            { value: 'score-asc', label: 'Worst score first' },
-            { value: 'score-desc', label: 'Best score first' },
-            { value: 'name', label: 'Name A→Z' },
-            { value: 'owner', label: 'Owner A→Z' },
-          ]}
-        />
-        <span aria-live="polite" className="ml-auto text-[11px] tabular-nums text-content-muted">
-          {filtered.length} {filtered.length === 1 ? 'service' : 'services'}
-          {filtered.length !== scorecards.length ? ` of ${scorecards.length}` : ''}
-        </span>
-      </div>
+      <FilterBar<never, SortKey>
+        className="mb-3"
+        search={{
+          value: query,
+          onChange: setQuery,
+          placeholder: 'Search service, ref, or owner…',
+          label: 'Search scorecards',
+        }}
+        facets={FACETS}
+        values={facetValues}
+        onValuesChange={onFacetValues}
+        sort={{ value: sort, onChange: setSort, options: SORTS }}
+        loading={isLoading && !scorecards.length}
+        summary={
+          <span aria-live="polite">
+            {filtered.length} {filtered.length === 1 ? 'service' : 'services'}
+            {filtered.length !== scorecards.length ? ` of ${scorecards.length}` : ''}
+          </span>
+        }
+      />
 
       <DataTable
         columns={columns}
@@ -579,40 +590,84 @@ function SummaryTile({
   )
 }
 
-function GradeTile({
-  grade,
-  count,
+/**
+ * The grade distribution as one picture: a stacked bar in grade order, and
+ * the five counts under it, each a filter. Replaces five separate tiles that
+ * each showed a number with no sense of proportion.
+ */
+function GradeDistribution({
+  distribution,
+  total,
   active,
   onToggle,
 }: {
-  grade: Grade
-  count: number
-  active: boolean
-  onToggle(): void
+  distribution: Record<Grade, number>
+  total: number
+  active: GradeFilter
+  onToggle(g: Grade): void
 }) {
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-pressed={active}
-      title={active ? 'Clear grade filter' : `Show only grade ${grade}`}
-      className={cn(
-        'rounded-xl border bg-surface-raised px-3 py-2.5 text-left shadow-sm transition-colors',
-        active
-          ? 'border-brand-400 ring-1 ring-brand-400 dark:border-brand-500/60 dark:ring-brand-500/60'
-          : 'border-edge-default hover:border-edge-strong',
-      )}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <GradeBadge grade={grade} />
-        <span className="font-mono text-[20px] font-semibold tabular-nums leading-none text-content">
-          {count}
-        </span>
+    <div className="col-span-2 rounded-xl border border-edge-default bg-surface-raised px-3 py-2.5 shadow-sm sm:col-span-3 lg:col-span-1">
+      <div className="flex items-baseline justify-between gap-2">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
+          Grade distribution
+        </div>
+        {active !== 'all' ? (
+          <button
+            type="button"
+            onClick={() => onToggle(active)}
+            className="text-[10px] font-medium text-brand-700 hover:underline dark:text-brand-300"
+          >
+            Clear grade filter
+          </button>
+        ) : null}
       </div>
-      <div className="mt-2 h-1 w-full rounded-full bg-surface-sunken">
-        <span className={cn('block h-full rounded-full', GRADE_BAR[grade])} style={{ width: count > 0 ? '100%' : '0%' }} />
+      <div
+        className="mt-2 flex h-2 w-full overflow-hidden rounded-full bg-surface-sunken"
+        role="img"
+        aria-label={GRADES.map((g) => `${g}: ${distribution[g]}`).join(', ')}
+      >
+        {total > 0
+          ? GRADES.map((g) =>
+              distribution[g] > 0 ? (
+                <span
+                  key={g}
+                  className={cn('h-full transition-[width] duration-300', GRADE_BAR[g])}
+                  style={{ width: `${(distribution[g] / total) * 100}%` }}
+                />
+              ) : null,
+            )
+          : null}
       </div>
-    </button>
+      <div className="mt-2 grid grid-cols-5 gap-1">
+        {GRADES.map((g) => {
+          const on = active === g
+          return (
+            <button
+              key={g}
+              type="button"
+              onClick={() => onToggle(g)}
+              aria-pressed={on}
+              title={on ? 'Clear grade filter' : `Show only grade ${g}`}
+              className={cn(
+                'flex items-center justify-between gap-1.5 rounded-md px-1.5 py-1 text-left transition-colors',
+                on ? 'bg-brand-50 ring-1 ring-brand-400 dark:bg-brand-500/10 dark:ring-brand-500/60' : 'hover:bg-surface-sunken',
+              )}
+            >
+              <GradeBadge grade={g} />
+              <span
+                className={cn(
+                  'font-mono text-[13px] font-semibold tabular-nums',
+                  distribution[g] ? 'text-content' : 'text-content-subtle',
+                )}
+              >
+                {distribution[g]}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
@@ -893,7 +948,9 @@ function PlatformStrip({
     return (
       <section className="mb-6 rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm">
         <div className="flex items-start gap-3">
-          <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30">
+          {/* Information, not a warning: the page still works, it is just
+              scoring from a different source. */}
+          <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-700 ring-1 ring-brand-200 dark:bg-brand-500/10 dark:text-brand-300 dark:ring-brand-500/30">
             <IconAlert />
           </span>
           <div className="min-w-0">

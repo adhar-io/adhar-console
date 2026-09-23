@@ -37,13 +37,26 @@ export interface EntityTarget {
   appLabel?: string
 }
 
+type PanelGroup = 'resources' | 'workload' | 'network' | 'http'
+
 interface PanelDef {
   id: string
   label: string
-  unit: 'cores' | 'bytes' | 'rps' | 'count' | 'percent'
+  unit: 'cores' | 'bytes' | 'rps' | 'count' | 'percent' | 'ms'
+  group: PanelGroup
   query(t: EntityTarget): string
   hint: string
+  /** For panels that only exist when the app exposes the metric — shown instead of "no series". */
+  absent?: string
 }
+
+const GROUP_LABEL: Record<PanelGroup, { title: string; blurb: string }> = {
+  resources: { title: 'Resources', blurb: 'What the pods use, and how close to their limits they run' },
+  workload: { title: 'Workload', blurb: 'Replicas, restarts and kills — the rollout as Kubernetes sees it' },
+  network: { title: 'Network', blurb: 'Bytes in and out of the pods' },
+  http: { title: 'HTTP golden signals', blurb: 'Rate, errors and latency from the app’s own http_* metrics, when it exposes them' },
+}
+const GROUP_ORDER: PanelGroup[] = ['resources', 'workload', 'network', 'http']
 
 /**
  * PromQL label values are double-quoted strings: a name containing `"` or `\`
@@ -84,11 +97,34 @@ function readyReplicasQuery(t: EntityTarget): string {
   ].join(' or ')
 }
 
+/** Desired replicas, any workload kind — the line "ready" is measured against. */
+function desiredReplicasQuery(t: EntityTarget): string {
+  const ns = t.namespace ? `namespace="${quoted(t.namespace)}",` : ''
+  const n = quoted(t.name)
+  return [
+    `max(kube_deployment_spec_replicas{${ns}deployment="${n}"})`,
+    `max(kube_statefulset_replicas{${ns}statefulset="${n}"})`,
+    `max(kube_daemonset_status_desired_number_scheduled{${ns}daemonset="${n}"})`,
+  ].join(' or ')
+}
+
+/**
+ * Golden-signal queries assume the Prometheus client conventions most apps
+ * follow (`http_requests_total` with a `status` or `code` label, and an
+ * `http_request_duration_seconds` histogram). A workload that names them
+ * differently shows "not instrumented" here rather than a wrong number.
+ */
+function httpRequestsSelector(t: EntityTarget): string {
+  return podSelector(t)
+}
+
 const PANELS: PanelDef[] = [
+  // ── resources ──
   {
     id: 'cpu',
     label: 'CPU',
     unit: 'cores',
+    group: 'resources',
     hint: 'container_cpu_usage_seconds_total, 5m rate',
     query: (t) => `sum(rate(container_cpu_usage_seconds_total{${podSelector(t)},container!="",container!="POD"}[5m]))`,
   },
@@ -96,31 +132,114 @@ const PANELS: PanelDef[] = [
     id: 'memory',
     label: 'Memory',
     unit: 'bytes',
+    group: 'resources',
     hint: 'container_memory_working_set_bytes',
     query: (t) => `sum(container_memory_working_set_bytes{${podSelector(t)},container!="",container!="POD"})`,
   },
   {
-    id: 'network',
-    label: 'Network in',
-    unit: 'bytes',
-    hint: 'container_network_receive_bytes_total, 5m rate',
-    query: (t) => `sum(rate(container_network_receive_bytes_total{${podSelector(t)}}[5m]))`,
+    id: 'cpu-throttle',
+    label: 'CPU throttling',
+    unit: 'percent',
+    group: 'resources',
+    hint: 'share of CFS periods throttled, 5m — sustained throttling means the CPU limit is too low',
+    query: (t) =>
+      `100 * sum(rate(container_cpu_cfs_throttled_periods_total{${podSelector(t)},container!="",container!="POD"}[5m])) / clamp_min(sum(rate(container_cpu_cfs_periods_total{${podSelector(t)},container!="",container!="POD"}[5m])), 1)`,
+    absent: 'No CFS throttling series — the containers may have no CPU limit.',
   },
+  {
+    id: 'memory-limit',
+    label: 'Memory vs limit',
+    unit: 'percent',
+    group: 'resources',
+    hint: 'working set as a share of the memory limit — above ~90% is OOM territory',
+    query: (t) =>
+      `100 * sum(container_memory_working_set_bytes{${podSelector(t)},container!="",container!="POD"}) / clamp_min(sum(kube_pod_container_resource_limits{${podSelector(t)},resource="memory"}), 1)`,
+    absent: 'No memory limit set on these containers.',
+  },
+  // ── workload ──
   {
     id: 'replicas',
     label: 'Ready replicas',
     unit: 'count',
+    group: 'workload',
     hint: 'kube_{deployment,statefulset,daemonset} ready replicas',
     query: readyReplicasQuery,
+  },
+  {
+    id: 'desired',
+    label: 'Desired replicas',
+    unit: 'count',
+    group: 'workload',
+    hint: 'spec replicas — ready should sit on this line',
+    query: desiredReplicasQuery,
   },
   {
     id: 'restarts',
     label: 'Restarts (1h)',
     unit: 'count',
+    group: 'workload',
     hint: 'kube_pod_container_status_restarts_total, 1h increase',
     query: (t) => `sum(increase(kube_pod_container_status_restarts_total{${podSelector(t)}}[1h]))`,
   },
+  {
+    id: 'oom',
+    label: 'OOM kills',
+    unit: 'count',
+    group: 'workload',
+    hint: 'containers whose last termination was OOMKilled',
+    query: (t) => `sum(kube_pod_container_status_last_terminated_reason{${podSelector(t)},reason="OOMKilled"}) or vector(0)`,
+  },
+  // ── network ──
+  {
+    id: 'network',
+    label: 'Network in',
+    unit: 'bytes',
+    group: 'network',
+    hint: 'container_network_receive_bytes_total, 5m rate',
+    query: (t) => `sum(rate(container_network_receive_bytes_total{${podSelector(t)}}[5m]))`,
+  },
+  {
+    id: 'network-out',
+    label: 'Network out',
+    unit: 'bytes',
+    group: 'network',
+    hint: 'container_network_transmit_bytes_total, 5m rate',
+    query: (t) => `sum(rate(container_network_transmit_bytes_total{${podSelector(t)}}[5m]))`,
+  },
+  // ── http ──
+  {
+    id: 'rps',
+    label: 'Requests',
+    unit: 'rps',
+    group: 'http',
+    hint: 'http_requests_total, 5m rate',
+    query: (t) => `sum(rate(http_requests_total{${httpRequestsSelector(t)}}[5m]))`,
+    absent: 'Not instrumented — expose http_requests_total to see request rate.',
+  },
+  {
+    id: 'errors',
+    label: '5xx rate',
+    unit: 'percent',
+    group: 'http',
+    hint: 'share of responses with a 5xx status, 5m',
+    query: (t) =>
+      `100 * sum(rate(http_requests_total{${httpRequestsSelector(t)},status=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total{${httpRequestsSelector(t)}}[5m])), 0.001)`,
+    absent: 'Not instrumented — needs http_requests_total with a status label.',
+  },
+  {
+    id: 'p95',
+    label: 'Latency p95',
+    unit: 'ms',
+    group: 'http',
+    hint: 'histogram_quantile(0.95) over http_request_duration_seconds, 5m',
+    query: (t) =>
+      `1000 * histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{${httpRequestsSelector(t)}}[5m])))`,
+    absent: 'Not instrumented — expose an http_request_duration_seconds histogram.',
+  },
 ]
+
+/** The four numbers at the top of the tab. Same queries as their panels, so React Query answers from cache. */
+const KPI_IDS = ['cpu', 'memory', 'replicas', 'restarts'] as const
 
 const RANGES = [
   { id: '1h', label: '1h', ms: 60 * 60_000, step: '1m' },
@@ -191,14 +310,60 @@ export function EntityMetrics({
           </div>
         </div>
       </CardHeader>
-      <CardBody>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {PANELS.map((p) => (
-            <MetricPanel key={p.id} panel={p} target={target} range={range} grafanaBase={grafanaUrl} />
-          ))}
+      <CardBody className="space-y-5">
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+          {KPI_IDS.map((id) => {
+            const p = PANELS.find((x) => x.id === id)!
+            return <KpiTile key={id} panel={p} target={target} range={range} />
+          })}
         </div>
+        {GROUP_ORDER.map((g) => {
+          const panels = PANELS.filter((p) => p.group === g)
+          return (
+            <section key={g}>
+              <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                <h4 className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-content-subtle">{GROUP_LABEL[g].title}</h4>
+                <span className="text-[11px] text-content-subtle">{GROUP_LABEL[g].blurb}</span>
+              </div>
+              <div className={cn('grid gap-3 sm:grid-cols-2', panels.length > 2 && 'xl:grid-cols-4', panels.length === 3 && 'xl:grid-cols-3')}>
+                {panels.map((p) => (
+                  <MetricPanel key={p.id} panel={p} target={target} range={range} grafanaBase={grafanaUrl} />
+                ))}
+              </div>
+            </section>
+          )
+        })}
       </CardBody>
     </Card>
+  )
+}
+
+/** One headline number: the latest sample, its change over the window, and a sparkline. */
+function KpiTile({ panel, target, range }: { panel: PanelDef; target: EntityTarget; range: RangeId }) {
+  const query = useMemo(() => panel.query(target), [panel, target])
+  const q = usePanel(query, range, Boolean(target.name))
+  const series = q.data ?? []
+  const points = useMemo(() => series.flatMap((s) => s.values.map(([, v]) => Number(v))).filter((n) => Number.isFinite(n)), [series])
+  const last = points.length ? points[points.length - 1] : null
+  const first = points.length ? points[0] : null
+  const delta = first !== null && last !== null && first !== 0 ? ((last - first) / Math.abs(first)) * 100 : null
+  return (
+    <div className="min-w-0 rounded-xl border border-edge-default bg-surface-raised px-3.5 py-3 shadow-sm">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-content-subtle">{panel.label}</span>
+        {delta !== null && Math.abs(delta) >= 1 ? (
+          <span className={cn('font-mono text-[10px] tabular-nums', panel.id === 'restarts' ? (delta > 0 ? 'text-rose-600 dark:text-rose-300' : 'text-emerald-600 dark:text-emerald-400') : 'text-content-subtle')}>
+            {delta > 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(0)}%
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-1 font-mono text-[20px] font-semibold tabular-nums leading-none text-content">
+        {q.isLoading ? '…' : last === null ? '—' : fmt(last, panel.unit)}
+      </div>
+      <div className="mt-2 h-6">
+        {points.length > 1 ? <Sparkline points={points} height={24} color="var(--color-brand-500)" /> : null}
+      </div>
+    </div>
   )
 }
 
@@ -260,7 +425,7 @@ function MetricPanel({
           </div>
         ) : points.length === 0 ? (
           <div className="flex h-14 items-center text-[11px] text-content-subtle">
-            No series — this metric isn't collected for this workload.
+            {panel.absent ?? "No series — this metric isn't collected for this workload."}
           </div>
         ) : (
           <AreaChart points={points} color="var(--color-brand-500)" height={72} showAxis={false} />
@@ -404,6 +569,8 @@ function fmt(v: number, unit: PanelDef['unit']): string {
       return `${v.toFixed(1)}%`
     case 'rps':
       return `${v.toFixed(2)}/s`
+    case 'ms':
+      return v >= 1000 ? `${(v / 1000).toFixed(2)} s` : `${v.toFixed(0)} ms`
     default:
       return Number.isInteger(v) ? String(v) : v.toFixed(1)
   }

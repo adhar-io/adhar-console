@@ -9,7 +9,7 @@ import {
   GrafanaIcon,
   Spinner,
   usePollingInterval,
-  useToolPublicUrl, Sparkline } from '@adhar-console/shell-ui'
+  useToolPublicUrl, Sparkline, usePublicUrl } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
 
 /**
@@ -531,17 +531,19 @@ export function MonitorButton({ url, compact = false }: { url: string; compact?:
  */
 export function useGrafanaMonitorUrl(target: EntityTarget, pinned?: string): { url: string; grafanaBase: string } {
   const grafanaBase = useToolPublicUrl('grafana')
+  const pub = usePublicUrl()
   const url = useMemo(() => {
     if (!grafanaBase) return ''
     const base = grafanaBase.replace(/\/$/, '')
     if (pinned) {
-      if (/^https?:/.test(pinned)) return pinned
+      // A pinned dashboard URL may carry Grafana's in-cluster host.
+      if (/^https?:/.test(pinned)) return pub(pinned, 'grafana')
       const [uid, slug] = pinned.split('/')
       return `${base}/d/${uid}${slug ? `/${slug}` : ''}?${varParams(target)}`
     }
     // kube-prometheus-stack's "Kubernetes / Compute Resources / Workload".
     return `${base}/d/a164a7f0339f99e89cea5cb47e9be617/kubernetes-compute-resources-workload?${varParams(target)}`
-  }, [grafanaBase, pinned, target])
+  }, [grafanaBase, pinned, target, pub])
   return { url, grafanaBase }
 }
 

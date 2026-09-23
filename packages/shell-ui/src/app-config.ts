@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 /**
@@ -136,6 +137,90 @@ export function toPublicUrl(raw: string, opts: { toolUrl?: string; tool?: string
   if (!origin && opts.tool && opts.baseDomain) origin = `${proto}//${opts.tool}.${opts.baseDomain}`
   if (!origin) return raw
   return `${origin.replace(/\/$/, '')}${u.pathname}${u.search}${u.hash}`
+}
+
+/**
+ * Which public tool an in-cluster Service name belongs to.
+ *
+ * A URL a backend self-reports names the Service the BFF used —
+ * `gitea-http`, `prometheus-grafana`, `argocd-server` — not the tool.
+ * The table is the well-known chart Service names; the fallback strips the
+ * usual role suffixes (`-http`, `-server`, `-core`, …) so an unlisted chart
+ * still resolves when its Service is named after the tool.
+ */
+const TOOL_BY_SERVICE: Record<string, string> = {
+  gitea: 'gitea',
+  'gitea-http': 'gitea',
+  harbor: 'harbor',
+  'harbor-core': 'harbor',
+  'harbor-portal': 'harbor',
+  grafana: 'grafana',
+  'prometheus-grafana': 'grafana',
+  'kube-prometheus-stack-grafana': 'grafana',
+  prometheus: 'prometheus',
+  'prometheus-server': 'prometheus',
+  'prometheus-kube-prometheus-prometheus': 'prometheus',
+  alertmanager: 'alertmanager',
+  argocd: 'argocd',
+  'argocd-server': 'argocd',
+  'argo-cd-argocd-server': 'argocd',
+  'argo-workflows-server': 'argo-workflows',
+  'argo-server': 'argo-workflows',
+  'argo-rollouts-dashboard': 'argo-rollouts',
+  kargo: 'kargo',
+  'kargo-api': 'kargo',
+  plane: 'plane',
+  'plane-web': 'plane',
+  'plane-app': 'plane',
+  keycloak: 'keycloak',
+  metabase: 'metabase',
+  nexus: 'nexus',
+  'nexus-repository-manager': 'nexus',
+  coder: 'coder',
+  vault: 'vault',
+  openbao: 'vault',
+  loki: 'loki',
+  tempo: 'tempo',
+  kyverno: 'kyverno',
+  backstage: 'backstage',
+  rustfs: 'rustfs',
+  minio: 'rustfs',
+  'tekton-dashboard': 'tekton',
+}
+
+export function toolForInternalHost(host: string): string | undefined {
+  const label = host.split(':')[0].split('.')[0].toLowerCase()
+  return TOOL_BY_SERVICE[label] ?? TOOL_BY_SERVICE[label.replace(/-(http|https|server|core|portal|api|ui|web|svc|service|app)$/, '')]
+}
+
+/**
+ * The one place a link gets made openable.
+ *
+ * Returns a function that rewrites a URL with an in-cluster host to the
+ * tool's public URL (from `/api/config.tools`, else `<tool>.<base>`),
+ * keeping the path. Public URLs pass through untouched, as does anything
+ * whose tool cannot be inferred — a wrong rewrite is worse than a dead
+ * link, because it looks right. Pass `tool` when the caller knows it.
+ */
+export function usePublicUrl(): (url: string, tool?: string) => string {
+  const cfg = useAppConfig().data
+  const base = usePublicBaseDomain()
+  return useCallback(
+    (url: string, tool?: string) => {
+      if (!url) return url
+      let host = ''
+      try {
+        host = new URL(url).host
+      } catch {
+        return url
+      }
+      if (!isInternalHost(host)) return url
+      const t = tool ?? toolForInternalHost(host)
+      if (!t) return url
+      return toPublicUrl(url, { tool: t, toolUrl: cfg?.tools?.[t]?.url, baseDomain: base })
+    },
+    [cfg, base],
+  )
 }
 
 /** Service DNS / localhost / bare hostnames a browser can't resolve. */

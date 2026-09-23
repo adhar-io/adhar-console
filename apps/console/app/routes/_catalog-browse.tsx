@@ -21,6 +21,7 @@ import {
   type TabDef,
   Textarea,
   useAi,
+  usePublicUrl,
   useToast,
   useToolPublicUrl,
 } from '@adhar-console/shell-ui'
@@ -49,6 +50,8 @@ import {
   useEntityDeployment,
 } from '~/data/catalog-deployment.ts'
 import { type EntityRoute, routeLabel, useEntityRoutes } from '~/data/catalog-routes.ts'
+import { type PipelineRunSummary, usePipelineRuns } from '~/data/catalog-pipelines.ts'
+import { useDiscoverAlerts } from '~/data/cross-module-signals.ts'
 import {
   CATEGORY_LABEL,
   type Check,
@@ -230,9 +233,61 @@ function activeFilterCount(f: FilterState): number {
   )
 }
 
+/** Annotations that carry a URL a person will click. */
+const URL_ANNOTATIONS = [
+  'adhar.io/source-repo',
+  'adhar.io/git-repo',
+  'backstage.io/source-location',
+  'adhar.io/docs',
+  'backstage.io/techdocs-ref',
+  'adhar.io/dashboard',
+  'backstage.io/dashboard',
+  'adhar.io/grafana-dashboard',
+  'adhar.io/runbook',
+  'backstage.io/runbook',
+  'adhar.io/ci-pipeline',
+  'adhar.io/ci',
+]
+
+/**
+ * Every link on an entity, made openable, ONCE — here, where the list enters
+ * the page. Live entities carry the hosts the BFF used to reach Gitea,
+ * Grafana or Argo (`gitea-http.adhar-system.svc…`), and each card, header,
+ * tab and widget used to be one more place a dead link could leak from.
+ * Returns the same object when nothing changed so memoised consumers hold.
+ */
+function publicizeEntity(e: Entity, pub: (url: string) => string): Entity {
+  let changed = false
+  const links = (e.metadata.links ?? []).map((l) => {
+    const url = pub(l.url)
+    if (url !== l.url) changed = true
+    return url !== l.url ? { ...l, url } : l
+  })
+  const ann = e.metadata.annotations
+  let annotations = ann
+  if (ann) {
+    for (const key of URL_ANNOTATIONS) {
+      const raw = ann[key]
+      if (!raw) continue
+      // `url:https://…` is Backstage's prefixed form; keep the prefix.
+      const m = /^(url:\s*)?(https?:\/\/\S+)$/i.exec(raw.trim())
+      if (!m) continue
+      const next = pub(m[2])
+      if (next !== m[2]) {
+        if (annotations === ann) annotations = { ...ann }
+        annotations![key] = `${m[1] ?? ''}${next}`
+        changed = true
+      }
+    }
+  }
+  if (!changed) return e
+  return { ...e, metadata: { ...e.metadata, links, ...(annotations !== ann ? { annotations } : {}) } }
+}
+
 export function CatalogBrowse({ search }: { search: SearchState }) {
   const q = useCatalog()
-  const list = q.data
+  const pub = usePublicUrl()
+  const list = useMemo(() => (q.data ?? []).map((e) => publicizeEntity(e, pub)), [q.data, pub])
   const stars = useStars()
   const recents = useRecentlyViewed()
   const savedViews = useSavedViews()
@@ -4016,6 +4071,11 @@ function EntityDrawer({
   // Where the thing actually IS. Asked for the same entities as the deployment
   // query: a Group or a Domain has no HTTP surface, so it never hits the API.
   const routes = useEntityRoutes(entity, wantsDeploy)
+  const pub = usePublicUrl()
+  // Routes come from HTTPRoutes and Ingresses — public hostnames as a rule,
+  // but a fallback that names the Service is still rewritten to something a
+  // browser can open.
+  const routeList = useMemo(() => routes.routes.map((r) => (pub(r.url) === r.url ? r : { ...r, url: pub(r.url) })), [routes.routes, pub])
   const showDeploy = wantsDeploy || deployment.apps.length > 0
   const deployBadge =
     deployment.apps.length > 0
@@ -4132,9 +4192,9 @@ function EntityDrawer({
                 stays while the tabs change: open the running thing, go to its
                 source, its docs, its dashboard.
               */}
-              {routes.routes.length || entity.metadata.links?.length || monitorUrl ? (
+              {routeList.length || entity.metadata.links?.length || monitorUrl ? (
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <EntityRoutesBar routes={routes.routes} onSeeAll={() => setTab('deploy')} />
+                  <EntityRoutesBar routes={routeList} onSeeAll={() => setTab('deploy')} />
                   {(entity.metadata.links ?? []).map((l) => (
                     <a
                       key={l.url}
@@ -4354,7 +4414,7 @@ function EntityDrawer({
                         {isTechKind ? (
                           <TechPanel stack={stack} version={version} deployment={showDeploy ? deployment : undefined} onTab={setTab} />
                         ) : null}
-                        {routes.routes.length ? <EndpointsPanel routes={routes.routes} onTab={setTab} /> : null}
+                        {routeList.length ? <EndpointsPanel routes={routeList} onTab={setTab} /> : null}
                         <LinksPanel entity={entity} docsUrl={docsUrl} monitorUrl={monitorUrl} onTab={setTab} />
                         <SiblingsPanel entity={entity} ownerEnt={ownerEnt} catalog={catalog} onPick={onPick} />
                       </div>
@@ -4367,7 +4427,9 @@ function EntityDrawer({
                     entity={entity}
                     deployment={deployment}
                     repoUrl={repoUrl}
-                    routes={routes.routes}
+                    routes={routeList}
+                    monitorUrl={monitorUrl}
+                    onMetrics={metricTarget ? () => setTab('metrics') : undefined}
                   />
                 ) : null}
 
@@ -5859,11 +5921,15 @@ function DeploymentTab({
   deployment,
   repoUrl,
   routes,
+  monitorUrl,
+  onMetrics,
 }: {
   entity: Entity
   deployment: EntityDeployment
   repoUrl?: string
   routes: EntityRoute[]
+  monitorUrl?: string
+  onMetrics?(): void
 }) {
   const argoBase = useToolPublicUrl('argocd')
   const appUrl = (app: ArgoApp): string | undefined =>
@@ -5902,7 +5968,7 @@ function DeploymentTab({
       <EndpointsCard routes={routes} repoUrl={repoUrl} />
       <RepositoryCard entity={entity} repoUrl={repoUrl} primary={deployment.primary} />
       <PipelinesCard entity={entity} repoUrl={repoUrl} />
-      <MonitoringCard entity={entity} />
+      <MonitoringCard entity={entity} monitorUrl={monitorUrl} onMetrics={onMetrics} />
     </div>
   )
 }
@@ -6026,6 +6092,7 @@ function EnvironmentsGrid({
   appUrl(app: ArgoApp): string | undefined
   repoUrl?: string
 }) {
+  const pub = usePublicUrl()
   return (
     <DrawerSection
       title={`Environments · ${deployment.environments.length}`}
@@ -6036,7 +6103,7 @@ function EnvironmentsGrid({
           const app = env.app
           const rev = app.status.sync.revision
           const sha = shortSha(rev)
-          const link = commitUrl(repoUrl ?? app.spec.source.repoURL, rev)
+          const link = commitUrl(repoUrl ?? pub(app.spec.source.repoURL), rev)
           const fin = app.status.operationState?.finishedAt
           const url = appUrl(app)
           const images = app.status.images
@@ -6112,6 +6179,7 @@ function EnvironmentsGrid({
 
 /** The last syncs across every matched application, newest first. */
 function SyncHistoryCard({ deployment, repoUrl }: { deployment: EntityDeployment; repoUrl?: string }) {
+  const pub = usePublicUrl()
   const rows = deployment.apps
     .flatMap((app) =>
       app.status.history.map((h) => ({
@@ -6134,7 +6202,7 @@ function SyncHistoryCard({ deployment, repoUrl }: { deployment: EntityDeployment
         <ol className="relative space-y-2.5 border-l border-edge-subtle pl-4">
           {rows.map((r) => {
             const sha = shortSha(r.revision)
-            const link = commitUrl(repoUrl ?? r.repo, r.revision)
+            const link = commitUrl(repoUrl ?? (r.repo ? pub(r.repo) : undefined), r.revision)
             return (
               <li key={`${r.app}-${r.id}`} className="relative">
                 <span className="absolute -left-[19px] top-1.5 inline-flex h-2.5 w-2.5 rounded-full bg-brand-500 ring-2 ring-surface-raised" />
@@ -6157,7 +6225,8 @@ function SyncHistoryCard({ deployment, repoUrl }: { deployment: EntityDeployment
 
 /** Everything Argo CD knows about the primary application, as facts. */
 function GitOpsDetailsCard({ app, appUrl, apps }: { app: ArgoApp; appUrl?: string; apps: number }) {
-  const src = app.spec.source
+  const pub = usePublicUrl()
+  const src = { ...app.spec.source, repoURL: pub(app.spec.source.repoURL) }
   const auto = app.spec.syncPolicy.automated
   const rows: Array<{ label: string; node: React.ReactNode }> = [
     { label: 'Application', node: <span className="font-mono text-[12px] text-content">{app.metadata.namespace}/{app.metadata.name}</span> },
@@ -6278,6 +6347,7 @@ function EntityRoutesBar({ routes, onSeeAll }: { routes: EntityRoute[]; onSeeAll
  * or discount the row instead of wondering why an unrelated URL appeared.
  */
 function EndpointsCard({ routes, repoUrl }: { routes: EntityRoute[]; repoUrl?: string }) {
+  const primary = routes[0]
   return (
     <Card>
       <CardHeader>
@@ -6306,7 +6376,7 @@ function EndpointsCard({ routes, repoUrl }: { routes: EntityRoute[]; repoUrl?: s
           ) : null}
         </div>
       </CardHeader>
-      <CardBody className="space-y-2">
+      <CardBody className="space-y-3">
         {routes.length === 0 ? (
           <EmptyState
             compact
@@ -6320,48 +6390,85 @@ function EndpointsCard({ routes, repoUrl }: { routes: EntityRoute[]; repoUrl?: s
             }
           />
         ) : (
-          routes.map((r) => (
-            <div
-              key={r.url}
-              className="flex items-center gap-2 rounded-lg border border-edge-subtle bg-surface-sunken px-3 py-2"
-            >
-              <span
-                className={cn(
-                  'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium',
-                  r.via === 'backend'
-                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300'
-                    : 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300',
-                )}
-                title={
-                  r.via === 'backend'
-                    ? `Matched by backendRefs -> Service/${r.service ?? '?'}`
-                    : 'Matched by route name only — verify this belongs to this entity'
+          <>
+            <ul className="divide-y divide-edge-subtle overflow-hidden rounded-lg border border-edge-subtle">
+              {routes.map((r) => {
+                let host = r.url
+                let path = ''
+                let secure = false
+                try {
+                  const u = new URL(r.url)
+                  host = u.host
+                  path = u.pathname === '/' ? '' : u.pathname
+                  secure = u.protocol === 'https:'
+                } catch {
+                  /* show as-is */
                 }
-              >
-                {r.via === 'backend' ? 'backend' : 'by name'}
-              </span>
-              <a
-                href={r.url}
-                target="_blank"
-                rel="noreferrer"
-                className="min-w-0 flex-1 truncate font-mono text-[11px] text-brand-700 hover:underline dark:text-brand-300"
-                title={r.url}
-              >
-                {r.url}
-              </a>
-              <code
-                className="hidden shrink-0 font-mono text-[10px] text-content-subtle sm:inline"
-                title={`${r.kind} ${r.namespace}/${r.name}`}
-              >
-                {r.kind}
-              </code>
-              <CopyButton text={r.url} />
-            </div>
-          ))
+                return (
+                  <li key={r.url} className="flex items-center gap-3 bg-surface-raised px-3 py-2.5">
+                    <span
+                      className={cn('inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md', secure ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300')}
+                      title={secure ? 'HTTPS' : 'Plain HTTP'}
+                    >
+                      <IconLock />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <a href={r.url} target="_blank" rel="noreferrer" className="block truncate font-mono text-[12px] font-medium text-brand-700 hover:underline dark:text-brand-300" title={r.url}>
+                        {host}
+                        {path ? <span className="text-content-muted">{path}</span> : null}
+                      </a>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10.5px] text-content-subtle">
+                        <span title={`${r.kind} ${r.namespace}/${r.name}`}>{r.kind} · {r.namespace}/{r.name}</span>
+                        <span
+                          className={cn('rounded px-1 py-px font-medium', r.via === 'backend' ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300')}
+                          title={r.via === 'backend' ? `backendRefs → Service/${r.service ?? '?'} — the cluster asserts this link` : 'matched by name only — verify it belongs to this entity'}
+                        >
+                          {r.via === 'backend' ? `backend → ${r.service ?? 'service'}` : 'matched by name'}
+                        </span>
+                      </div>
+                    </div>
+                    <CopyButton text={r.url} />
+                    <a href={r.url} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 rounded-md border border-edge-default px-2 py-1 text-[11px] font-medium text-content-muted transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300">
+                      Open <IconArrowUpRight />
+                    </a>
+                  </li>
+                )
+              })}
+            </ul>
+            {primary ? (
+              <div className="flex items-center gap-2 rounded-lg border border-edge-subtle bg-surface-sunken px-3 py-2">
+                <code className="flex-1 truncate font-mono text-[11px] text-content-muted">curl -fsSI {primary.url}</code>
+                <CopyButton text={`curl -fsSI ${primary.url}`} />
+              </div>
+            ) : null}
+          </>
         )}
       </CardBody>
     </Card>
   )
+}
+
+/** Which forge a repository URL points at, for provider-specific paths and a name. */
+function repoProvider(url: string | undefined): { name: string; kind: 'gitea' | 'github' | 'gitlab' | 'other' } {
+  if (!url) return { name: '—', kind: 'other' }
+  let host = ''
+  try {
+    host = new URL(url).host.toLowerCase()
+  } catch {
+    return { name: url, kind: 'other' }
+  }
+  if (host.includes('github')) return { name: 'GitHub', kind: 'github' }
+  if (host.includes('gitlab')) return { name: 'GitLab', kind: 'gitlab' }
+  if (host.includes('gitea') || host.startsWith('git.')) return { name: 'Gitea', kind: 'gitea' }
+  return { name: host, kind: 'other' }
+}
+
+/** The repository browsed at a branch or commit, per forge. */
+function repoTreeUrl(repoUrl: string, ref: string, kind: ReturnType<typeof repoProvider>['kind']): string {
+  const base = repoUrl.replace(/\.git$/, '').replace(/\/$/, '')
+  if (kind === 'gitea') return /^[0-9a-f]{7,40}$/i.test(ref) ? `${base}/src/commit/${ref}` : `${base}/src/branch/${encodeURIComponent(ref)}`
+  if (kind === 'gitlab') return `${base}/-/tree/${encodeURIComponent(ref)}`
+  return `${base}/tree/${encodeURIComponent(ref)}`
 }
 
 function RepositoryCard({
@@ -6375,15 +6482,14 @@ function RepositoryCard({
 }) {
   const a = entityAnnotations(entity)
   const branch =
-    primary?.spec.source.targetRevision ?? a['adhar.io/branch'] ?? a['adhar.io/default-branch']
+    primary?.spec.source.targetRevision ?? a['adhar.io/branch'] ?? a['adhar.io/default-branch'] ?? 'main'
   const path = primary?.spec.source.path
-  let host = ''
-  try {
-    if (repoUrl) host = new URL(repoUrl).hostname
-  } catch {
-    host = ''
-  }
+  const rev = primary?.status.sync.revision
+  const sha = shortSha(rev)
+  const provider = repoProvider(repoUrl)
   const cloneUrl = repoUrl ? (repoUrl.endsWith('.git') ? repoUrl : `${repoUrl}.git`) : undefined
+  const atRevision = repoUrl && rev ? repoTreeUrl(repoUrl, rev, provider.kind) : undefined
+  const atBranch = repoUrl ? repoTreeUrl(repoUrl, branch, provider.kind) : undefined
 
   return (
     <Card>
@@ -6392,32 +6498,36 @@ function RepositoryCard({
           <div className="flex items-center gap-2">
             <IconGit />
             <h3 className="text-sm font-semibold text-content">Repository</h3>
+            {repoUrl ? <span className="rounded-full bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium text-content-muted">{provider.name}</span> : null}
           </div>
           {repoUrl ? (
-            <a
-              href={repoUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300"
-            >
-              <LinkGlyph icon="repo" />
-              Open repo
-            </a>
+            <div className="flex items-center gap-1.5">
+              {atRevision ? (
+                <a href={atRevision} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300" title={`Browse the repository at the deployed commit ${sha}`}>
+                  At {sha} <IconArrowUpRight />
+                </a>
+              ) : null}
+              <a href={repoUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-800 shadow-sm transition-colors hover:border-brand-300 hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200 dark:hover:bg-brand-500/15">
+                <LinkGlyph icon="repo" />
+                Open repo
+              </a>
+            </div>
           ) : null}
         </div>
       </CardHeader>
       <CardBody className="space-y-3">
         {repoUrl ? (
           <>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <Field label="Provider" value={<span className="text-sm">{host || '—'}</span>} />
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Field label="Provider" value={<span className="text-sm">{provider.name}</span>} />
               <Field
                 label="Branch"
-                value={<code className="text-xs text-content-muted">{branch ?? 'main'}</code>}
+                value={atBranch ? <a href={atBranch} target="_blank" rel="noreferrer" className="font-mono text-xs text-brand-700 hover:underline dark:text-brand-300">{branch}</a> : <code className="text-xs text-content-muted">{branch}</code>}
               />
+              <Field label="Path" value={<code className="text-xs text-content-muted">{path ?? '/'}</code>} />
               <Field
-                label="Path"
-                value={<code className="text-xs text-content-muted">{path ?? '/'}</code>}
+                label="Deployed commit"
+                value={sha ? (atRevision ? <a href={atRevision} target="_blank" rel="noreferrer" className="font-mono text-xs text-brand-700 hover:underline dark:text-brand-300">{sha}</a> : <code className="text-xs text-content-muted">{sha}</code>) : <span className="text-xs text-content-subtle">not deployed</span>}
               />
             </div>
             {cloneUrl ? (
@@ -6446,79 +6556,152 @@ function RepositoryCard({
   )
 }
 
+const RUN_TONE: Record<PipelineRunSummary['state'], { dot: string; kind: StatusKind; label: string }> = {
+  running: { dot: 'bg-sky-500 animate-pulse', kind: 'progressing', label: 'Running' },
+  succeeded: { dot: 'bg-emerald-500', kind: 'healthy', label: 'Succeeded' },
+  failed: { dot: 'bg-rose-500', kind: 'failed', label: 'Failed' },
+  cancelled: { dot: 'bg-amber-500', kind: 'paused', label: 'Cancelled' },
+  pending: { dot: 'bg-slate-400', kind: 'unknown', label: 'Pending' },
+}
+
+function fmtSecs(s?: number): string {
+  if (s === undefined) return '—'
+  if (s < 60) return `${s}s`
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`
+  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`
+}
+
+/**
+ * The entity's recent Tekton PipelineRuns, live. Each row is the run as a
+ * person reads it — outcome, when, how long, which commit — and the whole
+ * card is the way into the CI view for logs and re-runs.
+ */
 function PipelinesCard({ entity, repoUrl }: { entity: Entity; repoUrl?: string }) {
   const a = entityAnnotations(entity)
   const ci = a['adhar.io/ci'] ?? a['adhar.io/ci-pipeline']
+  const { runs, isLoading, isError, notInstalled } = usePipelineRuns(entity, repoUrl)
+  const last = runs[0]
+  const ok = runs.filter((r) => r.state === 'succeeded').length
+  const finished = runs.filter((r) => r.state === 'succeeded' || r.state === 'failed').length
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <IconPipeline />
             <h3 className="text-sm font-semibold text-content">Pipeline runs</h3>
+            {runs.length ? (
+              <span className="truncate text-[11px] text-content-muted">
+                {ci ? <span className="font-mono">{ci}</span> : 'Tekton'} · {ok}/{finished || runs.length} succeeded
+              </span>
+            ) : null}
           </div>
-          <a
-            href="/platform?section=ci"
-            className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-300"
-          >
-            Open pipelines →
+          <a href="/platform?section=ci" className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-300">
+            CI / CD runs →
           </a>
         </div>
       </CardHeader>
       <CardBody className="space-y-3">
-        {ci || repoUrl ? (
-          <>
-            <div className="grid grid-cols-2 gap-3">
-              <Field
-                label="CI system"
-                value={<span className="text-sm capitalize">{ci ?? 'Tekton'}</span>}
-              />
-              <Field
-                label="Trigger"
-                value={<span className="text-sm">push · pull request</span>}
-              />
-            </div>
-            <p className="text-xs text-content-muted">
-              Live PipelineRuns for this component stream in the{' '}
-              <a
-                href="/platform?section=ci"
-                className="font-medium text-brand-700 hover:underline dark:text-brand-300"
-              >
-                CI/CD Runs
-              </a>{' '}
-              view — with per-stage status, logs, and re-run.
-            </p>
-          </>
-        ) : (
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-xs text-content-muted"><Spinner /> Reading PipelineRuns…</div>
+        ) : notInstalled ? (
+          <EmptyState compact title="Tekton is not installed on this cluster" description="PipelineRuns will appear here once the CI package is enabled." />
+        ) : isError ? (
+          <EmptyState compact title="Could not read PipelineRuns" description="The cluster gateway did not answer; the runs will appear when it does." />
+        ) : runs.length === 0 ? (
           <EmptyState
             compact
-            title="No CI pipeline linked"
+            title={ci || repoUrl ? 'No runs yet for this entity' : 'No CI pipeline linked'}
             description={
-              <>
-                Add an <code>adhar.io/ci</code> annotation, or scaffold the component from a Golden
-                Path template to wire up Tekton PipelineRuns.
-              </>
+              ci || repoUrl ? (
+                <>
+                  Runs are matched by the <code>adhar.io/ci-pipeline</code> pipeline name, an <code>adhar.io/component</code> label, a <code>repo-url</code> parameter naming this repository, or a run named after <code>{entity.metadata.name}</code>.
+                </>
+              ) : (
+                <>
+                  Add an <code>adhar.io/ci-pipeline</code> annotation, or scaffold the component from a Golden Path template to wire up Tekton PipelineRuns.
+                </>
+              )
             }
           />
+        ) : (
+          <>
+            {last ? (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-edge-subtle bg-surface-sunken/50 px-3 py-2 text-[12px]">
+                <span className="text-content-subtle">Last run</span>
+                <StatusBadge kind={RUN_TONE[last.state].kind} className="px-1.5 py-0 text-[10px]" pulse={last.state === 'running'}>{RUN_TONE[last.state].label}</StatusBadge>
+                <span className="text-content-muted">{last.startedAt ? relativeTime(last.startedAt) || formatDate(last.startedAt) : ''}</span>
+                <span className="text-content-muted">· {fmtSecs(last.durationSecs)}</span>
+                {last.reason && last.state === 'failed' ? <span className="truncate text-rose-700 dark:text-rose-300">· {last.reason}</span> : null}
+              </div>
+            ) : null}
+            <ul className="divide-y divide-edge-subtle overflow-hidden rounded-lg border border-edge-subtle">
+              {runs.map((r) => (
+                <li key={`${r.namespace}/${r.name}`} className="flex items-center gap-3 bg-surface-raised px-3 py-2">
+                  <span className={cn('h-2 w-2 shrink-0 rounded-full', RUN_TONE[r.state].dot)} title={RUN_TONE[r.state].label} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-2">
+                      <span className="truncate font-mono text-[12px] text-content">{r.name}</span>
+                      {r.branch ? <span className="shrink-0 rounded bg-surface-sunken px-1 font-mono text-[10px] text-content-muted">{r.branch}</span> : null}
+                      {r.commit ? <span className="shrink-0 font-mono text-[10px] text-content-subtle">{shortSha(r.commit) ?? r.commit.slice(0, 7)}</span> : null}
+                    </div>
+                    <div className="truncate text-[10.5px] text-content-subtle">
+                      {r.pipeline ? `${r.pipeline} · ` : ''}{r.namespace}{r.tasks ? ` · ${r.tasks.done}/${r.tasks.total} tasks` : ''}{r.message && r.state === 'failed' ? ` · ${r.message.slice(0, 80)}` : ''}
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-right text-[11px] text-content-muted">
+                    <span className="block">{r.startedAt ? relativeTime(r.startedAt) || formatDate(r.startedAt) : '—'}</span>
+                    <span className="block font-mono text-[10px] text-content-subtle">{fmtSecs(r.durationSecs)}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </CardBody>
     </Card>
   )
 }
 
-function MonitoringCard({ entity }: { entity: Entity }) {
+/** Does this alert belong to the entity? Label conventions, most specific first. */
+function alertMatches(labels: Record<string, string>, name: string, namespace?: string): boolean {
+  const n = name.toLowerCase()
+  const ns = (labels.namespace ?? '').toLowerCase()
+  if (namespace && ns && ns !== namespace.toLowerCase()) return false
+  const direct = [labels.deployment, labels.statefulset, labels.daemonset, labels.workload, labels.app, labels.service, labels['app.kubernetes.io/name'], labels.job, labels.container]
+  if (direct.some((v) => (v ?? '').toLowerCase() === n)) return true
+  const pod = (labels.pod ?? '').toLowerCase()
+  return Boolean(pod && (pod === n || pod.startsWith(`${n}-`)))
+}
+
+/**
+ * Observability, with the thing that matters first: the alerts firing for
+ * this workload right now. Then the ways in — dashboard, runbook, the
+ * Metrics tab, Grafana — and the SLO / alerting statements the entity makes
+ * about itself.
+ */
+function MonitoringCard({ entity, monitorUrl, onMetrics }: { entity: Entity; monitorUrl?: string; onMetrics?(): void }) {
   const a = entityAnnotations(entity)
   const dashboard =
     (entity.metadata.links ?? []).find((l) => l.icon === 'dashboard')?.url ??
     a['adhar.io/dashboard'] ??
-    a['backstage.io/dashboard']
+    a['backstage.io/dashboard'] ??
+    monitorUrl
   const runbook =
     (entity.metadata.links ?? []).find((l) => l.icon === 'runbook')?.url ??
     a['adhar.io/runbook'] ??
     a['backstage.io/runbook']
   const slo = a['adhar.io/slo']
-  const alerts = a['adhar.io/alerts'] ?? a['adhar.io/alerting']
-  const anyLink = dashboard || runbook
+  const alerting = a['adhar.io/alerts'] ?? a['adhar.io/alerting']
+  const namespace = (a['adhar.io/namespace'] ?? '').trim() || undefined
+  const alertsQ = useDiscoverAlerts()
+  const mine = useMemo(
+    () => (alertsQ.data ?? []).filter((al) => al.state !== 'resolved' && alertMatches(al.labels, entity.metadata.name, namespace)),
+    [alertsQ.data, entity.metadata.name, namespace],
+  )
+  const firing = mine.filter((al) => al.state === 'firing')
+  const pending = mine.filter((al) => al.state === 'pending')
+  const sevTone: Record<string, string> = { critical: 'bg-rose-500', warning: 'bg-amber-500', info: 'bg-sky-500' }
 
   return (
     <Card>
@@ -6526,70 +6709,81 @@ function MonitoringCard({ entity }: { entity: Entity }) {
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <IconPulse />
-            <h3 className="text-sm font-semibold text-content">Monitoring &amp; metrics</h3>
+            <h3 className="text-sm font-semibold text-content">Observability</h3>
+            {alertsQ.isLoading ? null : mine.length ? (
+              <StatusBadge kind={firing.some((al) => al.severity === 'critical') ? 'failed' : firing.length ? 'degraded' : 'paused'} className="px-1.5 py-0 text-[10px]">
+                {firing.length ? `${firing.length} firing` : `${pending.length} pending`}
+              </StatusBadge>
+            ) : alertsQ.isError ? null : (
+              <StatusBadge kind="healthy" className="px-1.5 py-0 text-[10px]" dot={false}>no alerts</StatusBadge>
+            )}
           </div>
-          <a
-            href="/discover?section=metrics"
-            className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-300"
-          >
-            Open metrics →
+          <a href="/discover?section=alerts" className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-300">
+            All alerts →
           </a>
         </div>
       </CardHeader>
       <CardBody className="space-y-3">
+        {alertsQ.isLoading ? (
+          <div className="flex items-center gap-2 text-xs text-content-muted"><Spinner /> Reading Alertmanager…</div>
+        ) : alertsQ.isError ? (
+          <p className="text-[11.5px] text-content-subtle">Alertmanager is not reachable — alert state is unknown, not clear.</p>
+        ) : mine.length ? (
+          <ul className="divide-y divide-edge-subtle overflow-hidden rounded-lg border border-edge-subtle">
+            {mine.slice(0, 5).map((al) => (
+              <li key={al.fingerprint} className="flex items-start gap-3 bg-surface-raised px-3 py-2">
+                <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', sevTone[al.severity] ?? 'bg-slate-400', al.state === 'pending' && 'opacity-60')} title={`${al.severity} · ${al.state}`} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="text-[12.5px] font-medium text-content">{al.name}</span>
+                    <span className="text-[10px] uppercase tracking-wider text-content-subtle">{al.severity} · {al.state}</span>
+                    <span className="text-[10.5px] text-content-subtle">since {relativeTime(al.startsAt) || formatDate(al.startsAt)}</span>
+                  </div>
+                  {al.summary || al.description ? <div className="mt-0.5 text-[11px] leading-relaxed text-content-muted">{al.summary ?? al.description}</div> : null}
+                </div>
+                {al.runbook_url ? (
+                  <a href={al.runbook_url} target="_blank" rel="noreferrer" className="shrink-0 text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">runbook ↗</a>
+                ) : null}
+              </li>
+            ))}
+            {mine.length > 5 ? <li className="bg-surface-raised px-3 py-1.5 text-[10.5px] text-content-subtle">+{mine.length - 5} more</li> : null}
+          </ul>
+        ) : (
+          <p className="text-[11.5px] text-content-muted">No alerts are firing or pending for <span className="font-mono text-content">{entity.metadata.name}</span>.</p>
+        )}
+
         <div className="flex flex-wrap gap-2">
           {dashboard ? (
-            <a
-              href={dashboard}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition hover:border-brand-200 hover:text-brand-700 dark:hover:text-brand-300"
-            >
-              <LinkGlyph icon="dashboard" /> Dashboard
+            <a href={dashboard} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300">
+              <LinkGlyph icon="dashboard" /> Dashboard <IconArrowUpRight />
             </a>
           ) : null}
           {runbook ? (
-            <a
-              href={runbook}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition hover:border-brand-200 hover:text-brand-700 dark:hover:text-brand-300"
-            >
-              <LinkGlyph icon="runbook" /> Runbook
+            <a href={runbook} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300">
+              <LinkGlyph icon="runbook" /> Runbook <IconArrowUpRight />
             </a>
           ) : null}
-          <PhaseLink href="/discover?section=slos">
-            <IconPulse /> SLOs
-          </PhaseLink>
-          <PhaseLink href="/discover?section=alerts">
-            <IconAlert /> Alerts
-          </PhaseLink>
+          {onMetrics ? (
+            <button type="button" onClick={onMetrics} className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300">
+              <IconPulse /> Live metrics
+            </button>
+          ) : null}
+          <PhaseLink href="/discover?section=slos">SLOs</PhaseLink>
         </div>
+
         <div className="grid grid-cols-2 gap-3">
           <Field
             label="SLO target"
-            value={<span className="text-sm">{slo ?? <span className="text-content-subtle">—</span>}</span>}
+            value={slo ? <span className="text-sm">{slo}</span> : <span className="text-xs text-content-subtle">none declared — set adhar.io/slo</span>}
           />
           <Field
             label="Alerting"
-            value={
-              <span className="text-sm">
-                {alerts ?? <span className="text-content-subtle">—</span>}
-              </span>
-            }
+            value={alerting ? <span className="text-sm">{alerting}</span> : <span className="text-xs text-content-subtle">{mine.length ? `${mine.length} rule${mine.length === 1 ? '' : 's'} active` : 'no rules matched this workload'}</span>}
           />
         </div>
-        {!anyLink && !slo && !alerts ? (
+        {!dashboard && !runbook ? (
           <p className="text-xs text-content-muted">
-            Golden-signal metrics (rate, errors, duration), SLOs, and alerts for this service live in
-            the{' '}
-            <a
-              href="/discover?section=metrics"
-              className="font-medium text-brand-700 hover:underline dark:text-brand-300"
-            >
-              Discover
-            </a>{' '}
-            observability view. Link a <code>adhar.io/dashboard</code> to pin it here.
+            Link a dashboard (<code>adhar.io/dashboard</code>) and a runbook (<code>adhar.io/runbook</code>) so an on-call engineer can go from an alert to the picture and the procedure in one click.
           </p>
         ) : null}
       </CardBody>
@@ -7830,6 +8024,15 @@ function IconChevronRight() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="m9 6 6 6-6 6" />
+    </svg>
+  )
+}
+
+function IconLock() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
     </svg>
   )
 }

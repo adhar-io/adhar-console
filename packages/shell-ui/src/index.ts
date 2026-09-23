@@ -205,6 +205,8 @@ export {
   usePublicBaseDomain,
   usePlaneWorkspace,
   useToolPublicUrl,
+  usePublicUrl,
+  toolForInternalHost,
   toPublicUrl,
   APP_CONFIG_DEFAULTS,
   type AppConfig,

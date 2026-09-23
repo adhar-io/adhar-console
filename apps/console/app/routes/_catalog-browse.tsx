@@ -1287,7 +1287,10 @@ function BrowseAll({
           role="grid"
           aria-label="Catalog entities"
           onKeyDown={handleGridKeyNav}
-          className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4"
+          // Two across on a laptop, three on a wide display — not four. At four the
+          // cards were 240px wide and every field truncated; the catalog is browsed
+          // for its details, so each card gets the room to show them.
+          className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3"
         >
           {shown.map((e) => (
             <EntityCard
@@ -2974,7 +2977,10 @@ function EntityCard({
         }
       }}
       className={cn(
-        'group relative flex h-full flex-col items-stretch overflow-hidden rounded-xl text-left',
+        // A floor on the height: cards in one row stretch to the tallest, and
+        // the floor keeps a sparse row from collapsing into a strip while the
+        // next row is twice as tall.
+        'group relative flex h-full min-h-72 flex-col items-stretch overflow-hidden rounded-xl text-left',
         // A card is a raised surface, so it gets a hairline ring and a soft
         // shadow rather than a 1px border. The border read as a table cell at
         // five-across, and the grid looked like a spreadsheet.
@@ -2994,18 +3000,6 @@ function EntityCard({
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-white/50 to-transparent dark:via-white/10"
       />
-      {entity.spec.lifecycle ? (
-        <span
-          aria-hidden
-          className={cn(
-            // Wider and rounded at the inner edge so it reads as a deliberate
-            // spine rather than a clipped border, and it brightens on hover so
-            // the lifecycle is part of the card's response to the pointer.
-            'absolute inset-y-0 left-0 w-1 rounded-r-full opacity-80 transition-opacity duration-200 group-hover:opacity-100',
-            LIFECYCLE_ACCENT[entity.spec.lifecycle],
-          )}
-        />
-      ) : null}
       <button
         type="button"
         onClick={(e) => {
@@ -3023,10 +3017,10 @@ function EntityCard({
       >
         {starred ? <IconStarFilled /> : <IconStar />}
       </button>
-      <div className="flex items-start gap-3 p-4 pr-12">
+      <div className="flex items-start gap-3.5 p-5 pr-12">
         <KindGlyph kind={entity.kind} type={entity.spec.type} size="lg" />
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-[14px] font-semibold leading-tight text-content">
+          <h3 className="truncate text-[15px] font-semibold leading-tight text-content">
             {entity.metadata.title ?? entity.metadata.name}
           </h3>
           {/*
@@ -3052,7 +3046,7 @@ function EntityCard({
         </div>
       </div>
       {entity.metadata.description ? (
-        <p className="-mt-1 line-clamp-2 px-4 text-[12px] leading-relaxed text-content-muted">
+        <p className="-mt-1 line-clamp-3 px-5 text-[12.5px] leading-relaxed text-content-muted">
           {entity.metadata.description}
         </p>
       ) : null}
@@ -3071,7 +3065,7 @@ function EntityCard({
           ))}
         </div>
       ) : null}
-      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 pb-3 text-[11px] text-content-muted">
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 pb-3 text-[11px] text-content-muted">
         {/* Health and score sit together because they are the same judgement
             at two resolutions — "At risk" IS grade D/F. Apart, with the score
             alone in the footer, they read as two unrelated verdicts, and the
@@ -3116,7 +3110,21 @@ function EntityCard({
             <span className="font-medium text-content">{parseRef(entity.spec.system).name}</span>
           </span>
         ) : null}
+        {entity.spec.domain ? (
+          <span className="inline-flex items-center gap-1" title="Domain">
+            <span className="text-content-subtle">in</span>
+            <span className="font-medium text-content">{parseRef(entity.spec.domain).name}</span>
+          </span>
+        ) : null}
       </div>
+      {/*
+        The card now has the width to say what this thing is CONNECTED to and
+        how ready it is, not just that a score exists. Relations are the facts
+        that make a catalog a graph rather than a list; the readiness line names
+        the categories, because "B" alone sends people into the drawer to find
+        out which checks they are failing.
+      */}
+      <CardFacts entity={entity} score={score} />
       <div className="mt-auto flex items-center justify-between gap-3 border-t border-edge-subtle bg-surface-sunken/40 px-3 py-2 text-[11px]">
         <QuickLinks links={links} monitorUrl={entity.kind === 'Component' || entity.kind === 'Resource' ? monitorUrl : undefined} />
         <div className="flex shrink-0 items-center gap-2">
@@ -3147,6 +3155,88 @@ function EntityCard({
           </span>
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * The second row of detail a wider card can afford: what the entity is wired
+ * to, and how it scores per category.
+ *
+ * Relations show counts with a label, not the refs themselves — three API names
+ * do not fit on a card, but "3 APIs · 2 deps" tells a reader whether this is a
+ * leaf or a hub before they open it. The readiness row lists the categories
+ * that are NOT fully passing, since the ones that pass carry no action.
+ */
+function CardFacts({ entity, score }: { entity: Entity; score: Scorecard }) {
+  const provides = entity.spec.providesApis?.length ?? 0
+  const consumes = entity.spec.consumesApis?.length ?? 0
+  const deps = entity.spec.dependsOn?.length ?? 0
+  const relations: string[] = []
+  if (provides) relations.push(`${provides} API${provides === 1 ? '' : 's'} provided`)
+  if (consumes) relations.push(`${consumes} consumed`)
+  if (deps) relations.push(`${deps} ${deps === 1 ? 'dependency' : 'dependencies'}`)
+
+  // Categories with at least one failing check, worst first.
+  const weak = CHECK_CATEGORIES
+    .map((cat) => ({ cat, s: score.byCategory[cat] }))
+    .filter(({ s }) => s && s.total > 0 && s.pass < s.total)
+    .sort((a, b) => a.s.pass / a.s.total - b.s.pass / b.s.total)
+    .slice(0, 3)
+
+  const scoreable = score.checks.length > 0
+  if (!relations.length && !weak.length && !scoreable) return null
+  return (
+    <div className="mt-3 space-y-1.5 px-5 pb-1 text-[11px]">
+      {/* One segment per category, coloured by its score — the whole
+          scorecard in a glance, before the chips below say which ones need
+          work. */}
+      {scoreable ? (
+        <div className="flex items-center gap-2" aria-label="Readiness by category">
+          <span className="text-content-subtle">Readiness</span>
+          <div className="flex flex-1 items-center gap-1">
+            {CHECK_CATEGORIES.map((cat) => {
+              const b = score.byCategory[cat]
+              const na = !b || b.total === 0
+              const pct = na ? 0 : b.score
+              return (
+                <span
+                  key={cat}
+                  title={na ? `${CATEGORY_LABEL[cat]}: not applicable` : `${CATEGORY_LABEL[cat]}: ${b.pass}/${b.total} checks (${pct}%)`}
+                  className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-surface-sunken ring-1 ring-inset ring-edge-subtle"
+                >
+                  {na ? null : (
+                    <span
+                      className={cn('absolute inset-y-0 left-0 rounded-full', scoreTone(pct).dot)}
+                      style={{ width: `${Math.max(pct, 8)}%` }}
+                    />
+                  )}
+                </span>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
+      {relations.length ? (
+        <div className="flex flex-wrap items-center gap-x-2 text-content-muted">
+          <span className="text-content-subtle">Relations</span>
+          <span className="text-content">{relations.join(' · ')}</span>
+        </div>
+      ) : null}
+      {weak.length ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-content-subtle">Needs work</span>
+          {weak.map(({ cat, s }) => (
+            <span
+              key={cat}
+              className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/25"
+              title={`${CATEGORY_LABEL[cat]}: ${s.pass}/${s.total} checks passing`}
+            >
+              {CATEGORY_LABEL[cat]} {s.pass}/{s.total}
+            </span>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -3243,12 +3333,6 @@ function OriginTag({ origin }: { origin?: EntityOrigin }) {
 }
 
 /* Lifecycle accent + tag — calm, consistent tones shared by card & drawer. */
-const LIFECYCLE_ACCENT: Record<Lifecycle, string> = {
-  production: 'bg-emerald-400 dark:bg-emerald-500',
-  staging: 'bg-sky-400 dark:bg-sky-500',
-  experimental: 'bg-violet-400 dark:bg-violet-500',
-  deprecated: 'bg-amber-400 dark:bg-amber-500',
-}
 
 const LIFECYCLE_TAG_CLS: Record<Lifecycle, string> = {
   production:
@@ -3506,18 +3590,11 @@ function EntityDrawer({
       <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
         {/*
           The header is the drawer's anchor: it stays while the tabs change under
-          it, so it carries a tint and a lifecycle spine of its own. Flat and
-          borderless, it read as the first row of the content rather than as the
-          frame around it.
+          it, so it carries a tint of its own. Flat and borderless, it read as
+          the first row of the content rather than as the frame around it.
         */}
         <header className="relative flex items-start justify-between gap-4 overflow-hidden border-b border-edge-default bg-linear-to-b from-surface-raised to-surface-raised/60 px-6 py-4">
-          {entity.spec.lifecycle ? (
-            <span
-              aria-hidden
-              className={cn('absolute inset-y-0 left-0 w-1', LIFECYCLE_ACCENT[entity.spec.lifecycle])}
-            />
-          ) : null}
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wider text-content-subtle">
               <KindGlyph kind={entity.kind} type={entity.spec.type} />
               {entity.kind}
@@ -3542,15 +3619,37 @@ function EntityDrawer({
                   ticket, so it should not have to be retyped from the screen. */}
               <CopyButton text={entityRef(entity)} />
             </div>
-            {stack.length ? (
-              <div className="mt-2">
-                <TechBadges stack={stack} max={8} />
-              </div>
-            ) : null}
             {entity.metadata.description ? (
               <p className="mt-2 max-w-xl text-sm text-content-muted">
                 {entity.metadata.description}
               </p>
+            ) : null}
+            {/*
+              The things a person opens a drawer to DO, in the frame that
+              stays while the tabs change: open the running thing, go to its
+              source, its docs, its dashboard. They used to be the first rows
+              of the Overview tab, which meant they scrolled away and were
+              absent from every other tab.
+            */}
+            {routes.routes.length || entity.metadata.links?.length || monitorUrl ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <EntityRoutesBar routes={routes.routes} onSeeAll={() => setTab('deploy')} />
+                {(entity.metadata.links ?? []).map((l) => (
+                  <a
+                    key={l.url}
+                    href={l.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300"
+                  >
+                    <LinkGlyph icon={l.icon} />
+                    {l.title}
+                  </a>
+                ))}
+                {monitorUrl && !(entity.metadata.links ?? []).some((l) => l.icon === 'monitor' || l.icon === 'dashboard') ? (
+                  <MonitorButton url={monitorUrl} />
+                ) : null}
+              </div>
             ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-1">
@@ -3586,24 +3685,6 @@ function EntityDrawer({
               <div className="space-y-5">
                 {active === 'overview' ? (
                   <>
-                    <EntityRoutesBar routes={routes.routes} onSeeAll={() => setTab('deploy')} />
-                    {entity.metadata.links?.length ? (
-                      <div className="flex flex-wrap gap-2">
-                        {entity.metadata.links.map((l) => (
-                          <a
-                            key={l.url}
-                            href={l.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm hover:border-brand-200 dark:hover:border-brand-500/25 hover:text-brand-700 dark:hover:text-brand-300"
-                          >
-                            <LinkGlyph icon={l.icon} />
-                            {l.title}
-                          </a>
-                        ))}
-                      </div>
-                    ) : null}
-
                     {/*
                       About shows what is SET, and names what is not exactly
                       once.
@@ -3872,11 +3953,8 @@ function AboutCard({
   const unset = rows.filter((r) => r.node === null).map((r) => r.label)
 
   return (
-    <Card>
-      <CardHeader>
-        <h3 className="text-sm font-semibold text-content">About</h3>
-      </CardHeader>
-      <CardBody className="space-y-4">
+    <DrawerSection title="About">
+      <div className="space-y-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {set.map((r) => <Field key={r.label} label={r.label} value={r.node} />)}
         </div>
@@ -3893,8 +3971,38 @@ function AboutCard({
           <span>Created {formatDate(entity.metadata.createdAt)}</span>
           <span>Updated {formatDate(entity.metadata.updatedAt)}</span>
         </div>
-      </CardBody>
-    </Card>
+      </div>
+    </DrawerSection>
+  )
+}
+
+/**
+ * A block of the drawer's Overview tab.
+ *
+ * A quiet eyebrow, not a bordered header row: three stacked cards each with a
+ * title bar read as three separate panels in a dashboard, when the drawer is
+ * one document about one thing. `aside` is for the section's summary (the
+ * readiness score), set on the same line as the label.
+ */
+function DrawerSection({
+  title,
+  aside,
+  children,
+}: {
+  title: string
+  aside?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <section className="rounded-xl border border-edge-default bg-surface-raised px-5 py-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-content-subtle">
+          {title}
+        </h3>
+        {aside}
+      </div>
+      {children}
+    </section>
   )
 }
 
@@ -4646,24 +4754,21 @@ function SignalsCard({ signals, score }: { signals: SignalRow[]; score: Scorecar
   const warn = signals.filter((s) => s.state === 'warn').length
   const ok = score.checks.filter((c) => c.pass).length
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-baseline justify-between gap-3">
-          <div className="flex items-baseline gap-2">
-            <h3 className="text-sm font-semibold text-content">Scorecard</h3>
-            <ScoreBadge score={score} />
-          </div>
-          <div className="flex items-center gap-1.5 text-[11px]">
-            <StatusBadge kind={warn > 0 ? 'degraded' : 'healthy'}>
-              {warn > 0 ? `${warn} attention` : 'all good'}
-            </StatusBadge>
-            <span className="font-mono tabular-nums text-content-muted">
-              {ok}/{score.checks.length}
-            </span>
-          </div>
-        </div>
-      </CardHeader>
-      <CardBody className="divide-y divide-edge-subtle">
+    <DrawerSection
+      title="Readiness"
+      aside={
+        /* One verdict, not three. The score already says how many checks
+           pass (it is computed from them) and the health chip in the header
+           already says whether that is a problem. */
+        <span className="inline-flex items-center gap-2 text-[11px] text-content-muted">
+          <ScoreBadge score={score} />
+          <span className="font-mono tabular-nums">
+            {ok}/{score.checks.length} passing{warn > 0 ? ` · ${warn} to fix` : ''}
+          </span>
+        </span>
+      }
+    >
+      <div className="divide-y divide-edge-subtle">
         {signals.map((s) => (
           <div key={s.id} className="flex items-start gap-3 py-2 first:pt-0 last:pb-0">
             <span
@@ -4684,8 +4789,8 @@ function SignalsCard({ signals, score }: { signals: SignalRow[]; score: Scorecar
             </div>
           </div>
         ))}
-      </CardBody>
-    </Card>
+      </div>
+    </DrawerSection>
   )
 }
 
@@ -4837,12 +4942,8 @@ function buildActivity(e: Entity): Activity[] {
 function ActivityCard({ events }: { events: Activity[] }) {
   if (!events.length) return null
   return (
-    <Card>
-      <CardHeader>
-        <h3 className="text-sm font-semibold text-content">Activity</h3>
-      </CardHeader>
-      <CardBody>
-        <ol className="relative space-y-3 border-l border-edge-subtle pl-4">
+    <DrawerSection title="Activity">
+      <ol className="relative space-y-3 border-l border-edge-subtle pl-4">
           {events.map((ev, i) => (
             <li key={i} className="relative">
               <span
@@ -4868,9 +4969,8 @@ function ActivityCard({ events }: { events: Activity[] }) {
               </div>
             </li>
           ))}
-        </ol>
-      </CardBody>
-    </Card>
+      </ol>
+    </DrawerSection>
   )
 }
 

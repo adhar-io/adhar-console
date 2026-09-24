@@ -35,6 +35,7 @@ import { handleAppsetToggle } from './app/server/appset.ts'
 import { handleListTemplates } from './app/server/templates.ts'
 import { handleScorecardHistory, handleScorecardRerun, handleScorecards } from './app/server/scorecards.ts'
 import { handleEntityRoutes } from './app/server/entity-routes.ts'
+import { handleTeardown } from './app/server/teardown.ts'
 import { handleAlertmanagerWebhook } from './app/server/alertmanager.ts'
 import { handleListTeams } from './app/server/teams.ts'
 import { handleWorkspace } from './app/server/workspace/handlers.ts'
@@ -375,6 +376,10 @@ async function route(req: Request): Promise<Response> {
   // the entity's Service. Powers the drawer's "Open" button and the full URLs
   // on its Deployment tab.
   if (path === '/api/catalog/routes') return handleEntityRoutes(req)
+
+  // Remove an entity from the platform: Argo CD apps (cascading), kpack
+  // Image, PipelineRuns, optionally its namespace and Gitea repository.
+  if (path === '/api/catalog/teardown') return handleTeardown(req)
 
   // Owner/team (Group entity) picker for Catalog → Create New — discovered
   // from the adhar/adhar-templates Gitea repo, always incl. the two defaults.

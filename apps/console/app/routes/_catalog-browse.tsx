@@ -53,6 +53,7 @@ import { type EntityRoute, routeLabel, useEntityRoutes } from '~/data/catalog-ro
 import { type PipelineRunSummary, usePipelineRuns } from '~/data/catalog-pipelines.ts'
 import { type DocPage, type DocsSource, editUrl, headingOf, rawBase, useDocPage, useDocsPages, useDocsSource } from '~/data/catalog-docs.ts'
 import { useDiscoverAlerts } from '~/data/cross-module-signals.ts'
+import { DeleteEntityDialog } from '~/components/catalog-delete.tsx'
 import {
   CATEGORY_LABEL,
   type Check,
@@ -308,6 +309,8 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
   const sort: SortKey = search.sort ?? 'name'
   const group: GroupKey = search.group ?? 'none'
   const [registerOpen, setRegisterOpen] = useState(false)
+  // The entity a Delete was asked for — from a card's menu or the drawer.
+  const [deleting, setDeleting] = useState<Entity | null>(null)
 
   const patchSearch = useCallback(
     (patch: Partial<SearchState>, opts?: { replace?: boolean }) => {
@@ -588,6 +591,7 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
         onGroup={setGroup}
         stars={stars}
         onPick={openEntity}
+        onDelete={setDeleting}
         loading={q.isLoading}
         refreshing={q.refreshing}
         searching={isFiltering}
@@ -616,6 +620,18 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
           catalog={list}
           onPick={openEntity}
           stars={stars}
+          onDelete={() => setDeleting(selectedEntity)}
+        />
+      ) : null}
+
+      {deleting ? (
+        <DeleteEntityDialog
+          entity={deleting}
+          open
+          onClose={() => setDeleting(null)}
+          onDeleted={(e) => {
+            if (selectedEntity && entityRef(selectedEntity) === entityRef(e)) closeEntity()
+          }}
         />
       ) : null}
 
@@ -1252,6 +1268,7 @@ function BrowseAll({
   onGroup,
   stars,
   onPick,
+  onDelete,
   loading,
   refreshing = false,
   searching,
@@ -1285,6 +1302,7 @@ function BrowseAll({
   onGroup(g: GroupKey): void
   stars: readonly string[]
   onPick(e: Entity, tab?: DrawerTab): void
+  onDelete(e: Entity): void
   loading: boolean
   /** Sources are refetching behind data already on screen — never blocks. */
   refreshing?: boolean
@@ -1432,6 +1450,7 @@ function BrowseAll({
                     onClick={() => onPick(e)}
                     onOpen={(tab) => onPick(e, tab)}
                     onAsk={() => askAbout(e)}
+                    onDelete={() => onDelete(e)}
                   />
                 ))}
               </div>
@@ -3172,6 +3191,7 @@ function EntityCard({
   onClick,
   onOpen,
   onAsk,
+  onDelete,
 }: {
   entity: Entity
   starred: boolean
@@ -3181,6 +3201,8 @@ function EntityCard({
   /** Open the drawer on a specific tab. */
   onOpen(tab: DrawerTab): void
   onAsk(): void
+  /** Remove the entity from the platform — opens the confirm dialog. */
+  onDelete(): void
 }) {
   const ref = entityRef(entity)
   const links = entity.metadata.links ?? []
@@ -3217,6 +3239,8 @@ function EntityCard({
       },
     },
     { label: starred ? 'Unstar' : 'Star', onSelect: () => toggleStar(ref) },
+    'sep',
+    { label: 'Delete…', tone: 'danger', onSelect: onDelete },
   ]
 
   return (
@@ -3313,26 +3337,38 @@ function EntityCard({
           </div>
         </div>
       </div>
-      {entity.metadata.description ? (
-        <p className="-mt-1 line-clamp-3 px-5 text-[12.5px] leading-relaxed text-content-muted">
-          {entity.metadata.description}
-        </p>
-      ) : null}
+      {/*
+        The description block always reserves three lines and the chip row
+        always reserves one, whether or not there is anything to put in them.
+        Cards sit in a grid: when a short description let the rows below it
+        ride up, the status line and the deployment line landed at a different
+        height on every card and the eye had to re-find them each time.
+      */}
+      <p
+        className={cn(
+          '-mt-1 line-clamp-3 min-h-[4.9em] px-5 text-[12.5px] leading-relaxed',
+          entity.metadata.description ? 'text-content-muted' : 'text-content-subtle/70 italic',
+        )}
+      >
+        {entity.metadata.description || 'No description yet.'}
+      </p>
       {/* Tech and tags share ONE wrapping row. As two stacked rows a card with
           a single language and a single tag spent two lines on two chips. */}
-      {stack.length > 0 || generics.length > 0 ? (
-        <div className="mt-2.5 flex flex-wrap items-center gap-1 px-5">
-          <TechBadges stack={stack} max={3} />
-          {generics.slice(0, 3).map((t) => (
-            <span
-              key={t}
-              className="rounded bg-surface-sunken px-1.5 py-0.5 text-[10px] text-content-muted"
-            >
-              {t}
-            </span>
-          ))}
-        </div>
-      ) : null}
+      <div className="mt-2.5 flex min-h-[22px] flex-wrap items-center gap-1 px-5">
+        {stack.length > 0 || generics.length > 0 ? (
+          <>
+            <TechBadges stack={stack} max={3} />
+            {generics.slice(0, 3).map((t) => (
+              <span
+                key={t}
+                className="rounded bg-surface-sunken px-1.5 py-0.5 text-[10px] text-content-muted"
+              >
+                {t}
+              </span>
+            ))}
+          </>
+        ) : null}
+      </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 text-[11px] text-content-muted">
         {/* Health and score sit together because they are the same judgement
@@ -3469,7 +3505,7 @@ function DeployLine({ dep }: { dep: EntityDeployment }) {
   )
 }
 
-type CardMenuItem = { label: string; onSelect(): void } | 'sep'
+type CardMenuItem = { label: string; onSelect(): void; tone?: 'danger' } | 'sep'
 
 /**
  * The card's ⋯ menu. Opens on click, closes on outside click, Esc, or a
@@ -3526,7 +3562,12 @@ function CardMenu({ items, label }: { items: CardMenuItem[]; label: string }) {
                   setOpen(false)
                   it.onSelect()
                 }}
-                className="flex w-full items-center rounded-md px-2.5 py-1.5 text-left text-[12px] text-content transition-colors hover:bg-surface-sunken"
+                className={cn(
+                  'flex w-full items-center rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors',
+                  it.tone === 'danger'
+                    ? 'text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10'
+                    : 'text-content hover:bg-surface-sunken',
+                )}
               >
                 {it.label}
               </button>
@@ -3922,6 +3963,7 @@ function EntityDrawer({
   catalog,
   onPick,
   stars,
+  onDelete,
 }: {
   entity: Entity
   /** Open on this tab — a card's menu jumps straight to Deployment or Scorecard. */
@@ -3933,6 +3975,8 @@ function EntityDrawer({
   catalog: Entity[]
   onPick(e: Entity): void
   stars: readonly string[]
+  /** Remove the entity from the platform — opens the confirm dialog. */
+  onDelete?(): void
 }) {
   const ref = entityRef(entity)
   const starred = isStarred(stars, ref)
@@ -4278,6 +4322,17 @@ function EntityDrawer({
               >
                 {starred ? <IconStarFilled /> : <IconStar />}
               </button>
+              {onDelete ? (
+                <button
+                  type="button"
+                  onClick={onDelete}
+                  aria-label="Delete from platform"
+                  title="Delete from platform…"
+                  className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
+                >
+                  <IconTrash />
+                </button>
+              ) : null}
               <button
                 ref={closeBtnRef}
                 type="button"
@@ -6311,9 +6366,11 @@ function EntityRoutesBar({ routes, onSeeAll }: { routes: EntityRoute[]; onSeeAll
         target="_blank"
         rel="noreferrer"
         className={cn(
-          'group inline-flex min-w-0 items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3.5 py-2',
-          'text-xs font-semibold text-brand-800 shadow-sm',
-          'transition-colors hover:border-brand-300 hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200 dark:hover:bg-brand-500/15',
+          'group inline-flex min-w-0 items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition-colors',
+          // Neutral, like every other action in the drawer: the drawer has no
+          // single primary action, and a tinted button among plain ones read
+          // as a call to action rather than as one more link out.
+          'border border-edge-default bg-surface-raised text-content shadow-sm hover:border-edge-strong hover:bg-surface-sunken',
         )}
         title={primary.url}
       >
@@ -6508,7 +6565,7 @@ function RepositoryCard({
                   At {sha} <IconArrowUpRight />
                 </a>
               ) : null}
-              <a href={repoUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-800 shadow-sm transition-colors hover:border-brand-300 hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200 dark:hover:bg-brand-500/15">
+              <a href={repoUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors border border-edge-default bg-surface-raised text-content shadow-sm hover:border-edge-strong hover:bg-surface-sunken">
                 <LinkGlyph icon="repo" />
                 Open repo
               </a>
@@ -7892,12 +7949,12 @@ function DocAction({ href, icon, label, primary = false }: { href: string; icon:
       rel="noreferrer"
       className={cn(
         'inline-flex items-center gap-1.5 rounded-md font-semibold transition-colors',
-        // Emphasis by tint, not by a filled blue block: these are links out
-        // of the console, and a filled button made each one look like the
-        // page's own primary action.
+        // No tint at all: these are links out of the console, and any colour
+        // on one of them made it read as the page's own primary action. The
+        // "primary" one is only bigger.
         primary
-          ? 'border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs text-brand-800 hover:border-brand-300 hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200 dark:hover:bg-brand-500/15'
-          : 'bg-surface-raised px-1.5 py-1 text-[10px] text-content-muted ring-1 ring-edge-default hover:text-brand-700 dark:hover:text-brand-300',
+          ? 'px-3 py-1.5 text-xs border border-edge-default bg-surface-raised text-content shadow-sm hover:border-edge-strong hover:bg-surface-sunken'
+          : 'bg-surface-raised px-1.5 py-1 text-[10px] text-content-muted ring-1 ring-edge-default hover:bg-surface-sunken hover:text-content',
       )}
     >
       <LinkGlyph icon={icon} />
@@ -8254,6 +8311,17 @@ function IconDots() {
       <circle cx="5" cy="12" r="1.8" />
       <circle cx="12" cy="12" r="1.8" />
       <circle cx="19" cy="12" r="1.8" />
+    </svg>
+  )
+}
+
+function IconTrash() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <path d="M19 6l-1 14H6L5 6" />
+      <path d="M10 11v6M14 11v6" />
     </svg>
   )
 }

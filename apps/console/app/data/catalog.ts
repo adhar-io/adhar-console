@@ -749,6 +749,30 @@ export function useRegisterEntity() {
   })
 }
 
+/** Drop a registered entity from the local store and forget it in the snapshot. */
+function removeEntity(target: Pick<Entity, 'kind' | 'metadata'>): void {
+  const same = (e: Entity) =>
+    e.kind === target.kind &&
+    (e.metadata.namespace ?? 'default') === (target.metadata.namespace ?? 'default') &&
+    e.metadata.name === target.metadata.name
+  writeStore(readStore().filter((e) => !same(e)))
+  const snap = loadSnapshot()
+  if (snap?.some(same)) saveSnapshot(snap.filter((e) => !same(e)))
+}
+
+export function useUnregisterEntity() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (target: Pick<Entity, 'kind' | 'metadata'>) => {
+      removeEntity(target)
+    },
+    onSettled: () => {
+      // Registered, live and deployment queries all share the `catalog` prefix.
+      qc.invalidateQueries({ queryKey: ['catalog'] })
+    },
+  })
+}
+
 function mergeEntity(list: Entity[], next: Entity): Entity[] {
   const idx = list.findIndex(
     (e) =>

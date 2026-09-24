@@ -4,6 +4,7 @@ import { assistStore, useAssist, type Thread } from '../agui/store.ts'
 import { relTime } from './inspector.tsx'
 import { IconPlus, IconSearch, IconTrash } from './icons.tsx'
 import { accentDot } from './accent.ts'
+import { plainText } from './welcome.tsx'
 
 /**
  * Conversations, grouped by when they happened.
@@ -84,7 +85,7 @@ export function ThreadsRail({ onPicked }: { onPicked?(): void }) {
                           <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-content">{t.title}</span>
                         </div>
                         <div className="mt-0.5 truncate pl-3 text-[10.5px] text-content-subtle">
-                          {last ? last.content.replace(/[#*`>\-]/g, '').slice(0, 80) : `${t.messages.length} message${t.messages.length === 1 ? '' : 's'}`}
+                          {last ? plainText(last.content, 80) : `${t.messages.length} message${t.messages.length === 1 ? '' : 's'}`}
                         </div>
                         <div className="mt-0.5 flex items-center gap-1.5 pl-3 text-[10px] text-content-subtle">
                           {agentName(t.agentId) ? <span>{agentName(t.agentId)}</span> : null}

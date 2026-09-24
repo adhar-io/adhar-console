@@ -1,10 +1,11 @@
 import { cn } from '@adhar-console/utils'
-import type { AgentInfo } from '../agui/store.ts'
+import { assistStore, useAssist, type AgentInfo } from '../agui/store.ts'
 import type { OperatorFinding, RuntimeInfo } from '../agui/client.ts'
 import { useNotifications } from '../notifications.ts'
 import type { CommandItem } from './nav.ts'
-import { IconBook, IconReturn, IconServer, IconShield, IconTool, SparkIcon } from './icons.tsx'
+import { IconActivity, IconAt, IconBook, IconBolt, IconCompass, IconReturn, IconServer, IconShield, IconTool, SparkIcon } from './icons.tsx'
 import { AdharAiMark } from './mark.tsx'
+import { relTime } from './inspector.tsx'
 import { accentDot, accentGradient, accentText } from './accent.ts'
 
 /**
@@ -16,14 +17,15 @@ import { accentDot, accentGradient, accentText } from './accent.ts'
  * own opening questions, and operators that keep watching the platform when
  * nobody is asking. So the page reads, top to bottom:
  *
- *   1. the mark and one line about how it works, with the runtime's live
- *      facts (servers, tools, grounding, write policy) as a strip of pills —
- *      what it is made of, stated by the runtime rather than by copy;
+ *   1. the hero band — the mark, one line about how it works, the three
+ *      moves (ask → investigate → propose), and beside it what the runtime
+ *      is made of right now, stated by the runtime rather than by copy;
  *   2. what the operators noticed unprompted, and notifications that carry a
  *      prompt — each already a question worth asking;
  *   3. the roster — every agent as a card, the one you are talking to
  *      highlighted; picking one changes who answers;
- *   4. that agent's starters, as two columns of prompts.
+ *   4. that agent's starters as prompt cards, with the conversations you
+ *      had recently beside them so you can pick one back up.
  *
  * Container queries, not viewport breakpoints, decide the grid: the same
  * component renders in the ⌘K overlay and on the /ai page, and the overlay
@@ -49,37 +51,18 @@ export function Welcome({
   runtime: RuntimeInfo | null
 }) {
   const notif = useNotifications()
+  const { history } = useAssist()
   const insights = notif.items.filter((n) => !n.read && n.prompt).slice(0, 4)
   const starters = agent?.starters?.length ? agent.starters : FALLBACK_STARTERS
   const attention = findings.length + insights.length
+  const recent = history.filter((t) => t.messages.length > 0).slice(0, 5)
 
   return (
-    <div className="@container mx-auto w-full max-w-4xl pt-2">
-      {/* hero */}
-      <div className="rise-in flex flex-col items-center pb-5 pt-2 text-center">
-        <AdharAiMark size={64} />
-        <div className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-edge-subtle bg-surface-raised/70 px-2.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-content-subtle">
-          <SparkIcon size={10} /> Adhar AI
-        </div>
-        <h2 className="mt-2.5 text-[24px] font-semibold tracking-tight text-content">
-          {configured ? 'Ask, investigate, propose.' : 'Where would you like to go?'}
-        </h2>
-        <p className="mt-1.5 max-w-xl text-[13px] leading-relaxed text-content-muted">
-          {configured
-            ? `${agents.length || 'Your'} specialist agents read the cluster, delivery, policies and cost with your permissions, ground what they say in the platform’s own knowledge, and turn any change into a pull request for you to review.`
-            : 'AI isn’t configured on this cluster yet (set AI_BASE_URL / AI_MODEL). Type any page, app or setting to jump straight to it.'}
-        </p>
-        {!configured && navHint ? (
-          <div className="mt-4 text-[12px] text-content-muted">
-            Press <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">⏎</kbd> to open{' '}
-            <span className="font-medium text-content">{navHint.label}</span>
-          </div>
-        ) : null}
-        {configured ? <CapabilityStrip runtime={runtime} agent={agent} /> : null}
-      </div>
+    <div className="@container mx-auto w-full max-w-5xl pt-1">
+      <Hero configured={configured} agents={agents} agent={agent} runtime={runtime} navHint={navHint} />
 
       {configured ? (
-        <div className="space-y-4">
+        <div className="mt-4 space-y-4">
           {attention ? (
             <div className={cn('grid gap-3', findings.length && insights.length ? '@2xl:grid-cols-2' : '')}>
               {findings.length ? <OperatorFindings items={findings} onAsk={onPick} /> : null}
@@ -105,13 +88,8 @@ export function Welcome({
           {/* the roster */}
           {agents.length > 1 ? (
             <section className="rise-in">
-              <div className="mb-2 flex items-baseline justify-between gap-2 px-1">
-                <h3 className="text-[10.5px] font-semibold uppercase tracking-wider text-content-subtle">
-                  Your agents
-                </h3>
-                <span className="text-[11px] text-content-subtle">pick who answers · or mention one with @</span>
-              </div>
-              <div className="grid grid-cols-1 gap-2 @md:grid-cols-2 @3xl:grid-cols-4">
+              <SectionHead title="Your agents" hint="pick who answers · or mention one with @" />
+              <div className="grid grid-cols-1 gap-2 @md:grid-cols-2 @3xl:grid-cols-3 @5xl:grid-cols-4">
                 {agents.map((a) => (
                   <AgentCard key={a.id} agent={a} active={a.id === agent?.id} onSelect={() => onAgent(a.id)} />
                 ))}
@@ -119,42 +97,197 @@ export function Welcome({
             </section>
           ) : null}
 
-          {/* starters for whoever is answering */}
-          <Card
-            title={agent ? `Start with ${agent.name}` : 'Start here'}
-            hint={agent?.description}
-            accent={agent?.accent}
-          >
-            <div className="grid grid-cols-1 gap-0.5 @2xl:grid-cols-2">
-              {starters.map((s) => (
-                <button
-                  key={s.label}
-                  type="button"
-                  onClick={() => onPick(s.prompt)}
-                  className="group flex w-full items-start justify-between gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-brand-50/60 dark:hover:bg-brand-500/10"
-                >
-                  <span className="min-w-0">
-                    <span className="block text-[12.5px] font-medium text-content">{s.label}</span>
-                    <span className="mt-0.5 line-clamp-2 block text-[11px] leading-snug text-content-subtle">{s.prompt}</span>
-                  </span>
-                  <span className="mt-1 shrink-0 text-content-subtle opacity-0 transition-opacity group-hover:opacity-100">
-                    <IconReturn size={11} />
-                  </span>
-                </button>
-              ))}
-            </div>
-          </Card>
+          {/* starters for whoever is answering, and the conversations worth picking back up */}
+          <div className={cn('grid gap-3', recent.length ? '@5xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]' : '')}>
+            <section className="rise-in min-w-0">
+              <SectionHead
+                title={agent ? `Start with ${agent.name}` : 'Start here'}
+                hint={agent?.description}
+                accent={agent?.accent}
+              />
+              <div className={cn('grid grid-cols-1 gap-2', recent.length ? '' : '@xl:grid-cols-2')}>
+                {starters.map((s, i) => (
+                  <StarterCard key={s.label} index={i} label={s.label} prompt={s.prompt} agent={agent} onPick={() => onPick(s.prompt)} />
+                ))}
+              </div>
+            </section>
+
+            {recent.length ? (
+              <section className="rise-in min-w-0">
+                <SectionHead title="Pick up where you left off" hint="kept in this browser" />
+                <div className="rounded-2xl border border-edge-default bg-surface-raised p-1.5">
+                  {recent.map((t) => {
+                    const who = agents.find((a) => a.id === t.agentId)
+                    const last = [...t.messages].reverse().find((m) => m.role === 'assistant' && m.content)
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => assistStore.openThread(t.id)}
+                        className="group flex w-full items-start gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-surface-sunken/70"
+                      >
+                        <span className={cn('mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full', accentDot(who?.accent))} aria-hidden />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[12.5px] font-medium text-content">{t.title}</span>
+                          {last ? <span className="mt-0.5 line-clamp-1 text-[11px] text-content-subtle">{plainText(last.content)}</span> : null}
+                          <span className="mt-0.5 block text-[10.5px] text-content-subtle">
+                            {who?.name ? `${who.name} · ` : ''}{relTime(t.updatedAt)} · {t.messages.length} turn{t.messages.length === 1 ? '' : 's'}
+                          </span>
+                        </span>
+                        <span className="mt-1 shrink-0 text-[11px] font-medium text-brand-600 opacity-0 transition-opacity group-hover:opacity-100 dark:text-brand-300">Resume →</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </section>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </div>
   )
 }
 
+/* ─────────────────────────────── hero ─────────────────────────────── */
+
+/**
+ * The band at the top: the mark and the headline on the left, and the
+ * runtime's live facts on the right. A soft brand glow behind the mark is
+ * the only decoration — the facts do the rest of the talking.
+ */
+function Hero({ configured, agents, agent, runtime, navHint }: { configured: boolean; agents: AgentInfo[]; agent?: AgentInfo; runtime: RuntimeInfo | null; navHint?: CommandItem }) {
+  return (
+    <section className="rise-in relative overflow-hidden rounded-3xl border border-edge-default bg-surface-raised">
+      <div aria-hidden className="pointer-events-none absolute -left-24 -top-32 h-72 w-72 rounded-full bg-brand-500/12 blur-3xl dark:bg-brand-500/15" />
+      <div aria-hidden className="pointer-events-none absolute -right-20 -bottom-28 h-64 w-64 rounded-full bg-accent-500/10 blur-3xl dark:bg-accent-500/12" />
+      <div className={cn('relative grid gap-6 p-5 @2xl:p-6', configured ? '@5xl:grid-cols-[minmax(0,1.5fr)_minmax(300px,1fr)]' : '')}>
+        <div className="min-w-0">
+          <div className="flex items-center gap-4">
+            <AdharAiMark size={56} />
+            <div className="min-w-0">
+              <div className="inline-flex items-center gap-1.5 rounded-full border border-edge-subtle bg-surface-app/70 px-2.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-content-subtle">
+                <SparkIcon size={10} /> Adhar AI
+              </div>
+              <h2 className="mt-1.5 text-[24px] font-semibold leading-tight tracking-tight text-content @2xl:text-[26px]">
+                {configured ? 'Ask, investigate, propose.' : 'Where would you like to go?'}
+              </h2>
+            </div>
+          </div>
+          <p className="mt-3 max-w-2xl text-[13px] leading-relaxed text-content-muted">
+            {configured
+              ? `${agents.length || 'Your'} specialist agents read the cluster, delivery, policies and cost with your permissions, ground what they say in the platform’s own knowledge, and turn any change into a pull request for you to review.`
+              : 'AI isn’t configured on this cluster yet (set AI_BASE_URL / AI_MODEL). Type any page, app or setting to jump straight to it.'}
+          </p>
+          {!configured && navHint ? (
+            <div className="mt-4 text-[12px] text-content-muted">
+              Press <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">⏎</kbd> to open{' '}
+              <span className="font-medium text-content">{navHint.label}</span>
+            </div>
+          ) : null}
+          {configured ? <Moves /> : null}
+        </div>
+        {configured ? <RuntimePanel runtime={runtime} agent={agent} agents={agents} /> : null}
+      </div>
+    </section>
+  )
+}
+
+/** The three moves every conversation makes, as a compact row. */
+function Moves() {
+  const steps = [
+    { n: '01', icon: <IconAt size={12} />, title: 'Ask', body: 'Type a question, or @mention the agent who should answer.' },
+    { n: '02', icon: <IconCompass size={12} />, title: 'Investigate', body: 'It reads live state with your RBAC and cites the knowledge it used.' },
+    { n: '03', icon: <IconShield size={12} />, title: 'Propose', body: 'Any change becomes a pull request. You review, it never applies.' },
+  ]
+  return (
+    <ol className="mt-5 grid gap-2 @2xl:grid-cols-3">
+      {steps.map((s) => (
+        <li key={s.n} className="flex items-start gap-2.5 rounded-xl border border-edge-subtle bg-surface-app/60 px-3 py-2.5">
+          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300">{s.icon}</span>
+          <span className="min-w-0">
+            <span className="flex items-baseline gap-1.5">
+              <span className="font-mono text-[9.5px] text-content-subtle">{s.n}</span>
+              <span className="text-[12.5px] font-semibold text-content">{s.title}</span>
+            </span>
+            <span className="mt-0.5 block text-[11px] leading-snug text-content-subtle">{s.body}</span>
+          </span>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+/**
+ * What the assistant is made of, right now.
+ *
+ * Every number here is live from the runtime: MCP servers with sessions open,
+ * tools they expose, how grounding is retrieved, what a write turns into.
+ * When the runtime is not configured it says what the console's own agents
+ * can do instead, rather than showing empty counters.
+ */
+function RuntimePanel({ runtime, agent, agents }: { runtime: RuntimeInfo | null; agent?: AgentInfo; agents: AgentInfo[] }) {
+  const consoleTools = agents.reduce((n, a) => n + (a.delegated ? 0 : a.tools), 0)
+  const live = Boolean(runtime?.configured && runtime.reachable)
+  const down = runtime?.configured && runtime.reachable === false
+  const bad = Object.keys(runtime?.mcp?.unreachable ?? {}).length
+  const domains = new Set((runtime?.tools ?? []).map((t) => t.split('_')[0])).size
+
+  const facts: Array<{ icon: React.ReactNode; label: string; value: string; sub?: string; tone?: 'ok' | 'bad' }> = live
+    ? [
+        { icon: <IconServer size={13} />, label: 'MCP servers', value: `${runtime!.mcp?.connected.length ?? 0} live`, sub: bad ? `${bad} unreachable` : 'sessions open', tone: bad ? 'bad' : 'ok' },
+        { icon: <IconTool size={13} />, label: 'Tools', value: String(runtime!.tools?.length ?? 0), sub: `across ${domains} domain${domains === 1 ? '' : 's'}` },
+        { icon: <IconBook size={13} />, label: 'Knowledge', value: 'grounded', sub: runtime!.rag ? `retrieved via ${runtime!.rag}` : 'platform docs & runbooks' },
+        { icon: <IconShield size={13} />, label: 'Writes', value: 'pull requests', sub: runtime!.autonomyDefault ? `default ${runtime!.autonomyDefault}` : 'you review, it never applies' },
+      ]
+    : down
+      ? [
+          { icon: <IconServer size={13} />, label: 'Runtime', value: 'unreachable', sub: runtime?.error?.slice(0, 60) || 'console agents still answer', tone: 'bad' },
+          { icon: <IconTool size={13} />, label: 'Console tools', value: String(consoleTools || agent?.tools || 0), sub: `${agents.filter((a) => !a.delegated).length} agents ready` },
+          { icon: <IconShield size={13} />, label: 'Access', value: 'your RBAC', sub: 'reads only what you can' },
+          { icon: <IconBolt size={13} />, label: 'Writes', value: 'proposals', sub: 'nothing applies from here' },
+        ]
+      : [
+          { icon: <IconTool size={13} />, label: 'Console tools', value: String(consoleTools || agent?.tools || 0), sub: `${agents.length} agent${agents.length === 1 ? '' : 's'} ready` },
+          { icon: <IconShield size={13} />, label: 'Access', value: 'your RBAC', sub: 'reads only what you can' },
+          { icon: <IconBook size={13} />, label: 'Knowledge', value: 'platform', sub: 'catalog, docs, runbooks' },
+          { icon: <IconBolt size={13} />, label: 'Writes', value: 'proposals', sub: 'nothing applies from here' },
+        ]
+
+  return (
+    <aside className="rounded-2xl border border-edge-subtle bg-surface-app/70 p-3 backdrop-blur-sm">
+      <div className="mb-2 flex items-center justify-between px-1">
+        <span className="text-[10.5px] font-semibold uppercase tracking-wider text-content-subtle">Right now</span>
+        <span className={cn('inline-flex items-center gap-1.5 text-[10.5px] font-medium', live ? 'text-emerald-700 dark:text-emerald-300' : down ? 'text-rose-700 dark:text-rose-300' : 'text-content-subtle')}>
+          <span className="relative flex h-1.5 w-1.5">
+            {live ? <span aria-hidden className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" /> : null}
+            <span className={cn('relative h-1.5 w-1.5 rounded-full', live ? 'bg-emerald-500' : down ? 'bg-rose-500' : 'bg-content-subtle')} />
+          </span>
+          {live ? 'runtime live' : down ? 'runtime down' : 'console agents'}
+        </span>
+      </div>
+      <dl className="grid grid-cols-2 gap-1.5 @2xl:grid-cols-4 @5xl:grid-cols-2">
+        {facts.map((f) => (
+          <div key={f.label} className={cn('rounded-xl border px-2.5 py-2', f.tone === 'bad' ? 'border-rose-200 bg-rose-50/70 dark:border-rose-500/30 dark:bg-rose-500/10' : 'border-edge-subtle bg-surface-raised')}>
+            <dt className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-content-subtle">
+              <span className={cn(f.tone === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : f.tone === 'bad' ? 'text-rose-600 dark:text-rose-400' : 'text-content-subtle')}>{f.icon}</span>
+              {f.label}
+            </dt>
+            <dd className={cn('mt-1 truncate text-[14px] font-semibold tabular-nums tracking-tight', f.tone === 'bad' ? 'text-rose-700 dark:text-rose-300' : 'text-content')}>{f.value}</dd>
+            {f.sub ? <dd className="truncate text-[10.5px] text-content-subtle" title={f.sub}>{f.sub}</dd> : null}
+          </div>
+        ))}
+      </dl>
+    </aside>
+  )
+}
+
+/* ─────────────────────────────── roster ─────────────────────────────── */
+
 /**
  * One agent on the roster. The tile is the agent's accent as a gradient with
  * its icon (or initial) in it; the footer says how many tools it has and
  * whether the external runtime handles it. Active = the one the composer
- * will send to.
+ * will send to, marked by a hairline of its accent along the top.
  */
 function AgentCard({ agent, active, onSelect }: { agent: AgentInfo; active: boolean; onSelect(): void }) {
   const glyph = agent.icon && agent.icon.length <= 2 ? agent.icon : agent.name.slice(0, 1).toUpperCase()
@@ -165,16 +298,17 @@ function AgentCard({ agent, active, onSelect }: { agent: AgentInfo; active: bool
       aria-pressed={active}
       title={active ? `${agent.name} is answering` : `Ask ${agent.name}`}
       className={cn(
-        'group relative flex min-w-0 flex-col gap-2 overflow-hidden rounded-xl border p-3 text-left transition-[border-color,box-shadow,transform] duration-150',
+        'group relative flex min-w-0 flex-col gap-2 overflow-hidden rounded-2xl border p-3 pt-3.5 text-left transition-[border-color,box-shadow,transform] duration-150',
         active
           ? 'border-brand-400 bg-surface-raised shadow-md shadow-brand-600/10 ring-1 ring-brand-400 dark:border-brand-500/60 dark:ring-brand-500/60'
           : 'border-edge-default bg-surface-raised hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md',
       )}
     >
+      <span aria-hidden className={cn('absolute inset-x-0 top-0 h-0.5 bg-linear-to-r transition-opacity', accentGradient(agent.accent), active ? 'opacity-100' : 'opacity-0 group-hover:opacity-60')} />
       <div className="flex items-center gap-2.5">
         <span
           className={cn(
-            'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-br text-[13px] font-semibold text-white shadow-sm',
+            'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-linear-to-br text-[13px] font-semibold text-white shadow-sm',
             accentGradient(agent.accent),
           )}
         >
@@ -189,59 +323,48 @@ function AgentCard({ agent, active, onSelect }: { agent: AgentInfo; active: bool
       </div>
       <p className="line-clamp-2 min-h-[2.6em] text-[11.5px] leading-snug text-content-muted">{agent.description}</p>
       <div className="flex items-center gap-2 text-[10.5px] text-content-subtle">
-        <span className="inline-flex items-center gap-1">
+        <span className="inline-flex items-center gap-1 whitespace-nowrap">
           <IconTool size={10} /> {agent.tools} {agent.tools === 1 ? 'tool' : 'tools'}
         </span>
-        <span className={cn('ml-auto h-1.5 w-1.5 rounded-full', accentDot(agent.accent))} />
+        <span className="hidden min-w-0 items-center gap-1 truncate font-mono @md:inline-flex">
+          <IconAt size={9} />{agent.id}
+        </span>
+        <span className={cn('ml-auto text-[10.5px] font-medium transition-opacity', active ? cn('opacity-100', accentText(agent.accent)) : 'text-brand-600 opacity-0 group-hover:opacity-100 dark:text-brand-300')}>
+          {active ? 'selected' : 'Ask →'}
+        </span>
       </div>
     </button>
   )
 }
 
-/**
- * What the assistant is made of, right now — as pills under the headline.
- *
- * Every number here is live from the runtime: MCP servers with sessions open,
- * tools they expose, how grounding is retrieved, what a write turns into.
- * When the runtime is not configured it says what the console's own agents
- * can do instead, rather than showing empty counters.
- */
-function CapabilityStrip({ runtime, agent }: { runtime: RuntimeInfo | null; agent?: AgentInfo }) {
-  const items: Array<{ icon: React.ReactNode; label: string; value: string; tone?: 'ok' | 'bad' }> = []
-  if (runtime?.configured && runtime.reachable) {
-    const bad = Object.keys(runtime.mcp?.unreachable ?? {}).length
-    items.push({ icon: <IconServer size={11} />, label: 'MCP servers', value: `${runtime.mcp?.connected.length ?? 0} live${bad ? ` · ${bad} down` : ''}`, tone: bad ? 'bad' : 'ok' })
-    items.push({ icon: <SparkIcon size={11} />, label: 'Tools', value: `${runtime.tools?.length ?? 0} across ${new Set((runtime.tools ?? []).map((t) => t.split('_')[0])).size} domains` })
-    items.push({ icon: <IconBook size={11} />, label: 'Knowledge', value: runtime.rag ? `grounded · ${runtime.rag}` : 'grounded' })
-    items.push({ icon: <IconShield size={11} />, label: 'Writes', value: 'pull requests only' })
-  } else if (runtime?.configured && runtime.reachable === false) {
-    items.push({ icon: <IconServer size={11} />, label: 'Runtime', value: 'unreachable', tone: 'bad' })
-    items.push({ icon: <IconShield size={11} />, label: 'Access', value: 'reads with your RBAC' })
-  } else {
-    items.push({ icon: <SparkIcon size={11} />, label: 'Tools', value: `${agent?.tools ?? 0} console tools` })
-    items.push({ icon: <IconShield size={11} />, label: 'Access', value: 'reads with your RBAC' })
-    items.push({ icon: <IconShield size={11} />, label: 'Writes', value: 'proposals only' })
-  }
+/* ─────────────────────────────── starters ─────────────────────────────── */
+
+/** One opening question as a card: the label is the question, the prompt is what will be sent. */
+function StarterCard({ index, label, prompt, agent, onPick }: { index: number; label: string; prompt: string; agent?: AgentInfo; onPick(): void }) {
   return (
-    <div className="mt-4 flex flex-wrap items-center justify-center gap-1.5">
-      {items.map((it) => (
-        <span
-          key={it.label}
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px]',
-            it.tone === 'bad'
-              ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300'
-              : 'border-edge-subtle bg-surface-raised/70 text-content-muted',
-          )}
-        >
-          <span className={cn(it.tone === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : it.tone === 'bad' ? 'text-rose-600 dark:text-rose-400' : 'text-content-subtle')}>{it.icon}</span>
-          <span className="text-content-subtle">{it.label}</span>
-          <span className="font-medium text-content">{it.value}</span>
+    <button
+      type="button"
+      onClick={onPick}
+      className="group relative flex min-w-0 flex-col gap-1.5 overflow-hidden rounded-2xl border border-edge-default bg-surface-raised p-3.5 text-left transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-md dark:hover:border-brand-500/40"
+    >
+      <span className="flex items-center gap-2">
+        <span className={cn('flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-linear-to-br text-[10px] font-semibold text-white', accentGradient(agent?.accent))}>
+          {String(index + 1).padStart(2, '0')}
         </span>
-      ))}
-    </div>
+        <span className="min-w-0 truncate text-[13px] font-semibold text-content">{label}</span>
+      </span>
+      <span className="line-clamp-2 text-[11.5px] leading-snug text-content-subtle">{prompt}</span>
+      <span className="mt-auto flex items-center justify-between pt-1 text-[10.5px] text-content-subtle">
+        <span className="inline-flex items-center gap-1"><IconActivity size={10} /> {agent ? `Asks ${agent.name}` : 'Ask'}</span>
+        <span className="inline-flex items-center gap-1 text-brand-600 opacity-0 transition-opacity group-hover:opacity-100 dark:text-brand-300">
+          Send <IconReturn size={10} />
+        </span>
+      </span>
+    </button>
   )
 }
+
+/* ─────────────────────────────── attention ─────────────────────────────── */
 
 /**
  * What the platform's operators concluded while nobody was watching — the
@@ -269,6 +392,20 @@ function OperatorFindings({ items, onAsk }: { items: OperatorFinding[]; onAsk(pr
         )
       })}
     </Card>
+  )
+}
+
+/* ─────────────────────────────── primitives ─────────────────────────────── */
+
+function SectionHead({ title, hint, accent }: { title: string; hint?: string; accent?: string }) {
+  return (
+    <div className="mb-2 flex items-baseline justify-between gap-3 px-1">
+      <h3 className="inline-flex shrink-0 items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-content-subtle">
+        {accent ? <span className={cn('h-1.5 w-1.5 rounded-full', accentDot(accent))} /> : null}
+        {title}
+      </h3>
+      {hint ? <span className="min-w-0 truncate text-[11px] text-content-subtle" title={hint}>{hint}</span> : null}
+    </div>
   )
 }
 
@@ -309,6 +446,19 @@ function Row({ dot, title, meta, cta, onClick }: { dot: string; title: string; m
       <span className="shrink-0 text-[11px] text-brand-600 opacity-0 transition-opacity group-hover:opacity-100 dark:text-brand-300">{cta} →</span>
     </button>
   )
+}
+
+/** Markdown → one line of plain text: drop heading/emphasis/code marks and list bullets, keep hyphens inside words. */
+export function plainText(md: string, max = 160): string {
+  return md
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/^\s{0,3}(?:[-*+]|\d+\.)\s+/gm, '')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s{0,3}>\s?/gm, '')
+    .replace(/[*_`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max)
 }
 
 const FALLBACK_STARTERS = [

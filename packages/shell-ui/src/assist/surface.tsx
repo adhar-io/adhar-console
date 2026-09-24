@@ -194,7 +194,9 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
   useLayoutEffect(() => {
     if (canvas) return
     const el = threadRef.current
-    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight
+    // Follow the conversation, not the empty state: the welcome page reads
+    // top to bottom and must open at its hero, not at its last card.
+    if (el && stickToBottom.current && state.thread.messages.length) el.scrollTop = el.scrollHeight
   }, [state.thread.messages, state.run, canvas])
 
   // Autofocus is a desktop courtesy; on a phone it summons the keyboard over

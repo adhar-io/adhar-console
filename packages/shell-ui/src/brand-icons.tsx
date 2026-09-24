@@ -37,6 +37,8 @@ import {
   OPENSEARCH_HEX,
   PENPOT_D,
   PENPOT_HEX,
+  STRAPI_D,
+  STRAPI_HEX,
   PLANE_PNG_URI,
   PREFECT_D,
   PREFECT_HEX,
@@ -320,6 +322,9 @@ export function PrefectIcon(props: BrandProps) {
 }
 export function RabbitMQIcon(props: BrandProps) {
   return <MonoTile {...props} hex={RABBITMQ_HEX} d={RABBITMQ_D} />
+}
+export function StrapiIcon(props: BrandProps) {
+  return <MonoTile {...props} hex={STRAPI_HEX} d={STRAPI_D} />
 }
 export function TrinoIcon(props: BrandProps) {
   return <MonoTile {...props} hex={TRINO_HEX} d={TRINO_D} />

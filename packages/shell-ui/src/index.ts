@@ -165,6 +165,7 @@ export {
   OpenMetadataIcon,
   OpenSearchIcon,
   PenpotIcon,
+  StrapiIcon,
   PrefectIcon,
   PyroscopeIcon,
   RabbitMQIcon,

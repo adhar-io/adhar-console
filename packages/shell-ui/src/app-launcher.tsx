@@ -24,6 +24,7 @@ import {
   PlaneIcon,
   PostHogIcon,
   PrometheusIcon,
+  StrapiIcon,
   TektonIcon,
   DagsterIcon,
   FaroIcon,
@@ -325,6 +326,14 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     icon: <N8nIcon />,
   },
   {
+    id: 'strapi',
+    name: 'Strapi',
+    description: 'Headless CMS & content API',
+    url: 'https://strapi.adhar.localtest.me:8443',
+    category: 'Code',
+    icon: <StrapiIcon />,
+  },
+  {
     id: 'penpot',
     name: 'Penpot',
     description: 'Design & prototyping',
@@ -334,29 +343,30 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
   },
 
   // ── Observe (LGTM + Grafana products) ──────────────────────────────────────
+  // Loki and Tempo have routes, but what answers on them is an API — opening
+  // one in a browser lands on a sign-in page and then a 404. Grafana Explore
+  // IS their UI, so these open it on the right datasource, exactly as
+  // Prometheus already did. Mimir is gone entirely: the Prometheus tile
+  // already lists it among its backing tools, so it was the same door twice.
   {
     id: 'loki',
     name: 'Loki',
-    description: 'Log aggregation',
-    url: 'https://loki.adhar.localtest.me:8443',
+    description: 'Logs — explore in Grafana',
+    url: `${GRAFANA_DEV}${exploreLeft('loki')}`,
     category: 'Observe',
+    tools: ['grafana', 'loki'],
+    via: { tool: 'grafana', path: exploreLeft('loki') },
     icon: <LokiIcon />,
   },
   {
     id: 'tempo',
     name: 'Tempo',
-    description: 'Distributed tracing',
-    url: 'https://tempo.adhar.localtest.me:8443',
+    description: 'Traces — explore in Grafana',
+    url: `${GRAFANA_DEV}${exploreLeft('tempo')}`,
     category: 'Observe',
+    tools: ['grafana', 'tempo'],
+    via: { tool: 'grafana', path: exploreLeft('tempo') },
     icon: <TempoIcon />,
-  },
-  {
-    id: 'mimir',
-    name: 'Mimir',
-    description: 'Long-term metrics storage',
-    url: 'https://mimir.adhar.localtest.me:8443',
-    category: 'Observe',
-    icon: <MimirIcon />,
   },
   {
     id: 'pyroscope',
@@ -373,14 +383,6 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     url: 'https://oncall.adhar.localtest.me:8443',
     category: 'Observe',
     icon: <OnCallIcon />,
-  },
-  {
-    id: 'faro',
-    name: 'Faro',
-    description: 'Frontend observability',
-    url: 'https://faro.adhar.localtest.me:8443',
-    category: 'Observe',
-    icon: <FaroIcon />,
   },
 
   // ── Data platform ──────────────────────────────────────────────────────────
@@ -415,14 +417,6 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     url: 'https://mlflow.adhar.localtest.me:8443',
     category: 'Data',
     icon: <MLflowIcon />,
-  },
-  {
-    id: 'lakefs',
-    name: 'lakeFS',
-    description: 'Git-like data lake versioning',
-    url: 'https://lakefs.adhar.localtest.me:8443',
-    category: 'Data',
-    icon: <LakeFSIcon />,
   },
   {
     id: 'open-metadata',
@@ -542,8 +536,28 @@ interface ToolInfo {
   url: string
 }
 
-/** Tool ids in `/api/config` that are aliases of other entries — never tiles. */
-const HIDDEN_TOOL_IDS = new Set(['lgtm'])
+/**
+ * Tool ids that must never become a tile.
+ *
+ * Every tool the BFF knows reports `configured: true`, because its URL is
+ * DERIVED from the base domain rather than probed — so discovery happily
+ * invented a tile for anything with a route, including things that answer
+ * "authentication failure: no bearer token" or a bare 404 to a browser. A
+ * launcher that offers a door onto an API is worse than one that omits it:
+ * the person clicks, waits through a sign-in, and lands on nothing.
+ *
+ * Three kinds are excluded:
+ *   • aliases of another entry (`lgtm` is Grafana, `minio` is RustFS);
+ *   • APIs and collectors with no browser UI — verified by asking them;
+ *   • control-plane components that have never had one (Kyverno, Trivy and
+ *     Falco report through Policy Reporter, which has its own tile).
+ */
+const HIDDEN_TOOL_IDS = new Set([
+  'lgtm', 'minio', 'vault', 'k8s',
+  'agent', 'ai', 'mcp', 'otel', 'faro',
+  'loki', 'tempo', 'mimir',
+  'crossplane', 'kyverno', 'trivy', 'falco', 'iceberg',
+])
 
 function titleize(id: string): string {
   return id
@@ -590,16 +604,21 @@ export function usePlatformApps(apps: AppLink[] = DEFAULT_APP_LINKS): { apps: Re
 function useResolvedApps(apps: AppLink[]): { apps: ResolvedApp[]; loading: boolean } {
   const [tools, setTools] = useState<Record<string, ToolInfo> | null>(null)
   const [publicBase, setPublicBase] = useState('')
+  // Which tool ids the cluster's Gateway actually routes. Every tool reports
+  // `configured: true` because its URL is DERIVED from the base domain, so
+  // this is the only evidence that a door exists behind a tile.
+  const [routed, setRouted] = useState<Set<string>>(() => new Set())
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let alive = true
     fetch('/api/config', { credentials: 'include', headers: { accept: 'application/json' } })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { tools?: Record<string, ToolInfo>; publicBaseDomain?: string } | null) => {
+      .then((d: { tools?: Record<string, ToolInfo>; publicBaseDomain?: string; discoveredApps?: Array<{ id: string }> } | null) => {
         if (!alive) return
         setTools(d?.tools ?? {})
         setPublicBase((d?.publicBaseDomain ?? '').trim())
+        setRouted(new Set((d?.discoveredApps ?? []).map((a) => a.id)))
         setLoading(false)
       })
       .catch(() => {
@@ -671,11 +690,19 @@ function useResolvedApps(apps: AppLink[]): { apps: ResolvedApp[]; loading: boole
     const covered = new Set<string>()
     for (const a of apps) {
       covered.add(a.id)
+      // `sub` too: the OpenBao tile is `id: 'vault'` with `sub: 'openbao'`,
+      // so without this the tool id `openbao` counted as uncovered and the
+      // launcher drew a second, generic OpenBao tile beside the real one.
+      if (a.sub) covered.add(a.sub)
       for (const t of a.tools ?? []) covered.add(t)
     }
     for (const [id, info] of Object.entries(map)) {
       if (covered.has(id) || HIDDEN_TOOL_IDS.has(id)) continue
       if (!info.configured) continue
+      // A tool with no route has no address a browser can open — its URL was
+      // derived from the base domain, not observed. Tiles for those were dead
+      // links that spent a sign-in round trip to reach a 404.
+      if (!routed.has(id)) continue
       // Tools reachable only via an in-cluster URL report `url: ''` — derive
       // their public host from the base domain instead of dropping them, so
       // every configured platform app is launchable (not just the few whose
@@ -685,7 +712,7 @@ function useResolvedApps(apps: AppLink[]): { apps: ResolvedApp[]; loading: boole
       out.push({
         id,
         name: titleize(id),
-        description: 'Platform service',
+        description: 'Discovered from a route on this cluster',
         url,
         category: 'Platform',
         icon: <GenericAppIcon label={id} />,
@@ -693,7 +720,7 @@ function useResolvedApps(apps: AppLink[]): { apps: ResolvedApp[]; loading: boole
       })
     }
     return out
-  }, [apps, tools, publicBase])
+  }, [apps, tools, publicBase, routed])
 
   return { apps: resolved, loading: loading && tools === null }
 }

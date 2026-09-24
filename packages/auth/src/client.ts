@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { globalSingleton } from '@adhar-console/utils'
 import type { Role, Session, User } from './types.ts'
 import { rememberUser } from './last-user.ts'
 
@@ -43,8 +44,11 @@ export interface AuthContextValue {
   setSession(session: Session): void
 }
 
-const AuthContext = createContext<AuthContextValue | null>(null)
-export const SessionContext = createContext<Session | null>(null)
+// Global singletons: the host and each Module Federation remote bundle their
+// own copy of this module, and two copies of a context are two different
+// contexts. Without this a remote reads no session and renders as signed out.
+const AuthContext = globalSingleton('auth.context', () => createContext<AuthContextValue | null>(null))
+export const SessionContext = globalSingleton('auth.session', () => createContext<Session | null>(null))
 
 export interface AuthProviderProps {
   children: ReactNode

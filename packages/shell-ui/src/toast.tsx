@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { cn } from '@adhar-console/utils'
+import { cn, globalSingleton } from '@adhar-console/utils'
 
 /**
  * Application-wide toasts — the ONE way to confirm an outcome to the user.
@@ -69,7 +69,11 @@ const DEFAULT_DURATION: Record<ToastKind, number> = {
 
 const MAX_VISIBLE = 5
 
-const ToastContext = createContext<ToastApi | null>(null)
+// A context's identity is the object createContext returned, and every
+// remote bundles its own copy of this module — so a remote's useToast() read a
+// different context than the host's provider filled, fell back to console.error
+// and made every failed action in a remote look like a dead button.
+const ToastContext = globalSingleton('shell-ui.toast', () => createContext<ToastApi | null>(null))
 
 let seq = 0
 

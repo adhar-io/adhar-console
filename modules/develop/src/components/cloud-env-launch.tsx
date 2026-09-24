@@ -42,7 +42,7 @@ export function CloudEnvLaunch({ repo, cloneUrl, compact = false, className }: C
   const toast = useToast()
   const qc = useQueryClient()
   const info = useCoderInfo()
-  const { owner, workspace, isLoading } = useRepoWorkspace(repo)
+  const { owner, workspace, isLoading, blocked } = useRepoWorkspace(repo)
   const [busy, setBusy] = useState<Ide | null>(null)
 
   const dashboard = info.data?.dashboard_url ?? ''
@@ -79,7 +79,7 @@ export function CloudEnvLaunch({ repo, cloneUrl, compact = false, className }: C
     if (busy) return
     if (workspace && workspace.latest_build.status === 'running') return open(workspace, ide)
     if (!owner) {
-      toast.error('Your Coder account could not be resolved — open Coder once from the launcher, then try again.')
+      toast.error('No Coder account for you yet', { description: blocked })
       return
     }
     if (!cloneUrl) {
@@ -124,7 +124,10 @@ export function CloudEnvLaunch({ repo, cloneUrl, compact = false, className }: C
     ? workspace.latest_build.status === 'running' ? 'ready' : 'stopped'
     : 'none'
   const hint = (ide: Ide) =>
-    state === 'ready'
+    // `blocked` already carries the reason and what to do about it.
+    blocked
+      ? blocked
+      : state === 'ready'
       ? `Open ${repo} in ${ide === 'vscode' ? 'VS Code' : 'IntelliJ IDEA'}`
       : state === 'stopped'
         ? `Start your ${repo} environment and open ${ide === 'vscode' ? 'VS Code' : 'IntelliJ IDEA'}`
@@ -133,7 +136,9 @@ export function CloudEnvLaunch({ repo, cloneUrl, compact = false, className }: C
   const btn = (ide: Ide, label: string, Icon: () => ReactElement) => (
     <button
       type='button'
-      disabled={isLoading || Boolean(busy)}
+      // A control that cannot work is disabled and says why, rather than
+      // looking live and failing on every click.
+      disabled={isLoading || Boolean(busy) || Boolean(blocked)}
       onClick={() => void launch(ide)}
       title={hint(ide)}
       className={cn(

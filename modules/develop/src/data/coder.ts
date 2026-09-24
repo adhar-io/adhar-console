@@ -133,33 +133,60 @@ export function useBuildLogs(buildId?: string, live = false) {
  * then ended at Coder's OIDC callback with **Access denied**, because the
  * person signing in was never the owner.
  */
+export interface CoderOwner {
+  owner: string
+  /** True when `owner` is the signed-in person's own Coder account. */
+  matched: boolean
+  created: boolean
+  email: string
+  /** Why it is not matched — shown to the person, not swallowed. */
+  reason?: string
+}
+
 export function useWorkspaceOwner() {
   const user = useOptionalUser()
   const email = user?.email?.trim().toLowerCase() ?? ''
   return useQuery({
     queryKey: ['coder', 'owner', email],
-    queryFn: async (): Promise<{ owner: string; matched: boolean; created: boolean; email: string }> => {
-      if (email) {
-        try {
-          const hits = await coderClient.searchUsers(email, 5)
-          const exact = hits.find((u) => u.email?.toLowerCase() === email)
-          if (exact) return { owner: exact.username, matched: true, created: false, email }
-          const me = await coderClient.me()
-          const orgs = me.organization_ids?.length ? me.organization_ids : (await coderClient.listOrganizations()).map((o) => o.id)
-          const made = await coderClient.createUser({
-            email,
-            username: coder.usernameFromEmail(email),
-            name: user?.name || undefined,
-            login_type: 'oidc',
-            organization_ids: orgs,
-          })
-          return { owner: made.username, matched: true, created: true, email }
-        } catch {
-          /* fall through to the proxy identity */
+    queryFn: async (): Promise<CoderOwner> => {
+      if (!email) {
+        const me = await coderClient.me()
+        return { owner: me.username, matched: false, created: false, email, reason: 'You are signed in without an e-mail address, so there is no Coder account to match.' }
+      }
+      try {
+        const hits = await coderClient.searchUsers(email, 5)
+        const exact = hits.find((u) => u.email?.toLowerCase() === email)
+        if (exact) return { owner: exact.username, matched: true, created: false, email }
+        const me = await coderClient.me()
+        const orgs = me.organization_ids?.length ? me.organization_ids : (await coderClient.listOrganizations()).map((o) => o.id)
+        const made = await coderClient.createUser({
+          email,
+          username: coder.usernameFromEmail(email),
+          name: user?.name || undefined,
+          login_type: 'oidc',
+          organization_ids: orgs,
+        })
+        return { owner: made.username, matched: true, created: true, email }
+      } catch (e) {
+        // Swallowing this was why the IDE buttons could only ever say "could
+        // not be resolved": the actual refusal from Coder — a duplicate
+        // username, no permission to create users, an e-mail its policy
+        // rejects — never reached the person who could act on it.
+        const me = await coderClient.me().catch(() => null)
+        // The built-in demo session's address is not a routable e-mail, so
+        // Coder rejects it outright. Say that plainly instead of leaving a
+        // validation error that reads like a platform fault.
+        const stub = /@(localhost|local)$/i.test(email)
+        return {
+          owner: me?.username ?? '',
+          matched: false,
+          created: false,
+          email,
+          reason: stub
+            ? `You are signed in as the built-in demo user (${email}), which Coder cannot hold an account for. Sign in with your own account to use cloud IDEs.`
+            : `Coder has no account for ${email} and one could not be created: ${e instanceof Error ? e.message : String(e)}`,
         }
       }
-      const me = await coderClient.me()
-      return { owner: me.username, matched: false, created: false, email }
     },
     staleTime: 5 * 60_000,
   })
@@ -242,7 +269,14 @@ export function useRepoWorkspace(repo: string) {
   // Only the person's own: a name match on somebody else's workspace would
   // open the door that Coder then slams (owner-only apps).
   const existing = mine ? (workspaces.data ?? []).find((w) => w.name === name && w.owner_name === mine) : undefined
-  return { owner: mine, name, workspace: existing, isLoading: owner.isLoading || workspaces.isLoading }
+  return {
+    owner: mine,
+    name,
+    workspace: existing,
+    isLoading: owner.isLoading || workspaces.isLoading,
+    /** Set when there is no usable Coder account — the control explains itself. */
+    blocked: owner.isLoading ? undefined : mine ? undefined : (owner.data?.reason ?? 'Your Coder account could not be resolved.'),
+  }
 }
 
 export interface EnsureRepoWorkspaceInput {

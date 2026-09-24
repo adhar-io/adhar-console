@@ -1,7 +1,9 @@
 import { createContext, useContext, type ReactNode } from 'react'
+import { globalSingleton } from '@adhar-console/utils'
 import type { Tenant } from './types.ts'
 
-export const TenantContext = createContext<Tenant | null>(null)
+// One context per page, not per bundled copy — see globalSingleton.
+export const TenantContext = globalSingleton('tenancy.tenant', () => createContext<Tenant | null>(null))
 
 export function TenantProvider({ tenant, children }: { tenant: Tenant; children: ReactNode }) {
   return <TenantContext.Provider value={tenant}>{children}</TenantContext.Provider>

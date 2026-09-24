@@ -239,6 +239,27 @@ function RunTable({
   loading: boolean
   onSelect(sel: { namespace: string; name: string }): void
 }) {
+  const toast = useToast()
+  const qc = useQueryClient()
+  const canManage = useCan('develop')
+  const [busy, setBusy] = useState<string | null>(null)
+
+  // Acting on a run meant opening it first. Re-running the same test after a
+  // change, or clearing out a failed one, is the commonest thing to do from a
+  // list of runs and it took two extra clicks and a drawer.
+  const act = async (key: string, label: string, fn: () => Promise<unknown>) => {
+    setBusy(key)
+    try {
+      await fn()
+      toast.success(label)
+      void qc.invalidateQueries({ queryKey: ['k6'] })
+    } catch (e) {
+      toast.error(label, { description: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const columns: Column<TestRun>[] = [
     {
       key: 'name',
@@ -262,6 +283,22 @@ function RunTable({
               {stage}
             </StatusBadge>
             {isPaused(r) ? <Badge>paused</Badge> : null}
+          </div>
+        )
+      },
+    },
+    {
+      key: 'test',
+      header: 'From test',
+      value: (r) => r.metadata.labels?.[LABEL_TEST] ?? '',
+      cell: (r) => {
+        const test = r.metadata.labels?.[LABEL_TEST]
+        const commit = r.metadata.labels?.[LABEL_COMMIT]
+        if (!test) return <span className="text-content-subtle">—</span>
+        return (
+          <div className="min-w-0">
+            <div className="truncate font-mono text-[11px] text-content">{test}</div>
+            {commit ? <div className="truncate font-mono text-[10px] text-content-subtle">{commit.slice(0, 7)}</div> : null}
           </div>
         )
       },
@@ -312,6 +349,54 @@ function RunTable({
       ),
     },
   ]
+
+  if (canManage) {
+    columns.push({
+      key: 'actions',
+      header: '',
+      sortable: false,
+      cell: (r) => {
+        const key = `${r.metadata.namespace}/${r.metadata.name}`
+        const running = isRunning(r)
+        return (
+          <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+            {running
+              ? (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  disabled={busy === key}
+                  onClick={() =>
+                    act(key, isPaused(r) ? `Resumed ${r.metadata.name}` : `Paused ${r.metadata.name}`, () =>
+                      setTestRunPaused(r.metadata.namespace ?? '', r.metadata.name, !isPaused(r)))}
+                >
+                  {isPaused(r) ? 'Resume' : 'Pause'}
+                </Button>
+              )
+              : (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  disabled={busy === key}
+                  onClick={() => act(key, `Started a rerun of ${r.metadata.name}`, () => rerunTestRun(r))}
+                >
+                  Run again
+                </Button>
+              )}
+            <Button
+              size="xs"
+              variant="ghost"
+              disabled={busy === key}
+              className="text-rose-700 dark:text-rose-300"
+              onClick={() => act(key, `Deleted ${r.metadata.name}`, () => deleteTestRun(r.metadata.namespace ?? '', r.metadata.name))}
+            >
+              Delete
+            </Button>
+          </div>
+        )
+      },
+    })
+  }
 
   return (
     <DataTable

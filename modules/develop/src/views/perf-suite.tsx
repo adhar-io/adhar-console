@@ -17,8 +17,10 @@ import {
 } from '@adhar-console/shell-ui'
 import { cn, formatRelative } from '@adhar-console/utils'
 import { CodeEditor } from '../components/code-editor.tsx'
+import { useTestRuns, type TestRun } from '../data/k6.ts'
 import {
   DEFAULT_CONFIG,
+  LABEL_TEST,
   nameError,
   normaliseName,
   type PerfTestConfig,
@@ -51,11 +53,27 @@ export function PerfSuite({ onOpenRun }: { onOpenRun?(namespace: string, name: s
   const suiteQ = useSuiteRepo()
   const suite = suiteQ.data
   const testsQ = usePerfTests(suite)
+  const runsQ = useTestRuns()
   const [selected, setSelected] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const canEdit = useCan('develop')
 
   const tests = testsQ.data ?? []
+
+  // The newest run per test, by the label the console stamps on every run it
+  // creates. The list used to be bare names: which of a dozen tests last
+  // failed, and which had never run at all, were invisible until you clicked
+  // through them one at a time.
+  const lastRun = useMemo(() => {
+    const out = new Map<string, TestRun>()
+    for (const r of runsQ.data ?? []) {
+      const name = r.metadata.labels?.[LABEL_TEST]
+      if (!name) continue
+      const prev = out.get(name)
+      if (!prev || (r.metadata.creationTimestamp ?? '') > (prev.metadata.creationTimestamp ?? '')) out.set(name, r)
+    }
+    return out
+  }, [runsQ.data])
   useEffect(() => {
     if (!selected && tests.length) setSelected(tests[0])
     if (selected && tests.length && !tests.includes(selected)) setSelected(tests[0] ?? null)
@@ -84,6 +102,8 @@ export function PerfSuite({ onOpenRun }: { onOpenRun?(namespace: string, name: s
         onSelect={setSelected}
         onNew={() => setCreating(true)}
         canEdit={canEdit}
+        lastRun={lastRun}
+        onOpenRun={onOpenRun}
       />
       {selected
         ? <TestWorkbench suite={suite} name={selected} canEdit={canEdit} onOpenRun={onOpenRun} />
@@ -146,6 +166,8 @@ function TestList({
   onSelect,
   onNew,
   canEdit,
+  lastRun,
+  onOpenRun,
 }: {
   suite: SuiteRepo
   tests: string[]
@@ -154,7 +176,13 @@ function TestList({
   onSelect(name: string): void
   onNew(): void
   canEdit: boolean
+  /** Newest run per test, so the list can say what happened last. */
+  lastRun: Map<string, TestRun>
+  onOpenRun?(namespace: string, name: string): void
 }) {
+  const [q, setQ] = useState('')
+  const needle = q.trim().toLowerCase()
+  const shown = needle ? tests.filter((t) => t.toLowerCase().includes(needle)) : tests
   return (
     <Card className="flex max-h-[720px] flex-col overflow-hidden">
       <CardHeader>
@@ -172,28 +200,87 @@ function TestList({
           </div>
           {canEdit ? <Button size="xs" onClick={onNew}>New</Button> : null}
         </div>
+        {tests.length > 5 ? (
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Find a test…"
+            aria-label="Find a test"
+            className="mt-2 h-8 w-full rounded-lg border border-edge-default bg-surface-app px-2.5 text-[12px] text-content placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+          />
+        ) : null}
       </CardHeader>
       <CardBody className="min-h-0 flex-1 overflow-y-auto p-0">
         {loading
           ? <div className="flex justify-center py-8"><Spinner /></div>
           : tests.length === 0
           ? <div className="px-4 py-6 text-[12px] text-content-muted">No tests committed yet.</div>
+          : shown.length === 0
+          ? <div className="px-4 py-6 text-[12px] text-content-muted">No test matches “{q}”.</div>
           : (
             <ul>
-              {tests.map((t) => (
-                <li key={t}>
-                  <button
-                    type="button"
-                    onClick={() => onSelect(t)}
-                    className={cn(
-                      'block w-full px-3 py-2 text-left transition-colors hover:bg-surface-sunken',
-                      selected === t && 'bg-surface-sunken',
-                    )}
-                  >
-                    <span className="block truncate font-mono text-[12px] text-content">{t}</span>
-                  </button>
-                </li>
-              ))}
+              {shown.map((t) => {
+                const run = lastRun.get(t)
+                const stage = run?.status?.stage ?? (run ? 'initialization' : undefined)
+                return (
+                  <li key={t}>
+                    <button
+                      type="button"
+                      onClick={() => onSelect(t)}
+                      className={cn(
+                        'block w-full px-3 py-2 text-left transition-colors hover:bg-surface-sunken',
+                        selected === t && 'bg-surface-sunken',
+                      )}
+                    >
+                      <span className="block truncate font-mono text-[12px] text-content">{t}</span>
+                      <span className="mt-0.5 flex items-center gap-1.5 text-[10.5px] text-content-subtle">
+                        {run
+                          ? (
+                            <>
+                              <span
+                                className={cn(
+                                  'h-1.5 w-1.5 shrink-0 rounded-full',
+                                  stage === 'finished'
+                                    ? 'bg-emerald-500'
+                                    : stage === 'error'
+                                    ? 'bg-rose-500'
+                                    : stage === 'stopped'
+                                    ? 'bg-amber-500'
+                                    : 'animate-pulse bg-brand-500',
+                                )}
+                              />
+                              <span className="truncate">
+                                {stage} · {formatRelative(run.metadata.creationTimestamp ?? '')}
+                              </span>
+                              {onOpenRun
+                                ? (
+                                  <span
+                                    role="link"
+                                    tabIndex={0}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      onOpenRun(run.metadata.namespace ?? '', run.metadata.name)
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key !== 'Enter') return
+                                      e.stopPropagation()
+                                      onOpenRun(run.metadata.namespace ?? '', run.metadata.name)
+                                    }}
+                                    className="ml-auto shrink-0 font-medium text-brand-700 hover:underline dark:text-brand-300"
+                                  >
+                                    open
+                                  </span>
+                                )
+                                : null}
+                            </>
+                          )
+                          : <span className="italic">never run</span>}
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
           )}
       </CardBody>

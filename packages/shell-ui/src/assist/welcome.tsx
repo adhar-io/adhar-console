@@ -3,7 +3,7 @@ import { assistStore, useAssist, type AgentInfo } from '../agui/store.ts'
 import type { OperatorFinding, RuntimeInfo } from '../agui/client.ts'
 import { useNotifications } from '../notifications.ts'
 import type { CommandItem } from './nav.ts'
-import { IconActivity, IconAt, IconBook, IconBolt, IconCompass, IconReturn, IconServer, IconShield, IconTool, SparkIcon } from './icons.tsx'
+import { IconActivity, IconAt, IconBook, IconReturn, IconServer, IconShield, IconTool, SparkIcon } from './icons.tsx'
 import { AdharAiMark } from './mark.tsx'
 import { relTime } from './inspector.tsx'
 import { accentDot, accentGradient, accentText } from './accent.ts'
@@ -17,9 +17,9 @@ import { accentDot, accentGradient, accentText } from './accent.ts'
  * own opening questions, and operators that keep watching the platform when
  * nobody is asking. So the page reads, top to bottom:
  *
- *   1. the hero band — the mark, one line about how it works, the three
- *      moves (ask → investigate → propose), and beside it what the runtime
- *      is made of right now, stated by the runtime rather than by copy;
+ *   1. the hero band — the mark, one line about how it works, and one line
+ *      of what the runtime is made of right now, stated by the runtime
+ *      rather than by copy;
  *   2. what the operators noticed unprompted, and notifications that carry a
  *      prompt — each already a question worth asking;
  *   3. the roster — every agent as a card, the one you are talking to
@@ -151,133 +151,91 @@ export function Welcome({
 /* ─────────────────────────────── hero ─────────────────────────────── */
 
 /**
- * The band at the top: the mark and the headline on the left, and the
- * runtime's live facts on the right. A soft brand glow behind the mark is
- * the only decoration — the facts do the rest of the talking.
+ * The band at the top: the mark, one line, and one row of facts. Everything
+ * here is either the runtime stating what it is made of right now, or the
+ * one sentence a person needs before they type. The three-step explainer and
+ * the grid of counters that used to sit here were more to read than the
+ * agents beneath, which is the wrong way round on an empty page.
  */
 function Hero({ configured, agents, agent, runtime, navHint }: { configured: boolean; agents: AgentInfo[]; agent?: AgentInfo; runtime: RuntimeInfo | null; navHint?: CommandItem }) {
   return (
     <section className="rise-in relative overflow-hidden rounded-3xl border border-edge-default bg-surface-raised">
       <div aria-hidden className="pointer-events-none absolute -left-24 -top-32 h-72 w-72 rounded-full bg-brand-500/12 blur-3xl dark:bg-brand-500/15" />
       <div aria-hidden className="pointer-events-none absolute -right-20 -bottom-28 h-64 w-64 rounded-full bg-accent-500/10 blur-3xl dark:bg-accent-500/12" />
-      <div className={cn('relative grid gap-6 p-5 @2xl:p-6', configured ? '@5xl:grid-cols-[minmax(0,1.5fr)_minmax(300px,1fr)]' : '')}>
-        <div className="min-w-0">
-          <div className="flex items-center gap-4">
-            <AdharAiMark size={56} />
-            <div className="min-w-0">
-              <div className="inline-flex items-center gap-1.5 rounded-full border border-edge-subtle bg-surface-app/70 px-2.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-content-subtle">
-                <SparkIcon size={10} /> Adhar AI
-              </div>
-              <h2 className="mt-1.5 text-[24px] font-semibold leading-tight tracking-tight text-content @2xl:text-[26px]">
-                {configured ? 'Ask, investigate, propose.' : 'Where would you like to go?'}
-              </h2>
-            </div>
+      <div className="relative flex flex-col gap-4 p-5 @2xl:flex-row @2xl:items-center @2xl:gap-6 @2xl:p-6">
+        <AdharAiMark size={64} className="shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-[24px] font-semibold leading-tight tracking-tight text-content @2xl:text-[26px]">
+              {configured ? 'Ask, investigate, propose.' : 'Where would you like to go?'}
+            </h2>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-edge-subtle bg-surface-app/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-content-subtle">
+              <SparkIcon size={9} /> Adhar AI
+            </span>
           </div>
-          <p className="mt-3 max-w-2xl text-[13px] leading-relaxed text-content-muted">
+          <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-content-muted">
             {configured
-              ? `${agents.length || 'Your'} specialist agents read the cluster, delivery, policies and cost with your permissions, ground what they say in the platform’s own knowledge, and turn any change into a pull request for you to review.`
+              ? `${agents.length || 'Specialist'} agents read your cluster, delivery, policies and cost with your permissions, cite the platform’s own knowledge, and turn any change into a pull request for you to review.`
               : 'AI isn’t configured on this cluster yet (set AI_BASE_URL / AI_MODEL). Type any page, app or setting to jump straight to it.'}
           </p>
           {!configured && navHint ? (
-            <div className="mt-4 text-[12px] text-content-muted">
+            <div className="mt-3 text-[12px] text-content-muted">
               Press <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">⏎</kbd> to open{' '}
               <span className="font-medium text-content">{navHint.label}</span>
             </div>
           ) : null}
-          {configured ? <Moves /> : null}
+          {configured ? <FactsLine runtime={runtime} agent={agent} agents={agents} /> : null}
         </div>
-        {configured ? <RuntimePanel runtime={runtime} agent={agent} agents={agents} /> : null}
       </div>
     </section>
   )
 }
 
-/** The three moves every conversation makes, as a compact row. */
-function Moves() {
-  const steps = [
-    { n: '01', icon: <IconAt size={12} />, title: 'Ask', body: 'Type a question, or @mention the agent who should answer.' },
-    { n: '02', icon: <IconCompass size={12} />, title: 'Investigate', body: 'It reads live state with your RBAC and cites the knowledge it used.' },
-    { n: '03', icon: <IconShield size={12} />, title: 'Propose', body: 'Any change becomes a pull request. You review, it never applies.' },
-  ]
-  return (
-    <ol className="mt-5 grid gap-2 @2xl:grid-cols-3">
-      {steps.map((s) => (
-        <li key={s.n} className="flex items-start gap-2.5 rounded-xl border border-edge-subtle bg-surface-app/60 px-3 py-2.5">
-          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300">{s.icon}</span>
-          <span className="min-w-0">
-            <span className="flex items-baseline gap-1.5">
-              <span className="font-mono text-[9.5px] text-content-subtle">{s.n}</span>
-              <span className="text-[12.5px] font-semibold text-content">{s.title}</span>
-            </span>
-            <span className="mt-0.5 block text-[11px] leading-snug text-content-subtle">{s.body}</span>
-          </span>
-        </li>
-      ))}
-    </ol>
-  )
-}
-
 /**
- * What the assistant is made of, right now.
- *
- * Every number here is live from the runtime: MCP servers with sessions open,
- * tools they expose, how grounding is retrieved, what a write turns into.
- * When the runtime is not configured it says what the console's own agents
- * can do instead, rather than showing empty counters.
+ * What the assistant is made of, right now, as one line of facts. Every
+ * number is live from the runtime; when it is not configured the line says
+ * what the console's own agents can do instead of showing empty counters.
  */
-function RuntimePanel({ runtime, agent, agents }: { runtime: RuntimeInfo | null; agent?: AgentInfo; agents: AgentInfo[] }) {
-  const consoleTools = agents.reduce((n, a) => n + (a.delegated ? 0 : a.tools), 0)
+function FactsLine({ runtime, agent, agents }: { runtime: RuntimeInfo | null; agent?: AgentInfo; agents: AgentInfo[] }) {
+  const consoleTools = agents.reduce((n, a) => n + (a.delegated ? 0 : a.tools), 0) || agent?.tools || 0
   const live = Boolean(runtime?.configured && runtime.reachable)
   const down = runtime?.configured && runtime.reachable === false
   const bad = Object.keys(runtime?.mcp?.unreachable ?? {}).length
-  const domains = new Set((runtime?.tools ?? []).map((t) => t.split('_')[0])).size
-
-  const facts: Array<{ icon: React.ReactNode; label: string; value: string; sub?: string; tone?: 'ok' | 'bad' }> = live
+  const facts: Array<{ icon: React.ReactNode; text: string; tone?: 'ok' | 'bad' }> = live
     ? [
-        { icon: <IconServer size={13} />, label: 'MCP servers', value: `${runtime!.mcp?.connected.length ?? 0} live`, sub: bad ? `${bad} unreachable` : 'sessions open', tone: bad ? 'bad' : 'ok' },
-        { icon: <IconTool size={13} />, label: 'Tools', value: String(runtime!.tools?.length ?? 0), sub: `across ${domains} domain${domains === 1 ? '' : 's'}` },
-        { icon: <IconBook size={13} />, label: 'Knowledge', value: 'grounded', sub: runtime!.rag ? `retrieved via ${runtime!.rag}` : 'platform docs & runbooks' },
-        { icon: <IconShield size={13} />, label: 'Writes', value: 'pull requests', sub: runtime!.autonomyDefault ? `default ${runtime!.autonomyDefault}` : 'you review, it never applies' },
+        { icon: <IconServer size={11} />, text: `${runtime!.mcp?.connected.length ?? 0} MCP servers${bad ? ` · ${bad} down` : ''}`, tone: bad ? 'bad' : 'ok' },
+        { icon: <IconTool size={11} />, text: `${runtime!.tools?.length ?? 0} tools` },
+        // The runtime can report a long sentence here ("lexical over pgvector
+        // (no embeddings configured)"); the line is a glance, not a log.
+        { icon: <IconBook size={11} />, text: runtime!.rag ? `grounded · ${runtime!.rag.split(/[(,]/)[0].trim()}` : 'grounded in platform knowledge' },
+        { icon: <IconShield size={11} />, text: 'changes become pull requests' },
       ]
     : down
       ? [
-          { icon: <IconServer size={13} />, label: 'Runtime', value: 'unreachable', sub: runtime?.error?.slice(0, 60) || 'console agents still answer', tone: 'bad' },
-          { icon: <IconTool size={13} />, label: 'Console tools', value: String(consoleTools || agent?.tools || 0), sub: `${agents.filter((a) => !a.delegated).length} agents ready` },
-          { icon: <IconShield size={13} />, label: 'Access', value: 'your RBAC', sub: 'reads only what you can' },
-          { icon: <IconBolt size={13} />, label: 'Writes', value: 'proposals', sub: 'nothing applies from here' },
+          { icon: <IconServer size={11} />, text: 'runtime unreachable — console agents still answer', tone: 'bad' },
+          { icon: <IconTool size={11} />, text: `${consoleTools} console tools` },
+          { icon: <IconShield size={11} />, text: 'reads with your RBAC · proposals only' },
         ]
       : [
-          { icon: <IconTool size={13} />, label: 'Console tools', value: String(consoleTools || agent?.tools || 0), sub: `${agents.length} agent${agents.length === 1 ? '' : 's'} ready` },
-          { icon: <IconShield size={13} />, label: 'Access', value: 'your RBAC', sub: 'reads only what you can' },
-          { icon: <IconBook size={13} />, label: 'Knowledge', value: 'platform', sub: 'catalog, docs, runbooks' },
-          { icon: <IconBolt size={13} />, label: 'Writes', value: 'proposals', sub: 'nothing applies from here' },
+          { icon: <IconTool size={11} />, text: `${consoleTools} console tools · ${agents.length} agents` },
+          { icon: <IconShield size={11} />, text: 'reads with your RBAC · proposals only' },
         ]
-
   return (
-    <aside className="rounded-2xl border border-edge-subtle bg-surface-app/70 p-3 backdrop-blur-sm">
-      <div className="mb-2 flex items-center justify-between px-1">
-        <span className="text-[10.5px] font-semibold uppercase tracking-wider text-content-subtle">Right now</span>
-        <span className={cn('inline-flex items-center gap-1.5 text-[10.5px] font-medium', live ? 'text-emerald-700 dark:text-emerald-300' : down ? 'text-rose-700 dark:text-rose-300' : 'text-content-subtle')}>
-          <span className="relative flex h-1.5 w-1.5">
-            {live ? <span aria-hidden className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" /> : null}
-            <span className={cn('relative h-1.5 w-1.5 rounded-full', live ? 'bg-emerald-500' : down ? 'bg-rose-500' : 'bg-content-subtle')} />
-          </span>
-          {live ? 'runtime live' : down ? 'runtime down' : 'console agents'}
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11.5px] text-content-muted">
+      <span className={cn('inline-flex items-center gap-1.5 font-medium', live ? 'text-emerald-700 dark:text-emerald-300' : down ? 'text-rose-700 dark:text-rose-300' : 'text-content')}>
+        <span className="relative flex h-1.5 w-1.5">
+          {live ? <span aria-hidden className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" /> : null}
+          <span className={cn('relative h-1.5 w-1.5 rounded-full', live ? 'bg-emerald-500' : down ? 'bg-rose-500' : 'bg-content-subtle')} />
         </span>
-      </div>
-      <dl className="grid grid-cols-2 gap-1.5 @2xl:grid-cols-4 @5xl:grid-cols-2">
-        {facts.map((f) => (
-          <div key={f.label} className={cn('rounded-xl border px-2.5 py-2', f.tone === 'bad' ? 'border-rose-200 bg-rose-50/70 dark:border-rose-500/30 dark:bg-rose-500/10' : 'border-edge-subtle bg-surface-raised')}>
-            <dt className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-content-subtle">
-              <span className={cn(f.tone === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : f.tone === 'bad' ? 'text-rose-600 dark:text-rose-400' : 'text-content-subtle')}>{f.icon}</span>
-              {f.label}
-            </dt>
-            <dd className={cn('mt-1 truncate text-[14px] font-semibold tabular-nums tracking-tight', f.tone === 'bad' ? 'text-rose-700 dark:text-rose-300' : 'text-content')}>{f.value}</dd>
-            {f.sub ? <dd className="truncate text-[10.5px] text-content-subtle" title={f.sub}>{f.sub}</dd> : null}
-          </div>
-        ))}
-      </dl>
-    </aside>
+        {live ? 'Runtime live' : down ? 'Runtime down' : 'Console agents'}
+      </span>
+      {facts.map((f, i) => (
+        <span key={i} className={cn('inline-flex items-center gap-1.5', f.tone === 'bad' && 'text-rose-700 dark:text-rose-300')}>
+          <span className={cn(f.tone === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : 'text-content-subtle')}>{f.icon}</span>
+          {f.text}
+        </span>
+      ))}
+    </div>
   )
 }
 

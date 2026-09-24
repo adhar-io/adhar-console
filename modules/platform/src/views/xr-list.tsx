@@ -149,6 +149,9 @@ export interface XR {
     labels?: Record<string, string>
     annotations?: Record<string, string>
     uid?: string
+    /** Compared against `status.observedGeneration` to tell "reconciled" from
+     *  "not looked at yet" for operators that publish no Ready condition. */
+    generation?: number
   }
   spec?: Record<string, unknown>
   status?: {

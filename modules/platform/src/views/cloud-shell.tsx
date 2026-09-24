@@ -31,9 +31,21 @@ import {
 import { PodTerminal, type PodTerminalHandle, type TerminalAction, type TerminalStatus } from './pod-terminal.tsx'
 
 /**
- * Cloud Shell — an in-browser terminal workbench for the cluster, running as
- * the signed-in user (per-user RBAC via the exec gateway; every session is
- * audited).
+ * Cloud Shell — an in-browser terminal workbench for the cluster.
+ *
+ * Identity, stated precisely because the distinction matters: the exec gateway
+ * decides WHETHER the signed-in person may open a session, per-user and audited.
+ * What they can then DO differs by mode:
+ *   • **Pod exec** runs inside the target container, so it is bounded by that
+ *     container, not by the person's cluster RBAC.
+ *   • **Cluster shell** execs into one SHARED tools pod, so `kubectl` there acts
+ *     as that pod's service account — `adhar-system:cloud-shell`, bound to the
+ *     built-in read-only `view` ClusterRole — and NOT as the person. That role
+ *     is therefore the ceiling for everyone who can reach the shell, and it is
+ *     deliberately secret-free (which is also why `helm list`, whose state lives
+ *     in Secrets, cannot work there). Per-user privileges would require a
+ *     per-user pod carrying that person's impersonation kubeconfig.
+ * See platform/stack/packages/core/adhar-console/manifests/cloud-shell.yaml.
  *
  * Layout   — identity / cluster / tools-pod header, a collapsible sidebar
  *            (Launch · Snippets · Recent) and a tabbed terminal workbench with

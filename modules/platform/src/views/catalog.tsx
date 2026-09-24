@@ -1,7 +1,20 @@
 import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useQueries, useQueryClient } from '@tanstack/react-query'
-import { Badge, Input, Select, Skeleton, Spinner, StatusBadge, useOverlayDismiss } from '@adhar-console/shell-ui'
+import {
+  AdharSymbol,
+  Badge,
+  CiliumIcon,
+  Input,
+  KafkaIcon,
+  MinIOIcon,
+  RabbitMQIcon,
+  Select,
+  Skeleton,
+  Spinner,
+  StatusBadge,
+  useOverlayDismiss,
+} from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
 import { client, useActiveCluster } from '../data/client.ts'
 import { useHasK8sPermission } from '../data/access.ts'
@@ -78,7 +91,12 @@ interface Tile {
   items: XR[]
   ready: number
   synced: number
-  degraded: number
+  /** True only when at least one object of this kind publishes `Synced`. */
+  syncedApplicable: boolean
+  /** Objects that assert they are NOT up. The only count worth alarming on. */
+  notReady: number
+  /** Objects whose operator publishes no readiness at all — visible, not alarming. */
+  unreported: number
   newest: string | undefined
   loading: boolean
   error?: { status?: number; message?: string }
@@ -107,11 +125,11 @@ export function PlatformCatalog() {
       kinds.map((info, i): Tile => {
         const q = queries[i]
         const items = ((q?.data as XR[] | undefined) ?? []) as XR[]
-        const ready = items.filter((x) => isCondition(x, 'Ready')).length
-        const synced = items.filter((x) => isCondition(x, 'Synced')).length
-        const degraded = items.filter(
-          (x) => !x.metadata.deletionTimestamp && !isCondition(x, 'Ready'),
-        ).length
+        const states = items.map(readinessOf)
+        const ready = states.filter((r) => r === 'ready').length
+        const notReady = states.filter((r) => r === 'notReady').length
+        const unreported = states.filter((r) => r === 'unreported').length
+        const { applicable: syncedApplicable, synced } = syncedStats(items)
         const newest = items
           .map((x) => x.metadata.creationTimestamp)
           .filter(Boolean)
@@ -130,7 +148,9 @@ export function PlatformCatalog() {
           items,
           ready,
           synced,
-          degraded,
+          syncedApplicable,
+          notReady,
+          unreported,
           newest,
           loading: Boolean(q?.isLoading),
           error,
@@ -174,8 +194,8 @@ export function PlatformCatalog() {
 
   const total = tiles.reduce((acc, t) => acc + t.items.length, 0)
   const totalReady = tiles.reduce((acc, t) => acc + t.ready, 0)
-  const totalSynced = tiles.reduce((acc, t) => acc + t.synced, 0)
-  const totalDegraded = tiles.reduce((acc, t) => acc + t.degraded, 0)
+  const totalNotReady = tiles.reduce((acc, t) => acc + t.notReady, 0)
+  const totalUnreported = tiles.reduce((acc, t) => acc + t.unreported, 0)
   const errorKinds = tiles.filter((t) => t.error && t.error.status !== 404).length
 
   const visibleFamilies = FAMILIES.filter((f) => filtered.some((t) => t.family === f.id))
@@ -198,8 +218,8 @@ export function PlatformCatalog() {
       <Hero
         total={total}
         ready={totalReady}
-        synced={totalSynced}
-        degraded={totalDegraded}
+        notReady={totalNotReady}
+        unreported={totalUnreported}
         kinds={tiles.length}
         errorKinds={errorKinds}
         loading={anyLoading}
@@ -343,32 +363,61 @@ function BrowseModal({ info, onClose }: { info: XrdInfo; onClose(): void }) {
 function Hero({
   total,
   ready,
-  synced,
-  degraded,
+  notReady,
+  unreported,
   kinds,
   errorKinds,
   loading,
 }: {
   total: number
   ready: number
-  synced: number
-  degraded: number
+  notReady: number
+  unreported: number
   kinds: number
   errorKinds: number
   loading: boolean
 }) {
+  // Only `notReady` is an alarm. `unreported` means an operator publishes no
+  // readiness for its own CRs — worth showing, never worth colouring red.
+  const stats: Array<{ label: string; value: string; hint: string; tone?: HealthTone }> = [
+    { label: 'Kinds', value: String(kinds), hint: 'discovered' },
+    { label: 'Resources', value: String(total), hint: 'live' },
+    {
+      label: 'Ready',
+      value: `${ready}/${total}`,
+      hint: 'reporting up',
+      tone: total === 0 ? 'idle' : notReady > 0 ? 'degraded' : 'healthy',
+    },
+    {
+      label: 'Attention',
+      value: String(notReady),
+      hint: notReady > 0 ? 'not ready' : 'none',
+      tone: notReady > 0 ? 'degraded' : 'healthy',
+    },
+  ]
+  if (unreported > 0) {
+    stats.push({
+      label: 'No status',
+      value: String(unreported),
+      hint: 'operator silent',
+      tone: 'idle',
+    })
+  }
+
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-edge-default bg-linear-to-br from-brand-50/70 dark:from-brand-500/10 via-surface-raised to-surface-raised p-5 shadow-sm">
+    <div className="relative overflow-hidden rounded-2xl border border-edge-default bg-linear-to-br from-brand-50/70 dark:from-brand-500/10 via-surface-raised to-surface-raised p-4 shadow-sm sm:p-5">
       <div
         aria-hidden
         className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-brand-400/10 blur-3xl"
       />
-      <div className="relative flex flex-wrap items-start justify-between gap-5">
+      {/* Stacks on a phone, sits side by side from `sm` up. */}
+      <div className="relative flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between sm:gap-5">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface-raised shadow-sm ring-1 ring-edge-subtle">
-            <span className="text-brand-700 dark:text-brand-300">
-              <IconSparkles />
-            </span>
+          {/* The platform's own mark. These are Adhar's resource types, so the
+              Adhar symbol is the honest identity for the page — it replaced a
+              generic sparkles glyph. */}
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-surface-raised shadow-sm ring-1 ring-edge-subtle">
+            <AdharSymbol size={28} />
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -381,42 +430,34 @@ function Hero({
                 <StatusBadge kind="degraded">
                   {errorKinds} kind{errorKinds === 1 ? '' : 's'} with errors
                 </StatusBadge>
-              ) : degraded > 0 ? (
-                <StatusBadge kind="degraded">{degraded} not ready</StatusBadge>
+              ) : notReady > 0 ? (
+                <StatusBadge kind="degraded">{notReady} need attention</StatusBadge>
               ) : (
-                <StatusBadge kind="healthy">all kinds reporting</StatusBadge>
+                <StatusBadge kind="healthy">all healthy</StatusBadge>
               )}
             </div>
             <p className="mt-0.5 max-w-xl text-[12px] leading-relaxed text-content-muted">
-              Every kind here is discovered live from the cluster’s Crossplane XRDs — the create
-              form and apply payload are generated from each XRD’s own schema, so they never drift.
+              Every kind here is discovered live from the cluster — Crossplane XRDs plus the
+              operator CRDs actually installed. Readiness is read in each API group’s own
+              vocabulary, so a Gateway is judged on <code className="font-mono">Programmed</code>,
+              not on a condition it never publishes.
             </p>
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
-          <StatTile label="Kinds" value={String(kinds)} hint="discovered" loading={false} />
-          <StatTile label="Resources" value={String(total)} hint="composed" loading={loading} />
-          <StatTile
-            label="Ready"
-            value={`${ready}/${total}`}
-            hint="conditions"
-            tone={total > 0 && ready === total ? 'healthy' : ready < total ? 'degraded' : 'idle'}
-            loading={loading}
-          />
-          <StatTile
-            label="Synced"
-            value={`${synced}/${total}`}
-            hint="reconciler"
-            tone={total > 0 && synced === total ? 'healthy' : synced < total ? 'degraded' : 'idle'}
-            loading={loading}
-          />
-          <StatTile
-            label="Degraded"
-            value={String(degraded)}
-            hint="not ready"
-            tone={degraded > 0 ? 'degraded' : 'idle'}
-            loading={loading}
-          />
+        {/* 2 columns on a phone (the labels are short, the numbers are small),
+            widening with the viewport. gap-x-6 at 368px content width left the
+            numbers cramped, so the gap grows with the breakpoint too. */}
+        <div className="grid shrink-0 grid-cols-2 gap-x-3 gap-y-3 min-[420px]:grid-cols-3 sm:gap-x-6 lg:grid-cols-5">
+          {stats.map((st) => (
+            <StatTile
+              key={st.label}
+              label={st.label}
+              value={st.value}
+              hint={st.hint}
+              tone={st.tone}
+              loading={st.label === 'Kinds' ? false : loading}
+            />
+          ))}
         </div>
       </div>
     </div>
@@ -476,7 +517,11 @@ function Toolbar({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-xl border border-edge-default bg-surface-raised p-3 shadow-sm">
-      <div className="min-w-[16rem] flex-1">
+      {/* `min-w-[16rem]` unconditionally was the page's only fixed floor: it
+          forced the search onto its own row on every phone and overflowed below
+          ~312px. Full width on a phone by intent, floored only once there is
+          room for the rest of the toolbar beside it. */}
+      <div className="w-full min-w-0 sm:w-auto sm:min-w-[16rem] sm:flex-1">
         <label htmlFor="catalog-search" className="sr-only">
           Search Adhar Resources
         </label>
@@ -517,7 +562,7 @@ function Toolbar({
         />
         Only kinds with resources
       </label>
-      <span className="ml-auto text-[11px] font-mono tabular-nums text-content-subtle">
+      <span className="ml-auto shrink-0 text-[11px] font-mono tabular-nums text-content-subtle">
         {shown}/{totalKinds} kinds
       </span>
     </div>
@@ -539,7 +584,7 @@ function KindCard({
   onCreate: () => void
   onBrowse: () => void
 }) {
-  const { info, items, ready, synced, loading, error, description } = tile
+  const { info, items, ready, synced, syncedApplicable, notReady, unreported, loading, error, description } = tile
   const managed = isManaged(info)
   const total = items.length
   const notInstalled = error?.status === 404
@@ -548,21 +593,31 @@ function KindCard({
   return (
     <article
       className={cn(
-        'group relative flex flex-col rounded-2xl border border-edge-default bg-surface-raised p-4 shadow-sm',
+        'group relative flex flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-raised p-4 shadow-sm',
         'transition-[transform,box-shadow,border-color] duration-150 ease-smooth',
-        'hover:-translate-y-0.5 hover:border-brand-200 dark:hover:border-brand-500/25 hover:shadow-md',
+        'hover:border-brand-200 dark:hover:border-brand-500/25 hover:shadow-md',
+        // The lift is a pointer affordance. Unguarded, `hover:` sticks after a
+        // tap on touch devices and the card stays raised until you tap
+        // elsewhere — so it only applies where hover really exists.
+        '[@media(hover:hover)]:hover:-translate-y-0.5',
       )}
     >
+      {/* A hairline of the family's colour — enough to group the cards visually
+          without another badge competing for space. */}
+      <div
+        aria-hidden
+        className={cn('pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-linear-to-r', familyTone)}
+      />
       <div className="flex items-start justify-between gap-3">
         <div
           className={cn(
-            'inline-flex h-9 w-9 items-center justify-center rounded-xl bg-linear-to-br shadow-sm ring-1 ring-edge-subtle text-content',
+            'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-linear-to-br shadow-sm ring-1 ring-edge-subtle text-content',
             familyTone,
           )}
         >
-          <KindGlyph icon={tile.icon} />
+          <BrandMark kind={info.kind} group={info.group} glyph={tile.icon} />
         </div>
-        <span className="font-mono text-[10px] uppercase tracking-wider text-content-subtle">
+        <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-content-subtle">
           {info.namespaced ? 'namespaced' : 'cluster'}
         </span>
       </div>
@@ -585,7 +640,7 @@ function KindCard({
 
       <div className="mt-3">
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <Skeleton height={44} rounded="lg" />
             <Skeleton height={44} rounded="lg" />
             <Skeleton height={44} rounded="lg" />
@@ -604,11 +659,34 @@ function KindCard({
             <Badge tone="slate">0</Badge>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
-            <Counter label="Total" value={total} />
-            <Counter label="Ready" value={`${ready}/${total}`} tone={ready === total ? 'healthy' : 'degraded'} />
-            <Counter label="Synced" value={`${synced}/${total}`} tone={synced === total ? 'healthy' : 'degraded'} />
-          </div>
+          <>
+            {/* Three across at every width. `grid-cols-1 sm:grid-cols-3` made
+                each counter a full-width row on a phone, adding ~100px of
+                height to every card for three two-digit numbers. */}
+            <div className={cn('grid gap-2 text-center', syncedApplicable ? 'grid-cols-3' : 'grid-cols-2')}>
+              <Counter label="Total" value={total} />
+              <Counter
+                label="Ready"
+                value={`${ready}/${total}`}
+                // Only a real notReady is a failure. A kind whose operator
+                // publishes no status is not "0/1 degraded" — see readinessOf.
+                tone={notReady > 0 ? 'degraded' : ready === total ? 'healthy' : 'idle'}
+              />
+              {syncedApplicable ? (
+                <Counter
+                  label="Synced"
+                  value={`${synced}/${total}`}
+                  tone={synced === total ? 'healthy' : 'degraded'}
+                />
+              ) : null}
+            </div>
+            {unreported > 0 ? (
+              <p className="mt-2 text-[10.5px] leading-snug text-content-subtle">
+                {unreported === total ? 'This operator' : `${unreported} of these`} publishes no
+                readiness status — health is shown by its workload, not its CR.
+              </p>
+            ) : null}
+          </>
         )}
       </div>
 
@@ -628,17 +706,17 @@ function KindCard({
         <button
           type="button"
           onClick={onBrowse}
-          className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-600 px-3 text-xs font-medium text-white shadow-sm ring-1 ring-inset ring-white/10 outline-none transition-colors hover:bg-brand-700 focus-visible:ring-2 focus-visible:ring-brand-500/40"
+          className="inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-600 px-3 text-xs font-medium text-white shadow-sm ring-1 ring-inset ring-white/10 outline-none transition-colors hover:bg-brand-700 focus-visible:ring-2 focus-visible:ring-brand-500/40"
         >
           Browse
         </button>
         {managed ? (
           // Operator-owned: creating one is the operator's concern, not a claim.
           <span
-            className="inline-flex h-8 max-w-[9rem] items-center justify-center truncate rounded-md border border-edge-default px-2.5 text-[10.5px] text-content-muted"
+            className="inline-flex h-8 min-w-0 max-w-[9rem] shrink items-center justify-center overflow-hidden rounded-md border border-edge-default px-2.5 text-[10.5px] text-content-muted"
             title={`Managed by ${isManaged(info) ? info.provider : 'an operator'}`}
           >
-            {isManaged(info) ? info.provider : 'operator-managed'}
+            <span className="truncate">{isManaged(info) ? info.provider : 'operator-managed'}</span>
           </span>
         ) : canProvision ? (
           <button
@@ -651,7 +729,10 @@ function KindCard({
           </button>
         ) : (
           <span
-            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-edge-default px-3 text-[11px] text-content-muted"
+            // shrink-0 + nowrap: this is the widest action variant, and inside a
+            // 336px card on a phone the role pill next to a flex-1 "Browse" was
+            // the one thing that could push the row past the card edge.
+            className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-edge-default px-2.5 text-[11px] text-content-muted"
             title="Requires crds.write"
           >
             Create <K8sRolePill perm="crds.write" />
@@ -693,8 +774,113 @@ function toneText(tone: HealthTone): string {
       : 'text-content'
 }
 
-function isCondition(xr: XR, type: 'Ready' | 'Synced'): boolean {
-  return (xr.status?.conditions ?? []).some((c) => c.type === type && c.status === 'True')
+/**
+ * Readiness, per the vocabulary the object's own API group actually uses.
+ *
+ * This used to be `conditions.some(c => c.type === 'Ready' && c.status === 'True')`
+ * and everything else was counted as degraded. On a perfectly healthy cluster
+ * that reported **"4 not ready"**, and all four were lies (verified 2026-09-25):
+ *
+ *   • `Gateway` adhar-gateway / adhar-ai-gateway — Gateway API v1 has no `Ready`
+ *     condition at all. It publishes `Accepted` and `Programmed`, both True,
+ *     with 48 attached routes and an address assigned.
+ *   • `KafkaNodePool` adhar-kafka-dual-role — Strimzi keeps readiness on the
+ *     parent `Kafka`; the node pool ships `conditions: []` and a fully
+ *     reconciled status (observedGeneration matches, broker roles assigned).
+ *   • `Redis` redis — the Opstree operator never writes a status at all, so
+ *     there is nothing to read. The pod was 2/2 Running the whole time.
+ *
+ * Reporting a healthy platform as broken is worse than reporting nothing: it
+ * trains people to ignore the badge. So there are four outcomes, and only
+ * `notReady` is a problem:
+ *
+ *   ready       — something the object itself asserts is up.
+ *   notReady    — the object asserts it is NOT up. This is the only alarm.
+ *   unreported  — the operator publishes no readiness at all. Not an alarm;
+ *                 surfaced separately so it is visible but not alarming.
+ *   deleting    — has a deletionTimestamp; counted in neither.
+ */
+export type Readiness = 'ready' | 'notReady' | 'unreported' | 'deleting'
+
+/**
+ * Condition types that assert "up", in precedence order. `Ready` first because
+ * most operators use it; the rest cover the groups that deliberately do not.
+ */
+const READY_CONDITIONS = [
+  'Ready', // Crossplane, CloudNativePG, cert-manager, Strimzi Kafka, most CRDs
+  'Programmed', // Gateway API v1 — the listener/address are actually serving
+  'Available', // Deployment-shaped status
+  'Succeeded', // run-to-completion objects
+  'Complete',
+] as const
+
+function conditionStatus(xr: XR, type: string): 'True' | 'False' | 'Unknown' | undefined {
+  return (xr.status?.conditions ?? []).find((c) => c.type === type)?.status
+}
+
+export function readinessOf(xr: XR): Readiness {
+  if (xr.metadata.deletionTimestamp) return 'deleting'
+
+  for (const type of READY_CONDITIONS) {
+    const st = conditionStatus(xr, type)
+    if (st === 'True') return 'ready'
+    // An explicit False is the object telling us it is broken — believe it.
+    if (st === 'False') return 'notReady'
+  }
+
+  // No readiness vocabulary this object speaks. Fall back to the one universal
+  // signal: has its controller caught up with the spec? `observedGeneration`
+  // equal to `generation` means the operator has reconciled this exact revision
+  // and raised no condition against it — which is how Strimzi's KafkaNodePool
+  // reports a healthy pool.
+  const observed = xr.status?.observedGeneration
+  if (typeof observed === 'number' && typeof xr.metadata.generation === 'number') {
+    return observed >= xr.metadata.generation ? 'ready' : 'notReady'
+  }
+
+  // Nothing to go on (the Opstree Redis case: `status` is absent entirely).
+  return 'unreported'
+}
+
+/**
+ * `Synced` is a Crossplane concept — it means the composition rendered and the
+ * composed resources were applied. Operator-managed kinds never publish it, and
+ * showing them a rose "Synced 0/N" invented a second phantom failure on every
+ * non-Crossplane card. Only count it where at least one object speaks it.
+ */
+function syncedStats(items: XR[]): { applicable: boolean; synced: number } {
+  const speaking = items.filter((x) => conditionStatus(x, 'Synced') !== undefined)
+  return {
+    applicable: speaking.length > 0,
+    synced: speaking.filter((x) => conditionStatus(x, 'Synced') === 'True').length,
+  }
+}
+
+/* ───── brand marks ───── */
+
+/**
+ * The real logo for a kind, when the platform ships one.
+ *
+ * Two rules, in order:
+ *   1. Anything in an `adhar.io` group is one of the platform's OWN abstractions
+ *      (CompositeCluster, CompositeDatabase, …) — it carries the Adhar symbol.
+ *   2. An operator-managed kind carries its upstream project's official mark
+ *      where `shell-ui/brand-icons` has one.
+ * Everything else falls back to the line glyph, which is still better than a
+ * wrong logo.
+ */
+function BrandMark({ kind, group, glyph }: { kind: string; group: string; glyph: GlyphId }) {
+  if (group.endsWith('adhar.io')) return <AdharSymbol size={20} />
+
+  // Strimzi covers Kafka, KafkaTopic, KafkaConnect and KafkaNodePool.
+  if (kind.startsWith('Kafka')) return <KafkaIcon size={22} />
+  if (kind === 'RabbitmqCluster') return <RabbitMQIcon size={22} />
+  // The MinIO operator's CR is simply `Tenant`.
+  if (kind === 'Tenant') return <MinIOIcon size={22} />
+  // The platform's Gateways are served by Cilium's Gateway API implementation.
+  if (kind === 'Gateway' || kind === 'GatewayClass') return <CiliumIcon size={22} />
+
+  return <KindGlyph icon={glyph} />
 }
 
 /* ───── glyphs ───── */
@@ -787,7 +973,6 @@ const IconEye = () => <SVG>{<><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-
 const IconCoins = () => <SVG>{<><ellipse cx="12" cy="6" rx="8" ry="3" /><path d="M4 6v6a8 3 0 0 0 16 0V6" /><path d="M4 12v6a8 3 0 0 0 16 0v-6" /></>}</SVG>
 const IconNetwork = () => <SVG>{<><rect x="9" y="2" width="6" height="6" rx="1" /><rect x="2" y="16" width="6" height="6" rx="1" /><rect x="16" y="16" width="6" height="6" rx="1" /><path d="M12 8v4" /><path d="M5 16v-1a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1" /></>}</SVG>
 const IconCluster = () => <SVG>{<><circle cx="12" cy="5" r="2.5" /><circle cx="5" cy="18" r="2.5" /><circle cx="19" cy="18" r="2.5" /><path d="M12 7.5v4" /><path d="M12 11.5 6.5 16" /><path d="M12 11.5 17.5 16" /></>}</SVG>
-const IconSparkles = () => <SVG>{<><path d="M12 2v6" /><path d="M12 16v6" /><path d="m4.93 4.93 4.24 4.24" /><path d="m14.83 14.83 4.24 4.24" /><path d="M2 12h6" /><path d="M16 12h6" /><path d="m4.93 19.07 4.24-4.24" /><path d="m14.83 9.17 4.24-4.24" /></>}</SVG>
 const IconSearch = () => <SVG>{<><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></>}</SVG>
 const IconPlus = () => <SVG>{<><path d="M12 5v14" /><path d="M5 12h14" /></>}</SVG>
 function IconClose() {

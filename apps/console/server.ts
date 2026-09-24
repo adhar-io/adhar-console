@@ -36,6 +36,7 @@ import { handleListTemplates } from './app/server/templates.ts'
 import { handleScorecardHistory, handleScorecardRerun, handleScorecards } from './app/server/scorecards.ts'
 import { handleEntityRoutes } from './app/server/entity-routes.ts'
 import { handleTeardown } from './app/server/teardown.ts'
+import { handleCoderIdentity, handleCoderIdeSession } from './app/server/coder-ide.ts'
 import { handleAlertmanagerWebhook } from './app/server/alertmanager.ts'
 import { handleListTeams } from './app/server/teams.ts'
 import { handleWorkspace } from './app/server/workspace/handlers.ts'
@@ -333,6 +334,11 @@ async function route(req: Request): Promise<Response> {
   // discovery + access-review + apply under /api/k8s/-/…
   const k8s = path.match(/^\/api\/k8s\/(.*)$/)
   if (k8s) return handleK8s(req, k8s[1])
+
+  // Cloud IDEs: whose Coder account this person drives, and a short-lived
+  // authenticated URL for opening an IDE in the browser.
+  if (path === '/api/coder/identity') return handleCoderIdentity(req)
+  if (path === '/api/coder/ide-session') return handleCoderIdeSession(req)
 
   // Backing-tool proxy: /api/svc/<tool>/<upstream path...>
   const svc = path.match(/^\/api\/svc\/([^/]+)(?:\/(.*))?$/)

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { coder } from '@adhar-console/api-clients'
-import { toPublicUrl, useLiveToolPoll, useOptionalUser, usePublicBaseDomain, useToolPublicUrl } from '@adhar-console/shell-ui'
+import { toPublicUrl, useLiveToolPoll, usePublicBaseDomain, useToolPublicUrl } from '@adhar-console/shell-ui'
 
 /**
  * Coder hooks for cloud development environments.
@@ -138,58 +138,60 @@ export interface CoderOwner {
   /** True when `owner` is the signed-in person's own Coder account. */
   matched: boolean
   created: boolean
-  email: string
-  /** Why it is not matched — shown to the person, not swallowed. */
+  /** Why it is not their own account — shown to the person, not swallowed. */
   reason?: string
 }
 
+/**
+ * The Coder account this browser drives, decided by the BFF.
+ *
+ * It used to be worked out here, which could not work: matching a person to a
+ * Coder account, creating one for them, and falling back to the console's own
+ * identity when there is no identity provider are all decisions that need the
+ * server's credential and its auth configuration. The browser only needs the
+ * answer.
+ */
 export function useWorkspaceOwner() {
-  const user = useOptionalUser()
-  const email = user?.email?.trim().toLowerCase() ?? ''
   return useQuery({
-    queryKey: ['coder', 'owner', email],
+    queryKey: ['coder', 'identity'],
     queryFn: async (): Promise<CoderOwner> => {
-      if (!email) {
-        const me = await coderClient.me()
-        return { owner: me.username, matched: false, created: false, email, reason: 'You are signed in without an e-mail address, so there is no Coder account to match.' }
-      }
-      try {
-        const hits = await coderClient.searchUsers(email, 5)
-        const exact = hits.find((u) => u.email?.toLowerCase() === email)
-        if (exact) return { owner: exact.username, matched: true, created: false, email }
-        const me = await coderClient.me()
-        const orgs = me.organization_ids?.length ? me.organization_ids : (await coderClient.listOrganizations()).map((o) => o.id)
-        const made = await coderClient.createUser({
-          email,
-          username: coder.usernameFromEmail(email),
-          name: user?.name || undefined,
-          login_type: 'oidc',
-          organization_ids: orgs,
-        })
-        return { owner: made.username, matched: true, created: true, email }
-      } catch (e) {
-        // Swallowing this was why the IDE buttons could only ever say "could
-        // not be resolved": the actual refusal from Coder — a duplicate
-        // username, no permission to create users, an e-mail its policy
-        // rejects — never reached the person who could act on it.
-        const me = await coderClient.me().catch(() => null)
-        // The built-in demo session's address is not a routable e-mail, so
-        // Coder rejects it outright. Say that plainly instead of leaving a
-        // validation error that reads like a platform fault.
-        const stub = /@(localhost|local)$/i.test(email)
-        return {
-          owner: me?.username ?? '',
-          matched: false,
-          created: false,
-          email,
-          reason: stub
-            ? `You are signed in as the built-in demo user (${email}), which Coder cannot hold an account for. Sign in with your own account to use cloud IDEs.`
-            : `Coder has no account for ${email} and one could not be created: ${e instanceof Error ? e.message : String(e)}`,
-        }
-      }
+      const res = await fetch('/api/coder/identity', { credentials: 'include', headers: { accept: 'application/json' } })
+      if (!res.ok) throw new Error(`Coder identity failed (${res.status})`)
+      return (await res.json()) as CoderOwner
     },
     staleTime: 5 * 60_000,
   })
+}
+
+export interface IdeSession {
+  /** Open this: a browser URL carrying a one-shot session, or a desktop deep link. */
+  url: string
+  owner: string
+  /** True for a desktop app (JetBrains Gateway, VS Code Desktop). */
+  external: boolean
+  matched: boolean
+}
+
+/**
+ * An IDE URL the browser can actually open.
+ *
+ * Coder serves the IDE from its own domain, where this tab has no session, so
+ * a plain app link always landed on Coder's sign-in page. The BFF mints a
+ * short-lived token for the workspace's owner and returns a URL carrying it;
+ * Coder swaps it for a cookie on first load.
+ */
+export async function ideSessionUrl(input: { workspace: string; agent: string; app: string }): Promise<IdeSession> {
+  const res = await fetch('/api/coder/ide-session', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify(input),
+  })
+  const body = (await res.json().catch(() => ({}))) as Partial<IdeSession> & { error?: string; detail?: string }
+  if (!res.ok || !body.url) {
+    throw new Error(body.detail || body.error || `Could not open the IDE (${res.status}).`)
+  }
+  return { url: body.url, owner: body.owner ?? '', external: Boolean(body.external), matched: Boolean(body.matched) }
 }
 
 /* ─────────── mutations ─────────── */
@@ -265,9 +267,10 @@ export function useRepoWorkspace(repo: string) {
   const owner = useWorkspaceOwner()
   const workspaces = useWorkspaces()
   const name = workspaceNameFor(repo)
-  const mine = owner.data?.matched ? owner.data.owner : undefined
-  // Only the person's own: a name match on somebody else's workspace would
-  // open the door that Coder then slams (owner-only apps).
+  // Whatever account the BFF resolved: their own where an identity provider
+  // says who they are, the console's own on a laptop without one. Either way
+  // the IDE session is minted for THIS owner, so its apps open for them.
+  const mine = owner.data?.owner || undefined
   const existing = mine ? (workspaces.data ?? []).find((w) => w.name === name && w.owner_name === mine) : undefined
   return {
     owner: mine,
@@ -275,7 +278,9 @@ export function useRepoWorkspace(repo: string) {
     workspace: existing,
     isLoading: owner.isLoading || workspaces.isLoading,
     /** Set when there is no usable Coder account — the control explains itself. */
-    blocked: owner.isLoading ? undefined : mine ? undefined : (owner.data?.reason ?? 'Your Coder account could not be resolved.'),
+    blocked: owner.isLoading || mine ? undefined : (owner.data?.reason ?? 'Your Coder account could not be resolved.'),
+    /** Present when the account is not the person's own — worth saying once. */
+    note: owner.data && !owner.data.matched ? owner.data.reason : undefined,
   }
 }
 

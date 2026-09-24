@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { cn } from '@adhar-console/utils'
 import { useToast } from '@adhar-console/shell-ui'
 import { coder } from '@adhar-console/api-clients'
-import { coderClient, editorOf, ensureRepoWorkspace, useCoderInfo, useRepoWorkspace } from '../data/coder.ts'
+import { coderClient, editorOf, ensureRepoWorkspace, ideSessionUrl, useCoderInfo, useRepoWorkspace } from '../data/coder.ts'
 
 /**
  * Open a repository in an IDE running on the cluster — VS Code (code-server in
@@ -49,45 +49,49 @@ export function CloudEnvLaunch({ repo, cloneUrl, compact = false, className }: C
   // Coder unreachable or not configured — don't offer a door that opens onto nothing.
   if (info.isError || (!info.isLoading && !dashboard)) return null
 
-  const open = (w: coder.Workspace, ide: Ide) => {
+  const open = async (w: coder.Workspace, ide: Ide) => {
     const ed = editorOf(w, ide)
     if (!ed) {
       toast.error(ide === 'vscode' ? 'This environment has no code-server app yet.' : 'This environment has no IntelliJ app yet — it needs the platform template.')
       return
     }
-    if (ide === 'intellij') {
-      // An `external` app is a deep link, not something Coder proxies — its
-      // dashboard path answers 502 — and the template's link carries a
-      // `$SESSION_TOKEN` placeholder only Coder's own UI can fill. So build
-      // the JetBrains Gateway link here, without a token: the Coder plugin
-      // then asks for a one-time sign-in to this Coder and remembers it.
-      const folder = `/home/coder/${repo}`
-      const url = 'jetbrains-gateway://connect#type=coder' +
-        `&workspace=${encodeURIComponent(w.name)}&agent=${encodeURIComponent(ed.agent)}&owner=${encodeURIComponent(w.owner_name)}` +
-        `&url=${encodeURIComponent(dashboard)}&ide_product_code=IU&folder=${encodeURIComponent(folder)}`
-      toast.info('Opening JetBrains Gateway — install Gateway or Toolbox if nothing happens.')
-      globalThis.location.assign(url)
+    // The IDE is served from Coder's own domain, where this tab has no
+    // session: a plain app link always landed on Coder's sign-in page, and a
+    // workspace the visitor could not see answered 404. The BFF mints a
+    // short-lived token for the workspace's owner and returns a URL carrying
+    // it, which Coder swaps for a cookie on first load.
+    const session = await ideSessionUrl({ workspace: w.name, agent: ed.agent, app: ed.app.slug })
+    if (session.external) {
+      toast.info(
+        ide === 'intellij' ? 'Opening JetBrains Gateway…' : 'Opening your desktop editor…',
+        { description: 'Install Gateway or Toolbox if nothing happens.' },
+      )
+      globalThis.location.assign(session.url)
       return
     }
-    // code-server is proxied by Coder; the template already opens the
-    // repository folder, so no `?folder=` guessing here.
-    const url = coder.appUrl(dashboard, w, ed.agent, ed.app)
-    if (url) globalThis.open(url, '_blank', 'noopener,noreferrer')
+    const tab = globalThis.open(session.url, '_blank', 'noopener,noreferrer')
+    // A blocked pop-up is silent — say so rather than leaving a dead click.
+    if (!tab) {
+      toast.warning('Your browser blocked the new tab', { description: 'Allow pop-ups for the console, or use the link in Cloud Envs.' })
+    }
   }
 
   const launch = async (ide: Ide) => {
     if (busy) return
-    if (workspace && workspace.latest_build.status === 'running') return open(workspace, ide)
     if (!owner) {
       toast.error('No Coder account for you yet', { description: blocked })
       return
     }
-    if (!cloneUrl) {
-      toast.error('This repository has no clone URL to check out.')
-      return
-    }
     setBusy(ide)
     try {
+      if (workspace && workspace.latest_build.status === 'running') {
+        await open(workspace, ide)
+        return
+      }
+      if (!cloneUrl) {
+        toast.error('This repository has no clone URL to check out.')
+        return
+      }
       let w = workspace
       if (!w) {
         toast.info(`Creating a cloud environment for ${repo} — this takes a minute or two…`)
@@ -108,7 +112,7 @@ export function CloudEnvLaunch({ repo, cloneUrl, compact = false, className }: C
           await new Promise((r) => setTimeout(r, 2_000))
           w = await coderClient.getWorkspace(w.id)
         }
-        open(w, ide)
+        await open(w, ide)
       } else {
         toast.error(`${w.name} did not start (${w.latest_build.status}). Opening environments so you can see why.`)
         navigate({ to: '/develop', search: { section: 'environments' } as never })

@@ -621,8 +621,8 @@ function AppCard({
           </button>
           {menu ? (
             <>
-              <div className="fixed inset-0 z-30" aria-hidden onClick={() => setMenu(false)} />
-              <div className="absolute right-0 top-full z-40 mt-1 w-44 rounded-xl border border-edge-default bg-surface-raised p-1 shadow-xl">
+              <div className="fixed inset-0 z-55" aria-hidden onClick={() => setMenu(false)} />
+              <div className="absolute right-0 top-full z-56 mt-1 w-44 rounded-xl border border-edge-default bg-surface-raised p-1 shadow-xl">
                 <MenuItem onClick={() => { setMenu(false); onRefresh(true) }}>Hard refresh</MenuItem>
                 <MenuItem onClick={() => { setMenu(false); onOpen() }}>Sync with options…</MenuItem>
                 <MenuItem onClick={() => { setMenu(false); onOpen() }}>Resources & history</MenuItem>

@@ -458,8 +458,8 @@ function ExportMenu({ disabled, total, onPage, onAll }: { disabled: boolean; tot
       </PrimaryButton>
       {open ? (
         <>
-          <div className="fixed inset-0 z-30" aria-hidden onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-40 mt-1.5 w-60 rounded-xl border border-edge-default bg-surface-raised p-1 text-[12px] shadow-xl ring-1 ring-black/5 dark:ring-white/10">
+          <div className="fixed inset-0 z-55" aria-hidden onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full z-56 mt-1.5 w-60 rounded-xl border border-edge-default bg-surface-raised p-1 text-[12px] shadow-xl ring-1 ring-black/5 dark:ring-white/10">
             <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">This page</div>
             <MenuItem onClick={() => { setOpen(false); onPage('csv') }}>CSV</MenuItem>
             <MenuItem onClick={() => { setOpen(false); onPage('json') }}>JSON</MenuItem>

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { cn } from '@adhar-console/utils'
+import { useClickOutside } from './use-click-outside.ts'
 import {
   AirbyteIcon,
   ArgoCDIcon,
@@ -784,6 +785,11 @@ export function AppLauncher({ apps = DEFAULT_APP_LINKS }: AppLauncherProps) {
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const close = useCallback(() => setOpen(false), [])
+  // A click anywhere outside the launcher closes it — including on the
+  // sidebar and topbar, which sit above the old transparent backdrop.
+  useClickOutside(rootRef, close, open, { escape: false })
   const { apps: resolved, loading } = useResolvedApps(apps)
   const [pins, setPins] = useStoredIds(PINS_KEY, 24)
   const [recents, setRecents] = useStoredIds(RECENTS_KEY, RECENTS_MAX)
@@ -869,7 +875,7 @@ export function AppLauncher({ apps = DEFAULT_APP_LINKS }: AppLauncherProps) {
   }
 
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -887,7 +893,6 @@ export function AppLauncher({ apps = DEFAULT_APP_LINKS }: AppLauncherProps) {
       </button>
       {open ? (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} aria-hidden />
           <div
             ref={panelRef}
             role="dialog"

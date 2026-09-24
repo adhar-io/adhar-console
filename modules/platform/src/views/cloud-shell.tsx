@@ -984,8 +984,8 @@ function SessionTab({
       </button>
       {menu ? (
         <>
-          <div className="fixed inset-0 z-30" aria-hidden onClick={() => setMenu(false)} />
-          <div className="absolute left-0 top-full z-40 mt-1 w-44 rounded-lg border border-edge-default bg-surface-raised p-1 text-[11.5px] shadow-xl ring-1 ring-black/5 dark:ring-white/10">
+          <div className="fixed inset-0 z-55" aria-hidden onClick={() => setMenu(false)} />
+          <div className="absolute left-0 top-full z-56 mt-1 w-44 rounded-lg border border-edge-default bg-surface-raised p-1 text-[11.5px] shadow-xl ring-1 ring-black/5 dark:ring-white/10">
             {(
               [
                 ['Rename', () => { setLabel(session.label); setEditing(true) }],
@@ -1206,8 +1206,8 @@ function Popover({ children, onClose, className }: { children: ReactNode; onClos
   }, [onClose])
   return (
     <>
-      <div className="fixed inset-0 z-30" aria-hidden onClick={onClose} />
-      <div className={cn('absolute top-full z-40 mt-1.5 rounded-xl border border-edge-default bg-surface-raised shadow-xl ring-1 ring-black/5 dark:ring-white/10', className)}>{children}</div>
+      <div className="fixed inset-0 z-55" aria-hidden onClick={onClose} />
+      <div className={cn('absolute top-full z-56 mt-1.5 rounded-xl border border-edge-default bg-surface-raised shadow-xl ring-1 ring-black/5 dark:ring-white/10', className)}>{children}</div>
     </>
   )
 }

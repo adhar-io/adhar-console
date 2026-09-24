@@ -216,6 +216,7 @@ export { notifyUnauthorized, subscribeUnauthorized, UNAUTHORIZED_EVENT } from '.
 export { liveClient, useLiveInvalidate, useLiveK8sList, useLivePoll, useLiveRefetch, useLiveStatus, useLiveToolPoll, usePollingInterval, type LiveListState, type LiveStatus as LiveHubStatus, type LiveTopic, type LiveWatchRef } from './live.ts'
 export { ToastProvider, useToast, type Toast, type ToastApi, type ToastKind, type ToastOptions } from './toast.tsx'
 export { useOverlayDismiss } from './overlay.ts'
+export { useClickOutside } from './use-click-outside.ts'
 export { useIsWide, useMediaQuery } from './use-media-query.ts'
 export { useElementWidth } from './use-element-size.ts'
 export { TeamScopeBar, type TeamProject, type TeamProjects, useTeamProjects } from './team-scope.tsx'

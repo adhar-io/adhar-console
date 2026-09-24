@@ -75,9 +75,13 @@ const PREFS_KEY = 'adhar.develop.envs.prefs.v1'
 function loadPrefs(): { layout: Layout; sort: Sort; mine: boolean } {
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(PREFS_KEY) : null
-    if (raw) return { layout: 'grid', sort: 'used', mine: false, ...(JSON.parse(raw) as object) }
+    // "Mine" is the default: the console reaches Coder as its proxy identity,
+    // which sees EVERY user's workspace, and a page of other people's
+    // environments — none of which will open for you — is noise. "All" is one
+    // click away for operators.
+    if (raw) return { layout: 'grid', sort: 'used', mine: true, ...(JSON.parse(raw) as object) }
   } catch { /* ignore */ }
-  return { layout: 'grid', sort: 'used', mine: false }
+  return { layout: 'grid', sort: 'used', mine: true }
 }
 
 function status(w: coder.Workspace): coder.WorkspaceStatus {
@@ -267,7 +271,7 @@ export function Environments() {
       ) : prefs.layout === 'grid' ? (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {list.map((w) => (
-            <WorkspaceCard key={w.id} workspace={w} dashboard={dashboard} onOpen={() => setOpenId(w.id)} actions={actions(w)} pending={isPending(w, start, stop, restart)} />
+            <WorkspaceCard key={w.id} workspace={w} dashboard={dashboard} myOwner={myOwner} onOpen={() => setOpenId(w.id)} actions={actions(w)} pending={isPending(w, start, stop, restart)} />
           ))}
         </div>
       ) : (
@@ -318,10 +322,17 @@ type Actions = { start(): void; stop(): void; restart(): void; update(): void; f
 
 /* ─────────── cards / table ─────────── */
 
-function WorkspaceCard({ workspace: w, dashboard, onOpen, actions, pending }: { workspace: coder.Workspace; dashboard: string; onOpen(): void; actions: Actions; pending: boolean }) {
+function WorkspaceCard({ workspace: w, dashboard, myOwner, onOpen, actions, pending }: { workspace: coder.Workspace; dashboard: string; myOwner?: string; onOpen(): void; actions: Actions; pending: boolean }) {
   const s = status(w)
   const { agent } = primaryAgent(w)
   const code = codeApp(agent)
+  // Coder opens a workspace app in the BROWSER as whoever is signed in there —
+  // the person, via Keycloak — not as the console's proxy identity. An app
+  // whose sharing level is `owner` on a workspace someone else owns therefore
+  // ends at Coder's OIDC callback with "Access denied". Only offer links that
+  // can actually open: your own workspaces, or apps shared beyond the owner.
+  const foreign = Boolean(myOwner) && w.owner_name !== myOwner
+  const openable = (a?: coder.WorkspaceApp) => !foreign || (a?.sharing_level && a.sharing_level !== 'owner')
   const busy = BUSY.has(s) || pending
   const [menu, setMenu] = useState(false)
   const unhealthy = w.health && !w.health.healthy
@@ -346,8 +357,8 @@ function WorkspaceCard({ workspace: w, dashboard, onOpen, actions, pending }: { 
             <button type="button" aria-label="Environment actions" onClick={() => setMenu((m) => !m)} className="flex h-7 w-7 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"><IconMore /></button>
             {menu ? (
               <>
-                <div className="fixed inset-0 z-30" aria-hidden onClick={() => setMenu(false)} />
-                <div className="absolute right-0 top-full z-40 mt-1 w-48 rounded-xl border border-edge-default bg-surface-raised p-1 shadow-xl">
+                <div className="fixed inset-0 z-55" aria-hidden onClick={() => setMenu(false)} />
+                <div className="absolute right-0 top-full z-56 mt-1 w-48 rounded-xl border border-edge-default bg-surface-raised p-1 shadow-xl">
                   <MenuItem onClick={() => { setMenu(false); onOpen() }}>Details & logs</MenuItem>
                   {s === 'running' ? <MenuItem onClick={() => { setMenu(false); actions.restart() }}>Restart</MenuItem> : null}
                   {w.outdated ? <MenuItem onClick={() => { setMenu(false); actions.update() }}>Update to latest template</MenuItem> : null}
@@ -372,8 +383,9 @@ function WorkspaceCard({ workspace: w, dashboard, onOpen, actions, pending }: { 
             {agent.apps.map((a) => {
               const url = coder.appUrl(dashboard, w, agent.name, a)
               const ok = a.health === 'healthy' || a.health === 'disabled' || !a.health
+              const can = Boolean(url) && s === 'running' && openable(a)
               return (
-                <a key={a.slug} href={url ?? '#'} target="_blank" rel="noopener" onClick={(e) => { if (!url || s !== 'running') e.preventDefault() }} className={cn('inline-flex items-center gap-1 rounded-full bg-surface-sunken px-2 py-0.5 text-[10px] font-medium ring-1 ring-edge-subtle', s === 'running' && url ? 'text-content hover:ring-brand-400' : 'text-content-subtle')}>
+                <a key={a.slug} href={url ?? '#'} target="_blank" rel="noopener" title={!openable(a) ? `Owned by ${w.owner_name} and shared with the owner only — Coder would deny you` : undefined} onClick={(e) => { if (!can) e.preventDefault() }} className={cn('inline-flex items-center gap-1 rounded-full bg-surface-sunken px-2 py-0.5 text-[10px] font-medium ring-1 ring-edge-subtle', can ? 'text-content hover:ring-brand-400' : 'text-content-subtle')}>
                   <span className={cn('h-1.5 w-1.5 rounded-full', s === 'running' ? (ok ? 'bg-emerald-500' : 'bg-amber-500') : 'bg-edge-default')} />
                   {a.display_name || a.slug}
                 </a>
@@ -394,10 +406,10 @@ function WorkspaceCard({ workspace: w, dashboard, onOpen, actions, pending }: { 
           <Button size="xs" variant="ghost" disabled loading>{s}</Button>
         )}
         {s === 'running' && agent && code ? (
-          <Button size="xs" variant="ghost" onClick={() => window.open(coder.appUrl(dashboard, w, agent.name, code), '_blank', 'noopener')}>Open IDE</Button>
+          <Button size="xs" variant="ghost" disabled={!openable(code)} title={!openable(code) ? `Owned by ${w.owner_name} — create your own environment to get an IDE you can open` : undefined} onClick={() => window.open(coder.appUrl(dashboard, w, agent.name, code), '_blank', 'noopener')}>Open IDE</Button>
         ) : null}
         {s === 'running' && agent && dashboard ? (
-          <Button size="xs" variant="ghost" onClick={() => window.open(coder.terminalUrl(dashboard, w, agent.name), '_blank', 'noopener')}>Terminal</Button>
+          <Button size="xs" variant="ghost" disabled={foreign} title={foreign ? `Owned by ${w.owner_name} — the terminal is owner-only` : undefined} onClick={() => window.open(coder.terminalUrl(dashboard, w, agent.name), '_blank', 'noopener')}>Terminal</Button>
         ) : null}
         <span className="ml-auto text-[10px] text-content-subtle">agent {agent?.status ?? 'none'}{agent?.lifecycle_state && agent.lifecycle_state !== 'ready' ? ` · ${agent.lifecycle_state}` : ''}</span>
       </div>
@@ -572,7 +584,7 @@ function CreateWorkspaceModal({ open, initialTemplateId, onClose, templates, onC
       footer={
         <div className="flex items-center justify-between gap-2">
           <span className="text-[11px] text-content-subtle">
-            {owner.data ? (owner.data.matched ? `Owner: ${owner.data.owner}` : `Owner: ${owner.data.owner} (sign in to Coder once to own environments yourself)`) : 'Resolving owner…'}
+            {owner.data ? (owner.data.matched ? `Owner: ${owner.data.owner}${owner.data.created ? ' (your Coder account was just created — it links to your Keycloak sign-in)' : ''}` : `Owner: ${owner.data.owner} (the proxy identity — your e-mail is unknown, so this environment will not open for you)`) : 'Resolving owner…'}
           </span>
           <div className="flex gap-2">
             <Button size="sm" variant="secondary" onClick={onClose}>Cancel</Button>

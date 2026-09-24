@@ -1558,8 +1558,8 @@ function Popover({ children, onClose, className }: { children: ReactNode; onClos
   }, [onClose])
   return (
     <>
-      <div className="fixed inset-0 z-30" aria-hidden onClick={onClose} />
-      <div className={cn('absolute top-full z-40 mt-1 max-h-96 overflow-y-auto rounded-xl border border-edge-default bg-surface-raised p-1.5 shadow-xl', className)}>
+      <div className="fixed inset-0 z-55" aria-hidden onClick={onClose} />
+      <div className={cn('absolute top-full z-56 mt-1 max-h-96 overflow-y-auto rounded-xl border border-edge-default bg-surface-raised p-1.5 shadow-xl', className)}>
         {children}
       </div>
     </>

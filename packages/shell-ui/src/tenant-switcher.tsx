@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@adhar-console/utils'
 import type { Tenant } from '@adhar-console/tenancy'
 import { useOrganizations } from './use-organizations.ts'
 import { type TeamSummary, useTeams } from './use-teams.ts'
+import { useClickOutside } from './use-click-outside.ts'
 
 interface Props {
   /** Fallback list used until the live `/api/organizations` list loads. */
@@ -32,6 +33,11 @@ export function TenantSwitcher({
 }: Props) {
   const org = useOrganizations()
   const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const close = useCallback(() => setOpen(false), [])
+  // Outside click or Escape closes the menu wherever the click lands — the
+  // sidebar, the topbar, a drawer — not only on the page body.
+  useClickOutside(rootRef, close, open)
   const [createOpen, setCreateOpen] = useState(false)
   const [renameFor, setRenameFor] = useState<OrgItem | null>(null)
   const [deleteFor, setDeleteFor] = useState<OrgItem | null>(null)
@@ -108,7 +114,7 @@ export function TenantSwitcher({
   )
 
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       {trigger}
       {open ? (
         <Menu
@@ -288,7 +294,7 @@ function Menu({
   onRenameTeam,
   onDeleteTeam,
   onSelect,
-  onClose,
+  onClose: _onClose,
   onNew,
   onRename,
   onDelete,
@@ -318,7 +324,6 @@ function Menu({
 }) {
   return (
     <>
-      <div className="fixed inset-0 z-40" aria-hidden onClick={onClose} />
       <div
         role="listbox"
         className={cn(

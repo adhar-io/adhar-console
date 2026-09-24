@@ -286,9 +286,10 @@ export function createTestRun(input: NewTestRun): Promise<TestRun> {
       parallelism: input.parallelism,
       script: { configMap: { name: input.configMap, file: input.file } },
       ...(input.arguments ? { arguments: input.arguments } : {}),
-      // The CRD types `paused` as a string, not a boolean — it is passed
-      // through to the runner as an env value.
-      ...(input.paused ? { paused: 'true' } : {}),
+      // The CRD types `paused` as a string, not a boolean, AND defaults it to
+      // "true" — so leaving it out does not mean "start now", it means the run
+      // never leaves `initialization`. Always state it.
+      paused: input.paused ? 'true' : 'false',
       // Without this the Jobs and their pods linger after the run, and the
       // pod list for the next run is full of the last one's corpses.
       cleanup: 'post',
@@ -320,7 +321,9 @@ export function rerunTestRun(run: TestRun): Promise<TestRun> {
         'adhar.io/rerun-of': run.metadata.name,
       },
     },
-    spec: run.spec ?? {},
+    // "Run again" means run it, so a rerun of a paused run starts. Copying
+    // the spec verbatim reproduced the pause along with everything else.
+    spec: { ...(run.spec ?? {}), paused: 'false' },
   })
 }
 /* ─────────── derivations ─────────── */

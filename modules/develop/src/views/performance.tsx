@@ -27,6 +27,7 @@ import { cn, formatAbsolute, formatRelative } from '@adhar-console/utils'
 import { CrdMissing } from '../components/crd-missing.tsx'
 import { PerfSuite } from './perf-suite.tsx'
 import { PerfReport } from './perf-report.tsx'
+import { LiveCharts, StageRail } from './perf-run-live.tsx'
 import { DEFAULT_CONFIG, LABEL_COMMIT, LABEL_TEST } from '../data/perf-format.ts'
 import { usePerfTest, useSuiteRepo } from '../data/perf-suite.ts'
 import {
@@ -346,7 +347,8 @@ function RunDrawer({
 }) {
   const run = useTestRun(namespace, name)
   const pods = useTestRunPods(run.data)
-  const [tab, setTab] = useState<'summary' | 'report' | 'logs' | 'spec'>('summary')
+  const [tab, setTab] = useState<'live' | 'summary' | 'report' | 'logs' | 'spec'>('live')
+  const [stage, setStage] = useState<TestRunStage | null>(null)
   const [pod, setPod] = useState<string | null>(null)
   useOverlayDismiss(true, onClose)
 
@@ -361,14 +363,14 @@ function RunDrawer({
   const body = (
     <div className="fixed inset-0 z-50 flex justify-end bg-scrim/60 backdrop-blur-[1px]">
       <button type="button" aria-label="Close" className="flex-1 cursor-default" onClick={onClose} />
-      <div className="flex h-full w-full max-w-3xl flex-col border-l border-edge-default bg-surface-raised shadow-2xl">
+      <div className="flex h-full w-full max-w-3xl flex-col bg-surface-raised shadow-2xl sm:border-l sm:border-edge-default">
         <DrawerHeader run={run.data} loading={run.isLoading} onClose={onClose} />
 
         {/* shrink-0: the scrolling body is flex-1, and without this the header
             and tabs are squeezed below their content height — the subtitle
             ends up drawn on top of the tab row. */}
-        <div className="flex shrink-0 gap-1 border-b border-edge-default px-4">
-          {(['summary', 'report', 'logs', 'spec'] as const).map((t) => (
+        <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-edge-default px-4 [mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] [scrollbar-width:none] sm:[mask-image:none] [&::-webkit-scrollbar]:hidden">
+          {(['live', 'summary', 'report', 'logs', 'spec'] as const).map((t) => (
             <button
               key={t}
               type="button"
@@ -392,6 +394,8 @@ function RunDrawer({
             </div>
           ) : !run.data ? (
             <EmptyState title="Test run not found" description="It may have been deleted while this drawer was open." />
+          ) : tab === 'live' ? (
+            <LiveTab run={run.data} pods={podList} podName={pod} stage={stage} onStage={setStage} />
           ) : tab === 'summary' ? (
             <SummaryTab run={run.data} pods={podList} podName={pod} />
           ) : tab === 'report' ? (
@@ -496,6 +500,51 @@ function DrawerHeader({
       >
         ✕
       </button>
+    </div>
+  )
+}
+
+/* ─────────────────────────── live tab ─────────────────────────── */
+
+/**
+ * The run as it happens: CI-style stages with real durations, and k6's own
+ * counters charted from the progress lines it prints every second.
+ *
+ * The drawer used to open on Summary, which is empty until the end-of-test
+ * summary is printed — so a twenty-minute run showed nothing for twenty
+ * minutes. This is what the drawer opens on now.
+ */
+function LiveTab({
+  run,
+  pods,
+  podName,
+  stage,
+  onStage,
+}: {
+  run: TestRun
+  pods: PodRef[]
+  podName: string | null
+  stage: TestRunStage | null
+  onStage(s: TestRunStage | null): void
+}) {
+  const running = isRunning(run)
+  // Follow only while it is running: a finished run's output is fixed, and a
+  // socket held open on it is a socket held open for nothing.
+  const stream = useLogStream({
+    namespace: run.metadata.namespace,
+    sources: podName ? [{ pod: podName, label: podName }] : [],
+    follow: running,
+    tailLines: 8000,
+    enabled: Boolean(podName),
+  })
+  const lines = useMemo(() => stream.lines.map((l) => l.text), [stream.lines])
+
+  return (
+    <div className="space-y-3">
+      <StageRail run={run} selected={stage} onSelect={onStage} />
+      <LiveCharts lines={lines} running={running} />
+      <Conditions run={run} />
+      <PodStrip pods={pods} />
     </div>
   )
 }

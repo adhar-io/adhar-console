@@ -361,6 +361,11 @@ export function useRunPerfTest() {
         spec: {
           parallelism: test.config.parallelism,
           script: { configMap: { name: cmName, file: SCRIPT_FILE } },
+          // The CRD defaults `paused` to the STRING "true", so a TestRun
+          // created without it never leaves `initialization` — "Run test"
+          // produced a run that sat there forever with no explanation. Say
+          // "false" explicitly; pausing stays a deliberate act in the drawer.
+          paused: 'false',
           ...(test.config.arguments ? { arguments: test.config.arguments } : {}),
           cleanup: 'post',
           ...(Object.keys(test.config.env).length

@@ -62,7 +62,7 @@ export function Welcome({
       <Hero configured={configured} agents={agents} agent={agent} runtime={runtime} navHint={navHint} />
 
       {configured ? (
-        <div className="mt-4 space-y-4">
+        <div className="mt-3 flex flex-col gap-3 @md:mt-4 @md:gap-4">
           {attention ? (
             <div className={cn('grid gap-3', findings.length && insights.length ? '@2xl:grid-cols-2' : '')}>
               {findings.length ? <OperatorFindings items={findings} onAsk={onPick} /> : null}
@@ -85,11 +85,14 @@ export function Welcome({
             </div>
           ) : null}
 
-          {/* the roster */}
+          {/* The roster. On a phone it is a picker, not a directory: name,
+              accent and tool count, two across — the descriptions that make it
+              a reading exercise wait for a wider screen. It also sits BELOW the
+              prompts there, because the prompts are what a person came to tap. */}
           {agents.length > 1 ? (
-            <section className="rise-in">
+            <section className="rise-in order-2 @md:order-none">
               <SectionHead title="Your agents" hint="pick who answers · or mention one with @" />
-              <div className="grid grid-cols-1 gap-2 @md:grid-cols-2 @3xl:grid-cols-3 @5xl:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2 @3xl:grid-cols-3 @5xl:grid-cols-4">
                 {agents.map((a) => (
                   <AgentCard key={a.id} agent={a} active={a.id === agent?.id} onSelect={() => onAgent(a.id)} />
                 ))}
@@ -162,11 +165,12 @@ function Hero({ configured, agents, agent, runtime, navHint }: { configured: boo
     <section className="rise-in relative overflow-hidden rounded-3xl border border-edge-default bg-surface-raised">
       <div aria-hidden className="pointer-events-none absolute -left-24 -top-32 h-72 w-72 rounded-full bg-brand-500/12 blur-3xl dark:bg-brand-500/15" />
       <div aria-hidden className="pointer-events-none absolute -right-20 -bottom-28 h-64 w-64 rounded-full bg-accent-500/10 blur-3xl dark:bg-accent-500/12" />
-      <div className="relative flex flex-col gap-4 p-5 @2xl:flex-row @2xl:items-center @2xl:gap-6 @2xl:p-6">
-        <AdharAiMark size={64} className="shrink-0" />
+      <div className="relative flex flex-col gap-3 p-4 @md:gap-4 @md:p-5 @2xl:flex-row @2xl:items-center @2xl:gap-6 @2xl:p-6">
+        <AdharAiMark size={48} className="shrink-0 @md:hidden" />
+        <AdharAiMark size={64} className="hidden shrink-0 @md:inline-flex" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-[24px] font-semibold leading-tight tracking-tight text-content @2xl:text-[26px]">
+            <h2 className="text-[21px] font-semibold leading-tight tracking-tight text-content @md:text-[24px] @2xl:text-[26px]">
               {configured ? 'Ask, investigate, propose.' : 'Where would you like to go?'}
             </h2>
             <span className="inline-flex items-center gap-1.5 rounded-full border border-edge-subtle bg-surface-app/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-content-subtle">
@@ -256,7 +260,7 @@ function AgentCard({ agent, active, onSelect }: { agent: AgentInfo; active: bool
       aria-pressed={active}
       title={active ? `${agent.name} is answering` : `Ask ${agent.name}`}
       className={cn(
-        'group relative flex min-w-0 flex-col gap-2 overflow-hidden rounded-2xl border p-3 pt-3.5 text-left transition-[border-color,box-shadow,transform] duration-150',
+        'group relative flex min-w-0 flex-col gap-1.5 overflow-hidden rounded-2xl border p-2.5 pt-3 text-left transition-[border-color,box-shadow,transform] duration-150 @md:gap-2 @md:p-3 @md:pt-3.5',
         active
           ? 'border-brand-400 bg-surface-raised shadow-md shadow-brand-600/10 ring-1 ring-brand-400 dark:border-brand-500/60 dark:ring-brand-500/60'
           : 'border-edge-default bg-surface-raised hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md',
@@ -266,7 +270,7 @@ function AgentCard({ agent, active, onSelect }: { agent: AgentInfo; active: bool
       <div className="flex items-center gap-2.5">
         <span
           className={cn(
-            'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-linear-to-br text-[13px] font-semibold text-white shadow-sm',
+            'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-br text-[12px] font-semibold text-white shadow-sm @md:h-9 @md:w-9 @md:rounded-xl @md:text-[13px]',
             accentGradient(agent.accent),
           )}
         >
@@ -279,12 +283,12 @@ function AgentCard({ agent, active, onSelect }: { agent: AgentInfo; active: bool
           </span>
         </span>
       </div>
-      <p className="line-clamp-2 min-h-[2.6em] text-[11.5px] leading-snug text-content-muted">{agent.description}</p>
+      <p className="hidden min-h-[2.6em] line-clamp-2 text-[11.5px] leading-snug text-content-muted @md:block">{agent.description}</p>
       <div className="flex items-center gap-2 text-[10.5px] text-content-subtle">
         <span className="inline-flex items-center gap-1 whitespace-nowrap">
           <IconTool size={10} /> {agent.tools} {agent.tools === 1 ? 'tool' : 'tools'}
         </span>
-        <span className="hidden min-w-0 items-center gap-1 truncate font-mono @md:inline-flex">
+        <span className="hidden min-w-0 items-center gap-1 truncate font-mono @lg:inline-flex">
           <IconAt size={9} />{agent.id}
         </span>
         <span className={cn('ml-auto text-[10.5px] font-medium transition-opacity', active ? cn('opacity-100', accentText(agent.accent)) : 'text-brand-600 opacity-0 group-hover:opacity-100 dark:text-brand-300')}>

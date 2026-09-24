@@ -134,7 +134,7 @@ export function Composer({
             type="button"
             aria-pressed={attachContext}
             onClick={onToggleContext}
-            title={attachContext ? 'Context is attached — click to send the question on its own' : 'Attach where you are (cluster, namespace, focused resource) to the question'}
+            title={attachContext ? 'The resource you are looking at is attached — click to send the question on its own' : 'Attach the resource you are looking at to the question'}
             className={cn(
               'inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium transition-colors',
               attachContext ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300' : 'text-content-subtle hover:bg-surface-sunken hover:text-content',

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { cn } from '@adhar-console/utils'
 import { assistStore, useAssist, type UiBlock } from '../agui/store.ts'
 import { GenerativeBlock } from '../agui/generative.tsx'
-import { useSelection } from '../selection-store.ts'
 import { DEFAULT_NAV, type NavSection } from '../nav-tree.tsx'
 import { useElementWidth } from '../use-element-size.ts'
 import { useMediaQuery } from '../use-media-query.ts'
@@ -119,7 +118,6 @@ const MIN_CONVERSATION = 420
 
 export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items, sections = DEFAULT_NAV }: AssistSurfaceProps) {
   const state = useAssist()
-  const selection = useSelection()
   const frameRef = useRef<HTMLDivElement>(null)
   const frameWidth = useElementWidth(frameRef)
   /*
@@ -168,8 +166,6 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
   const navQuery = input.startsWith('/go ') ? input.slice(4) : input.startsWith('/') || input.startsWith('@') ? '' : input
   const navResults = useMemo(() => filterItems(allItems, navQuery).slice(0, 12), [allItems, navQuery])
   const navHint = navResults[activeNav] ?? navResults[0]
-  const page = typeof location !== 'undefined' ? location.pathname : ''
-  const pageItem = useMemo(() => allItems.find((i) => i.to && page.startsWith(i.to) && i.to !== '/' && i.to !== '/ai') ?? allItems.find((i) => i.to === page), [allItems, page])
 
   useEffect(() => setActiveNav(0), [navQuery])
 
@@ -287,12 +283,13 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
     send(text)
   }
 
-  const chips: ContextChip[] = [
-    pageItem ? { key: 'page', label: 'page', value: pageItem.label } : null,
-    { key: 'cluster', label: 'cluster', value: selection.cluster || 'local' },
-    { key: 'namespace', label: 'namespace', value: selection.namespace || 'all' },
-    state.context?.name ? { key: 'resource', label: state.context.kind ?? state.context.resource, value: state.context.name } : null,
-  ].filter(Boolean) as ContextChip[]
+  // Only what is genuinely attached to the question: the focused resource.
+  // The page, cluster and namespace used to sit here too, which read as three
+  // facts being sent with every question when none of them were — the context
+  // the store attaches is the resource and nothing else.
+  const chips: ContextChip[] = state.context?.name
+    ? [{ key: 'resource', label: state.context.kind ?? state.context.resource, value: state.context.name }]
+    : []
 
   const hasThread = state.thread.messages.length > 0
   const runtime = state.runtime
@@ -400,18 +397,21 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
             onScroll={(e) => { const el = e.currentTarget; stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48 }}
             className={cn(
               'min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-5 sm:py-5 md:px-8',
-              // An empty conversation used to sit at the very top with the
-              // rest of the page a void down to the composer. `flex` + an
-              // `m-auto` child centres it in whatever space there is —
-              // `justify-center` would clip the top once the content grows
-              // taller than the viewport, `m-auto` does not.
               'flex flex-col',
+              // An empty conversation used to sit at the very top with the rest
+              // of the page a void down to the composer, so it is centred —
+              // but only where it fits. `safe center` centres while there is
+              // spare room and falls back to the start edge once the content is
+              // taller than the box, which plain `justify-center` does not: on a
+              // phone that put the hero above the scrollable area with no way to
+              // reach it. Only for the welcome: a transcript reads from the top.
+              !hasThread && !canvas && '[justify-content:safe_center]',
             )}
           >
             {canvas && canvasBlocks.length ? (
               <CanvasBoard blocks={canvasBlocks} />
             ) : !hasThread ? (
-              <div className="m-auto w-full">
+              <div className="w-full">
               <Welcome
                 configured={state.configured}
                 agent={agent}

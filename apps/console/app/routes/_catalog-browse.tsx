@@ -699,12 +699,12 @@ function needsAttention(e: Entity): boolean {
 
 function CatalogHeader({ onRegister }: { onRegister(): void }) {
   return (
-    <header className="flex flex-wrap items-end justify-between gap-4">
+    <header className="flex flex-wrap items-end justify-between gap-3 sm:gap-4">
       <div className="min-w-0">
         <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-content-subtle">
           Adhar Platform
         </div>
-        <h1 className="mt-1 text-[28px] font-semibold tracking-tight text-content">
+        <h1 className="mt-1 text-[22px] font-semibold tracking-tight text-content sm:text-[28px]">
           Service Catalog
         </h1>
         <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-content-muted">
@@ -712,11 +712,13 @@ function CatalogHeader({ onRegister }: { onRegister(): void }) {
           and traceable. Click any entity to see its dependencies, owners, runbooks, and live links.
         </p>
       </div>
-      <div className="flex items-center gap-2">
+      {/* On a phone the two actions take the full width as equal halves —
+          a 36px pill in the corner of a 390px screen is a hard target. */}
+      <div className="flex w-full items-center gap-2 sm:w-auto">
         <button
           type="button"
           onClick={onRegister}
-          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 text-[13px] font-medium text-content shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken"
+          className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 text-[13px] font-medium text-content shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken sm:flex-none sm:justify-start"
         >
           <span className="text-content-subtle">
             <IconRegister />
@@ -726,7 +728,7 @@ function CatalogHeader({ onRegister }: { onRegister(): void }) {
         <Link
           to="/catalog"
           search={{ section: 'create' } as never}
-          className="inline-flex h-9 items-center gap-1.5 rounded-md bg-brand-600 px-3 text-[13px] font-semibold text-white shadow-sm transition-colors visited:text-white hover:bg-brand-700 hover:text-white"
+          className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-600 px-3 text-[13px] font-semibold text-white shadow-sm transition-colors visited:text-white hover:bg-brand-700 hover:text-white sm:flex-none sm:justify-start"
         >
           <span className="text-white">
             <IconPlus />
@@ -805,7 +807,7 @@ function CoveragePanel({
           ) : null
         }
       />
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
         {tiles.map((t) => (
           <CoverageTile key={t.label} {...t} />
         ))}
@@ -838,9 +840,12 @@ function CoverageTile({
   const T = tones[tone]
   return (
     <div className="overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm">
-      <div className="flex items-start justify-between gap-2 px-4 py-3">
-        <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
+      <div className="flex items-start justify-between gap-2 px-3 py-2.5 sm:px-4 sm:py-3">
+        <div className="min-w-0 flex-1">
+          {/* Two tiles across a 390px screen leave ~85px beside a 32px icon,
+              so every two-word label wrapped and the rows fell out of line.
+              The icon is decoration — it waits for the room to exist. */}
+          <div className="truncate text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
             {label}
           </div>
           <div className="mt-1 font-mono text-[20px] font-semibold tabular-nums leading-none text-content">
@@ -854,7 +859,7 @@ function CoverageTile({
         </div>
         <span
           className={cn(
-            'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ring-edge-subtle',
+            'hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ring-edge-subtle sm:inline-flex',
             T.bg,
             T.text,
           )}
@@ -980,7 +985,7 @@ function Spotlight({ systems, onPick }: { systems: SystemSummary[]; onPick(e: En
   return (
     <section className="space-y-3">
       <SectionHeader eyebrow="Spotlight" title="Most active systems" />
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 lg:grid-cols-3">
         {systems.map((s) => (
           <SystemCard key={entityRef(s.system)} summary={s} onPick={onPick} />
         ))}
@@ -1060,7 +1065,7 @@ function ByDomain({
   return (
     <section className="space-y-3">
       <SectionHeader eyebrow="Browse" title="By Domain" />
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2">
         {domains.map((d) => (
           <DomainCard
             key={entityRef(d.domain)}
@@ -1440,7 +1445,7 @@ function BrowseAll({
                   four the cards were 240px wide and every field truncated; the
                   catalog is browsed for its details, so each card gets the room
                   to show them. */}
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 2xl:grid-cols-3">
                 {g.items.map((e) => (
                   <EntityCard
                     key={entityRef(e)}
@@ -1835,7 +1840,7 @@ function Toolbar({
     // bottom corners instead.
     <div className="rounded-xl border border-edge-default bg-surface-raised shadow-sm">
       <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-        <div className="relative h-9 min-w-72 flex-1">
+        <div className="relative h-9 w-full min-w-0 shrink-0 basis-full sm:w-auto sm:min-w-72 sm:shrink sm:basis-auto sm:flex-1">
           <input
             ref={searchInputRef}
             value={text}
@@ -2006,14 +2011,14 @@ function ViewBtn({
 
 function SortMenu({ value, onChange }: { value: SortKey; onChange(v: SortKey): void }) {
   return (
-    <label className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-3 text-[12px] shadow-sm">
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+    <label className="inline-flex h-9 min-w-0 flex-1 basis-[calc(50%-0.25rem)] items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-3 text-[12px] shadow-sm sm:flex-none sm:basis-auto">
+      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
         Sort
       </span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as SortKey)}
-        className="rounded border-0 bg-transparent px-1 py-0 text-[12px] text-content focus:outline-none"
+        className="min-w-0 flex-1 rounded border-0 bg-transparent px-1 py-0 text-[12px] text-content focus:outline-none"
       >
         <option value="name">Name</option>
         <option value="recent">Recently updated</option>
@@ -2026,14 +2031,14 @@ function SortMenu({ value, onChange }: { value: SortKey; onChange(v: SortKey): v
 
 function GroupMenu({ value, onChange }: { value: GroupKey; onChange(v: GroupKey): void }) {
   return (
-    <label className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-3 text-[12px] shadow-sm">
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+    <label className="inline-flex h-9 min-w-0 flex-1 basis-[calc(50%-0.25rem)] items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-3 text-[12px] shadow-sm sm:flex-none sm:basis-auto">
+      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
         Group
       </span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as GroupKey)}
-        className="rounded border-0 bg-transparent px-1 py-0 text-[12px] text-content focus:outline-none"
+        className="min-w-0 flex-1 rounded border-0 bg-transparent px-1 py-0 text-[12px] text-content focus:outline-none"
       >
         <option value="none">None</option>
         <option value="system">System</option>
@@ -3679,7 +3684,7 @@ function QuickLinks({ links, monitorUrl }: { links: Entity['metadata']['links'];
           title={l.title}
         >
           <LinkGlyph icon={l.icon} />
-          <span className="hidden sm:inline">{l.title}</span>
+          <span>{l.title}</span>
         </a>
       ))}
     </div>
@@ -3939,13 +3944,13 @@ function SectionHeader({
 }) {
   return (
     <div>
-      <div className="flex items-baseline justify-between gap-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-content-subtle">
           {eyebrow}
         </div>
         {right ? <div className="text-[11px] text-content-muted">{right}</div> : null}
       </div>
-      <h2 className="mt-1 text-[18px] font-semibold tracking-tight text-content">{title}</h2>
+      <h2 className="mt-1 text-[17px] font-semibold tracking-tight text-content sm:text-[18px]">{title}</h2>
     </div>
   )
 }
@@ -5041,7 +5046,14 @@ function ScorecardTab({ score, onAsk }: { score: Scorecard; onAsk(): void }) {
 
       {failing.length ? (
         <DrawerSection title="Points to gain" aside={<span className="text-[11px] text-content-subtle">per failing check · largest first</span>}>
-          <BarChart bars={gainBars} height={88} color="var(--color-amber-500)" formatY={(v) => `${Math.round(v)} pts`} />
+          {/* Every failing check crammed into a phone's width left each bar
+              labelled with four letters and an ellipsis. The chart scrolls
+              instead, with each bar given room for a readable label. */}
+          <div className="-mx-1 overflow-x-auto px-1 [scrollbar-width:thin]">
+            <div style={{ minWidth: `${Math.max(1, gainBars.length) * 64}px` }}>
+              <BarChart bars={gainBars} height={88} color="var(--color-amber-500)" formatY={(v) => `${Math.round(v)} pts`} />
+            </div>
+          </div>
         </DrawerSection>
       ) : null}
 
@@ -7191,9 +7203,12 @@ function TechStackTab({
               { label: 'App version', node: versionSource ?? 'not published' },
               { label: 'Repository', node: repoUrl ? <a href={repoUrl} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline dark:text-brand-300">{repoUrl.replace(/^https?:\/\//, '')}</a> : 'not linked' },
             ].map((r) => (
-              <div key={r.label} className="flex items-start justify-between gap-3 py-2">
+              // A host plus an org and a repo does not fit beside its own
+              // label on a phone, and truncating it hid the part that
+              // identifies the repository. It wraps under the label instead.
+              <div key={r.label} className="flex flex-col gap-0.5 py-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                 <dt className="shrink-0 text-[11px] font-medium text-content-subtle">{r.label}</dt>
-                <dd className="min-w-0 truncate text-right text-[12px] text-content">{r.node}</dd>
+                <dd className="min-w-0 break-words text-[12px] text-content sm:truncate sm:text-right">{r.node}</dd>
               </div>
             ))}
           </dl>

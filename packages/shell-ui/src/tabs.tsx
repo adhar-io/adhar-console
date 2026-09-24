@@ -117,13 +117,16 @@ export function Tabs<T extends string>({
 
   return (
     <div className={cn('space-y-5', className)}>
-      <div className="flex items-end justify-between gap-4 border-b border-edge-default">
+      {/* The scroller is masked at its right edge: on a phone the tab list is
+          wider than the screen, and a hard cut at the bezel gives no hint that
+          more tabs exist. The mask fades the last one instead. */}
+      <div className="relative flex items-end justify-between gap-4 border-b border-edge-default">
         <nav
           role="tablist"
           aria-label={ariaLabel}
           aria-orientation="horizontal"
           onKeyDown={onKeyDown}
-          className="-mb-px flex gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="-mb-px flex gap-0.5 overflow-x-auto [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)] [scrollbar-width:none] sm:[mask-image:none] [&::-webkit-scrollbar]:hidden"
         >
           {visibleTabs.map((t) => {
             const isActive = t.id === active

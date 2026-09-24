@@ -62,7 +62,7 @@ export function Topbar({
                 onClick={onOpenCommandPalette}
                 aria-label="Search"
                 className={cn(
-                  'group hidden h-9 w-full max-w-md items-center gap-2.5 rounded-lg border border-edge-default bg-surface-sunken/40 px-3 text-sm text-content-muted transition-all duration-150',
+                  'group hidden h-9 w-full min-w-0 max-w-md items-center gap-2.5 rounded-lg border border-edge-default bg-surface-sunken/40 px-3 text-sm text-content-muted transition-all duration-150',
                   'hover:border-brand-300 hover:bg-surface-raised hover:text-content',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25 sm:flex',
                 )}
@@ -71,7 +71,7 @@ export function Topbar({
                   <IconSearch />
                 </span>
                 <span className="flex-1 truncate text-left">Search resources, apps, docs…</span>
-                <Kbd size="xs">⌘K</Kbd>
+                <span className="hidden lg:contents"><Kbd size="xs">⌘K</Kbd></span>
               </button>
               {/* Compact icon (mobile) */}
               <button
@@ -90,8 +90,11 @@ export function Topbar({
         <div className="flex shrink-0 items-center gap-1.5">
           {headerControls ? (
             <>
-              <div className="hidden items-center gap-2 md:flex">{headerControls}</div>
-              <span className="mx-1 hidden h-6 w-px bg-edge-subtle md:block" aria-hidden />
+              {/* Cluster + namespace pickers are wide. Below lg they crowded
+                  the search box until the two overlapped, so they wait for a
+                  desktop; the same context is on the page itself. */}
+              <div className="hidden items-center gap-2 lg:flex">{headerControls}</div>
+              <span className="mx-1 hidden h-6 w-px bg-edge-subtle lg:block" aria-hidden />
             </>
           ) : null}
           <LiveIndicator className="hidden sm:inline-flex" />

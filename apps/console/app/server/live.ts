@@ -48,13 +48,22 @@ export async function handleLive(req: Request): Promise<Response> {
     return new Response('Expected WebSocket upgrade', { status: 426 })
   }
   if (!originOk(req)) return new Response('Origin not allowed', { status: 403 })
+  // Read everything needed off the request BEFORE upgrading: once
+  // `Deno.upgradeWebSocket` has taken the connection, touching the request's
+  // headers throws `Request closed` and the upgrade never completes.
+  const cookie = req.headers.get('cookie') ?? ''
+  const origin = new URL(req.url).origin
   const id = await resolveIdentity(req)
-  const auth = await getRequestUser(req)
+  const session = await getRequestUser(req)
+  // Local dev: the demo session lives in the browser only, so the BFF never
+  // sees a cookie here. When the gateway has already granted the local-dev
+  // identity (ADHAR_DEV_CLUSTER_AUTH, laptop only — see devClusterIdentity),
+  // the live hub answers under it too; otherwise every laptop showed
+  // "Reconnecting" forever while polling quietly did the work.
+  const auth = session ?? (id?.user.id === 'local-dev' ? { user: id.user, activeTenant: 'default' } : null)
   if (!id || !auth) return new Response('Unauthorized', { status: 401 })
 
   const { socket, response } = Deno.upgradeWebSocket(req)
-  const cookie = req.headers.get('cookie') ?? ''
-  const origin = new URL(req.url).origin
   const subs = new Map<string, SubHandle>()
   let closed = false
 

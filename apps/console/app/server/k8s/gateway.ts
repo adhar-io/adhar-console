@@ -74,10 +74,25 @@ export function originOk(req: Request): boolean {
   const origin = req.headers.get('origin')
   if (!origin) return true
   try {
-    return new URL(origin).host === new URL(req.url).host
+    const from = new URL(origin)
+    const to = new URL(req.url)
+    if (from.host === to.host) return true
+    // Local development: the browser talks to the Vite host (localhost:5100)
+    // which proxies to this server on another loopback port, so the two hosts
+    // never match and every WebSocket upgrade was refused — the console sat on
+    // "Reconnecting" for the whole session while polling quietly did the work.
+    // Both sides being loopback, on a process that is not running in-cluster,
+    // is exactly the laptop case and cannot be reached from another machine.
+    return isLoopback(from.hostname) && isLoopback(to.hostname) && !env('KUBERNETES_SERVICE_HOST')
   } catch {
     return false
   }
+}
+
+/** `localhost`, IPv4 loopback, or `::1` — the dev-proxy case, never a remote host. */
+function isLoopback(hostname: string): boolean {
+  const h = hostname.replace(/^\[|\]$/g, '').toLowerCase()
+  return h === 'localhost' || h === '::1' || /^127\./.test(h)
 }
 
 /** Structured audit line for the console tier (user + verb + resource + outcome). */

@@ -3680,7 +3680,7 @@ function QuickLinks({ links, monitorUrl }: { links: Entity['metadata']['links'];
           target="_blank"
           rel="noreferrer"
           onClick={(e) => e.stopPropagation()}
-          className="inline-flex items-center gap-1 rounded-md bg-surface-raised px-1.5 py-1 text-[10px] font-medium text-content-muted ring-1 ring-edge-default hover:bg-brand-50 dark:hover:bg-brand-500/10 hover:text-brand-700 dark:hover:text-brand-300 hover:ring-brand-200"
+          className="inline-flex min-h-8 items-center gap-1 rounded-md bg-surface-raised px-2 py-1 text-[10px] font-medium text-content-muted ring-1 ring-edge-default hover:bg-brand-50 dark:hover:bg-brand-500/10 hover:text-brand-700 dark:hover:text-brand-300 hover:ring-brand-200 sm:min-h-0 sm:px-1.5"
           title={l.title}
         >
           <LinkGlyph icon={l.icon} />
@@ -4410,7 +4410,7 @@ function EntityDrawer({
                           <DrawerSection
                             title="Last hour"
                             aside={
-                              <button type="button" onClick={() => setTab('metrics')} className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">
+                              <button type="button" onClick={() => setTab('metrics')} className="inline-flex min-h-9 items-center text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300 sm:min-h-0">
                                 Metrics →
                               </button>
                             }
@@ -4448,7 +4448,7 @@ function EntityDrawer({
                               <button
                                 type="button"
                                 onClick={() => setTab('relations')}
-                                className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300"
+                                className="inline-flex min-h-9 items-center text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300 sm:min-h-0"
                               >
                                 All {relationCount} →
                               </button>
@@ -4743,7 +4743,7 @@ function ReadinessByCategory({ score, onOpen }: { score: Scorecard; onOpen(): vo
     <DrawerSection
       title="Readiness by category"
       aside={
-        <button type="button" onClick={onOpen} className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">
+        <button type="button" onClick={onOpen} className="inline-flex min-h-9 items-center text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300 sm:min-h-0">
           Scorecard →
         </button>
       }
@@ -4796,7 +4796,7 @@ function DeploymentsChart({ deployment, onOpen }: { deployment: EntityDeployment
       title="Deployments"
       aside={
         onOpen ? (
-          <button type="button" onClick={onOpen} className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">
+          <button type="button" onClick={onOpen} className="inline-flex min-h-9 items-center text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300 sm:min-h-0">
             Deployment →
           </button>
         ) : (
@@ -4833,7 +4833,7 @@ function EndpointsPanel({ routes, onTab }: { routes: EntityRoute[]; onTab(t: Dra
     <DrawerSection
       title={`Endpoints · ${routes.length}`}
       aside={
-        <button type="button" onClick={() => onTab('deploy')} className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">
+        <button type="button" onClick={() => onTab('deploy')} className="inline-flex min-h-9 items-center text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300 sm:min-h-0">
           Details →
         </button>
       }
@@ -5361,7 +5361,7 @@ function TechPanel({
       title="Tech stack"
       aside={
         stack.length ? (
-          <button type="button" onClick={() => onTab('tech')} className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">
+          <button type="button" onClick={() => onTab('tech')} className="inline-flex min-h-9 items-center text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300 sm:min-h-0">
             Details →
           </button>
         ) : undefined
@@ -5826,7 +5826,7 @@ function FixNext({ failing, total, onAll }: { failing: Check[]; total: number; o
         <button
           type="button"
           onClick={onAll}
-          className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300"
+          className="inline-flex min-h-9 items-center text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300 sm:min-h-0"
         >
           All {failing.length} failing of {total} →
         </button>
@@ -5967,7 +5967,7 @@ function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) 
           /* clipboard blocked — no-op */
         }
       }}
-      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-[11px] font-medium text-content-muted transition hover:border-brand-200 hover:text-brand-700 dark:hover:text-brand-300"
+      className="inline-flex min-h-8 shrink-0 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-[11px] font-medium text-content-muted transition hover:border-brand-200 hover:text-brand-700 dark:hover:text-brand-300 sm:min-h-0"
     >
       {copied ? <IconCheck /> : <IconCopy />}
       {copied ? 'Copied' : label}
@@ -6669,7 +6669,7 @@ function PipelinesCard({ entity, repoUrl }: { entity: Entity; repoUrl?: string }
               </span>
             ) : null}
           </div>
-          <a href="/platform?section=ci" className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-300">
+          <a href="/platform?section=ci" className="inline-flex min-h-9 items-center text-xs font-medium text-brand-700 hover:underline dark:text-brand-300 sm:min-h-0">
             CI / CD runs →
           </a>
         </div>
@@ -6791,7 +6791,7 @@ function MonitoringCard({ entity, monitorUrl, onMetrics }: { entity: Entity; mon
               <StatusBadge kind="healthy" className="px-1.5 py-0 text-[10px]" dot={false}>no alerts</StatusBadge>
             )}
           </div>
-          <a href="/discover?section=alerts" className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-300">
+          <a href="/discover?section=alerts" className="inline-flex min-h-9 items-center text-xs font-medium text-brand-700 hover:underline dark:text-brand-300 sm:min-h-0">
             All alerts →
           </a>
         </div>
@@ -7216,7 +7216,7 @@ function TechStackTab({
         <DrawerSection
           title="Tech docs"
           aside={docsUrl && onOpenDocs ? (
-            <button type="button" onClick={onOpenDocs} className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">Read here →</button>
+            <button type="button" onClick={onOpenDocs} className="inline-flex min-h-9 items-center text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300 sm:min-h-0">Read here →</button>
           ) : undefined}
         >
           <div className="flex items-center gap-2">

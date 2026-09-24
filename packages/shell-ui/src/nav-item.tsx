@@ -130,6 +130,12 @@ export function NavItem({
           // which read as loose rather than regular. The rail measures
           // whichever row is active, so it tracks either height correctly
           // without the rows having to match.
+          // Below `lg` this sidebar is the mobile sheet, where a row is a TOUCH
+          // target: a sub-item was an 18px line of text, well under the ~44px a
+          // thumb needs, so picking "Issues" from "Define" was a lottery. The
+          // desktop rail keeps its density from `lg` up, where there is a
+          // pointer to aim with.
+          'min-h-11 lg:min-h-0',
           isSub ? 'py-1 pl-3 pr-2' : 'py-1.5 pr-2',
           // The HIGHLIGHTED row bleeds through the nav's own `px-3` to touch the
           // sidebar's left edge: `-ml-3` pulls it out by the 12px of padding,
@@ -324,7 +330,10 @@ function ItemLink({
         if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
         onRowClick?.()
       }}
-      className="flex min-w-0 flex-1 items-center rounded outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25"
+      // `self-stretch`: the row is the touch target, but the LINK is what
+      // receives the tap. Centred in a 44px row it was still only as tall as
+      // its text, so most of the row did nothing when a thumb landed on it.
+      className="flex min-w-0 flex-1 items-center self-stretch rounded outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25"
     >
       {label}
     </Link>

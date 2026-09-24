@@ -511,7 +511,9 @@ export function MonitorButton({ url, compact = false }: { url: string; compact?:
         // Docs) rather than like the page's one primary action. The filled
         // brand button made "open Grafana" the loudest thing in every drawer.
         compact
-          ? 'rounded-md bg-surface-raised px-1.5 py-1 text-[10px] text-content-muted ring-1 ring-edge-default hover:text-brand-700 dark:hover:text-brand-300'
+          // The compact form sits in a card footer, where on a phone it is
+          // tapped rather than clicked — 23px was under the thumb's reach.
+          ? 'min-h-8 rounded-md bg-surface-raised px-2 py-1 text-[10px] text-content-muted ring-1 ring-edge-default hover:text-brand-700 dark:hover:text-brand-300 sm:min-h-0 sm:px-1.5'
           : 'rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-xs text-content-muted shadow-sm hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300',
       )}
     >

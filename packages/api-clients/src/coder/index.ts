@@ -186,6 +186,32 @@ export interface CoderUser {
   avatar_url?: string
 }
 
+export interface CreateUserBody {
+  email: string
+  username: string
+  name?: string
+  login_type: 'oidc' | 'password' | 'github'
+  organization_ids: string[]
+}
+
+/**
+ * Coder's own rule for a username derived from an e-mail (`UsernameFrom`):
+ * the local part, invalid characters folded to `-`, no leading/trailing or
+ * doubled dashes, at most 32 characters. Matching it means the account this
+ * console pre-creates is the one Coder would have created at OIDC sign-in.
+ */
+export function usernameFromEmail(email: string): string {
+  const local = (email.split('@')[0] ?? '').toLowerCase()
+  const cleaned = local.replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+  return (cleaned || 'user').slice(0, 32).replace(/-$/, '')
+}
+
+/** Coder workspace names: lowercase, digits, dashes, ≤ 32 — derived from a repository name. */
+export function workspaceNameFor(repo: string): string {
+  const n = repo.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+  return (n || 'repo').slice(0, 32).replace(/-$/, '')
+}
+
 export interface Organization {
   id: string
   name: string
@@ -211,6 +237,12 @@ export interface CreateWorkspaceBody {
 export interface CoderClient {
   buildInfo(): Promise<BuildInfo>
   me(): Promise<CoderUser>
+  /**
+   * Create a user whose password is Keycloak (`login_type: oidc`). Coder links
+   * the person's first OIDC sign-in to this account by e-mail, so workspaces
+   * created for it before they ever open Coder are theirs when they do.
+   */
+  createUser(body: CreateUserBody): Promise<CoderUser>
   /** Users matching a free-text query (username / e-mail / name). */
   searchUsers(q: string, limit?: number): Promise<CoderUser[]>
   listOrganizations(): Promise<Organization[]>
@@ -251,6 +283,7 @@ function build(http: HttpClient): CoderClient {
   return {
     buildInfo: () => http.get<BuildInfo>(`/api/v2/buildinfo`),
     me: () => http.get<CoderUser>(`/api/v2/users/me`),
+    createUser: (body) => http.post<CoderUser>(`/api/v2/users`, body),
     searchUsers: async (q, limit = 10) => {
       const r = await http.get<{ users: CoderUser[] }>(`/api/v2/users?q=${enc(q)}&limit=${limit}`)
       return r.users ?? []
@@ -477,6 +510,7 @@ export const CoderClient = defineClient<CoderClient>(build, () => {
   return {
     buildInfo: async () => ({ version: 'v2.37.0', dashboard_url: 'https://coder.adhar.local' }),
     me: async () => ({ id: 'u-admin', username: 'adhar-admin', email: 'coder-admin@adhar.local', roles: [{ name: 'owner' }] }),
+    createUser: async (b) => ({ id: `u-${b.username}`, username: b.username, email: b.email, organization_ids: b.organization_ids }),
     searchUsers: async (q) =>
       [
         { id: 'u-tapas', username: 'tapas', email: 'tapas@adhar.local' },

@@ -122,28 +122,44 @@ export function useBuildLogs(buildId?: string, live = false) {
 }
 
 /**
- * The Coder account new workspaces are created for. The signed-in console
- * user's e-mail is looked up in Coder; when they have no account yet (never
- * opened Coder), the proxy identity (`me`) owns the workspace and the UI says
- * so.
+ * The Coder account new workspaces are created for.
+ *
+ * The signed-in console user's e-mail is looked up in Coder. When they have no
+ * account yet, one is CREATED for them with `login_type: oidc`: Coder links
+ * their first Keycloak sign-in to it by e-mail, so an environment made here
+ * before they ever open Coder is already theirs when they do. Falling back to
+ * the proxy identity instead (the old behaviour) put every workspace under the
+ * bootstrap owner, whose `code-server` app is owner-only — every "Open IDE"
+ * then ended at Coder's OIDC callback with **Access denied**, because the
+ * person signing in was never the owner.
  */
 export function useWorkspaceOwner() {
   const user = useOptionalUser()
   const email = user?.email?.trim().toLowerCase() ?? ''
   return useQuery({
     queryKey: ['coder', 'owner', email],
-    queryFn: async (): Promise<{ owner: string; matched: boolean; email: string }> => {
+    queryFn: async (): Promise<{ owner: string; matched: boolean; created: boolean; email: string }> => {
       if (email) {
         try {
           const hits = await coderClient.searchUsers(email, 5)
           const exact = hits.find((u) => u.email?.toLowerCase() === email)
-          if (exact) return { owner: exact.username, matched: true, email }
+          if (exact) return { owner: exact.username, matched: true, created: false, email }
+          const me = await coderClient.me()
+          const orgs = me.organization_ids?.length ? me.organization_ids : (await coderClient.listOrganizations()).map((o) => o.id)
+          const made = await coderClient.createUser({
+            email,
+            username: coder.usernameFromEmail(email),
+            name: user?.name || undefined,
+            login_type: 'oidc',
+            organization_ids: orgs,
+          })
+          return { owner: made.username, matched: true, created: true, email }
         } catch {
           /* fall through to the proxy identity */
         }
       }
       const me = await coderClient.me()
-      return { owner: me.username, matched: false, email }
+      return { owner: me.username, matched: false, created: false, email }
     },
     staleTime: 5 * 60_000,
   })
@@ -201,4 +217,85 @@ export function useSetFavorite() {
 export function useCreateWorkspace() {
   return useInvalidating((v: { orgId: string; owner: string; body: coder.CreateWorkspaceBody }) =>
     coderClient.createWorkspace(v.orgId, v.owner, v.body))
+}
+
+/* ─────────── one workspace per repository ─────────── */
+
+export const workspaceNameFor = coder.workspaceNameFor
+
+const REPO_PARAM = 'git_repo'
+
+
+/**
+ * The signed-in user's workspace for a repository — found by the naming
+ * convention, or CREATED from the platform template with `git_repo` set so
+ * the template clones the repository and both IDEs open its folder.
+ *
+ * Creation happens here, for the person, not in the proxy identity: the
+ * workspace is theirs, so Coder's owner-only IDE apps open for them.
+ */
+export function useRepoWorkspace(repo: string) {
+  const owner = useWorkspaceOwner()
+  const workspaces = useWorkspaces()
+  const name = workspaceNameFor(repo)
+  const mine = owner.data?.matched ? owner.data.owner : undefined
+  // Only the person's own: a name match on somebody else's workspace would
+  // open the door that Coder then slams (owner-only apps).
+  const existing = mine ? (workspaces.data ?? []).find((w) => w.name === name && w.owner_name === mine) : undefined
+  return { owner: mine, name, workspace: existing, isLoading: owner.isLoading || workspaces.isLoading }
+}
+
+export interface EnsureRepoWorkspaceInput {
+  repo: string
+  cloneUrl: string
+  owner: string
+}
+
+/**
+ * Create the repository workspace for its owner and wait for it to start.
+ * Resolves with the workspace once its agent has connected (or after a bounded
+ * wait, with whatever state it reached — the caller opens the environments
+ * page in that case rather than a dead tab).
+ */
+export async function ensureRepoWorkspace(input: EnsureRepoWorkspaceInput): Promise<coder.Workspace> {
+  const name = workspaceNameFor(input.repo)
+  const templates = await coderClient.listTemplates()
+  const tpl = templates.find((t) => t.name === 'kubernetes') ?? templates[0]
+  if (!tpl?.active_version_id) throw new Error('No Coder template is available to create an environment from.')
+  const params = await coderClient.listTemplateParameters(tpl.active_version_id)
+  if (!params.some((p) => p.name === REPO_PARAM)) {
+    throw new Error('The platform template has no `git_repo` parameter yet — the coder package must be at adhar-ide-v3 or later.')
+  }
+  const rich = params
+    .filter((p) => p.name !== REPO_PARAM && (p.default_value ?? '') !== '')
+    .map((p) => ({ name: p.name, value: p.default_value! }))
+  rich.push({ name: REPO_PARAM, value: input.cloneUrl })
+  const orgId = tpl.organization_id ?? (await coderClient.listOrganizations())[0]?.id
+  if (!orgId) throw new Error('Coder reported no organization to create the workspace in.')
+  let w = await coderClient.createWorkspace(orgId, input.owner, {
+    name,
+    template_version_id: tpl.active_version_id,
+    rich_parameter_values: rich,
+    automatic_updates: 'always',
+  })
+  // A build takes a minute or two on this platform (image pull + PVC).
+  for (let i = 0; i < 90; i++) {
+    await new Promise((r) => setTimeout(r, 2_000))
+    w = await coderClient.getWorkspace(w.id)
+    const st = w.latest_build.status
+    if (st === 'running' || st === 'failed' || st === 'canceled') break
+  }
+  return w
+}
+
+/** The workspace's code-server app and its agent, if connected. */
+export function editorOf(w: coder.Workspace, kind: 'vscode' | 'intellij'): { agent: string; app: coder.WorkspaceApp } | null {
+  const re = kind === 'vscode' ? /^code-server$|vscode-web|^code$/i : /jetbrains|intellij/i
+  for (const r of w.latest_build.resources ?? []) {
+    for (const a of r.agents ?? []) {
+      const app = a.apps?.find((x) => re.test(x.slug))
+      if (app) return { agent: a.name, app }
+    }
+  }
+  return null
 }

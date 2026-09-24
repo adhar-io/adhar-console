@@ -4190,14 +4190,17 @@ function EntityDrawer({
         className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
-      <aside className="relative flex h-full w-full max-w-4xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
+      <aside className="relative flex h-full w-full max-w-4xl flex-col overflow-hidden bg-surface-app shadow-2xl sm:border-l sm:border-edge-default">
         {/*
           The header is the drawer's anchor: it stays while the tabs change under
           it, so it carries a tint of its own. Flat and borderless, it read as
           the first row of the content rather than as the frame around it.
         */}
-        <header className="relative border-b border-edge-default bg-linear-to-b from-surface-raised to-surface-raised/60 px-6 py-4">
-          <div className="flex items-start gap-3.5">
+        <header className="relative border-b border-edge-default bg-linear-to-b from-surface-raised to-surface-raised/60 px-4 py-3 sm:px-6 sm:py-4">
+          {/* On a phone the action cluster takes the first row on its own and the
+              title gets the full width beneath it; from sm up it sits to the
+              right of the title as before. */}
+          <div className="flex flex-wrap items-start gap-x-3.5 gap-y-2 sm:flex-nowrap">
             <KindGlyph kind={entity.kind} type={entity.spec.type} size="lg" />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
@@ -4218,7 +4221,7 @@ function EntityDrawer({
                 ) : null}
                 <OriginTag origin={entity.origin} />
               </div>
-              <h2 className="mt-1 truncate text-[22px] font-semibold leading-tight tracking-tight text-content">
+              <h2 className="mt-1 text-[20px] font-semibold leading-tight tracking-tight text-content sm:truncate sm:text-[22px]">
                 {entity.metadata.title ?? entity.metadata.name}
               </h2>
               <div className="mt-1 flex items-center gap-1.5">
@@ -4228,7 +4231,7 @@ function EntityDrawer({
                 <CopyButton text={ref} />
               </div>
               {entity.metadata.description ? (
-                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-content-muted">
+                <p className="mt-2 line-clamp-2 max-w-2xl text-[13px] leading-relaxed text-content-muted sm:line-clamp-none sm:text-sm">
                   {entity.metadata.description}
                 </p>
               ) : null}
@@ -4261,7 +4264,7 @@ function EntityDrawer({
 
             {/* Right cluster: where you are in the list, then the things you
                 can do to the drawer itself. */}
-            <div className="flex shrink-0 items-center gap-1">
+            <div className="order-first flex w-full shrink-0 items-center justify-end gap-1 sm:order-none sm:w-auto">
               {position && siblings && siblings.length > 1 ? (
                 <div className="mr-1 hidden items-center gap-0.5 rounded-lg border border-edge-default bg-surface-raised p-0.5 text-[11px] text-content-muted sm:flex">
                   <button
@@ -4354,7 +4357,7 @@ function EntityDrawer({
         */}
         <div
           ref={bodyRef}
-          className="flex-1 overflow-y-auto px-6 pb-6 [&>div>div:first-child]:sticky [&>div>div:first-child]:top-0 [&>div>div:first-child]:z-10 [&>div>div:first-child]:-mx-6 [&>div>div:first-child]:bg-surface-app [&>div>div:first-child]:px-6 [&>div>div:first-child]:pt-3"
+          className="flex-1 overflow-y-auto px-4 pb-24 sm:px-6 sm:pb-6 [&>div>div:first-child]:sticky [&>div>div:first-child]:top-0 [&>div>div:first-child]:z-10 [&>div>div:first-child]:-mx-4 sm:[&>div>div:first-child]:-mx-6 [&>div>div:first-child]:bg-surface-app [&>div>div:first-child]:px-4 sm:[&>div>div:first-child]:px-6 [&>div>div:first-child]:pt-3"
         >
           <Tabs<DrawerTab> tabs={tabs} value={effectiveTab} onChange={setTab} ariaLabel="Entity details">
             {(active) => (

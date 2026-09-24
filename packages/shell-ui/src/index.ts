@@ -154,6 +154,7 @@ export {
   PrometheusIcon,
   TempoIcon,
   ChaosMeshIcon,
+  LitmusIcon,
   DagsterIcon,
   FaroIcon,
   KubeflowIcon,

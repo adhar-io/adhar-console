@@ -3,7 +3,7 @@ import { assistStore, useAssist, type AgentInfo } from '../agui/store.ts'
 import type { OperatorFinding, RuntimeInfo } from '../agui/client.ts'
 import { useNotifications } from '../notifications.ts'
 import type { CommandItem } from './nav.ts'
-import { IconActivity, IconAt, IconBook, IconReturn, IconServer, IconShield, IconTool, SparkIcon } from './icons.tsx'
+import { IconBook, IconReturn, IconServer, IconShield, IconTool, SparkIcon } from './icons.tsx'
 import { AdharAiMark } from './mark.tsx'
 import { relTime } from './inspector.tsx'
 import { accentDot, accentGradient, accentText } from './accent.ts'
@@ -92,7 +92,7 @@ export function Welcome({
           {agents.length > 1 ? (
             <section className="rise-in order-2 @md:order-none">
               <SectionHead title="Your agents" hint="pick who answers · or mention one with @" />
-              <div className="grid grid-cols-2 gap-2 @3xl:grid-cols-3 @5xl:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2 @2xl:grid-cols-3 @4xl:grid-cols-4">
                 {agents.map((a) => (
                   <AgentCard key={a.id} agent={a} active={a.id === agent?.id} onSelect={() => onAgent(a.id)} />
                 ))}
@@ -108,7 +108,9 @@ export function Welcome({
                 hint={agent?.description}
                 accent={agent?.accent}
               />
-              <div className={cn('grid grid-cols-1 gap-2', recent.length ? '' : '@xl:grid-cols-2')}>
+              {/* One list, not a grid: three prompts in two columns left a
+                  hole the width of a card, and the count varies per agent. */}
+              <div className="divide-y divide-edge-subtle overflow-hidden rounded-2xl border border-edge-default bg-surface-raised">
                 {starters.map((s, i) => (
                   <StarterCard key={s.label} index={i} label={s.label} prompt={s.prompt} agent={agent} onPick={() => onPick(s.prompt)} />
                 ))}
@@ -251,6 +253,17 @@ function FactsLine({ runtime, agent, agents }: { runtime: RuntimeInfo | null; ag
  * whether the external runtime handles it. Active = the one the composer
  * will send to, marked by a hairline of its accent along the top.
  */
+/**
+ * One agent, as a PICKER row rather than a profile card.
+ *
+ * Eight cards carrying an avatar, a name, an all-caps role, two lines of
+ * description, a tool count and an @handle made a wall of near-identical
+ * boxes with nothing for the eye to land on — and "CONSOLE AGENT" repeated
+ * six times down the page said nothing, since console is the default and
+ * only the runtime ones are worth marking. What a person does here is pick
+ * who answers, so the tile carries the name, the accent and the size of the
+ * toolkit; the selected agent's description already sits above its prompts.
+ */
 function AgentCard({ agent, active, onSelect }: { agent: AgentInfo; active: boolean; onSelect(): void }) {
   const glyph = agent.icon && agent.icon.length <= 2 ? agent.icon : agent.name.slice(0, 1).toUpperCase()
   return (
@@ -258,43 +271,41 @@ function AgentCard({ agent, active, onSelect }: { agent: AgentInfo; active: bool
       type="button"
       onClick={onSelect}
       aria-pressed={active}
-      title={active ? `${agent.name} is answering` : `Ask ${agent.name}`}
+      title={`${agent.description} · ${agent.tools} tools · @${agent.id}`}
       className={cn(
-        'group relative flex min-w-0 flex-col gap-1.5 overflow-hidden rounded-2xl border p-2.5 pt-3 text-left transition-[border-color,box-shadow,transform] duration-150 @md:gap-2 @md:p-3 @md:pt-3.5',
+        'group flex min-h-11 min-w-0 items-center gap-2.5 rounded-xl border px-2.5 py-2 text-left transition-colors duration-150',
         active
-          ? 'border-brand-400 bg-surface-raised shadow-md shadow-brand-600/10 ring-1 ring-brand-400 dark:border-brand-500/60 dark:ring-brand-500/60'
-          : 'border-edge-default bg-surface-raised hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md',
+          ? 'border-brand-400 bg-brand-50/60 dark:border-brand-500/60 dark:bg-brand-500/10'
+          : 'border-edge-default bg-surface-raised hover:border-edge-strong hover:bg-surface-sunken/60',
       )}
     >
-      <span aria-hidden className={cn('absolute inset-x-0 top-0 h-0.5 bg-linear-to-r transition-opacity', accentGradient(agent.accent), active ? 'opacity-100' : 'opacity-0 group-hover:opacity-60')} />
-      <div className="flex items-center gap-2.5">
-        <span
-          className={cn(
-            'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-br text-[12px] font-semibold text-white shadow-sm @md:h-9 @md:w-9 @md:rounded-xl @md:text-[13px]',
-            accentGradient(agent.accent),
-          )}
-        >
-          {glyph}
+      <span
+        className={cn(
+          'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-linear-to-br text-[11px] font-semibold text-white shadow-sm',
+          accentGradient(agent.accent),
+        )}
+      >
+        {glyph}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[12.5px] font-medium text-content">{agent.name}</span>
+        <span className="block truncate text-[10.5px] text-content-subtle">
+          {agent.tools} {agent.tools === 1 ? 'tool' : 'tools'}
+          {agent.delegated ? ' · runtime' : ''}
         </span>
-        <span className="min-w-0">
-          <span className="block truncate text-[13px] font-semibold text-content">{agent.name}</span>
-          <span className={cn('block text-[10px] font-medium uppercase tracking-wider', active ? accentText(agent.accent) : 'text-content-subtle')}>
-            {active ? 'answering' : agent.delegated ? 'runtime agent' : 'console agent'}
-          </span>
-        </span>
-      </div>
-      <p className="hidden min-h-[2.6em] line-clamp-2 text-[11.5px] leading-snug text-content-muted @md:block">{agent.description}</p>
-      <div className="flex items-center gap-2 text-[10.5px] text-content-subtle">
-        <span className="inline-flex items-center gap-1 whitespace-nowrap">
-          <IconTool size={10} /> {agent.tools} {agent.tools === 1 ? 'tool' : 'tools'}
-        </span>
-        <span className="hidden min-w-0 items-center gap-1 truncate font-mono @lg:inline-flex">
-          <IconAt size={9} />{agent.id}
-        </span>
-        <span className={cn('ml-auto text-[10.5px] font-medium transition-opacity', active ? cn('opacity-100', accentText(agent.accent)) : 'text-brand-600 opacity-0 group-hover:opacity-100 dark:text-brand-300')}>
-          {active ? 'selected' : 'Ask →'}
-        </span>
-      </div>
+      </span>
+      {active
+        ? (
+          <>
+            {/* Two across on a phone leaves no room for the word — it pushed
+                the agent's own name into an ellipsis, which is the one thing
+                the tile exists to show. A dot says the same there. */}
+            <span aria-hidden className={cn('h-1.5 w-1.5 shrink-0 rounded-full @md:hidden', accentDot(agent.accent))} />
+            <span className={cn('hidden shrink-0 text-[10px] font-semibold uppercase tracking-wider @md:inline', accentText(agent.accent))}>answering</span>
+            <span className="sr-only">answering</span>
+          </>
+        )
+        : null}
     </button>
   )
 }
@@ -307,20 +318,18 @@ function StarterCard({ index, label, prompt, agent, onPick }: { index: number; l
     <button
       type="button"
       onClick={onPick}
-      className="group relative flex min-w-0 flex-col gap-1.5 overflow-hidden rounded-2xl border border-edge-default bg-surface-raised p-3.5 text-left transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-md dark:hover:border-brand-500/40"
+      title={prompt}
+      className="group flex w-full min-w-0 items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-surface-sunken/60"
     >
-      <span className="flex items-center gap-2">
-        <span className={cn('flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-linear-to-br text-[10px] font-semibold text-white', accentGradient(agent?.accent))}>
-          {String(index + 1).padStart(2, '0')}
-        </span>
-        <span className="min-w-0 truncate text-[13px] font-semibold text-content">{label}</span>
+      <span className={cn('mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-linear-to-br text-[10px] font-semibold text-white', accentGradient(agent?.accent))}>
+        {String(index + 1).padStart(2, '0')}
       </span>
-      <span className="line-clamp-2 text-[11.5px] leading-snug text-content-subtle">{prompt}</span>
-      <span className="mt-auto flex items-center justify-between pt-1 text-[10.5px] text-content-subtle">
-        <span className="inline-flex items-center gap-1"><IconActivity size={10} /> {agent ? `Asks ${agent.name}` : 'Ask'}</span>
-        <span className="inline-flex items-center gap-1 text-brand-600 opacity-0 transition-opacity group-hover:opacity-100 dark:text-brand-300">
-          Send <IconReturn size={10} />
-        </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13px] font-medium text-content">{label}</span>
+        <span className="mt-0.5 line-clamp-1 block text-[11.5px] leading-snug text-content-subtle">{prompt}</span>
+      </span>
+      <span className="mt-1 inline-flex shrink-0 items-center gap-1 text-[10.5px] text-brand-600 opacity-0 transition-opacity group-hover:opacity-100 dark:text-brand-300">
+        Send <IconReturn size={10} />
       </span>
     </button>
   )

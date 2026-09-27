@@ -417,7 +417,6 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
                 agent={agent}
                 agents={state.agents}
                 onPick={(p) => send(p)}
-                onAgent={(id) => assistStore.setAgent(id)}
                 navHint={navHint}
                 findings={state.operatorFindings}
                 runtime={runtime}

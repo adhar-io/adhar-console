@@ -1,42 +1,37 @@
 import { cn } from '@adhar-console/utils'
-import { assistStore, useAssist, type AgentInfo } from '../agui/store.ts'
+import type { AgentInfo } from '../agui/store.ts'
 import type { OperatorFinding, RuntimeInfo } from '../agui/client.ts'
 import { useNotifications } from '../notifications.ts'
 import type { CommandItem } from './nav.ts'
-import { IconBook, IconReturn, IconServer, IconShield, IconTool, SparkIcon } from './icons.tsx'
+import { IconBook, IconServer, IconShield, IconTool, SparkIcon } from './icons.tsx'
 import { AdharAiMark } from './mark.tsx'
-import { relTime } from './inspector.tsx'
-import { accentDot, accentGradient, accentText } from './accent.ts'
+import { accentDot } from './accent.ts'
 
 /**
  * The empty state — the one moment the operator looks at Adhar AI with
- * nothing else in the way.
+ * nothing else in the way, and the moment most worth keeping quiet.
  *
- * It is built around the AGENTS, because that is what this surface is: not
- * one chat box but a roster of specialists, each with its own tools and its
- * own opening questions, and operators that keep watching the platform when
- * nobody is asking. So the page reads, top to bottom:
+ * It is the mark, one line about how it works, one line of what the runtime
+ * is made of right now, and anything the platform's own operators noticed
+ * unprompted. Nothing else.
  *
- *   1. the hero band — the mark, one line about how it works, and one line
- *      of what the runtime is made of right now, stated by the runtime
- *      rather than by copy;
- *   2. what the operators noticed unprompted, and notifications that carry a
- *      prompt — each already a question worth asking;
- *   3. the roster — every agent as a card, the one you are talking to
- *      highlighted; picking one changes who answers;
- *   4. that agent's starters as prompt cards, with the conversations you
- *      had recently beside them so you can pick one back up.
+ * It used to carry three more blocks — a card per agent, that agent's
+ * starter prompts, and the conversations you had recently. Every one of them
+ * duplicated a control that was already on screen: the composer has the
+ * agent switcher and @mentions, and ⌘[ opens the conversation rail. What
+ * they added instead was height and repetition — eight near-identical boxes
+ * and a heading over each — on a page whose whole job is to get out of the
+ * way of the composer underneath it.
  *
- * Container queries, not viewport breakpoints, decide the grid: the same
- * component renders in the ⌘K overlay and on the /ai page, and the overlay
- * is narrow on a wide screen.
+ * Container queries, not viewport breakpoints: the same component renders in
+ * the ⌘K overlay and on the /ai page, and the overlay is narrow on a wide
+ * screen.
  */
 export function Welcome({
   configured,
   agent,
   agents,
   onPick,
-  onAgent,
   navHint,
   findings,
   runtime,
@@ -45,17 +40,13 @@ export function Welcome({
   agent?: AgentInfo
   agents: AgentInfo[]
   onPick(prompt: string): void
-  onAgent(id: string): void
   navHint?: CommandItem
   findings: OperatorFinding[]
   runtime: RuntimeInfo | null
 }) {
   const notif = useNotifications()
-  const { history } = useAssist()
   const insights = notif.items.filter((n) => !n.read && n.prompt).slice(0, 4)
-  const starters = agent?.starters?.length ? agent.starters : FALLBACK_STARTERS
   const attention = findings.length + insights.length
-  const recent = history.filter((t) => t.messages.length > 0).slice(0, 5)
 
   return (
     <div className="@container mx-auto w-full max-w-5xl pt-1">
@@ -85,68 +76,6 @@ export function Welcome({
             </div>
           ) : null}
 
-          {/* The roster. On a phone it is a picker, not a directory: name,
-              accent and tool count, two across — the descriptions that make it
-              a reading exercise wait for a wider screen. It also sits BELOW the
-              prompts there, because the prompts are what a person came to tap. */}
-          {agents.length > 1 ? (
-            <section className="rise-in order-2 @md:order-none">
-              <SectionHead title="Your agents" hint="pick who answers · or mention one with @" />
-              <div className="grid grid-cols-2 gap-2 @2xl:grid-cols-3 @4xl:grid-cols-4">
-                {agents.map((a) => (
-                  <AgentCard key={a.id} agent={a} active={a.id === agent?.id} onSelect={() => onAgent(a.id)} />
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          {/* starters for whoever is answering, and the conversations worth picking back up */}
-          <div className={cn('grid gap-3', recent.length ? '@5xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]' : '')}>
-            <section className="rise-in min-w-0">
-              <SectionHead
-                title={agent ? `Start with ${agent.name}` : 'Start here'}
-                hint={agent?.description}
-                accent={agent?.accent}
-              />
-              {/* One list, not a grid: three prompts in two columns left a
-                  hole the width of a card, and the count varies per agent. */}
-              <div className="divide-y divide-edge-subtle overflow-hidden rounded-2xl border border-edge-default bg-surface-raised">
-                {starters.map((s, i) => (
-                  <StarterCard key={s.label} index={i} label={s.label} prompt={s.prompt} agent={agent} onPick={() => onPick(s.prompt)} />
-                ))}
-              </div>
-            </section>
-
-            {recent.length ? (
-              <section className="rise-in min-w-0">
-                <SectionHead title="Pick up where you left off" hint="kept in this browser" />
-                <div className="rounded-2xl border border-edge-default bg-surface-raised p-1.5">
-                  {recent.map((t) => {
-                    const who = agents.find((a) => a.id === t.agentId)
-                    const last = [...t.messages].reverse().find((m) => m.role === 'assistant' && m.content)
-                    return (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => assistStore.openThread(t.id)}
-                        className="group flex w-full items-start gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-surface-sunken/70"
-                      >
-                        <span className={cn('mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full', accentDot(who?.accent))} aria-hidden />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[12.5px] font-medium text-content">{t.title}</span>
-                          {last ? <span className="mt-0.5 line-clamp-1 text-[11px] text-content-subtle">{plainText(last.content)}</span> : null}
-                          <span className="mt-0.5 block text-[10.5px] text-content-subtle">
-                            {who?.name ? `${who.name} · ` : ''}{relTime(t.updatedAt)} · {t.messages.length} turn{t.messages.length === 1 ? '' : 's'}
-                          </span>
-                        </span>
-                        <span className="mt-1 shrink-0 text-[11px] font-medium text-brand-600 opacity-0 transition-opacity group-hover:opacity-100 dark:text-brand-300">Resume →</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </section>
-            ) : null}
-          </div>
         </div>
       ) : null}
     </div>
@@ -253,88 +182,6 @@ function FactsLine({ runtime, agent, agents }: { runtime: RuntimeInfo | null; ag
  * whether the external runtime handles it. Active = the one the composer
  * will send to, marked by a hairline of its accent along the top.
  */
-/**
- * One agent, as a PICKER row rather than a profile card.
- *
- * Eight cards carrying an avatar, a name, an all-caps role, two lines of
- * description, a tool count and an @handle made a wall of near-identical
- * boxes with nothing for the eye to land on — and "CONSOLE AGENT" repeated
- * six times down the page said nothing, since console is the default and
- * only the runtime ones are worth marking. What a person does here is pick
- * who answers, so the tile carries the name, the accent and the size of the
- * toolkit; the selected agent's description already sits above its prompts.
- */
-function AgentCard({ agent, active, onSelect }: { agent: AgentInfo; active: boolean; onSelect(): void }) {
-  const glyph = agent.icon && agent.icon.length <= 2 ? agent.icon : agent.name.slice(0, 1).toUpperCase()
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-pressed={active}
-      title={`${agent.description} · ${agent.tools} tools · @${agent.id}`}
-      className={cn(
-        'group flex min-h-11 min-w-0 items-center gap-2.5 rounded-xl border px-2.5 py-2 text-left transition-colors duration-150',
-        active
-          ? 'border-brand-400 bg-brand-50/60 dark:border-brand-500/60 dark:bg-brand-500/10'
-          : 'border-edge-default bg-surface-raised hover:border-edge-strong hover:bg-surface-sunken/60',
-      )}
-    >
-      <span
-        className={cn(
-          'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-linear-to-br text-[11px] font-semibold text-white shadow-sm',
-          accentGradient(agent.accent),
-        )}
-      >
-        {glyph}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12.5px] font-medium text-content">{agent.name}</span>
-        <span className="block truncate text-[10.5px] text-content-subtle">
-          {agent.tools} {agent.tools === 1 ? 'tool' : 'tools'}
-          {agent.delegated ? ' · runtime' : ''}
-        </span>
-      </span>
-      {active
-        ? (
-          <>
-            {/* Two across on a phone leaves no room for the word — it pushed
-                the agent's own name into an ellipsis, which is the one thing
-                the tile exists to show. A dot says the same there. */}
-            <span aria-hidden className={cn('h-1.5 w-1.5 shrink-0 rounded-full @md:hidden', accentDot(agent.accent))} />
-            <span className={cn('hidden shrink-0 text-[10px] font-semibold uppercase tracking-wider @md:inline', accentText(agent.accent))}>answering</span>
-            <span className="sr-only">answering</span>
-          </>
-        )
-        : null}
-    </button>
-  )
-}
-
-/* ─────────────────────────────── starters ─────────────────────────────── */
-
-/** One opening question as a card: the label is the question, the prompt is what will be sent. */
-function StarterCard({ index, label, prompt, agent, onPick }: { index: number; label: string; prompt: string; agent?: AgentInfo; onPick(): void }) {
-  return (
-    <button
-      type="button"
-      onClick={onPick}
-      title={prompt}
-      className="group flex w-full min-w-0 items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-surface-sunken/60"
-    >
-      <span className={cn('mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-linear-to-br text-[10px] font-semibold text-white', accentGradient(agent?.accent))}>
-        {String(index + 1).padStart(2, '0')}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-[13px] font-medium text-content">{label}</span>
-        <span className="mt-0.5 line-clamp-1 block text-[11.5px] leading-snug text-content-subtle">{prompt}</span>
-      </span>
-      <span className="mt-1 inline-flex shrink-0 items-center gap-1 text-[10.5px] text-brand-600 opacity-0 transition-opacity group-hover:opacity-100 dark:text-brand-300">
-        Send <IconReturn size={10} />
-      </span>
-    </button>
-  )
-}
-
 /* ─────────────────────────────── attention ─────────────────────────────── */
 
 /**
@@ -367,18 +214,6 @@ function OperatorFindings({ items, onAsk }: { items: OperatorFinding[]; onAsk(pr
 }
 
 /* ─────────────────────────────── primitives ─────────────────────────────── */
-
-function SectionHead({ title, hint, accent }: { title: string; hint?: string; accent?: string }) {
-  return (
-    <div className="mb-2 flex items-baseline justify-between gap-3 px-1">
-      <h3 className="inline-flex shrink-0 items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-content-subtle">
-        {accent ? <span className={cn('h-1.5 w-1.5 rounded-full', accentDot(accent))} /> : null}
-        {title}
-      </h3>
-      {hint ? <span className="min-w-0 truncate text-[11px] text-content-subtle" title={hint}>{hint}</span> : null}
-    </div>
-  )
-}
 
 function Card({
   title,
@@ -432,9 +267,3 @@ export function plainText(md: string, max = 160): string {
     .slice(0, max)
 }
 
-const FALLBACK_STARTERS = [
-  { label: 'What needs my attention right now?', prompt: 'Scan the cluster for Warning events and unhealthy workloads, then tell me what needs attention first.' },
-  { label: 'Why is a pod crash-looping?', prompt: 'Find pods in CrashLoopBackOff or ImagePullBackOff, diagnose the worst one and explain the root cause.' },
-  { label: 'What is out of sync in Argo CD?', prompt: 'List Argo CD applications that are OutOfSync or Degraded and explain the most likely cause for each.' },
-  { label: 'Where is the money going?', prompt: 'Show the namespaces with the highest resource requests versus actual usage and suggest right-sizing.' },
-]

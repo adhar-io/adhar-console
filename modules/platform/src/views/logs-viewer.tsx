@@ -46,6 +46,8 @@ import {
 const ALL_CONTAINERS = '__all__'
 
 interface PodSpecish {
+  /** The pod's own namespace — what the log stream is opened against. */
+  metadata?: { name?: string; namespace?: string }
   spec?: {
     containers?: { name?: string }[]
     initContainers?: { name?: string }[]
@@ -199,8 +201,24 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
 
   const multi = activeSources.length > 1
 
+  /*
+   * The namespace to STREAM from is the selected pod's own, not the namespace
+   * FILTER above it.
+   *
+   * Those are different things, and conflating them broke the page outright:
+   * the filter is empty when it reads "All namespaces" — its default — so the
+   * stream hook saw no namespace, bailed to `idle`, and never asked for a
+   * line. The page rendered a pod, a container and a tail size, and then sat
+   * at "Waiting for log output…" forever. Picking a pod is what names the
+   * namespace; the filter only decides which pods are offered.
+   */
+  const streamNs = useMemo(() => {
+    if (sourceMode === 'workload') return workloadPods[0]?.pod?.metadata?.namespace ?? ns
+    return selectedPod?.metadata?.namespace ?? ns
+  }, [sourceMode, workloadPods, selectedPod, ns])
+
   const stream = useLogStream({
-    namespace: ns,
+    namespace: streamNs,
     sources: activeSources,
     // "Previous" is a fixed snapshot of a terminated container — nothing to tail.
     follow: follow && !previous,

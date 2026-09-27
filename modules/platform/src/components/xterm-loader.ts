@@ -33,6 +33,15 @@
  * identically in dev, in a production host build and inside the remote.
  */
 
+// The stylesheet is a STATIC import on purpose. As a dynamic `import()` the
+// browser fetches the URL itself and the dev server answers `text/css`, which
+// is not a module — so the import rejected with "Failed to fetch dynamically
+// imported module" and, because it sat in the same `Promise.all` as the core,
+// took the whole terminal down with it. Every shell showed "Could not load the
+// terminal runtime" in development. A static import is transformed by the
+// bundler in both dev and build, so it is a string by the time we read it.
+import xtermCss from '@xterm/xterm/css/xterm.css?inline'
+
 export interface XtermApi {
   Terminal: typeof import('@xterm/xterm').Terminal
   FitAddon: typeof import('@xterm/addon-fit').FitAddon
@@ -47,12 +56,24 @@ export interface XtermApi {
 const STYLE_ID = 'adhar-xterm-css'
 
 /** Put xterm's stylesheet in the document exactly once. */
+/**
+ * The rules the terminal cannot work without: xterm focuses
+ * `.xterm-helper-textarea` and reads keystrokes from it, so if it is not
+ * positioned off-screen the page scrolls to it and typing goes nowhere. Used
+ * only if the real stylesheet somehow did not come through.
+ */
+const CRITICAL_CSS = `.xterm{position:relative;-moz-user-select:none;user-select:none}
+.xterm .xterm-helper-textarea{position:absolute;opacity:0;left:-9999em;top:0;width:0;height:0;z-index:-5;white-space:nowrap;overflow:hidden;resize:none}
+.xterm .xterm-screen{position:relative}
+.xterm .xterm-viewport{overflow-y:scroll;position:absolute;inset:0}
+.xterm .xterm-rows{position:absolute;left:0;top:0}`
+
 function injectStyles(css: string): void {
   if (typeof document === 'undefined') return
   if (document.getElementById(STYLE_ID)) return
   const el = document.createElement('style')
   el.id = STYLE_ID
-  el.textContent = css
+  el.textContent = css.trim() ? css : CRITICAL_CSS
   document.head.appendChild(el)
 }
 
@@ -76,12 +97,11 @@ export function loadXterm(): Promise<XtermApi> {
   cached = (async (): Promise<XtermApi> => {
     // Core + fit are required. The stylesheet comes in as text and is injected
     // by hand — see the note above on Module Federation and orphaned CSS.
-    const [{ Terminal }, { FitAddon }, css] = await Promise.all([
+    const [{ Terminal }, { FitAddon }] = await Promise.all([
       import('@xterm/xterm'),
       import('@xterm/addon-fit'),
-      import('@xterm/xterm/css/xterm.css?inline').then((m) => m.default as string),
     ])
-    injectStyles(css)
+    injectStyles(typeof xtermCss === 'string' ? xtermCss : '')
 
     // Best-effort addons — in parallel; a failure just omits the addon.
     const [search, weblinks, clipboard, unicode11, webgl] = await Promise.all([

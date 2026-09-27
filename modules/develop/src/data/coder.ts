@@ -180,7 +180,9 @@ export interface IdeSession {
  * short-lived token for the workspace's owner and returns a URL carrying it;
  * Coder swaps it for a cookie on first load.
  */
-export async function ideSessionUrl(input: { workspace: string; agent: string; app: string }): Promise<IdeSession> {
+export async function ideSessionUrl(
+  input: { workspace: string; agent: string; app?: string; kind?: 'app' | 'terminal' },
+): Promise<IdeSession> {
   const res = await fetch('/api/coder/ide-session', {
     method: 'POST',
     credentials: 'include',

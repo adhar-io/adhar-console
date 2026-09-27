@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Button,
@@ -40,6 +40,7 @@ import {
   useUpdateTtl,
   useWorkspaceOwner,
   useWorkspaces,
+  ideSessionUrl,
 } from '../data/coder.ts'
 import { IconClose, IconExternal, IconGrid, IconList, IconMore, IconPlus, IconRefresh, IconSearch } from '../components/repo-bits.tsx'
 
@@ -95,7 +96,44 @@ function primaryAgent(w: coder.Workspace): { agent?: coder.WorkspaceAgent; resou
   return {}
 }
 function codeApp(agent?: coder.WorkspaceAgent) {
-  return agent?.apps?.find((a) => /code-server|vscode|code/i.test(a.slug))
+  // The BROWSER IDE specifically. `vscode-desktop` and `jetbrains-gateway` are
+  // desktop deep links and are offered separately; matching them here made
+  // "Open IDE" hand the browser a `vscode://` URL.
+  return agent?.apps?.find((a) => /^code-server$|vscode-web|^code$/i.test(a.slug))
+}
+
+/** The JetBrains Gateway deep link, when the template ships one. */
+function jetbrainsApp(agent?: coder.WorkspaceAgent) {
+  return agent?.apps?.find((a) => /jetbrains|intellij/i.test(a.slug))
+}
+
+/**
+ * Open something inside a workspace — an IDE app or its terminal.
+ *
+ * Never build the URL here. Coder serves both from its own domain, where this
+ * tab has no session, so a plain `appUrl()` link landed on Coder's sign-in
+ * page or on a 404 for a workspace the visitor could not see. The BFF mints a
+ * short-lived token for the workspace's owner and returns a URL carrying it.
+ */
+function useOpenInWorkspace() {
+  const toast = useToast()
+  return useCallback(
+    async (w: coder.Workspace, agent: string, opts: { app?: string; kind?: 'app' | 'terminal'; label?: string }) => {
+      try {
+        const session = await ideSessionUrl({ workspace: w.name, agent, app: opts.app, kind: opts.kind })
+        if (session.external) {
+          toast.info(`Opening ${opts.label ?? 'your editor'}…`, { description: 'Install the desktop app if nothing happens.' })
+          globalThis.location.assign(session.url)
+          return
+        }
+        const tab = globalThis.open(session.url, '_blank', 'noopener,noreferrer')
+        if (!tab) toast.warning('Your browser blocked the new tab', { description: 'Allow pop-ups for the console and try again.' })
+      } catch (e) {
+        toast.error(`Could not open ${opts.label ?? 'that'}`, { description: e instanceof Error ? e.message : String(e) })
+      }
+    },
+    [toast],
+  )
 }
 
 export function Environments() {
@@ -326,6 +364,8 @@ function WorkspaceCard({ workspace: w, dashboard, myOwner, onOpen, actions, pend
   const s = status(w)
   const { agent } = primaryAgent(w)
   const code = codeApp(agent)
+  const jetbrains = jetbrainsApp(agent)
+  const openIn = useOpenInWorkspace()
   // Coder opens a workspace app in the BROWSER as whoever is signed in there —
   // the person, via Keycloak — not as the console's proxy identity. An app
   // whose sharing level is `owner` on a workspace someone else owns therefore
@@ -381,14 +421,13 @@ function WorkspaceCard({ workspace: w, dashboard, myOwner, onOpen, actions, pend
         {agent?.apps?.length ? (
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             {agent.apps.map((a) => {
-              const url = coder.appUrl(dashboard, w, agent.name, a)
               const ok = a.health === 'healthy' || a.health === 'disabled' || !a.health
-              const can = Boolean(url) && s === 'running' && openable(a)
+              const can = s === 'running' && openable(a)
               return (
-                <a key={a.slug} href={url ?? '#'} target="_blank" rel="noopener" title={!openable(a) ? `Owned by ${w.owner_name} and shared with the owner only — Coder would deny you` : undefined} onClick={(e) => { if (!can) e.preventDefault() }} className={cn('inline-flex items-center gap-1 rounded-full bg-surface-sunken px-2 py-0.5 text-[10px] font-medium ring-1 ring-edge-subtle', can ? 'text-content hover:ring-brand-400' : 'text-content-subtle')}>
+                <button type="button" key={a.slug} disabled={!can} title={!openable(a) ? `Owned by ${w.owner_name} and shared with the owner only — Coder would deny you` : undefined} onClick={() => openIn(w, agent.name, { app: a.slug, label: a.display_name || a.slug })} className={cn('inline-flex items-center gap-1 rounded-full bg-surface-sunken px-2 py-0.5 text-[10px] font-medium ring-1 ring-edge-subtle', can ? 'text-content hover:ring-brand-400' : 'text-content-subtle')}>
                   <span className={cn('h-1.5 w-1.5 rounded-full', s === 'running' ? (ok ? 'bg-emerald-500' : 'bg-amber-500') : 'bg-edge-default')} />
                   {a.display_name || a.slug}
-                </a>
+                </button>
               )
             })}
           </div>
@@ -406,10 +445,13 @@ function WorkspaceCard({ workspace: w, dashboard, myOwner, onOpen, actions, pend
           <Button size="xs" variant="ghost" disabled loading>{s}</Button>
         )}
         {s === 'running' && agent && code ? (
-          <Button size="xs" variant="ghost" disabled={!openable(code)} title={!openable(code) ? `Owned by ${w.owner_name} — create your own environment to get an IDE you can open` : undefined} onClick={() => window.open(coder.appUrl(dashboard, w, agent.name, code), '_blank', 'noopener')}>Open IDE</Button>
+          <Button size="xs" variant="ghost" disabled={!openable(code)} title={!openable(code) ? `Owned by ${w.owner_name} — create your own environment to get an IDE you can open` : undefined} onClick={() => openIn(w, agent.name, { app: code.slug, label: 'VS Code' })}>VS Code</Button>
         ) : null}
-        {s === 'running' && agent && dashboard ? (
-          <Button size="xs" variant="ghost" disabled={foreign} title={foreign ? `Owned by ${w.owner_name} — the terminal is owner-only` : undefined} onClick={() => window.open(coder.terminalUrl(dashboard, w, agent.name), '_blank', 'noopener')}>Terminal</Button>
+        {s === 'running' && agent && jetbrains ? (
+          <Button size="xs" variant="ghost" disabled={!openable(jetbrains)} title={!openable(jetbrains) ? `Owned by ${w.owner_name} — create your own environment to get an IDE you can open` : 'Opens JetBrains Gateway on your machine'} onClick={() => openIn(w, agent.name, { app: jetbrains.slug, label: 'IntelliJ IDEA' })}>IntelliJ</Button>
+        ) : null}
+        {s === 'running' && agent ? (
+          <Button size="xs" variant="ghost" disabled={foreign} title={foreign ? `Owned by ${w.owner_name} — the terminal is owner-only` : undefined} onClick={() => openIn(w, agent.name, { kind: 'terminal', label: 'the terminal' })}>Terminal</Button>
         ) : null}
         <span className="ml-auto text-[10px] text-content-subtle">agent {agent?.status ?? 'none'}{agent?.lifecycle_state && agent.lifecycle_state !== 'ready' ? ` · ${agent.lifecycle_state}` : ''}</span>
       </div>
@@ -448,7 +490,7 @@ function WorkspaceTable({ rows, dashboard, onOpen, actions }: { rows: coder.Work
                 <td className="px-3 py-2">
                   <div className="flex justify-end gap-1">
                     {s === 'running' ? <Button size="xs" variant="ghost" onClick={a.stop}>Stop</Button> : STARTABLE.has(s) ? <Button size="xs" variant="ghost" onClick={a.start}>Start</Button> : null}
-                    {s === 'running' && agent && dashboard ? <Button size="xs" variant="ghost" onClick={() => window.open(coder.terminalUrl(dashboard, w, agent.name), '_blank', 'noopener')}>Terminal</Button> : null}
+                    {s === 'running' && agent ? <Button size="xs" variant="ghost" onClick={() => openIn(w, agent.name, { kind: 'terminal', label: 'the terminal' })}>Terminal</Button> : null}
                     <Button size="xs" variant="ghost" onClick={() => onOpen(w)}>Open</Button>
                     <Button size="xs" variant="ghost" className="text-rose-700 dark:text-rose-300" onClick={a.delete}>Delete</Button>
                   </div>
@@ -667,6 +709,8 @@ function WorkspaceDrawer({ workspace: w, dashboard, onClose, actions }: { worksp
   if (typeof document === 'undefined') return null
   const { agent } = primaryAgent(w)
   const code = codeApp(agent)
+  const jetbrains = jetbrainsApp(agent)
+  const openIn = useOpenInWorkspace()
   const act = async (label: string, fn: () => Promise<unknown>) => {
     try {
       await fn()
@@ -694,7 +738,8 @@ function WorkspaceDrawer({ workspace: w, dashboard, onClose, actions }: { worksp
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             {s === 'running' ? <Button size="sm" variant="secondary" onClick={actions.stop}>Stop</Button> : STARTABLE.has(s) ? <Button size="sm" onClick={actions.start}>Start</Button> : BUSY.has(s) ? <Button size="sm" variant="secondary" disabled={cancel.isPending} onClick={() => act('Cancelling build', () => cancel.mutateAsync(w.latest_build.id))}>Cancel build</Button> : null}
-            {s === 'running' && agent && code ? <Button size="sm" onClick={() => window.open(coder.appUrl(dashboard, w, agent.name, code), '_blank', 'noopener')}>Open IDE</Button> : null}
+            {s === 'running' && agent && code ? <Button size="sm" onClick={() => openIn(w, agent.name, { app: code.slug, label: 'VS Code' })}>VS Code</Button> : null}
+            {s === 'running' && agent && jetbrains ? <Button size="sm" variant="secondary" title="Opens JetBrains Gateway on your machine" onClick={() => openIn(w, agent.name, { app: jetbrains.slug, label: 'IntelliJ IDEA' })}>IntelliJ</Button> : null}
             {dashboard ? <a href={coder.workspaceUrl(dashboard, w)} target="_blank" rel="noopener" className="inline-flex h-8 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-xs font-medium text-content hover:border-brand-400 hover:text-brand-700">Coder <IconExternal /></a> : null}
             <button type="button" onClick={onClose} aria-label="Close" className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"><IconClose /></button>
           </div>
@@ -749,15 +794,14 @@ function WorkspaceDrawer({ workspace: w, dashboard, onClose, actions }: { worksp
                                         {a.apps?.length ? (
                                           <div className="mt-2 flex flex-wrap gap-1.5">
                                             {a.apps.map((app) => {
-                                              const url = coder.appUrl(dashboard, w, a.name, app)
                                               return (
-                                                <a key={app.slug} href={url ?? '#'} target="_blank" rel="noopener" className="inline-flex items-center gap-1 rounded-md bg-surface-raised px-2 py-1 text-[11px] font-medium text-brand-700 ring-1 ring-edge-subtle hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-500/10">
+                                                <button type="button" key={app.slug} onClick={() => openIn(w, a.name, { app: app.slug, label: app.display_name || app.slug })} className="inline-flex items-center gap-1 rounded-md bg-surface-raised px-2 py-1 text-[11px] font-medium text-brand-700 ring-1 ring-edge-subtle hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-500/10">
                                                   <span className={cn('h-1.5 w-1.5 rounded-full', app.health === 'unhealthy' ? 'bg-rose-500' : app.health === 'initializing' ? 'bg-amber-500' : 'bg-emerald-500')} />
                                                   {app.display_name || app.slug}
-                                                </a>
+                                                </button>
                                               )
                                             })}
-                                            {dashboard ? <a href={coder.terminalUrl(dashboard, w, a.name)} target="_blank" rel="noopener" className="inline-flex items-center gap-1 rounded-md bg-surface-raised px-2 py-1 text-[11px] font-medium text-content ring-1 ring-edge-subtle hover:bg-surface-sunken">Terminal</a> : null}
+                                            <button type="button" onClick={() => openIn(w, a.name, { kind: 'terminal', label: 'the terminal' })} className="inline-flex items-center gap-1 rounded-md bg-surface-raised px-2 py-1 text-[11px] font-medium text-content ring-1 ring-edge-subtle hover:bg-surface-sunken">Terminal</button>
                                           </div>
                                         ) : null}
                                       </li>

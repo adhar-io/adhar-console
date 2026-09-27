@@ -198,14 +198,22 @@ export async function handleCoderIdeSession(req: Request): Promise<Response> {
   if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405 })
   const auth = await getRequestUser(req)
 
-  let body: { workspace?: string; agent?: string; app?: string; folder?: string }
+  let body: { workspace?: string; agent?: string; app?: string; kind?: 'app' | 'terminal'; folder?: string }
   try {
     body = (await req.json()) as typeof body
   } catch {
     return withCookie(Response.json({ error: 'invalid_json' }, { status: 400 }), auth?.refreshedCookie)
   }
   const { workspace, agent, app } = body
-  if (!workspace || !agent || !app || ![workspace, agent, app].every((v) => NAME_RE.test(v))) {
+  // A workspace's TERMINAL is served by the same app proxy on the same domain
+  // and needs the same session, so it takes the same path — it just names no
+  // app. Without this the Terminal buttons opened Coder's sign-in page for
+  // exactly the reason the IDE buttons used to.
+  const kind = body.kind === 'terminal' ? 'terminal' : 'app'
+  if (!workspace || !agent || ![workspace, agent].every((v) => NAME_RE.test(v))) {
+    return withCookie(Response.json({ error: 'invalid_request' }, { status: 400 }), auth?.refreshedCookie)
+  }
+  if (kind === 'app' && (!app || !NAME_RE.test(app))) {
     return withCookie(Response.json({ error: 'invalid_request' }, { status: 400 }), auth?.refreshedCookie)
   }
 
@@ -234,8 +242,11 @@ export async function handleCoderIdeSession(req: Request): Promise<Response> {
     return withCookie(Response.json({ error: 'workspace_not_running', detail: ws.latest_build.status }, { status: 409 }), auth?.refreshedCookie)
   }
   const agentDef = (ws.latest_build.resources ?? []).flatMap((r) => r.agents ?? []).find((a) => a.name === agent)
-  const appDef = agentDef?.apps?.find((a) => a.slug === app)
-  if (!appDef) {
+  if (!agentDef) {
+    return withCookie(Response.json({ error: 'agent_not_found', detail: agent }, { status: 404 }), auth?.refreshedCookie)
+  }
+  const appDef = kind === 'app' ? agentDef.apps?.find((a) => a.slug === app) : undefined
+  if (kind === 'app' && !appDef) {
     return withCookie(Response.json({ error: 'app_not_found', detail: `${agent}/${app}` }, { status: 404 }), auth?.refreshedCookie)
   }
 
@@ -259,12 +270,15 @@ export async function handleCoderIdeSession(req: Request): Promise<Response> {
   // template supplies; Coder's own UI fills a `$SESSION_TOKEN` placeholder in
   // it, so fill it here with the same token rather than sending the user to a
   // link that asks them to paste one.
-  if (appDef.external && appDef.url) {
+  if (appDef?.external && appDef.url) {
     const url = appDef.url.replaceAll('$SESSION_TOKEN', encodeURIComponent(key))
     return withCookie(Response.json({ url, owner: identity.owner, external: true, matched: identity.matched }), auth?.refreshedCookie)
   }
 
-  const url = `${base}/@${encodeURIComponent(identity.owner)}/${encodeURIComponent(ws.name)}.${encodeURIComponent(agent)}/apps/${encodeURIComponent(app)}/?coder_session_token=${encodeURIComponent(key)}`
+  const who = `${base}/@${encodeURIComponent(identity.owner)}/${encodeURIComponent(ws.name)}.${encodeURIComponent(agent)}`
+  const url = kind === 'terminal'
+    ? `${who}/terminal?coder_session_token=${encodeURIComponent(key)}`
+    : `${who}/apps/${encodeURIComponent(app!)}/?coder_session_token=${encodeURIComponent(key)}`
   return withCookie(Response.json({ url, owner: identity.owner, external: false, matched: identity.matched }), auth?.refreshedCookie)
 }
 

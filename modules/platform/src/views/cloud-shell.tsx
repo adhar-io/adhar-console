@@ -412,7 +412,9 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
           {broadcastOpen && sessions.length ? <BroadcastBar count={connected} onSend={broadcast} onClose={() => setBroadcastOpen(false)} /> : null}
 
           {/* panes — every session stays mounted so tabs keep their live shells */}
-          <div className={cn('relative grid min-h-0 flex-1 gap-2 p-2', split ? 'grid-cols-2' : 'grid-cols-1')}>
+          {/* Pane padding is deliberately thin: the terminal is the content, and
+              every pixel of frame here is a pixel of shell the user does not get. */}
+          <div className={cn('relative grid min-h-0 flex-1 gap-1.5 p-1.5', split ? 'grid-cols-2' : 'grid-cols-1')}>
             {sessions.length === 0 ? (
               <WorkbenchEmpty
                 onLaunch={() => { setSidebarTab('launch'); setPrefs({ sidebar: true }) }}

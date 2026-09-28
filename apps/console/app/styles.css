@@ -400,8 +400,11 @@ a {
  * is what keeps it one element: the alternative — an SVG circle with a
  * dash offset — needs a viewBox that has to track the mark's size.
  *
- * 7s linear, not eased: a scan has a constant rate. `-webkit-mask` stays for
- * Safari below 17.2, which does not take the unprefixed `mask` shorthand.
+ * Linear, not eased: a scan has a constant rate. It is slow on purpose — at
+ * 7s it read as a spinner, and a spinner on an idle empty state says the page
+ * is busy when it is waiting. At 14s it is ambient: you see it if you look at
+ * it and not otherwise. `-webkit-mask` stays for Safari below 17.2, which does
+ * not take the unprefixed `mask` shorthand.
  */
 @keyframes adhar-sweep {
   to {
@@ -417,7 +420,7 @@ a {
   );
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1.5px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1.5px));
-  animation: adhar-sweep 7s linear infinite;
+  animation: adhar-sweep 14s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
   .ai-sweep {

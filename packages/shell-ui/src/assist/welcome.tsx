@@ -58,9 +58,12 @@ export function Welcome({
       <div className="@container relative mx-auto w-full max-w-5xl">
       <Hero configured={configured} agents={agents} agent={agent} runtime={runtime} navHint={navHint} />
 
-      {configured ? (
+      {/* `attention`, not `configured`: with nothing to show this used to render
+          an empty flex column whose `mt-3` still took 12px under the hero, so
+          the landing sat fractionally off where the layout said it would. */}
+      {configured && attention ? (
         <div className="mt-3 flex flex-col gap-3 @md:mt-4 @md:gap-4">
-          {attention ? (
+          {(
             <div className={cn('grid gap-3', findings.length && insights.length ? '@2xl:grid-cols-2' : '')}>
               {findings.length ? <OperatorFindings items={findings} onAsk={onPick} /> : null}
               {insights.length ? (
@@ -80,8 +83,7 @@ export function Welcome({
                 </Card>
               ) : null}
             </div>
-          ) : null}
-
+          )}
         </div>
       ) : null}
       </div>
@@ -109,25 +111,35 @@ export function Welcome({
  */
 function Hero({ configured, agents, agent, runtime, navHint }: { configured: boolean; agents: AgentInfo[]; agent?: AgentInfo; runtime: RuntimeInfo | null; navHint?: CommandItem }) {
   return (
-    <section className="rise-in relative flex flex-col items-center px-4 pb-10 pt-6 text-center @md:pb-14 @md:pt-10">
+    <section
+      aria-labelledby="adhar-ai-landing-heading"
+      className="relative flex flex-col items-center px-4 pb-10 pt-6 text-center @md:pb-14 @md:pt-10"
+    >
       <Sigil />
 
       {/* Clipped to a gradient rather than a flat colour: the headline is the
           largest thing here, and a top-to-bottom fade keeps it from sitting
           on the page as a slab of solid ink. `pb-1` because `bg-clip-text`
           crops descenders that overrun the line box. */}
-      <h2 className="mt-8 text-balance bg-linear-to-b from-content to-content-muted bg-clip-text pb-1 text-[30px] font-semibold leading-[1.05] tracking-[-0.035em] text-transparent @md:mt-10 @md:text-[44px] @2xl:text-[52px]">
+      <h2
+        id="adhar-ai-landing-heading"
+        className="rise-in mt-6 text-balance bg-linear-to-b from-content to-content-muted bg-clip-text pb-1 text-[30px] font-semibold leading-[1.05] tracking-[-0.035em] text-transparent @md:mt-8 @md:text-[44px] @2xl:text-[52px]"
+        style={rise(60)}
+      >
         {configured ? 'Ask, investigate, propose.' : 'How may I help you?'}
       </h2>
 
-      <p className="mt-4 max-w-[46ch] text-pretty text-[13px] leading-relaxed text-content-muted @md:mt-5 @md:text-[15px]">
+      <p
+        className="rise-in mt-4 max-w-[46ch] text-pretty text-[13px] leading-relaxed text-content-muted @md:mt-5 @md:text-[15px]"
+        style={rise(120)}
+      >
         {configured
           ? `${agents.length || 'Specialist'} agents read your cluster, delivery, policies and cost with your permissions, cite the platform’s own knowledge, and turn any change into a pull request for you to review.`
           : 'AI isn’t configured on this cluster yet (set AI_BASE_URL / AI_MODEL). Type any page, app or setting to jump straight to it.'}
       </p>
 
       {!configured && navHint ? (
-        <div className="mt-6 text-[12px] text-content-muted">
+        <div className="rise-in mt-6 text-[12px] text-content-muted" style={rise(180)}>
           Press <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">⏎</kbd> to open{' '}
           <span className="font-medium text-content">{navHint.label}</span>
         </div>
@@ -136,6 +148,24 @@ function Hero({ configured, agents, agent, runtime, navHint }: { configured: boo
       {configured ? <StatusBar runtime={runtime} agent={agent} agents={agents} /> : null}
     </section>
   )
+}
+
+/**
+ * The entrance stagger.
+ *
+ * The hero used to carry one `rise-in` on the section, so four things arrived
+ * as a single slab. Dealing them out in reading order — mark, headline,
+ * sentence, then the facts — is what makes the page feel composed rather than
+ * merely loaded. The total is under a quarter of a second: any longer and the
+ * operator is waiting on an empty state, which is the opposite of the point.
+ *
+ * Only `animation-delay` is set here. `.rise-in` already declares `both`, so a
+ * delayed element holds the `from` frame instead of flashing in at full
+ * opacity first, and the reduced-motion block kills the animation outright —
+ * which means these delays cannot strand anything invisible.
+ */
+function rise(ms: number): React.CSSProperties {
+  return { animationDelay: `${ms}ms` }
 }
 
 /**
@@ -168,15 +198,34 @@ function Field() {
   )
 }
 
-/** The mark, with a bloom under it and a single arc of brand colour circling a hairline ring. */
+/**
+ * The mark: a bloom under it, a hairline ring around it, and one arc of brand
+ * colour travelling that ring.
+ *
+ * The span is sized to the ring, not to the mark. It used to be an
+ * `inline-flex` that the mark sized — 56px — while the ring it draws is 92px,
+ * so the element's layout box was 36px smaller than the thing on screen. The
+ * margin under it was therefore measured from the wrong edge, and by a
+ * different amount at each breakpoint, which is why the gap below the mark
+ * never matched the number in the class. It also made the span report as
+ * overflowing in every layout check.
+ *
+ * One mark at one size, rather than a pair with `@md:hidden` on each: two
+ * marks means two SVGs mounted and two `useId` gradient sets for one glyph,
+ * and the ring around it is what should grow with the container anyway.
+ *
+ * The bloom is wider than this box and is meant to be. A glow that stopped at
+ * a boundary would have an edge, and the whole point of it is that it does
+ * not; only the ring is a real boundary, so only the ring sets the size that
+ * the margin below is measured from.
+ */
 function Sigil() {
   return (
-    <span className="relative inline-flex items-center justify-center">
+    <span className="rise-in relative flex h-[92px] w-[92px] items-center justify-center @md:h-[108px] @md:w-[108px]">
       <span aria-hidden className="absolute h-32 w-32 rounded-full bg-brand-500/14 blur-[40px] dark:bg-brand-500/25 @md:h-40 @md:w-40" />
-      <span aria-hidden className="absolute h-[92px] w-[92px] rounded-full border border-edge-subtle @md:h-[108px] @md:w-[108px]" />
-      <span aria-hidden className="ai-sweep absolute h-[92px] w-[92px] rounded-full @md:h-[108px] @md:w-[108px]" />
-      <AdharAiMark size={56} className="relative @md:hidden" />
-      <AdharAiMark size={64} className="relative hidden @md:inline-flex" />
+      <span aria-hidden className="absolute inset-0 rounded-full border border-edge-subtle" />
+      <span aria-hidden className="ai-sweep absolute inset-0 rounded-full" />
+      <AdharAiMark size={60} className="relative" />
     </span>
   )
 }
@@ -202,13 +251,16 @@ function StatusBar({ runtime, agent, agents }: { runtime: RuntimeInfo | null; ag
   const down = runtime?.configured && runtime.reachable === false
   const bad = Object.keys(runtime?.mcp?.unreachable ?? {}).length
 
-  const cells: Array<{ label: string; value: string; tone?: 'bad' }> = live
+  const cells: Array<{ label: string; value: string; tone?: 'bad'; title?: string }> = live
     ? [
       { label: 'MCP', value: `${runtime!.mcp?.connected.length ?? 0}${bad ? ` · ${bad} down` : ''}`, tone: bad ? 'bad' : undefined },
       { label: 'Tools', value: String(runtime!.tools?.length ?? 0) },
       // The runtime can report a whole sentence here ("lexical over pgvector
       // (no embeddings configured)"); a status bar is a glance, not a log.
-      { label: 'Grounding', value: runtime!.rag ? runtime!.rag.split(/[(,]/)[0].trim() : 'platform knowledge' },
+      // The trimmed value is the glance; `title` keeps the runtime's full
+      // sentence ("lexical over pgvector (no embeddings configured)")
+      // reachable, since the split throws away the part that says why.
+      { label: 'Grounding', value: runtime!.rag ? runtime!.rag.split(/[(,]/)[0].trim() : 'platform knowledge', title: runtime!.rag ?? undefined },
       { label: 'Writes', value: 'pull requests' },
     ]
     : down
@@ -224,7 +276,7 @@ function StatusBar({ runtime, agent, agents }: { runtime: RuntimeInfo | null; ag
     ]
 
   return (
-    <div className="mt-10 flex w-full max-w-2xl flex-col items-center @md:mt-12">
+    <div className="rise-in mt-10 flex w-full max-w-2xl flex-col items-center @md:mt-12" style={rise(180)}>
       <dl className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 font-mono text-[11px] @md:gap-x-7">
         <div className="flex items-center gap-1.5">
           <span className="relative flex h-1.5 w-1.5">
@@ -237,7 +289,7 @@ function StatusBar({ runtime, agent, agents }: { runtime: RuntimeInfo | null; ag
         </div>
 
         {cells.map((c) => (
-          <div key={c.label} className="flex items-center gap-1.5">
+          <div key={c.label} className="flex items-center gap-1.5" title={c.title}>
             <dt className="font-sans uppercase tracking-[0.1em] text-content-subtle">{c.label}</dt>
             <dd className={cn('tabular-nums', c.tone === 'bad' ? 'text-rose-700 dark:text-rose-300' : 'text-content')}>{c.value}</dd>
           </div>

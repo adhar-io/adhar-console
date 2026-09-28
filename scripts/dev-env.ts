@@ -53,7 +53,7 @@
  * returning 401.
  */
 
-import { containerEnv, SSO_GATED, tunnelsFromEnv } from './dev-cluster.ts'
+import { containerEnv, parseServiceKeys, SSO_GATED, tunnelsFromEnv } from './dev-cluster.ts'
 
 const NS = Deno.env.get('ADHAR_NAMESPACE') ?? 'adhar-system'
 const DEPLOY = Deno.env.get('ADHAR_CONSOLE_DEPLOY') ?? 'adhar-console'
@@ -342,7 +342,20 @@ if (dropped.length) {
 // only usable address. `dev:tunnel` forwards them; this writes the matching
 // localhost URLs. Both read the mapping from dev-cluster.ts so they agree.
 const deployJson = await trySh(['kubectl', 'get', 'deploy', DEPLOY, '-n', NS, '-o', 'json'])
-const tunnels = deployJson ? tunnelsFromEnv(containerEnv(deployJson), SSO_GATED) : []
+
+// Only tunnel what this cluster actually runs. The Deployment's env lists the
+// whole platform catalogue whatever was installed, so on a smaller cluster
+// most of these have no Service. Writing a localhost URL for one of those is
+// worse than writing nothing: the console reads it as configured and every
+// panel for the tool fails on a refused connection instead of saying the tool
+// is not installed here.
+const svcJson = await trySh(['kubectl', 'get', 'svc', '-A', '-o', 'json'])
+const installed = svcJson ? parseServiceKeys(svcJson) : null
+
+const allTunnels = deployJson ? tunnelsFromEnv(containerEnv(deployJson), SSO_GATED) : []
+const tunnels = deployJson ? tunnelsFromEnv(containerEnv(deployJson), SSO_GATED, installed ?? undefined) : []
+const notInstalled = allTunnels.filter((t) => !tunnels.some((k) => k.varName === t.varName))
+
 console.log(
   `\x1b[36m▸\x1b[0m tunnels   ${
     tunnels.length
@@ -350,6 +363,12 @@ console.log(
       : 'none needed'
   }`,
 )
+if (notInstalled.length) {
+  console.log(
+    `\x1b[36m▸\x1b[0m absent    ${notInstalled.length} tools have no Service on this cluster, left unset: ` +
+      notInstalled.map((t) => t.varName.replace(/_URL$/, '').toLowerCase()).join(', '),
+  )
+}
 
 // ── 6. write it ─────────────────────────────────────────────────────────────
 const line = (k: string, v: string | null | undefined) => (v ? `${k}=${v}\n` : '')

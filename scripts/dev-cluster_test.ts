@@ -3,6 +3,7 @@ import {
   assignPorts,
   containerEnv,
   parseClusterService,
+  parseServiceKeys,
   PORT_BASE,
   SSO_GATED,
   tunnelsFromEnv,
@@ -119,4 +120,62 @@ Deno.test('the container env is read out of a Deployment, and bad JSON is empty'
   assertEquals(containerEnv(json), [{ name: 'A', value: 'b' }])
   assertEquals(containerEnv('{not json'), [])
   assertEquals(containerEnv('{}'), [])
+})
+
+/**
+ * The Deployment's env is the platform's catalogue, not an inventory. A kind
+ * cluster carries the same env with no Service behind most of it, and a
+ * tunnel written for one of those points the console at a dead local port.
+ */
+Deno.test('a tool with no Service on this cluster is not tunnelled', () => {
+  const env = [
+    { name: 'PROMETHEUS_URL', value: 'http://prometheus.adhar-system.svc:9090' },
+    { name: 'VAULT_URL', value: 'http://vault.adhar-system.svc:8200' },
+  ]
+  const installed = new Set(['adhar-system/prometheus'])
+  assertEquals(
+    tunnelsFromEnv(env, SSO_GATED, installed).map((t) => t.varName),
+    ['PROMETHEUS_URL'],
+  )
+})
+
+Deno.test('the same Service in another namespace does not count as installed', () => {
+  const env = [{ name: 'LOKI_URL', value: 'http://loki.adhar-system.svc:3100' }]
+  assertEquals(tunnelsFromEnv(env, SSO_GATED, new Set(['observability/loki'])), [])
+})
+
+Deno.test('omitting the inventory filters nothing', () => {
+  const env = [{ name: 'VAULT_URL', value: 'http://vault.adhar-system.svc:8200' }]
+  assertEquals(tunnelsFromEnv(env, SSO_GATED).map((t) => t.varName), ['VAULT_URL'])
+})
+
+/**
+ * Ports are `PORT_BASE + index` over the sorted survivors, so both scripts
+ * must filter with the same inventory or they land on different numbers.
+ * This pins the consequence: filtering renumbers, and that is fine precisely
+ * because it is computed here once and both callers pass the same set.
+ */
+Deno.test('ports are assigned over the surviving tools, with no gaps', () => {
+  const env = [
+    { name: 'ARGOCD_URL', value: 'http://argocd.adhar-system.svc:80' },
+    { name: 'LOKI_URL', value: 'http://loki.adhar-system.svc:3100' },
+    { name: 'VAULT_URL', value: 'http://vault.adhar-system.svc:8200' },
+  ]
+  const installed = new Set(['adhar-system/argocd', 'adhar-system/vault'])
+  assertEquals(
+    tunnelsFromEnv(env, SSO_GATED, installed).map((t) => [t.varName, t.localPort]),
+    [['ARGOCD_URL', PORT_BASE], ['VAULT_URL', PORT_BASE + 1]],
+  )
+})
+
+Deno.test('a Service list is read into namespace/name keys, and bad JSON is empty', () => {
+  const json = JSON.stringify({
+    items: [
+      { metadata: { namespace: 'adhar-system', name: 'gitea-http' } },
+      { metadata: { namespace: 'kube-system', name: 'kube-dns' } },
+      { metadata: { name: 'no-namespace' } },
+    ],
+  })
+  assertEquals(parseServiceKeys(json), new Set(['adhar-system/gitea-http', 'kube-system/kube-dns']))
+  assertEquals(parseServiceKeys('not json'), new Set())
 })

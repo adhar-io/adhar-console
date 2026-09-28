@@ -19,7 +19,7 @@
  * rather than leaving a port silently dead — a dead forward looks exactly like
  * a broken tool from inside the console.
  */
-import { containerEnv, SSO_GATED, type Tunnel, tunnelsFromEnv } from './dev-cluster.ts'
+import { containerEnv, parseServiceKeys, SSO_GATED, type Tunnel, tunnelsFromEnv } from './dev-cluster.ts'
 
 const NS = Deno.env.get('ADHAR_NAMESPACE') ?? 'adhar-system'
 const DEPLOY = Deno.env.get('ADHAR_CONSOLE_DEPLOY') ?? 'adhar-console'
@@ -46,7 +46,13 @@ if (!json) {
   Deno.exit(1)
 }
 
-const tunnels = tunnelsFromEnv(containerEnv(json), SSO_GATED)
+// Only forward tools this cluster actually runs. The Deployment's env is the
+// platform's whole catalogue; a smaller install carries the same env with no
+// Service behind most of it, and port-forwarding those just retries forever.
+const svcJson = await sh(['kubectl', 'get', 'svc', '-A', '-o', 'json'])
+const installed = svcJson ? parseServiceKeys(svcJson) : null
+
+const tunnels = tunnelsFromEnv(containerEnv(json), SSO_GATED, installed ?? undefined)
 if (tunnels.length === 0) {
   console.log('Nothing to tunnel — every tool is reachable on the public ingress.')
   Deno.exit(0)

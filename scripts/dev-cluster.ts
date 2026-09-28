@@ -70,10 +70,22 @@ export function parseClusterService(
  *
  * `only` narrows it to the tools that actually need a tunnel; everything else
  * resolves over the public ingress and is left alone.
+ *
+ * `installed` — `"<namespace>/<service>"` for every Service that exists right
+ * now — drops the tools the cluster does not actually run. The Deployment's
+ * env is the platform's full catalogue, not an inventory of what was
+ * installed: a smaller cluster (a local kind, say) carries the same env and
+ * has no Service behind most of it. Without this filter `dev:env` wrote a
+ * `localhost:52xx` URL for each of those, so the console believed the tool
+ * was configured and every panel for it failed on a refused connection, while
+ * `dev:tunnel` spun forever retrying a Service that is never coming back.
+ *
+ * Omit it and nothing is filtered, which is what the mapping tests want.
  */
 export function tunnelsFromEnv(
   env: Array<{ name: string; value?: string }>,
   only: ReadonlySet<string>,
+  installed?: ReadonlySet<string>,
 ): Tunnel[] {
   const found: Array<Omit<Tunnel, 'localPort'>> = []
   for (const e of env) {
@@ -81,6 +93,7 @@ export function tunnelsFromEnv(
     if (!only.has(e.name)) continue
     const svc = parseClusterService(e.value)
     if (!svc) continue
+    if (installed && !installed.has(`${svc.namespace}/${svc.service}`)) continue
     found.push({
       varName: e.name,
       namespace: svc.namespace,
@@ -90,6 +103,31 @@ export function tunnelsFromEnv(
     })
   }
   return assignPorts(found)
+}
+
+/**
+ * `kubectl get svc -A -o json` → `"<namespace>/<service>"` for each one.
+ *
+ * Both scripts fetch this the same way and hand it to `tunnelsFromEnv`, so
+ * they filter identically and still land on identical local ports — the whole
+ * point of computing the mapping in one place. A parse failure returns an
+ * empty set, and callers treat that as "could not inventory" rather than
+ * "nothing is installed", because filtering every tool away on a transient
+ * kubectl error would be worse than not filtering at all.
+ */
+export function parseServiceKeys(json: string): Set<string> {
+  const keys = new Set<string>()
+  try {
+    const d = JSON.parse(json)
+    for (const it of d?.items ?? []) {
+      const ns = it?.metadata?.namespace
+      const name = it?.metadata?.name
+      if (ns && name) keys.add(`${ns}/${name}`)
+    }
+  } catch {
+    // fall through to the empty set
+  }
+  return keys
 }
 
 /**

@@ -117,7 +117,7 @@ function Hero({ configured, agents, agent, runtime, navHint }: { configured: boo
           on the page as a slab of solid ink. `pb-1` because `bg-clip-text`
           crops descenders that overrun the line box. */}
       <h2 className="mt-8 text-balance bg-linear-to-b from-content to-content-muted bg-clip-text pb-1 text-[30px] font-semibold leading-[1.05] tracking-[-0.035em] text-transparent @md:mt-10 @md:text-[44px] @2xl:text-[52px]">
-        {configured ? 'Ask, investigate, propose.' : 'Where would you like to go?'}
+        {configured ? 'Ask, investigate, propose.' : 'How may I help you?'}
       </h2>
 
       <p className="mt-4 max-w-[46ch] text-pretty text-[13px] leading-relaxed text-content-muted @md:mt-5 @md:text-[15px]">
@@ -139,32 +139,30 @@ function Hero({ configured, agents, agent, runtime, navHint }: { configured: boo
 }
 
 /**
- * The ambient field behind the landing.
+ * The field behind the landing — a blueprint grid, and nothing else.
  *
- * A blueprint grid and two colour washes. The field has to end in the surface
- * and not in a line, or it reads as a card again — so the whole wrapper is
- * masked to an ellipse, not just the grid. `overflow-hidden` alone was the
- * bug in the first cut: it stopped the washes forcing a scrollbar, but it cut
- * their blur off square, and a 90px blur sliced at the box edge is a visible
- * straight line. The mask fades everything out well before that cut.
+ * It used to carry two drifting colour washes as well. On a page whose whole
+ * argument is restraint they were the loudest thing on it: a blue and a teal
+ * bloom tinting half the surface, which on a light theme read as the page
+ * having a background colour rather than as light falling across it. The grid
+ * alone gives the surface a scale without giving it a hue. The only colour
+ * left on the page is the mark's own, which is the one place it means
+ * something.
  *
  * The negative insets are the scroll container's own padding, cancelled: the
  * field is positioned against a box inside that padding, and without this it
  * stops short of every edge in a way that reads as a border. They cannot
  * overflow the container, because they only reach its border box.
  *
- * The washes are positioned with `left`/`top` and never a translate utility:
- * the drift keyframes set `transform` wholesale, so a Tailwind
- * `-translate-x-1/2` here would be overwritten the moment the animation runs.
+ * Masked to an ellipse so the grid dissolves instead of ending on a line —
+ * a grid with an edge is a panel, which is the thing this must never be.
  */
 function Field() {
   return (
     <div
       aria-hidden
-      className="pointer-events-none absolute -inset-x-3 -inset-y-4 -z-10 overflow-hidden sm:-inset-x-5 sm:-inset-y-5 md:-inset-x-8 [mask-image:radial-gradient(ellipse_85%_70%_at_50%_26%,black_40%,transparent_100%)]"
+      className="pointer-events-none absolute -inset-x-3 -inset-y-4 -z-10 overflow-hidden sm:-inset-x-5 sm:-inset-y-5 md:-inset-x-8 [mask-image:radial-gradient(ellipse_85%_70%_at_50%_26%,black_35%,transparent_100%)]"
     >
-      <div className="aurora-a absolute -top-1/4 left-[6%] h-[85%] w-[55%] rounded-full bg-brand-500/14 blur-[90px] dark:bg-brand-500/22" />
-      <div className="aurora-b absolute -top-[10%] right-[4%] h-[80%] w-[52%] rounded-full bg-accent-500/12 blur-[80px] dark:bg-accent-500/18" />
       <div className="absolute inset-0 opacity-45 dark:opacity-30 [background-image:linear-gradient(var(--color-edge-strong)_1px,transparent_1px),linear-gradient(90deg,var(--color-edge-strong)_1px,transparent_1px)] [background-size:56px_56px]" />
     </div>
   )

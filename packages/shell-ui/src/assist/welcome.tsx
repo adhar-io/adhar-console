@@ -48,7 +48,14 @@ export function Welcome({
   const attention = findings.length + insights.length
 
   return (
-    <div className="@container mx-auto w-full max-w-5xl pt-1">
+    <div className="relative flex w-full flex-1 flex-col">
+      {/* Outside the `max-w-5xl` column and outside the scroll container's own
+          padding, so the field spans the whole surface. Inside the column it
+          was 1024px of tinted background with plain surface either side of it,
+          which draws exactly the panel edge the design is built to avoid. */}
+      <Field />
+
+      <div className="@container relative mx-auto w-full max-w-5xl">
       <Hero configured={configured} agents={agents} agent={agent} runtime={runtime} navHint={navHint} />
 
       {configured ? (
@@ -77,6 +84,7 @@ export function Welcome({
 
         </div>
       ) : null}
+      </div>
     </div>
   )
 }
@@ -101,9 +109,7 @@ export function Welcome({
  */
 function Hero({ configured, agents, agent, runtime, navHint }: { configured: boolean; agents: AgentInfo[]; agent?: AgentInfo; runtime: RuntimeInfo | null; navHint?: CommandItem }) {
   return (
-    <section className="rise-in relative isolate flex flex-col items-center px-4 py-12 text-center @md:py-16">
-      <Field />
-
+    <section className="rise-in relative flex flex-col items-center px-4 pb-10 pt-6 text-center @md:pb-14 @md:pt-10">
       <Sigil />
 
       {/* Clipped to a gradient rather than a flat colour: the headline is the
@@ -142,6 +148,11 @@ function Hero({ configured, agents, agent, runtime, navHint }: { configured: boo
  * their blur off square, and a 90px blur sliced at the box edge is a visible
  * straight line. The mask fades everything out well before that cut.
  *
+ * The negative insets are the scroll container's own padding, cancelled: the
+ * field is positioned against a box inside that padding, and without this it
+ * stops short of every edge in a way that reads as a border. They cannot
+ * overflow the container, because they only reach its border box.
+ *
  * The washes are positioned with `left`/`top` and never a translate utility:
  * the drift keyframes set `transform` wholesale, so a Tailwind
  * `-translate-x-1/2` here would be overwritten the moment the animation runs.
@@ -150,11 +161,11 @@ function Field() {
   return (
     <div
       aria-hidden
-      className="pointer-events-none absolute inset-0 -z-10 overflow-hidden [mask-image:radial-gradient(ellipse_70%_62%_at_50%_42%,black_35%,transparent_100%)]"
+      className="pointer-events-none absolute -inset-x-3 -inset-y-4 -z-10 overflow-hidden sm:-inset-x-5 sm:-inset-y-5 md:-inset-x-8 [mask-image:radial-gradient(ellipse_85%_70%_at_50%_26%,black_40%,transparent_100%)]"
     >
-      <div className="aurora-a absolute -top-1/3 left-[8%] h-[130%] w-[55%] rounded-full bg-brand-500/12 blur-[90px] dark:bg-brand-500/20" />
-      <div className="aurora-b absolute -bottom-1/3 right-[6%] h-[120%] w-[50%] rounded-full bg-accent-500/10 blur-[80px] dark:bg-accent-500/16" />
-      <div className="absolute inset-0 opacity-35 dark:opacity-25 [background-image:linear-gradient(var(--color-edge-strong)_1px,transparent_1px),linear-gradient(90deg,var(--color-edge-strong)_1px,transparent_1px)] [background-size:56px_56px]" />
+      <div className="aurora-a absolute -top-1/4 left-[6%] h-[85%] w-[55%] rounded-full bg-brand-500/14 blur-[90px] dark:bg-brand-500/22" />
+      <div className="aurora-b absolute -top-[10%] right-[4%] h-[80%] w-[52%] rounded-full bg-accent-500/12 blur-[80px] dark:bg-accent-500/18" />
+      <div className="absolute inset-0 opacity-45 dark:opacity-30 [background-image:linear-gradient(var(--color-edge-strong)_1px,transparent_1px),linear-gradient(90deg,var(--color-edge-strong)_1px,transparent_1px)] [background-size:56px_56px]" />
     </div>
   )
 }

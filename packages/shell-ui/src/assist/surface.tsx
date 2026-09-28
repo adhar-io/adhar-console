@@ -398,20 +398,16 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
             className={cn(
               'min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-5 sm:py-5 md:px-8',
               'flex flex-col',
-              // An empty conversation used to sit at the very top with the rest
-              // of the page a void down to the composer, so it is centred —
-              // but only where it fits. `safe center` centres while there is
-              // spare room and falls back to the start edge once the content is
-              // taller than the box, which plain `justify-center` does not: on a
-              // phone that put the hero above the scrollable area with no way to
-              // reach it. Only for the welcome: a transcript reads from the top.
-              !hasThread && !canvas && '[justify-content:safe_center]',
             )}
           >
             {canvas && canvasBlocks.length ? (
               <CanvasBoard blocks={canvasBlocks} />
             ) : !hasThread ? (
-              <div className="w-full">
+              // `flex-1` so the landing owns the whole scroll area rather than
+              // just the height of its own content: its ambient field is
+              // positioned against this box, and a field that stops where the
+              // text stops is a panel, which is the thing it must not be.
+              <div className="flex w-full flex-1 flex-col">
               <Welcome
                 configured={state.configured}
                 agent={agent}

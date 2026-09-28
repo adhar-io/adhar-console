@@ -3,7 +3,6 @@ import type { AgentInfo } from '../agui/store.ts'
 import type { OperatorFinding, RuntimeInfo } from '../agui/client.ts'
 import { useNotifications } from '../notifications.ts'
 import type { CommandItem } from './nav.ts'
-import { IconBook, IconServer, IconShield, IconTool, SparkIcon } from './icons.tsx'
 import { AdharAiMark } from './mark.tsx'
 import { accentDot } from './accent.ts'
 
@@ -85,91 +84,156 @@ export function Welcome({
 /* ─────────────────────────────── hero ─────────────────────────────── */
 
 /**
- * The band at the top: the mark, one line, and one row of facts. Everything
- * here is either the runtime stating what it is made of right now, or the
- * one sentence a person needs before they type. The three-step explainer and
- * the grid of counters that used to sit here were more to read than the
- * agents beneath, which is the wrong way round on an empty page.
+ * The landing.
+ *
+ * There is no panel. The composition sits directly on the surface over an
+ * ambient field — a blueprint grid that dissolves before it reaches an edge,
+ * two slow colour washes, and a sweep circling the mark. The version before
+ * this one put the same content inside a glass card with every fact in its
+ * own bordered tile, which turned an empty state into a dashboard: six boxes
+ * competing for attention with the composer that is the only thing on this
+ * screen you are meant to use.
+ *
+ * What is left is the mark, one line of type, one sentence, and a status bar.
+ * Nothing in the status bar is decorative data — every value is the runtime's
+ * own, and when the runtime is unreachable it says so and reports what the
+ * console's agents can still do instead of showing empty counters.
  */
 function Hero({ configured, agents, agent, runtime, navHint }: { configured: boolean; agents: AgentInfo[]; agent?: AgentInfo; runtime: RuntimeInfo | null; navHint?: CommandItem }) {
   return (
-    <section className="rise-in relative overflow-hidden rounded-3xl border border-edge-default bg-surface-raised">
-      <div aria-hidden className="pointer-events-none absolute -left-24 -top-32 h-72 w-72 rounded-full bg-brand-500/12 blur-3xl dark:bg-brand-500/15" />
-      <div aria-hidden className="pointer-events-none absolute -right-20 -bottom-28 h-64 w-64 rounded-full bg-accent-500/10 blur-3xl dark:bg-accent-500/12" />
-      <div className="relative flex flex-col gap-3 p-4 @md:gap-4 @md:p-5 @2xl:flex-row @2xl:items-center @2xl:gap-6 @2xl:p-6">
-        <AdharAiMark size={48} className="shrink-0 @md:hidden" />
-        <AdharAiMark size={64} className="hidden shrink-0 @md:inline-flex" />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-[21px] font-semibold leading-tight tracking-tight text-content @md:text-[24px] @2xl:text-[26px]">
-              {configured ? 'Ask, investigate, propose.' : 'Where would you like to go?'}
-            </h2>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-edge-subtle bg-surface-app/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-content-subtle">
-              <SparkIcon size={9} /> Adhar AI
-            </span>
-          </div>
-          <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-content-muted">
-            {configured
-              ? `${agents.length || 'Specialist'} agents read your cluster, delivery, policies and cost with your permissions, cite the platform’s own knowledge, and turn any change into a pull request for you to review.`
-              : 'AI isn’t configured on this cluster yet (set AI_BASE_URL / AI_MODEL). Type any page, app or setting to jump straight to it.'}
-          </p>
-          {!configured && navHint ? (
-            <div className="mt-3 text-[12px] text-content-muted">
-              Press <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">⏎</kbd> to open{' '}
-              <span className="font-medium text-content">{navHint.label}</span>
-            </div>
-          ) : null}
-          {configured ? <FactsLine runtime={runtime} agent={agent} agents={agents} /> : null}
+    <section className="rise-in relative isolate flex flex-col items-center px-4 py-12 text-center @md:py-16">
+      <Field />
+
+      <Sigil />
+
+      {/* Clipped to a gradient rather than a flat colour: the headline is the
+          largest thing here, and a top-to-bottom fade keeps it from sitting
+          on the page as a slab of solid ink. `pb-1` because `bg-clip-text`
+          crops descenders that overrun the line box. */}
+      <h2 className="mt-8 text-balance bg-linear-to-b from-content to-content-muted bg-clip-text pb-1 text-[30px] font-semibold leading-[1.05] tracking-[-0.035em] text-transparent @md:mt-10 @md:text-[44px] @2xl:text-[52px]">
+        {configured ? 'Ask, investigate, propose.' : 'Where would you like to go?'}
+      </h2>
+
+      <p className="mt-4 max-w-[46ch] text-pretty text-[13px] leading-relaxed text-content-muted @md:mt-5 @md:text-[15px]">
+        {configured
+          ? `${agents.length || 'Specialist'} agents read your cluster, delivery, policies and cost with your permissions, cite the platform’s own knowledge, and turn any change into a pull request for you to review.`
+          : 'AI isn’t configured on this cluster yet (set AI_BASE_URL / AI_MODEL). Type any page, app or setting to jump straight to it.'}
+      </p>
+
+      {!configured && navHint ? (
+        <div className="mt-6 text-[12px] text-content-muted">
+          Press <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">⏎</kbd> to open{' '}
+          <span className="font-medium text-content">{navHint.label}</span>
         </div>
-      </div>
+      ) : null}
+
+      {configured ? <StatusBar runtime={runtime} agent={agent} agents={agents} /> : null}
     </section>
   )
 }
 
 /**
- * What the assistant is made of, right now, as one line of facts. Every
- * number is live from the runtime; when it is not configured the line says
- * what the console's own agents can do instead of showing empty counters.
+ * The ambient field behind the landing.
+ *
+ * A blueprint grid and two colour washes. The field has to end in the surface
+ * and not in a line, or it reads as a card again — so the whole wrapper is
+ * masked to an ellipse, not just the grid. `overflow-hidden` alone was the
+ * bug in the first cut: it stopped the washes forcing a scrollbar, but it cut
+ * their blur off square, and a 90px blur sliced at the box edge is a visible
+ * straight line. The mask fades everything out well before that cut.
+ *
+ * The washes are positioned with `left`/`top` and never a translate utility:
+ * the drift keyframes set `transform` wholesale, so a Tailwind
+ * `-translate-x-1/2` here would be overwritten the moment the animation runs.
  */
-function FactsLine({ runtime, agent, agents }: { runtime: RuntimeInfo | null; agent?: AgentInfo; agents: AgentInfo[] }) {
+function Field() {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-0 -z-10 overflow-hidden [mask-image:radial-gradient(ellipse_70%_62%_at_50%_42%,black_35%,transparent_100%)]"
+    >
+      <div className="aurora-a absolute -top-1/3 left-[8%] h-[130%] w-[55%] rounded-full bg-brand-500/12 blur-[90px] dark:bg-brand-500/20" />
+      <div className="aurora-b absolute -bottom-1/3 right-[6%] h-[120%] w-[50%] rounded-full bg-accent-500/10 blur-[80px] dark:bg-accent-500/16" />
+      <div className="absolute inset-0 opacity-35 dark:opacity-25 [background-image:linear-gradient(var(--color-edge-strong)_1px,transparent_1px),linear-gradient(90deg,var(--color-edge-strong)_1px,transparent_1px)] [background-size:56px_56px]" />
+    </div>
+  )
+}
+
+/** The mark, with a bloom under it and a single arc of brand colour circling a hairline ring. */
+function Sigil() {
+  return (
+    <span className="relative inline-flex items-center justify-center">
+      <span aria-hidden className="absolute h-32 w-32 rounded-full bg-brand-500/14 blur-[40px] dark:bg-brand-500/25 @md:h-40 @md:w-40" />
+      <span aria-hidden className="absolute h-[92px] w-[92px] rounded-full border border-edge-subtle @md:h-[108px] @md:w-[108px]" />
+      <span aria-hidden className="ai-sweep absolute h-[92px] w-[92px] rounded-full @md:h-[108px] @md:w-[108px]" />
+      <AdharAiMark size={56} className="relative @md:hidden" />
+      <AdharAiMark size={64} className="relative hidden @md:inline-flex" />
+    </span>
+  )
+}
+
+/**
+ * What the assistant is made of, right now — one line, not a grid of tiles.
+ *
+ * Label and value sit side by side, small caps against monospace, the way a
+ * status bar reads: scannable left to right, reflowing to as many lines as
+ * the width needs without ever leaving a hole — which is what a fixed column
+ * count did when the number of facts changed with the runtime's state.
+ *
+ * The pairs are separated by space alone. A hairline rule between them looks
+ * right on one line and wrong the moment the bar wraps, because the rule
+ * belonging to the first pair on the second line is then dangling at the
+ * start of it, and no selector can know which pair began a line. A rule above
+ * the whole bar went the same way for a duller reason: at edge contrast over
+ * 672px it is invisible, and at anything darker it draws a box lid.
+ */
+function StatusBar({ runtime, agent, agents }: { runtime: RuntimeInfo | null; agent?: AgentInfo; agents: AgentInfo[] }) {
   const consoleTools = agents.reduce((n, a) => n + (a.delegated ? 0 : a.tools), 0) || agent?.tools || 0
   const live = Boolean(runtime?.configured && runtime.reachable)
   const down = runtime?.configured && runtime.reachable === false
   const bad = Object.keys(runtime?.mcp?.unreachable ?? {}).length
-  const facts: Array<{ icon: React.ReactNode; text: string; tone?: 'ok' | 'bad' }> = live
+
+  const cells: Array<{ label: string; value: string; tone?: 'bad' }> = live
     ? [
-        { icon: <IconServer size={11} />, text: `${runtime!.mcp?.connected.length ?? 0} MCP servers${bad ? ` · ${bad} down` : ''}`, tone: bad ? 'bad' : 'ok' },
-        { icon: <IconTool size={11} />, text: `${runtime!.tools?.length ?? 0} tools` },
-        // The runtime can report a long sentence here ("lexical over pgvector
-        // (no embeddings configured)"); the line is a glance, not a log.
-        { icon: <IconBook size={11} />, text: runtime!.rag ? `grounded · ${runtime!.rag.split(/[(,]/)[0].trim()}` : 'grounded in platform knowledge' },
-        { icon: <IconShield size={11} />, text: 'changes become pull requests' },
-      ]
+      { label: 'MCP', value: `${runtime!.mcp?.connected.length ?? 0}${bad ? ` · ${bad} down` : ''}`, tone: bad ? 'bad' : undefined },
+      { label: 'Tools', value: String(runtime!.tools?.length ?? 0) },
+      // The runtime can report a whole sentence here ("lexical over pgvector
+      // (no embeddings configured)"); a status bar is a glance, not a log.
+      { label: 'Grounding', value: runtime!.rag ? runtime!.rag.split(/[(,]/)[0].trim() : 'platform knowledge' },
+      { label: 'Writes', value: 'pull requests' },
+    ]
     : down
-      ? [
-          { icon: <IconServer size={11} />, text: 'runtime unreachable — console agents still answer', tone: 'bad' },
-          { icon: <IconTool size={11} />, text: `${consoleTools} console tools` },
-          { icon: <IconShield size={11} />, text: 'reads with your RBAC · proposals only' },
-        ]
-      : [
-          { icon: <IconTool size={11} />, text: `${consoleTools} console tools · ${agents.length} agents` },
-          { icon: <IconShield size={11} />, text: 'reads with your RBAC · proposals only' },
-        ]
+    ? [
+      { label: 'Runtime', value: 'unreachable', tone: 'bad' },
+      { label: 'Console tools', value: String(consoleTools) },
+      { label: 'Writes', value: 'proposals only' },
+    ]
+    : [
+      { label: 'Console tools', value: String(consoleTools) },
+      { label: 'Agents', value: String(agents.length) },
+      { label: 'Writes', value: 'proposals only' },
+    ]
+
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11.5px] text-content-muted">
-      <span className={cn('inline-flex items-center gap-1.5 font-medium', live ? 'text-emerald-700 dark:text-emerald-300' : down ? 'text-rose-700 dark:text-rose-300' : 'text-content')}>
-        <span className="relative flex h-1.5 w-1.5">
-          {live ? <span aria-hidden className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" /> : null}
-          <span className={cn('relative h-1.5 w-1.5 rounded-full', live ? 'bg-emerald-500' : down ? 'bg-rose-500' : 'bg-content-subtle')} />
-        </span>
-        {live ? 'Runtime live' : down ? 'Runtime down' : 'Console agents'}
-      </span>
-      {facts.map((f, i) => (
-        <span key={i} className={cn('inline-flex items-center gap-1.5', f.tone === 'bad' && 'text-rose-700 dark:text-rose-300')}>
-          <span className={cn(f.tone === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : 'text-content-subtle')}>{f.icon}</span>
-          {f.text}
-        </span>
-      ))}
+    <div className="mt-10 flex w-full max-w-2xl flex-col items-center @md:mt-12">
+      <dl className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 font-mono text-[11px] @md:gap-x-7">
+        <div className="flex items-center gap-1.5">
+          <span className="relative flex h-1.5 w-1.5">
+            {live ? <span aria-hidden className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60 motion-reduce:hidden" /> : null}
+            <span className={cn('relative h-1.5 w-1.5 rounded-full', live ? 'bg-emerald-500' : down ? 'bg-rose-500' : 'bg-content-subtle')} />
+          </span>
+          <span className={cn('font-sans font-semibold uppercase tracking-[0.14em]', live ? 'text-emerald-700 dark:text-emerald-300' : down ? 'text-rose-700 dark:text-rose-300' : 'text-content-muted')}>
+            {live ? 'Live' : down ? 'Down' : 'Local'}
+          </span>
+        </div>
+
+        {cells.map((c) => (
+          <div key={c.label} className="flex items-center gap-1.5">
+            <dt className="font-sans uppercase tracking-[0.1em] text-content-subtle">{c.label}</dt>
+            <dd className={cn('tabular-nums', c.tone === 'bad' ? 'text-rose-700 dark:text-rose-300' : 'text-content')}>{c.value}</dd>
+          </div>
+        ))}
+      </dl>
     </div>
   )
 }

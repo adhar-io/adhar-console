@@ -76,6 +76,20 @@ export function Sidebar({
   const navRef = useRef<HTMLElement | null>(null)
   const routeSearch = useRouterState({ select: (s) => s.location.search })
 
+  /**
+   * The search, as a value the shuttle's effect can be keyed on.
+   *
+   * Rows that differ only by `?section=` — every Workspace settings row shares
+   * `/settings` — move the highlight without changing the pathname. The rail's
+   * effect re-measures after React commits, which is the only point the DOM is
+   * guaranteed settled; its MutationObserver fires too, but mid-commit, so it
+   * reads whichever row was marked a moment ago and the rail lands one
+   * navigation behind. Keying on a stable string rather than on `routeSearch`
+   * itself, because the selector hands back a fresh object each render and the
+   * effect would then re-run on every one of them.
+   */
+  const searchKey = useMemo(() => JSON.stringify(routeSearch ?? {}), [routeSearch])
+
   const autoExpandedId = useMemo<string | null>(() => {
     for (const section of visibleSections) {
       for (const item of section.items) {
@@ -157,7 +171,7 @@ export function Sidebar({
         <NavShuttle
           containerRef={navRef}
           collapsed={collapsed}
-          deps={[pathname, expandedId, visibleSections.length]}
+          deps={[pathname, searchKey, expandedId, visibleSections.length]}
         />
         {visibleSections.map((section, i) => (
           <Section

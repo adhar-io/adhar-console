@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom'
 import { Link, useRouterState } from '@tanstack/react-router'
 import { cn } from '@adhar-console/utils'
 import type { NavBadge, NavItem as TNavItem } from './nav-tree.tsx'
-import { ownsDestination } from './nav-ownership.ts'
+import { claimedSections, ownsDestination } from './nav-ownership.ts'
+import { DEFAULT_NAV } from './nav-tree.tsx'
 
 interface Props {
   item: TNavItem
@@ -615,10 +616,37 @@ export function isItemActive(
   } else if (pathname !== item.to && !pathname.startsWith(item.to + '/')) {
     return false
   }
+  const section = (search as { section?: string }).section
   if (item.search) {
-    return (search as { section?: string }).section === item.search
+    if (section === item.search) return true
+    // The row standing in for the page's default also holds the highlight when
+    // the URL names no section, or names one that no row claims — otherwise
+    // both cases light nothing, which is what they used to do.
+    return Boolean(item.sectionDefault) && (!section || !claimedFor(item.to!).has(section))
   }
   return !('section' in search)
+}
+
+/**
+ * `claimedSections` over the shipped nav, memoised per destination.
+ *
+ * `isItemActive` runs for every row on every route change and has only the one
+ * row in hand, so the set is derived from the module's own nav rather than
+ * threaded through as a prop. The nav is a module constant; the cache exists
+ * because walking it per row per render is not.
+ */
+const claimedCache = new Map<string, Set<string>>()
+function claimedFor(to: string): Set<string> {
+  let hit = claimedCache.get(to)
+  if (!hit) {
+    // `DEFAULT_NAV` is sections, not items — `flattenNav` descends `children`
+    // and would never reach a row, quietly returning an empty set and making
+    // the default row claim every section including the ones that are spoken
+    // for. Flatten the sections to their rows first.
+    hit = claimedSections(DEFAULT_NAV.flatMap((s) => s.items), to)
+    claimedCache.set(to, hit)
+  }
+  return hit
 }
 
 function descendantsActive(

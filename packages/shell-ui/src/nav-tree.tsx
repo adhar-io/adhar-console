@@ -7,6 +7,7 @@ import {
   IconCatalog,
   IconCloud,
   IconCode,
+  IconCompass,
   IconCreditCard,
   IconFolder,
   IconGauge,
@@ -36,6 +37,16 @@ export interface NavItem {
   to?: string
   /** Extra query for deep-linking into a module's internal tab. */
   search?: string
+  /**
+   * This row owns the destination when the URL names no section, or names one
+   * no row claims.
+   *
+   * A module's own section list is usually longer than the sidebar's curated
+   * subset — Workspace settings has 31 sections behind 14 rows — and the page
+   * has a default it falls back to. Without this, every unlisted section and
+   * the bare URL highlighted nothing at all.
+   */
+  sectionDefault?: boolean
   /** Icon rendered left of the label. */
   icon?: ReactNode
   /** Short descriptive text rendered below the label in expanded mode. */
@@ -539,6 +550,18 @@ export const DEFAULT_NAV: NavSection[] = [
     id: 'workspace',
     label: 'Workspace',
     items: [
+      {
+        // `/settings` with no section renders this one (workspace/home.tsx
+        // coerces anything unknown to 'organization'), so without a row for it
+        // the sidebar showed no selection on the page you land on first.
+        id: 'ws.general',
+        label: 'General',
+        to: '/settings',
+        search: 'organization',
+        sectionDefault: true,
+        icon: <IconCompass />,
+        roles: ORG_ADMIN_ROLES,
+      },
       {
         id: 'ws.members',
         label: 'Members',

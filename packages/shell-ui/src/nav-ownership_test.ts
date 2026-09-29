@@ -1,5 +1,10 @@
 import { assertEquals } from 'jsr:@std/assert'
-import { conflictingDestinations, ownsDestination, type NavOwnership } from './nav-ownership.ts'
+import {
+  claimedSections,
+  conflictingDestinations,
+  ownsDestination,
+  type NavOwnership,
+} from './nav-ownership.ts'
 
 /**
  * The bug: "CI Pipelines" (Develop) and "CI / CD" (Platform) both pointed at
@@ -82,4 +87,47 @@ Deno.test('the shipped nav tree has no conflicting destinations', async () => {
     [],
     'mark the borrowed row `crossLink: true` so one URL highlights one row',
   )
+})
+
+/**
+ * A module's section list is routinely longer than the sidebar's. Workspace
+ * settings has 31 sections behind 14 rows, and the page coerces anything it
+ * does not know to its default — so the bare URL and every unlisted section
+ * used to highlight nothing at all.
+ */
+const SETTINGS: NavOwnership[] = [
+  { id: 'ws.general', to: '/settings', search: 'organization', sectionDefault: true },
+  { id: 'ws.members', to: '/settings', search: 'members' },
+  { id: 'ws.theming', to: '/settings', search: 'theming' },
+  { id: 'other', to: '/platform', search: 'ci' },
+]
+
+Deno.test('claimed sections are the ones rows name at that destination', () => {
+  assertEquals(claimedSections(SETTINGS, '/settings'), new Set(['organization', 'members', 'theming']))
+})
+
+Deno.test('another destination\'s sections are not claimed here', () => {
+  assertEquals(claimedSections(SETTINGS, '/platform'), new Set(['ci']))
+})
+
+Deno.test('a destination no row serves claims nothing', () => {
+  assertEquals(claimedSections(SETTINGS, '/nowhere'), new Set())
+})
+
+Deno.test('a cross-link claims no section, so the default still covers it', () => {
+  const tree: NavOwnership[] = [
+    { id: 'owner', to: '/settings', search: 'members' },
+    { id: 'borrowed', to: '/settings', search: 'plan', crossLink: true },
+  ]
+  assertEquals(claimedSections(tree, '/settings'), new Set(['members']))
+})
+
+/**
+ * Sections, not rows. `flattenNav` descends `children`, so handing it the
+ * shipped nav — which nests rows under `items` — returns an empty set and the
+ * default row silently claims every section, including the spoken-for ones.
+ */
+Deno.test('rows nested under a section are not reached by the item walk', () => {
+  const sectionShaped = [{ id: 'workspace' }] as unknown as NavOwnership[]
+  assertEquals(claimedSections(sectionShaped, '/settings'), new Set())
 })

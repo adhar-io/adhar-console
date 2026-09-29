@@ -21,6 +21,8 @@ export interface NavOwnership {
   to?: string
   search?: string
   crossLink?: boolean
+  /** Holds the highlight for this `to` when the URL's section matches no row. */
+  sectionDefault?: boolean
   children?: NavOwnership[]
 }
 
@@ -33,6 +35,26 @@ export function destinationKey(item: NavOwnership): string | undefined {
 /** A row owns its destination unless it is declared a cross-link. */
 export function ownsDestination(item: NavOwnership): boolean {
   return !!item.to && !item.crossLink
+}
+
+/**
+ * Every `?section=` value some row claims at this destination.
+ *
+ * A module's own section list is routinely longer than the sidebar's: the
+ * workspace module has 31 sections and the sidebar curates 14 of them into
+ * rows. Anything outside that 14 — and the bare URL, which the module coerces
+ * to its default — matched no row at all, so the sidebar showed no selection
+ * on pages reached straight from it. This set is what lets the row marked
+ * `sectionDefault` recognise "a section, but not one of ours" and hold the
+ * highlight, without it having to enumerate its siblings.
+ */
+export function claimedSections(items: NavOwnership[], to: string): Set<string> {
+  const out = new Set<string>()
+  for (const item of flattenNav(items)) {
+    if (!ownsDestination(item) || item.to !== to || !item.search) continue
+    out.add(item.search)
+  }
+  return out
 }
 
 export function flattenNav(items: NavOwnership[]): NavOwnership[] {

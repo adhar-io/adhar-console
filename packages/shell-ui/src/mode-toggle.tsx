@@ -44,22 +44,35 @@ export function ModeToggle({
   }
 
   if (variant === 'segmented') {
+    const index = mode === 'light' ? 0 : mode === 'system' ? 1 : 2
     return (
       <div
         role="radiogroup"
         aria-label="Color mode"
         className={cn(
-          'inline-flex items-center rounded-full border border-edge-default bg-surface-raised p-0.5 text-[11px] font-medium shadow-sm',
+          'relative inline-flex items-center rounded-full border border-edge-default bg-surface-sunken p-0.5 text-[11px] font-medium',
           className,
         )}
       >
-        <Seg active={mode === 'light'} onClick={() => commit('light')} label="Light">
+        {/* One thumb that travels, rather than a fill that jumps between three
+            buttons. The selection then has a direction — you see Light move to
+            Dark — and only one element carries the elevation, so the control
+            reads as a physical switch instead of three tabs.
+
+            `w-9` is `2.25rem`; the offset is computed rather than written as
+            three arbitrary classes so the two cannot drift apart. */}
+        <span
+          aria-hidden
+          className="absolute left-0.5 top-0.5 h-7 w-9 rounded-full bg-surface-raised shadow-sm ring-1 ring-edge-default transition-transform duration-200 ease-out motion-reduce:transition-none"
+          style={{ transform: `translateX(calc(${index} * 2.25rem))` }}
+        />
+        <Seg active={mode === 'light'} onClick={() => commit('light')} label="Light" tone="text-amber-500">
           <SunIcon />
         </Seg>
-        <Seg active={mode === 'system'} onClick={() => commit('system')} label="System">
+        <Seg active={mode === 'system'} onClick={() => commit('system')} label="System" tone="text-brand-600 dark:text-brand-300">
           <SystemIcon />
         </Seg>
-        <Seg active={mode === 'dark'} onClick={() => commit('dark')} label="Dark">
+        <Seg active={mode === 'dark'} onClick={() => commit('dark')} label="Dark" tone="text-indigo-500 dark:text-indigo-300">
           <MoonIcon />
         </Seg>
       </div>
@@ -91,15 +104,28 @@ export function ModeToggle({
   )
 }
 
+/**
+ * One option on the segmented control.
+ *
+ * The button paints no background of its own — the travelling thumb behind it
+ * does that — so it sits above the thumb (`relative`) and carries only the
+ * icon. Selection shows as the icon taking its mode's own colour instead of a
+ * blue fill: warm for light, cool for dark, brand for system. It says which
+ * mode is selected without relying on the fill, which is the same blue
+ * whatever it sits under.
+ */
 function Seg({
   active,
   onClick,
   label,
+  tone,
   children,
 }: {
   active: boolean
   onClick(): void
   label: string
+  /** Colour the icon takes when this option is the selected one. */
+  tone: string
   children: React.ReactNode
 }) {
   return (
@@ -111,10 +137,9 @@ function Seg({
       title={label}
       onClick={onClick}
       className={cn(
-        'inline-flex h-7 w-9 items-center justify-center rounded-full transition-all',
-        active
-          ? 'bg-brand-500 text-white shadow-sm'
-          : 'text-content-muted hover:bg-surface-sunken hover:text-content',
+        'relative inline-flex h-7 w-9 items-center justify-center rounded-full transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
+        active ? tone : 'text-content-subtle hover:text-content',
       )}
     >
       {children}

@@ -398,6 +398,37 @@ function inUserNamespace(obj: { metadata?: { namespace?: string } }): boolean {
   return !isSystemNamespace(obj.metadata?.namespace)
 }
 
+/**
+ * Gitea repositories that are platform infrastructure, not the org's software.
+ *
+ * Every repo in the org otherwise becomes a catalog Component, and the platform
+ * keeps its own repos in that same org — so creating ONE service made six appear:
+ * `packages` and `environments` are the GitOps repos bootstrap seeds,
+ * `adhar-templates` is the golden-path collection the Create New page reads, and
+ * `adhar-ui` / `adhar-kit` are the shared libraries mirrored from GitHub. None of
+ * them is a service anybody created.
+ *
+ * This is deliberately the same set the supply-chain pipeline excludes from
+ * app-ci (see `packages/application/adhar-supply-chain/manifests/70-app-ci.yaml`,
+ * whose CEL interceptor skips exactly these names) and for the same reason: a
+ * push to one of them is platform traffic, not an application. The k8s side of
+ * this hook has always filtered its equivalent (`SYSTEM_NAMESPACES`); the Gitea
+ * side simply never had the counterpart.
+ */
+export const PLATFORM_REPOS = new Set([
+  'packages',
+  'environments',
+  'templates',
+  'adhar-templates',
+  'adhar-ui',
+  'adhar-kit',
+])
+
+/** True for a platform repo that should not surface as a catalog service. */
+export function isPlatformRepo(name: string | undefined): boolean {
+  return PLATFORM_REPOS.has((name ?? '').toLowerCase())
+}
+
 export function useLiveCatalog(): LiveCatalog {
   // Org whose repos are surfaced as Components — runtime config, never hardcoded.
   const giteaOrgName = useGiteaOrg()
@@ -448,7 +479,11 @@ export function useLiveCatalog(): LiveCatalog {
       .filter((s) => s.metadata?.name !== 'kubernetes')
       .map(serviceToResource)
     const apis = ings.map(ingressToApi)
-    const repoComponents = gitRepos.map((r) => repoToComponent(r, { toolUrl: giteaPublicUrl, baseDomain: publicBaseDomain }))
+    const repoComponents = gitRepos
+      // The org holds the platform's own repos alongside the team's; only the
+      // team's are catalog entries (see PLATFORM_REPOS).
+      .filter((r) => !isPlatformRepo(r.name))
+      .map((r) => repoToComponent(r, { toolUrl: giteaPublicUrl, baseDomain: publicBaseDomain }))
 
     // De-dupe: a k8s workload and its repo may share a name — k8s wins, but we
     // fold the repo link in so the source URL isn't lost.

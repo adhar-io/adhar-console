@@ -1,26 +1,24 @@
 import { cn } from '@adhar-console/utils'
 import type { AgentInfo } from '../agui/store.ts'
-import type { OperatorFinding, RuntimeInfo } from '../agui/client.ts'
-import { useNotifications } from '../notifications.ts'
+import type { RuntimeInfo } from '../agui/client.ts'
 import type { CommandItem } from './nav.ts'
 import { AdharAiMark } from './mark.tsx'
-import { accentDot } from './accent.ts'
 
 /**
  * The empty state — the one moment the operator looks at Adhar AI with
  * nothing else in the way, and the moment most worth keeping quiet.
  *
- * It is the mark, one line about how it works, one line of what the runtime
- * is made of right now, and anything the platform's own operators noticed
- * unprompted. Nothing else.
+ * It is the mark, one line about how it works, and one line of what the
+ * runtime is made of right now. Nothing else.
  *
- * It used to carry three more blocks — a card per agent, that agent's
- * starter prompts, and the conversations you had recently. Every one of them
- * duplicated a control that was already on screen: the composer has the
- * agent switcher and @mentions, and ⌘[ opens the conversation rail. What
- * they added instead was height and repetition — eight near-identical boxes
- * and a heading over each — on a page whose whole job is to get out of the
- * way of the composer underneath it.
+ * It used to carry five more blocks — a card per agent, that agent's starter
+ * prompts, the conversations you had recently, what the platform operators
+ * had noticed, and your unread notifications. Every one of them duplicated a
+ * control already on screen: the composer has the agent switcher and
+ * @mentions, ⌘[ opens the conversation rail, and findings and notifications
+ * both have a page of their own behind the bell. What they added here was
+ * height and repetition on a page whose whole job is to get out of the way of
+ * the composer underneath it.
  *
  * Container queries, not viewport breakpoints: the same component renders in
  * the ⌘K overlay and on the /ai page, and the overlay is narrow on a wide
@@ -30,23 +28,15 @@ export function Welcome({
   configured,
   agent,
   agents,
-  onPick,
   navHint,
-  findings,
   runtime,
 }: {
   configured: boolean
   agent?: AgentInfo
   agents: AgentInfo[]
-  onPick(prompt: string): void
   navHint?: CommandItem
-  findings: OperatorFinding[]
   runtime: RuntimeInfo | null
 }) {
-  const notif = useNotifications()
-  const insights = notif.items.filter((n) => !n.read && n.prompt).slice(0, 4)
-  const attention = findings.length + insights.length
-
   return (
     <div className="relative flex w-full flex-1 flex-col">
       {/* Outside the `max-w-5xl` column and outside the scroll container's own
@@ -56,36 +46,7 @@ export function Welcome({
       <Field />
 
       <div className="@container relative mx-auto w-full max-w-5xl">
-      <Hero configured={configured} agents={agents} agent={agent} runtime={runtime} navHint={navHint} />
-
-      {/* `attention`, not `configured`: with nothing to show this used to render
-          an empty flex column whose `mt-3` still took 12px under the hero, so
-          the landing sat fractionally off where the layout said it would. */}
-      {configured && attention ? (
-        <div className="mt-3 flex flex-col gap-3 @md:mt-4 @md:gap-4">
-          {(
-            <div className={cn('grid gap-3', findings.length && insights.length ? '@2xl:grid-cols-2' : '')}>
-              {findings.length ? <OperatorFindings items={findings} onAsk={onPick} /> : null}
-              {insights.length ? (
-                <Card title={`Needs attention · ${insights.length}`} hint="from your notifications" tone="violet">
-                  {insights.map((n) => (
-                    <Row
-                      key={n.id}
-                      onClick={() => {
-                        notif.markRead(n.id)
-                        onPick(n.prompt!)
-                      }}
-                      dot={n.kind === 'error' ? 'bg-rose-500' : n.kind === 'warning' ? 'bg-amber-500' : 'bg-violet-500'}
-                      title={n.title}
-                      cta="Ask"
-                    />
-                  ))}
-                </Card>
-              ) : null}
-            </div>
-          )}
-        </div>
-      ) : null}
+        <Hero configured={configured} agents={agents} agent={agent} runtime={runtime} navHint={navHint} />
       </div>
     </div>
   )
@@ -296,86 +257,6 @@ function StatusBar({ runtime, agent, agents }: { runtime: RuntimeInfo | null; ag
         ))}
       </dl>
     </div>
-  )
-}
-
-/* ─────────────────────────────── roster ─────────────────────────────── */
-
-/**
- * One agent on the roster. The tile is the agent's accent as a gradient with
- * its icon (or initial) in it; the footer says how many tools it has and
- * whether the external runtime handles it. Active = the one the composer
- * will send to, marked by a hairline of its accent along the top.
- */
-/* ─────────────────────────────── attention ─────────────────────────────── */
-
-/**
- * What the platform's operators concluded while nobody was watching — the
- * proactive half of the agentic platform, surfaced where an operator is
- * already looking for what to ask.
- */
-function OperatorFindings({ items, onAsk }: { items: OperatorFinding[]; onAsk(prompt: string): void }) {
-  const dot = (f: OperatorFinding) => {
-    const s = (f.severity ?? '').toLowerCase()
-    return s === 'critical' || s === 'error' ? 'bg-rose-500' : s === 'warning' || s === 'warn' ? 'bg-amber-500' : 'bg-sky-500'
-  }
-  return (
-    <Card title={`Adhar AI noticed · ${items.length}`} hint="from the platform operators, unprompted">
-      {items.slice(0, 6).map((f, i) => {
-        const title = f.title ?? f.summary ?? 'Finding'
-        return (
-          <Row
-            key={f.id ?? i}
-            dot={dot(f)}
-            title={title}
-            meta={f.operator}
-            cta="Investigate"
-            onClick={() => onAsk(`Investigate this finding from the ${f.operator ?? 'platform'} operator and tell me what to do about it: ${title}${f.summary && f.summary !== title ? ` — ${f.summary}` : ''}`)}
-          />
-        )
-      })}
-    </Card>
-  )
-}
-
-/* ─────────────────────────────── primitives ─────────────────────────────── */
-
-function Card({
-  title,
-  hint,
-  tone,
-  accent,
-  children,
-}: {
-  title: string
-  hint?: string
-  tone?: 'violet'
-  /** An agent accent: draws the card's eyebrow dot in it. */
-  accent?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className={cn('rise-in rounded-2xl border p-2.5', tone === 'violet' ? 'border-violet-200 bg-violet-50/50 dark:border-violet-500/30 dark:bg-violet-500/10' : 'border-edge-default bg-surface-raised')}>
-      <div className={cn('mb-1 flex items-baseline justify-between gap-2 px-2 pt-0.5 text-[10.5px] font-semibold uppercase tracking-wider', tone === 'violet' ? 'text-violet-700 dark:text-violet-300' : 'text-content-subtle')}>
-        <span className="inline-flex shrink-0 items-center gap-1.5">
-          {accent ? <span className={cn('h-1.5 w-1.5 rounded-full', accentDot(accent))} /> : null}
-          {title}
-        </span>
-        {hint ? <span className="min-w-0 truncate font-normal normal-case tracking-normal text-content-subtle" title={hint}>{hint}</span> : null}
-      </div>
-      <div className="space-y-0.5">{children}</div>
-    </div>
-  )
-}
-
-function Row({ dot, title, meta, cta, onClick }: { dot: string; title: string; meta?: string; cta: string; onClick(): void }) {
-  return (
-    <button type="button" onClick={onClick} className="group flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-surface-sunken/70">
-      <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', dot)} />
-      <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-content">{title}</span>
-      {meta ? <span className="hidden shrink-0 font-mono text-[10px] text-content-subtle sm:inline">{meta}</span> : null}
-      <span className="shrink-0 text-[11px] text-brand-600 opacity-0 transition-opacity group-hover:opacity-100 dark:text-brand-300">{cta} →</span>
-    </button>
   )
 }
 

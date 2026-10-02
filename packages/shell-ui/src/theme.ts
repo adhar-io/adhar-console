@@ -13,21 +13,32 @@ export interface ThemePreset {
   vars: Record<string, string>
 }
 
-const cobaltVars: Record<string, string> = {
-  '--color-brand-50': 'oklch(0.97 0.015 265)',
-  '--color-brand-100': 'oklch(0.94 0.03 265)',
-  '--color-brand-200': 'oklch(0.89 0.055 264)',
-  '--color-brand-300': 'oklch(0.81 0.09 263)',
-  '--color-brand-400': 'oklch(0.71 0.13 262)',
-  '--color-brand-500': 'oklch(0.58 0.17 262)',
-  '--color-brand-600': 'oklch(0.51 0.19 262)',
-  '--color-brand-700': 'oklch(0.44 0.18 262)',
-  '--color-brand-800': 'oklch(0.36 0.15 262)',
-  '--color-brand-900': 'oklch(0.28 0.11 262)',
-  '--color-brand-950': 'oklch(0.19 0.07 262)',
-  '--color-accent-50': 'oklch(0.97 0.025 180)',
-  '--color-accent-500': 'oklch(0.66 0.13 180)',
-  '--color-accent-600': 'oklch(0.58 0.14 180)',
+/**
+ * The default theme, and the brand.
+ *
+ * Sampled from the Adhar artwork rather than chosen: the wordmark runs
+ * #3b82f6 into #8b5cf6, the CTA and the word "open source" are #1d4ed8.
+ * These MUST stay in step with the `@theme` block in
+ * `apps/console/app/styles.css` — that block is the stylesheet default and
+ * this object is what the picker writes onto `:root`, so if they disagree,
+ * choosing the default theme silently repaints the app in the old one.
+ */
+const adharVars: Record<string, string> = {
+  '--color-brand-50': 'oklch(0.970 0.014 260)',
+  '--color-brand-100': 'oklch(0.932 0.032 260)',
+  '--color-brand-200': 'oklch(0.882 0.059 260)',
+  '--color-brand-300': 'oklch(0.809 0.105 258)',
+  '--color-brand-400': 'oklch(0.707 0.150 259)',
+  '--color-brand-500': 'oklch(0.623 0.188 260)',
+  '--color-brand-600': 'oklch(0.546 0.215 263)',
+  '--color-brand-700': 'oklch(0.488 0.217 264)',
+  '--color-brand-800': 'oklch(0.424 0.185 266)',
+  '--color-brand-900': 'oklch(0.379 0.140 266)',
+  '--color-brand-950': 'oklch(0.282 0.090 268)',
+  '--color-accent-50': 'oklch(0.969 0.016 294)',
+  '--color-accent-500': 'oklch(0.606 0.219 293)',
+  '--color-accent-600': 'oklch(0.541 0.247 293)',
+  '--color-accent-950': 'oklch(0.283 0.141 291)',
 }
 
 function ramp(hue: number, accentHue: number): Record<string, string> {
@@ -46,6 +57,9 @@ function ramp(hue: number, accentHue: number): Record<string, string> {
     '--color-accent-50': `oklch(0.97 0.025 ${accentHue})`,
     '--color-accent-500': `oklch(0.66 0.13 ${accentHue})`,
     '--color-accent-600': `oklch(0.58 0.14 ${accentHue})`,
+    // Every preset sets this, or it inherits the default theme's violet from
+    // the stylesheet and the login hero ends in the wrong family's deep tone.
+    '--color-accent-950': `oklch(0.28 0.09 ${accentHue})`,
   }
 }
 
@@ -76,16 +90,21 @@ function neutralRamp(accentHue: number): Record<string, string> {
     '--color-accent-50': `oklch(0.97 0.025 ${accentHue})`,
     '--color-accent-500': `oklch(0.66 0.13 ${accentHue})`,
     '--color-accent-600': `oklch(0.58 0.14 ${accentHue})`,
+    // Every preset sets this, or it inherits the default theme's violet from
+    // the stylesheet and the login hero ends in the wrong family's deep tone.
+    '--color-accent-950': `oklch(0.28 0.09 ${accentHue})`,
   }
 }
 
 export const THEMES: ThemePreset[] = [
   {
+    // The id stays `cobalt` so a workspace that already saved this theme keeps
+    // resolving to it; only what it paints has changed.
     id: 'cobalt',
-    name: 'Cobalt',
-    description: 'Default. Deep indigo / teal — calm and operator-friendly.',
-    swatches: ['#3366e0', '#26409e', '#12b1a3'],
-    vars: cobaltVars,
+    name: 'Adhar',
+    description: 'Default. The brand palette — blue into violet.',
+    swatches: ['#3b82f6', '#1d4ed8', '#8b5cf6'],
+    vars: adharVars,
   },
   {
     id: 'violet',

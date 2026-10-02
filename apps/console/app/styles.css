@@ -40,49 +40,58 @@
  * full Tailwind utility family (bg-brand-500, text-brand-600, ring-brand-500,
  * etc.). OKLCH for uniform perceptual steps across the scale.
  *
- * Palette intent:
- *   brand  — cobalt/indigo; used for primary actions, active nav state,
- *            and the signature gradient. Warmer than slate without being loud.
- *   surface — the layered gray background system (page → section → card).
- *   content — text colors with deliberate contrast steps.
- *   border  — three weights of divider/outline.
- *   edge    — a soft highlight for raised surfaces (shadow companion).
+ * Palette intent — taken from the Adhar brand artwork, sampled rather than
+ * guessed. The wordmark runs blue (#3b82f6) into violet (#8b5cf6), headings
+ * are a deep navy (#0f1b3d), the page sits on a blue-tinted white (#f2f7ff)
+ * and terminals are slate (#0f172a).
+ *
+ *   brand   — the artwork's blue. Primary actions, active nav, and the left
+ *             half of the signature gradient.
+ *   accent  — the artwork's violet, and the right half of that gradient. It
+ *             was teal, which made `from-brand-500 to-accent-500` run blue to
+ *             green — a gradient the brand does not have anywhere.
+ *   surface — the layered background system, tinted blue rather than neutral.
+ *   content — navy-leaning text with deliberate contrast steps.
+ *   edge    — three weights of divider/outline.
  */
 @theme {
-  /* ─ Brand (cobalt/indigo) ─ */
-  --color-brand-50: oklch(0.97 0.015 265);
-  --color-brand-100: oklch(0.94 0.03 265);
-  --color-brand-200: oklch(0.89 0.055 264);
-  --color-brand-300: oklch(0.81 0.09 263);
-  --color-brand-400: oklch(0.71 0.13 262);
-  --color-brand-500: oklch(0.58 0.17 262);
-  --color-brand-600: oklch(0.51 0.19 262);
-  --color-brand-700: oklch(0.44 0.18 262);
-  --color-brand-800: oklch(0.36 0.15 262);
-  --color-brand-900: oklch(0.28 0.11 262);
-  --color-brand-950: oklch(0.19 0.07 262);
+  /* ─ Brand (the artwork's blue) ─ */
+  --color-brand-50: oklch(0.970 0.014 260);
+  --color-brand-100: oklch(0.932 0.032 260);
+  --color-brand-200: oklch(0.882 0.059 260);
+  --color-brand-300: oklch(0.809 0.105 258);
+  --color-brand-400: oklch(0.707 0.150 259);
+  --color-brand-500: oklch(0.623 0.188 260); /* #3b82f6 — wordmark, CTA */
+  --color-brand-600: oklch(0.546 0.215 263); /* #2563eb */
+  --color-brand-700: oklch(0.488 0.217 264); /* #1d4ed8 — "open source" */
+  --color-brand-800: oklch(0.424 0.185 266);
+  --color-brand-900: oklch(0.379 0.140 266);
+  --color-brand-950: oklch(0.282 0.090 268);
 
-  /* ─ Accent (teal-leaning, for highlights + success-adjacent) ─ */
-  --color-accent-50: oklch(0.97 0.025 180);
-  --color-accent-500: oklch(0.66 0.13 180);
-  --color-accent-600: oklch(0.58 0.14 180);
+  /* ─ Accent (the artwork's violet) ─ */
+  --color-accent-50: oklch(0.969 0.016 294);
+  --color-accent-500: oklch(0.606 0.219 293); /* #8b5cf6 — wordmark tail */
+  --color-accent-600: oklch(0.541 0.247 293); /* #7c3aed */
+  /* Referenced by the assist surface. Undefined, Tailwind emitted no utility
+     for it at all and the class silently did nothing. */
+  --color-accent-950: oklch(0.283 0.141 291);
 
-  /* ─ Surfaces ─ */
-  --color-surface-app: oklch(0.985 0.003 260);
-  --color-surface-sunken: oklch(0.975 0.005 260);
+  /* ─ Surfaces (blue-tinted, as in the artwork) ─ */
+  --color-surface-app: oklch(0.981 0.008 260);
+  --color-surface-sunken: oklch(0.968 0.012 260);
   --color-surface-raised: oklch(1 0 0);
-  --color-surface-sidebar: oklch(0.975 0.006 260);
+  --color-surface-sidebar: oklch(0.972 0.010 260);
 
-  /* ─ Content / text ─ */
-  --color-content: oklch(0.21 0.02 260);
-  --color-content-muted: oklch(0.48 0.015 260);
-  --color-content-subtle: oklch(0.64 0.01 260);
+  /* ─ Content / text (navy-leaning) ─ */
+  --color-content: oklch(0.235 0.050 265);
+  --color-content-muted: oklch(0.48 0.030 263);
+  --color-content-subtle: oklch(0.64 0.020 262);
 
   /* ─ Border weights ─ */
   --color-edge: oklch(1 0 0);
-  --color-edge-subtle: oklch(0.95 0.005 260);
-  --color-edge-default: oklch(0.91 0.008 260);
-  --color-edge-strong: oklch(0.84 0.012 260);
+  --color-edge-subtle: oklch(0.948 0.010 260);
+  --color-edge-default: oklch(0.906 0.016 260);
+  --color-edge-strong: oklch(0.838 0.022 260);
 
   /*
    * ─ Mode-invariant surfaces ─
@@ -104,10 +113,10 @@
    *
    * `code-raised` is for toolbars/headers sitting on a code surface.
    */
-  --color-scrim: oklch(0.21 0.02 260);
-  --color-code: oklch(0.19 0.006 260);
-  --color-code-raised: oklch(0.23 0.007 260);
-  --color-code-fg: oklch(0.93 0.004 260);
+  --color-scrim: oklch(0.208 0.040 266);
+  --color-code: oklch(0.208 0.040 266); /* #0f172a — the artwork's terminal */
+  --color-code-raised: oklch(0.252 0.040 266);
+  --color-code-fg: oklch(0.93 0.010 262);
   --color-code-edge: oklch(0.31 0.009 260);
 
   /* ─ Motion ─ */
@@ -560,21 +569,21 @@ a {
   color-scheme: dark;
 
   /* ─ Surfaces (page → section → card) inverted to a deep slate ramp. ─ */
-  --color-surface-app: oklch(0.16 0.005 260);
-  --color-surface-sunken: oklch(0.13 0.005 260);
-  --color-surface-raised: oklch(0.21 0.006 260);
-  --color-surface-sidebar: oklch(0.18 0.006 260);
+  --color-surface-app: oklch(0.165 0.022 265);
+  --color-surface-sunken: oklch(0.135 0.020 265);
+  --color-surface-raised: oklch(0.213 0.026 265);
+  --color-surface-sidebar: oklch(0.185 0.024 265);
 
   /* ─ Content / text — light on dark, with the same 3-step contrast scale. ─ */
-  --color-content: oklch(0.96 0.003 260);
-  --color-content-muted: oklch(0.78 0.005 260);
-  --color-content-subtle: oklch(0.6 0.008 260);
+  --color-content: oklch(0.96 0.008 262);
+  --color-content-muted: oklch(0.78 0.016 262);
+  --color-content-subtle: oklch(0.60 0.020 262);
 
   /* ─ Borders inverted: subtle dividers on a dark surface. ─ */
-  --color-edge: oklch(0.24 0.006 260);
-  --color-edge-subtle: oklch(0.22 0.005 260);
-  --color-edge-default: oklch(0.3 0.008 260);
-  --color-edge-strong: oklch(0.42 0.012 260);
+  --color-edge: oklch(0.245 0.026 265);
+  --color-edge-subtle: oklch(0.225 0.022 265);
+  --color-edge-default: oklch(0.305 0.030 265);
+  --color-edge-strong: oklch(0.425 0.038 265);
 
   /*
    * NOTE: we deliberately do NOT override `--color-white` / `--color-black`

@@ -268,7 +268,7 @@ function OverviewTab({ repo: r, prs, onGo }: { repo: gitea.Repo; prs: number; on
                       Save
                     </Button>
                   </div>
-                  <p className='text-[10.5px] text-content-subtle'>Lowercase, up to 25 topics, 35 chars each.</p>
+                  <p className='text-[10px] text-content-subtle'>Lowercase, up to 25 topics, 35 chars each.</p>
                 </div>
               )
               : (topics.data?.length
@@ -318,7 +318,7 @@ function CloneRow({ label, value, onCopy }: { label: string; value: string; onCo
   return (
     <div className='flex items-center gap-1.5'>
       <span className='w-10 text-[10px] font-semibold uppercase tracking-wider text-content-subtle'>{label}</span>
-      <code className='min-w-0 flex-1 truncate rounded-md bg-surface-sunken px-2 py-1 font-mono text-[10.5px] text-content' title={value}>{value}</code>
+      <code className='min-w-0 flex-1 truncate rounded-md bg-surface-sunken px-2 py-1 font-mono text-[10px] text-content' title={value}>{value}</code>
       <button type='button' onClick={() => onCopy(value)} aria-label={`Copy ${label} URL`} className='flex h-6 w-6 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content'>
         <IconCopy />
       </button>
@@ -641,7 +641,7 @@ function ReleasesTab({ repo: r }: { repo: gitea.Repo }) {
                     ? (
                       <div className='mt-1.5 flex flex-wrap gap-1.5'>
                         {rel.assets.map((a) => (
-                          <a key={a.id} href={a.browser_download_url} className='rounded-md border border-edge-subtle bg-surface-sunken/40 px-1.5 py-0.5 text-[10.5px] text-content-muted hover:text-content'>
+                          <a key={a.id} href={a.browser_download_url} className='rounded-md border border-edge-subtle bg-surface-sunken/40 px-1.5 py-0.5 text-[10px] text-content-muted hover:text-content'>
                             {a.name}{a.download_count !== undefined ? ` · ${a.download_count}↓` : ''}
                           </a>
                         ))}
@@ -876,7 +876,7 @@ function HooksTab({ repo: r }: { repo: gitea.Repo }) {
                   <IconWebhook />
                   <code className='min-w-0 flex-1 truncate rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] text-content' title={h.config.url}>{h.config.url ?? '—'}</code>
                   <StatusBadge kind={h.active ? 'healthy' : 'unknown'}>{h.active ? 'active' : 'paused'}</StatusBadge>
-                  <span className='text-[10.5px] text-content-subtle'>{h.type} · {h.events.length ? h.events.join(', ') : 'all events'}</span>
+                  <span className='text-[10px] text-content-subtle'>{h.type} · {h.events.length ? h.events.join(', ') : 'all events'}</span>
                   <div className='flex items-center gap-1'>
                     <Button size='xs' variant='ghost' disabled={test.isPending} onClick={() => act('Test delivery sent', () => test.mutateAsync({ repo: r.name, id: h.id }))}>Test</Button>
                     <Button size='xs' variant='ghost' disabled={update.isPending} onClick={() => act(h.active ? 'Webhook paused' : 'Webhook resumed', () => update.mutateAsync({ repo: r.name, id: h.id, body: { active: !h.active } }))}>{h.active ? 'Pause' : 'Resume'}</Button>
@@ -1115,7 +1115,7 @@ export function Markdown({ text }: { text: string }) {
     let i = 0;
     let para: string[] = [];
     const flush = () => {
-      if (para.length) out.push(`<p class="my-2 text-[12.5px] leading-relaxed text-content-muted">${inline(para.join(' '))}</p>`);
+      if (para.length) out.push(`<p class="my-2 text-[12px] leading-relaxed text-content-muted">${inline(para.join(' '))}</p>`);
       para = [];
     };
     while (i < lines.length) {
@@ -1143,14 +1143,14 @@ export function Markdown({ text }: { text: string }) {
         const items: string[] = [];
         const ordered = /^\s*\d+\./.test(l);
         while (i < lines.length && /^\s*([-*+]|\d+\.)\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*([-*+]|\d+\.)\s+/, ''));
-        out.push(`<${ordered ? 'ol' : 'ul'} class="my-2 ml-5 ${ordered ? 'list-decimal' : 'list-disc'} space-y-0.5 text-[12.5px] text-content-muted">${items.map((it) => `<li>${inline(it)}</li>`).join('')}</${ordered ? 'ol' : 'ul'}>`);
+        out.push(`<${ordered ? 'ol' : 'ul'} class="my-2 ml-5 ${ordered ? 'list-decimal' : 'list-disc'} space-y-0.5 text-[12px] text-content-muted">${items.map((it) => `<li>${inline(it)}</li>`).join('')}</${ordered ? 'ol' : 'ul'}>`);
         continue;
       }
       if (/^\s*>\s?/.test(l)) {
         flush();
         const buf: string[] = [];
         while (i < lines.length && /^\s*>\s?/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, ''));
-        out.push(`<blockquote class="my-2 border-l-2 border-edge-default pl-3 text-[12.5px] italic text-content-muted">${inline(buf.join(' '))}</blockquote>`);
+        out.push(`<blockquote class="my-2 border-l-2 border-edge-default pl-3 text-[12px] italic text-content-muted">${inline(buf.join(' '))}</blockquote>`);
         continue;
       }
       if (/^\s*(-{3,}|\*{3,})\s*$/.test(l)) {

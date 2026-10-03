@@ -62,9 +62,9 @@ export function ThreadsRail({ onPicked }: { onPicked?(): void }) {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
         {!history.length ? (
-          <p className="px-2.5 py-4 text-[11.5px] leading-relaxed text-content-subtle">Conversations you have here are kept in this browser and listed by day.</p>
+          <p className="px-2.5 py-4 text-[11px] leading-relaxed text-content-subtle">Conversations you have here are kept in this browser and listed by day.</p>
         ) : !groups.length ? (
-          <p className="px-2.5 py-4 text-[11.5px] text-content-subtle">Nothing matches “{q}”.</p>
+          <p className="px-2.5 py-4 text-[11px] text-content-subtle">Nothing matches “{q}”.</p>
         ) : (
           groups.map((g) => (
             <div key={g.label} className="mb-2">
@@ -82,9 +82,9 @@ export function ThreadsRail({ onPicked }: { onPicked?(): void }) {
                       >
                         <div className="flex items-center gap-1.5">
                           <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', accentDot(agentAccent(t.agentId)))} aria-hidden />
-                          <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-content">{t.title}</span>
+                          <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-content">{t.title}</span>
                         </div>
-                        <div className="mt-0.5 truncate pl-3 text-[10.5px] text-content-subtle">
+                        <div className="mt-0.5 truncate pl-3 text-[10px] text-content-subtle">
                           {last ? plainText(last.content, 80) : `${t.messages.length} message${t.messages.length === 1 ? '' : 's'}`}
                         </div>
                         <div className="mt-0.5 flex items-center gap-1.5 pl-3 text-[10px] text-content-subtle">
@@ -111,7 +111,7 @@ export function ThreadsRail({ onPicked }: { onPicked?(): void }) {
       </div>
 
       {history.length ? (
-        <div className="flex items-center justify-between border-t border-edge-subtle px-3 py-2 text-[10.5px] text-content-subtle">
+        <div className="flex items-center justify-between border-t border-edge-subtle px-3 py-2 text-[10px] text-content-subtle">
           <span>Kept in this browser</span>
           <button type="button" onClick={() => assistStore.clearHistory()} className="font-medium hover:text-rose-600">Clear all</button>
         </div>

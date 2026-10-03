@@ -47,7 +47,7 @@ export function LiveIndicator({ className }: { className?: string }) {
       aria-label={label}
       role="status"
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[10.5px] font-medium transition-colors',
+        'inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[10px] font-medium transition-colors',
         live
           ? 'text-content-subtle'
           : connecting

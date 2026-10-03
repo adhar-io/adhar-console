@@ -32,11 +32,11 @@ const VARIANTS: Record<ButtonVariant, string> = {
     'disabled:bg-brand-300 disabled:text-white/70 disabled:ring-0',
   secondary:
     'border border-edge-default bg-surface-raised text-content shadow-sm hover:border-edge-strong hover:bg-surface-sunken ' +
-    'focus-visible:ring-2 focus-visible:ring-brand-500/20 ' +
+    'focus-visible:ring-2 focus-visible:ring-brand-500/40 ' +
     'disabled:text-content-subtle disabled:bg-surface-sunken',
   ghost:
     'text-content-muted hover:bg-surface-sunken hover:text-content ' +
-    'focus-visible:ring-2 focus-visible:ring-brand-500/20 ' +
+    'focus-visible:ring-2 focus-visible:ring-brand-500/40 ' +
     'disabled:text-content-subtle',
   danger:
     'bg-rose-600 text-white shadow-sm ring-1 ring-inset ring-white/10 hover:bg-rose-700 active:bg-rose-800 ' +
@@ -44,7 +44,7 @@ const VARIANTS: Record<ButtonVariant, string> = {
     'disabled:bg-rose-300',
   link:
     'text-brand-700 dark:text-brand-300 underline-offset-2 hover:text-brand-800 dark:hover:text-brand-200 hover:underline ' +
-    'focus-visible:ring-2 focus-visible:ring-brand-500/20 rounded-sm ' +
+    'focus-visible:ring-2 focus-visible:ring-brand-500/40 rounded-sm ' +
     'disabled:text-content-subtle',
 }
 

@@ -334,7 +334,7 @@ export function RepoList() {
         </div>
 
         {/* Active filters as chips, plus the count — the state of the list, in words. */}
-        <div className='mt-2 flex flex-wrap items-center gap-1.5 px-0.5 text-[11.5px] text-content-subtle'>
+        <div className='mt-2 flex flex-wrap items-center gap-1.5 px-0.5 text-[11px] text-content-subtle'>
           <span className='tabular-nums'>
             {list.length === all.length ? `${all.length} ${all.length === 1 ? 'repository' : 'repositories'}` : `${list.length} of ${all.length}`}
           </span>
@@ -451,7 +451,7 @@ function ToolbarBtn({ on, onClick, children, badge, title }: { on?: boolean; onC
       aria-expanded={on}
       aria-haspopup='dialog'
       className={cn(
-        'inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-[12.5px] font-medium transition-colors',
+        'inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium transition-colors',
         on ? 'border-edge-strong bg-surface-sunken text-content' : 'border-edge-default bg-surface-app text-content-muted hover:border-edge-strong hover:text-content',
       )}
     >
@@ -500,8 +500,8 @@ function FiltersMenu(p: {
           </Section>
         ) : null}
         <div className='mt-1 flex items-center justify-between border-t border-edge-subtle px-1 pt-2'>
-          <button type='button' onClick={p.onClear} className='text-[11.5px] font-medium text-content-muted hover:text-content'>Reset</button>
-          <button type='button' onClick={close} className='rounded-md bg-surface-sunken px-2.5 py-1 text-[11.5px] font-medium text-content hover:bg-edge-subtle'>Done</button>
+          <button type='button' onClick={p.onClear} className='text-[11px] font-medium text-content-muted hover:text-content'>Reset</button>
+          <button type='button' onClick={close} className='rounded-md bg-surface-sunken px-2.5 py-1 text-[11px] font-medium text-content hover:bg-edge-subtle'>Done</button>
         </div>
       </Popover>
     </div>
@@ -524,7 +524,7 @@ function SortMenu({ sort, dir, onSort, onDir, label }: { sort: SortKey; dir: Dir
             key={s.key}
             type='button'
             onClick={() => { onSort(s.key, s.key === sort ? undefined : s.defaultDir); }}
-            className={cn('flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-[12.5px] transition-colors', s.key === sort ? 'bg-surface-sunken font-medium text-content' : 'text-content-muted hover:bg-surface-sunken hover:text-content')}
+            className={cn('flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-[12px] transition-colors', s.key === sort ? 'bg-surface-sunken font-medium text-content' : 'text-content-muted hover:bg-surface-sunken hover:text-content')}
           >
             {s.label}
             {s.key === sort ? <span className='text-content-subtle'>{dir === 'asc' ? '↑' : '↓'}</span> : null}
@@ -579,7 +579,7 @@ function ChipGroup<T extends string>({ value, onChange, options, swatch }: { val
             aria-pressed={on}
             onClick={() => onChange(v)}
             className={cn(
-              'inline-flex h-6.5 items-center gap-1.5 rounded-full border px-2 text-[11.5px] transition-colors',
+              'inline-flex h-6.5 items-center gap-1.5 rounded-full border px-2 text-[11px] transition-colors',
               on ? 'border-content bg-content text-surface-raised' : 'border-edge-default bg-surface-app text-content-muted hover:border-edge-strong hover:text-content',
             )}
           >
@@ -718,7 +718,7 @@ function RepoRow({ repo: r, prs, onOpen, onArchive, onDelete }: { repo: gitea.Re
           <RepoBadges repo={r} compact />
           {r.language ? <span className='inline-flex items-center gap-1 text-[11px] text-content-subtle'><i className='h-2 w-2 rounded-full' style={{ background: langColor(r.language) }} />{r.language}</span> : null}
         </div>
-        {r.description ? <div className='truncate text-[11.5px] text-content-muted'>{r.description}</div> : null}
+        {r.description ? <div className='truncate text-[11px] text-content-muted'>{r.description}</div> : null}
       </div>
       <div className='hidden shrink-0 items-center gap-3 text-[11px] tabular-nums text-content-muted md:flex'>
         <span title='Open issues' className={r.open_issues_count > 0 ? 'text-amber-700 dark:text-amber-300' : ''}>{r.open_issues_count} issues</span>
@@ -953,7 +953,7 @@ function StatTile({ label, value, hint, tone = 'slate', on = false, onClick }: {
     >
       <span className='text-[10px] font-semibold uppercase tracking-wider text-content-subtle'>{label}</span>
       <span className={cn('truncate text-lg font-semibold leading-none tracking-tight tabular-nums', color)}>{value}</span>
-      {hint ? <span className='truncate text-[10.5px] text-content-subtle'>{hint}</span> : <span className='text-[10.5px]'>&nbsp;</span>}
+      {hint ? <span className='truncate text-[10px] text-content-subtle'>{hint}</span> : <span className='text-[10px]'>&nbsp;</span>}
     </Tag>
   );
 }

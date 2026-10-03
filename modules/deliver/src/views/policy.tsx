@@ -123,7 +123,7 @@ export function Policy() {
           so prevents the two screens from looking like they disagree — which
           they did, because this view used to read only cluster-scoped reports
           and therefore saw a fraction of the findings. */}
-      <p className="text-[11.5px] text-content-muted">
+      <p className="text-[11px] text-content-muted">
         The same Kyverno policies and findings as{' '}
         <a
           href="/platform?section=policies"

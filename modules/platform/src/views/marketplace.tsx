@@ -559,7 +559,7 @@ function StatTile({
       aria-pressed={onClick ? active : undefined}
       className={cn(
         'group relative flex flex-col gap-1 px-5 py-3.5 text-left transition-colors',
-        onClick && 'hover:bg-surface-sunken/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-400/40',
+        onClick && 'hover:bg-surface-sunken/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500/40',
         active && onClick && 'bg-surface-sunken/70',
       )}
     >

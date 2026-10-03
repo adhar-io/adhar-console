@@ -152,7 +152,7 @@ export function NotificationCenter() {
       />
 
       {!live ? (
-        <div className="mb-6 flex items-start gap-2.5 rounded-xl border border-amber-300/60 bg-amber-50/70 px-4 py-3 text-[12.5px] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+        <div className="mb-6 flex items-start gap-2.5 rounded-xl border border-amber-300/60 bg-amber-50/70 px-4 py-3 text-[12px] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
           <span className="mt-0.5 shrink-0"><IconInfo /></span>
           <span>The notification feed needs the console database (<code className="font-mono">DATABASE_URL</code>). Until then only the built-in seed is shown.</span>
         </div>
@@ -202,7 +202,7 @@ export function NotificationCenter() {
         ) : (
           grouped.map(([day, list]) => (
             <section key={day}>
-              <div className="sticky top-0 z-10 border-b border-edge-subtle bg-surface-sunken/80 px-4 py-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-content-subtle backdrop-blur">{day}</div>
+              <div className="sticky top-0 z-10 border-b border-edge-subtle bg-surface-sunken/80 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle backdrop-blur">{day}</div>
               <ul className="divide-y divide-edge-subtle">
                 {list.map((n) => (
                   <NotificationCard
@@ -264,7 +264,7 @@ export function NotificationCard({
       <span className={cn('mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', tone.bg, tone.text)}><KindIcon kind={n.kind} /></span>
       <div className="min-w-0 flex-1">
         <div className="flex items-start gap-2">
-          <div className={cn('min-w-0 flex-1 text-[13.5px] leading-snug', n.read ? 'text-content-muted' : 'font-semibold text-content')}>
+          <div className={cn('min-w-0 flex-1 text-[13px] leading-snug', n.read ? 'text-content-muted' : 'font-semibold text-content')}>
             {n.href ? (
               external
                 ? <a href={n.href} target="_blank" rel="noreferrer" onClick={onRead} className="hover:underline">{n.title} ↗</a>

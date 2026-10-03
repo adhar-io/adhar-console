@@ -581,7 +581,7 @@ export const PodTerminal = forwardRef<PodTerminalHandle, PodTerminalProps>(funct
                 aria-label={a.title ?? a.label}
                 disabled={status !== 'connected'}
                 onClick={() => sendAction(a.send)}
-                className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-1.5 font-mono text-[10.5px] text-content-muted transition-colors hover:border-edge-strong hover:text-content disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-1.5 font-mono text-[10px] text-content-muted transition-colors hover:border-edge-strong hover:text-content disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <IconPlay />
                 {a.label}
@@ -667,7 +667,7 @@ export const PodTerminal = forwardRef<PodTerminalHandle, PodTerminalProps>(funct
               if (e.key === 'Escape') toggleSearch()
             }}
             placeholder="Find in terminal…  (Enter next, Shift+Enter previous)"
-            className="h-6 min-w-0 flex-1 rounded-md border border-edge-default bg-surface-raised px-2 font-mono text-[11.5px] text-content outline-none placeholder:text-content-subtle focus:border-brand-400"
+            className="h-6 min-w-0 flex-1 rounded-md border border-edge-default bg-surface-raised px-2 font-mono text-[11px] text-content outline-none placeholder:text-content-subtle focus:border-brand-400"
           />
           <TermBtn label="Previous match (Shift+Enter)" onClick={() => runSearch('prev')}>
             <IconChevronUp />

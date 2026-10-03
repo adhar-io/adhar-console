@@ -65,7 +65,7 @@ export function ProjectPicker({
         title={active ? `Switch project — currently ${active.name}` : 'Pick a project'}
         className={cn(
           'group inline-flex max-w-[14rem] items-center gap-2 rounded-lg border border-transparent bg-surface-sunken/60 px-2 py-1 text-left transition-colors',
-          'hover:border-edge-default hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25',
+          'hover:border-edge-default hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
           open && 'border-brand-400 bg-surface-raised ring-2 ring-brand-400/20',
         )}
       >

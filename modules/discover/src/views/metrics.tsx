@@ -236,7 +236,7 @@ function MetricPanel({
             {edited ? (
               <span
                 title="This panel is showing an edited query, not the platform default"
-                className="shrink-0 rounded-md bg-amber-500/12 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300"
+                className="shrink-0 rounded-md bg-amber-500/12 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300"
               >
                 edited
               </span>

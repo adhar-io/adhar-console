@@ -466,7 +466,7 @@ export function KargoStages() {
                   <ul className="space-y-1">
                     {w.subscriptions.map((s, i) => (
                       <li key={i} className="flex items-center gap-2 font-mono text-[11px]">
-                        <span className="rounded bg-surface-sunken px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider text-content-muted">{s.kind}</span>
+                        <span className="rounded bg-surface-sunken px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-content-muted">{s.kind}</span>
                         <span className="truncate text-content-muted" title={s.repoURL}>{s.repoURL.replace(/^https?:\/\//, '')}</span>
                         {s.selector ? <span className="shrink-0 text-content-subtle">{s.selector}</span> : null}
                       </li>
@@ -662,7 +662,7 @@ function StatTile({ label, value, hint, tone, active = false, onClick }: { label
     >
       <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{label}</span>
       <span className={cn('text-xl font-semibold leading-none tabular-nums tracking-tight', tone ? toneText[tone] : 'text-content')}>{value}</span>
-      {hint ? <span className="truncate text-[10.5px] text-content-subtle">{hint}</span> : null}
+      {hint ? <span className="truncate text-[10px] text-content-subtle">{hint}</span> : null}
     </button>
   )
 }
@@ -716,14 +716,14 @@ function StageNode({
       <div className="mt-2 min-w-0 space-y-0.5">
         {alias ? (
           <div className="flex items-center gap-1.5">
-            <code className="truncate rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-content">{alias}</code>
+            <code className="truncate rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] font-semibold text-content">{alias}</code>
             {current ? <span className="shrink-0 text-[10px] text-content-subtle" title={formatAbsolute(current.created)}>{formatRelative(current.created)}</span> : null}
           </div>
         ) : (
           <div className="text-[11px] text-content-subtle">no freight yet</div>
         )}
         {image ? (
-          <div className="truncate font-mono text-[10.5px] text-content-muted" title={`${image.repoURL}:${image.tag}`}>
+          <div className="truncate font-mono text-[10px] text-content-muted" title={`${image.repoURL}:${image.tag}`}>
             {image.repoURL.replace(/^https?:\/\//, '').split('/').slice(-1)[0]}:<span className="text-content">{image.tag}</span>
           </div>
         ) : null}
@@ -815,7 +815,7 @@ function StageDetailPanel({
               <div className="space-y-1">
                 <div className="flex items-center gap-1.5">
                   <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content">{current.alias ?? current.id.slice(0, 12)}</code>
-                  <span className="text-[10.5px] text-content-subtle" title={formatAbsolute(current.created)}>{formatRelative(current.created)}</span>
+                  <span className="text-[10px] text-content-subtle" title={formatAbsolute(current.created)}>{formatRelative(current.created)}</span>
                 </div>
                 <div className="truncate font-mono text-[10px] text-content-subtle" title={current.id}>{current.id}</div>
                 {current.images.map((img, i) => (
@@ -912,10 +912,10 @@ function StageDetailPanel({
                 {mine.slice(0, 6).map((p) => (
                   <li key={p.name} className="flex items-center gap-2">
                     <StatusBadge kind={PROMO_KIND[p.phase] ?? 'unknown'}>{p.phase}</StatusBadge>
-                    <code className="truncate font-mono text-[10.5px] text-content-muted" title={p.freight}>
+                    <code className="truncate font-mono text-[10px] text-content-muted" title={p.freight}>
                       {freightList.find((f) => f.id === p.freight)?.alias ?? p.freight.slice(0, 12)}
                     </code>
-                    <span className="ml-auto shrink-0 text-[10.5px] text-content-subtle" title={formatAbsolute(p.created)}>{formatRelative(p.created)}</span>
+                    <span className="ml-auto shrink-0 text-[10px] text-content-subtle" title={formatAbsolute(p.created)}>{formatRelative(p.created)}</span>
                   </li>
                 ))}
               </ul>
@@ -1014,7 +1014,7 @@ function StageCard({
             <div className="mt-1 space-y-1">
               <div className="flex items-center gap-1.5">
                 <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content">{current.alias ?? current.id.slice(0, 12)}</code>
-                <span className="text-[10.5px] text-content-subtle" title={formatAbsolute(current.created)}>{formatRelative(current.created)}</span>
+                <span className="text-[10px] text-content-subtle" title={formatAbsolute(current.created)}>{formatRelative(current.created)}</span>
               </div>
               {current.images.map((img, i) => (
                 <div key={i} className="truncate font-mono text-[11px] text-content-muted" title={`${img.repoURL}:${img.tag}`}>

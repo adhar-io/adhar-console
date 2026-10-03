@@ -93,7 +93,7 @@ export function Performance() {
           type="button"
           onClick={() => setTab(id)}
           className={cn(
-            'rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-colors',
+            'rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors',
             tab === id ? 'bg-brand-600 text-white' : 'text-content-muted hover:bg-surface-sunken hover:text-content',
           )}
         >

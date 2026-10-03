@@ -211,7 +211,7 @@ function CustomRolesCard({
               {r.description ? (
                 <p className="mt-2 text-[12px] leading-relaxed text-content-muted">{r.description}</p>
               ) : null}
-              <p className="mt-2 text-[10.5px] text-content-subtle">
+              <p className="mt-2 text-[10px] text-content-subtle">
                 Updated {formatRelative(r.updatedAt)}
               </p>
               <div className="mt-3 flex justify-end gap-1.5">

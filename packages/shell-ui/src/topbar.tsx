@@ -64,7 +64,7 @@ export function Topbar({
                 className={cn(
                   'group hidden h-9 w-full min-w-0 max-w-md items-center gap-2.5 rounded-lg border border-edge-default bg-surface-sunken/40 px-3 text-sm text-content-muted transition-all duration-150',
                   'hover:border-brand-300 hover:bg-surface-raised hover:text-content',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25 sm:flex',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 sm:flex',
                 )}
               >
                 <span className="text-content-subtle transition-colors group-hover:text-brand-600">
@@ -144,7 +144,7 @@ const IconButton = ({
       active
         ? 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-1 ring-brand-200'
         : 'text-content-muted hover:bg-surface-sunken hover:text-content',
-      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25',
+      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
     )}
   >
     {children}
@@ -307,7 +307,7 @@ function UserMenu({ user, onSignOut }: { user: User; onSignOut?(): void }) {
           open
             ? 'bg-surface-sunken'
             : 'hover:bg-surface-sunken',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
         )}
       >
         <Avatar name={user.name} size="sm" />

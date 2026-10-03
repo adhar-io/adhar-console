@@ -109,7 +109,7 @@ function FlagList({ flags }: { flags: FeatureFlagState[] }) {
                   </StatusBadge>
                 </div>
                 <p className="mt-0.5 max-w-xl text-[12px] text-content-muted">{f.description}</p>
-                <p className="mt-1 font-mono text-[10.5px] text-content-subtle">{f.id}</p>
+                <p className="mt-1 font-mono text-[10px] text-content-subtle">{f.id}</p>
               </div>
               <ToggleField
                 checked={f.enabled}

@@ -16,13 +16,13 @@ export function Markdown({ text, className }: { text: string; className?: string
           case 'code':
             return (
               <div key={i} className="group/code relative">
-                <pre className="max-h-96 overflow-auto rounded-lg bg-code p-3 font-mono text-[11.5px] leading-relaxed text-code-fg">{b.text}</pre>
+                <pre className="max-h-96 overflow-auto rounded-lg bg-code p-3 font-mono text-[11px] leading-relaxed text-code-fg">{b.text}</pre>
                 {b.lang ? <span className="absolute right-2 top-1.5 text-[10px] uppercase text-code-fg/45">{b.lang}</span> : null}
                 <button type="button" onClick={() => void navigator.clipboard?.writeText(b.text)} className="absolute bottom-2 right-2 rounded bg-code-raised px-1.5 py-0.5 text-[10px] text-code-fg/70 opacity-0 transition-opacity hover:text-white group-hover/code:opacity-100">copy</button>
               </div>
             )
           case 'heading':
-            return <div key={i} className={cn('font-semibold tracking-tight text-content', b.level <= 2 ? 'text-[14.5px]' : 'text-[13.5px]')}>{inline(b.text)}</div>
+            return <div key={i} className={cn('font-semibold tracking-tight text-content', b.level <= 2 ? 'text-[14px]' : 'text-[13px]')}>{inline(b.text)}</div>
           case 'ul':
             return <ul key={i} className="list-disc space-y-1 pl-5 marker:text-content-subtle">{b.items.map((it, j) => <li key={j}>{inline(it)}</li>)}</ul>
           case 'ol':
@@ -32,8 +32,8 @@ export function Markdown({ text, className }: { text: string; className?: string
           case 'table':
             return (
               <div key={i} className="overflow-x-auto rounded-lg border border-edge-subtle">
-                <table className="w-full text-[12.5px]">
-                  <thead className="bg-surface-sunken/60 text-[10.5px] uppercase tracking-wider text-content-subtle">
+                <table className="w-full text-[12px]">
+                  <thead className="bg-surface-sunken/60 text-[10px] uppercase tracking-wider text-content-subtle">
                     <tr>{b.head.map((h, j) => <th key={j} className="px-2.5 py-1.5 text-left font-semibold">{inline(h)}</th>)}</tr>
                   </thead>
                   <tbody className="divide-y divide-edge-subtle">

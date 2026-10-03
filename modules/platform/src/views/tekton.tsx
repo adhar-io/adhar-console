@@ -1023,7 +1023,7 @@ function GraphNode({
       </div>
 
       <div className='flex items-center gap-1.5 pl-[21px]'>
-        <span className={cn('truncate text-[10.5px] font-medium', vis.labelTone)}>
+        <span className={cn('truncate text-[10px] font-medium', vis.labelTone)}>
           {shownLabel}
         </span>
         {sub

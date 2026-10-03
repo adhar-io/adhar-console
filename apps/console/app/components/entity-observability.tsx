@@ -322,7 +322,7 @@ export function EntityMetrics({
           return (
             <section key={g}>
               <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                <h4 className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-content-subtle">{GROUP_LABEL[g].title}</h4>
+                <h4 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-content-subtle">{GROUP_LABEL[g].title}</h4>
                 <span className="text-[11px] text-content-subtle">{GROUP_LABEL[g].blurb}</span>
               </div>
               <div className={cn('grid gap-3 sm:grid-cols-2', panels.length > 2 && 'xl:grid-cols-4', panels.length === 3 && 'xl:grid-cols-3')}>

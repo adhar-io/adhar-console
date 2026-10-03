@@ -1174,7 +1174,7 @@ function AppTile({
           tone.tile,
           'ring-1',
           tone.ring,
-          'hover:-translate-y-0.5 hover:shadow-md focus-visible:-translate-y-0.5 focus-visible:shadow-md focus-visible:ring-2 focus-visible:ring-brand-400/40',
+          'hover:-translate-y-0.5 hover:shadow-md focus-visible:-translate-y-0.5 focus-visible:shadow-md focus-visible:ring-2 focus-visible:ring-brand-500/40',
         )}
       >
         {iconBox}
@@ -1194,7 +1194,7 @@ function AppTile({
           pinned
             ? 'text-amber-500 dark:text-amber-400 opacity-100'
             : 'text-content-subtle opacity-0 hover:text-content group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100',
-          'hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40',
+          'hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
         )}
       >
         <IconPin filled={pinned} />

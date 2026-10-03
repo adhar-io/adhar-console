@@ -313,7 +313,7 @@ function ItemLink({
       <button
         type="button"
         onClick={onRowClick}
-        className="flex min-w-0 flex-1 items-center rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25"
+        className="flex min-w-0 flex-1 items-center rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40"
       >
         {label}
       </button>
@@ -334,7 +334,7 @@ function ItemLink({
       // `self-stretch`: the row is the touch target, but the LINK is what
       // receives the tap. Centred in a 44px row it was still only as tall as
       // its text, so most of the row did nothing when a thumb landed on it.
-      className="flex min-w-0 flex-1 items-center self-stretch rounded outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25"
+      className="flex min-w-0 flex-1 items-center self-stretch rounded outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40"
     >
       {label}
     </Link>

@@ -235,7 +235,7 @@ export default function WorkspaceHome({ section: urlSection }: { section?: strin
                         {it.description ? (
                           <span
                             className={cn(
-                              'block text-[10.5px] leading-tight',
+                              'block text-[10px] leading-tight',
                               active ? 'text-brand-700/70' : 'text-content-subtle',
                             )}
                           >

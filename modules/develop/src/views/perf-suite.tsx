@@ -234,7 +234,7 @@ function TestList({
                       )}
                     >
                       <span className="block truncate font-mono text-[12px] text-content">{t}</span>
-                      <span className="mt-0.5 flex items-center gap-1.5 text-[10.5px] text-content-subtle">
+                      <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-content-subtle">
                         {run
                           ? (
                             <>

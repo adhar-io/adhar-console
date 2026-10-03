@@ -388,7 +388,7 @@ function TeamCard({ team, onManage, onDelete }: { team: WsTeam; onManage(): void
             {team.keycloakSynced ? 'RBAC' : 'console-only'}
           </StatusBadge>
         </div>
-        <p className="line-clamp-2 min-h-[2.5rem] text-[12.5px] leading-relaxed text-content-muted">
+        <p className="line-clamp-2 min-h-[2.5rem] text-[12px] leading-relaxed text-content-muted">
           {team.description || 'No description yet.'}
         </p>
         <dl className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -397,7 +397,7 @@ function TeamCard({ team, onManage, onDelete }: { team: WsTeam; onManage(): void
           <Fact label="Created" value={formatRelative(team.createdAt)} small />
         </dl>
         {team.keycloakGroup ? (
-          <div className="truncate rounded-md bg-surface-sunken px-2 py-1 font-mono text-[10.5px] text-content-subtle" title={team.keycloakGroup}>
+          <div className="truncate rounded-md bg-surface-sunken px-2 py-1 font-mono text-[10px] text-content-subtle" title={team.keycloakGroup}>
             group · {team.keycloakGroup}
           </div>
         ) : null}

@@ -958,7 +958,7 @@ const ToolbarBtn = forwardRef<HTMLButtonElement, { on: boolean; onClick(): void;
       title={title}
       aria-pressed={on}
       className={cn(
-        'inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11.5px] font-medium transition-colors',
+        'inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-medium transition-colors',
         on
           ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-500/40 dark:bg-brand-500/10 dark:text-brand-300'
           : 'border-edge-default bg-surface-raised text-content-muted hover:border-edge-strong hover:text-content',

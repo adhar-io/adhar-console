@@ -402,7 +402,7 @@ function Trigger({
       title={title}
       className={cn(
         'inline-flex h-9 max-w-[11rem] items-center gap-1.5 rounded-lg border bg-surface-raised px-2.5 text-xs font-medium text-content transition-colors',
-        'hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25 disabled:opacity-60',
+        'hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:opacity-60',
         tone === 'warn' ? 'border-amber-300 dark:border-amber-500/40' : 'border-edge-default',
         open && 'ring-2 ring-brand-500/25',
       )}

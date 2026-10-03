@@ -374,7 +374,7 @@ function ScenarioCard({ scenario, on, onToggle }: { scenario: Scenario; on: bool
     >
       <div className="flex items-center gap-2">
         <span className={cn('h-3.5 w-3.5 shrink-0 rounded border', on ? 'border-brand-500 bg-brand-600' : 'border-edge-strong')} />
-        <span className="text-[12.5px] font-medium text-content">{scenario.title}</span>
+        <span className="text-[12px] font-medium text-content">{scenario.title}</span>
         <span className={cn('ml-auto text-[10px] font-medium uppercase', BLAST_TONE[scenario.blast])}>
           {scenario.blast}
         </span>
@@ -543,7 +543,7 @@ function Timeline({ steps }: { steps: Step[] }) {
           >
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge kind={STEP_KIND[s.phase]} pulse={s.phase === 'running'}>{s.phase}</StatusBadge>
-              <span className="text-[12.5px] font-medium text-content">
+              <span className="text-[12px] font-medium text-content">
                 {s.scenario?.title ?? (isPause ? 'Recovery pause' : isRevert ? 'Revert — stop and remove every engine' : s.template)}
               </span>
               {s.scenario ? <Badge>{s.scenario.fault}</Badge> : null}

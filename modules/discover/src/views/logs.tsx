@@ -375,7 +375,7 @@ export function Logs() {
       {/* ═══ query band ═══ */}
       <div className="rounded-xl border border-edge-default bg-surface-raised p-2.5 shadow-sm">
         <div className="flex flex-wrap items-start gap-2">
-          <span className="mt-1.5 hidden items-center gap-1.5 rounded-md bg-surface-sunken px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wider text-content-muted sm:inline-flex">
+          <span className="mt-1.5 hidden items-center gap-1.5 rounded-md bg-surface-sunken px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-content-muted sm:inline-flex">
             <LokiIcon size={12} /> LogQL
           </span>
           <textarea
@@ -392,7 +392,7 @@ export function Logs() {
             }}
             placeholder='{namespace="my-app"} |= "error"   — press / to focus, Enter to run'
             aria-label="LogQL query"
-            className="min-h-[34px] flex-1 resize-none rounded-lg border border-edge-default bg-surface-app px-3 py-1.5 font-mono text-[12.5px] leading-5 text-content outline-none placeholder:text-content-subtle focus:border-brand-400 focus:ring-2 focus:ring-brand-400/20"
+            className="min-h-[34px] flex-1 resize-none rounded-lg border border-edge-default bg-surface-app px-3 py-1.5 font-mono text-[12px] leading-5 text-content outline-none placeholder:text-content-subtle focus:border-brand-400 focus:ring-2 focus:ring-brand-400/20"
             style={{ height: 'auto' }}
             onInput={(e) => {
               const el = e.currentTarget
@@ -484,7 +484,7 @@ export function Logs() {
               type="button"
               onClick={() => setCustomOpen((o) => !o)}
               className={cn(
-                'inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11.5px] font-medium transition-colors',
+                'inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-medium transition-colors',
                 sel.kind === 'absolute'
                   ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-500/40 dark:bg-brand-500/10 dark:text-brand-300'
                   : 'border-edge-default bg-surface-raised text-content-muted hover:text-content',
@@ -526,7 +526,7 @@ export function Logs() {
           <Toggle on={text.exclude} onClick={() => setText({ ...text, exclude: !text.exclude })} title="Exclude matching lines">≠</Toggle>
 
           {refined ? (
-            <button type="button" onClick={reset} className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11.5px] font-medium text-content-muted hover:bg-surface-sunken hover:text-content">
+            <button type="button" onClick={reset} className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-content-muted hover:bg-surface-sunken hover:text-content">
               <IconReset /> Clear
             </button>
           ) : null}
@@ -709,7 +709,7 @@ export function Logs() {
                     setFollowing(true)
                     setUnseen(0)
                   }}
-                  className="sticky bottom-3 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-brand-600 px-3 py-1.5 text-[11.5px] font-semibold text-white shadow-lg"
+                  className="sticky bottom-3 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-brand-600 px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg"
                 >
                   <IconChevron /> {unseen} new line{unseen === 1 ? '' : 's'}
                 </button>
@@ -717,7 +717,7 @@ export function Logs() {
             </div>
 
             {/* footer */}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-edge-subtle px-3 py-1.5 text-[10.5px] text-content-subtle">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-edge-subtle px-3 py-1.5 text-[10px] text-content-subtle">
               <span>
                 {q.isFetching ? <span className="inline-flex items-center gap-1"><Spinner size={9} /> querying… </span> : null}
                 {fmtNum(rows.length)} shown · {fmtNum(all.length)} fetched · limit {prefs.limit}
@@ -812,7 +812,7 @@ function DiscoveryRail({
             key={t}
             type="button"
             onClick={() => setTab(t)}
-            className={cn('h-7 flex-1 rounded-md text-[11.5px] font-medium capitalize transition-colors', tab === t ? 'bg-surface-sunken text-content ring-1 ring-inset ring-edge-default' : 'text-content-muted hover:text-content')}
+            className={cn('h-7 flex-1 rounded-md text-[11px] font-medium capitalize transition-colors', tab === t ? 'bg-surface-sunken text-content ring-1 ring-inset ring-edge-default' : 'text-content-muted hover:text-content')}
           >
             {t}
             {t === 'fields' && facetGroups.length ? <span className="ml-1 text-[10px] text-content-subtle">{facetGroups.length}</span> : null}
@@ -836,9 +836,9 @@ function DiscoveryRail({
           ) : null}
           <div className="min-h-0 flex-1 overflow-y-auto">
             {labels.isLoading ? (
-              <div className="flex items-center gap-2 p-3 text-[11.5px] text-content-subtle"><Spinner size={11} /> loading labels…</div>
+              <div className="flex items-center gap-2 p-3 text-[11px] text-content-subtle"><Spinner size={11} /> loading labels…</div>
             ) : !labels.data?.length ? (
-              <p className="p-3 text-[11.5px] text-content-subtle">Loki reported no labels for this window.</p>
+              <p className="p-3 text-[11px] text-content-subtle">Loki reported no labels for this window.</p>
             ) : (
               <>
                 <div className="flex flex-wrap gap-1 border-b border-edge-subtle p-2">
@@ -847,7 +847,7 @@ function DiscoveryRail({
                       key={l}
                       type="button"
                       onClick={() => { setLabel(l); setFilter('') }}
-                      className={cn('rounded-md px-1.5 py-0.5 font-mono text-[10.5px] transition-colors', label === l ? 'bg-brand-600 text-white' : 'bg-surface-sunken text-content-muted hover:text-content')}
+                      className={cn('rounded-md px-1.5 py-0.5 font-mono text-[10px] transition-colors', label === l ? 'bg-brand-600 text-white' : 'bg-surface-sunken text-content-muted hover:text-content')}
                     >
                       {l}
                     </button>
@@ -858,12 +858,12 @@ function DiscoveryRail({
                     value={filter}
                     onChange={(e) => setFilter(e.target.value)}
                     placeholder={label ? `Filter ${label} values…` : 'Pick a label'}
-                    className="mb-1.5 h-7 w-full rounded-md border border-edge-default bg-surface-app px-2 text-[11.5px] text-content placeholder:text-content-subtle focus:border-brand-400 focus:outline-none"
+                    className="mb-1.5 h-7 w-full rounded-md border border-edge-default bg-surface-app px-2 text-[11px] text-content placeholder:text-content-subtle focus:border-brand-400 focus:outline-none"
                   />
                   {values.isLoading ? (
-                    <div className="flex items-center gap-2 py-2 text-[11.5px] text-content-subtle"><Spinner size={11} /> loading values…</div>
+                    <div className="flex items-center gap-2 py-2 text-[11px] text-content-subtle"><Spinner size={11} /> loading values…</div>
                   ) : shownValues.length === 0 ? (
-                    <p className="py-2 text-[11.5px] text-content-subtle">No values match.</p>
+                    <p className="py-2 text-[11px] text-content-subtle">No values match.</p>
                   ) : (
                     <ul className="space-y-px">
                       {shownValues.map((v) => (
@@ -896,7 +896,7 @@ function DiscoveryRail({
             <button
               type="button"
               onClick={() => onRun(draft || query)}
-              className="h-7 w-full rounded-md bg-surface-sunken text-[11.5px] font-medium text-content-muted hover:text-content"
+              className="h-7 w-full rounded-md bg-surface-sunken text-[11px] font-medium text-content-muted hover:text-content"
             >
               Re-run with these labels
             </button>
@@ -905,7 +905,7 @@ function DiscoveryRail({
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {facetGroups.length === 0 ? (
-            <p className="text-[11.5px] text-content-subtle">No repeated fields in this result yet.</p>
+            <p className="text-[11px] text-content-subtle">No repeated fields in this result yet.</p>
           ) : (
             <div className="space-y-3">
               {facetGroups.map((g) => (
@@ -1072,7 +1072,7 @@ function PatternsView({
               <button type="button" onClick={() => onOpen(p.sample)} className="block w-full text-left">
                 <span className="line-clamp-2 font-mono text-[12px] leading-relaxed text-content">{p.sample.message}</span>
               </button>
-              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-content-subtle">
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-content-subtle">
                 <span className="tabular-nums">{fmtNum(p.count)} × · {share}% of shown</span>
                 <span>{new Date(p.first).toLocaleTimeString()} → {new Date(p.last).toLocaleTimeString()}</span>
                 {LEVELS.filter((l) => p.levels[l] > 0).map((l) => (
@@ -1085,7 +1085,7 @@ function PatternsView({
               type="button"
               onClick={() => onIsolate(longestToken(p.sample.message))}
               title="Add a line filter for this pattern to the query"
-              className="mt-1 shrink-0 rounded-md border border-edge-default px-1.5 py-0.5 text-[10.5px] text-content-subtle opacity-0 transition-opacity hover:text-content group-hover:opacity-100"
+              className="mt-1 shrink-0 rounded-md border border-edge-default px-1.5 py-0.5 text-[10px] text-content-subtle opacity-0 transition-opacity hover:text-content group-hover:opacity-100"
             >
               isolate
             </button>
@@ -1158,7 +1158,7 @@ function TableView({ rows, ts, onOpen }: { rows: Row[]; ts: TsFormat; onOpen(e: 
           const lvl = levelOf(r.entry)
           return (
             <tr key={`${r.entry.timestamp}-${i}`} onClick={() => onOpen(r.entry)} className="cursor-pointer align-top hover:bg-surface-sunken/40">
-              <td className="whitespace-nowrap px-3 py-1 font-mono text-[10.5px] text-content-subtle">{formatTs(r.entry.timestamp, ts, now)}</td>
+              <td className="whitespace-nowrap px-3 py-1 font-mono text-[10px] text-content-subtle">{formatTs(r.entry.timestamp, ts, now)}</td>
               <td className="px-2 py-1">
                 <span className={cn('rounded px-1 py-px text-[10px] font-medium uppercase ring-1 ring-inset', LEVEL_CHIP[lvl])}>{lvl}</span>
               </td>
@@ -1167,7 +1167,7 @@ function TableView({ rows, ts, onOpen }: { rows: Row[]; ts: TsFormat; onOpen(e: 
                   {parsed.fields[c] ?? '—'}
                 </td>
               ))}
-              <td className="px-2 py-1 font-mono text-[11.5px] text-content">
+              <td className="px-2 py-1 font-mono text-[11px] text-content">
                 <span className="line-clamp-2">{parsed.fields.msg ?? parsed.fields.message ?? r.entry.message}</span>
               </td>
             </tr>
@@ -1221,10 +1221,10 @@ function LogRow({
       <span className={cn('mt-1 h-[calc(100%-0.5rem)] w-0.5 shrink-0 rounded-full', LEVEL_BAR[lvl])} aria-hidden />
       <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
         <span className="flex flex-wrap items-baseline gap-x-2">
-          <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-content-subtle">{formatTs(entry.timestamp, prefs.ts)}</span>
-          <span className={cn('shrink-0 rounded px-1 text-[9.5px] font-semibold uppercase ring-1 ring-inset', LEVEL_CHIP[lvl])}>{lvl}</span>
+          <span className="shrink-0 font-mono text-[10px] tabular-nums text-content-subtle">{formatTs(entry.timestamp, prefs.ts)}</span>
+          <span className={cn('shrink-0 rounded px-1 text-[9px] font-semibold uppercase ring-1 ring-inset', LEVEL_CHIP[lvl])}>{lvl}</span>
           {repeats > 1 ? (
-            <span className="shrink-0 rounded bg-surface-sunken px-1 text-[9.5px] font-semibold text-content-muted" title={`${repeats} identical lines collapsed`}>×{repeats}</span>
+            <span className="shrink-0 rounded bg-surface-sunken px-1 text-[9px] font-semibold text-content-muted" title={`${repeats} identical lines collapsed`}>×{repeats}</span>
           ) : null}
           <span className={cn('min-w-0 font-mono text-[12px] leading-relaxed text-content', prefs.wrap ? 'whitespace-pre-wrap break-words' : 'truncate')}>
             {parts.map((p, i) => (
@@ -1242,7 +1242,7 @@ function LogRow({
                 onClick={(e) => { e.stopPropagation(); onMatcher(k, v) }}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onMatcher(k, v) } }}
                 title={`Filter to ${k}="${v}"`}
-                className="rounded bg-surface-sunken px-1 font-mono text-[9.5px] text-content-subtle hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-brand-500/10 dark:hover:text-brand-300"
+                className="rounded bg-surface-sunken px-1 font-mono text-[9px] text-content-subtle hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-brand-500/10 dark:hover:text-brand-300"
               >
                 {k}={v}
               </span>
@@ -1273,7 +1273,7 @@ function Welcome({ onPick, onBrowse }: { onPick(q: string): void; onBrowse(): vo
             <LokiIcon size={20} />
           </span>
           <h2 className="mt-3 text-base font-semibold tracking-tight text-content">Search your logs</h2>
-          <p className="mt-1 max-w-sm text-[12.5px] leading-relaxed text-content-muted">
+          <p className="mt-1 max-w-sm text-[12px] leading-relaxed text-content-muted">
             Loki needs a stream selector to start. Pick a starter, browse the labels this cluster
             actually has, or write LogQL above.
           </p>
@@ -1295,9 +1295,9 @@ function Welcome({ onPick, onBrowse }: { onPick(q: string): void; onBrowse(): vo
               onClick={() => onPick(s.query)}
               className="group rounded-lg border border-edge-default bg-surface-app p-2.5 text-left transition-colors hover:border-brand-300 hover:bg-brand-50/40 dark:hover:border-brand-500/40 dark:hover:bg-brand-500/5"
             >
-              <div className="text-[12.5px] font-medium text-content">{s.label}</div>
-              <code className="mt-1 block truncate font-mono text-[10.5px] text-brand-700 dark:text-brand-300">{s.query}</code>
-              <div className="mt-0.5 text-[10.5px] text-content-subtle">{s.hint}</div>
+              <div className="text-[12px] font-medium text-content">{s.label}</div>
+              <code className="mt-1 block truncate font-mono text-[10px] text-brand-700 dark:text-brand-300">{s.query}</code>
+              <div className="mt-0.5 text-[10px] text-content-subtle">{s.hint}</div>
             </button>
           ))}
         </div>
@@ -1447,7 +1447,7 @@ function HistoryMenu({
             <div key={s.name} className="group flex items-center gap-1">
               <button type="button" onClick={() => onPick(s.query)} className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left hover:bg-surface-sunken">
                 <div className="truncate text-[12px] font-medium text-content">{s.name}</div>
-                <code className="block truncate font-mono text-[10.5px] text-content-subtle">{s.query}</code>
+                <code className="block truncate font-mono text-[10px] text-content-subtle">{s.query}</code>
               </button>
               <button type="button" onClick={() => onDeleteSaved(s.name)} aria-label={`Delete ${s.name}`} className="rounded p-1 text-content-subtle opacity-0 hover:text-rose-600 group-hover:opacity-100">
                 <IconTrash />
@@ -1462,7 +1462,7 @@ function HistoryMenu({
         {history.length ? <button type="button" onClick={onClearHistory} className="font-normal normal-case tracking-normal hover:text-rose-600">clear</button> : null}
       </div>
       {history.length === 0 ? (
-        <p className="px-2 py-2 text-[11.5px] text-content-subtle">Queries you run land here.</p>
+        <p className="px-2 py-2 text-[11px] text-content-subtle">Queries you run land here.</p>
       ) : (
         history.map((h, i) => (
           <button key={`${h}-${i}`} type="button" onClick={() => onPick(h)} className="block w-full truncate rounded-md px-2 py-1.5 text-left font-mono text-[11px] text-content-muted hover:bg-surface-sunken hover:text-content">
@@ -1479,7 +1479,7 @@ function SavePopover({ query, onSave, onClose }: { query: string; onSave(name: s
   return (
     <Popover onClose={onClose} className="right-0 w-72">
       <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Save query</div>
-      <code className="mb-2 block max-h-16 overflow-auto rounded-md bg-surface-sunken p-1.5 font-mono text-[10.5px] text-content-muted">{query || '—'}</code>
+      <code className="mb-2 block max-h-16 overflow-auto rounded-md bg-surface-sunken p-1.5 font-mono text-[10px] text-content-muted">{query || '—'}</code>
       <div className="flex gap-1.5">
         <input
           autoFocus
@@ -1525,11 +1525,11 @@ function CustomRange({ sel, onApply, onClose }: { sel: TimeSelection; onApply(fr
     <Popover onClose={onClose} className="left-0 w-72">
       <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Absolute range</div>
       <label className="mb-1.5 block">
-        <span className="mb-0.5 block text-[10.5px] text-content-subtle">From</span>
+        <span className="mb-0.5 block text-[10px] text-content-subtle">From</span>
         <input type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} className="h-8 w-full rounded-md border border-edge-default bg-surface-app px-2 text-[12px] text-content focus:border-brand-400 focus:outline-none" />
       </label>
       <label className="mb-2 block">
-        <span className="mb-0.5 block text-[10.5px] text-content-subtle">To</span>
+        <span className="mb-0.5 block text-[10px] text-content-subtle">To</span>
         <input type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} className="h-8 w-full rounded-md border border-edge-default bg-surface-app px-2 text-[12px] text-content focus:border-brand-400 focus:outline-none" />
       </label>
       <button

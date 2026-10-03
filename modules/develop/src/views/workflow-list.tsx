@@ -587,7 +587,7 @@ function cronColumns(
           <span className='flex min-w-0 flex-col'>
             <span className='truncate text-[12px] text-content'>{sched ? describeCron(sched.split(',')[0].trim(), c.spec?.timezone) : '—'}</span>
             <span className='flex items-center gap-1.5'>
-              <code className='text-[10.5px] text-content-subtle'>{sched ?? '—'}</code>
+              <code className='text-[10px] text-content-subtle'>{sched ?? '—'}</code>
               {once ? <span className='rounded bg-surface-sunken px-1 text-[10px] text-content-muted'>once</span> : null}
             </span>
           </span>
@@ -1205,7 +1205,7 @@ function StageConsole({ namespace, node, argoUrl }: { namespace: string; node: W
         {node.templateName || node.templateRef?.template ? <code className='text-[11px] text-content-muted'>{node.templateName ?? node.templateRef?.template}</code> : null}
         <span className='ml-auto text-[11px] text-content-subtle'>{fmtDuration(durationSecs(node.startedAt, node.finishedAt))}</span>
       </div>
-      <dl className='grid grid-cols-2 gap-x-6 gap-y-2 border-b border-edge-subtle px-3 py-2.5 text-[11.5px] sm:grid-cols-4'>
+      <dl className='grid grid-cols-2 gap-x-6 gap-y-2 border-b border-edge-subtle px-3 py-2.5 text-[11px] sm:grid-cols-4'>
         <Fact label='Type' value={node.type ?? '—'} />
         <Fact label='Started' value={node.startedAt ? formatAbsolute(node.startedAt) : '—'} />
         <Fact label='Finished' value={node.finishedAt ? formatAbsolute(node.finishedAt) : running ? 'running' : '—'} />
@@ -1414,7 +1414,7 @@ function StatTile({
       <span className={cn('text-xl font-semibold leading-none tabular-nums tracking-tight', tone ? toneText[tone] : 'text-content')}>
         {value}
       </span>
-      {hint ? <span className='truncate text-[10.5px] text-content-subtle'>{hint}</span> : null}
+      {hint ? <span className='truncate text-[10px] text-content-subtle'>{hint}</span> : null}
     </button>
   )
 }

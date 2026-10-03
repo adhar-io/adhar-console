@@ -309,7 +309,7 @@ function ClusterPanel({
                 </span>
               ) : null}
             </div>
-            <div className='mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-content-muted'>
+            <div className='mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-content-muted'>
               <span className='font-mono'>
                 {cluster.local ? 'in-cluster' : endpointOf(cluster.server)}
               </span>
@@ -569,7 +569,7 @@ function EnvDrawer({
                       return (
                         <li
                           key={d.metadata.name}
-                          className='flex items-center gap-2 px-3 py-2 text-[12.5px]'
+                          className='flex items-center gap-2 px-3 py-2 text-[12px]'
                         >
                           <span
                             className={cn(
@@ -665,7 +665,7 @@ function AppRow({ app }: { app: argocd.Application }) {
   const sync = app.status?.sync?.status ?? 'Unknown'
   const health = app.status?.health?.status ?? 'Unknown'
   return (
-    <li className='flex items-center gap-2 px-3 py-2 text-[12.5px]'>
+    <li className='flex items-center gap-2 px-3 py-2 text-[12px]'>
       <span className='truncate font-medium text-content'>{app.metadata.name}</span>
       <span className='ml-auto flex shrink-0 items-center gap-2'>
         <span className='inline-flex items-center gap-1 text-[11px] text-content-muted'>
@@ -770,7 +770,7 @@ function Fact({ label, value, src }: { label: string; value: string | number; sr
       <div className='text-[10px] font-semibold uppercase tracking-wider text-content-subtle'>
         {label}
       </div>
-      <div className='text-[12.5px] font-medium tabular-nums text-content'>{value}</div>
+      <div className='text-[12px] font-medium tabular-nums text-content'>{value}</div>
       {src ? <div className='text-[10px] text-content-subtle'>{src}</div> : null}
     </div>
   )
@@ -790,7 +790,7 @@ function Meter({
   const bar = tone === 'emerald' ? 'bg-emerald-500' : 'bg-sky-500'
   return (
     <div>
-      <div className='flex items-center justify-between text-[10.5px] text-content-muted'>
+      <div className='flex items-center justify-between text-[10px] text-content-muted'>
         <span>{label}</span>
         <span className='font-mono tabular-nums'>{count}</span>
       </div>

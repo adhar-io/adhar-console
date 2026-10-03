@@ -108,7 +108,7 @@ export function DeleteEntityDialog({
       ) : (
         <div className="space-y-4">
           <div>
-            <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-content-subtle">What will be removed</div>
+            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">What will be removed</div>
             <ul className="divide-y divide-edge-subtle rounded-xl border border-edge-default bg-surface-app/60">
               <Row
                 icon={<IconArgo />}
@@ -152,7 +152,7 @@ export function DeleteEntityDialog({
           {!sample ? (
             <label className="block">
               <span className="text-[12px] text-content-muted">
-                Type <code className="rounded bg-surface-sunken px-1 py-px font-mono text-[11.5px] text-content">{entity.metadata.name}</code> to confirm
+                Type <code className="rounded bg-surface-sunken px-1 py-px font-mono text-[11px] text-content">{entity.metadata.name}</code> to confirm
               </span>
               <input
                 value={typed}
@@ -195,7 +195,7 @@ function Row({
     <>
       <span className={cn('mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md', tone === 'on' ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300' : 'bg-surface-sunken text-content-subtle')}>{icon}</span>
       <span className="min-w-0 flex-1">
-        <span className={cn('block text-[12.5px] font-medium', tone === 'none' ? 'text-content-muted' : 'text-content', tone === 'off' && 'line-through decoration-content-subtle/60')}>{label}</span>
+        <span className={cn('block text-[12px] font-medium', tone === 'none' ? 'text-content-muted' : 'text-content', tone === 'off' && 'line-through decoration-content-subtle/60')}>{label}</span>
         {detail ? <span className="mt-0.5 block break-words text-[11px] leading-snug text-content-subtle">{detail}</span> : null}
       </span>
       {checkbox ? (
@@ -241,7 +241,7 @@ function Report({ result }: { result: TeardownResult }) {
           </span>
           <span className="min-w-0 flex-1">
             <span className="flex items-baseline justify-between gap-2">
-              <span className={cn('text-[12.5px] font-medium', !s.ok ? 'text-rose-700 dark:text-rose-300' : 'text-content')}>{s.label}</span>
+              <span className={cn('text-[12px] font-medium', !s.ok ? 'text-rose-700 dark:text-rose-300' : 'text-content')}>{s.label}</span>
               <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{!s.ok ? 'failed' : s.skipped ? 'skipped' : 'done'}</span>
             </span>
             {s.detail ? <span className="mt-0.5 block break-words text-[11px] leading-snug text-content-subtle">{s.detail}</span> : null}
@@ -251,7 +251,7 @@ function Report({ result }: { result: TeardownResult }) {
       <li className="flex items-start gap-3 px-3 py-2.5">
         <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-[11px] text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" aria-hidden>✓</span>
         <span className="min-w-0 flex-1">
-          <span className="text-[12.5px] font-medium text-content">Catalog entry</span>
+          <span className="text-[12px] font-medium text-content">Catalog entry</span>
           <span className="mt-0.5 block text-[11px] leading-snug text-content-subtle">Removed from this catalog. A live entry reappears only if its repository or workload still exists.</span>
         </span>
       </li>

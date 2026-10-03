@@ -147,7 +147,7 @@ function Starters({ agent, onPick }: { agent?: AgentInfo; onPick(prompt: string)
             title={st.prompt}
             className={cn(
               'group inline-flex items-center gap-1.5 rounded-full border border-edge-default bg-surface-raised/80 px-3.5 py-2',
-              'text-[12.5px] font-medium text-content-muted shadow-xs backdrop-blur-sm',
+              'text-[12px] font-medium text-content-muted shadow-xs backdrop-blur-sm',
               'transition-[color,border-color,box-shadow,transform] duration-150',
               'hover:-translate-y-px hover:border-brand-300 hover:text-content hover:shadow-sm',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',

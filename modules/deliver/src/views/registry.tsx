@@ -361,7 +361,7 @@ function ArtifactsPane({ repoName, host, scanners }: { repoName: string; host: s
           </div>
           {a.labels?.length ? (
             <div className="mt-1 flex flex-wrap gap-1">
-              {a.labels.map((l) => <span key={l.name} className="rounded px-1.5 py-0.5 text-[9.5px] font-medium text-white" style={{ background: l.color || 'var(--color-slate-500)' }}>{l.name}</span>)}
+              {a.labels.map((l) => <span key={l.name} className="rounded px-1.5 py-0.5 text-[9px] font-medium text-white" style={{ background: l.color || 'var(--color-slate-500)' }}>{l.name}</span>)}
             </div>
           ) : null}
         </div>
@@ -401,7 +401,7 @@ function ArtifactsPane({ repoName, host, scanners }: { repoName: string; host: s
       cell: (a) => (
         <div className="text-content-muted">
           <div title={formatAbsolute(a.push_time)}>{formatRelative(a.push_time)}</div>
-          {a.pull_time ? <div className="text-[10.5px] text-content-subtle" title={formatAbsolute(a.pull_time)}>pulled {formatRelative(a.pull_time)}</div> : null}
+          {a.pull_time ? <div className="text-[10px] text-content-subtle" title={formatAbsolute(a.pull_time)}>pulled {formatRelative(a.pull_time)}</div> : null}
         </div>
       ),
     },
@@ -672,7 +672,7 @@ function VersionsTab({ artifact: a, repo, host, onCopy }: { artifact: harbor.Art
                     <span className="font-mono text-[12px] font-semibold text-content">{t.name}</span>
                     {t.immutable ? <StatusBadge kind="info">immutable</StatusBadge> : null}
                   </div>
-                  <div className="mt-0.5 text-[10.5px] text-content-subtle">
+                  <div className="mt-0.5 text-[10px] text-content-subtle">
                     {t.push_time ? `pushed ${formatRelative(t.push_time)}` : 'push time not reported'}
                   </div>
                 </div>
@@ -856,9 +856,9 @@ function SupplyChainTab({ artifact: a, repo, host, scanners }: { artifact: harbo
                 <li key={x.digest} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
                   <div className="min-w-0">
                     <div className="text-[12px] font-semibold text-content">{x.type}</div>
-                    <div className="truncate font-mono text-[10.5px] text-content-subtle">{x.digest}</div>
+                    <div className="truncate font-mono text-[10px] text-content-subtle">{x.digest}</div>
                   </div>
-                  <div className="text-right text-[10.5px] text-content-subtle">
+                  <div className="text-right text-[10px] text-content-subtle">
                     {x.size !== undefined ? <div>{fmtBytes(x.size)}</div> : null}
                     {x.createdAt ? <div title={formatAbsolute(x.createdAt)}>{formatRelative(x.createdAt)}</div> : null}
                   </div>
@@ -1071,7 +1071,7 @@ function HistoryTab({ repo, artifact: a, available }: { repo: string; artifact: 
       <ol className="space-y-1">
         {rows.map((h, i) => (
           <li key={`${i}-${h.created ?? ''}`} className={cn('rounded-lg border px-3 py-2', h.emptyLayer ? 'border-dashed border-edge-default' : 'border-edge-default')}>
-            <div className="flex items-center justify-between gap-2 text-[10.5px] text-content-subtle">
+            <div className="flex items-center justify-between gap-2 text-[10px] text-content-subtle">
               <span>#{i + 1}{h.emptyLayer ? ' · metadata only' : ''}</span>
               {h.created ? <span title={formatAbsolute(h.created)}>{formatRelative(h.created)}</span> : null}
             </div>
@@ -1326,7 +1326,7 @@ function NexusComponentsPane({
       cell: (c) => (
         <div className="min-w-0">
           <div className="truncate font-mono text-[12px] font-semibold text-content">{c.name}</div>
-          {c.group ? <div className="truncate font-mono text-[10.5px] text-content-subtle">{c.group}</div> : null}
+          {c.group ? <div className="truncate font-mono text-[10px] text-content-subtle">{c.group}</div> : null}
         </div>
       ),
     },
@@ -1453,7 +1453,7 @@ function NexusComponentDrawer({ component: c, onClose }: { component: nexus.Nexu
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="break-all font-mono text-[12px] text-content">{a.path}</div>
-                        <div className="mt-0.5 text-[10.5px] text-content-subtle">
+                        <div className="mt-0.5 text-[10px] text-content-subtle">
                           {a.contentType ?? 'unknown type'}
                           {a.fileSize !== undefined ? ` · ${fmtBytes(a.fileSize)}` : ''}
                           {a.blobStoreName ? ` · blob store ${a.blobStoreName}` : ''}
@@ -1466,14 +1466,14 @@ function NexusComponentDrawer({ component: c, onClose }: { component: nexus.Nexu
                     <dl className="mt-2 space-y-0.5">
                       {(['sha512', 'sha256', 'sha1', 'md5'] as const).map((alg) =>
                         a.checksum[alg] ? (
-                          <div key={alg} className="flex flex-wrap gap-2 text-[10.5px]">
+                          <div key={alg} className="flex flex-wrap gap-2 text-[10px]">
                             <dt className={cn('w-14 shrink-0 font-mono uppercase', alg === 'sha1' || alg === 'md5' ? 'text-amber-700 dark:text-amber-300' : 'text-content-subtle')}>{alg}</dt>
                             <dd className="min-w-0 break-all font-mono text-content-muted">{a.checksum[alg]}</dd>
                           </div>
                         ) : null,
                       )}
                     </dl>
-                    <div className="mt-2 flex flex-wrap gap-3 text-[10.5px] text-content-subtle">
+                    <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-content-subtle">
                       {a.lastModified ? <span title={formatAbsolute(a.lastModified)}>modified {formatRelative(a.lastModified)}</span> : null}
                       {a.blobCreated ? <span title={formatAbsolute(a.blobCreated)}>stored {formatRelative(a.blobCreated)}</span> : null}
                       {a.lastDownloaded ? <span title={formatAbsolute(a.lastDownloaded)}>last pulled {formatRelative(a.lastDownloaded)}</span> : <span>never pulled through Nexus</span>}
@@ -1481,8 +1481,8 @@ function NexusComponentDrawer({ component: c, onClose }: { component: nexus.Nexu
                     </div>
                     {a.formatAttributes && Object.keys(a.formatAttributes).length ? (
                       <details className="mt-2">
-                        <summary className="cursor-pointer text-[10.5px] font-semibold text-content-muted hover:text-content">Format attributes</summary>
-                        <pre className="mt-1 overflow-auto rounded border border-edge-subtle bg-surface-sunken p-2 font-mono text-[10.5px] text-content-muted">{JSON.stringify(a.formatAttributes, null, 2)}</pre>
+                        <summary className="cursor-pointer text-[10px] font-semibold text-content-muted hover:text-content">Format attributes</summary>
+                        <pre className="mt-1 overflow-auto rounded border border-edge-subtle bg-surface-sunken p-2 font-mono text-[10px] text-content-muted">{JSON.stringify(a.formatAttributes, null, 2)}</pre>
                       </details>
                     ) : null}
                   </li>
@@ -1520,7 +1520,7 @@ function Stat({ label, value, hint, tone, mono = false }: { label: string; value
       >
         {value}
       </span>
-      {hint ? <span className="truncate text-[10.5px] text-content-subtle" title={hint}>{hint}</span> : null}
+      {hint ? <span className="truncate text-[10px] text-content-subtle" title={hint}>{hint}</span> : null}
     </div>
   )
 }
@@ -1586,7 +1586,7 @@ function Notice({ tone, title, children }: { tone: 'warn' | 'info'; title: strin
       )}
     >
       <div className={cn('text-[12px] font-semibold', tone === 'warn' ? 'text-amber-800 dark:text-amber-200' : 'text-content')}>{title}</div>
-      <div className={cn('mt-1 text-[11.5px] leading-relaxed', tone === 'warn' ? 'text-amber-900/90 dark:text-amber-100/90' : 'text-content-muted')}>{children}</div>
+      <div className={cn('mt-1 text-[11px] leading-relaxed', tone === 'warn' ? 'text-amber-900/90 dark:text-amber-100/90' : 'text-content-muted')}>{children}</div>
     </div>
   )
 }

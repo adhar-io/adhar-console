@@ -377,7 +377,7 @@ function LoginPage() {
                   'Explore the console'
                 )}
               </h1>
-              <p className="text-[13.5px] leading-relaxed text-content-muted">
+              <p className="text-[13px] leading-relaxed text-content-muted">
                 {configured
                   ? 'Sign in with your organisation account to pick up where you left off.'
                   : 'Walk the whole console with a stubbed session — no identity provider required.'}
@@ -713,7 +713,7 @@ function BrandPanel() {
             {HIGHLIGHTS.map((h, i) => (
               <li
                 key={h}
-                className="rise-in flex items-start gap-3.5 text-[14.5px] leading-relaxed text-white/80"
+                className="rise-in flex items-start gap-3.5 text-[14px] leading-relaxed text-white/80"
                 style={{ animationDelay: `${120 + i * 90}ms` }}
               >
                 <HexCheck />

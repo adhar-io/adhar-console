@@ -457,7 +457,7 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
           </div>
 
           {/* status bar */}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-edge-default bg-surface-sunken px-3 py-1 font-mono text-[10.5px] text-content-subtle">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-edge-default bg-surface-sunken px-3 py-1 font-mono text-[10px] text-content-subtle">
             {active ? (
               <>
                 <span className="inline-flex items-center gap-1.5"><span className={cn('h-1.5 w-1.5 rounded-full', STATUS_DOT[active.status])} />{active.status}</span>
@@ -829,7 +829,7 @@ function Snippets({ active, onPaste }: { active: Session | null; onPaste(text: s
                 <button
                   type="button"
                   onClick={() => setCollapsed((c) => { const n = new Set(c); if (n.has(group)) n.delete(group); else n.add(group); return n })}
-                  className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-wider text-content-subtle hover:bg-surface-sunken/60"
+                  className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-content-subtle hover:bg-surface-sunken/60"
                 >
                   <span className={cn('transition-transform', isCollapsed && '-rotate-90')}><IconChevron /></span>
                   {group}
@@ -844,11 +844,11 @@ function Snippets({ active, onPaste }: { active: Session | null; onPaste(text: s
                         <li key={s.id} className="group px-1.5">
                           <div className="flex items-start gap-1 rounded-md px-1 py-1 hover:bg-surface-sunken/70">
                             <button type="button" disabled={!active} onClick={() => onPaste(cmd, false)} title={active ? 'Paste into the active terminal' : 'Open a session first'} className="min-w-0 flex-1 text-left disabled:opacity-50">
-                              <div className="flex items-center gap-1.5 text-[11.5px] font-medium text-content">
+                              <div className="flex items-center gap-1.5 text-[11px] font-medium text-content">
                                 {s.label}
                                 {s.custom ? <span className="rounded bg-violet-50 px-1 text-[9px] uppercase text-violet-700 dark:bg-violet-500/10 dark:text-violet-300">mine</span> : null}
                               </div>
-                              <div className="truncate font-mono text-[10.5px] text-content-subtle" title={cmd}>{cmd}</div>
+                              <div className="truncate font-mono text-[10px] text-content-subtle" title={cmd}>{cmd}</div>
                             </button>
                             <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
                               <MiniBtn title={needsEdit ? 'Contains placeholders — paste and edit' : 'Run now'} disabled={!active || needsEdit} onClick={() => onPaste(cmd, true)}><IconPlay /></MiniBtn>
@@ -999,7 +999,7 @@ function SessionTab({
       {menu ? (
         <>
           <div className="fixed inset-0 z-55" aria-hidden onClick={() => setMenu(false)} />
-          <div className="absolute left-0 top-full z-56 mt-1 w-44 rounded-lg border border-edge-default bg-surface-raised p-1 text-[11.5px] shadow-xl ring-1 ring-black/5 dark:ring-white/10">
+          <div className="absolute left-0 top-full z-56 mt-1 w-44 rounded-lg border border-edge-default bg-surface-raised p-1 text-[11px] shadow-xl ring-1 ring-black/5 dark:ring-white/10">
             {(
               [
                 ['Rename', () => { setLabel(session.label); setEditing(true) }],
@@ -1042,7 +1042,7 @@ function BroadcastBar({ count, onSend, onClose }: { count: number; onSend(text: 
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder={`Command to run in all ${count} connected session${count === 1 ? '' : 's'}…`}
-        className="h-7 min-w-0 flex-1 rounded-md border border-edge-default bg-surface-app px-2 font-mono text-[11.5px] text-content placeholder:text-content-subtle focus:border-amber-400 focus:outline-none"
+        className="h-7 min-w-0 flex-1 rounded-md border border-edge-default bg-surface-app px-2 font-mono text-[11px] text-content placeholder:text-content-subtle focus:border-amber-400 focus:outline-none"
       />
       {sent ? <span className="text-[10px] text-emerald-700 dark:text-emerald-300">{sent}</span> : null}
       <Button size="xs" variant="primary" type="submit" disabled={!text.trim() || count === 0}>Send all</Button>
@@ -1081,7 +1081,7 @@ function SettingsMenu({ prefs, onChange }: { prefs: ShellPrefs; onChange(p: Part
               <span className="text-content-muted">Confirm before closing a live session</span>
               <input type="checkbox" checked={prefs.confirmClose} onChange={(e) => onChange({ confirmClose: e.target.checked })} className="h-4 w-4 accent-brand-600" />
             </label>
-            <p className="text-[10.5px] text-content-subtle">Preferences are stored in this browser. New sessions pick them up; open ones keep their toolbar settings.</p>
+            <p className="text-[10px] text-content-subtle">Preferences are stored in this browser. New sessions pick them up; open ones keep their toolbar settings.</p>
           </div>
         </Popover>
       ) : null}
@@ -1107,7 +1107,7 @@ function ShortcutsMenu() {
         <Popover onClose={() => setOpen(false)} className="right-0 w-72">
           <div className="p-2">
             <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Shortcuts</div>
-            <table className="w-full text-[11.5px]">
+            <table className="w-full text-[11px]">
               <tbody>
                 {rows.map(([k, v]) => (
                   <tr key={k}>
@@ -1155,7 +1155,7 @@ function WorkbenchEmpty({
             disabled={!toolsReady}
             className="rounded-xl border border-edge-default bg-surface-app p-3 text-left transition-colors hover:border-brand-300 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <div className="text-[12.5px] font-medium text-content">Cluster shell</div>
+            <div className="text-[12px] font-medium text-content">Cluster shell</div>
             <div className="mt-0.5 text-[11px] leading-relaxed text-content-subtle">
               {toolsReady ? 'kubectl, k9s and helm already on PATH.' : 'The tools pod is not running in this cluster.'}
             </div>
@@ -1165,7 +1165,7 @@ function WorkbenchEmpty({
             onClick={onLaunch}
             className="rounded-xl border border-edge-default bg-surface-app p-3 text-left transition-colors hover:border-brand-300"
           >
-            <div className="text-[12.5px] font-medium text-content">Pod shell</div>
+            <div className="text-[12px] font-medium text-content">Pod shell</div>
             <div className="mt-0.5 text-[11px] leading-relaxed text-content-subtle">
               Exec into any running container to debug it in place.
             </div>

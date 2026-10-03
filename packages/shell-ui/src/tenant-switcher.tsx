@@ -78,7 +78,7 @@ export function TenantSwitcher({
       onClick={() => setOpen((o) => !o)}
       title={active.name}
       aria-label={`Active organization: ${active.name}. Click to switch.`}
-      className="relative block rounded-lg p-0.5 ring-1 ring-edge-default transition-all hover:ring-edge-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/30"
+      className="relative block rounded-lg p-0.5 ring-1 ring-edge-default transition-all hover:ring-edge-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40"
     >
       <OrgAvatar name={active.name} />
       {switching ? <BusyDot /> : null}
@@ -92,7 +92,7 @@ export function TenantSwitcher({
       className={cn(
         'flex w-full items-center gap-2.5 rounded-lg border px-2 py-1.5 text-left transition-all',
         'border-edge-default bg-surface-raised shadow-sm hover:border-edge-strong hover:bg-surface-sunken',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/20',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
       )}
     >
       <OrgAvatar name={active.name} />
@@ -478,7 +478,7 @@ function Menu({
                 first one — the section used to disappear entirely when the
                 list was empty, which hid the only route to creating one. */}
             {teams.length === 0 ? (
-              <p className="px-3 pb-2 text-[11.5px] leading-snug text-content-subtle">
+              <p className="px-3 pb-2 text-[11px] leading-snug text-content-subtle">
                 No teams yet. A team groups projects and the access that comes with them.
               </p>
             ) : null}

@@ -74,7 +74,7 @@ export function Inspector({
           >
             {t.icon}
             {tab === t.id ? <span>{t.label}</span> : null}
-            {t.badge ? <span className="rounded-full bg-surface-sunken px-1 text-[9.5px] tabular-nums text-content-subtle">{t.badge}</span> : null}
+            {t.badge ? <span className="rounded-full bg-surface-sunken px-1 text-[9px] tabular-nums text-content-subtle">{t.badge}</span> : null}
             {t.live && tab !== t.id ? <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse rounded-full bg-brand-500" /> : null}
           </button>
         ))}
@@ -119,17 +119,17 @@ function RunTab() {
       <div className="space-y-3">
         {agent ? (
           <div className="rounded-xl border border-edge-subtle bg-surface-raised p-3">
-            <div className="flex items-center gap-2 text-[12.5px] font-semibold text-content">
+            <div className="flex items-center gap-2 text-[12px] font-semibold text-content">
               <span className={cn('h-2 w-2 rounded-full', accentDot(agent.accent))} />
               {agent.name}
             </div>
-            <p className="mt-1 text-[11.5px] leading-relaxed text-content-muted">{agent.description}</p>
-            <div className="mt-2 text-[10.5px] text-content-subtle">
+            <p className="mt-1 text-[11px] leading-relaxed text-content-muted">{agent.description}</p>
+            <div className="mt-2 text-[10px] text-content-subtle">
               {agent.delegated ? 'Runs on the adhar-ai runtime · MCP tools · knowledge-grounded' : `${agent.tools} console tools · reads with your RBAC`}
             </div>
           </div>
         ) : null}
-        <p className="px-1 text-[11.5px] leading-relaxed text-content-subtle">
+        <p className="px-1 text-[11px] leading-relaxed text-content-subtle">
           {thread.messages.length ? 'The last run has finished. Ask something and its plan, findings and provenance appear here as it works.' : 'While an agent works, its plan, findings and audit trail appear here.'}
         </p>
       </div>
@@ -141,7 +141,7 @@ function RunTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between rounded-xl border border-edge-subtle bg-surface-raised px-3 py-2">
-        <span className="flex items-center gap-2 text-[12.5px] font-semibold text-content">
+        <span className="flex items-center gap-2 text-[12px] font-semibold text-content">
           {run?.agent ? <span className={cn('h-2 w-2 rounded-full', accentDot(run.agent.accent))} /> : null}
           {run?.agent?.name ?? agent?.name ?? 'Agent'}
         </span>
@@ -235,11 +235,11 @@ function Provenance({ info }: { info: AdharAiRunInfo }) {
           </div>
         ))}
         {downgraded ? (
-          <p className="pt-1 text-[10.5px] leading-snug text-amber-700 dark:text-amber-300">
+          <p className="pt-1 text-[10px] leading-snug text-amber-700 dark:text-amber-300">
             You asked for {AUTONOMY_LEVELS.find((l) => l.id === info.requested)?.label ?? info.requested}; the runtime granted less for your identity.
           </p>
         ) : null}
-        {info.kind === 'budget_exhausted' ? <p className="pt-1 text-[10.5px] leading-snug text-amber-700 dark:text-amber-300">Stopped at its step budget before finishing.</p> : null}
+        {info.kind === 'budget_exhausted' ? <p className="pt-1 text-[10px] leading-snug text-amber-700 dark:text-amber-300">Stopped at its step budget before finishing.</p> : null}
         {info.auditId ? (
           <button type="button" title="Copy the audit id" onClick={() => void globalThis.navigator?.clipboard?.writeText(info.auditId ?? '')} className="w-full truncate pt-1 text-left font-mono text-[10px] text-content-subtle transition-colors hover:text-content">
             audit {info.auditId}
@@ -288,28 +288,28 @@ function KnowledgeTab({ onAskAbout }: { onAskAbout(text: string): void }) {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="What does the platform know about…"
-          className="min-w-0 flex-1 bg-transparent text-[12.5px] text-content outline-none placeholder:text-content-subtle focus:ring-0 focus-visible:shadow-none"
+          className="min-w-0 flex-1 bg-transparent text-[12px] text-content outline-none placeholder:text-content-subtle focus:ring-0 focus-visible:shadow-none"
         />
         {knowledge.searching ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" /> : null}
       </label>
 
       {!configured ? (
-        <p className="px-1 text-[11.5px] leading-relaxed text-content-subtle">The adhar-ai runtime is not configured on this install, so there is no knowledge base to search.</p>
+        <p className="px-1 text-[11px] leading-relaxed text-content-subtle">The adhar-ai runtime is not configured on this install, so there is no knowledge base to search.</p>
       ) : null}
 
-      {knowledge.error ? <p className="px-1 text-[11.5px] text-rose-600 dark:text-rose-400">{knowledge.error}</p> : null}
+      {knowledge.error ? <p className="px-1 text-[11px] text-rose-600 dark:text-rose-400">{knowledge.error}</p> : null}
 
       {knowledge.hits.length ? (
         <ul className="space-y-1.5">
           {knowledge.hits.map((h) => <HitRow key={h.chunk_id} hit={h} onAskAbout={onAskAbout} />)}
         </ul>
       ) : knowledge.query && !knowledge.searching ? (
-        <p className="px-1 text-[11.5px] text-content-subtle">Nothing retrieved for “{knowledge.query}”.</p>
+        <p className="px-1 text-[11px] text-content-subtle">Nothing retrieved for “{knowledge.query}”.</p>
       ) : null}
 
       {configured && !knowledge.query ? (
         <div className="space-y-2">
-          <div className="rounded-xl border border-edge-subtle bg-surface-raised p-3 text-[11.5px] leading-relaxed text-content-muted">
+          <div className="rounded-xl border border-edge-subtle bg-surface-raised p-3 text-[11px] leading-relaxed text-content-muted">
             <div className="mb-1.5 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
               <span>Knowledge base</span>
               {mode ? <span className="rounded bg-surface-sunken px-1.5 py-px font-mono normal-case tracking-normal text-content-muted">{mode}</span> : null}
@@ -340,7 +340,7 @@ function HitRow({ hit, onAskAbout }: { hit: KnowledgeHit; onAskAbout(text: strin
   return (
     <li className="rounded-xl border border-edge-subtle bg-surface-raised p-2.5">
       <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-start gap-2 text-left">
-        <span className={cn('mt-px shrink-0 rounded px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wider', KIND_TONE[hit.kind] ?? 'bg-surface-sunken text-content-muted')}>{hit.kind}</span>
+        <span className={cn('mt-px shrink-0 rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wider', KIND_TONE[hit.kind] ?? 'bg-surface-sunken text-content-muted')}>{hit.kind}</span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[12px] font-medium text-content" title={hit.source}>{hit.source}</span>
           <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-content-subtle">
@@ -353,7 +353,7 @@ function HitRow({ hit, onAskAbout }: { hit: KnowledgeHit; onAskAbout(text: strin
       </button>
       {open ? (
         <div className="mt-2 space-y-2">
-          <p className="max-h-40 overflow-y-auto whitespace-pre-wrap text-[11.5px] leading-relaxed text-content-muted">{hit.text}</p>
+          <p className="max-h-40 overflow-y-auto whitespace-pre-wrap text-[11px] leading-relaxed text-content-muted">{hit.text}</p>
           <button type="button" onClick={() => onAskAbout(`Using "${hit.source}", explain: `)} className="inline-flex h-6 items-center gap-1 rounded-md bg-brand-50 px-2 text-[11px] font-medium text-brand-700 hover:bg-brand-100 dark:bg-brand-500/10 dark:text-brand-300 dark:hover:bg-brand-500/15">
             Ask about this <IconReturn size={10} />
           </button>
@@ -396,17 +396,17 @@ function ToolsTab() {
     return [...out.entries()].sort((a, b) => a[0].localeCompare(b[0]))
   }, [runtime?.tools])
 
-  if (!runtime) return <p className="px-1 text-[11.5px] text-content-subtle">Loading the runtime's capabilities…</p>
+  if (!runtime) return <p className="px-1 text-[11px] text-content-subtle">Loading the runtime's capabilities…</p>
   if (!runtime.configured) {
     return (
       <div className="space-y-2">
-        <p className="px-1 text-[11.5px] leading-relaxed text-content-subtle">The adhar-ai runtime is not configured, so the {agent?.name ?? 'current'} agent runs the console's own read-only cluster tools.</p>
-        {agent ? <div className="rounded-xl border border-edge-subtle bg-surface-raised p-3 text-[11.5px] text-content-muted">{agent.tools} console tools · reads with your RBAC</div> : null}
+        <p className="px-1 text-[11px] leading-relaxed text-content-subtle">The adhar-ai runtime is not configured, so the {agent?.name ?? 'current'} agent runs the console's own read-only cluster tools.</p>
+        {agent ? <div className="rounded-xl border border-edge-subtle bg-surface-raised p-3 text-[11px] text-content-muted">{agent.tools} console tools · reads with your RBAC</div> : null}
       </div>
     )
   }
   if (!runtime.reachable) {
-    return <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-[11.5px] text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300">The runtime is configured but unreachable: {runtime.error}</div>
+    return <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-[11px] text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300">The runtime is configured but unreachable: {runtime.error}</div>
   }
   const connected = runtime.mcp?.connected ?? []
   const unreachable = Object.entries(runtime.mcp?.unreachable ?? {})
@@ -416,12 +416,12 @@ function ToolsTab() {
       <Section title={`MCP servers · ${connected.length + unreachable.length}`} right={runtime.rag ? <span className="font-mono normal-case tracking-normal">rag: {runtime.rag}</span> : undefined}>
         <ul className="grid grid-cols-2 gap-1">
           {connected.map((s) => (
-            <li key={s} className="flex items-center gap-1.5 rounded-lg border border-edge-subtle bg-surface-raised px-2 py-1.5 text-[11.5px] text-content">
+            <li key={s} className="flex items-center gap-1.5 rounded-lg border border-edge-subtle bg-surface-raised px-2 py-1.5 text-[11px] text-content">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> {DOMAIN_LABEL[s] ?? s}
             </li>
           ))}
           {unreachable.map(([s, why]) => (
-            <li key={s} title={why} className="flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50/60 px-2 py-1.5 text-[11.5px] text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300">
+            <li key={s} title={why} className="flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50/60 px-2 py-1.5 text-[11px] text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300">
               <span className="h-1.5 w-1.5 rounded-full bg-rose-500" /> {DOMAIN_LABEL[s] ?? s}
             </li>
           ))}
@@ -443,9 +443,9 @@ function ToolsTab() {
               <li key={name} className="rounded-lg border border-edge-subtle bg-surface-raised px-2.5 py-1.5">
                 <div className="flex items-center justify-between text-[12px]">
                   <span className="font-medium text-content">{name.replace(/[-_]/g, ' ')}</span>
-                  {op.autonomy ? <span className="rounded bg-surface-sunken px-1.5 py-px text-[9.5px] font-medium uppercase tracking-wider text-content-subtle">{op.autonomy}</span> : null}
+                  {op.autonomy ? <span className="rounded bg-surface-sunken px-1.5 py-px text-[9px] font-medium uppercase tracking-wider text-content-subtle">{op.autonomy}</span> : null}
                 </div>
-                {op.trigger ? <div className="mt-0.5 text-[10.5px] text-content-subtle">on <span className="font-mono">{op.trigger}</span></div> : null}
+                {op.trigger ? <div className="mt-0.5 text-[10px] text-content-subtle">on <span className="font-mono">{op.trigger}</span></div> : null}
               </li>
             ))}
           </ul>
@@ -459,7 +459,7 @@ function ToolsTab() {
             {runtime.limits?.maxSteps ? <Row k="Max steps per run" v={runtime.limits.maxSteps} /> : null}
             {runtime.limits?.maxToolCallsPerOp ? <Row k="Max tool calls" v={runtime.limits.maxToolCallsPerOp} /> : null}
             {runtime.writePolicy?.allowedRepos?.length ? <Row k="Writes allowed to" v={runtime.writePolicy.allowedRepos.join(', ')} /> : null}
-            <p className="pt-1 text-[10.5px] leading-snug text-content-subtle">Read tools read. Write tools open a pull request. Nothing applies to a cluster.</p>
+            <p className="pt-1 text-[10px] leading-snug text-content-subtle">Read tools read. Write tools open a pull request. Nothing applies to a cluster.</p>
           </div>
         </Section>
       ) : null}
@@ -482,11 +482,11 @@ function ToolGroup({ domain, tools }: { domain: string; tools: string[] }) {
     <div className="rounded-lg border border-edge-subtle bg-surface-raised">
       <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between px-2.5 py-1.5 text-left text-[12px]">
         <span className="font-medium text-content">{DOMAIN_LABEL[domain] ?? domain}</span>
-        <span className="text-[10.5px] tabular-nums text-content-subtle">{tools.length} · {open ? 'hide' : 'show'}</span>
+        <span className="text-[10px] tabular-nums text-content-subtle">{tools.length} · {open ? 'hide' : 'show'}</span>
       </button>
       {open ? (
         <ul className="border-t border-edge-subtle px-2.5 py-1.5">
-          {tools.map((t) => <li key={t} className="truncate py-0.5 font-mono text-[10.5px] text-content-muted">{t}</li>)}
+          {tools.map((t) => <li key={t} className="truncate py-0.5 font-mono text-[10px] text-content-muted">{t}</li>)}
         </ul>
       ) : null}
     </div>
@@ -496,7 +496,7 @@ function ToolGroup({ domain, tools }: { domain: string; tools: string[] }) {
 /* ─────────────────────────────── Canvas ─────────────────────────────── */
 
 function CanvasTab({ blocks }: { blocks: UiBlock[] }) {
-  if (!blocks.length) return <p className="px-1 text-[11.5px] leading-relaxed text-content-subtle">Charts, tables and diagrams the agent renders collect here — and the Canvas button in the header lays them out side by side.</p>
+  if (!blocks.length) return <p className="px-1 text-[11px] leading-relaxed text-content-subtle">Charts, tables and diagrams the agent renders collect here — and the Canvas button in the header lays them out side by side.</p>
   return (
     <div className="space-y-2.5">
       {blocks.map((b) => <GenerativeBlock key={b.id} block={b} />)}
@@ -512,7 +512,7 @@ function NavTab({ results, query, active, onHover, onPick, all }: { results: Com
   return (
     <div>
       <div className="px-2 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">{query.trim() ? `Matches · ${results.length}` : 'Go to'}</div>
-      {list.length === 0 ? <p className="px-2 py-3 text-[11.5px] text-content-subtle">No page matches “{query}” — send it as a question instead.</p> : null}
+      {list.length === 0 ? <p className="px-2 py-3 text-[11px] text-content-subtle">No page matches “{query}” — send it as a question instead.</p> : null}
       <div className="space-y-px">
         {list.map((item, i) => {
           const header = item.group && item.group !== lastGroup && !query.trim() ? item.group : null
@@ -529,10 +529,10 @@ function NavTab({ results, query, active, onHover, onPick, all }: { results: Com
               >
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center text-content-subtle [&>svg]:h-4 [&>svg]:w-4">{item.icon ?? <IconDot />}</span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[12.5px] font-medium">{item.label}</span>
-                  {item.description ? <span className="block truncate text-[10.5px] text-content-subtle">{item.description}</span> : null}
+                  <span className="block truncate text-[12px] font-medium">{item.label}</span>
+                  {item.description ? <span className="block truncate text-[10px] text-content-subtle">{item.description}</span> : null}
                 </span>
-                {query.trim() && item.group ? <span className="shrink-0 text-[9.5px] uppercase tracking-wider text-content-subtle">{item.group}</span> : null}
+                {query.trim() && item.group ? <span className="shrink-0 text-[9px] uppercase tracking-wider text-content-subtle">{item.group}</span> : null}
                 <span className={cn('shrink-0 text-content-subtle transition-opacity', isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')}><IconReturn /></span>
               </button>
             </div>

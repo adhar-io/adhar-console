@@ -813,7 +813,7 @@ function StepAccount({
       <div className="flex flex-col gap-4 rounded-2xl border border-edge-subtle bg-linear-to-br from-brand-50 dark:from-brand-500/10 via-surface-raised to-accent-50/40 dark:to-accent-500/5 p-5 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <div className="text-[15px] font-semibold text-content">Walk the setup with a demo session</div>
-          <p className="mt-1 text-[12.5px] leading-relaxed text-content-muted">
+          <p className="mt-1 text-[12px] leading-relaxed text-content-muted">
             Keycloak isn’t configured, so there is no real account to create. Set{' '}
             <code className="rounded bg-surface-sunken px-1 font-mono text-[11px]">KEYCLOAK_URL</code> to
             enable single sign-on.
@@ -913,7 +913,7 @@ function StepAccount({
               )}
             </div>
 
-            <p className="mt-4 text-[11.5px] leading-relaxed text-content-subtle">
+            <p className="mt-4 text-[11px] leading-relaxed text-content-subtle">
               You’ll come straight back here afterwards, at the next step.
             </p>
           </div>
@@ -924,7 +924,7 @@ function StepAccount({
           <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">
             Why an account first
           </div>
-          <ul className="mt-3 space-y-3 text-[12.5px] leading-relaxed text-content-muted">
+          <ul className="mt-3 space-y-3 text-[12px] leading-relaxed text-content-muted">
             <li className="flex gap-2.5">
               <span className="mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full bg-brand-500/12 text-brand-700 dark:text-brand-300">
                 <IconCheck />
@@ -984,7 +984,7 @@ function StepAccount({
               </span>
               <div className="text-[13px] font-semibold text-content">{h.title}</div>
             </div>
-            <p className="mt-2 text-[12.5px] leading-relaxed text-content-muted">{h.body}</p>
+            <p className="mt-2 text-[12px] leading-relaxed text-content-muted">{h.body}</p>
           </div>
         ))}
       </div>
@@ -1018,7 +1018,7 @@ function StepOrg({
             'mt-1.5 w-full rounded-lg border bg-surface-raised px-3 py-2.5 text-sm text-content shadow-sm focus:outline-none focus-visible:ring-2',
             tooLong
               ? 'border-rose-300 focus-visible:ring-rose-500/20'
-              : 'border-edge-default focus-visible:border-brand-400 focus-visible:ring-brand-400/20',
+              : 'border-edge-default focus-visible:border-brand-400 focus-visible:ring-brand-500/40',
           )}
         />
         <span className={cn('mt-1 block text-[11px]', tooLong ? 'text-rose-600' : 'text-content-subtle')}>
@@ -1054,7 +1054,7 @@ function StepOrg({
             onChange={(e) => setState((s) => ({ ...s, contactName: e.target.value }))}
             placeholder="Who owns this workspace?"
             maxLength={80}
-            className="mt-1.5 w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2.5 text-sm text-content shadow-sm focus:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-400/20"
+            className="mt-1.5 w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2.5 text-sm text-content shadow-sm focus:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-500/40"
           />
         </label>
         <label className="block">
@@ -1066,7 +1066,7 @@ function StepOrg({
             value={state.contactEmail}
             onChange={(e) => setState((s) => ({ ...s, contactEmail: e.target.value }))}
             placeholder="you@company.com"
-            className="mt-1.5 w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2.5 text-sm text-content shadow-sm focus:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-400/20"
+            className="mt-1.5 w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2.5 text-sm text-content shadow-sm focus:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-500/40"
           />
           <span className="mt-1 block text-[11px] text-content-subtle">
             We email this address when provisioning finishes — you don't have to wait on this page.
@@ -1083,7 +1083,7 @@ function StepOrg({
           onChange={(e) => setState((s) => ({ ...s, orgDescription: e.target.value }))}
           placeholder="What does this workspace do? (helps your teammates)"
           rows={2}
-          className="mt-1.5 w-full resize-none rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm text-content shadow-sm focus:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-400/20"
+          className="mt-1.5 w-full resize-none rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm text-content shadow-sm focus:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-500/40"
         />
       </label>
     </div>
@@ -1278,7 +1278,7 @@ function StepReview({
       </ReviewRow>
 
       {needsSignIn ? (
-        <div className="flex items-start gap-2.5 rounded-xl border border-brand-200 bg-brand-50/60 px-3.5 py-3 text-[12.5px] leading-snug text-brand-900 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-100">
+        <div className="flex items-start gap-2.5 rounded-xl border border-brand-200 bg-brand-50/60 px-3.5 py-3 text-[12px] leading-snug text-brand-900 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-100">
           <span className="mt-px shrink-0">
             <IconShieldMini />
           </span>
@@ -1316,7 +1316,7 @@ function WhatHappensNext({ contactEmail, toolCount }: { contactEmail: string; to
         <h3 className="text-[13px] font-semibold text-content">What happens when you hit provision</h3>
       </div>
 
-      <ol className="mt-3 space-y-2.5 text-[12.5px] leading-relaxed text-content-muted">
+      <ol className="mt-3 space-y-2.5 text-[12px] leading-relaxed text-content-muted">
         <li className="flex gap-2.5">
           <span className="mt-px flex h-4 w-4 flex-none items-center justify-center rounded-full bg-surface-raised text-[9px] font-bold text-content-subtle ring-1 ring-inset ring-edge-default">1</span>
           <span>
@@ -1352,7 +1352,7 @@ function WhatHappensNext({ contactEmail, toolCount }: { contactEmail: string; to
         </li>
       </ol>
 
-      <p className="mt-3 border-t border-edge-subtle pt-2.5 text-[11.5px] text-content-subtle">
+      <p className="mt-3 border-t border-edge-subtle pt-2.5 text-[11px] text-content-subtle">
         Nothing is created until you press the button, and nothing here is destructive. If a
         capability can't be installed on this platform you'll see exactly which one and why — a step
         is never reported as finished unless it actually was.

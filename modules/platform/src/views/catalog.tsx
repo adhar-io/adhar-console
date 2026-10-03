@@ -681,7 +681,7 @@ function KindCard({
               ) : null}
             </div>
             {unreported > 0 ? (
-              <p className="mt-2 text-[10.5px] leading-snug text-content-subtle">
+              <p className="mt-2 text-[10px] leading-snug text-content-subtle">
                 {unreported === total ? 'This operator' : `${unreported} of these`} publishes no
                 readiness status — health is shown by its workload, not its CR.
               </p>
@@ -713,7 +713,7 @@ function KindCard({
         {managed ? (
           // Operator-owned: creating one is the operator's concern, not a claim.
           <span
-            className="inline-flex h-8 min-w-0 max-w-[9rem] shrink items-center justify-center overflow-hidden rounded-md border border-edge-default px-2.5 text-[10.5px] text-content-muted"
+            className="inline-flex h-8 min-w-0 max-w-[9rem] shrink items-center justify-center overflow-hidden rounded-md border border-edge-default px-2.5 text-[10px] text-content-muted"
             title={`Managed by ${isManaged(info) ? info.provider : 'an operator'}`}
           >
             <span className="truncate">{isManaged(info) ? info.provider : 'operator-managed'}</span>
@@ -722,7 +722,7 @@ function KindCard({
           <button
             type="button"
             onClick={onCreate}
-            className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-edge-default bg-surface-raised px-3 text-xs font-medium text-content shadow-sm outline-none transition-colors hover:border-edge-strong hover:bg-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-500/20"
+            className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-edge-default bg-surface-raised px-3 text-xs font-medium text-content shadow-sm outline-none transition-colors hover:border-edge-strong hover:bg-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-500/40"
             aria-label={`Create ${info.humanSingular}`}
           >
             <IconPlus /> Create

@@ -90,7 +90,7 @@ function Turn({
   if (entry.role === 'user') {
     return (
       <div className="rise-in flex justify-end">
-        <div className="max-w-[82%] rounded-2xl rounded-br-md bg-brand-600 px-4 py-2.5 text-[13.5px] leading-relaxed text-white shadow-sm shadow-brand-600/20">
+        <div className="max-w-[82%] rounded-2xl rounded-br-md bg-brand-600 px-4 py-2.5 text-[13px] leading-relaxed text-white shadow-sm shadow-brand-600/20">
           <div className="whitespace-pre-wrap break-words">{entry.content}</div>
         </div>
       </div>
@@ -110,7 +110,7 @@ function Turn({
         {entry.toolCalls.length ? <ToolTimeline calls={entry.toolCalls} streaming={Boolean(entry.streaming)} /> : null}
 
         {entry.content ? (
-          <div className="rounded-2xl rounded-tl-md border border-edge-subtle bg-surface-raised px-4 py-3 text-[13.5px] leading-relaxed text-content shadow-sm">
+          <div className="rounded-2xl rounded-tl-md border border-edge-subtle bg-surface-raised px-4 py-3 text-[13px] leading-relaxed text-content shadow-sm">
             <Markdown text={entry.content} />
             {entry.streaming ? <span className="ml-0.5 inline-block h-4 w-[3px] animate-pulse rounded-sm bg-brand-500 align-middle" /> : null}
           </div>
@@ -126,7 +126,7 @@ function Turn({
         ))}
 
         {entry.error ? (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300">
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-[12px] leading-relaxed text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300">
             {entry.error}
           </div>
         ) : null}
@@ -152,7 +152,7 @@ function Turn({
 function Followups({ items, onSend }: { items: string[]; onSend(prompt: string): void }) {
   return (
     <div className="rise-in flex flex-wrap items-center gap-1.5 pt-1">
-      <span className="mr-0.5 text-[10.5px] font-medium uppercase tracking-wider text-content-subtle">Next</span>
+      <span className="mr-0.5 text-[10px] font-medium uppercase tracking-wider text-content-subtle">Next</span>
       {items.map((q) => (
         <button
           key={q}
@@ -329,7 +329,7 @@ function ToolTimeline({ calls, streaming }: { calls: ToolCallView[]; streaming: 
 
   if (collapsed) {
     return (
-      <button type="button" onClick={() => setOpen(true)} className="inline-flex items-center gap-2 rounded-lg border border-edge-subtle bg-surface-raised/70 px-2.5 py-1.5 text-[11.5px] text-content-muted transition-colors hover:border-edge-default hover:text-content">
+      <button type="button" onClick={() => setOpen(true)} className="inline-flex items-center gap-2 rounded-lg border border-edge-subtle bg-surface-raised/70 px-2.5 py-1.5 text-[11px] text-content-muted transition-colors hover:border-edge-default hover:text-content">
         {running ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-500" /> : <IconTool size={11} />}
         <span>{running ? `Running ${calls.length} tool${calls.length === 1 ? '' : 's'}` : `Ran ${calls.length} tools`}</span>
         {failed ? <span className="text-rose-600 dark:text-rose-400">· {failed} failed</span> : null}
@@ -346,7 +346,7 @@ function ToolTimeline({ calls, streaming }: { calls: ToolCallView[]; streaming: 
   }
   return (
     <div className="rounded-xl border border-edge-subtle bg-surface-raised/70 p-2">
-      <div className="flex items-center justify-between px-1 pb-1 text-[10.5px] font-semibold uppercase tracking-wider text-content-subtle">
+      <div className="flex items-center justify-between px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
         <span>Tools · {calls.length}{failed ? ` · ${failed} failed` : ''}{streaming && running ? ' · running' : ''}</span>
         <button type="button" onClick={() => setOpen(false)} className="font-medium normal-case tracking-normal hover:text-content">collapse</button>
       </div>
@@ -404,7 +404,7 @@ function ToolChip({ call }: { call: ToolCallView }) {
 
 function ToolDetail({ call }: { call: ToolCallView }) {
   return (
-    <div className="mt-1 max-w-2xl overflow-hidden rounded-lg bg-code font-mono text-[10.5px] leading-relaxed text-code-fg">
+    <div className="mt-1 max-w-2xl overflow-hidden rounded-lg bg-code font-mono text-[10px] leading-relaxed text-code-fg">
       <div className="border-b border-code-edge px-2.5 py-1 text-code-fg/50">arguments</div>
       <pre className="max-h-40 overflow-auto whitespace-pre-wrap px-2.5 py-1.5">{pretty(call.args) || '{}'}</pre>
       {call.result !== undefined ? (
@@ -468,11 +468,11 @@ function WorkingCard({ run, entry }: { run: RunState | null; entry?: ChatEntry }
           all it carries. */}
       <div className="flex items-center gap-2.5 px-3.5 py-2.5">
         <Dots />
-        <span className="min-w-0 flex-1 truncate text-[12.5px] text-content">{label}…</span>
-        <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-content-subtle">{elapsed}s</span>
+        <span className="min-w-0 flex-1 truncate text-[12px] text-content">{label}…</span>
+        <span className="shrink-0 font-mono text-[10px] tabular-nums text-content-subtle">{elapsed}s</span>
       </div>
       {plan.length || calls ? (
-        <div className="flex items-center gap-3 border-t border-edge-subtle px-3.5 py-1.5 text-[10.5px] text-content-subtle">
+        <div className="flex items-center gap-3 border-t border-edge-subtle px-3.5 py-1.5 text-[10px] text-content-subtle">
           {plan.length ? (
             <span className="inline-flex items-center gap-1.5">
               <span className="inline-flex gap-0.5">
@@ -495,7 +495,7 @@ function WorkingCard({ run, entry }: { run: RunState | null; entry?: ChatEntry }
 export function Thinking({ run }: { run: RunState | null }) {
   const active = run?.plan?.find((s) => s.status === 'active')
   const label = active ? active.label : run?.tools?.last ? `running ${run.tools.last}` : 'thinking'
-  return <div className="flex items-center gap-2.5 pl-10 text-[12.5px] text-content-subtle"><Dots /> <span className="truncate">{label}…</span></div>
+  return <div className="flex items-center gap-2.5 pl-10 text-[12px] text-content-subtle"><Dots /> <span className="truncate">{label}…</span></div>
 }
 
 /** Human-in-the-loop: the agent stopped to ask the operator something. */
@@ -505,12 +505,12 @@ export function AskCard() {
   if (!pendingAsk) return null
   return (
     <div className="rise-in ml-10 rounded-2xl border border-sky-200 bg-sky-50/70 p-3.5 dark:border-sky-500/30 dark:bg-sky-500/10">
-      <div className="text-[10.5px] font-semibold uppercase tracking-wider text-sky-700 dark:text-sky-300">The agent needs your decision</div>
-      <p className="mt-1 text-[13.5px] leading-relaxed text-content">{pendingAsk.question}</p>
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-sky-700 dark:text-sky-300">The agent needs your decision</div>
+      <p className="mt-1 text-[13px] leading-relaxed text-content">{pendingAsk.question}</p>
       {pendingAsk.options.length ? (
         <div className="mt-2.5 flex flex-wrap gap-1.5">
           {pendingAsk.options.map((o) => (
-            <button key={o} type="button" onClick={() => assistStore.answerAsk(o)} className="rounded-lg border border-sky-300 bg-surface-raised px-3 py-1.5 text-[12.5px] font-medium text-sky-800 transition-colors hover:bg-sky-100 dark:border-sky-500/40 dark:text-sky-200 dark:hover:bg-sky-500/10">
+            <button key={o} type="button" onClick={() => assistStore.answerAsk(o)} className="rounded-lg border border-sky-300 bg-surface-raised px-3 py-1.5 text-[12px] font-medium text-sky-800 transition-colors hover:bg-sky-100 dark:border-sky-500/40 dark:text-sky-200 dark:hover:bg-sky-500/10">
               {o}
             </button>
           ))}
@@ -525,7 +525,7 @@ export function AskCard() {
             placeholder="Your answer…"
             className="h-9 flex-1 rounded-lg border border-edge-default bg-surface-raised px-3 text-[13px] text-content focus:border-sky-400 focus:outline-none focus-visible:shadow-[0_0_0_3px_var(--color-sky-500)]/20"
           />
-          <button type="button" disabled={!text.trim()} onClick={() => assistStore.answerAsk(text.trim())} className="h-9 rounded-lg bg-sky-600 px-3 text-[12.5px] font-semibold text-white hover:bg-sky-700 disabled:opacity-40">
+          <button type="button" disabled={!text.trim()} onClick={() => assistStore.answerAsk(text.trim())} className="h-9 rounded-lg bg-sky-600 px-3 text-[12px] font-semibold text-white hover:bg-sky-700 disabled:opacity-40">
             Answer
           </button>
         </div>

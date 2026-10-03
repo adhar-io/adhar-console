@@ -199,7 +199,7 @@ function Toolbar({
 
       <div className="min-w-0">
         <div className="truncate text-sm font-semibold tracking-tight text-content">{title}</div>
-        <div className="truncate text-[11.5px] text-content-muted">{eyebrow}</div>
+        <div className="truncate text-[11px] text-content-muted">{eyebrow}</div>
       </div>
     </div>
   )

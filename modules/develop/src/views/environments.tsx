@@ -532,11 +532,11 @@ function TemplatesSection({ templates, loading, workspaces, dashboard, onCreate 
                       <span className="text-sm font-semibold text-content">{t.display_name || t.name}</span>
                       {t.deprecated ? <StatusBadge kind="degraded">deprecated</StatusBadge> : null}
                     </div>
-                    <div className="text-[10.5px] font-mono text-content-subtle">{t.name}{t.organization_name ? ` · ${t.organization_name}` : ''}</div>
+                    <div className="text-[10px] font-mono text-content-subtle">{t.name}{t.organization_name ? ` · ${t.organization_name}` : ''}</div>
                   </div>
                 </div>
                 <p className="mt-2 line-clamp-3 flex-1 text-xs leading-relaxed text-content-muted">{t.description || 'No description.'}</p>
-                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-content-subtle">
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-content-subtle">
                   <span>{counts.get(t.id) ?? 0} env{(counts.get(t.id) ?? 0) === 1 ? '' : 's'}</span>
                   <span>{t.active_user_count ?? 0} active user{(t.active_user_count ?? 0) === 1 ? '' : 's'}</span>
                   {t.build_time_stats?.start?.p50 ? <span>boot p50 {Math.round(t.build_time_stats.start.p50 / 1000)}s</span> : null}
@@ -855,7 +855,7 @@ function WorkspaceDrawer({ workspace: w, dashboard, onClose, actions }: { worksp
                     <Card>
                       <CardHeader><div className="text-sm font-semibold text-content">Template</div></CardHeader>
                       <CardBody className="space-y-2 text-xs text-content-muted">
-                        <div>Version <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10.5px]">{w.latest_build.template_version_name ?? w.latest_build.template_version_id ?? '—'}</code>{w.outdated ? <span className="ml-2 text-amber-700 dark:text-amber-300">a newer version is active</span> : null}</div>
+                        <div>Version <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px]">{w.latest_build.template_version_name ?? w.latest_build.template_version_id ?? '—'}</code>{w.outdated ? <span className="ml-2 text-amber-700 dark:text-amber-300">a newer version is active</span> : null}</div>
                         <div>Automatic updates: <span className="font-medium text-content">{w.automatic_updates ?? 'never'}</span></div>
                         {w.outdated ? <Button size="sm" variant="secondary" onClick={actions.update}>Update to latest version</Button> : null}
                       </CardBody>
@@ -946,7 +946,7 @@ function StatTile({ label, value, hint, tone = 'slate', on = false, onClick, mon
     <Tag type={onClick ? 'button' : undefined} onClick={onClick} aria-pressed={onClick ? on : undefined} className={cn('flex flex-col gap-0.5 rounded-xl border px-3 py-2 text-left transition-colors', on ? 'border-brand-400 bg-brand-50/60 ring-2 ring-brand-400/20 dark:bg-brand-500/10' : 'border-edge-default bg-surface-raised', onClick && 'hover:border-brand-300')}>
       <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{label}</span>
       <span className={cn('truncate text-lg font-semibold leading-none tracking-tight tabular-nums', mono && 'font-mono text-[13px] leading-5', color)}>{value}</span>
-      {hint ? <span className="truncate text-[10.5px] text-content-subtle">{hint}</span> : <span className="text-[10.5px]">&nbsp;</span>}
+      {hint ? <span className="truncate text-[10px] text-content-subtle">{hint}</span> : <span className="text-[10px]">&nbsp;</span>}
     </Tag>
   )
 }

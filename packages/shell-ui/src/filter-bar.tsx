@@ -523,7 +523,7 @@ function OptionPill({
       aria-pressed={active}
       title={option.label ?? option.value}
       className={cn(
-        'inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+        'inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-40',
         active
           ? 'border-brand-600 bg-brand-600 text-white shadow-sm'
           : 'border-edge-default bg-surface-raised text-content hover:border-edge-strong hover:bg-surface-sunken',

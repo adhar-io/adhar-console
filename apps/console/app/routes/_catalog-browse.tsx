@@ -3351,7 +3351,7 @@ function EntityCard({
       */}
       <p
         className={cn(
-          '-mt-1 line-clamp-3 min-h-[4.9em] px-5 text-[12.5px] leading-relaxed',
+          '-mt-1 line-clamp-3 min-h-[4.9em] px-5 text-[12px] leading-relaxed',
           entity.metadata.description ? 'text-content-muted' : 'text-content-subtle/70 italic',
         )}
       >
@@ -4892,7 +4892,7 @@ function LinksPanel({
   return (
     <DrawerSection title={`Links · ${rows.length}`}>
       {rows.length === 0 ? (
-        <p className="text-[11.5px] leading-relaxed text-content-subtle">
+        <p className="text-[11px] leading-relaxed text-content-subtle">
           No links. Add <code className="font-mono text-content-muted">metadata.links</code> with an icon of <code className="font-mono text-content-muted">docs</code>, <code className="font-mono text-content-muted">runbook</code>, <code className="font-mono text-content-muted">dashboard</code>, <code className="font-mono text-content-muted">repo</code>, <code className="font-mono text-content-muted">chat</code> or <code className="font-mono text-content-muted">on-call</code>.
         </p>
       ) : (
@@ -4903,13 +4903,13 @@ function LinksPanel({
                 <LinkGlyph icon={r.icon} />
               </span>
               <span className="min-w-0 flex-1">
-                <a href={r.url} target="_blank" rel="noreferrer" className="block truncate text-[12.5px] font-medium text-content hover:text-brand-700 hover:underline dark:hover:text-brand-300" title={r.url}>
+                <a href={r.url} target="_blank" rel="noreferrer" className="block truncate text-[12px] font-medium text-content hover:text-brand-700 hover:underline dark:hover:text-brand-300" title={r.url}>
                   {r.title}
                 </a>
-                <span className="block truncate text-[10.5px] text-content-subtle">{r.kind} · {r.url.replace(/^https?:\/\//, '').slice(0, 48)}</span>
+                <span className="block truncate text-[10px] text-content-subtle">{r.kind} · {r.url.replace(/^https?:\/\//, '').slice(0, 48)}</span>
               </span>
               {r.internal ? (
-                <button type="button" onClick={() => onTab(r.internal!)} className="shrink-0 text-[10.5px] font-medium text-brand-700 hover:underline dark:text-brand-300">
+                <button type="button" onClick={() => onTab(r.internal!)} className="shrink-0 text-[10px] font-medium text-brand-700 hover:underline dark:text-brand-300">
                   open here
                 </button>
               ) : null}
@@ -5035,7 +5035,7 @@ function ScorecardTab({ score, onAsk }: { score: Scorecard; onAsk(): void }) {
               ) : (
                 <p className="text-[12px] text-content-muted">Top grade — keep it there.</p>
               )}
-              <button type="button" onClick={onAsk} className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-brand-700 hover:underline dark:text-brand-300">
+              <button type="button" onClick={onAsk} className="inline-flex items-center gap-1.5 text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">
                 <IconSparkle /> Ask Adhar AI how to raise it
               </button>
             </div>
@@ -5091,7 +5091,7 @@ function ScorecardTab({ score, onAsk }: { score: Scorecard; onAsk(): void }) {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="text-[13px] font-medium text-content">{c.label}</span>
-                      <span className={cn('shrink-0 font-mono text-[10.5px] tabular-nums', c.pass ? 'text-content-subtle' : 'text-amber-700 dark:text-amber-300')}>
+                      <span className={cn('shrink-0 font-mono text-[10px] tabular-nums', c.pass ? 'text-content-subtle' : 'text-amber-700 dark:text-amber-300')}>
                         {c.pass ? `${pointsFor(c)} pts` : `+${pointsFor(c)} pts`}
                       </span>
                     </div>
@@ -5177,7 +5177,7 @@ function TeamPanel({
       <DrawerSection title="Contact">
         <div className="space-y-3">
           {entity.spec.email ? (
-            <a href={`mailto:${entity.spec.email}`} className="block truncate text-[12.5px] font-medium text-brand-700 hover:underline dark:text-brand-300">
+            <a href={`mailto:${entity.spec.email}`} className="block truncate text-[12px] font-medium text-brand-700 hover:underline dark:text-brand-300">
               {entity.spec.email}
             </a>
           ) : (
@@ -5251,7 +5251,7 @@ function TeamPanel({
             <RefChip ent={team} onPick={onPick} />
           )}
           {team.metadata.description ? (
-            <p className="mt-1.5 text-[11.5px] leading-relaxed text-content-muted">{team.metadata.description}</p>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-content-muted">{team.metadata.description}</p>
           ) : null}
         </div>
 
@@ -5263,12 +5263,12 @@ function TeamPanel({
             <div className="min-w-0 flex-1">
               <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{contact.label}</div>
               {contact.user ? (
-                <button type="button" onClick={() => onPick(contact!.user!)} className="block truncate text-[12.5px] font-medium text-content hover:underline">
+                <button type="button" onClick={() => onPick(contact!.user!)} className="block truncate text-[12px] font-medium text-content hover:underline">
                   {contact.user.metadata.title ?? contact.user.metadata.name}
                 </button>
               ) : null}
               {contact.email ? (
-                <a href={`mailto:${contact.email}`} className="block truncate text-[11.5px] text-brand-700 hover:underline dark:text-brand-300">
+                <a href={`mailto:${contact.email}`} className="block truncate text-[11px] text-brand-700 hover:underline dark:text-brand-300">
                   {contact.email}
                 </a>
               ) : null}
@@ -5297,7 +5297,7 @@ function TeamPanel({
             </div>
           </div>
         ) : (
-          <div className="text-[11.5px] italic text-content-subtle">No members listed on the team.</div>
+          <div className="text-[11px] italic text-content-subtle">No members listed on the team.</div>
         )}
 
         {channels.length ? (
@@ -5368,7 +5368,7 @@ function TechPanel({
       }
     >
       {stack.length === 0 && !version && images.length === 0 ? (
-        <p className="text-[11.5px] leading-relaxed text-content-subtle">
+        <p className="text-[11px] leading-relaxed text-content-subtle">
           Nothing recorded. Tag the entity with its stack and versions (e.g.{' '}
           <code className="font-mono text-content-muted">java-21</code>,{' '}
           <code className="font-mono text-content-muted">spring-boot-3.3</code>) or set{' '}
@@ -5386,7 +5386,7 @@ function TechPanel({
                   <li key={b.label} className="flex items-center justify-between gap-2 py-1.5">
                     <span className="flex min-w-0 items-center gap-2">
                       <span className={cn('h-2 w-2 shrink-0 rounded-sm ring-1 ring-inset', TECH_PILL[b.tone])} />
-                      <span className="truncate text-[12.5px] text-content">{b.label}</span>
+                      <span className="truncate text-[12px] text-content">{b.label}</span>
                     </span>
                     {b.version ? (
                       <span className="shrink-0 rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content">{b.version}</span>
@@ -5421,7 +5421,7 @@ function TechPanel({
             </div>
           ) : null}
           {stack.length && versioned < stack.length ? (
-            <p className="text-[10.5px] leading-relaxed text-content-subtle">
+            <p className="text-[10px] leading-relaxed text-content-subtle">
               {stack.length - versioned} without a version — add it to the tag (<code className="font-mono">java-21</code>) or to <code className="font-mono">adhar.io/tech-stack</code>.
             </p>
           ) : null}
@@ -5601,7 +5601,7 @@ function HealthChecks({
                   {tone[r.state].icon}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[12.5px] font-medium text-content">{r.label}</span>
+                  <span className="block text-[12px] font-medium text-content">{r.label}</span>
                   <span className="block truncate text-[11px] text-content-muted">{r.detail}</span>
                 </span>
                 {r.tab ? (
@@ -5810,7 +5810,7 @@ function StatusStrip({
 function FixNext({ failing, total, onAll }: { failing: Check[]; total: number; onAll(): void }) {
   if (!failing.length) {
     return (
-      <div className="flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-[12.5px] text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
+      <div className="flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-[12px] text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
         <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30">
           <IconCheck />
         </span>
@@ -6069,7 +6069,7 @@ function DeploymentUnavailable({
           <div className="text-[14px] font-semibold text-content">
             {reason === 'unreachable' ? 'Argo CD is not reachable' : 'Not deployed via Argo CD'}
           </div>
-          <p className="mt-1 text-[12.5px] leading-relaxed text-content-muted">
+          <p className="mt-1 text-[12px] leading-relaxed text-content-muted">
             {reason === 'unreachable' ? (
               <>
                 The console could not read Applications from Argo CD, so the rollout state, environments and sync history cannot be shown. This is a
@@ -6226,13 +6226,13 @@ function EnvironmentsGrid({
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Images</div>
                   <ul className="mt-0.5 space-y-0.5">
                     {images.slice(0, 2).map((img) => (
-                      <li key={img} title={img} className="truncate font-mono text-[10.5px] text-content">{shortImage(img)}</li>
+                      <li key={img} title={img} className="truncate font-mono text-[10px] text-content">{shortImage(img)}</li>
                     ))}
                     {images.length > 2 ? <li className="text-[10px] text-content-subtle">+{images.length - 2} more</li> : null}
                   </ul>
                 </div>
               ) : null}
-              <div className="mt-auto flex items-center justify-between border-t border-edge-subtle bg-surface-sunken/40 px-3.5 py-1.5 text-[10.5px]">
+              <div className="mt-auto flex items-center justify-between border-t border-edge-subtle bg-surface-sunken/40 px-3.5 py-1.5 text-[10px]">
                 <span className="truncate font-mono text-content-subtle">{app.metadata.name}</span>
                 {url ? (
                   <a href={url} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 font-medium text-brand-700 hover:underline dark:text-brand-300">
@@ -6268,7 +6268,7 @@ function SyncHistoryCard({ deployment, repoUrl }: { deployment: EntityDeployment
   return (
     <DrawerSection title="Sync history" aside={<span className="text-[11px] text-content-subtle">newest first</span>}>
       {rows.length === 0 ? (
-        <p className="text-[11.5px] text-content-subtle">No sync history recorded yet.</p>
+        <p className="text-[11px] text-content-subtle">No sync history recorded yet.</p>
       ) : (
         <ol className="relative space-y-2.5 border-l border-edge-subtle pl-4">
           {rows.map((r) => {
@@ -6343,14 +6343,14 @@ function GitOpsDetailsCard({ app, appUrl, apps }: { app: ArgoApp; appUrl?: strin
       {app.status.conditions.length ? (
         <ul className="mt-3 space-y-1.5">
           {app.status.conditions.map((c, i) => (
-            <li key={`${c.type}-${i}`} className={cn('rounded-md px-3 py-2 text-[11.5px] leading-relaxed', /error/i.test(c.type) ? 'bg-rose-50 text-rose-800 dark:bg-rose-500/10 dark:text-rose-200' : 'bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-200')}>
+            <li key={`${c.type}-${i}`} className={cn('rounded-md px-3 py-2 text-[11px] leading-relaxed', /error/i.test(c.type) ? 'bg-rose-50 text-rose-800 dark:bg-rose-500/10 dark:text-rose-200' : 'bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-200')}>
               <span className="font-semibold">{c.type}</span>{c.message ? ` — ${c.message}` : ''}
             </li>
           ))}
         </ul>
       ) : null}
       {app.status.health.message ? (
-        <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-[11.5px] text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">{app.status.health.message}</p>
+        <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-[11px] text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">{app.status.health.message}</p>
       ) : null}
     </DrawerSection>
   )
@@ -6490,7 +6490,7 @@ function EndpointsCard({ routes, repoUrl }: { routes: EntityRoute[]; repoUrl?: s
                         {host}
                         {path ? <span className="text-content-muted">{path}</span> : null}
                       </a>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10.5px] text-content-subtle">
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10px] text-content-subtle">
                         <span title={`${r.kind} ${r.namespace}/${r.name}`}>{r.kind} · {r.namespace}/{r.name}</span>
                         <span
                           className={cn('rounded px-1 py-px font-medium', r.via === 'backend' ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300')}
@@ -6718,7 +6718,7 @@ function PipelinesCard({ entity, repoUrl }: { entity: Entity; repoUrl?: string }
                       {r.branch ? <span className="shrink-0 rounded bg-surface-sunken px-1 font-mono text-[10px] text-content-muted">{r.branch}</span> : null}
                       {r.commit ? <span className="shrink-0 font-mono text-[10px] text-content-subtle">{shortSha(r.commit) ?? r.commit.slice(0, 7)}</span> : null}
                     </div>
-                    <div className="truncate text-[10.5px] text-content-subtle">
+                    <div className="truncate text-[10px] text-content-subtle">
                       {r.pipeline ? `${r.pipeline} · ` : ''}{r.namespace}{r.tasks ? ` · ${r.tasks.done}/${r.tasks.total} tasks` : ''}{r.message && r.state === 'failed' ? ` · ${r.message.slice(0, 80)}` : ''}
                     </div>
                   </div>
@@ -6800,7 +6800,7 @@ function MonitoringCard({ entity, monitorUrl, onMetrics }: { entity: Entity; mon
         {alertsQ.isLoading ? (
           <div className="flex items-center gap-2 text-xs text-content-muted"><Spinner /> Reading Alertmanager…</div>
         ) : alertsQ.isError ? (
-          <p className="text-[11.5px] text-content-subtle">Alertmanager is not reachable — alert state is unknown, not clear.</p>
+          <p className="text-[11px] text-content-subtle">Alertmanager is not reachable — alert state is unknown, not clear.</p>
         ) : mine.length ? (
           <ul className="divide-y divide-edge-subtle overflow-hidden rounded-lg border border-edge-subtle">
             {mine.slice(0, 5).map((al) => (
@@ -6808,9 +6808,9 @@ function MonitoringCard({ entity, monitorUrl, onMetrics }: { entity: Entity; mon
                 <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', sevTone[al.severity] ?? 'bg-slate-400', al.state === 'pending' && 'opacity-60')} title={`${al.severity} · ${al.state}`} />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline gap-x-2">
-                    <span className="text-[12.5px] font-medium text-content">{al.name}</span>
+                    <span className="text-[12px] font-medium text-content">{al.name}</span>
                     <span className="text-[10px] uppercase tracking-wider text-content-subtle">{al.severity} · {al.state}</span>
-                    <span className="text-[10.5px] text-content-subtle">since {relativeTime(al.startsAt) || formatDate(al.startsAt)}</span>
+                    <span className="text-[10px] text-content-subtle">since {relativeTime(al.startsAt) || formatDate(al.startsAt)}</span>
                   </div>
                   {al.summary || al.description ? <div className="mt-0.5 text-[11px] leading-relaxed text-content-muted">{al.summary ?? al.description}</div> : null}
                 </div>
@@ -6819,10 +6819,10 @@ function MonitoringCard({ entity, monitorUrl, onMetrics }: { entity: Entity; mon
                 ) : null}
               </li>
             ))}
-            {mine.length > 5 ? <li className="bg-surface-raised px-3 py-1.5 text-[10.5px] text-content-subtle">+{mine.length - 5} more</li> : null}
+            {mine.length > 5 ? <li className="bg-surface-raised px-3 py-1.5 text-[10px] text-content-subtle">+{mine.length - 5} more</li> : null}
           </ul>
         ) : (
-          <p className="text-[11.5px] text-content-muted">No alerts are firing or pending for <span className="font-mono text-content">{entity.metadata.name}</span>.</p>
+          <p className="text-[11px] text-content-muted">No alerts are firing or pending for <span className="font-mono text-content">{entity.metadata.name}</span>.</p>
         )}
 
         <div className="flex flex-wrap gap-2">
@@ -7112,7 +7112,7 @@ function TechStackTab({
 
       {stack.length === 0 && !version ? (
         <DrawerSection title="Stack">
-          <p className="text-[12.5px] leading-relaxed text-content-muted">
+          <p className="text-[12px] leading-relaxed text-content-muted">
             Nothing recorded for <code className="font-mono text-content">{entity.metadata.name}</code>. Tag it with its stack and versions — for example{' '}
             <code className="font-mono text-content">java-21</code>, <code className="font-mono text-content">spring-boot-3.3</code>, <code className="font-mono text-content">postgres-16</code> — or set{' '}
             <code className="font-mono text-content">adhar.io/tech-stack: "java@21, spring-boot@3.3.2"</code>. Versions are what make this tab useful: "is this on a supported Java?" needs a number.
@@ -7134,12 +7134,12 @@ function TechStackTab({
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13px] font-medium text-content">{b.label}</span>
-                      <span className="block truncate text-[10.5px] text-content-subtle">from {sourceOf(b)}</span>
+                      <span className="block truncate text-[10px] text-content-subtle">from {sourceOf(b)}</span>
                     </span>
                     {b.version ? (
                       <span className="shrink-0 rounded-md bg-surface-sunken px-2 py-1 font-mono text-[12px] font-semibold text-content ring-1 ring-inset ring-edge-subtle">{b.version}</span>
                     ) : (
-                      <span className="shrink-0 rounded-md border border-dashed border-edge-default px-2 py-1 text-[10.5px] italic text-content-subtle" title={`Add the version to the tag, e.g. ${b.label.toLowerCase().replace(/\s+/g, '-')}-<version>`}>
+                      <span className="shrink-0 rounded-md border border-dashed border-edge-default px-2 py-1 text-[10px] italic text-content-subtle" title={`Add the version to the tag, e.g. ${b.label.toLowerCase().replace(/\s+/g, '-')}-<version>`}>
                         no version
                       </span>
                     )}
@@ -7156,7 +7156,7 @@ function TechStackTab({
           {deployment.isLoading ? (
             <div className="flex items-center gap-2 text-[11px] text-content-subtle"><Spinner size={12} /> Reading Argo CD…</div>
           ) : !anyImages ? (
-            <p className="text-[11.5px] text-content-subtle">
+            <p className="text-[11px] text-content-subtle">
               {deployment.isError ? 'Argo CD is not reachable.' : deployment.apps.length ? 'Argo CD reports no images for this application.' : 'Not deployed via Argo CD, so there is nothing running to report.'}
             </p>
           ) : (
@@ -7226,7 +7226,7 @@ function TechStackTab({
               <StatusBadge kind="paused" className="px-1.5 py-0 text-[10px]">not registered</StatusBadge>
             )}
           </div>
-          <p className="mt-2 text-[11.5px] leading-relaxed text-content-muted">
+          <p className="mt-2 text-[11px] leading-relaxed text-content-muted">
             {docsUrl
               ? 'Markdown kept in the repository renders inside the console, with a table of contents and search.'
               : 'Add a docs link to metadata.links, or the backstage.io/techdocs-ref / adhar.io/docs annotation, to publish documentation for this component.'}
@@ -7657,14 +7657,14 @@ function TechDocsTab({ url, entity, monitorUrl }: { url?: string; entity: Entity
                 </ul>
               </div>
             ))}
-            {sections.length === 0 ? <div className="px-2 py-2 text-[11.5px] text-content-subtle">No page matches.</div> : null}
+            {sections.length === 0 ? <div className="px-2 py-2 text-[11px] text-content-subtle">No page matches.</div> : null}
           </nav>
 
           <div className="min-w-0">
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2 px-1">
               <div className="min-w-0">
                 <h3 className="truncate text-[16px] font-semibold text-content">{title}</h3>
-                <div className="truncate font-mono text-[10.5px] text-content-subtle">{current?.path}{words ? ` · ${words.toLocaleString()} words · ~${Math.max(1, Math.round(words / 220))} min` : ''}</div>
+                <div className="truncate font-mono text-[10px] text-content-subtle">{current?.path}{words ? ` · ${words.toLocaleString()} words · ~${Math.max(1, Math.round(words / 220))} min` : ''}</div>
               </div>
             </div>
             <div className={cn('grid items-start gap-4', toc.length > 2 ? 'xl:grid-cols-[minmax(0,1fr)_170px]' : '')}>
@@ -7686,7 +7686,7 @@ function TechDocsTab({ url, entity, monitorUrl }: { url?: string; entity: Entity
                         <button
                           type="button"
                           onClick={() => bodyRef.current?.querySelector(`#${CSS.escape(h.id)}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                          className={cn('-ml-px block w-full border-l-2 border-transparent py-0.5 pl-2.5 text-left text-[11.5px] text-content-muted transition-colors hover:border-brand-400 hover:text-content', h.level === 3 && 'pl-5 text-[11px]')}
+                          className={cn('-ml-px block w-full border-l-2 border-transparent py-0.5 pl-2.5 text-left text-[11px] text-content-muted transition-colors hover:border-brand-400 hover:text-content', h.level === 3 && 'pl-5 text-[11px]')}
                         >
                           {h.title}
                         </button>
@@ -7927,7 +7927,7 @@ function TechDocsCard({ url, entity, monitorUrl }: { url?: string; entity?: Enti
                           el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
                         }}
                         className={cn(
-                          '-ml-px block w-full border-l-2 border-transparent py-0.5 pl-2.5 text-left text-[11.5px] text-content-muted transition-colors hover:border-brand-400 hover:text-content',
+                          '-ml-px block w-full border-l-2 border-transparent py-0.5 pl-2.5 text-left text-[11px] text-content-muted transition-colors hover:border-brand-400 hover:text-content',
                           h.level === 1 && 'font-medium text-content',
                           h.level === 3 && 'pl-5 text-[11px]',
                         )}
@@ -7948,7 +7948,7 @@ function TechDocsCard({ url, entity, monitorUrl }: { url?: string; entity?: Enti
           </div>
         ) : null}
 
-        <div className="truncate font-mono text-[10.5px] text-content-subtle">{resolvedUrl ?? url}</div>
+        <div className="truncate font-mono text-[10px] text-content-subtle">{resolvedUrl ?? url}</div>
       </CardBody>
     </Card>
   )

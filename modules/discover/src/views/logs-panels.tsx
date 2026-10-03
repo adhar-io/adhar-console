@@ -505,7 +505,7 @@ function ContextView({
       ) : rows.list.length === 0 ? (
         <div className="py-8 text-[12px] text-content-subtle">No surrounding lines.</div>
       ) : (
-        <ol className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised font-mono text-[11.5px]">
+        <ol className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised font-mono text-[11px]">
           {rows.list.map((l, i) => {
             const isTarget = i === rows.target
             const lv = levelOf(l)

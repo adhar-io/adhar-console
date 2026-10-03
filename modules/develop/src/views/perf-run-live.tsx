@@ -125,10 +125,10 @@ export function StageRail({
                     ) : null}
                   </span>
                   <span className="min-w-0 flex-1 sm:w-full">
-                    <span className={cn('block truncate text-[11.5px] font-medium', on ? 'text-content' : 'text-content-muted')}>
+                    <span className={cn('block truncate text-[11px] font-medium', on ? 'text-content' : 'text-content-muted')}>
                       {stage}
                     </span>
-                    <span className="block truncate font-mono text-[10.5px] tabular-nums text-content-subtle">
+                    <span className="block truncate font-mono text-[10px] tabular-nums text-content-subtle">
                       {state === 'pending' ? '—' : state === 'skipped' ? 'not reached' : d === undefined ? (state === 'active' ? 'running' : '—') : fmtSecs(d)}
                     </span>
                   </span>
@@ -140,8 +140,8 @@ export function StageRail({
 
         {selected ? (
           <div className="mt-2 rounded-lg border border-edge-subtle bg-surface-sunken/40 px-3 py-2">
-            <div className="text-[11.5px] font-medium text-content">{selected}</div>
-            <p className="mt-0.5 text-[11.5px] leading-relaxed text-content-muted">{STAGE_HINT[selected]}</p>
+            <div className="text-[11px] font-medium text-content">{selected}</div>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-content-muted">{STAGE_HINT[selected]}</p>
             <StageConditions run={run} stage={selected} />
           </div>
         ) : null}
@@ -235,7 +235,7 @@ export function LiveCharts({ lines, running }: { lines: readonly string[]; runni
       </div>
       <Card>
         <CardBody>
-          <p className="text-[11.5px] leading-relaxed text-content-muted">
+          <p className="text-[11px] leading-relaxed text-content-muted">
             Latency percentiles are not plotted over time because k6 does not produce them over time: it computes
             p90, p95 and p99 once, at the end, and prints them in the summary. They appear on the Summary tab as soon
             as the run finishes.
@@ -271,7 +271,7 @@ function ProgressTiles({ series, running }: { series: ProgressSeries; running: b
           <div key={t.label} className="rounded-xl border border-edge-default bg-surface-raised px-3 py-2">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{t.label}</div>
             <div className="mt-0.5 font-mono text-[17px] font-semibold tabular-nums leading-none text-content">{t.value}</div>
-            {t.hint ? <div className="mt-1 truncate text-[10.5px] text-content-subtle">{t.hint}</div> : null}
+            {t.hint ? <div className="mt-1 truncate text-[10px] text-content-subtle">{t.hint}</div> : null}
           </div>
         ))}
       </div>

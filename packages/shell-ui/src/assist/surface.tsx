@@ -347,7 +347,7 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
             {runtime?.configured ? (
               <span
                 title={runtime.reachable ? 'adhar-ai runtime reachable' : 'adhar-ai runtime unreachable'}
-                className={cn('inline-flex items-center gap-1 rounded-full text-[9.5px] font-medium sm:px-1.5 sm:py-px', runtime.reachable ? 'text-emerald-700 sm:bg-emerald-50 dark:text-emerald-300 dark:sm:bg-emerald-500/10' : 'text-rose-700 sm:bg-rose-50 dark:text-rose-300 dark:sm:bg-rose-500/10')}
+                className={cn('inline-flex items-center gap-1 rounded-full text-[9px] font-medium sm:px-1.5 sm:py-px', runtime.reachable ? 'text-emerald-700 sm:bg-emerald-50 dark:text-emerald-300 dark:sm:bg-emerald-500/10' : 'text-rose-700 sm:bg-rose-50 dark:text-rose-300 dark:sm:bg-rose-500/10')}
               >
                 <span className={cn('h-2 w-2 rounded-full sm:h-1.5 sm:w-1.5', runtime.reachable ? 'bg-emerald-500' : 'bg-rose-500')} /> <span className="hidden sm:inline">runtime</span>
               </span>
@@ -564,7 +564,7 @@ function ShortcutsMenu() {
             {SHORTCUTS.map(([k, what]) => (
               <li key={k} className="flex items-center justify-between gap-3 rounded-md px-1.5 py-1 text-[12px]">
                 <span className="text-content-muted">{what}</span>
-                <kbd className="rounded border border-edge-default bg-surface-sunken px-1.5 py-px font-mono text-[10.5px] text-content">{k}</kbd>
+                <kbd className="rounded border border-edge-default bg-surface-sunken px-1.5 py-px font-mono text-[10px] text-content">{k}</kbd>
               </li>
             ))}
           </ul>

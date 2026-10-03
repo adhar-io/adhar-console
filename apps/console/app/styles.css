@@ -344,6 +344,29 @@ body::before {
       border-color 120ms var(--ease-smooth, cubic-bezier(0.32, 0.72, 0, 1)),
       box-shadow 120ms var(--ease-smooth, cubic-bezier(0.32, 0.72, 0, 1));
   }
+
+  /*
+   * The same courtesy for everything else you can tab to.
+   *
+   * Fields had a brand focus ring and nothing else did: 640 buttons in this
+   * codebase, 140 focus-visible declarations between them. The rest fell back
+   * to the user agent's own ring — a colour from no palette here, and on a
+   * dark surface often invisible. Keyboard users were navigating a different,
+   * worse product than mouse users.
+   *
+   * `outline` rather than a box-shadow ring on purpose. It follows the
+   * element's border-radius on its own, it cannot be clipped by an ancestor's
+   * `overflow: hidden`, and it does not occupy the `box-shadow` property —
+   * so a raised button keeps its elevation while focused instead of trading
+   * the shadow for the ring.
+   *
+   * Base layer, so the ~140 components that already declare their own ring
+   * keep winning; this is the default the other 500 get for free.
+   */
+  :is(button, summary, [role='button'], [role='tab'], [role='menuitem'], [role='option'], a[href], [tabindex]):not([tabindex='-1']):focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+  }
 }
 
 /* Link default — inherit color; views opt into brand tint explicitly. */
@@ -649,17 +672,23 @@ a {
    * body text) becomes near-white. The middle of the ramp barely moves
    * because mid-grays read the same in either mode.
    */
-  --color-slate-50: oklch(0.18 0.005 260);
-  --color-slate-100: oklch(0.22 0.006 260);
-  --color-slate-200: oklch(0.27 0.008 260);
-  --color-slate-300: oklch(0.36 0.012 260);
-  --color-slate-400: oklch(0.5 0.015 260);
-  --color-slate-500: oklch(0.62 0.013 260);
-  --color-slate-600: oklch(0.74 0.01 260);
-  --color-slate-700: oklch(0.84 0.007 260);
-  --color-slate-800: oklch(0.92 0.005 260);
-  --color-slate-900: oklch(0.96 0.003 260);
-  --color-slate-950: oklch(0.985 0.002 260);
+  /*
+   * Chroma tracks the surfaces these sit on. The dark surfaces carry the
+   * brand's navy cast now; this ramp was left near-neutral, so a slate chip on
+   * a raised card read a half-step greyer than everything around it. Same
+   * lightness curve as before — only the tint moved, into the same family.
+   */
+  --color-slate-50: oklch(0.18 0.020 264);
+  --color-slate-100: oklch(0.22 0.022 264);
+  --color-slate-200: oklch(0.27 0.024 264);
+  --color-slate-300: oklch(0.36 0.028 264);
+  --color-slate-400: oklch(0.5 0.030 264);
+  --color-slate-500: oklch(0.62 0.026 264);
+  --color-slate-600: oklch(0.74 0.020 264);
+  --color-slate-700: oklch(0.84 0.014 264);
+  --color-slate-800: oklch(0.92 0.010 264);
+  --color-slate-900: oklch(0.96 0.006 264);
+  --color-slate-950: oklch(0.985 0.004 264);
 }
 
 /* Page background + body text follow the new tokens automatically. */

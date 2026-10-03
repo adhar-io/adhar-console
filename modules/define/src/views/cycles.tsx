@@ -122,7 +122,7 @@ function ActiveCycleHero({
         type="button"
         onClick={onOpen}
         aria-label={`Open ${cycle.name}`}
-        className="absolute inset-0 z-10 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25"
+        className="absolute inset-0 z-10 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40"
       />
       <CardBody className="relative z-0 space-y-4 p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -193,7 +193,7 @@ function CycleSection({
               type="button"
               onClick={() => onOpen(c)}
               aria-label={`Open ${c.name}`}
-              className="absolute inset-0 z-10 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25"
+              className="absolute inset-0 z-10 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40"
             />
             <CardHeader>
               <div className="flex items-start justify-between gap-2">

@@ -144,7 +144,7 @@ function ModuleCard({
         type="button"
         onClick={onOpen}
         aria-label={`Open ${m.name}`}
-        className="absolute inset-0 z-10 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25"
+        className="absolute inset-0 z-10 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40"
       />
       <CardHeader className="relative z-0">
         <div className="flex items-start justify-between gap-3">

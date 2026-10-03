@@ -214,7 +214,7 @@ function Header({
       <Link
         to="/"
         aria-label="Adhar Console — home"
-        className="group flex min-w-0 items-center gap-2.5 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25"
+        className="group flex min-w-0 items-center gap-2.5 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40"
       >
         <div className="shrink-0 transition-transform duration-200 ease-out group-hover:scale-105">
           <AdharSymbol size={36} />
@@ -266,7 +266,7 @@ function ExpandRow({ onToggle }: { onToggle(): void }) {
         title="Expand sidebar (⌘B)"
         className={cn(
           'flex h-8 w-9 items-center justify-center rounded-lg text-content-subtle transition-colors',
-          'hover:bg-surface-sunken hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/25',
+          'hover:bg-surface-sunken hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
         )}
       >
         <IconChevronsRight />

@@ -123,7 +123,7 @@ function StepNodeView({ data }: NodeProps<Node<StepData>>) {
       <div className="flex items-center gap-2.5 px-3 pt-2.5">
         <span className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold', g.cls)}>{g.text}</span>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[12.5px] font-semibold text-content">{step.label || step.id}</div>
+          <div className="truncate text-[12px] font-semibold text-content">{step.label || step.id}</div>
           <div className="truncate font-mono text-[10px] text-content-subtle">{step.image || 'no image'}</div>
         </div>
       </div>
@@ -496,7 +496,7 @@ function Designer({ namespace, initial, initialSchedule, onClose, onScheduled, o
                 </ReactFlow>
                 {graph.steps.length === 0 ? (
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                    <div className="rounded-xl border border-dashed border-edge-strong bg-surface-raised/90 px-5 py-4 text-center text-[12.5px] text-content-muted shadow-sm">
+                    <div className="rounded-xl border border-dashed border-edge-strong bg-surface-raised/90 px-5 py-4 text-center text-[12px] text-content-muted shadow-sm">
                       <div className="font-semibold text-content">Empty canvas</div>
                       Drag a step from the palette, or click one to add it.
                     </div>
@@ -553,8 +553,8 @@ function Palette({ readOnly, onAdd }: { readOnly: boolean; onAdd(p: StepPreset):
     <Card className="xl:max-h-[calc(600px+2.75rem)] xl:overflow-y-auto">
       <CardBody className="space-y-1.5 p-2">
         <div className="px-1 pb-1 pt-0.5">
-          <div className="text-[10.5px] font-semibold uppercase tracking-wider text-content-subtle">Steps</div>
-          <div className="text-[10.5px] text-content-subtle">{readOnly ? 'Read-only' : 'Drag onto the canvas, or click to add'}</div>
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Steps</div>
+          <div className="text-[10px] text-content-subtle">{readOnly ? 'Read-only' : 'Drag onto the canvas, or click to add'}</div>
         </div>
         {STEP_PRESETS.map((p) => (
           <button
@@ -625,7 +625,7 @@ function StagesStrip({
                 readOnly={readOnly}
                 onChange={(e) => onRename(i, e.target.value)}
                 aria-label={`Name of stage ${i + 1}`}
-                className="min-w-0 flex-1 bg-transparent text-[11.5px] font-semibold text-content placeholder:text-content-subtle focus:outline-none"
+                className="min-w-0 flex-1 bg-transparent text-[11px] font-semibold text-content placeholder:text-content-subtle focus:outline-none"
               />
               <span className="shrink-0 font-mono text-[10px] text-content-subtle">{steps.length}</span>
             </div>
@@ -636,7 +636,7 @@ function StagesStrip({
                   type="button"
                   onClick={() => onSelect(s.id)}
                   className={cn(
-                    'max-w-full truncate rounded px-1.5 py-0.5 text-[10.5px] transition-colors',
+                    'max-w-full truncate rounded px-1.5 py-0.5 text-[10px] transition-colors',
                     s.id === selectedId ? 'bg-brand-600 text-white' : 'bg-surface-raised text-content-muted ring-1 ring-inset ring-edge-subtle hover:text-content',
                   )}
                 >
@@ -668,7 +668,7 @@ function StarterPicker({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-[15px] font-semibold text-content">New workflow</div>
-          <p className="mt-0.5 max-w-2xl text-[12.5px] text-content-muted">
+          <p className="mt-0.5 max-w-2xl text-[12px] text-content-muted">
             Start from a shape that fits, or from nothing. Every starter is an ordinary Argo DAG you can change on the canvas, run once, or put on a schedule.
           </p>
         </div>
@@ -683,7 +683,7 @@ function StarterPicker({
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-50 text-[18px] font-semibold text-brand-700 dark:bg-brand-500/15 dark:text-brand-300">+</span>
           <span>
             <span className="block text-[13px] font-semibold text-content">Blank canvas</span>
-            <span className="mt-0.5 block text-[11.5px] text-content-muted">Drag steps in and wire them yourself.</span>
+            <span className="mt-0.5 block text-[11px] text-content-muted">Drag steps in and wire them yourself.</span>
           </span>
         </button>
         {STARTERS.map((st) => (
@@ -694,8 +694,8 @@ function StarterPicker({
             className="flex min-h-36 flex-col rounded-xl border border-edge-default bg-surface-raised p-4 text-left shadow-sm transition-[border-color,box-shadow] hover:border-brand-300 hover:shadow-md"
           >
             <span className="text-[13px] font-semibold text-content">{st.title}</span>
-            <span className="mt-1 text-[11.5px] leading-relaxed text-content-muted">{st.blurb}</span>
-            <span className="mt-auto pt-3 text-[10.5px] text-content-subtle">Needs: {st.requires}</span>
+            <span className="mt-1 text-[11px] leading-relaxed text-content-muted">{st.blurb}</span>
+            <span className="mt-auto pt-3 text-[10px] text-content-subtle">Needs: {st.requires}</span>
           </button>
         ))}
       </div>
@@ -860,7 +860,7 @@ function TriggerEditor({ schedule, readOnly, onChange }: { schedule: Schedule; r
             aria-pressed={schedule.mode === m.id}
             title={m.blurb}
             className={cn(
-              'rounded-md border px-2 py-1.5 text-[11.5px] font-medium transition-colors',
+              'rounded-md border px-2 py-1.5 text-[11px] font-medium transition-colors',
               schedule.mode === m.id ? 'border-brand-400 bg-brand-50 text-brand-800 dark:bg-brand-500/10 dark:text-brand-200' : 'border-edge-default text-content-muted hover:text-content',
             )}
           >
@@ -908,7 +908,7 @@ function TriggerEditor({ schedule, readOnly, onChange }: { schedule: Schedule; r
               className={cn('font-mono', !cronValid && 'border-rose-400')}
             />
           </Field>
-          <div className={cn('rounded-md px-2.5 py-1.5 text-[11.5px]', cronValid ? 'bg-surface-sunken text-content' : 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300')}>
+          <div className={cn('rounded-md px-2.5 py-1.5 text-[11px]', cronValid ? 'bg-surface-sunken text-content' : 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300')}>
             {cronValid ? (schedule.cron ? describeCron(schedule.cron.trim(), schedule.timezone) : 'Pick a preset or type an expression.') : 'Five space-separated fields are needed.'}
           </div>
           <Field label="Time zone" hint="Blank uses the controller's zone (usually UTC).">
@@ -930,7 +930,7 @@ function TriggerEditor({ schedule, readOnly, onChange }: { schedule: Schedule; r
       ) : null}
 
       {schedule.mode !== 'now' ? (
-        <label className="mt-2 flex items-center gap-2 text-[11.5px] text-content-muted">
+        <label className="mt-2 flex items-center gap-2 text-[11px] text-content-muted">
           <input type="checkbox" checked={Boolean(schedule.suspend)} disabled={readOnly} onChange={(e) => onChange({ ...schedule, suspend: e.target.checked || undefined })} className="accent-brand-600" />
           Create it paused — resume from the Cron tab when ready
         </label>

@@ -376,7 +376,7 @@ function PoliciesTable({
                     <StatusBadge kind={md === 'Enforce' ? 'failed' : 'info'} dot={false}>{md}</StatusBadge>
                   </div>
                   <p className="line-clamp-2 min-h-[2.4rem] text-[12px] leading-relaxed text-content-muted">{ann(p, 'description') ?? 'No description annotation.'}</p>
-                  <div className="flex flex-wrap items-center gap-1.5 text-[10.5px]">
+                  <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
                     <Chip>{policyCategory(p)}</Chip>
                     <StatusBadge kind={SEV_TONE[sev] ?? 'unknown'} dot={false}>{sev}</StatusBadge>
                     <Chip>{(p.spec?.rules ?? []).length} rule{(p.spec?.rules ?? []).length === 1 ? '' : 's'}</Chip>
@@ -384,7 +384,7 @@ function PoliciesTable({
                     {ready === false ? <StatusBadge kind="degraded" dot={false}>not ready</StatusBadge> : null}
                   </div>
                   <div>
-                    <div className="mb-1 flex justify-between font-mono text-[10.5px] tabular-nums text-content-subtle">
+                    <div className="mb-1 flex justify-between font-mono text-[10px] tabular-nums text-content-subtle">
                       <span><span className="text-emerald-600 dark:text-emerald-300">{t.pass} pass</span> · <span className={t.fail ? 'text-rose-600 dark:text-rose-300' : ''}>{t.fail} fail</span> · <span className={t.warn ? 'text-amber-600 dark:text-amber-300' : ''}>{t.warn} warn</span></span>
                       <span>{total ? `${Math.round((t.pass / total) * 100)}%` : 'no results'}</span>
                     </div>
@@ -624,7 +624,7 @@ function ViolationsTable({
           <EmptyState title={violations.length ? 'No violations match' : 'No violations 🎉'} description={violations.length ? 'Adjust the filters.' : 'Every PolicyReport result is passing.'} />
         ) : (
           <div className="overflow-hidden rounded-xl border border-edge-default">
-            <table className="w-full text-[12.5px]">
+            <table className="w-full text-[12px]">
               <thead className="bg-surface-sunken/70 text-[11px] uppercase tracking-wider text-content-subtle">
                 <tr>
                   <th className="px-3 py-2 text-left font-semibold">Severity</th>
@@ -776,13 +776,13 @@ function SummaryTile({ tone, label, value, hint }: { tone: 'emerald' | 'rose' | 
     <div className={`rounded-xl p-4 ring-1 ring-inset ${tones[tone]}`}>
       <div className="text-2xl font-semibold tabular-nums">{value}</div>
       <div className="mt-0.5 text-xs font-medium uppercase tracking-wide">{label}</div>
-      {hint ? <div className="mt-0.5 truncate text-[10.5px] opacity-80">{hint}</div> : null}
+      {hint ? <div className="mt-0.5 truncate text-[10px] opacity-80">{hint}</div> : null}
     </div>
   )
 }
 
 function Chip({ children }: { children: ReactNode }) {
-  return <span className="inline-flex items-center rounded-md bg-surface-sunken px-1.5 py-0.5 text-[10.5px] text-content-muted">{children}</span>
+  return <span className="inline-flex items-center rounded-md bg-surface-sunken px-1.5 py-0.5 text-[10px] text-content-muted">{children}</span>
 }
 
 function ActionBtn({ children, href, onClick, primary = false }: { children: ReactNode; href?: string; onClick?(): void; primary?: boolean }) {

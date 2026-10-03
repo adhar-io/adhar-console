@@ -430,7 +430,7 @@ function RouteDrawer({ route, proto, onClose, onEdit }: { route: RouteObject & {
                     <span className="font-mono">{p.namespace ? `${p.namespace}/` : ''}{p.name}{p.sectionName ? `#${p.sectionName}` : ''}{p.port ? `:${p.port}` : ''}</span>
                     <StatusBadge kind={condTone(acc)}>{acc ? (acc.status === 'True' ? 'accepted' : acc.reason ?? 'rejected') : 'no status'}</StatusBadge>
                     <StatusBadge kind={condTone(res)}>{res ? (res.status === 'True' ? 'refs ok' : res.reason ?? 'unresolved') : '—'}</StatusBadge>
-                    {st?.controllerName ? <span className="font-mono text-[10.5px] text-content-subtle">{st.controllerName}</span> : null}
+                    {st?.controllerName ? <span className="font-mono text-[10px] text-content-subtle">{st.controllerName}</span> : null}
                   </span>
                 }
               />
@@ -446,7 +446,7 @@ function RouteDrawer({ route, proto, onClose, onEdit }: { route: RouteObject & {
           {(route.spec?.rules ?? []).map((rule, ri) => (
             <div key={ri} className="rounded-xl border border-edge-default bg-surface-raised p-3">
               <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-content-subtle">Rule {ri + 1}{rule.name ? <code className="font-mono normal-case tracking-normal text-content">{rule.name}</code> : null}{rule.timeouts?.request ? <Chip>timeout {rule.timeouts.request}</Chip> : null}</div>
-              <div className="space-y-1 font-mono text-[11.5px]">
+              <div className="space-y-1 font-mono text-[11px]">
                 {(rule.matches ?? [{}]).map((m, mi) => (
                   <div key={mi} className="flex flex-wrap items-center gap-1.5">
                     <span className="text-content-subtle">match</span>
@@ -584,7 +584,7 @@ export function NetworkPolicyDrawer({ policy, onClose }: { policy: NetworkPolicy
     return (
       <div className="space-y-1.5">
         {rules.map((r, i) => (
-          <div key={i} className="rounded-lg border border-edge-default bg-surface-raised px-3 py-2 font-mono text-[11.5px]">
+          <div key={i} className="rounded-lg border border-edge-default bg-surface-raised px-3 py-2 font-mono text-[11px]">
             <div className="flex flex-wrap gap-1"><span className="text-content-subtle">{dir}</span>{(r[dir] ?? []).length === 0 ? <Chip>anywhere</Chip> : (r[dir] ?? []).map((p, pi) => <Chip key={pi}>{peerLabel(p)}</Chip>)}</div>
             <div className="mt-1 flex flex-wrap gap-1"><span className="text-content-subtle">ports</span>{(r.ports ?? []).length === 0 ? <Chip>all</Chip> : (r.ports ?? []).map((p, pi) => <Chip key={pi}>{p.protocol ?? 'TCP'} {p.port ?? '*'}{p.endPort ? `–${p.endPort}` : ''}</Chip>)}</div>
           </div>
@@ -633,7 +633,7 @@ function Conditions({ conditions }: { conditions?: Condition[] }) {
 }
 
 function Chip({ children }: { children: ReactNode }) {
-  return <span className="inline-flex max-w-full items-center truncate rounded-md bg-surface-sunken px-1.5 py-0.5 text-[10.5px] text-content-muted">{children}</span>
+  return <span className="inline-flex max-w-full items-center truncate rounded-md bg-surface-sunken px-1.5 py-0.5 text-[10px] text-content-muted">{children}</span>
 }
 
 function ActionBtn({ children, href, onClick, primary = false }: { children: ReactNode; href?: string; onClick?(): void; primary?: boolean }) {

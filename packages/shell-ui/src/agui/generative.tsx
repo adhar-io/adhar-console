@@ -133,7 +133,7 @@ function kindGlyph(kind: string): ReactNode {
 }
 
 function Chip({ t, children }: { t: Tone; children: ReactNode }) {
-  return <span className={cn('inline-flex items-center rounded-md px-1.5 py-0.5 text-[10.5px] font-medium ring-1 ring-inset', TONE_CHIP[t])}>{children}</span>
+  return <span className={cn('inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset', TONE_CHIP[t])}>{children}</span>
 }
 
 function Empty({ text }: { text: string }) {
@@ -168,7 +168,7 @@ function PodDiagnostics({ props: p }: { props: Props }) {
 
       {containers.length || initContainers.length ? (
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-[11.5px]">
+          <table className="w-full text-left text-[11px]">
             <thead className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
               <tr>
                 <th className="py-1 pr-2">Container</th>
@@ -185,12 +185,12 @@ function PodDiagnostics({ props: p }: { props: Props }) {
                   <tr key={i}>
                     <td className="py-1 pr-2 font-medium text-content">
                       {str(c.name)}
-                      {c.init ? <span className="ml-1 text-[9.5px] uppercase text-content-subtle">init</span> : null}
+                      {c.init ? <span className="ml-1 text-[9px] uppercase text-content-subtle">init</span> : null}
                       {c.ready === false ? <span className="ml-1 text-rose-600 dark:text-rose-400">●</span> : null}
                     </td>
                     <td className={cn('py-1 pr-2', TONE_TEXT[statusTone(state)])}>{state || '—'}</td>
                     <td className={cn('py-1 pr-2 text-right tabular-nums', restarts > 0 ? TONE_TEXT.warn : 'text-content-muted')}>{restarts}</td>
-                    <td className="max-w-[16rem] truncate py-1 font-mono text-[10.5px] text-content-subtle" title={str(c.image)}>{str(c.image)}</td>
+                    <td className="max-w-[16rem] truncate py-1 font-mono text-[10px] text-content-subtle" title={str(c.image)}>{str(c.image)}</td>
                   </tr>
                 )
               })}
@@ -244,10 +244,10 @@ function WorkloadHealth({ props: p }: { props: Props }) {
       ) : null}
       {podIssues.length ? (
         <div className="rounded-lg border border-edge-subtle bg-surface-sunken/40 p-2">
-          <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wider text-content-subtle">Pods with issues · {podIssues.length}</div>
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Pods with issues · {podIssues.length}</div>
           <ul className="space-y-1">
             {podIssues.slice(0, 6).map((pod, i) => (
-              <li key={i} className="text-[11.5px]">
+              <li key={i} className="text-[11px]">
                 <span className="font-medium text-content">{str(pod.pod)}</span>
                 <span className="text-content-subtle"> — {strArr(pod.issues)[0] ?? 'unhealthy'}</span>
               </li>
@@ -264,7 +264,7 @@ function EventsScan({ props: p }: { props: Props }) {
   if (!groups.length) return <Empty text="No warning events in scope — nothing is complaining." />
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-left text-[11.5px]">
+      <table className="w-full text-left text-[11px]">
         <thead className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
           <tr>
             <th className="py-1 pr-2">Reason</th>
@@ -277,7 +277,7 @@ function EventsScan({ props: p }: { props: Props }) {
           {groups.slice(0, 15).map((g, i) => (
             <tr key={i}>
               <td className="py-1 pr-2"><Chip t="bad">{str(g.reason)}</Chip></td>
-              <td className="py-1 pr-2 font-mono text-[10.5px] text-content">{str(g.object)}</td>
+              <td className="py-1 pr-2 font-mono text-[10px] text-content">{str(g.object)}</td>
               <td className="py-1 pr-2 text-right tabular-nums text-content-muted">{num(g.count) ?? 1}</td>
               <td className="max-w-[22rem] truncate py-1 text-content-muted" title={str(g.message)}>{str(g.message)}</td>
             </tr>
@@ -311,10 +311,10 @@ function ArgoApp({ props: p }: { props: Props }) {
       {op?.phase ? <KeyVal k="last op" v={`${str(op.phase)}${op.message ? ` — ${str(op.message)}` : ''}`} t={statusTone(str(op.phase))} /> : null}
       {issues.length ? (
         <div className="rounded-lg border border-edge-subtle bg-surface-sunken/40 p-2">
-          <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wider text-content-subtle">Resources needing attention · {issues.length}</div>
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Resources needing attention · {issues.length}</div>
           <ul className="space-y-1">
             {issues.slice(0, 8).map((r, i) => (
-              <li key={i} className="flex flex-wrap items-center gap-1.5 text-[11.5px]">
+              <li key={i} className="flex flex-wrap items-center gap-1.5 text-[11px]">
                 <span className="font-mono text-content">{str(r.resource)}</span>
                 {r.namespace ? <span className="text-content-subtle">· {str(r.namespace)}</span> : null}
                 {r.sync ? <Chip t={str(r.sync) === 'Synced' ? 'ok' : 'warn'}>{str(r.sync)}</Chip> : null}
@@ -333,7 +333,7 @@ function LogViewer({ props: p }: { props: Props }) {
   const lines = raw.split('\n').filter(Boolean)
   if (!lines.length) return <Empty text="No log output." />
   return (
-    <pre className="max-h-72 overflow-auto rounded-lg bg-code p-2.5 font-mono text-[10.5px] leading-relaxed text-code-fg">
+    <pre className="max-h-72 overflow-auto rounded-lg bg-code p-2.5 font-mono text-[10px] leading-relaxed text-code-fg">
       {lines.slice(-200).map((l, i) => (
         <div key={i} className={cn(/error|fatal|panic|exception/i.test(l) ? 'text-rose-300' : /warn/i.test(l) ? 'text-amber-300' : undefined)}>
           {l}
@@ -353,7 +353,7 @@ function ResourceList({ props: p }: { props: Props }) {
         const name = str(r.name)
         const status = str(r.status)
         return (
-          <li key={i} className="flex items-center gap-2 py-1 text-[11.5px]">
+          <li key={i} className="flex items-center gap-2 py-1 text-[11px]">
             <button
               type="button"
               onClick={() => openResource(kind, name, str(r.namespace) || undefined)}
@@ -394,7 +394,7 @@ function ResourceSummary({ props: p }: { props: Props }) {
         {open ? 'Hide' : 'Show'} full object
       </button>
       {open ? (
-        <pre className="max-h-72 overflow-auto rounded-lg bg-code p-2.5 font-mono text-[10.5px] leading-relaxed text-code-fg">
+        <pre className="max-h-72 overflow-auto rounded-lg bg-code p-2.5 font-mono text-[10px] leading-relaxed text-code-fg">
           {JSON.stringify(obj, null, 2)}
         </pre>
       ) : null}
@@ -429,8 +429,8 @@ function PullRequestProposal({ props: p, href }: { props: Props; href: string })
     <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-3.5 dark:border-violet-500/25 dark:bg-violet-500/10">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-[10.5px] font-semibold uppercase tracking-wider text-violet-700 dark:text-violet-300">Pull request opened</div>
-          <div className="mt-1 text-[13.5px] font-medium leading-snug text-content">{title}</div>
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-violet-700 dark:text-violet-300">Pull request opened</div>
+          <div className="mt-1 text-[13px] font-medium leading-snug text-content">{title}</div>
           {summary ? <div className="mt-0.5 truncate font-mono text-[11px] text-content-muted" title={summary}>{summary}</div> : null}
         </div>
         <a
@@ -466,7 +466,7 @@ function ManifestProposal({ props: p }: { props: Props }) {
         {showYaml ? 'Hide' : 'View'} manifest
       </button>
       {showYaml ? (
-        <pre className="mt-1.5 max-h-64 overflow-auto rounded-lg bg-code p-3 font-mono text-[10.5px] leading-relaxed text-code-fg">
+        <pre className="mt-1.5 max-h-64 overflow-auto rounded-lg bg-code p-3 font-mono text-[10px] leading-relaxed text-code-fg">
           {JSON.stringify(manifest, null, 2)}
         </pre>
       ) : null}
@@ -519,7 +519,7 @@ function DataTable({ props: p }: { props: Props }) {
     : Object.keys(rows[0]).map((k) => ({ key: k, label: k, align: '' }))
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-left text-[11.5px]">
+      <table className="w-full text-left text-[11px]">
         <thead className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
           <tr>
             {cols.map((c) => <th key={c.key} className={cn('py-1 pr-3', c.align === 'right' && 'text-right')}>{c.label}</th>)}
@@ -556,7 +556,7 @@ function Metrics({ props: p }: { props: Props }) {
           <div className={cn('truncate text-lg font-semibold leading-tight tabular-nums', m.tone ? TONE_TEXT[tone(m.tone)] : 'text-content')} title={str(m.value)}>
             {str(m.value, '—')}
           </div>
-          {m.hint ? <div className="truncate text-[10.5px] text-content-subtle">{str(m.hint)}</div> : null}
+          {m.hint ? <div className="truncate text-[10px] text-content-subtle">{str(m.hint)}</div> : null}
         </div>
       ))}
     </div>
@@ -575,9 +575,9 @@ function Timeline({ props: p }: { props: Props }) {
             <span className={cn('absolute -left-[21px] top-1 h-2 w-2 rounded-full ring-2 ring-surface-raised', t === 'bad' ? 'bg-rose-500' : t === 'warn' ? 'bg-amber-500' : t === 'ok' ? 'bg-emerald-500' : 'bg-edge-strong')} />
             <div className="flex flex-wrap items-baseline gap-2">
               <span className="text-[12px] font-medium text-content">{str(it.label)}</span>
-              {it.at ? <span className="text-[10.5px] text-content-subtle">{str(it.at)}</span> : null}
+              {it.at ? <span className="text-[10px] text-content-subtle">{str(it.at)}</span> : null}
             </div>
-            {it.detail ? <p className="text-[11.5px] text-content-muted">{str(it.detail)}</p> : null}
+            {it.detail ? <p className="text-[11px] text-content-muted">{str(it.detail)}</p> : null}
           </li>
         )
       })}
@@ -625,7 +625,7 @@ function Callout({ props: p }: { props: Props }) {
   const t = tone(p.tone, 'info')
   const border = t === 'bad' ? 'border-rose-200 dark:border-rose-500/30' : t === 'warn' ? 'border-amber-200 dark:border-amber-500/30' : t === 'ok' ? 'border-emerald-200 dark:border-emerald-500/30' : 'border-sky-200 dark:border-sky-500/30'
   const bg = t === 'bad' ? 'bg-rose-50/70 dark:bg-rose-500/10' : t === 'warn' ? 'bg-amber-50/70 dark:bg-amber-500/10' : t === 'ok' ? 'bg-emerald-50/70 dark:bg-emerald-500/10' : 'bg-sky-50/70 dark:bg-sky-500/10'
-  return <div className={cn('rounded-xl border px-3 py-2 text-[12.5px]', border, bg, TONE_TEXT[t])}>{str(p.text)}</div>
+  return <div className={cn('rounded-xl border px-3 py-2 text-[12px]', border, bg, TONE_TEXT[t])}>{str(p.text)}</div>
 }
 
 function BarChart({ props: p }: { props: Props }) {
@@ -638,7 +638,7 @@ function BarChart({ props: p }: { props: Props }) {
       {items.slice(0, 15).map((it, i) => {
         const v = num(it.value)!
         return (
-          <div key={i} className="flex items-center gap-2 text-[11.5px]">
+          <div key={i} className="flex items-center gap-2 text-[11px]">
             <span className="w-28 shrink-0 truncate text-content-muted" title={str(it.label)}>{str(it.label)}</span>
             <span className="h-3 min-w-0 flex-1 overflow-hidden rounded-sm bg-surface-sunken">
               <span className="block h-full rounded-sm bg-brand-500/80" style={{ width: `${Math.max(2, (v / max) * 100)}%` }} />
@@ -709,7 +709,7 @@ function TimeSeries({ props: p }: { props: Props }) {
     const s = usable[0]
     return (
       <div className="space-y-1.5">
-        {s.label ? <div className="text-[11.5px] font-medium text-content-muted">{s.label}</div> : null}
+        {s.label ? <div className="text-[11px] font-medium text-content-muted">{s.label}</div> : null}
         {/*
           AreaChart's svg is `width:100%` with no height, so the browser derives
           its height from the viewBox aspect ratio — at the width of a chat
@@ -724,11 +724,11 @@ function TimeSeries({ props: p }: { props: Props }) {
     <div className="space-y-2">
       {usable.slice(0, 6).map((s, i) => (
         <div key={i} className="flex items-center gap-2.5">
-          <span className="w-24 shrink-0 truncate text-[11.5px] text-content-muted" title={s.label}>{s.label || `series ${i + 1}`}</span>
+          <span className="w-24 shrink-0 truncate text-[11px] text-content-muted" title={s.label}>{s.label || `series ${i + 1}`}</span>
           <span className="min-w-0 flex-1">
             <Sparkline points={s.points} color={TONE_STROKE[s.tone]} height={26} />
           </span>
-          <span className="w-16 shrink-0 text-right text-[11.5px] font-semibold tabular-nums text-content">
+          <span className="w-16 shrink-0 text-right text-[11px] font-semibold tabular-nums text-content">
             {fmt(s.points[s.points.length - 1])}
           </span>
         </div>
@@ -762,8 +762,8 @@ function Gauges({ props: p }: { props: Props }) {
               color={TONE_STROKE[t]}
               label={<span className={cn('text-base font-semibold tabular-nums', TONE_TEXT[t])}>{fmtNum(value)}{unit ? <span className="text-[10px] font-normal text-content-subtle"> {unit}</span> : null}</span>}
             />
-            <div className="max-w-[7.5rem] truncate text-center text-[11.5px] font-medium text-content" title={str(g.label)}>{str(g.label)}</div>
-            {g.caption ? <div className="text-[10.5px] text-content-subtle">{str(g.caption)}</div> : null}
+            <div className="max-w-[7.5rem] truncate text-center text-[11px] font-medium text-content" title={str(g.label)}>{str(g.label)}</div>
+            {g.caption ? <div className="text-[10px] text-content-subtle">{str(g.caption)}</div> : null}
           </div>
         )
       })}
@@ -796,7 +796,7 @@ function Heat({ props: p }: { props: Props }) {
       <div className="overflow-x-auto pb-1">
         <HeatMap cells={values.map((v) => v / max)} weeks={weeks} color={TONE_STROKE[t]} cellSize={cellSize} gap={cellSize > 13 ? 3 : 2} />
       </div>
-      <div className="flex items-center justify-between text-[10.5px] text-content-subtle">
+      <div className="flex items-center justify-between text-[10px] text-content-subtle">
         <span>{str(p.caption, `${values.length} buckets`)}</span>
         <span className="tabular-nums">0 — {fmtNum(max)}{str(p.unit) ? ` ${str(p.unit)}` : ''}</span>
       </div>
@@ -960,8 +960,8 @@ function Diff({ props: p }: { props: Props }) {
       {path || added || removed ? (
         <div className="flex items-center gap-2 border-b border-edge-subtle bg-surface-sunken/60 px-2.5 py-1.5">
           <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-content-muted" title={path}>{path || 'patch'}</span>
-          <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-emerald-600 dark:text-emerald-400">+{added}</span>
-          <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-rose-600 dark:text-rose-400">−{removed}</span>
+          <span className="shrink-0 font-mono text-[10px] tabular-nums text-emerald-600 dark:text-emerald-400">+{added}</span>
+          <span className="shrink-0 font-mono text-[10px] tabular-nums text-rose-600 dark:text-rose-400">−{removed}</span>
         </div>
       ) : null}
       <div className="max-h-72 overflow-auto bg-code font-mono text-[11px] leading-[1.55]">
@@ -1020,7 +1020,7 @@ function StatGrid({ props: p }: { props: Props }) {
                 </span>
               ) : null}
             </div>
-            {s.hint ? <div className="mt-0.5 truncate text-[10.5px] text-content-subtle">{str(s.hint)}</div> : null}
+            {s.hint ? <div className="mt-0.5 truncate text-[10px] text-content-subtle">{str(s.hint)}</div> : null}
             {trend.length >= 2 ? (
               <div className="mt-1.5 -mb-1 opacity-70">
                 <Sparkline points={trend} color={TONE_STROKE[t === 'muted' ? 'info' : t]} height={22} />
@@ -1121,7 +1121,7 @@ export function GenerativeBlock({
   if (!Component) {
     return wrap(
       <Panel title={block.title ?? block.component} kind={block.component}>
-        <pre className="max-h-56 overflow-auto font-mono text-[10.5px] text-content-muted">{JSON.stringify(block.props, null, 2)}</pre>
+        <pre className="max-h-56 overflow-auto font-mono text-[10px] text-content-muted">{JSON.stringify(block.props, null, 2)}</pre>
       </Panel>,
     )
   }

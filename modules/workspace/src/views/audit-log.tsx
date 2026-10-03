@@ -410,7 +410,7 @@ function EventDrawer({ event, onClose, onFilter }: { event: WsAuditEvent; onClos
         </header>
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
           <section className="overflow-hidden rounded-xl border border-edge-default">
-            <table className="w-full text-[12.5px]">
+            <table className="w-full text-[12px]">
               <tbody className="divide-y divide-edge-subtle">
                 {rows.map(([k, v]) => (
                   <tr key={k} className="bg-surface-raised">
@@ -434,12 +434,12 @@ function EventDrawer({ event, onClose, onFilter }: { event: WsAuditEvent; onClos
           {event.metadata && Object.keys(event.metadata).length ? (
             <section>
               <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-content-subtle">Metadata</div>
-              <pre className="whitespace-pre-wrap break-all rounded-xl border border-edge-default bg-code p-4 font-mono text-[11.5px] leading-relaxed text-code-fg">{JSON.stringify(event.metadata, null, 2)}</pre>
+              <pre className="whitespace-pre-wrap break-all rounded-xl border border-edge-default bg-code p-4 font-mono text-[11px] leading-relaxed text-code-fg">{JSON.stringify(event.metadata, null, 2)}</pre>
             </section>
           ) : null}
           <section>
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-content-subtle">Raw event</div>
-            <pre className="whitespace-pre-wrap break-all rounded-xl border border-edge-default bg-code p-4 font-mono text-[11.5px] leading-relaxed text-code-fg">{JSON.stringify(event, null, 2)}</pre>
+            <pre className="whitespace-pre-wrap break-all rounded-xl border border-edge-default bg-code p-4 font-mono text-[11px] leading-relaxed text-code-fg">{JSON.stringify(event, null, 2)}</pre>
           </section>
         </div>
       </aside>
@@ -522,7 +522,7 @@ function FacetSelect({ label, value, onChange, options, allowPrefix = false }: {
           </datalist>
         </>
       ) : (
-        <select value={known ? value : value ? value : ''} onChange={(e) => onChange(e.target.value)} className={cn('h-8 max-w-52 rounded-lg border bg-surface-raised px-2 text-[11.5px] text-content focus:border-brand-400 focus:outline-none', value ? 'border-brand-300 dark:border-brand-500/40' : 'border-edge-default')}>
+        <select value={known ? value : value ? value : ''} onChange={(e) => onChange(e.target.value)} className={cn('h-8 max-w-52 rounded-lg border bg-surface-raised px-2 text-[11px] text-content focus:border-brand-400 focus:outline-none', value ? 'border-brand-300 dark:border-brand-500/40' : 'border-edge-default')}>
           <option value="">any</option>
           {!known && value ? <option value={value}>{value}</option> : null}
           {options.map(([v, l]) => (

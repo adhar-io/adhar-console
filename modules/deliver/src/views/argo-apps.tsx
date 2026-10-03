@@ -473,7 +473,7 @@ function StatTile({ label, value, hint, tone, active = false, onClick }: { label
     >
       <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{label}</span>
       <span className={cn('text-xl font-semibold leading-none tabular-nums tracking-tight', tone ? toneText[tone] : 'text-content')}>{value}</span>
-      {hint ? <span className="truncate text-[10.5px] text-content-subtle">{hint}</span> : null}
+      {hint ? <span className="truncate text-[10px] text-content-subtle">{hint}</span> : null}
     </button>
   )
 }
@@ -538,11 +538,11 @@ function AppCard({
               <div className="flex items-center gap-2">
                 <span className="truncate text-sm font-semibold text-content">{a.metadata.name}</span>
                 {auto ? (
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-surface-sunken px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider text-content-muted" title={`Auto-sync${auto.prune ? ' · prune' : ''}${auto.selfHeal ? ' · self-heal' : ''}`}>
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-surface-sunken px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-content-muted" title={`Auto-sync${auto.prune ? ' · prune' : ''}${auto.selfHeal ? ' · self-heal' : ''}`}>
                     <IconBolt /> auto{auto.selfHeal ? ' · heal' : ''}{auto.prune ? ' · prune' : ''}
                   </span>
                 ) : (
-                  <span className="shrink-0 rounded-full bg-surface-sunken px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider text-content-subtle">manual</span>
+                  <span className="shrink-0 rounded-full bg-surface-sunken px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-content-subtle">manual</span>
                 )}
               </div>
               <div className="mt-0.5 truncate text-[11px] text-content-subtle">
@@ -580,7 +580,7 @@ function AppCard({
             </div>
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-content-subtle">
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-content-subtle">
             {a.status.sync.revision ? <span className="font-mono" title={a.status.sync.revision}>rev {a.status.sync.revision.slice(0, 8)}</span> : null}
             <span title="Managed resources">{a.status.resources.total} res{a.status.resources.outOfSync ? ` · ${a.status.resources.outOfSync} drift` : ''}{a.status.resources.unhealthy ? ` · ${a.status.resources.unhealthy} unhealthy` : ''}</span>
             {a.status.images.length ? <span title={a.status.images.join('\n')}>{a.status.images.length} image{a.status.images.length === 1 ? '' : 's'}</span> : null}
@@ -592,7 +592,7 @@ function AppCard({
             <div className={cn('mt-2 flex items-center gap-1.5 text-[11px]', failedOp ? 'text-rose-700 dark:text-rose-300' : running ? 'text-indigo-700 dark:text-indigo-300' : 'text-content-muted')}>
               {running ? <Spinner size={10} /> : null}
               <span className="font-medium">{op.phase}</span>
-              {op.dryRun ? <span className="rounded bg-surface-sunken px-1 text-[9.5px]">dry-run</span> : null}
+              {op.dryRun ? <span className="rounded bg-surface-sunken px-1 text-[9px]">dry-run</span> : null}
               {op.initiatedBy ? <span>by {op.initiatedBy}</span> : null}
               {op.finishedAt ?? op.startedAt ? <span>· {formatRelative(op.finishedAt ?? op.startedAt!)}</span> : null}
               {failedOp && op.message ? <span className="line-clamp-1" title={op.message}>— {op.message}</span> : null}
@@ -770,7 +770,7 @@ function AppDetail({ app: a, onClose }: { app: argocd.Application; onClose(): vo
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                 <StatusBadge kind={SYNC_KIND[a.status.sync.status] ?? 'unknown'}>{a.status.sync.status === 'OutOfSync' ? 'Out of sync' : a.status.sync.status}</StatusBadge>
                 <StatusBadge kind={HEALTH_KIND[a.status.health.status] ?? 'unknown'}>{a.status.health.status}</StatusBadge>
-                <span className="rounded-full bg-surface-sunken px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider text-content-muted">
+                <span className="rounded-full bg-surface-sunken px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-content-muted">
                   {a.spec.syncPolicy.automated ? `auto-sync${a.spec.syncPolicy.automated.selfHeal ? ' · self-heal' : ''}${a.spec.syncPolicy.automated.prune ? ' · prune' : ''}` : 'manual sync'}
                 </span>
               </div>

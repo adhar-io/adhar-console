@@ -145,14 +145,14 @@ export function Composer({
           {attachContext ? (
             <span className="hidden flex-wrap items-center gap-1 md:flex">
               {chips.map((c) => (
-                <span key={c.key} className="inline-flex items-center gap-1 rounded-md bg-surface-sunken px-1.5 py-0.5 text-[10.5px] text-content-muted">
+                <span key={c.key} className="inline-flex items-center gap-1 rounded-md bg-surface-sunken px-1.5 py-0.5 text-[10px] text-content-muted">
                   <span className="text-content-subtle">{c.label}</span>
                   <span className="max-w-[10rem] truncate font-mono text-content" title={c.value}>{c.value}</span>
                 </span>
               ))}
             </span>
           ) : null}
-          <span className="ml-auto hidden items-center gap-1 text-[10.5px] text-content-subtle lg:inline-flex">
+          <span className="ml-auto hidden items-center gap-1 text-[10px] text-content-subtle lg:inline-flex">
             <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">/</kbd> commands
             <kbd className="ml-1.5 rounded border border-edge-default bg-surface-sunken px-1 font-mono">@</kbd> agents
           </span>
@@ -181,7 +181,7 @@ export function Composer({
                     <button type="button" onMouseEnter={() => setMenuIndex(i)} onClick={() => pickAgent(a)} className={cn('flex w-full items-start gap-3 rounded-lg px-2.5 py-1.5 text-left', i === menuIndex ? 'bg-brand-50 dark:bg-brand-500/10' : 'hover:bg-surface-sunken')}>
                       <span className={cn('mt-1 h-2 w-2 shrink-0 rounded-full', accentDot(a.accent))} />
                       <span className="min-w-0 flex-1">
-                        <span className="block text-[12.5px] font-medium text-content">{a.name}{a.id === agentId ? <span className="ml-1.5 text-[10px] font-normal text-content-subtle">current</span> : null}</span>
+                        <span className="block text-[12px] font-medium text-content">{a.name}{a.id === agentId ? <span className="ml-1.5 text-[10px] font-normal text-content-subtle">current</span> : null}</span>
                         <span className="block truncate text-[11px] text-content-muted">{a.description}</span>
                       </span>
                     </button>
@@ -252,7 +252,7 @@ export function Composer({
       </div>
 
       {/* ── hint line ── */}
-      <div className="mt-1.5 hidden items-center justify-between px-1 text-[10.5px] text-content-subtle sm:flex">
+      <div className="mt-1.5 hidden items-center justify-between px-1 text-[10px] text-content-subtle sm:flex">
         <span>
           {navHint && value.trim() && !menu ? (
             <button type="button" onClick={onOpenNavHint} className="inline-flex items-center gap-1 rounded px-1 hover:bg-surface-sunken hover:text-content">
@@ -418,7 +418,7 @@ function AgentMenu({ agents, agentId, busy, onPick }: { agents: AgentInfo[]; age
         aria-haspopup="listbox"
         aria-expanded={open}
         title="Choose which agent answers"
-        className="inline-flex h-7 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised pl-2 pr-1.5 text-[11.5px] font-medium text-content transition-colors hover:border-edge-strong disabled:opacity-50"
+        className="inline-flex h-7 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised pl-2 pr-1.5 text-[11px] font-medium text-content transition-colors hover:border-edge-strong disabled:opacity-50"
       >
         <span className={cn('h-2 w-2 rounded-full', accentDot(agent?.accent))} />
         {agent?.name ?? 'Agent'}
@@ -439,7 +439,7 @@ function AgentMenu({ agents, agentId, busy, onPick }: { agents: AgentInfo[]; age
                 >
                   <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', accentDot(a.accent))} />
                   <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-1.5 text-[12.5px] font-medium text-content">
+                    <span className="flex items-center gap-1.5 text-[12px] font-medium text-content">
                       {a.name}
                       {a.delegated ? <span className="rounded bg-violet-50 px-1 text-[9px] font-semibold uppercase tracking-wider text-violet-700 dark:bg-violet-500/10 dark:text-violet-300">runtime</span> : null}
                     </span>
@@ -450,7 +450,7 @@ function AgentMenu({ agents, agentId, busy, onPick }: { agents: AgentInfo[]; age
               </li>
             ))}
           </ul>
-          <div className="flex items-center gap-1 border-t border-edge-subtle px-3 py-1.5 text-[10.5px] text-content-subtle">
+          <div className="flex items-center gap-1 border-t border-edge-subtle px-3 py-1.5 text-[10px] text-content-subtle">
             <IconAt size={11} /> Type <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">@</kbd> in the field to switch faster
           </div>
         </div>
@@ -482,7 +482,7 @@ export function AutonomyPicker({ value, busy, onPick }: { value: Autonomy; busy:
           title={`${l.label} — ${l.hint}`}
           onClick={() => onPick(l.id)}
           className={cn(
-            'h-6 rounded px-2 text-[10.5px] font-medium transition-colors disabled:opacity-50',
+            'h-6 rounded px-2 text-[10px] font-medium transition-colors disabled:opacity-50',
             value === l.id ? 'bg-surface-raised text-content shadow-sm ring-1 ring-edge-default' : 'text-content-subtle hover:text-content',
           )}
         >

@@ -13,6 +13,15 @@ import {
  * grammar to use is the path.
  */
 
+/**
+ * JSON maps to the JavaScript grammar on purpose: Monaco's JSON support is a
+ * worker-backed language service, and the viewer is worker-free.
+ */
+Deno.test('json uses the worker-free javascript grammar', () => {
+  assertEquals(languageForFilename('package.json'), 'javascript')
+  assertEquals(languageForFilename('tsconfig.jsonc'), 'javascript')
+})
+
 Deno.test('source files resolve to their grammar', () => {
   assertEquals(languageForFilename('src/app.tsx'), 'typescript')
   assertEquals(languageForFilename('cmd/main.go'), 'go')

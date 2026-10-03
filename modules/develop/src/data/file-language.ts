@@ -27,8 +27,13 @@ const BY_EXT: Record<string, string> = {
   jsx: 'javascript',
   mjs: 'javascript',
   cjs: 'javascript',
-  json: 'json',
-  jsonc: 'json',
+  // Monaco's JSON support lives in its `language/json` service, which runs in
+  // a Web Worker; the viewer is worker-free (see monaco-loader.ts), so JSON
+  // uses the JavaScript grammar instead. It highlights strings, numbers,
+  // punctuation and the literals identically — what it drops is the schema
+  // validation a read-only viewer never showed.
+  json: 'javascript',
+  jsonc: 'javascript',
   html: 'html',
   htm: 'html',
   css: 'css',

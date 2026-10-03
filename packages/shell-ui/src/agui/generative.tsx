@@ -91,7 +91,7 @@ function Panel({
   return (
     <div
       className={cn(
-        'group/block overflow-hidden rounded-xl border bg-surface-raised shadow-sm shadow-black/3',
+        'group/block overflow-hidden rounded-xl border bg-surface-raised shadow-sm',
         t === 'bad' ? 'border-rose-200/70 dark:border-rose-500/30' : t === 'warn' ? 'border-amber-200/70 dark:border-amber-500/30' : 'border-edge-default',
       )}
     >

@@ -558,7 +558,7 @@ function ShortcutsMenu() {
     <div ref={ref} className="relative">
       <IconToggle on={open} onClick={() => setOpen((o) => !o)} title="Keyboard shortcuts"><IconKeyboard /></IconToggle>
       {open ? (
-        <div className="pop-in absolute right-0 top-full z-30 mt-1.5 w-64 overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-xl shadow-black/10">
+        <div className="pop-in absolute right-0 top-full z-30 mt-1.5 w-64 overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-xl">
           <div className="border-b border-edge-subtle px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Shortcuts</div>
           <ul className="p-1.5">
             {SHORTCUTS.map(([k, what]) => (

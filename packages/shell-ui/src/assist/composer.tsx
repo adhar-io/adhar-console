@@ -161,7 +161,7 @@ export function Composer({
 
       {/* ── menus ── */}
       {menu && menuLen ? (
-        <div className="pop-in absolute bottom-full left-4 right-4 z-10 mb-1 max-w-md overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-xl shadow-black/10">
+        <div className="pop-in absolute bottom-full left-4 right-4 z-10 mb-1 max-w-md overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-xl">
           <div className="border-b border-edge-subtle px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
             {menu === 'slash' ? 'Commands' : 'Agents'}
           </div>
@@ -426,7 +426,7 @@ function AgentMenu({ agents, agentId, busy, onPick }: { agents: AgentInfo[]; age
         <IconChevronDown size={11} />
       </button>
       {open ? (
-        <div role="listbox" className="pop-in absolute bottom-full left-0 z-20 mb-1.5 w-80 overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-xl shadow-black/10">
+        <div role="listbox" className="pop-in absolute bottom-full left-0 z-20 mb-1.5 w-80 overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-xl">
           <ul className="max-h-80 overflow-y-auto p-1">
             {agents.map((a) => (
               <li key={a.id}>

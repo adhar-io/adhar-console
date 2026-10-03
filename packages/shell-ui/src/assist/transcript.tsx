@@ -110,13 +110,16 @@ function Turn({
         {entry.toolCalls.length ? <ToolTimeline calls={entry.toolCalls} streaming={Boolean(entry.streaming)} /> : null}
 
         {entry.content ? (
-          <div className="rounded-2xl rounded-tl-md border border-edge-subtle bg-surface-raised px-4 py-3 text-[13.5px] leading-relaxed text-content shadow-sm shadow-black/3">
+          <div className="rounded-2xl rounded-tl-md border border-edge-subtle bg-surface-raised px-4 py-3 text-[13.5px] leading-relaxed text-content shadow-sm">
             <Markdown text={entry.content} />
             {entry.streaming ? <span className="ml-0.5 inline-block h-4 w-[3px] animate-pulse rounded-sm bg-brand-500 align-middle" /> : null}
           </div>
-        ) : entry.streaming && !entry.toolCalls.length ? (
-          <div className="flex items-center gap-2 py-1.5 text-[13px] text-content-subtle"><Dots /> thinking…</div>
         ) : null}
+        {/* No inline "thinking…" here. `WorkingCard` is on screen for exactly
+            this window — `busy` is true and the entry has no content yet — and
+            it says the same thing with the phase, the elapsed time and the
+            tool count attached. Two of them stacked was one indicator too
+            many, and the generic one was the less useful. */}
 
         {entry.ui.map((block) => (
           <GenerativeBlock key={block.id} block={block} onAsk={onAsk} onCanvas={onCanvas} animate={Boolean(entry.streaming)} />
@@ -456,10 +459,13 @@ function WorkingCard({ run, entry }: { run: RunState | null; entry?: ChatEntry }
   if (entry?.content) return null
 
   return (
-    <div className="rise-in ml-10 max-w-md overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm shadow-black/3">
-      <div className="h-0.5 w-full overflow-hidden bg-surface-sunken">
-        <div className="h-full w-1/3 animate-[adhar-nav-progress_1.4s_ease-in-out_infinite] rounded-full bg-linear-to-r from-brand-400 to-accent-500" />
-      </div>
+    <div className="rise-in ml-10 max-w-md overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm">
+      {/* The dots are the indeterminate indicator. A sliding bar above them
+          said the same thing a second time, in a second rhythm, and the two
+          beating against each other is what made a card that is meant to feel
+          patient feel agitated. What the card adds over the dots is the
+          specifics — which step, how long, how many tool calls — so those are
+          all it carries. */}
       <div className="flex items-center gap-2.5 px-3.5 py-2.5">
         <Dots />
         <span className="min-w-0 flex-1 truncate text-[12.5px] text-content">{label}…</span>

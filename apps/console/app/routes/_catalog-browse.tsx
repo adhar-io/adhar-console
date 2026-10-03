@@ -707,10 +707,6 @@ function CatalogHeader({ onRegister }: { onRegister(): void }) {
         <h1 className="mt-1 text-[22px] font-semibold tracking-tight text-content sm:text-[28px]">
           Service Catalog
         </h1>
-        <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-content-muted">
-          Every service, API, resource, and team the organisation depends on — registered, owned,
-          and traceable. Click any entity to see its dependencies, owners, runbooks, and live links.
-        </p>
       </div>
       {/* On a phone the two actions take the full width as equal halves —
           a 36px pill in the corner of a 390px screen is a hard target. */}

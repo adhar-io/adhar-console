@@ -58,7 +58,7 @@ export default function DecideHome({ section }: { section?: string } = {}) {
   const def = SECTIONS[active]
   return (
     <div className="space-y-6">
-      <PageHeader title={def.label} description={def.description} />
+      <PageHeader title={def.label} />
       {active === 'dashboard' && <Overview />}
       {active === 'dashboards' && <Dashboards />}
       {active === 'questions' && <Questions />}

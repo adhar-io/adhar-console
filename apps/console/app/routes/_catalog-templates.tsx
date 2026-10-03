@@ -257,10 +257,6 @@ function Header({ onRegister }: { onRegister(): void }) {
         <h1 className="mt-1 text-[28px] font-semibold tracking-tight text-content">
           Create New
         </h1>
-        <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-content-muted">
-          Spin up a new service, website, library, API, or infrastructure module from a golden-path
-          template — repo scaffold, CI/CD, observability, and catalog registration in one click.
-        </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Link

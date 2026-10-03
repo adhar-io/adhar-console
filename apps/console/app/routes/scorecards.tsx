@@ -343,11 +343,6 @@ function ScorecardsDashboard() {
             ) : null}
           </span>
         }
-        description={
-          platform.configured
-            ? "Production-readiness grading. Scores come from the platform's in-cluster scorer (Argo CD health/sync, probes + resources, image tags, Kyverno pass rate, exposure, backups); services it hasn't graded fall back to checks derived from the catalog entity's real metadata."
-            : "Production-readiness grading for every service in the catalog — ownership, delivery, reliability, security, and observability checks derived from the entity's real metadata."
-        }
       />
 
       <PlatformStrip

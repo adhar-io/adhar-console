@@ -135,7 +135,6 @@ export function NotificationCenter() {
       <PageHeader
         title="Notifications"
         badge={api.unreadCount ? <StatusBadge kind="info">{api.unreadCount} unread</StatusBadge> : null}
-        description="Every operation, insight and Adhar AI outcome across the platform, in one inbox."
         actions={
           <>
             <Button variant="secondary" size="md" onClick={runScan} disabled={api.scanning || !live} loading={api.scanning} leading={api.scanning ? undefined : <IconRadar />}>

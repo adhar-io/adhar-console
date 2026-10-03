@@ -369,7 +369,7 @@ export default function PlatformHome({ section }: { section?: string } = {}) {
   return (
     <ClusterProvider>
       <div className="space-y-6">
-        <PageHeader title={def.label} description={def.description} />
+        <PageHeader title={def.label} />
         <ConnectionGate>
           <SectionBody active={active} namespace={namespace} />
         </ConnectionGate>

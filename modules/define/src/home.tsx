@@ -148,7 +148,6 @@ export default function DefineHome({ section }: { section?: string } = {}) {
             def.label
           )
         }
-        description={def.description}
         badge={
           active === 'members' && projects.data ? (
             <StatusBadge kind="info">{projects.data.length} workspace projects</StatusBadge>

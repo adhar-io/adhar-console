@@ -183,7 +183,6 @@ export default function WorkspaceHome({ section: urlSection }: { section?: strin
     <div className="space-y-6">
       <PageHeader
         title="Workspace settings"
-        description="Organization, identity, security, billing, and finance — fully transparent and open-source-backed."
         badge={
           <div className="inline-flex flex-wrap items-center gap-1">
             {roles.map((r) => (

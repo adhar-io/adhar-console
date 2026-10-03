@@ -104,7 +104,6 @@ function ProfilePage() {
     >
       <PageHeader
         title="Your profile"
-        description="Personal settings, appearance, access tokens, sessions, and notification preferences."
       />
       <Tabs
         tabs={SECTION_TABS}

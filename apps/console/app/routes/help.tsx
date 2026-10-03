@@ -64,7 +64,6 @@ function HelpPage() {
     >
       <PageHeader
         title="Help & docs"
-        description="Everything you need to run the console, plus links to every OSS component's upstream docs."
       />
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
         {CARDS.map((c) =>

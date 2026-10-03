@@ -83,7 +83,6 @@ function StatusPage() {
     >
       <PageHeader
         title="Platform status"
-        description="Every component of the Adhar platform — with real versions, source links, and live health derived from the cluster. No black boxes."
       />
 
       <section className="mb-8 rounded-lg border border-edge-default bg-surface-raised p-5 shadow-sm">

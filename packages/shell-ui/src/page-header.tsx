@@ -1,9 +1,18 @@
 import type { ReactNode } from 'react'
 import { cn } from '@adhar-console/utils'
 
+/**
+ * A page's title row.
+ *
+ * No description. Every page carried a sentence under its heading explaining
+ * what the page was — "Every service, API, resource and team the organisation
+ * depends on…" above a screen already full of services, APIs and resources.
+ * It restated the title at length, pushed the content down by a paragraph on
+ * every route, and was read once and never again. The title says what the page
+ * is; the page says the rest.
+ */
 interface Props {
   title: ReactNode
-  description?: ReactNode
   /** Optional pill rendered inline next to the title. */
   badge?: ReactNode
   actions?: ReactNode
@@ -14,7 +23,6 @@ interface Props {
 
 export function PageHeader({
   title,
-  description,
   badge,
   actions,
   compact = false,
@@ -35,11 +43,6 @@ export function PageHeader({
           </h1>
           {badge}
         </div>
-        {description ? (
-          <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-content-muted">
-            {description}
-          </p>
-        ) : null}
       </div>
       {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
     </header>

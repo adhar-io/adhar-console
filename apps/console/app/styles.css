@@ -405,10 +405,26 @@ body {
   }
 }
 
-/* Link default — inherit color; views opt into brand tint explicitly. */
-a {
-  color: inherit;
-  text-decoration: none;
+/*
+ * Link default — inherit colour; views opt into a brand tint explicitly.
+ *
+ * In `@layer base`, and that is the whole point of it. Unlayered CSS outranks
+ * every layered rule whatever the specificity, so while this sat outside a
+ * layer it beat Tailwind's own `text-white` — and an `<a class="bg-brand-600
+ * text-white">` rendered the page's dark body colour on a solid blue fill.
+ * Three links in the console were doing exactly that; a fourth only looked
+ * right because someone had worked around it by wrapping the label in a
+ * `<span class="text-white">`, which a span-level utility could win from.
+ *
+ * As a base rule it is a default a link gets for free and any utility can
+ * override, which is what a default is for. Same trap, same fix, as the focus
+ * ring above.
+ */
+@layer base {
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 }
 
 /*

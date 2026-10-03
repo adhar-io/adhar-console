@@ -195,16 +195,6 @@ body {
  * so empty panels don't read as dead space. Disabled inside prose/cards via
  * their own bg.
  */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
-  background:
-    radial-gradient(ellipse at top left, oklch(0.97 0.02 265 / 0.5), transparent 55%),
-    radial-gradient(ellipse at bottom right, oklch(0.96 0.025 180 / 0.4), transparent 50%);
-}
 
 /* Scrollbars — thin, unobtrusive, match the design. */
 *::-webkit-scrollbar {
@@ -747,11 +737,6 @@ a {
  * Page texture ratchets way down in dark mode — the bright radial
  * gradients defined for light mode would otherwise punch through.
  */
-.dark body::before {
-  background:
-    radial-gradient(ellipse at top left, oklch(0.3 0.05 265 / 0.25), transparent 55%),
-    radial-gradient(ellipse at bottom right, oklch(0.28 0.04 180 / 0.18), transparent 50%);
-}
 
 /* Scrollbar thumb — invert against the dark surface. */
 .dark *::-webkit-scrollbar-thumb {

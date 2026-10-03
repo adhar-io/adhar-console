@@ -14,6 +14,7 @@ import {
 } from '@adhar-console/shell-ui';
 import { cn, formatRelative } from '@adhar-console/utils';
 import type { gitea } from '@adhar-console/api-clients';
+import { groupByOwner, repoOwner } from '../data/repo-grouping.ts';
 import {
   useAllOpenPullRequests,
   useCreateRepo,
@@ -161,6 +162,8 @@ export function RepoList() {
     });
     if (f) {
       out = out.filter((r) =>
+        // `full_name`, so typing "adhar/pack" finds it the way it is written.
+        r.full_name.toLowerCase().includes(f) ||
         r.name.toLowerCase().includes(f) ||
         (r.description ?? '').toLowerCase().includes(f) ||
         (r.language ?? '').toLowerCase().includes(f) ||
@@ -363,17 +366,31 @@ export function RepoList() {
         )
         : prefs.layout === 'grid'
         ? (
-          <div className='grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3'>
-            {list.map((r) => (
-              <RepoCard key={r.id} repo={r} prs={prCount.get(r.name) ?? 0} {...menuFor(r)} />
+          <div className='flex flex-col gap-4'>
+            {groupByOwner(list).map((g) => (
+              <section key={g.owner || '_'}>
+                {g.owner ? <OwnerHeading owner={g.owner} count={g.repos.length} /> : null}
+                <div className='grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3'>
+                  {g.repos.map((r) => (
+                    <RepoCard key={r.id} repo={r} prs={prCount.get(r.name) ?? 0} {...menuFor(r)} />
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
         )
         : prefs.layout === 'compact'
         ? (
-          <div className='divide-y divide-edge-subtle rounded-xl border border-edge-default bg-surface-raised'>
-            {list.map((r) => (
-              <RepoRow key={r.id} repo={r} prs={prCount.get(r.name) ?? 0} {...menuFor(r)} />
+          <div className='flex flex-col gap-4'>
+            {groupByOwner(list).map((g) => (
+              <section key={g.owner || '_'}>
+                {g.owner ? <OwnerHeading owner={g.owner} count={g.repos.length} /> : null}
+                <div className='divide-y divide-edge-subtle rounded-xl border border-edge-default bg-surface-raised'>
+                  {g.repos.map((r) => (
+                    <RepoRow key={r.id} repo={r} prs={prCount.get(r.name) ?? 0} {...menuFor(r)} />
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
         )
@@ -642,6 +659,40 @@ function RepoMenu({ repo: r, onOpen, onArchive, onDelete, align = 'right' }: { r
 
 /* ─────────── grid cards ─────────── */
 
+/**
+ * A repository's name, qualified by its owner.
+ *
+ * Bare names are ambiguous the moment an install has more than a handful of
+ * repos, and they lose the one piece of grouping information the name already
+ * carries: `packages` could belong to anyone, `adhar/packages` could not. The
+ * owner is rendered a step back from the name so the qualifier reads as
+ * context rather than as half the title — the same way a path reads.
+ */
+function RepoName({ repo: r, className }: { repo: gitea.Repo; className?: string }) {
+  const owner = repoOwner(r);
+  return (
+    <span className={cn('truncate', className)} title={r.full_name}>
+      {owner
+        ? <span className='font-normal text-content-subtle'>{owner}/</span>
+        : null}
+      {r.name}
+    </span>
+  );
+}
+
+/** The heading over one owner's repositories. */
+function OwnerHeading({ owner, count }: { owner: string; count: number }) {
+  return (
+    <div className='mb-2 mt-1 flex items-center gap-2 first:mt-0'>
+      <span className='text-[12px] font-semibold text-content'>{owner}</span>
+      <span className='rounded-full bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-content-muted'>
+        {count}
+      </span>
+      <span aria-hidden className='h-px flex-1 bg-edge-subtle' />
+    </div>
+  );
+}
+
 function RepoCard({ repo: r, prs, onOpen, onArchive, onDelete }: { repo: gitea.Repo; prs: number } & RepoActions) {
   const topics = (r.topics ?? []).slice(0, 4);
   return (
@@ -661,7 +712,7 @@ function RepoCard({ repo: r, prs, onOpen, onArchive, onDelete }: { repo: gitea.R
           <RepoMark name={r.name} />
           <div className='min-w-0 flex-1'>
             <div className='flex flex-wrap items-center gap-1.5'>
-              <span className='truncate text-[14px] font-semibold text-content'>{r.name}</span>
+              <RepoName repo={r} className='text-[14px] font-semibold text-content' />
               <RepoBadges repo={r} compact />
             </div>
             <div className='mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-content-subtle'>
@@ -714,7 +765,7 @@ function RepoRow({ repo: r, prs, onOpen, onArchive, onDelete }: { repo: gitea.Re
       <RepoMark name={r.name} />
       <div className='min-w-0 flex-1'>
         <div className='flex flex-wrap items-center gap-1.5'>
-          <span className='text-[13px] font-semibold text-content'>{r.name}</span>
+          <RepoName repo={r} className='text-[13px] font-semibold text-content' />
           <RepoBadges repo={r} compact />
           {r.language ? <span className='inline-flex items-center gap-1 text-[11px] text-content-subtle'><i className='h-2 w-2 rounded-full' style={{ background: langColor(r.language) }} />{r.language}</span> : null}
         </div>
@@ -784,7 +835,7 @@ function RepoTable({ rows, prCount, sort, dir, onSort, menuFor }: {
                     <RepoMark name={r.name} />
                     <div className='min-w-0'>
                       <div className='flex flex-wrap items-center gap-1.5'>
-                        <span className='font-semibold text-content'>{r.name}</span>
+                        <RepoName repo={r} className='font-semibold text-content' />
                         <RepoBadges repo={r} compact />
                       </div>
                       {r.description ? <div className='truncate text-[11px] text-content-muted'>{r.description}</div> : null}

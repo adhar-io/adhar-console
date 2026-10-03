@@ -84,8 +84,12 @@
 
   /* ─ Content / text (navy-leaning) ─ */
   --color-content: oklch(0.235 0.050 265);
-  --color-content-muted: oklch(0.48 0.030 263);
-  --color-content-subtle: oklch(0.64 0.020 262);
+  --color-content-muted: oklch(0.47 0.032 263);
+  /* 0.64 measured 3.36:1 on a white card — under the 4.5:1 AA body minimum,
+     and this token labels form fields and table headers, which is body text.
+     0.545 is the lightest value that clears AA on all three light surfaces:
+     4.96 on raised, 4.69 on app, 4.52 on sunken. */
+  --color-content-subtle: oklch(0.545 0.028 262);
 
   /* ─ Border weights ─ */
   --color-edge: oklch(1 0 0);
@@ -123,6 +127,31 @@
   --ease-smooth: cubic-bezier(0.32, 0.72, 0, 1);
 
   /* ─ Radii ─ */
+  /*
+   * ─ Elevation ─
+   *
+   * Tailwind's defaults are neutral black at a single opacity, which on a
+   * blue-tinted surface reads as grey smudge: the shadow is the one part of
+   * a raised element that is not in the palette, so it is the part that makes
+   * the palette look accidental. These carry the brand's navy hue, and each
+   * level is two shadows — a tight contact shadow that defines the edge, and
+   * a wider ambient one that gives the distance. One blurred shadow can do
+   * either but not both, which is why `shadow-sm` alone always looked soft
+   * rather than crisp.
+   *
+   * Opacity rises with distance on purpose: a card lifted further off the
+   * page occludes more light, and keeping it constant is what makes big
+   * shadows read as fog.
+   */
+  --shadow-2xs: 0 1px 1px oklch(0.25 0.05 265 / 0.04);
+  --shadow-xs: 0 1px 2px oklch(0.25 0.05 265 / 0.06);
+  --shadow-sm: 0 1px 2px oklch(0.25 0.05 265 / 0.07), 0 2px 6px oklch(0.25 0.05 265 / 0.05);
+  --shadow-md: 0 2px 4px oklch(0.25 0.05 265 / 0.07), 0 6px 14px oklch(0.25 0.05 265 / 0.07);
+  --shadow-lg: 0 3px 6px oklch(0.25 0.05 265 / 0.08), 0 12px 26px oklch(0.25 0.05 265 / 0.09);
+  --shadow-xl: 0 6px 12px oklch(0.25 0.05 265 / 0.09), 0 22px 44px oklch(0.25 0.05 265 / 0.11);
+  --shadow-2xl: 0 10px 20px oklch(0.25 0.05 265 / 0.11), 0 36px 68px oklch(0.25 0.05 265 / 0.16);
+  --inset-shadow-sm: inset 0 1px 2px oklch(0.25 0.05 265 / 0.07);
+
   --radius-xs: 4px;
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -576,10 +605,28 @@ a {
 
   /* ─ Content / text — light on dark, with the same 3-step contrast scale. ─ */
   --color-content: oklch(0.96 0.008 262);
-  --color-content-muted: oklch(0.78 0.016 262);
-  --color-content-subtle: oklch(0.60 0.020 262);
+  --color-content-muted: oklch(0.785 0.016 262);
+  /* 0.60 measured 4.46:1 on a raised dark card — just under AA. 0.635 clears
+     it at 5.08:1 without becoming a second `muted`. */
+  --color-content-subtle: oklch(0.635 0.022 262);
 
   /* ─ Borders inverted: subtle dividers on a dark surface. ─ */
+  /*
+   * Dark elevation. A tinted shadow on a near-black surface does nothing —
+   * there is no light for it to subtract. Depth here is carried by a shadow
+   * that is close to pure black at a much higher opacity, which still reads
+   * against `surface-app`, and the rim light that `--color-edge` gives the
+   * element's own border does the rest.
+   */
+  --shadow-2xs: 0 1px 1px oklch(0 0 0 / 0.20);
+  --shadow-xs: 0 1px 2px oklch(0 0 0 / 0.28);
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.32), 0 2px 6px oklch(0 0 0 / 0.24);
+  --shadow-md: 0 2px 4px oklch(0 0 0 / 0.34), 0 6px 14px oklch(0 0 0 / 0.30);
+  --shadow-lg: 0 3px 6px oklch(0 0 0 / 0.36), 0 12px 26px oklch(0 0 0 / 0.36);
+  --shadow-xl: 0 6px 12px oklch(0 0 0 / 0.40), 0 22px 44px oklch(0 0 0 / 0.44);
+  --shadow-2xl: 0 10px 20px oklch(0 0 0 / 0.46), 0 36px 68px oklch(0 0 0 / 0.56);
+  --inset-shadow-sm: inset 0 1px 2px oklch(0 0 0 / 0.30);
+
   --color-edge: oklch(0.245 0.026 265);
   --color-edge-subtle: oklch(0.225 0.022 265);
   --color-edge-default: oklch(0.305 0.030 265);

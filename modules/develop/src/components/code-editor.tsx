@@ -34,6 +34,16 @@ import { loadMonaco, type MonacoEditorInstance } from './monaco-loader.ts'
  * component just wraps it with the console's chrome and lifecycle handling.
  */
 
+/**
+ * A Monaco language id.
+ *
+ * The named members are the ones this console composes by hand, kept so those
+ * call sites still get completion and typo-checking. The `(string & {})` arm
+ * admits every other grammar Monaco ships — a repository file browser has to
+ * render Rust, Kotlin, CSS and the rest, and the value goes straight to
+ * `monaco.editor.create({ language })`, so the union was never doing anything
+ * at runtime but stopping callers from naming a language that works.
+ */
 export type CodeLanguage =
   | 'yaml'
   | 'json'
@@ -48,6 +58,8 @@ export type CodeLanguage =
   | 'python'
   | 'sql'
   | 'plaintext'
+  // deno-lint-ignore ban-types
+  | (string & {})
 
 interface RichMonaco {
   editor: {

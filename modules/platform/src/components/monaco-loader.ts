@@ -1,166 +1,76 @@
 /**
- * Lazy Monaco loader (platform-local copy).
+ * Monaco, bundled — no network at runtime.
  *
- * Monaco is huge (~3 MB) and has its own AMD-style loader that conflicts
- * with bundlers, so we skip Vite/MF entirely and pull it from jsDelivr at
- * runtime via a `<script>` tag. The official `vs/loader.js` defines a
- * global `require()` (AMD), then we ask it to load the editor entry.
+ * This used to inject a `<script>` from jsDelivr and drive Monaco's AMD
+ * loader, with a `data:` worker shim to get the language services past the
+ * cross-origin Worker rule. That is a lot of machinery for something that
+ * cannot work at all on an air-gapped install, which is the normal shape of
+ * the platform this console ships with: the editor simply never appeared, and
+ * the only clue was a blocked request.
  *
- * Result is cached on `window.__adharMonaco` so every editor instance
- * reuses the same runtime. This is a deliberate local duplicate of
- * `modules/develop/src/components/monaco-loader.ts` — remotes must not
- * import each other's internals across the module-federation boundary.
+ * Monaco is an ordinary npm package with an ESM entry point, so it is a
+ * dependency now and Vite bundles it. The dynamic `import()` keeps it out of
+ * the initial payload — it is ~3 MB, and most sessions never open a file — so
+ * it arrives as its own chunk, from this origin, the first time an editor
+ * mounts. Cached on `globalThis` so later editors reuse the one runtime.
+ *
+ * Workers are bundled the same way. Monaco builds its worker URL from the
+ * origin it was loaded from, and a browser refuses to construct a Worker
+ * cross-origin; served from our own origin that problem does not arise, and
+ * `?worker` lets Vite emit the worker as a local asset.
  */
 
-const VS_BASE = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs'
+import type * as Monaco from 'monaco-editor'
 
-interface MonacoApi {
-  editor: {
-    create(element: HTMLElement, options?: unknown): MonacoEditorInstance
-    defineTheme(name: string, theme: unknown): void
-    setTheme(name: string): void
-    setModelLanguage?(model: unknown, language: string): void
-    createModel?(value: string, language?: string): unknown
-  }
-  languages: {
-    typescript?: {
-      typescriptDefaults?: { setCompilerOptions(opts: unknown): void; setEagerModelSync(b: boolean): void }
-      javascriptDefaults?: { setCompilerOptions(opts: unknown): void }
-    }
-  }
-  KeyMod: Record<string, number>
-  KeyCode: Record<string, number>
-}
-
-export interface MonacoEditorInstance {
-  getValue(): string
-  setValue(v: string): void
-  getModel(): unknown
-  dispose(): void
-  layout(): void
-  focus(): void
-  onDidChangeModelContent(cb: () => void): { dispose(): void }
-  addCommand(keybinding: number, handler: () => void): string | null
-  updateOptions(opts: Record<string, unknown>): void
-  setModel?(model: unknown): void
-}
+export type MonacoApi = typeof Monaco
+export type MonacoEditorInstance = Monaco.editor.IStandaloneCodeEditor
 
 declare global {
-  interface Window {
-    require?: ((deps: string[], cb: (...mods: unknown[]) => void) => void) & {
-      config?(opts: { paths: Record<string, string> }): void
-    }
-    monaco?: MonacoApi
-    __adharMonaco?: Promise<MonacoApi>
-  }
+  // eslint-disable-next-line no-var
+  var __adharMonaco: Promise<MonacoApi> | undefined
 }
 
 /**
- * Point Monaco's language workers at the CDN.
+ * Give Monaco its worker.
  *
- * Monaco runs its language services — JSON schema validation, folding,
- * formatting, hovers — in Web Workers. It builds the worker URL from the same
- * origin it was loaded from, and browsers refuse to construct a Worker from a
- * cross-origin URL. Loading Monaco from jsDelivr therefore gives you an editor
- * that *appears* but whose language services throw on construction: JSON and
- * YAML come up unhighlighted or blank, which is exactly the "editor doesn't
- * load correctly" symptom.
- *
- * The fix is the documented one for CDN-hosted Monaco: hand it a tiny same-origin
- * `data:` worker that sets `baseUrl` and then `importScripts` the real worker
- * from the CDN. `importScripts` is not subject to the worker-origin rule, so the
- * language services start normally.
+ * Only the base editor worker is wired up. The language services (TypeScript,
+ * JSON, CSS, HTML) are separate workers that add IntelliSense and validation;
+ * this console renders repository files read-only, where what matters is
+ * tokenising, folding and search — all of which run without them. Pulling in
+ * four more workers would cost megabytes to power a feature a viewer does not
+ * expose.
  */
-function installWorkerEnvironment() {
+function installWorkerEnvironment(): void {
   const g = globalThis as typeof globalThis & {
-    MonacoEnvironment?: { getWorkerUrl?(moduleId: string, label: string): string }
+    MonacoEnvironment?: { getWorker?(workerId: string, label: string): Worker }
   }
-  if (g.MonacoEnvironment?.getWorkerUrl) return
+  if (g.MonacoEnvironment?.getWorker) return
   g.MonacoEnvironment = {
-    getWorkerUrl() {
-      const shim =
-        `self.MonacoEnvironment={baseUrl:'${VS_BASE}/'};importScripts('${VS_BASE}/base/worker/workerMain.js');`
-      return `data:text/javascript;charset=utf-8,${encodeURIComponent(shim)}`
-    },
+    getWorker: () =>
+      new Worker(
+        new URL('monaco-editor/esm/vs/editor/editor.worker.js', import.meta.url),
+        { type: 'module' },
+      ),
   }
 }
-
-let initialized = false
 
 export function loadMonaco(): Promise<MonacoApi> {
   if (typeof window === 'undefined') {
     return Promise.reject(new Error('Monaco requires a browser'))
   }
-  if (window.__adharMonaco) return window.__adharMonaco
+  if (globalThis.__adharMonaco) return globalThis.__adharMonaco
 
-  // Must be set before `editor.main` initialises, or Monaco captures the
-  // default (same-origin) worker URL and every language service fails.
+  // Must be set before the module initialises, or Monaco captures the default
+  // worker URL and every language service fails on construction.
   installWorkerEnvironment()
 
-  window.__adharMonaco = new Promise<MonacoApi>((resolve, reject) => {
-    if (window.monaco) {
-      resolve(window.monaco)
-      return
-    }
-    const existing = document.querySelector<HTMLScriptElement>(`script[data-adhar-monaco="1"]`)
-    const onLoaderReady = () => {
-      const req = window.require
-      if (!req) {
-        reject(new Error('Monaco AMD loader did not register window.require'))
-        return
-      }
-      req.config?.({ paths: { vs: VS_BASE } })
-      req(['vs/editor/editor.main'], () => {
-        if (!window.monaco) {
-          reject(new Error('Monaco loaded but window.monaco is undefined'))
-          return
-        }
-        resolve(window.monaco)
-      })
-    }
-    if (existing) {
-      // The tag may already have finished loading — its `load` event fired
-      // before we attached, and will never fire again, leaving this promise
-      // pending forever and the editor permanently blank. `window.require`
-      // being present is the signal that the loader is already usable.
-      if ((globalThis as { require?: unknown }).require) {
-        onLoaderReady()
-        return
-      }
-      existing.addEventListener('load', onLoaderReady)
-      existing.addEventListener('error', () => reject(new Error('Failed to load Monaco AMD loader')))
-      return
-    }
-    const s = document.createElement('script')
-    s.src = `${VS_BASE}/loader.min.js`
-    s.async = true
-    s.dataset.adharMonaco = '1'
-    s.onload = onLoaderReady
-    s.onerror = () => reject(new Error(`Failed to load ${s.src}`))
-    document.head.appendChild(s)
-  }).then((m) => {
-    if (!initialized) {
-      // Brand-tinted theme (mirrors Mermaid theme variables).
-      m.editor.defineTheme('adhar-light', {
-        base: 'vs',
-        inherit: true,
-        rules: [],
-        colors: {
-          'editor.background': '#ffffff',
-          'editor.foreground': '#0f172a',
-          'editor.lineHighlightBackground': '#f8fafc',
-          'editor.selectionBackground': '#e0e7ff',
-          'editorLineNumber.foreground': '#cbd5e1',
-          'editorLineNumber.activeForeground': '#6366f1',
-          'editorIndentGuide.background': '#f1f5f9',
-          'editorCursor.foreground': '#6366f1',
-        },
-      })
-      m.editor.setTheme('adhar-light')
-      initialized = true
-    }
-    return m
-  })
+  globalThis.__adharMonaco = import('monaco-editor')
+    .then((m) => m as unknown as MonacoApi)
+    .catch((err) => {
+      // Let the next mount try again rather than caching the failure forever.
+      globalThis.__adharMonaco = undefined
+      throw err instanceof Error ? err : new Error(String(err))
+    })
 
-  return window.__adharMonaco
+  return globalThis.__adharMonaco
 }

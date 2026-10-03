@@ -25,7 +25,17 @@ declare global {
   }
 }
 
-const CDN_URL = 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js'
+/**
+ * Mermaid, bundled — no network at runtime.
+ *
+ * This injected a `<script>` from jsDelivr, which cannot work on an
+ * air-gapped install: the diagram simply never rendered, and the only clue
+ * was a blocked request. Mermaid is an ordinary npm package, so it is a
+ * dependency now and Vite bundles it. The dynamic `import()` keeps it out of
+ * the initial payload — it is large, and most sessions never open a diagram —
+ * so it arrives as its own chunk, from this origin, the first time one is
+ * drawn.
+ */
 
 let initialized = false
 
@@ -35,32 +45,15 @@ function loadMermaid(): Promise<MermaidApi> {
   }
   if (window.__adharMermaid) return window.__adharMermaid
 
-  window.__adharMermaid = new Promise<MermaidApi>((resolve, reject) => {
-    if (window.mermaid) {
-      resolve(window.mermaid)
-      return
-    }
-    // Reuse an in-flight script tag if one was injected earlier.
-    const existing = document.querySelector<HTMLScriptElement>(
-      `script[data-adhar-mermaid="1"]`,
-    )
-    const onReady = () => {
-      if (window.mermaid) resolve(window.mermaid)
-      else reject(new Error('Mermaid loaded but window.mermaid is undefined'))
-    }
-    if (existing) {
-      existing.addEventListener('load', onReady)
-      existing.addEventListener('error', () => reject(new Error('Failed to load Mermaid')))
-      return
-    }
-    const s = document.createElement('script')
-    s.src = CDN_URL
-    s.async = true
-    s.dataset.adharMermaid = '1'
-    s.onload = onReady
-    s.onerror = () => reject(new Error(`Failed to load Mermaid from ${CDN_URL}`))
-    document.head.appendChild(s)
-  }).then((m) => {
+  window.__adharMermaid = import('mermaid')
+    .then((m) => ((m as { default?: MermaidApi }).default ?? m) as MermaidApi)
+    .catch((err) => {
+      // Do not cache the failure — let the next diagram try again.
+      window.__adharMermaid = undefined
+      throw err instanceof Error ? err : new Error(String(err))
+    })
+    .then((m) => {
+
     if (!initialized) {
       m.initialize({
         startOnLoad: false,

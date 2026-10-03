@@ -1,15 +1,25 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { EmptyState, Spinner } from '@adhar-console/shell-ui';
 import type { gitea } from '@adhar-console/api-clients';
 import { useBranches, useFile, useTree } from '../data/git.ts';
+import { CodeEditor } from './code-editor.tsx';
+import {
+  isBinaryPath,
+  isImagePath,
+  languageForFilename,
+  looksBinary,
+  MAX_EDITOR_BYTES,
+} from '../data/file-language.ts';
 
 /**
  * Repository file browser + viewer.
  *
  * Left: a lazily-loaded, expandable file tree for the selected repo + branch
  * (backed by `useTree` — subtrees only fetch when a folder is opened).
- * Right: the selected file rendered in a monospace, line-numbered viewer
- * (backed by `useFile`). README.md at the repo root is shown by default.
+ * Right: the selected file in Monaco, the editor VS Code is built on, so the
+ * viewer has real grammar-aware highlighting, folding, bracket matching,
+ * minimap and ⌘F search rather than being monospace text in a table.
+ * README.md at the repo root is shown by default.
  */
 export function FileBrowser({ repo }: { repo: gitea.Repo }) {
   const branches = useBranches(repo.name);
@@ -217,33 +227,101 @@ function FileView({
     );
   }
 
-  const decoded = f.data.encoding === 'base64' ? safeAtob(f.data.content) : f.data.content;
+  return <FileContents data={f.data} path={path} />;
+}
+
+/**
+ * One file, rendered as whatever it actually is.
+ *
+ * Four cases, in the order they have to be checked: an image is shown, bytes
+ * are refused before anything tries to decode them as text, a file too large
+ * for Monaco to tokenise without freezing the tab falls back to plain text,
+ * and everything else goes to the editor.
+ */
+function FileContents({ data, path }: { data: gitea.FileContent; path: string }) {
+  const decoded = useMemo(
+    () => (data.encoding === 'base64' ? safeAtob(data.content) : data.content),
+    [data],
+  );
+  const language = useMemo(() => languageForFilename(path), [path]);
+  const name = path.split('/').pop() ?? path;
+
+  if (isImagePath(path) && data.encoding === 'base64') {
+    return (
+      <Shell path={path} meta='image'>
+        <div className='flex items-center justify-center bg-surface-sunken/40 p-6'>
+          <img
+            src={`data:${mimeForPath(path)};base64,${data.content}`}
+            alt={name}
+            className='max-h-[60vh] max-w-full rounded-md object-contain shadow-sm'
+          />
+        </div>
+      </Shell>
+    );
+  }
+
+  if (isBinaryPath(path) || looksBinary(decoded)) {
+    return (
+      <Shell path={path} meta='binary'>
+        <EmptyState
+          compact
+          title='Binary file'
+          description={`${name} is not text, so there is nothing to show here. Open it in Gitea to download it.`}
+        />
+      </Shell>
+    );
+  }
+
   const lines = decoded.replace(/\n$/, '').split('\n');
 
+  // Monaco tokenises the whole buffer up front, so a very large file would
+  // hang the tab. Plain text has no such cost and is still readable.
+  if (decoded.length > MAX_EDITOR_BYTES) {
+    return (
+      <Shell path={path} meta={`${lines.length} lines · shown as plain text`}>
+        <pre className='max-h-[60vh] overflow-auto whitespace-pre px-3 py-2 font-mono text-[12px] leading-[1.55] text-content'>
+          {decoded}
+        </pre>
+      </Shell>
+    );
+  }
+
+  return (
+    <CodeEditor
+      // Remount on path change: a new file is a new document, and reusing the
+      // model would carry the previous file's folds and cursor into it.
+      key={path}
+      value={decoded}
+      language={language}
+      filename={name}
+      title={<code className='truncate font-mono text-[11px] text-content'>{path}</code>}
+      readOnly
+      minimap
+      height={520}
+    />
+  );
+}
+
+/** The bordered frame the non-editor cases share with the editor's own. */
+function Shell({ path, meta, children }: { path: string; meta: string; children: React.ReactNode }) {
   return (
     <div className='flex min-w-0 flex-col overflow-hidden rounded-lg border border-edge-default bg-surface-raised'>
       <div className='flex items-center justify-between gap-2 border-b border-edge-subtle bg-surface-sunken/40 px-3 py-2'>
         <code className='truncate font-mono text-[11px] text-content'>{path}</code>
-        <span className='shrink-0 text-[10px] text-content-subtle'>
-          {lines.length} line{lines.length === 1 ? '' : 's'}
-        </span>
+        <span className='shrink-0 text-[10px] text-content-subtle'>{meta}</span>
       </div>
-      <div className='max-h-[60vh] overflow-auto'>
-        <table className='w-full border-collapse font-mono text-[12px] leading-[1.55]'>
-          <tbody>
-            {lines.map((ln, i) => (
-              <tr key={i} className='align-top hover:bg-brand-50/30'>
-                <td className='select-none whitespace-nowrap border-r border-edge-subtle px-2 text-right text-content-subtle tabular-nums'>
-                  {i + 1}
-                </td>
-                <td className='whitespace-pre px-3 text-content'>{ln || ' '}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {children}
     </div>
   );
+}
+
+/** Enough of a MIME map to put an image in a data URL. */
+function mimeForPath(path: string): string {
+  const ext = (path.split('.').pop() ?? '').toLowerCase();
+  if (ext === 'svg') return 'image/svg+xml';
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+  if (ext === 'ico') return 'image/x-icon';
+  return `image/${ext || 'png'}`;
 }
 
 /** Base64 → UTF-8 text (plain `atob` yields Latin-1 mojibake for emoji / box-drawing). */

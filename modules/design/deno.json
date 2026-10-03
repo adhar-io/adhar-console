@@ -14,6 +14,7 @@
     "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^4.3.0",
     "@tailwindcss/vite": "npm:@tailwindcss/vite@^4.0.0",
     "tailwindcss": "npm:tailwindcss@^4.0.0",
+    "mermaid": "npm:mermaid@^11.4.1",
     "vite": "npm:vite@^7.1.12"
   },
   "compilerOptions": { "jsx": "react-jsx", "jsxImportSource": "react" }

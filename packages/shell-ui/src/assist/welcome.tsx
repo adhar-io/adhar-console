@@ -30,12 +30,15 @@ export function Welcome({
   agents,
   navHint,
   runtime,
+  onPick,
 }: {
   configured: boolean
   agent?: AgentInfo
   agents: AgentInfo[]
   navHint?: CommandItem
   runtime: RuntimeInfo | null
+  /** Send a starter straight to the composer. */
+  onPick(prompt: string): void
 }) {
   return (
     <div className="relative flex w-full flex-1 flex-col">
@@ -46,7 +49,7 @@ export function Welcome({
       <Field />
 
       <div className="@container relative mx-auto w-full max-w-5xl">
-        <Hero configured={configured} agents={agents} agent={agent} runtime={runtime} navHint={navHint} />
+        <Hero configured={configured} agents={agents} agent={agent} runtime={runtime} navHint={navHint} onPick={onPick} />
       </div>
     </div>
   )
@@ -70,7 +73,7 @@ export function Welcome({
  * own, and when the runtime is unreachable it says so and reports what the
  * console's agents can still do instead of showing empty counters.
  */
-function Hero({ configured, agents, agent, runtime, navHint }: { configured: boolean; agents: AgentInfo[]; agent?: AgentInfo; runtime: RuntimeInfo | null; navHint?: CommandItem }) {
+function Hero({ configured, agents, agent, runtime, navHint, onPick }: { configured: boolean; agents: AgentInfo[]; agent?: AgentInfo; runtime: RuntimeInfo | null; navHint?: CommandItem; onPick(prompt: string): void }) {
   return (
     <section
       aria-labelledby="adhar-ai-landing-heading"
@@ -106,8 +109,62 @@ function Hero({ configured, agents, agent, runtime, navHint }: { configured: boo
         </div>
       ) : null}
 
+      {configured ? <Starters agent={agent} onPick={onPick} /> : null}
+
       {configured ? <StatusBar runtime={runtime} agent={agent} agents={agents} /> : null}
     </section>
+  )
+}
+
+/**
+ * The current agent's opening moves.
+ *
+ * The one thing an empty state owes the reader is a way out of it, and until
+ * now this page had none: it described what the agents could do and then left
+ * you to phrase the first question yourself. These are the runtime's own
+ * `starters` for the selected agent, so they change with the agent and are
+ * never invented here.
+ *
+ * Deliberately a row of lines, not a grid of cards. The version of this that
+ * got removed was four tiles with a heading, an icon and a description each —
+ * a block of furniture above the composer. A starter only has to be readable
+ * and clickable, and at that size the text is the control. The arrow is the
+ * only decoration and it only appears under the cursor.
+ */
+function Starters({ agent, onPick }: { agent?: AgentInfo; onPick(prompt: string): void }) {
+  const starters = (agent?.starters ?? []).slice(0, 4)
+  if (!starters.length) return null
+  return (
+    <ul
+      className="rise-in mt-8 flex w-full max-w-3xl flex-wrap justify-center gap-2 @md:mt-10"
+      style={rise(240)}
+    >
+      {starters.map((st) => (
+        <li key={st.prompt}>
+          <button
+            type="button"
+            onClick={() => onPick(st.prompt)}
+            title={st.prompt}
+            className={cn(
+              'group inline-flex items-center gap-1.5 rounded-full border border-edge-default bg-surface-raised/80 px-3.5 py-2',
+              'text-[12.5px] font-medium text-content-muted shadow-xs backdrop-blur-sm',
+              'transition-[color,border-color,box-shadow,transform] duration-150',
+              'hover:-translate-y-px hover:border-brand-300 hover:text-content hover:shadow-sm',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
+              'dark:hover:border-brand-500/60',
+            )}
+          >
+            {st.label}
+            <span
+              aria-hidden
+              className="-ml-0.5 w-0 overflow-hidden text-brand-600 opacity-0 transition-all duration-150 group-hover:ml-0 group-hover:w-3 group-hover:opacity-100 dark:text-brand-300"
+            >
+              →
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -237,7 +294,7 @@ function StatusBar({ runtime, agent, agents }: { runtime: RuntimeInfo | null; ag
     ]
 
   return (
-    <div className="rise-in mt-10 flex w-full max-w-2xl flex-col items-center @md:mt-12" style={rise(180)}>
+    <div className="rise-in mt-8 flex w-full max-w-2xl flex-col items-center @md:mt-10" style={rise(300)}>
       <dl className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 font-mono text-[11px] @md:gap-x-7">
         <div className="flex items-center gap-1.5">
           <span className="relative flex h-1.5 w-1.5">

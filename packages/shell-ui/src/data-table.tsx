@@ -940,7 +940,7 @@ function ColumnsMenu<T>({
 function SortGlyph({ dir, order }: { dir?: SortDir; order?: number }) {
   return (
     <span className={cn('inline-flex shrink-0 items-center gap-0.5', dir ? 'text-brand-600 dark:text-brand-400' : 'text-content-subtle/40')}>
-      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         {dir === 'desc' ? <path d="m6 9 6 6 6-6" /> : <path d="m6 15 6-6 6 6" />}
       </svg>
       {order ? <span className="text-[8px] font-bold tabular-nums">{order}</span> : null}
@@ -970,7 +970,7 @@ const ToolbarBtn = forwardRef<HTMLButtonElement, { on: boolean; onClick(): void;
 })
 
 const I = ({ children }: { children: ReactNode }) => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0">
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.62" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0">
     {children}
   </svg>
 )

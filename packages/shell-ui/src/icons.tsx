@@ -6,6 +6,23 @@ import type { SVGProps } from 'react'
  * Every icon is a plain SVG component so callers can pass `className`,
  * `style`, `aria-label`, etc. Stroke uses `currentColor` so color comes
  * from parent text color — matches the NavItem's active/hover states.
+ *
+ * ---------------------------------------------------------------------------
+ * STROKE WIDTH IS A FUNCTION OF SIZE
+ * ---------------------------------------------------------------------------
+ * These are drawn in a 24-unit box and then scaled to the size they render at,
+ * so the stroke scales with them: 1.75 at 18px renders as 1.31 device-px, and
+ * the same 1.75 at 13px renders as 0.95. Two icons side by side at different
+ * sizes therefore look like two different families, which is exactly what the
+ * chrome used to look like — one menu held icons at 1.75, 2, 2.5 and 3.
+ *
+ * Constant OPTICAL weight, not constant nominal weight:
+ *
+ *     strokeWidth = 1.75 × 18 / size
+ *
+ * which gives 1.75 at 18px, 2 at 16px, 2.25 at 14px, 2.4 at 13px, 2.6 at 12px.
+ * `stroke-width` on the <svg> is what this rule governs. A spinner or a gauge
+ * that sets it on a child element is a drawing, not an icon, and is left alone.
  */
 
 type Props = SVGProps<SVGSVGElement>

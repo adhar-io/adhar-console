@@ -508,7 +508,7 @@ function Spinner() {
 
 function IconCluster() {
   return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.42" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M12 2 4 6v12l8 4 8-4V6z" />
       <path d="M12 2v20" />
       <path d="m4 6 16 12" />
@@ -519,7 +519,7 @@ function IconCluster() {
 
 function IconNamespace() {
   return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.42" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="m12 2 9 5-9 5-9-5 9-5Z" />
       <path d="m3 12 9 5 9-5" />
       <path d="m3 17 9 5 9-5" />
@@ -529,7 +529,7 @@ function IconNamespace() {
 
 function IconChevron({ open }: { open: boolean }) {
   return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden className={cn('shrink-0 text-content-subtle transition-transform', open && 'rotate-180')}>
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden className={cn('shrink-0 text-content-subtle transition-transform', open && 'rotate-180')}>
       <path d="m6 9 6 6 6-6" />
     </svg>
   )
@@ -537,7 +537,7 @@ function IconChevron({ open }: { open: boolean }) {
 
 function IconCheck() {
   return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.42" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M20 6 9 17l-5-5" />
     </svg>
   )

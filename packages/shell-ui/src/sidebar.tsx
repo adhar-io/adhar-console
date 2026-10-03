@@ -375,7 +375,7 @@ function IconSidebarCollapse() {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.75"
+      strokeWidth="1.97"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
@@ -395,7 +395,7 @@ function IconChevronsRight() {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2.25"
+      strokeWidth="2.42"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden

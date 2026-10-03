@@ -110,7 +110,7 @@ function Panel({
 /** A 12px glyph per component kind — enough to tell a chart from a table at a glance. */
 function kindGlyph(kind: string): ReactNode {
   const P = ({ d }: { d: string }) => (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={d} /></svg>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.62" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={d} /></svg>
   )
   switch (kind) {
     case 'time-series': return <P d="M3 17l5-6 4 4 5-8 4 5" />
@@ -440,7 +440,7 @@ function PullRequestProposal({ props: p, href }: { props: Props; href: string })
           className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-violet-600 px-3 text-[12px] font-semibold text-white shadow-sm shadow-violet-600/25 transition-colors hover:bg-violet-700"
         >
           {cta}
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M7 17 17 7M8 7h9v9" /></svg>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M7 17 17 7M8 7h9v9" /></svg>
         </a>
       </div>
       <p className="mt-2.5 text-[11px] leading-snug text-content-muted">

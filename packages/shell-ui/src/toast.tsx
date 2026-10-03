@@ -244,7 +244,7 @@ function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss(): void }) {
           aria-label="Dismiss notification"
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.62" strokeLinecap="round" aria-hidden>
             <path d="M18 6 6 18M6 6l12 12" />
           </svg>
         </button>

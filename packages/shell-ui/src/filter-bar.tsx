@@ -622,7 +622,7 @@ function IconSearch() {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2.2"
+      strokeWidth="2.1"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
@@ -660,7 +660,7 @@ function IconFilter() {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2.2"
+      strokeWidth="2.42"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
@@ -678,7 +678,7 @@ function IconChevron() {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="3"
+      strokeWidth="2.75"
       strokeLinecap="round"
       strokeLinejoin="round"
       className="opacity-70"
@@ -692,7 +692,7 @@ function IconChevron() {
 /** Grid / list / table icons, so views don't each redraw them for the switch. */
 export const VIEW_ICONS = {
   grid: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" aria-hidden>
       <rect x="3" y="3" width="7" height="7" rx="1.5" />
       <rect x="14" y="3" width="7" height="7" rx="1.5" />
       <rect x="3" y="14" width="7" height="7" rx="1.5" />
@@ -700,12 +700,12 @@ export const VIEW_ICONS = {
     </svg>
   ),
   list: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" aria-hidden>
       <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
     </svg>
   ),
   table: (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" aria-hidden>
       <rect x="3" y="4" width="18" height="16" rx="2" />
       <path d="M3 10h18M9 10v10" />
     </svg>

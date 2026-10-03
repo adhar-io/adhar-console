@@ -49,7 +49,7 @@ export function Topbar({
               type="button"
               onClick={onOpenSidebar}
               aria-label="Open navigation"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-content-muted transition-colors hover:bg-surface-sunken hover:text-content lg:hidden"
+              className="flex h-9 w-9 pointer-coarse:h-11 pointer-coarse:w-11 shrink-0 items-center justify-center rounded-lg text-content-muted transition-colors hover:bg-surface-sunken hover:text-content lg:hidden"
             >
               <IconMenu />
             </button>
@@ -78,7 +78,7 @@ export function Topbar({
                 type="button"
                 onClick={onOpenCommandPalette}
                 aria-label="Search"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-content-muted transition-colors hover:bg-surface-sunken hover:text-content sm:hidden"
+                className="flex h-9 w-9 pointer-coarse:h-11 pointer-coarse:w-11 shrink-0 items-center justify-center rounded-lg text-content-muted transition-colors hover:bg-surface-sunken hover:text-content sm:hidden"
               >
                 <IconSearch />
               </button>
@@ -140,7 +140,7 @@ const IconButton = ({
     aria-label={label}
     aria-expanded={active}
     className={cn(
-      'relative flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-150',
+      'relative flex h-9 w-9 pointer-coarse:h-11 pointer-coarse:w-11 items-center justify-center rounded-lg transition-all duration-150',
       active
         ? 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-1 ring-brand-200'
         : 'text-content-muted hover:bg-surface-sunken hover:text-content',

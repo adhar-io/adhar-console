@@ -728,7 +728,11 @@ function CatalogHeader({ onRegister }: { onRegister(): void }) {
         <Link
           to="/catalog"
           search={{ section: 'create' } as never}
-          className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-600 px-3 text-[13px] font-semibold text-white shadow-sm transition-colors visited:text-white hover:bg-brand-700 hover:text-white sm:flex-none sm:justify-start"
+          // A link that looks and behaves like the page's primary button, so it
+          // takes the button's touch floor too — the base rule leaves bare
+          // `a[href]` alone, because a link inside a sentence is not a control.
+          role="button"
+          className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-600 px-3 text-[13px] font-semibold text-white shadow-sm transition-colors visited:text-white hover:bg-brand-700 hover:text-white pointer-coarse:h-11 sm:flex-none sm:justify-start"
         >
           <span className="text-white">
             <IconPlus />

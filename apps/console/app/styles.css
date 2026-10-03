@@ -334,6 +334,52 @@ body::before {
       border-color 150ms var(--ease-smooth),
       box-shadow 150ms var(--ease-smooth);
   }
+
+  /*
+   * iOS zooms the whole page when a field smaller than 16px takes focus, and
+   * does not zoom back out — so tapping the catalog's search box left the
+   * operator pinching the layout back into place by hand. A console is dense
+   * by design and most of its fields were 11–13px, which is the entire
+   * condition for the bug.
+   *
+   * `pointer: coarse` rather than a width query: an iPad is wider than most
+   * breakpoints and zooms exactly the same. 16px applies only to the text the
+   * field renders — nothing around it moves, so dense layouts keep their
+   * proportions everywhere there is a mouse.
+   */
+  @media (pointer: coarse) {
+    input,
+    select,
+    textarea {
+      font-size: max(16px, 1em);
+    }
+
+    /*
+     * A floor on the touch target for anything shaped like a button.
+     *
+     * `Button` sets its own on a coarse pointer, but plenty of page actions
+     * are hand-rolled `<button>`s that never go through it — measured on a
+     * 390px viewport, the catalog's own "Create new" and "Register existing"
+     * were 36px. This is the floor under all of them.
+     *
+     * Deliberately not `a[href]`: a link in a sentence is not a button, and
+     * giving every one of them a 44px box would stretch the lines of prose
+     * they sit in. Links that are controls carry `role="button"` or are
+     * already laid out as rows with their own height.
+     */
+    button,
+    [role='button'],
+    summary {
+      min-height: 44px;
+    }
+
+    /* Icon-only controls need the width as much as the height. */
+    button:empty,
+    button:has(> svg:only-child),
+    [role='button']:has(> svg:only-child) {
+      min-width: 44px;
+    }
+  }
   input:focus-visible,
   select:focus-visible,
   textarea:focus-visible {

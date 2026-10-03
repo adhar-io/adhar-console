@@ -107,6 +107,31 @@ async function writeRegistry(
   return true
 }
 
+/**
+ * The active organisation's slug.
+ *
+ * Every tenant-scoped system the provisioner creates is named after it — the
+ * Gitea org is `username: input.slug`, the Keycloak group is `org-<slug>`, the
+ * namespace is `<slug>` — so anything that needs to ask "what belongs to the
+ * org I am in" starts here.
+ *
+ * The session's `activeTenant` is authoritative for the request; the registry
+ * is only consulted to turn that id into the slug, because the two differ once
+ * an org has been renamed. Falls back to the id itself, which is what a seeded
+ * default org uses for both.
+ */
+export async function activeOrgSlug(userId: string, activeTenant: string): Promise<string> {
+  try {
+    const reg = await readRegistry(userId, activeTenant)
+    const org = reg?.orgs.find((o) => o.id === activeTenant) ??
+      reg?.orgs.find((o) => o.id === reg.activeId)
+    if (org?.slug) return org.slug
+  } catch {
+    // No database in this deployment — the id is the slug for a seeded org.
+  }
+  return ID_RE.test(activeTenant) ? activeTenant : 'default'
+}
+
 /** Re-sign the session cookie with a new activeTenant. */
 async function activeTenantCookie(req: Request, tenantId: string): Promise<string | null> {
   const cfg = getServerAuthConfig()

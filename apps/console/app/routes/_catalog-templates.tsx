@@ -1286,6 +1286,30 @@ function ScaffoldWizard({
   const [stepIdx, setStepIdx] = useState(0)
   const [stage, setStage] = useState<WizardStage>('fields')
   const [values, setValues] = useState<Record<string, unknown>>(() => seedDefaults(template))
+
+  /*
+   * Reconcile the seeded owner with the organisation's real teams.
+   *
+   * `seedDefaults` runs before `/api/teams` has answered, so it can only use
+   * the template's declared owner — and a template is install-wide while teams
+   * belong to one organisation. On every org that did not happen to have a
+   * team of that name, the wizard opened with an Owner the picker could not
+   * show: the field looked empty, and submitting wrote a `group:` reference to
+   * a team that does not exist.
+   *
+   * Once the teams arrive, an owner that matches none of them is replaced by
+   * the first real one. An owner the user has already chosen is left alone,
+   * because `ownerGroups` also changes when the live catalog refreshes.
+   */
+  const ownerTouched = useRef(false)
+  useEffect(() => {
+    if (ownerTouched.current || ownerGroups.length === 0) return
+    setValues((prev) => {
+      const current = typeof prev.owner === 'string' ? prev.owner.replace(/^group:/, '') : ''
+      if (current && ownerGroups.some((g) => g.metadata.name === current)) return prev
+      return { ...prev, owner: `group:${ownerGroups[0].metadata.name}` }
+    })
+  }, [ownerGroups])
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [run, setRun] = useState<ScaffoldRun | null>(null)
   const [registered, setRegistered] = useState<Entity | null>(null)
@@ -1334,6 +1358,7 @@ function ScaffoldWizard({
   const reset = () => {
     setStepIdx(0)
     setStage('fields')
+    ownerTouched.current = false
     setValues(seedDefaults(template))
     setErrors({})
     setRun(null)
@@ -1385,7 +1410,12 @@ function ScaffoldWizard({
           <FieldStep
             step={steps[stepIdx]}
             values={values}
-            onChange={(k, v) => setValues((cur) => ({ ...cur, [k]: v }))}
+            onChange={(k, v) => {
+              // Once the operator picks an owner it is theirs; the reconcile
+              // effect above must not take it back when the catalog refetches.
+              if (k === 'owner') ownerTouched.current = true
+              setValues((cur) => ({ ...cur, [k]: v }))
+            }}
             errors={errors}
             groups={ownerGroups}
           />

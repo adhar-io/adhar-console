@@ -1,27 +1,30 @@
 import { env } from '@adhar-console/utils'
 import { getRequestUser, unauthorized } from './request-user.ts'
 import { getTool } from './tool-registry.ts'
+import { activeOrgSlug } from './organizations.ts'
 
 /**
  * Team (Group entity) discovery — the source behind the Create-New wizard's
  * "Owner" picker.
  *
- * `GET /api/teams` returns the Backstage `kind: Group` entities an organisation
- * can own components with. The live catalog (real cluster) surfaces only k8s
- * workloads + Gitea repos and defines no Group entities, so the owner picker
- * would otherwise be empty and the wizard couldn't proceed. This endpoint fixes
- * that by discovering teams from the curated `adhar/adhar-templates` Gitea repo
- * (its `catalog-info.yaml` / `teams.yaml` catalog descriptors) using the
- * platform Gitea service token, and ALWAYS guarantees the two platform defaults
- * `default-platform` + `default-application` are present.
+ * `GET /api/teams` returns the groups an organisation can own components with.
  *
- * Contract: `{ teams: [{ name, title }], source: 'gitea' | 'default' }`.
- *   - Gitea configured  → discovered Groups ∪ the two defaults (source 'gitea').
- *   - Gitea unavailable → just the two defaults (source 'default').
+ * The teams are the ACTIVE ORGANISATION'S OWN. The provisioner creates a Gitea
+ * org named after the tenant's slug, and a team in that org is a real group of
+ * real people with real repository access — so it is the honest answer to "who
+ * can own this service". Previously this read a curated, install-wide
+ * `adhar/adhar-templates` repo instead, which meant the owner picker offered
+ * the same list to every organisation on the platform and, on most installs,
+ * only the two hardcoded defaults. Picking an owner was picking a label.
  *
- * As a side effect (best-effort, non-fatal) it seeds a `teams.yaml` describing
- * the two defaults into `adhar/adhar-templates` if one isn't there yet, so the
- * teams genuinely originate from the repo rather than only from this code.
+ * Contract: `{ teams: [{ name, title }], source, org }` where `source` is
+ *   - 'org'      → teams discovered in the organisation's own Gitea org,
+ *   - 'catalog'  → the templates repo's Group descriptors (older installs that
+ *                  keep their teams there, and no org teams exist),
+ *   - 'default'  → neither was reachable; the two platform defaults stand.
+ *
+ * The defaults are always appended, so the picker is never empty and the
+ * wizard can always proceed.
  */
 
 export interface Team {
@@ -106,6 +109,38 @@ function dedupeTeams(teams: Team[]): Team[] {
 
 type GiteaApi = (path: string, init?: RequestInit) => Promise<Response>
 
+/** A Gitea team, as `GET /orgs/{org}/teams` returns it. */
+interface GiteaTeam {
+  name?: string
+  description?: string
+}
+
+/**
+ * The teams of one Gitea organisation.
+ *
+ * Gitea gives every org an `Owners` team at creation, so a provisioned tenant
+ * always has at least one real group — which is why this can be the primary
+ * source rather than a best-effort extra.
+ *
+ * A 404 means the org does not exist on this install (the console is pointed
+ * at a Gitea that never had the tenant provisioned); a 403 means the service
+ * token cannot see it. Both return empty so the caller falls back rather than
+ * failing the picker.
+ */
+export async function listOrgTeams(api: GiteaApi, org: string): Promise<Team[]> {
+  try {
+    const res = await api(`/orgs/${encodeURIComponent(org)}/teams`)
+    if (!res.ok) return []
+    const body = (await res.json()) as GiteaTeam[]
+    if (!Array.isArray(body)) return []
+    return body
+      .filter((t) => typeof t.name === 'string' && t.name.length > 0)
+      .map((t) => ({ name: t.name!, title: t.description?.trim() || humanize(t.name!) }))
+  } catch {
+    return []
+  }
+}
+
 /** The `teams.yaml` we seed into the templates repo (the two defaults). */
 function defaultTeamsYaml(): string {
   const doc = (t: Team) =>
@@ -169,10 +204,15 @@ export async function handleListTeams(req: Request): Promise<Response> {
   const auth = await getRequestUser(req)
   if (!auth) return unauthorized()
 
+  const org = await activeOrgSlug(auth.user.id, auth.activeTenant)
+
   const gitea = getTool('gitea')
   if (!gitea?.baseUrl || !gitea.serviceToken) {
     // Gitea not configured — the two defaults are always selectable.
-    return withCookie(Response.json({ teams: DEFAULT_TEAMS, source: 'default' }), auth.refreshedCookie)
+    return withCookie(
+      Response.json({ teams: DEFAULT_TEAMS, source: 'default', org }),
+      auth.refreshedCookie,
+    )
   }
 
   const api: GiteaApi = (path, init) =>
@@ -185,6 +225,18 @@ export async function handleListTeams(req: Request): Promise<Response> {
       },
     })
 
+  // The organisation's own teams first. This is the answer the question
+  // actually asks — who, in this org, can own the thing being created.
+  const orgTeams = await listOrgTeams(api, org)
+  if (orgTeams.length > 0) {
+    return withCookie(
+      Response.json({ teams: dedupeTeams([...orgTeams, ...DEFAULT_TEAMS]), source: 'org', org }),
+      auth.refreshedCookie,
+    )
+  }
+
+  // No org teams — either this install predates per-tenant Gitea orgs, or the
+  // tenant was never provisioned. Fall back to the curated templates repo.
   const { owner, name } = templatesRepo()
 
   // Best-effort: make sure the repo actually declares the defaults.
@@ -218,5 +270,5 @@ export async function handleListTeams(req: Request): Promise<Response> {
   // The two defaults are ALWAYS present, deduped with whatever the repo defines.
   const teams = dedupeTeams([...discovered, ...DEFAULT_TEAMS])
 
-  return withCookie(Response.json({ teams, source: 'gitea' }), auth.refreshedCookie)
+  return withCookie(Response.json({ teams, source: 'catalog', org }), auth.refreshedCookie)
 }

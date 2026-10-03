@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from 'react'
+import { tokenizeInline } from './markdown-inline.ts'
 import { cn } from '@adhar-console/utils'
 
 /**
@@ -136,22 +137,22 @@ function parseBlocks(src: string): Block[] {
 }
 
 function inline(text: string): ReactNode[] {
-  const out: ReactNode[] = []
-  const re = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|_[^_]+_|\[[^\]]+\]\([^)]+\))/g
-  let last = 0
-  let k = 0
-  for (const m of text.matchAll(re)) {
-    const idx = m.index ?? 0
-    if (idx > last) out.push(text.slice(last, idx))
-    const tok = m[0]
-    if (tok.startsWith('`')) out.push(<code key={k++} className="rounded bg-surface-sunken px-1 py-0.5 font-mono text-[12px] text-content">{tok.slice(1, -1)}</code>)
-    else if (tok.startsWith('**')) out.push(<strong key={k++} className="font-semibold text-content">{tok.slice(2, -2)}</strong>)
-    else if (tok.startsWith('[')) {
-      const mm = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(tok)
-      if (mm) out.push(<a key={k++} href={mm[2]} target="_blank" rel="noreferrer" className="text-brand-700 underline decoration-brand-300 underline-offset-2 hover:decoration-brand-600 dark:text-brand-300">{mm[1]}</a>)
-    } else out.push(<em key={k++}>{tok.slice(1, -1)}</em>)
-    last = idx + tok.length
-  }
-  if (last < text.length) out.push(text.slice(last))
-  return out
+  return tokenizeInline(text).map((t, k) => {
+    switch (t.kind) {
+      case 'code':
+        return <code key={k} className="rounded bg-surface-sunken px-1 py-0.5 font-mono text-[12px] text-content">{t.text}</code>
+      case 'strong':
+        return <strong key={k} className="font-semibold text-content">{t.text}</strong>
+      case 'em':
+        return <em key={k}>{t.text}</em>
+      case 'link':
+        return <a key={k} href={t.href} target="_blank" rel="noreferrer" className="text-brand-700 underline decoration-brand-300 underline-offset-2 hover:decoration-brand-600 dark:text-brand-300">{t.text}</a>
+      case 'image':
+        return t.alt
+          ? <span key={k} className="rounded bg-surface-sunken px-1.5 py-0.5 text-[11px] text-content-muted">{t.alt}</span>
+          : null
+      default:
+        return t.text
+    }
+  })
 }

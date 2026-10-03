@@ -124,6 +124,16 @@ export interface CodeEditorProps {
   title?: React.ReactNode
   /** Extra toolbar controls (e.g. Edit/Save buttons) rendered on the right. */
   actions?: React.ReactNode
+  /**
+   * What to call the content in the toolbar.
+   *
+   * Defaults to the Monaco language id, which is usually the same thing — but
+   * not always: a `.json` file is highlighted with the JavaScript grammar
+   * (the JSON one is worker-backed and this build is worker-free), and
+   * labelling it JAVASCRIPT tells the reader something untrue about their own
+   * file.
+   */
+  badge?: string
   /** Fixed pixel height. Defaults to 320. Ignored while fullscreen. */
   height?: number
   minimap?: boolean
@@ -140,6 +150,7 @@ export function CodeEditor({
   onChange,
   onSave,
   filename,
+  badge,
   title,
   actions,
   height = 320,
@@ -294,7 +305,7 @@ export function CodeEditor({
               <span className="truncate text-[12px] font-semibold text-content">{title}</span>
             ) : null}
             <span className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-content-subtle">
-              {language}
+              {badge ?? language}
             </span>
             <span className="hidden font-mono text-[10px] text-content-subtle sm:inline">
               {lineCount} lines

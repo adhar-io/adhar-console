@@ -73,6 +73,7 @@ export {
 } from './roles.ts'
 export { ErrorBoundary } from './error-boundary.tsx'
 export { PageHeader } from './page-header.tsx'
+export { Markdown } from './assist/markdown.tsx'
 export { EmptyState } from './empty-state.tsx'
 export { DataTable, type Column } from './data-table.tsx'
 export {

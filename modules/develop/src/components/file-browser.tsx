@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { EmptyState, Spinner } from '@adhar-console/shell-ui';
+import { EmptyState, Markdown, Spinner } from '@adhar-console/shell-ui';
 import type { gitea } from '@adhar-console/api-clients';
 import { useBranches, useFile, useTree } from '../data/git.ts';
 import { CodeEditor } from './code-editor.tsx';
 import {
+  displayTypeFor,
   isBinaryPath,
   isImagePath,
   languageForFilename,
@@ -245,6 +246,10 @@ function FileContents({ data, path }: { data: gitea.FileContent; path: string })
   );
   const language = useMemo(() => languageForFilename(path), [path]);
   const name = path.split('/').pop() ?? path;
+  const isMarkdown = language === 'markdown';
+  // Markdown opens rendered, the way every forge shows a README. The source is
+  // one click away, because this is still a file browser.
+  const [raw, setRaw] = useState(false);
 
   if (isImagePath(path) && data.encoding === 'base64') {
     return (
@@ -272,6 +277,28 @@ function FileContents({ data, path }: { data: gitea.FileContent; path: string })
     );
   }
 
+  if (isMarkdown && !raw) {
+    return (
+      <Shell
+        path={path}
+        meta='rendered'
+        action={
+          <button
+            type='button'
+            onClick={() => setRaw(true)}
+            className='rounded-md border border-edge-default bg-surface-raised px-2 py-0.5 text-[10px] font-medium text-content-muted transition-colors hover:border-edge-strong hover:text-content'
+          >
+            View source
+          </button>
+        }
+      >
+        <div className='max-h-[62vh] overflow-auto px-5 py-4'>
+          <Markdown text={decoded} className='text-[13px] leading-relaxed' />
+        </div>
+      </Shell>
+    );
+  }
+
   const lines = decoded.replace(/\n$/, '').split('\n');
 
   // Monaco tokenises the whole buffer up front, so a very large file would
@@ -295,20 +322,44 @@ function FileContents({ data, path }: { data: gitea.FileContent; path: string })
       language={language}
       filename={name}
       title={<code className='truncate font-mono text-[11px] text-content'>{path}</code>}
+      badge={displayTypeFor(path)}
+      actions={isMarkdown
+        ? (
+          <button
+            type='button'
+            onClick={() => setRaw(false)}
+            className='rounded-md border border-edge-default bg-surface-raised px-2 py-0.5 text-[10px] font-medium text-content-muted transition-colors hover:border-edge-strong hover:text-content'
+          >
+            Rendered
+          </button>
+        )
+        : undefined}
       readOnly
       minimap
-      height={520}
+      // The drawer is nearly the height of the window; 520px left most of it
+      // empty under a file that had more to show.
+      height={680}
     />
   );
 }
 
 /** The bordered frame the non-editor cases share with the editor's own. */
-function Shell({ path, meta, children }: { path: string; meta: string; children: React.ReactNode }) {
+function Shell(
+  { path, meta, action, children }: {
+    path: string;
+    meta: string;
+    action?: React.ReactNode;
+    children: React.ReactNode;
+  },
+) {
   return (
     <div className='flex min-w-0 flex-col overflow-hidden rounded-lg border border-edge-default bg-surface-raised'>
       <div className='flex items-center justify-between gap-2 border-b border-edge-subtle bg-surface-sunken/40 px-3 py-2'>
         <code className='truncate font-mono text-[11px] text-content'>{path}</code>
-        <span className='shrink-0 text-[10px] text-content-subtle'>{meta}</span>
+        <div className='flex shrink-0 items-center gap-2'>
+          <span className='text-[10px] text-content-subtle'>{meta}</span>
+          {action}
+        </div>
       </div>
       {children}
     </div>

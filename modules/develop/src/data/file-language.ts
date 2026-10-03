@@ -204,3 +204,21 @@ export function looksBinary(text: string): boolean {
  * tab while it tokenises. Past this the viewer shows the file plainly instead.
  */
 export const MAX_EDITOR_BYTES = 800_000
+
+/**
+ * What to call a file in the UI.
+ *
+ * Deliberately separate from {@link languageForFilename}, which answers a
+ * different question — which grammar should tokenise this. The two part ways
+ * for JSON, whose Monaco support is worker-backed and so unavailable in this
+ * build; it highlights with the JavaScript grammar but it is still a JSON
+ * file, and the reader should be told the truth about their own file.
+ */
+export function displayTypeFor(path: string): string {
+  const base = (path.split('/').pop() ?? path).toLowerCase()
+  if (base === 'dockerfile' || base.startsWith('dockerfile.')) return 'dockerfile'
+  if (base.startsWith('makefile')) return 'makefile'
+  const ext = extensionOf(path)
+  if (!ext) return base.startsWith('.') ? base.slice(1) : 'text'
+  return ext
+}

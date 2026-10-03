@@ -135,7 +135,15 @@ export async function listOrgTeams(api: GiteaApi, org: string): Promise<Team[]> 
     if (!Array.isArray(body)) return []
     return body
       .filter((t) => typeof t.name === 'string' && t.name.length > 0)
-      .map((t) => ({ name: t.name!, title: t.description?.trim() || humanize(t.name!) }))
+      .map((t) => {
+        // A Gitea team description is free text and is often a whole sentence
+        // — "Mapped from the Keycloak platform-developer group" — which as a
+        // dropdown label buries the name the operator is actually choosing.
+        // Short ones read as titles; long ones are prose, so the name wins.
+        const desc = t.description?.trim() ?? ''
+        const title = desc && desc.length <= 32 ? desc : humanize(t.name!)
+        return { name: t.name!, title }
+      })
   } catch {
     return []
   }

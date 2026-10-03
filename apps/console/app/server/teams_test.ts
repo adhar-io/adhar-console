@@ -37,9 +37,23 @@ Deno.test('an org\'s teams come back as owner options', async () => {
   ])
 })
 
-Deno.test('the description is the title, and a blank one falls back to the name', async () => {
+Deno.test('a short description is the title, a blank one falls back to the name', async () => {
   const call = api({ '/orgs/acme/teams': { status: 200, body: [{ name: 'data-eng', description: '  ' }] } })
   assertEquals(await listOrgTeams(call, 'acme'), [{ name: 'data-eng', title: 'Data Eng' }])
+})
+
+/**
+ * Gitea descriptions are free text and are often a whole sentence. As a
+ * dropdown label that buries the name the operator is choosing.
+ */
+Deno.test('a sentence-length description does not become the label', async () => {
+  const call = api({
+    '/orgs/acme/teams': {
+      status: 200,
+      body: [{ name: 'developers', description: 'Mapped from the Keycloak platform-developer group' }],
+    },
+  })
+  assertEquals(await listOrgTeams(call, 'acme'), [{ name: 'developers', title: 'Developers' }])
 })
 
 Deno.test('another org\'s teams are never returned', async () => {

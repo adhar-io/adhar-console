@@ -38,6 +38,7 @@ export function Composer({
   onStop,
   busy,
   configured,
+  runtime,
   agents,
   agentId,
   onAgent,
@@ -58,6 +59,8 @@ export function Composer({
   onStop(): void
   busy: boolean
   configured: boolean
+  /** The external runtime's state — shown as one dot beside the composer. */
+  runtime?: { configured?: boolean; reachable?: boolean } | null
   agents: AgentInfo[]
   agentId: string
   onAgent(id: string): void
@@ -260,7 +263,37 @@ export function Composer({
               <kbd className="rounded border border-edge-default bg-surface-sunken px-1 font-mono">⌘⏎</kbd> open <span className="font-medium text-content">{navHint.label}</span>
             </button>
           ) : configured ? (
-            <span>Reads with your RBAC · changes only ever become a pull request</span>
+            <span className="inline-flex items-center gap-2">
+              {/* The one fact about the runtime worth having at a glance, next
+                  to the box you type into. The landing used to carry a panel
+                  of MCP / tool / grounding counters instead — seen once, on a
+                  screen you leave immediately, and never when it matters. The
+                  counters are still a click away under `/tools`. */}
+              {runtime?.configured
+                ? (
+                  <span
+                    title={runtime.reachable
+                      ? 'adhar-ai runtime reachable'
+                      : 'adhar-ai runtime unreachable — answers come from the console agents'}
+                    className={cn(
+                      'inline-flex shrink-0 items-center gap-1 font-medium',
+                      runtime.reachable
+                        ? 'text-emerald-700 dark:text-emerald-300'
+                        : 'text-rose-700 dark:text-rose-300',
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'h-1.5 w-1.5 rounded-full',
+                        runtime.reachable ? 'bg-emerald-500' : 'bg-rose-500',
+                      )}
+                    />
+                    {runtime.reachable ? 'Live' : 'Down'}
+                  </span>
+                )
+                : null}
+              <span>Reads with your RBAC · changes only ever become a pull request</span>
+            </span>
           ) : (
             <span>AI is not configured — search & navigate still work</span>
           )}

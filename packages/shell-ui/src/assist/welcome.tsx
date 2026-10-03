@@ -87,14 +87,14 @@ function Hero({ configured, agents, agent, runtime, navHint, onPick }: { configu
           crops descenders that overrun the line box. */}
       <h2
         id="adhar-ai-landing-heading"
-        className="rise-in mt-6 text-balance bg-linear-to-b from-content to-content-muted bg-clip-text pb-1 text-[30px] font-semibold leading-[1.05] tracking-[-0.035em] text-transparent @md:mt-8 @md:text-[44px] @2xl:text-[52px]"
+        className="rise-in mt-6 text-balance bg-linear-to-b from-content to-content-muted bg-clip-text pb-1 text-[24px] font-semibold leading-[1.1] tracking-[-0.03em] text-transparent @md:mt-7 @md:text-[32px] @2xl:text-[36px]"
         style={rise(60)}
       >
         {configured ? 'Ask, investigate, propose.' : 'How may I help you?'}
       </h2>
 
       <p
-        className="rise-in mt-4 max-w-[46ch] text-pretty text-[13px] leading-relaxed text-content-muted @md:mt-5 @md:text-[15px]"
+        className="rise-in mt-3 max-w-[48ch] text-pretty text-[13px] leading-relaxed text-content-muted @md:mt-4 @md:text-[14px]"
         style={rise(120)}
       >
         {configured
@@ -111,7 +111,6 @@ function Hero({ configured, agents, agent, runtime, navHint, onPick }: { configu
 
       {configured ? <Starters agent={agent} onPick={onPick} /> : null}
 
-      {configured ? <StatusBar runtime={runtime} agent={agent} agents={agents} /> : null}
     </section>
   )
 }
@@ -136,7 +135,7 @@ function Starters({ agent, onPick }: { agent?: AgentInfo; onPick(prompt: string)
   if (!starters.length) return null
   return (
     <ul
-      className="rise-in mt-8 flex w-full max-w-3xl flex-wrap justify-center gap-2 @md:mt-10"
+      className="rise-in mt-6 flex w-full max-w-3xl flex-wrap justify-center gap-2 @md:mt-7"
       style={rise(240)}
     >
       {starters.map((st) => (
@@ -239,83 +238,15 @@ function Field() {
  */
 function Sigil() {
   return (
-    <span className="rise-in relative flex h-[92px] w-[92px] items-center justify-center @md:h-[108px] @md:w-[108px]">
-      <span aria-hidden className="absolute h-32 w-32 rounded-full bg-brand-500/14 blur-[40px] dark:bg-brand-500/25 @md:h-40 @md:w-40" />
+    <span className="rise-in relative flex h-[76px] w-[76px] items-center justify-center @md:h-[88px] @md:w-[88px]">
+      <span aria-hidden className="absolute h-28 w-28 rounded-full bg-brand-500/14 blur-[36px] dark:bg-brand-500/25 @md:h-36 @md:w-36" />
       <span aria-hidden className="absolute inset-0 rounded-full border border-edge-subtle" />
       <span aria-hidden className="ai-sweep absolute inset-0 rounded-full" />
-      <AdharAiMark size={60} className="relative" />
+      <AdharAiMark size={48} className="relative" />
     </span>
   )
 }
 
-/**
- * What the assistant is made of, right now — one line, not a grid of tiles.
- *
- * Label and value sit side by side, small caps against monospace, the way a
- * status bar reads: scannable left to right, reflowing to as many lines as
- * the width needs without ever leaving a hole — which is what a fixed column
- * count did when the number of facts changed with the runtime's state.
- *
- * The pairs are separated by space alone. A hairline rule between them looks
- * right on one line and wrong the moment the bar wraps, because the rule
- * belonging to the first pair on the second line is then dangling at the
- * start of it, and no selector can know which pair began a line. A rule above
- * the whole bar went the same way for a duller reason: at edge contrast over
- * 672px it is invisible, and at anything darker it draws a box lid.
- */
-function StatusBar({ runtime, agent, agents }: { runtime: RuntimeInfo | null; agent?: AgentInfo; agents: AgentInfo[] }) {
-  const consoleTools = agents.reduce((n, a) => n + (a.delegated ? 0 : a.tools), 0) || agent?.tools || 0
-  const live = Boolean(runtime?.configured && runtime.reachable)
-  const down = runtime?.configured && runtime.reachable === false
-  const bad = Object.keys(runtime?.mcp?.unreachable ?? {}).length
-
-  const cells: Array<{ label: string; value: string; tone?: 'bad'; title?: string }> = live
-    ? [
-      { label: 'MCP', value: `${runtime!.mcp?.connected.length ?? 0}${bad ? ` · ${bad} down` : ''}`, tone: bad ? 'bad' : undefined },
-      { label: 'Tools', value: String(runtime!.tools?.length ?? 0) },
-      // The runtime can report a whole sentence here ("lexical over pgvector
-      // (no embeddings configured)"); a status bar is a glance, not a log.
-      // The trimmed value is the glance; `title` keeps the runtime's full
-      // sentence ("lexical over pgvector (no embeddings configured)")
-      // reachable, since the split throws away the part that says why.
-      { label: 'Grounding', value: runtime!.rag ? runtime!.rag.split(/[(,]/)[0].trim() : 'platform knowledge', title: runtime!.rag ?? undefined },
-      { label: 'Writes', value: 'pull requests' },
-    ]
-    : down
-    ? [
-      { label: 'Runtime', value: 'unreachable', tone: 'bad' },
-      { label: 'Console tools', value: String(consoleTools) },
-      { label: 'Writes', value: 'proposals only' },
-    ]
-    : [
-      { label: 'Console tools', value: String(consoleTools) },
-      { label: 'Agents', value: String(agents.length) },
-      { label: 'Writes', value: 'proposals only' },
-    ]
-
-  return (
-    <div className="rise-in mt-8 flex w-full max-w-2xl flex-col items-center @md:mt-10" style={rise(300)}>
-      <dl className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 font-mono text-[11px] @md:gap-x-7">
-        <div className="flex items-center gap-1.5">
-          <span className="relative flex h-1.5 w-1.5">
-            {live ? <span aria-hidden className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60 motion-reduce:hidden" /> : null}
-            <span className={cn('relative h-1.5 w-1.5 rounded-full', live ? 'bg-emerald-500' : down ? 'bg-rose-500' : 'bg-content-subtle')} />
-          </span>
-          <span className={cn('font-sans font-semibold uppercase tracking-[0.14em]', live ? 'text-emerald-700 dark:text-emerald-300' : down ? 'text-rose-700 dark:text-rose-300' : 'text-content-muted')}>
-            {live ? 'Live' : down ? 'Down' : 'Local'}
-          </span>
-        </div>
-
-        {cells.map((c) => (
-          <div key={c.label} className="flex items-center gap-1.5" title={c.title}>
-            <dt className="font-sans uppercase tracking-[0.1em] text-content-subtle">{c.label}</dt>
-            <dd className={cn('tabular-nums', c.tone === 'bad' ? 'text-rose-700 dark:text-rose-300' : 'text-content')}>{c.value}</dd>
-          </div>
-        ))}
-      </dl>
-    </div>
-  )
-}
 
 /** Markdown → one line of plain text: drop heading/emphasis/code marks and list bullets, keep hyphens inside words. */
 export function plainText(md: string, max = 160): string {

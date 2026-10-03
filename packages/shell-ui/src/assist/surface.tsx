@@ -349,7 +349,15 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
                 title={runtime.reachable ? 'adhar-ai runtime reachable' : 'adhar-ai runtime unreachable'}
                 className={cn('inline-flex items-center gap-1 rounded-full text-[9px] font-medium sm:px-1.5 sm:py-px', runtime.reachable ? 'text-emerald-700 sm:bg-emerald-50 dark:text-emerald-300 dark:sm:bg-emerald-500/10' : 'text-rose-700 sm:bg-rose-50 dark:text-rose-300 dark:sm:bg-rose-500/10')}
               >
-                <span className={cn('h-2 w-2 rounded-full sm:h-1.5 sm:w-1.5', runtime.reachable ? 'bg-emerald-500' : 'bg-rose-500')} /> <span className="hidden sm:inline">runtime</span>
+                {/* This is the only place the runtime's state is stated now.
+                    The landing used to carry a panel of MCP / tool / grounding
+                    counters above the composer; the one fact worth having at a
+                    glance is whether the thing is answering, and it belongs
+                    next to the box you type into, not in the empty state you
+                    see once. The counters are still a click away under
+                    `/tools`. */}
+                <span className={cn('h-2 w-2 rounded-full sm:h-1.5 sm:w-1.5', runtime.reachable ? 'bg-emerald-500' : 'bg-rose-500')} />{' '}
+                <span className="hidden sm:inline">{runtime.reachable ? 'Live' : 'Down'}</span>
               </span>
             ) : null}
           </div>
@@ -438,6 +446,7 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
             onStop={() => assistStore.stop()}
             busy={state.busy}
             configured={state.configured}
+            runtime={runtime}
             agents={state.agents}
             agentId={state.agentId}
             onAgent={(id) => assistStore.setAgent(id)}

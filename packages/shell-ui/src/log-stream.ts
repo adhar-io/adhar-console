@@ -9,7 +9,7 @@ import type { LogLine, StreamStatus } from './log-console.tsx'
  *
  * It lives in shell-ui, beside the `LogConsole` surface, so every remote can
  * stream container logs the same way: the Tekton pipeline drawer, the Logs
- * page, the pod drawer and the Argo Workflows step console all render the
+ * page, the pod drawer and the pipeline step console all render the
  * exact same surface over the exact same stream. It used to live in the
  * platform remote, which meant the develop remote could only fetch a log
  * once and paste it into a <pre>.

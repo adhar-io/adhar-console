@@ -8,6 +8,5 @@ export default defineRemoteConfig({
     './Home': './src/home.tsx',
     './RepoList': './src/views/repo-list.tsx',
     './PullRequestList': './src/views/pr-list.tsx',
-    './WorkflowList': './src/views/workflow-list.tsx',
   },
 })

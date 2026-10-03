@@ -164,8 +164,6 @@ const TOOL_BY_SERVICE: Record<string, string> = {
   argocd: 'argocd',
   'argocd-server': 'argocd',
   'argo-cd-argocd-server': 'argocd',
-  'argo-workflows-server': 'argo-workflows',
-  'argo-server': 'argo-workflows',
   'argo-rollouts-dashboard': 'argo-rollouts',
   kargo: 'kargo',
   'kargo-api': 'kargo',

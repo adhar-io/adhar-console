@@ -6,7 +6,6 @@ import { Commits } from './views/commits.tsx'
 import { PullRequestList } from './views/pr-list.tsx'
 import { Issues } from './views/issues.tsx'
 import { Environments } from './views/environments.tsx'
-import { WorkflowList } from './views/workflow-list.tsx'
 import { CodeBuilder } from './views/code-builder.tsx'
 import { Pipelines } from './views/pipelines.tsx'
 import { Performance } from './views/performance.tsx'
@@ -19,7 +18,6 @@ type Section =
   | 'prs'
   | 'issues'
   | 'environments'
-  | 'workflows'
   | 'pipelines'
   | 'performance'
   | 'codebuilder'
@@ -53,11 +51,6 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
     label: 'Cloud Dev Environments',
     description: 'Coder workspaces — code-server, terminal and previews on the cluster, from any template.',
   },
-  workflows: {
-    label: 'Workflows',
-    description:
-      'Argo Workflows — runs, templates and schedules across namespaces, live from the apiserver. CI itself is Tekton, under Platform → CI / CD.',
-  },
   pipelines: {
     label: 'Data Pipelines',
     description: 'Airbyte source × destination connections — sync schedules, jobs, throughput.',
@@ -86,7 +79,6 @@ export default function DevelopHome({ section }: { section?: string } = {}) {
       {active === 'prs' && <PullRequestList />}
       {active === 'issues' && <Issues />}
       {active === 'environments' && <Environments />}
-      {active === 'workflows' && <WorkflowList />}
       {active === 'pipelines' && <Pipelines />}
       {active === 'performance' && <Performance />}
       {active === 'codebuilder' && <CodeBuilder />}

@@ -886,7 +886,7 @@ function HooksTab({ repo: r }: { repo: gitea.Repo }) {
               ))}
             </ul>
           )
-          : <EmptyState compact title='No webhooks' description='Trigger CI (Tekton, Argo Workflows) or chat notifications on repository events.' />}
+          : <EmptyState compact title='No webhooks' description='Trigger CI (Tekton) or chat notifications on repository events.' />}
       </Section>
 
       <Modal

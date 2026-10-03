@@ -9,7 +9,7 @@ them on-demand.
 | -------------------------------------- | ---- | ------------------------------------------------- | ---------------- |
 | [`define/`](./define)                  | 5101 | `./Home`                                          | Define           |
 | [`design/`](./design)                  | 5102 | `./Home`                                          | Design           |
-| [`develop/`](./develop)                | 5103 | `./Home`, `./RepoList`, `./PullRequestList`, `./WorkflowList` | Develop |
+| [`develop/`](./develop)                | 5103 | `./Home`, `./RepoList`, `./PullRequestList` | Develop |
 | [`deliver/`](./deliver)                | 5104 | `./Home`, `./ArgoApps`, `./KargoStages`, `./Rollouts`, `./Registry`, `./Policy` | Deliver |
 | [`discover/`](./discover)              | 5105 | `./Home`, `./Logs`, `./Metrics`, `./Traces`, `./Dashboards` | Discover |
 | [`decide/`](./decide)                  | 5106 | `./Home`, `./DoraSummary`                         | Decide           |

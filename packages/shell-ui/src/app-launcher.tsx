@@ -72,7 +72,7 @@ export interface AppLink {
    *  `[id]`. First configured entry wins for URL resolution. */
   tools?: string[]
   /** Ingress subdomain when it differs from the id, for base-domain
-   *  derivation (e.g. argo-workflows → `workflows.<base>`). */
+   *  derivation (e.g. argo-rollouts → `rollouts.<base>`). */
   sub?: string
   /** Deep-link through another tool's UI — e.g. Loki opens Grafana Explore. */
   via?: { tool: string; path: string }
@@ -119,14 +119,6 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
   },
 
   // ── Build & CI ────────────────────────────────────────────────────────────
-  {
-    id: 'argo-workflows',
-    name: 'Argo Workflows',
-    description: 'Container-native CI pipelines',
-    url: 'https://argo-workflows.adhar.localtest.me:8443',
-    category: 'Build & CI',
-    icon: <ArgoWorkflowsIcon />,
-  },
   {
     id: 'tekton',
     name: 'Tekton',

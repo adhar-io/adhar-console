@@ -224,7 +224,7 @@ const SECTIONS: Record<Section, SectionDef> = {
   ci: {
     id: 'ci',
     label: 'CI / CD Runs',
-    description: 'Live Tekton PipelineRuns with a task DAG, step logs, and re-run / cancel / delete — plus Pipelines, Tasks, Triggers, and Argo Workflows.',
+    description: 'Live Tekton PipelineRuns with a task DAG, step logs, and re-run / cancel / delete — plus Pipelines, Tasks and Triggers.',
     kind: 'k8s',
   },
   policy: {
@@ -269,7 +269,7 @@ const SECTIONS: Record<Section, SectionDef> = {
   pipelines: {
     id: 'pipelines',
     label: 'Pipelines',
-    description: 'CI/CD pipelines — Argo Workflows templates composed into reusable pipelines.',
+    description: 'CI/CD pipelines — Tekton tasks composed into reusable pipelines.',
     kind: 'xr',
   },
   routes: {
@@ -305,7 +305,7 @@ const SECTIONS: Record<Section, SectionDef> = {
   workflows: {
     id: 'workflows',
     label: 'Workflows',
-    description: 'Long-running orchestrations — Temporal namespaces and Argo Workflows templates.',
+    description: 'Long-running orchestrations — Temporal namespaces.',
     kind: 'xr',
   },
   environments: {

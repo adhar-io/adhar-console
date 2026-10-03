@@ -70,7 +70,7 @@ export const CURATION: Record<string, Curation> = {
   CompositePipeline: {
     family: 'compute',
     icon: 'git',
-    description: 'CI/CD pipelines — Argo Workflows / Tekton composed into reusable pipelines.',
+    description: 'CI/CD pipelines — Tekton composed into reusable pipelines.',
   },
   CompositeGitOps: {
     family: 'compute',

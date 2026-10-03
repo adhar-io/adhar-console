@@ -176,11 +176,6 @@ export function getToolRegistry(): Record<string, ToolDef> {
       username: env('NEXUS_USERNAME'),
       password: env('NEXUS_PASSWORD'),
     },
-    'argo-workflows': {
-      baseUrl: toolUrl('argo-workflows', 'ARGO_WORKFLOWS_URL'),
-      authMode: 'service',
-      serviceToken: env('ARGO_WORKFLOWS_TOKEN'),
-    },
     'argo-rollouts': {
       baseUrl: toolUrl('argo-rollouts', 'ARGO_ROLLOUTS_URL'),
       authMode: 'service',

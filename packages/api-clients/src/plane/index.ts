@@ -535,7 +535,7 @@ const STUB_PROJECTS: Project[] = [
     id: 'proj-ml',
     name: 'ML Platform',
     identifier: 'ML',
-    description: 'KServe + Argo Workflows training pipelines.',
+    description: 'KServe training pipelines.',
     workspace: 'ws-default',
     workspace_slug: 'default',
     emoji: '🧠',

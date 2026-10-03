@@ -250,7 +250,7 @@ export const STUB_EVENTS: Event[] = [
 
 /**
  * CRD objects — keyed by `${group}/${version}/${resource}`.
- * Covers the Adhar stack: ArgoCD, Kargo, Crossplane, Kyverno, Argo Workflows, Argo Rollouts.
+ * Covers the Adhar stack: ArgoCD, Kargo, Crossplane, Kyverno, Argo Rollouts.
  */
 export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
   'argoproj.io/v1alpha1/applications': [
@@ -498,7 +498,7 @@ export const STUB_CRD_OBJECTS: Record<string, Generic[]> = {
       compositionRef: { name: 'workflow-temporal' },
     }, ['TemporalSchedule/monthly-billing']),
     xr('Workflow', 'data-quality-scan', 'demo-data', {
-      engine: 'argo-workflows',
+      engine: 'tekton',
       template: 'argo/dq-scan',
       schedule: '0 */4 * * *',
       slaSeconds: 1800,

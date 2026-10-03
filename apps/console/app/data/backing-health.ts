@@ -27,7 +27,6 @@ const MATCHERS: Record<string, { include: string[]; exclude?: string[] }> = {
   argocd: { include: ['argo-cd', 'argocd'] },
   kargo: { include: ['kargo'] },
   'argo-rollouts': { include: ['argo-rollout'] },
-  'argo-workflows': { include: ['argo-workflow', 'workflow-controller'] },
   // "plane" collides with "crossplane"/"control-plane" — exclude them.
   crossplane: { include: ['crossplane'] },
   keycloak: { include: ['keycloak'] },

@@ -138,16 +138,6 @@ export const BACKING_TOOLS: BackingTool[] = [
     health: 'operational',
   },
   {
-    id: 'argo-workflows',
-    name: 'Argo Workflows',
-    purpose: 'Container-native CI / workflow engine',
-    version: 'v3.6.4',
-    homepage: 'https://argoproj.github.io/argo-workflows',
-    sourceRepo: 'https://github.com/argoproj/argo-workflows',
-    license: 'Apache-2.0',
-    health: 'operational',
-  },
-  {
     id: 'crossplane',
     name: 'Crossplane',
     purpose: 'Cloud infrastructure via Kubernetes APIs',
@@ -288,7 +278,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     highlights: [
       'Initial shell with 6D phase navigation (Define, Design, Develop, Deliver, Discover, Decide) + cross-cutting Platform view',
       'Module Federation host + remotes for each phase',
-      'Stubbed BFF facade across Gitea, Plane, ArgoCD, Kargo, Harbor, K8s, Kyverno, Crossplane, Argo Workflows, Argo Rollouts, LGTM',
+      'Stubbed BFF facade across Gitea, Plane, ArgoCD, Kargo, Harbor, K8s, Kyverno, Crossplane, Argo Rollouts, LGTM',
       'Kubernetes dashboard (cluster + workloads + events + Adhar-stack CRD browser)',
       'SaaS admin: onboarding, orgs, members, teams, projects, environments, tokens, audit, billing',
       'Public platform status page showing each OSS tool with version and source links',

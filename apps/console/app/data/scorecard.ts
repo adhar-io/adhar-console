@@ -278,7 +278,7 @@ const CHECK_DEFS: CheckDef[] = [
     applies: isComponent,
     run: (e) => {
       const a = annEnabled(e, 'adhar.io/ci', 'adhar.io/ci-pipeline')
-      const t = hasTag(e, 'ci', 'actions', 'woodpecker', 'drone', 'argo-workflows')
+      const t = hasTag(e, 'ci', 'actions', 'woodpecker', 'drone')
       if (a) return { pass: true, detail: `Pipeline: ${a}` }
       if (t) return { pass: true, detail: `Tagged "${t}"` }
       return {

@@ -68,7 +68,6 @@ export function consoleAliases(workspaceRoot: string): Record<string, string> {
     '@adhar-console/api-clients/k8s': p('packages/api-clients/src/k8s/index.ts'),
     '@adhar-console/api-clients/kyverno': p('packages/api-clients/src/kyverno/index.ts'),
     '@adhar-console/api-clients/crossplane': p('packages/api-clients/src/crossplane/index.ts'),
-    '@adhar-console/api-clients/argo-workflows': p('packages/api-clients/src/argo-workflows/index.ts'),
     '@adhar-console/api-clients/argo-rollouts': p('packages/api-clients/src/argo-rollouts/index.ts'),
     '@adhar-console/api-clients/lgtm': p('packages/api-clients/src/lgtm/index.ts'),
     '@adhar-console/api-clients/base': p('packages/api-clients/src/base/index.ts'),

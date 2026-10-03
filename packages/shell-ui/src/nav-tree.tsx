@@ -239,7 +239,6 @@ export const DEFAULT_NAV: NavSection[] = [
           { id: 'develop.prs', label: 'Pull Requests', to: '/develop', search: 'prs' },
           { id: 'develop.issues', label: 'Issues', to: '/develop', search: 'issues' },
           { id: 'develop.environments', label: 'Cloud Envs', to: '/develop', search: 'environments' },
-          { id: 'develop.workflows', label: 'Workflows', to: '/develop', search: 'workflows' },
           // Platform owns this page (modules/platform/src/views/tekton.tsx); this
           // row is a shortcut for developers, so it must not steal the highlight.
           { id: 'develop.ci', label: 'CI Pipelines', to: '/platform', search: 'ci', crossLink: true },

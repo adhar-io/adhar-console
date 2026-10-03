@@ -28,7 +28,7 @@ export {
  * stage the test is in, and the pods are where the numbers are.
  *
  * Reads go through `K8sClient`; writes — create, pause, resume, delete — go
- * through the `kube` gateway, the same path the Argo Workflows workbench uses.
+ * through the `kube` gateway, the same path the other cluster views use.
  *
  * There is no results database. k6 prints its end-of-test summary to the
  * runner's stdout, and unless the test is configured to remote-write to

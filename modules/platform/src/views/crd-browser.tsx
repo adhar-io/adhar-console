@@ -10,7 +10,7 @@ interface Props {
 
 /**
  * Curated shortcut list of CRDs commonly deployed alongside Adhar (ArgoCD,
- * Kargo, Crossplane, Kyverno, Argo Workflows/Rollouts). The real cluster may
+ * Kargo, Crossplane, Kyverno, Argo Rollouts). The real cluster may
  * or may not have these installed — tables render empty gracefully.
  */
 const CRD_KINDS = [
@@ -33,11 +33,6 @@ const CRD_KINDS = [
     id: 'kyverno-policies',
     label: 'Kyverno ClusterPolicies',
     gvr: { group: 'kyverno.io', version: 'v1', resource: 'clusterpolicies', namespaced: false },
-  },
-  {
-    id: 'argo-workflows',
-    label: 'Argo Workflows',
-    gvr: { group: 'argoproj.io', version: 'v1alpha1', resource: 'workflows', namespaced: true },
   },
   {
     id: 'argo-rollouts',

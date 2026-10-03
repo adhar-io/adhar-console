@@ -107,11 +107,29 @@ export async function resolveCoderIdentity(req: Request): Promise<CoderIdentity>
   const email = auth?.user.email?.trim().toLowerCase() ?? ''
 
   if (email) {
+    // "Could not look" and "looked and found nothing" are DIFFERENT answers, and
+    // conflating them is what produced the contradictory message
+    //   Coder has no account for <email>, and one could not be created
+    //   (Coder 409: User already exists.)
+    // The lookup had failed with a 400, an empty `catch` turned that into "no
+    // account", and the create then collided with the account that was there all
+    // along. A lookup that errors is now reported as a lookup error.
+    let lookupError = ''
+    const findByEmail = async (): Promise<CoderUser | undefined> => {
+      const found = await coder<{ users?: CoderUser[] }>(
+        req,
+        `/api/v2/users?q=${encodeURIComponent(email)}&limit=5`,
+      )
+      return (found.users ?? []).find((u) => u.email?.toLowerCase() === email)
+    }
+
     try {
-      const found = await coder<{ users?: CoderUser[] }>(req, `/api/v2/users?q=${encodeURIComponent(email)}&limit=5`)
-      const exact = (found.users ?? []).find((u) => u.email?.toLowerCase() === email)
+      const exact = await findByEmail()
       if (exact) return { owner: exact.username, matched: true, created: false }
-    } catch { /* fall through to creation */ }
+    } catch (e) {
+      lookupError = e instanceof Error ? e.message : String(e)
+    }
+
     try {
       const me = await coder<CoderUser>(req, '/api/v2/users/me')
       const orgs = me.organization_ids?.length
@@ -129,12 +147,40 @@ export async function resolveCoderIdentity(req: Request): Promise<CoderIdentity>
       })
       return { owner: made.username, matched: true, created: true }
     } catch (e) {
-      // Creation can legitimately fail — a name already taken, an address the
-      // deployment's policy rejects, no permission to create users. Carry the
-      // reason instead of discarding it, then try the fallback below.
       const reason = e instanceof Error ? e.message : String(e)
+
+      // A CONFLICT is not a failure — it is Coder telling us the account exists.
+      // Re-read after it, because the most likely cause of landing here is a
+      // lookup that could not see what the create just bumped into.
+      if (/\b409\b|already exists/i.test(reason)) {
+        try {
+          const exact = await findByEmail()
+          if (exact) return { owner: exact.username, matched: true, created: false }
+        } catch { /* fall through to the reported error below */ }
+
+        // Still nothing with this e-mail, so the USERNAME is taken by somebody
+        // else: `usernameFromEmail` maps every `user1@…` to `user1`, so two
+        // different people collide. Adopting that account would hand this person
+        // another user's workspaces, so refuse and say precisely why.
+        const taken = usernameFromEmail(email)
+        return {
+          owner: '',
+          matched: false,
+          created: false,
+          reason:
+            `Coder already has a user named "${taken}" whose e-mail is not ${email}, so an account ` +
+            `for you cannot be created under that name. An administrator should either set that ` +
+            `account's e-mail to ${email} or rename it, in the Coder UI (Users → ${taken}).`,
+        }
+      }
+
       if (!stubAuth()) {
-        return { owner: '', matched: false, created: false, reason: `Coder has no account for ${email}, and one could not be created (${reason}). Sign in to Coder once from the app launcher.` }
+        // Lead with the lookup failure when there was one: that is the actual
+        // fault, and "no account" would be a guess built on top of it.
+        const detail = lookupError
+          ? `could not read Coder's user list (${lookupError}), and creating an account failed too (${reason})`
+          : `no account matched ${email} and one could not be created (${reason})`
+        return { owner: '', matched: false, created: false, reason: `Coder integration error: ${detail}.` }
       }
     }
   }

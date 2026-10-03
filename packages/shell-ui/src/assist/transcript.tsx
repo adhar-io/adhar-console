@@ -5,6 +5,7 @@ import { GenerativeBlock } from '../agui/generative.tsx'
 import { useToast } from '../toast.tsx'
 import { Markdown } from './markdown.tsx'
 import { pretty, safeArgs, toolLabel } from './tool-label.ts'
+import { bestVoice, speakableChunks, speechLang, toSpeakable, whenVoicesReady } from './speech.ts'
 import { Dots, IconBook, IconCheck, IconChevronDown, IconCopy, IconRefresh, IconReturn, IconSave, IconSpeaker, IconThumbDown, IconThumbUp, IconTool, SparkIcon } from './icons.tsx'
 
 /**
@@ -275,21 +276,58 @@ function TurnFooter({ entry, isLast, busy, question }: { entry: ChatEntry; isLas
 function ReadAloud({ text }: { text: string }) {
   const [speaking, setSpeaking] = useState(false)
   const synth = typeof globalThis !== 'undefined' ? (globalThis as { speechSynthesis?: SpeechSynthesis }).speechSynthesis : undefined
-  useEffect(() => () => { if (speaking) synth?.cancel() }, [speaking, synth])
+  // A run of utterances, not one: `cancel()` has to be able to stop the queue,
+  // and an `onend` from a chunk we already abandoned must not clear the state
+  // of a reading that has since started.
+  const token = useRef(0)
+
+  useEffect(() => () => { token.current++; synth?.cancel() }, [synth])
+
   if (!synth || typeof SpeechSynthesisUtterance === 'undefined') return null
-  const toggle = () => {
-    if (speaking) { synth.cancel(); setSpeaking(false); return }
+
+  const stop = () => {
+    token.current++
     synth.cancel()
-    const plain = text.replace(/```[\s\S]*?```/g, ' code block omitted ').replace(/[#*`>_|]/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    const u = new SpeechSynthesisUtterance(plain.slice(0, 4000))
-    u.lang = globalThis.navigator?.language || 'en-US'
-    u.onend = () => setSpeaking(false)
-    u.onerror = () => setSpeaking(false)
-    setSpeaking(true)
-    synth.speak(u)
+    setSpeaking(false)
   }
+
+  const toggle = async () => {
+    if (speaking) return stop()
+    token.current++
+    const mine = token.current
+    synth.cancel()
+    setSpeaking(true)
+
+    // The list is empty on Chrome's first call and arrives on `voiceschanged`.
+    // Without this the very first Listen of a session always got the default
+    // voice, however good a one was available a moment later.
+    await whenVoicesReady(synth)
+    if (token.current !== mine) return
+
+    const voice = bestVoice(synth)
+    const lang = speechLang()
+    const chunks = speakableChunks(toSpeakable(text))
+    if (!chunks.length) { setSpeaking(false); return }
+
+    chunks.forEach((chunk, i) => {
+      const u = new SpeechSynthesisUtterance(chunk)
+      if (voice) u.voice = voice
+      u.lang = voice?.lang || lang
+      // Left at the neutral defaults on purpose. Every pitch or rate shift
+      // away from 1 is the synth resampling its own output, and the further
+      // it goes the more it sounds synthetic — which is the thing being fixed.
+      u.rate = 1
+      u.pitch = 1
+      if (i === chunks.length - 1) {
+        u.onend = () => { if (token.current === mine) setSpeaking(false) }
+      }
+      u.onerror = () => { if (token.current === mine) setSpeaking(false) }
+      synth.speak(u)
+    })
+  }
+
   return (
-    <FooterBtn onClick={toggle} title={speaking ? 'Stop reading' : 'Read the answer aloud'}>
+    <FooterBtn onClick={() => void toggle()} title={speaking ? 'Stop reading' : 'Read the answer aloud'}>
       <span className={cn(speaking && 'text-brand-600 dark:text-brand-400')}><IconSpeaker size={12} /></span> {speaking ? 'Stop' : 'Listen'}
     </FooterBtn>
   )

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { cn } from '@adhar-console/utils'
+import { speechLang } from './speech.ts'
 import { AUTONOMY_LEVELS, type AgentInfo, type Autonomy } from '../agui/store.ts'
 import type { CommandItem } from './nav.ts'
 import { IconAt, IconChevronDown, IconMic, IconPin, IconReturn, IconSlash, IconStop, IconX, SparkIcon } from './icons.tsx'
@@ -340,7 +341,10 @@ function VoiceButton({ value, onChange, disabled, onDone }: { value: string; onC
   }
   const start = () => {
     const r = new Ctor()
-    r.lang = globalThis.navigator?.language || 'en-US'
+    // Not `navigator.language` raw: the interface is English, so a browser set
+    // to a non-English locale was scoring dictation against the wrong phoneme
+    // set and had no chance at "kubectl" or "CrashLoopBackOff".
+    r.lang = speechLang()
     r.continuous = true
     r.interimResults = true
     base.current = value ? `${value.replace(/\s+$/, '')} ` : ''

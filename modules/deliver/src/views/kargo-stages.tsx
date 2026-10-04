@@ -298,8 +298,8 @@ export function KargoStages() {
     }
   }
 
-  const doRefresh = (s: kargo.Stage) => act(`Refresh requested for ${s.name}.`, () => refreshStage.mutateAsync({ stage: s.name }))
-  const doAbort = (promotion: string) => act(`Abort requested for ${promotion}.`, () => abort.mutateAsync({ promotion }))
+  const doRefresh = (s: kargo.Stage) => act(`Refresh requested for ${s.name}.`, () => refreshStage.mutateAsync({ stage: s.name, project: s.project }))
+  const doAbort = (promotion: string, project?: string) => act(`Abort requested for ${promotion}.`, () => abort.mutateAsync({ promotion, project }))
 
   if (stages.isLoading || freight.isLoading) {
     return (
@@ -424,7 +424,7 @@ export function KargoStages() {
                         onOpen={() => setSelected(s.name)}
                         onPromote={() => setPromoteFor(s)}
                         onRefresh={() => doRefresh(s)}
-                        onAbort={s.currentPromotion ? () => doAbort(s.currentPromotion!) : undefined}
+                        onAbort={s.currentPromotion ? () => doAbort(s.currentPromotion!, s.project) : undefined}
                       />
                     ))}
                   </div>
@@ -459,7 +459,7 @@ export function KargoStages() {
                         {w.lastDiscovered ? ` · discovered ${formatRelative(w.lastDiscovered)}` : ''}
                       </div>
                     </div>
-                    <Button size="sm" variant="secondary" onClick={() => act(`Discovery requested for ${w.name}.`, () => refreshWarehouse.mutateAsync({ warehouse: w.name }))} loading={refreshWarehouse.isPending && refreshWarehouse.variables?.warehouse === w.name}>
+                    <Button size="sm" variant="secondary" onClick={() => act(`Discovery requested for ${w.name}.`, () => refreshWarehouse.mutateAsync({ warehouse: w.name, project: w.project }))} loading={refreshWarehouse.isPending && refreshWarehouse.variables?.warehouse === w.name}>
                       Discover now
                     </Button>
                   </div>
@@ -564,7 +564,7 @@ export function KargoStages() {
                       <td className="max-w-md px-3 py-2"><div className="line-clamp-2 text-[11px] text-content-muted" title={p.message}>{p.message ?? '—'}</div></td>
                       <td className="px-3 py-2 text-right">
                         {running ? (
-                          <Button size="sm" variant="secondary" onClick={() => doAbort(p.name)} loading={abort.isPending && abort.variables?.promotion === p.name}>
+                          <Button size="sm" variant="secondary" onClick={() => doAbort(p.name, p.project)} loading={abort.isPending && abort.variables?.promotion === p.name}>
                             Abort
                           </Button>
                         ) : null}
@@ -592,7 +592,7 @@ export function KargoStages() {
             if (current) setApproveFor(current)
           }}
           onRefresh={() => doRefresh(detail)}
-          onAbort={detail.currentPromotion ? () => doAbort(detail.currentPromotion!) : undefined}
+          onAbort={detail.currentPromotion ? () => doAbort(detail.currentPromotion!, detail.project) : undefined}
           refreshing={refreshStage.isPending && refreshStage.variables?.stage === detail.name}
           aborting={abort.isPending && abort.variables?.promotion === detail.currentPromotion}
         />
@@ -603,7 +603,7 @@ export function KargoStages() {
           stage={promoteFor}
           freight={freightList}
           onClose={() => setPromoteFor(null)}
-          onPromote={(freightId) => act(`Promotion of ${freightList.find((f) => f.id === freightId)?.alias ?? freightId} to ${promoteFor.name} requested.`, () => promote.mutateAsync({ stage: promoteFor.name, freight: freightId }))}
+          onPromote={(freightId) => act(`Promotion of ${freightList.find((f) => f.id === freightId)?.alias ?? freightId} to ${promoteFor.name} requested.`, () => promote.mutateAsync({ stage: promoteFor.name, freight: freightId, project: promoteFor.project }))}
           loading={promote.isPending}
         />
       ) : null}
@@ -613,7 +613,7 @@ export function KargoStages() {
           freight={approveFor}
           stages={stageList}
           onClose={() => setApproveFor(null)}
-          onApprove={(stage) => act(`${approveFor.alias ?? approveFor.id} approved for ${stage}.`, () => approve.mutateAsync({ freight: approveFor.id, stage }))}
+          onApprove={(stage) => act(`${approveFor.alias ?? approveFor.id} approved for ${stage}.`, () => approve.mutateAsync({ freight: approveFor.id, stage, project: approveFor.project }))}
           loading={approve.isPending}
         />
       ) : null}

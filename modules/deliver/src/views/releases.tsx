@@ -90,7 +90,7 @@ export function Releases() {
   const doPromote = async (r: Release, stage: string) => {
     setBusy(r.id)
     try {
-      await promote.mutateAsync({ stage, freight: r.id })
+      await promote.mutateAsync({ stage, freight: r.id, project: r.project })
     } finally {
       setBusy(null)
     }

@@ -191,12 +191,22 @@ export function useFreight() {
   })
 }
 
+/**
+ * Kargo mutations act on an object the user is looking at, so they take the
+ * object's OWN project (its namespace) and fall back to the page project only
+ * when the caller has nothing better. The list hooks above fall back to every
+ * project the user can see when the page project is empty (see listScoped),
+ * which is how the Deliver view shows `adhar-environments` while
+ * `useArgocdProject()` still says `default` — a promotion that then PATCHed
+ * `namespaces/default/freights/<id>/status` got a 404 ("kargo promotion failing
+ * to prod", 2026-10-04). The freight is always where its Stage is.
+ */
 export function usePromote() {
-  const project = useArgocdProject()
+  const fallback = useArgocdProject()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ stage, freight }: { stage: string; freight: string }) =>
-      kargoClient.promote(project, stage, freight),
+    mutationFn: ({ stage, freight, project }: { stage: string; freight: string; project?: string }) =>
+      kargoClient.promote(project || fallback, stage, freight),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['kargo'] }),
   })
 }
@@ -221,26 +231,26 @@ export function useWarehouses() {
   })
 }
 
-function useKargoMutation<V>(fn: (project: string, v: V) => Promise<void>) {
-  const project = useArgocdProject()
+function useKargoMutation<V extends { project?: string }>(fn: (project: string, v: V) => Promise<void>) {
+  const fallback = useArgocdProject()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (v: V) => fn(project, v),
+    mutationFn: (v: V) => fn(v.project || fallback, v),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['kargo'] }),
   })
 }
 
 export function useAbortPromotion() {
-  return useKargoMutation((project, { promotion }: { promotion: string }) => kargoClient.abortPromotion(project, promotion))
+  return useKargoMutation((project, { promotion }: { promotion: string; project?: string }) => kargoClient.abortPromotion(project, promotion))
 }
 export function useApproveFreight() {
-  return useKargoMutation((project, { freight, stage }: { freight: string; stage: string }) => kargoClient.approveFreight(project, freight, stage))
+  return useKargoMutation((project, { freight, stage }: { freight: string; stage: string; project?: string }) => kargoClient.approveFreight(project, freight, stage))
 }
 export function useRefreshWarehouse() {
-  return useKargoMutation((project, { warehouse }: { warehouse: string }) => kargoClient.refreshWarehouse(project, warehouse))
+  return useKargoMutation((project, { warehouse }: { warehouse: string; project?: string }) => kargoClient.refreshWarehouse(project, warehouse))
 }
 export function useRefreshStage() {
-  return useKargoMutation((project, { stage }: { stage: string }) => kargoClient.refreshStage(project, stage))
+  return useKargoMutation((project, { stage }: { stage: string; project?: string }) => kargoClient.refreshStage(project, stage))
 }
 
 /* ─────────── Argo Rollouts ─────────── */

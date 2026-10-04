@@ -11,8 +11,6 @@ import {
   StatusBadge,
   useToast,
   type StatusKind,
-  TeamScopeBar,
-  useTeamProjects,
 } from '@adhar-console/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar-console/utils'
 import type { argocd } from '@adhar-console/api-clients'
@@ -31,6 +29,7 @@ import {
 } from '../data/delivery.ts'
 
 import { shortRepo, sourceRef } from '../data/source-ref.ts'
+import { categoryTally, CUSTOM, matchesCategory } from '../data/app-category.ts'
 
 const HEALTH_KIND: Record<string, StatusKind> = {
   Healthy: 'healthy',
@@ -146,6 +145,9 @@ export function ArgoApps() {
   const [policyF, setPolicyF] = useState<PolicyFilter>('all')
   const [projectF, setProjectF] = useState('all')
   const [namespaceF, setNamespaceF] = useState('all')
+  /** `platform` | `custom` | null for both. */
+  const [kindF, setKindF] = useState<'platform' | 'custom' | null>(null)
+  const [categoryF, setCategoryF] = useState<string[]>([])
   const [prefs, setPrefsState] = useState<Prefs>(() => loadPrefs())
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const setPrefs = (patch: Partial<Prefs>) =>
@@ -180,22 +182,27 @@ export function ArgoApps() {
     return s
   }, [all])
 
-  // An app belongs to a team transitively: the team owns a workspace project,
-  // and that project names the Argo CD AppProject the app is deployed under.
-  // A lens, not a boundary — the bar below says so and offers the way out.
-  const teamScope = useTeamProjects()
-
-  const teamVisible = useMemo(
-    () =>
-      teamScope.filtering
-        ? all.filter((a) => teamScope.argoProjects.has(a.spec.project))
-        : all,
-    [all, teamScope.filtering, teamScope.argoProjects],
-  )
+  /**
+   * What the page narrows by.
+   *
+   * It used to be the team lens — apps whose Argo CD project belongs to a
+   * project the active team owns. Every Application on this platform is in the
+   * `default` Argo project and no workspace project claims it, so the lens
+   * matched nothing and the page read "Showing 0 of 75 applications — scoped
+   * to platform". A filter that hides everything is not a lens, it is a blank
+   * page, and it hid the fleet behind a concept that does not apply here.
+   *
+   * The platform labels what it installs (`adhar.io/category`), so the page
+   * now shows everything by default and narrows by that instead — which is
+   * also the question people were asking of it: ours, or the platform's?
+   */
+  const tally = useMemo(() => categoryTally(all), [all])
+  const hasCustom = tally.some((c) => !c.platform)
 
   const list = useMemo(() => {
     const f = search.trim().toLowerCase()
-    let out = teamVisible.filter((a) => {
+    let out = all.filter((a) => {
+      if (!matchesCategory(a, { kind: kindF ?? undefined, categories: categoryF })) return false
       if (syncF !== 'all' && a.status.sync.status !== syncF) return false
       if (healthF !== 'all') {
         const h = a.status.health.status
@@ -231,16 +238,19 @@ export function ArgoApps() {
       return x.metadata.name.localeCompare(y.metadata.name)
     })
     return out
-  }, [teamVisible, search, syncF, healthF, policyF, projectF, namespaceF, prefs.sort])
+  }, [all, search, syncF, healthF, policyF, projectF, namespaceF, kindF, categoryF, prefs.sort])
 
   const open = all.find((a) => a.metadata.name === openName) ?? null
-  const refining = syncF !== 'all' || healthF !== 'all' || policyF !== 'all' || projectF !== 'all' || namespaceF !== 'all' || !!search.trim()
+  const refining = syncF !== 'all' || healthF !== 'all' || policyF !== 'all' || projectF !== 'all' ||
+    namespaceF !== 'all' || !!search.trim() || kindF !== null || categoryF.length > 0
   const clearFilters = () => {
     setSyncF('all')
     setHealthF('all')
     setPolicyF('all')
     setProjectF('all')
     setNamespaceF('all')
+    setKindF(null)
+    setCategoryF([])
     setSearch('')
   }
 
@@ -345,34 +355,48 @@ export function ArgoApps() {
         </div>
       ) : null}
 
-      <TeamScopeBar
-        team={teamScope.team}
-        shown={teamVisible.length}
-        total={all.length}
-        noun="applications"
+      <CategoryBar
+        tally={tally}
+        hasCustom={hasCustom}
+        kind={kindF}
+        categories={categoryF}
+        onKind={(k) => {
+          setKindF((cur) => (cur === k ? null : k))
+          setCategoryF([])
+        }}
+        onCategory={(id) =>
+          setCategoryF((cur) => {
+            setKindF(null)
+            return cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
+          })}
       />
 
       <div className="text-[11px] text-content-subtle">
-        {list.length === teamVisible.length
-          ? `${teamVisible.length} application${teamVisible.length === 1 ? '' : 's'}`
-          : `${list.length} of ${teamVisible.length} applications`}
+        {list.length === all.length
+          ? `${all.length} application${all.length === 1 ? '' : 's'}`
+          : `${list.length} of ${all.length} applications`}
       </div>
 
-      {/* Three genuinely different empty states below. Saying "ArgoCD has no
-          Applications" when the team lens is what hid them would send people
+      {/* Two genuinely different empty states. Saying "ArgoCD has no
+          Applications" when a filter is what hid them would send people
           looking for a problem that does not exist. */}
       {list.length === 0 ? (
         <EmptyState
-          title={all.length === 0
-            ? 'No applications'
-            : teamVisible.length === 0
-            ? `No applications for ${teamScope.team}`
-            : 'No matches'}
+          title={all.length === 0 ? 'No applications' : 'No matches'}
           description={all.length === 0
             ? 'ArgoCD has no Applications in this project yet.'
-            : teamVisible.length === 0
-            ? `${all.length} application${all.length === 1 ? '' : 's'} exist, but none belong to a project owned by this team. Use “Show all” above to see them.`
-            : 'Relax the filters or the search.'}
+            : `${all.length} application${all.length === 1 ? '' : 's'} exist — relax the filters or the search.`}
+          action={all.length && refining
+            ? (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="rounded-lg border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content hover:border-brand-400"
+              >
+                Clear filters
+              </button>
+            )
+            : undefined}
         />
       ) : prefs.layout === 'grid' ? (
         <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -421,6 +445,101 @@ export function ArgoApps() {
 /* ─────────── stat tile ─────────── */
 
 /** Status chip on the card, on the shared tone palette. */
+/**
+ * Platform or ours, and then by what kind of thing it is.
+ *
+ * Two rows because they are two different questions, and the second only
+ * appears once the first is answered or when there is nothing to answer —
+ * seven category chips above a fleet nobody has narrowed yet is noise.
+ */
+function CategoryBar({
+  tally,
+  hasCustom,
+  kind,
+  categories,
+  onKind,
+  onCategory,
+}: {
+  tally: Array<{ id: string; title: string; count: number; platform: boolean }>
+  hasCustom: boolean
+  kind: 'platform' | 'custom' | null
+  categories: string[]
+  onKind(k: 'platform' | 'custom'): void
+  onCategory(id: string): void
+}) {
+  const total = tally.reduce((n, c) => n + c.count, 0)
+  const platformCount = tally.filter((c) => c.platform).reduce((n, c) => n + c.count, 0)
+  const customCount = total - platformCount
+  const showing = tally.filter((c) => kind === 'platform' ? c.platform : kind === 'custom' ? !c.platform : true)
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <FilterPill on={kind === null && categories.length === 0} onClick={() => kind && onKind(kind)}>
+          All <Count>{total}</Count>
+        </FilterPill>
+        {/* Only offered when there is something on the other side of it. */}
+        {hasCustom ? (
+          <>
+            <FilterPill on={kind === 'custom'} onClick={() => onKind('custom')}>
+              Custom apps <Count>{customCount}</Count>
+            </FilterPill>
+            <FilterPill on={kind === 'platform'} onClick={() => onKind('platform')}>
+              Platform <Count>{platformCount}</Count>
+            </FilterPill>
+          </>
+        ) : null}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        {showing.map((c) => (
+          <FilterPill
+            key={c.id}
+            on={categories.includes(c.id)}
+            subtle
+            onClick={() => onCategory(c.id)}
+          >
+            {c.title} <Count>{c.count}</Count>
+          </FilterPill>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function FilterPill({
+  on,
+  subtle = false,
+  onClick,
+  children,
+}: {
+  on: boolean
+  subtle?: boolean
+  onClick(): void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={on}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full border px-2.5 font-medium transition-colors',
+        subtle ? 'h-7 text-[11px]' : 'h-8 text-[12px]',
+        on
+          ? 'border-brand-300 bg-brand-50 text-brand-800 dark:border-brand-500/40 dark:bg-brand-500/10 dark:text-brand-200'
+          : 'border-edge-default bg-surface-raised text-content-muted hover:border-edge-strong hover:text-content',
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+function Count({ children }: { children: React.ReactNode }) {
+  return <span className="tabular-nums text-content-subtle">{children}</span>
+}
+
 function Chip({ tone, label, children }: { tone: CardTone; label: string; children: React.ReactNode }) {
   return (
     <span

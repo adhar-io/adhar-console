@@ -304,13 +304,32 @@ export async function proxyToolRequest(
   const upstream = result.upstream
   const refreshedCookie = result.refreshedCookie
 
-  // Pass the upstream response through, dropping hop-by-hop headers, and attach
-  // a refreshed session cookie if the token was rotated mid-request.
+  /*
+   * Pass the upstream response through, dropping hop-by-hop headers, and attach
+   * a refreshed session cookie if the token was rotated mid-request.
+   *
+   * `content-encoding` and `content-length` are dropped as well, and that is
+   * not cosmetic. `fetch` decodes a compressed upstream body for us, so
+   * `upstream.body` is already plaintext — forwarding the upstream's
+   * `content-encoding: gzip` therefore hands the browser a gzip header over
+   * bytes that are not gzip, and it fails the response outright with
+   * ERR_CONTENT_DECODING_FAILED. The page then reports "Failed to fetch",
+   * which reads as the tool being unreachable when the tool answered 200.
+   *
+   * ArgoCD surfaced it because it is the proxied tool whose responses are
+   * large enough to be compressed — a 1.4 MB application list — so Deliver's
+   * Apps and Environments pages showed "Couldn't reach ArgoCD" against a
+   * perfectly healthy ArgoCD.
+   *
+   * `content-length` goes for the same reason: it describes the compressed
+   * body we no longer have. Letting the runtime set both means it negotiates
+   * compression with the actual client over the actual bytes.
+   */
   const respHeaders = new Headers()
+  const STRIP = new Set(['set-cookie', 'content-encoding', 'content-length'])
   for (const [k, v] of upstream.headers) {
-    if (!HOP_BY_HOP.has(k.toLowerCase()) && k.toLowerCase() !== 'set-cookie') {
-      respHeaders.set(k, v)
-    }
+    const key = k.toLowerCase()
+    if (!HOP_BY_HOP.has(key) && !STRIP.has(key)) respHeaders.set(k, v)
   }
   if (refreshedCookie) respHeaders.append('set-cookie', refreshedCookie)
 

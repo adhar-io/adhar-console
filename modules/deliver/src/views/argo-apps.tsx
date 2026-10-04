@@ -30,6 +30,8 @@ import {
   type SyncOptions,
 } from '../data/delivery.ts'
 
+import { shortRepo, sourceRef } from '../data/source-ref.ts'
+
 const HEALTH_KIND: Record<string, StatusKind> = {
   Healthy: 'healthy',
   Degraded: 'degraded',
@@ -76,6 +78,18 @@ const HEALTH_TONE: Record<string, CardTone> = {
   Unknown: 'idle',
 }
 const SYNC_TONE: Record<string, CardTone> = { Synced: 'ok', OutOfSync: 'warn', Unknown: 'idle' }
+
+/**
+ * Argo CD condition types end in their own severity — `ComparisonError`,
+ * `SharedResourceWarning`, `OrphanedResourceWarning`. Painting all of them
+ * rose made a shared-resource notice look like an outage, so a reader scanning
+ * for red could not trust red.
+ */
+function conditionTone(type: string): string {
+  if (/Error$/.test(type)) return 'text-rose-700 dark:text-rose-300'
+  if (/Warning$/.test(type)) return 'text-amber-700 dark:text-amber-400'
+  return 'text-content-muted'
+}
 
 type SyncFilter = 'all' | 'Synced' | 'OutOfSync' | 'Unknown'
 type HealthFilter = 'all' | 'Healthy' | 'Progressing' | 'Degraded' | 'Suspended' | 'Missing' | 'Unknown'
@@ -361,7 +375,7 @@ export function ArgoApps() {
             : 'Relax the filters or the search.'}
         />
       ) : prefs.layout === 'grid' ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-3">
+        <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3">
           {list.map((a) => (
             <AppCard
               key={a.metadata.name}
@@ -507,15 +521,17 @@ function AppCard({
   const drift = sync === 'OutOfSync'
   const bad = health === 'Degraded' || health === 'Missing' || failedOp
   const auto = a.spec.syncPolicy.automated
-  const repo = a.spec.source.repoURL.replace(/^https?:\/\//, '').replace(/\.git$/, '')
   const [menu, setMenu] = useState(false)
 
   return (
     <Card
       className={cn(
-        'relative overflow-hidden border',
+        // A flex column so the action bar sits on the bottom edge. Cards in a
+        // row are stretched to the tallest, and without this the buttons
+        // floated wherever the content happened to end, with dead space below.
+        'relative flex h-full flex-col overflow-hidden border',
         bad ? 'border-rose-200/70 dark:border-rose-500/30' : drift ? 'border-amber-200/70 dark:border-amber-500/30' : 'border-edge-default',
-        selected && 'ring-2 ring-brand-400/40',
+        selected && 'bg-brand-50/40 ring-2 ring-brand-400/40 dark:bg-brand-500/5',
       )}
       interactive
     >
@@ -530,31 +546,37 @@ function AppCard({
           running ? 'adhar-app-busy' : '',
         )}
       />
-      <div className="flex items-start gap-3 p-4 pl-5">
+      <div className="flex flex-1 items-start gap-3 p-4 pl-5">
         <Checkbox checked={selected} onChange={onSelect} aria-label={`Select ${a.metadata.name}`} />
-        <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="truncate text-sm font-semibold text-content">{a.metadata.name}</span>
+        <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 flex-col text-left">
+          <div className="flex w-full items-start justify-between gap-2.5">
+            <div className="min-w-0 flex-1">
+              {/* The name gets the whole line. The sync-policy badge used to
+                  share it, and on a card this width that truncated names like
+                  `adhar-supply-chain` to make room for a label that is the
+                  same on nearly every application. */}
+              <span className="block truncate text-[15px] font-semibold leading-tight text-content" title={a.metadata.name}>
+                {a.metadata.name}
+              </span>
+              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-content-subtle">
+                <span className="truncate">
+                  {a.spec.destination.namespace || '—'} · {a.spec.project}
+                  {a.spec.destination.server && !/kubernetes\.default|in-cluster/.test(a.spec.destination.server) ? ` · ${a.spec.destination.name ?? a.spec.destination.server}` : ''}
+                </span>
                 {auto ? (
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-surface-sunken px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-content-muted" title={`Auto-sync${auto.prune ? ' · prune' : ''}${auto.selfHeal ? ' · self-heal' : ''}`}>
-                    <IconBolt /> auto{auto.selfHeal ? ' · heal' : ''}{auto.prune ? ' · prune' : ''}
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-surface-sunken px-1.5 py-px text-[10px] font-medium text-content-muted" title={`Auto-sync${auto.prune ? ' · prune' : ''}${auto.selfHeal ? ' · self-heal' : ''}`}>
+                    <IconBolt />auto{auto.selfHeal ? '·heal' : ''}{auto.prune ? '·prune' : ''}
                   </span>
                 ) : (
-                  <span className="shrink-0 rounded-full bg-surface-sunken px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-content-subtle">manual</span>
+                  <span className="shrink-0 rounded-full bg-surface-sunken px-1.5 py-px text-[10px] font-medium text-content-subtle" title="Synced manually — no automated sync policy">manual</span>
                 )}
-              </div>
-              <div className="mt-0.5 truncate text-[11px] text-content-subtle">
-                {a.spec.destination.namespace || '—'} · {a.spec.project}
-                {a.spec.destination.server && !/kubernetes\.default|in-cluster/.test(a.spec.destination.server) ? ` · ${a.spec.destination.name ?? a.spec.destination.server}` : ''}
               </div>
             </div>
             {/* Sync and health are independent — an app can be perfectly
                 healthy and still have drifted from git — so they get two
                 separate chips on a fixed palette rather than one blended
                 colour that hides whichever problem came second. */}
-            <div className="flex shrink-0 flex-col items-end gap-1">
+            <div className="flex shrink-0 flex-col items-end gap-1.5">
               <Chip tone={SYNC_TONE[sync] ?? 'idle'} label="Sync">
                 {sync === 'OutOfSync' ? 'Out of sync' : sync}
               </Chip>
@@ -572,43 +594,54 @@ function AppCard({
             unhealthy={a.status.resources.unhealthy}
           />
 
-          <div className="mt-3 rounded-md border border-edge-subtle bg-surface-sunken/40 px-2.5 py-2 text-[11px]">
-            <div className="truncate font-mono text-content-muted" title={a.spec.source.repoURL}>{repo || '—'}</div>
-            <div className="truncate text-content-subtle">
-              {a.spec.source.chart ? `chart ${a.spec.source.chart}` : a.spec.source.path ?? '—'} @ {a.spec.source.targetRevision ?? 'HEAD'}
+          <div className="mt-3 w-full rounded-lg border border-edge-subtle bg-surface-sunken/50 px-2.5 py-2 text-[11px]">
+            <div className="flex items-center gap-1.5">
+              <IconSource />
+              <span className="truncate font-mono font-medium text-content-muted" title={a.spec.source.repoURL}>
+                {shortRepo(a.spec.source.repoURL)}
+              </span>
+            </div>
+            <div className="mt-0.5 truncate pl-[18px] text-content-subtle" title={sourceRef(a.spec.source)}>
+              {sourceRef(a.spec.source)}
               {a.spec.sources.length > 1 ? ` · +${a.spec.sources.length - 1} more source${a.spec.sources.length > 2 ? 's' : ''}` : ''}
             </div>
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-content-subtle">
-            {a.status.sync.revision ? <span className="font-mono" title={a.status.sync.revision}>rev {a.status.sync.revision.slice(0, 8)}</span> : null}
-            <span title="Managed resources">{a.status.resources.total} res{a.status.resources.outOfSync ? ` · ${a.status.resources.outOfSync} drift` : ''}{a.status.resources.unhealthy ? ` · ${a.status.resources.unhealthy} unhealthy` : ''}</span>
+          {/* Resource counts live under the meter, which states them as
+              proportions; repeating them here as `20 res · 2 drift` said the
+              same three numbers twice in one card. */}
+          <div className="mt-2 flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-content-subtle">
+            {a.status.sync.revision ? <span className="font-mono" title={a.status.sync.revision}>{a.status.sync.revision.slice(0, 8)}</span> : null}
             {a.status.images.length ? <span title={a.status.images.join('\n')}>{a.status.images.length} image{a.status.images.length === 1 ? '' : 's'}</span> : null}
             {a.status.deployments ? <span>{a.status.deployments} deploy{a.status.deployments === 1 ? '' : 's'}</span> : null}
             {a.status.reconciledAt ? <span title={formatAbsolute(a.status.reconciledAt)}>reconciled {formatRelative(a.status.reconciledAt)}</span> : null}
           </div>
 
+          {/* One line that stays one line. Each part was free to wrap before,
+              so a failed operation broke into a stack of ragged fragments —
+              `by` over `automation` over `· 2 hours` over `ago` — which is the
+              state a reader most needs to be able to read. */}
           {op ? (
-            <div className={cn('mt-2 flex items-center gap-1.5 text-[11px]', failedOp ? 'text-rose-700 dark:text-rose-300' : running ? 'text-indigo-700 dark:text-indigo-300' : 'text-content-muted')}>
-              {running ? <Spinner size={10} /> : null}
-              <span className="font-medium">{op.phase}</span>
-              {op.dryRun ? <span className="rounded bg-surface-sunken px-1 text-[9px]">dry-run</span> : null}
-              {op.initiatedBy ? <span>by {op.initiatedBy}</span> : null}
-              {op.finishedAt ?? op.startedAt ? <span>· {formatRelative(op.finishedAt ?? op.startedAt!)}</span> : null}
-              {failedOp && op.message ? <span className="line-clamp-1" title={op.message}>— {op.message}</span> : null}
+            <div className={cn('mt-2 flex w-full items-center gap-1.5 overflow-hidden whitespace-nowrap text-[11px]', failedOp ? 'text-rose-700 dark:text-rose-300' : running ? 'text-indigo-700 dark:text-indigo-300' : 'text-content-muted')}>
+              {running ? <span className="shrink-0"><Spinner size={10} /></span> : null}
+              <span className="shrink-0 font-semibold">{op.phase}</span>
+              {op.dryRun ? <span className="shrink-0 rounded bg-surface-sunken px-1 text-[10px]">dry-run</span> : null}
+              {op.initiatedBy ? <span className="shrink-0">by {op.initiatedBy}</span> : null}
+              {(op.finishedAt ?? op.startedAt) ? <span className="shrink-0">· {formatRelative(op.finishedAt ?? op.startedAt!)}</span> : null}
+              {failedOp && op.message ? <span className="min-w-0 truncate" title={op.message}>— {op.message}</span> : null}
             </div>
           ) : null}
           {a.status.conditions.length ? (
-            <div className="mt-1 line-clamp-1 text-[11px] text-rose-700 dark:text-rose-300" title={a.status.conditions.map((c) => `${c.type}: ${c.message ?? ''}`).join('\n')}>
+            <div className={cn('mt-1 w-full truncate text-[11px]', conditionTone(a.status.conditions[0].type))} title={a.status.conditions.map((c) => `${c.type}: ${c.message ?? ''}`).join('\n')}>
               {a.status.conditions[0].type}{a.status.conditions[0].message ? `: ${a.status.conditions[0].message}` : ''}{a.status.conditions.length > 1 ? ` (+${a.status.conditions.length - 1})` : ''}
             </div>
           ) : a.status.health.message ? (
-            <div className="mt-1 line-clamp-1 text-[11px] text-content-muted" title={a.status.health.message}>{a.status.health.message}</div>
+            <div className="mt-1 w-full truncate text-[11px] text-content-muted" title={a.status.health.message}>{a.status.health.message}</div>
           ) : null}
         </button>
       </div>
 
-      <div className="flex items-center gap-1.5 border-t border-edge-subtle bg-surface-raised/80 px-3 py-2">
+      <div className="mt-auto flex items-center gap-1.5 border-t border-edge-subtle bg-surface-sunken/40 px-3 py-2">
         {running ? (
           <Button size="sm" variant="secondary" onClick={onTerminate} leading={<IconStop />}>Terminate</Button>
         ) : (
@@ -616,7 +649,7 @@ function AppCard({
         )}
         <Button size="sm" variant="secondary" onClick={() => onRefresh(false)} disabled={busy} leading={<IconRefresh />}>Refresh</Button>
         <div className="relative ml-auto">
-          <button type="button" aria-label="More actions" onClick={() => setMenu((m) => !m)} className="flex h-7 w-7 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content">
+          <button type="button" aria-label="More actions" onClick={() => setMenu((m) => !m)} className="flex h-7 w-7 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-raised hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40">
             <IconMore />
           </button>
           {menu ? (
@@ -1248,6 +1281,16 @@ function IconBolt() {
     </svg>
   )
 }
+function IconSource() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-content-subtle" aria-hidden>
+      <circle cx="18" cy="18" r="3" />
+      <circle cx="6" cy="6" r="3" />
+      <path d="M6 9v6a3 3 0 0 0 3 3h6" />
+    </svg>
+  )
+}
+
 function IconGrid() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>

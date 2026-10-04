@@ -14,6 +14,8 @@ import type { argocd, argoRollouts } from '@adhar-console/api-clients'
 import { CanvasBtn, GraphCanvas, type CanvasEdge } from '../components/canvas.tsx'
 import { layoutSerpentine } from '../data/flow-layout.ts'
 import { orderStages, stageStatus } from '../data/stage-order.ts'
+import { isCustomApp } from '../data/app-category.ts'
+import { buildJourneys, furthestStep, type CommitJourney, type JourneyStep } from '../data/commit-journey.ts'
 import {
   useApplications,
   useFreight,
@@ -121,7 +123,17 @@ export function DeliveryFlow() {
   const [selectedApp, setSelectedApp] = useState<string | null>(null)
   const [openStage, setOpenStage] = useState<string | null>(null)
 
-  const appList = apps.data ?? []
+  /**
+   * Only custom applications.
+   *
+   * A value stream follows a change from a commit to production. The
+   * platform's own packages are installed from the platform's release
+   * channel, not built from this repository per commit, so following one
+   * through "Code → PR → Build" describes something that never happened. They
+   * are identified by the labels the platform puts on what it installs.
+   */
+  const appList = (apps.data ?? []).filter(isCustomApp)
+  const platformCount = (apps.data ?? []).length - appList.length
   const app =
     appList.find((a) => a.metadata.name === selectedApp) ?? appList[0] ?? null
   const namespace = app?.spec.destination.namespace
@@ -163,8 +175,10 @@ export function DeliveryFlow() {
   if (!app) {
     return (
       <EmptyState
-        title="No applications"
-        description="The delivery flow follows an ArgoCD Application. None are registered in this project yet."
+        title={platformCount ? 'No custom applications' : 'No applications'}
+        description={platformCount
+          ? `The delivery flow follows a change from a commit to production, so it covers the applications your teams build. All ${platformCount} Applications here are platform packages, which are installed from the platform's release channel rather than built per commit.`
+          : 'The delivery flow follows an Argo CD Application. None are registered in this project yet.'}
       />
     )
   }
@@ -197,6 +211,34 @@ export function DeliveryFlow() {
     freight,
     rollouts,
   })
+
+  /**
+   * Every commit, and how far each one got — the question the stage canvas
+   * above cannot answer, because it only ever shows the newest of everything.
+   */
+  const journeys = useMemo(
+    () =>
+      buildJourneys({
+        commits: commits.data ?? [],
+        pulls: pulls.data ?? [],
+        builds: [...(tekton.data ?? []), ...(kpack.data ?? [])],
+        freight: freight.data ?? [],
+        stages: stages.data ?? [],
+        syncedRevision: app?.status.sync.revision,
+        buildsAvailable: !tekton.isError && !kpack.isError,
+      }),
+    [
+      commits.data,
+      pulls.data,
+      tekton.data,
+      kpack.data,
+      freight.data,
+      stages.data,
+      app?.status.sync.revision,
+      tekton.isError,
+      kpack.isError,
+    ],
+  )
 
   const open = model.find((s) => s.id === openStage) ?? null
   const anyRefetching =
@@ -313,6 +355,13 @@ export function DeliveryFlow() {
           )
         })}
       </GraphCanvas>
+
+      <CommitTrail
+        journeys={journeys}
+        loading={commits.isLoading}
+        repo={repo?.full_name}
+        branch={branch}
+      />
 
       {open ? <StageDrawer stage={open} onClose={() => setOpenStage(null)} /> : null}
     </div>
@@ -1334,3 +1383,176 @@ function IconClose() {
 }
 
 export default DeliveryFlow
+
+/* ─────────── every commit, and how far it got ─────────── */
+
+const STEP_TONE: Record<JourneyStep['state'], string> = {
+  done: 'bg-emerald-500',
+  running: 'bg-indigo-500',
+  failed: 'bg-rose-500',
+  pending: 'bg-slate-300 dark:bg-slate-600',
+  skipped: 'bg-slate-300 dark:bg-slate-600',
+  unknown: 'bg-slate-300 dark:bg-slate-600',
+}
+
+const STEP_TEXT: Record<JourneyStep['state'], string> = {
+  done: 'text-emerald-700 dark:text-emerald-300',
+  running: 'text-indigo-700 dark:text-indigo-300',
+  failed: 'text-rose-700 dark:text-rose-300',
+  pending: 'text-content-subtle',
+  skipped: 'text-content-subtle',
+  unknown: 'text-content-subtle',
+}
+
+/**
+ * The commit list, each row carrying its own journey.
+ *
+ * The canvas above is the pipeline as it stands now. This is the pipeline as
+ * each change experienced it, which is what someone asking "did my commit go
+ * out?" actually needs.
+ */
+function CommitTrail({
+  journeys,
+  loading,
+  repo,
+  branch,
+}: {
+  journeys: CommitJourney[]
+  loading: boolean
+  repo?: string
+  branch?: string
+}) {
+  const [open, setOpen] = useState<string | null>(null)
+
+  if (loading) {
+    return (
+      <Card>
+        <CardBody className="flex items-center gap-2 text-sm text-content-muted">
+          <Spinner size={14} /> Loading commits…
+        </CardBody>
+      </Card>
+    )
+  }
+  if (journeys.length === 0) {
+    return (
+      <EmptyState
+        compact
+        title="No commits to follow"
+        description={repo
+          ? `No commits on ${branch ?? 'the default branch'} of ${repo} yet.`
+          : 'No Gitea repository matches this service, so there are no commits to follow through the pipeline.'}
+      />
+    )
+  }
+
+  const live = journeys.filter((j) => j.live).length
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div>
+            <div className="text-[13px] font-semibold text-content">Commit trail</div>
+            <div className="text-[11px] text-content-subtle">
+              every commit on {branch ?? 'the default branch'}, and how far it got
+            </div>
+          </div>
+          <div className="text-[11px] text-content-subtle">
+            {journeys.length} commits
+            {live ? ` · ${live === 1 ? 'one is' : `${live} are`} running now` : ''}
+          </div>
+        </div>
+      </CardHeader>
+      <CardBody className="p-0!">
+        <ul className="divide-y divide-edge-subtle">
+          {journeys.map((j) => (
+            <CommitRow
+              key={j.sha}
+              journey={j}
+              expanded={open === j.sha}
+              onToggle={() => setOpen((cur) => (cur === j.sha ? null : j.sha))}
+            />
+          ))}
+        </ul>
+      </CardBody>
+    </Card>
+  )
+}
+
+function CommitRow({
+  journey: j,
+  expanded,
+  onToggle,
+}: {
+  journey: CommitJourney
+  expanded: boolean
+  onToggle(): void
+}) {
+  const furthest = furthestStep(j)
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-surface-sunken/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-400/40"
+      >
+        <code className="shrink-0 rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content">
+          {j.short}
+        </code>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] text-content">{j.subject}</span>
+          <span className="text-[11px] text-content-subtle">
+            {j.author ? `${j.author} · ` : ''}
+            {formatRelative(j.at)}
+          </span>
+        </span>
+
+        {/* The journey as a row of pips — six steps, read left to right. */}
+        <span className="hidden shrink-0 items-center gap-1 sm:flex" aria-hidden>
+          {j.steps.map((s) => (
+            <span
+              key={s.id}
+              title={`${s.label}: ${s.state}${s.detail ? ` — ${s.detail}` : ''}`}
+              className={`h-1.5 w-5 rounded-full ${STEP_TONE[s.state]}`}
+            />
+          ))}
+        </span>
+
+        <span className="w-28 shrink-0 text-right">
+          {j.live ? (
+            <StatusBadge kind="healthy">Live</StatusBadge>
+          ) : (
+            <span className={`text-[11px] font-medium ${STEP_TEXT[furthest.state]}`}>
+              {furthest.label}
+            </span>
+          )}
+        </span>
+      </button>
+
+      {expanded ? (
+        <ol className="space-y-2 border-t border-edge-subtle bg-surface-sunken/30 px-4 py-3">
+          {j.steps.map((s) => (
+            <li key={s.id} className="flex items-start gap-2.5">
+              <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${STEP_TONE[s.state]}`} aria-hidden />
+              <span className="min-w-0 flex-1">
+                <span className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="text-[12px] font-medium text-content">{s.label}</span>
+                  <span className={`text-[11px] ${STEP_TEXT[s.state]}`}>{s.state}</span>
+                  {s.at ? (
+                    <span className="text-[11px] text-content-subtle">{formatRelative(s.at)}</span>
+                  ) : null}
+                </span>
+                {s.detail ? (
+                  <span className="mt-0.5 block truncate text-[11px] text-content-muted" title={s.detail}>
+                    {s.detail}
+                  </span>
+                ) : null}
+              </span>
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </li>
+  )
+}

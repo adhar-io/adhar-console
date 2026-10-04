@@ -607,11 +607,23 @@ export async function apiServerFetch(
  * Copy an apiserver Response back to the browser, dropping hop-by-hop headers.
  * Rate-limit metadata (`Retry-After` on 429, audit IDs, warnings) is NOT
  * hop-by-hop and passes through untouched so clients can back off correctly.
+ *
+ * `content-encoding` is dropped because the body here is already decoded:
+ * Deno's `fetch` negotiates and unwraps gzip itself, so forwarding the header
+ * handed the browser a gzip declaration over plain bytes and it failed the
+ * response with ERR_CONTENT_DECODING_FAILED before any code could read it.
+ *
+ * It only bit the large responses, because that is when the apiserver bothers
+ * to compress — which made it look like a per-resource problem rather than a
+ * proxy one. Listing pods in a busy namespace failed while listing one
+ * DaemonSet succeeded; the metrics endpoint failed every time.
  */
 function passthrough(upstream: Response, refreshedCookie?: string): Response {
   const headers = new Headers()
   for (const [k, v] of upstream.headers) {
-    if (!HOP_BY_HOP.has(k.toLowerCase()) && k.toLowerCase() !== 'set-cookie') headers.set(k, v)
+    const key = k.toLowerCase()
+    if (HOP_BY_HOP.has(key) || key === 'set-cookie' || key === 'content-encoding') continue
+    headers.set(k, v)
   }
   if (refreshedCookie) headers.append('set-cookie', refreshedCookie)
   return new Response(upstream.body, {

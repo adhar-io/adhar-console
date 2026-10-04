@@ -11,6 +11,9 @@ import {
 } from '@adhar-console/shell-ui'
 import { formatRelative } from '@adhar-console/utils'
 import type { argocd, argoRollouts } from '@adhar-console/api-clients'
+import { CanvasBtn, GraphCanvas, type CanvasEdge } from '../components/canvas.tsx'
+import { layoutSerpentine } from '../data/flow-layout.ts'
+import { orderStages, stageStatus } from '../data/stage-order.ts'
 import {
   useApplications,
   useFreight,
@@ -41,9 +44,16 @@ import { age } from '../data/format.ts'
  *   GitOps sync → Rollout
  *
  * Every node reflects REAL status pulled from that stage's backing tool
- * (Gitea, Tekton/kpack, Coder, ArgoCD, Kargo, Argo Rollouts). Nothing is
+ * (Gitea, Tekton/kpack, Coder, Argo CD, Kargo, Argo Rollouts). Nothing is
  * fabricated: a stage whose tool isn't reachable/installed, or that has no
  * data yet, renders a muted, honest node — never a fake green.
+ *
+ * The stream is drawn on a pan/zoom canvas, wrapped serpentine-style (see
+ * `data/flow-layout.ts`). It used to be a single horizontally-scrolling row:
+ * eight nodes never fit a screen, so the back half of a change's journey was
+ * always out of view, and the nodes were squeezed to 196px trying to make it
+ * fit. On a canvas the whole stream is visible at once, each node has room for
+ * its real detail, and it can be opened full-page.
  */
 
 /* ─────────── stage model ─────────── */
@@ -192,6 +202,21 @@ export function DeliveryFlow() {
   const anyRefetching =
     commits.isFetching || tekton.isFetching || stages.isFetching || rollouts.isFetching
 
+  const layout = layoutSerpentine(model.length)
+  // An edge is coloured by the stage it leaves, because that is what it
+  // reports: whether the change actually got out of that stage. Dashes run
+  // while that stage is still working.
+  const edges: CanvasEdge[] = layout.edges.map((e, i) => ({
+    ...e,
+    kind: model[i].positive ? model[i].kind : 'unknown',
+    flowing: model[i].kind === 'progressing',
+  }))
+  // Only the states actually on the canvas — the legend never invents one.
+  const legend = LEGEND_ORDER.filter((l) => model.some((s) => s.kind === l.kind))
+  const needsAttention = model.find(
+    (s) => s.state === 'error' || s.kind === 'failed' || s.kind === 'degraded',
+  )
+
   return (
     <div className="space-y-5">
       {/* ── controls ── */}
@@ -233,29 +258,61 @@ export function DeliveryFlow() {
               <Spinner size={12} /> refreshing
             </span>
           ) : null}
-          <Legend />
         </div>
       </div>
 
       {/* ── the value stream ── */}
-      <Card>
-        <CardBody className="p-0!">
-          <div className="overflow-x-auto p-5">
-            <div className="flex min-w-max items-stretch">
-              {model.map((s, i) => (
-                <div key={s.id} className="flex items-stretch">
-                  <StageNode
-                    stage={s}
-                    active={openStage === s.id}
-                    onOpen={() => setOpenStage((cur) => (cur === s.id ? null : s.id))}
-                  />
-                  {i < model.length - 1 ? <FlowEdge lit={s.positive} /> : null}
-                </div>
-              ))}
+      <GraphCanvas
+        width={layout.width}
+        height={layout.height}
+        edges={edges}
+        legend={legend}
+        className={layout.rows <= 1
+          ? 'h-[clamp(300px,36vh,380px)]'
+          : layout.rows === 2
+          ? 'h-[clamp(400px,54vh,580px)]'
+          : 'h-[clamp(460px,68vh,780px)]'}
+        ariaLabel={`Delivery flow for ${appName} — ${model.length} stages, ${
+          model.filter((s) => s.positive).length
+        } cleared`}
+        toolbar={
+          <CanvasBtn
+            label={needsAttention
+              ? `Go to the first stage needing attention — ${needsAttention.title}`
+              : 'Every stage is clear'}
+            disabled={!needsAttention}
+            onClick={() => needsAttention && setOpenStage(needsAttention.id)}
+          >
+            !
+          </CanvasBtn>
+        }
+      >
+        {model.map((s, i) => {
+          const p = layout.pos[i]
+          return (
+            <div
+              key={s.id}
+              className="adhar-node-in absolute"
+              style={{
+                left: p.x,
+                top: p.y,
+                width: layout.nodeWidth,
+                height: layout.nodeHeight,
+                // Stagger along the stream, so it draws itself in the order a
+                // change actually travels.
+                animationDelay: `${i * 55}ms`,
+              }}
+            >
+              <StageNode
+                stage={s}
+                step={i + 1}
+                active={openStage === s.id}
+                onOpen={() => setOpenStage((cur) => (cur === s.id ? null : s.id))}
+              />
             </div>
-          </div>
-        </CardBody>
-      </Card>
+          )
+        })}
+      </GraphCanvas>
 
       {open ? <StageDrawer stage={open} onClose={() => setOpenStage(null)} /> : null}
     </div>
@@ -711,6 +768,7 @@ function previewStage(a: BuildArgs): StageModel {
 function promotionStage(a: BuildArgs): StageModel {
   const { stages, freight } = a
   const stageList = stages.data ?? []
+  const ordered = orderStages(stageList)
   const freightList = freight.data ?? []
 
   let kind: StatusKind = 'unknown'
@@ -730,12 +788,19 @@ function promotionStage(a: BuildArgs): StageModel {
     state = 'loading'
   } else if (stageList.length) {
     state = 'ok'
-    const failed = stageList.some((s) => s.phase === 'Failed')
-    const promoting = stageList.some((s) => s.phase === 'Promoting' || s.phase === 'Verifying')
+    // `status.phase` is deprecated and reports `NotApplicable` on a current
+    // cluster, so reading it made every pipeline look Steady whatever its
+    // health actually was. `stageStatus` reads health first.
+    const kinds = ordered.map((s) => stageStatus(s).kind)
+    const failed = kinds.includes('failed')
+    const promoting = kinds.includes('progressing')
     kind = failed ? 'failed' : promoting ? 'progressing' : 'healthy'
     positive = !failed
     status = failed ? 'Failed' : promoting ? 'Promoting' : 'Steady'
-    detail = stageList.map((s) => s.name).join(' → ')
+    // In promotion order. The API returns stages alphabetically, so this read
+    // `dev → prod → test` for a `dev → test → prod` pipeline — an arrow chain
+    // that states, wrongly, that prod promotes into test.
+    detail = ordered.map((s) => s.name).join(' → ')
   }
 
   return {
@@ -756,8 +821,9 @@ function promotionStage(a: BuildArgs): StageModel {
           <EmptyState title="No Kargo stages" />
         ) : (
           <div className="space-y-3">
-            {stageList.map((s) => {
+            {ordered.map((s) => {
               const cur = freightList.find((f) => f.id === s.currentFreight)
+              const st = stageStatus(s)
               return (
                 <div
                   key={s.name}
@@ -765,7 +831,7 @@ function promotionStage(a: BuildArgs): StageModel {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[13px] font-semibold text-content">{s.name}</span>
-                    <StatusBadge kind={phaseKind(s.phase)}>{s.phase}</StatusBadge>
+                    <StatusBadge kind={st.kind}>{st.label}</StatusBadge>
                   </div>
                   <div className="mt-1 text-[11px] text-content-subtle">
                     freight{' '}
@@ -997,12 +1063,25 @@ const DOT_TONE: Record<StatusKind, string> = {
   unknown: 'bg-slate-400',
 }
 
+/** Legend wording, in the order the canvas should list it. */
+const LEGEND_ORDER: Array<{ kind: StatusKind; label: string }> = [
+  { kind: 'healthy', label: 'Passed' },
+  { kind: 'progressing', label: 'In progress' },
+  { kind: 'paused', label: 'Paused' },
+  { kind: 'degraded', label: 'Degraded' },
+  { kind: 'failed', label: 'Failed' },
+  { kind: 'info', label: 'Info' },
+  { kind: 'unknown', label: 'Nothing yet' },
+]
+
 function StageNode({
   stage: s,
+  step,
   active,
   onOpen,
 }: {
   stage: StageModel
+  step: number
   active: boolean
   onOpen(): void
 }) {
@@ -1012,73 +1091,51 @@ function StageNode({
       type="button"
       onClick={onOpen}
       aria-expanded={active}
-      className={`flex w-[196px] shrink-0 flex-col rounded-xl border bg-surface-raised p-3 text-left shadow-sm transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-400/30 ${
+      aria-label={`Step ${step}, ${s.title} — ${s.status}`}
+      className={`group flex h-full w-full flex-col rounded-xl border bg-surface-raised p-3.5 text-left shadow-sm transition-[box-shadow,transform,border-color] hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40 ${
         NODE_TONE[s.kind]
-      } ${active ? 'ring-2 ring-brand-400/40' : ''} ${muted ? 'opacity-90' : ''}`}
+      } ${active ? 'ring-2 ring-brand-400/50 shadow-md' : ''} ${muted ? 'opacity-85' : ''}`}
     >
-      <div className="flex items-center gap-2">
-        <span
-          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-surface-sunken text-content-subtle`}
-        >
+      <div className="flex items-center gap-2.5">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-sunken text-content-subtle ring-1 ring-inset ring-edge-subtle">
           {s.icon}
         </span>
-        <span className="text-[13px] font-semibold text-content">{s.title}</span>
-        <span className={`ml-auto h-2 w-2 shrink-0 rounded-full ${DOT_TONE[s.kind]}`} aria-hidden />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13.5px] font-semibold leading-tight text-content">
+            {s.title}
+          </span>
+          {/* The stream wraps, so the step number carries the reading order
+              rather than the reader inferring it from position. */}
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+            step {step}
+          </span>
+        </span>
+        <span
+          className={`h-2 w-2 shrink-0 rounded-full ${DOT_TONE[s.kind]} ${
+            s.kind === 'progressing' ? 'animate-pulse' : ''
+          }`}
+          aria-hidden
+        />
       </div>
-      <div className="mt-2">
+      <div className="mt-2.5">
         <StatusBadge kind={s.kind}>{s.status}</StatusBadge>
       </div>
-      <p className="mt-2 line-clamp-2 min-h-[2.2em] text-[11px] leading-snug text-content-muted">
+      {/* `flex-1` rather than `mt-auto` on the footer: the footer taking the
+          slack left the detail with none, and a clamped box with no height is
+          invisible rather than truncated. */}
+      <p
+        title={s.detail}
+        className="mt-2 flex-1 line-clamp-2 text-[11.5px] leading-snug text-content-muted"
+      >
         {s.detail}
       </p>
+      <span
+        aria-hidden
+        className="pt-1.5 text-[10px] font-medium text-brand-700 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 dark:text-brand-300"
+      >
+        Open details →
+      </span>
     </button>
-  )
-}
-
-/** SVG connector between two stage nodes; lit (emerald) when the change cleared the upstream stage. */
-function FlowEdge({ lit }: { lit: boolean }) {
-  return (
-    <div className="flex w-10 shrink-0 items-center self-stretch" aria-hidden>
-      <svg width="40" height="24" viewBox="0 0 40 24" fill="none" className="overflow-visible">
-        <line
-          x1="0"
-          y1="12"
-          x2="34"
-          y2="12"
-          stroke={lit ? 'var(--color-emerald-500, #10b981)' : 'var(--color-edge-strong, #cbd5e1)'}
-          strokeWidth="2"
-          strokeDasharray={lit ? undefined : '3 3'}
-          strokeLinecap="round"
-        />
-        <path
-          d="M30 6l6 6-6 6"
-          stroke={lit ? 'var(--color-emerald-500, #10b981)' : 'var(--color-edge-strong, #cbd5e1)'}
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </div>
-  )
-}
-
-function Legend() {
-  const items: Array<{ kind: StatusKind; label: string }> = [
-    { kind: 'healthy', label: 'Passed / healthy' },
-    { kind: 'progressing', label: 'In progress' },
-    { kind: 'degraded', label: 'Degraded' },
-    { kind: 'failed', label: 'Failed' },
-    { kind: 'unknown', label: 'None / not configured' },
-  ]
-  return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-      {items.map((i) => (
-        <span key={i.kind} className="inline-flex items-center gap-1.5 text-[10px] text-content-subtle">
-          <span className={`h-2 w-2 rounded-full ${DOT_TONE[i.kind]}`} aria-hidden />
-          {i.label}
-        </span>
-      ))}
-    </div>
   )
 }
 
@@ -1165,22 +1222,6 @@ function Row({ label, value, mono = false }: { label: string; value: string; mon
 
 function errText(e: unknown): string {
   return e instanceof Error ? e.message : 'Unknown error.'
-}
-
-function phaseKind(phase: string): StatusKind {
-  switch (phase) {
-    case 'Steady':
-      return 'healthy'
-    case 'Promoting':
-    case 'Verifying':
-      return 'progressing'
-    case 'Pending':
-      return 'info'
-    case 'Failed':
-      return 'failed'
-    default:
-      return 'unknown'
-  }
 }
 
 function rolloutKind(phase: string): StatusKind {

@@ -86,6 +86,9 @@ export function GraphCanvas({
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const viewportRef = useRef<HTMLDivElement>(null)
   const drag = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
+  // Whether the viewer has moved the camera themselves. Re-fitting on resize is
+  // right for a canvas nobody has touched and rude for one somebody is reading.
+  const touched = useRef(false)
   const zoom = ZOOM_STEPS[zoomIdx]
 
   useEffect(() => {
@@ -115,6 +118,7 @@ export function GraphCanvas({
       x: Math.max(pad, (el.clientWidth - width * z) / 2),
       y: Math.max(pad, (el.clientHeight - height * z) / 2),
     })
+    touched.current = false
   }, [width, height])
 
   // Fit once the graph has a size, and again whenever it changes shape.
@@ -123,9 +127,29 @@ export function GraphCanvas({
     return () => clearTimeout(t)
   }, [fit])
 
+  /**
+   * Re-fit when the viewport changes size.
+   *
+   * The fit is computed from the viewport, so without this a canvas that was
+   * fitted on a desktop stayed at desktop zoom on a phone: the graph was wider
+   * than the screen and all but the first node sat outside it, with no
+   * indication that panning was required. Rotating a phone, opening full page
+   * and collapsing the sidebar all resize the viewport too.
+   */
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => {
+      if (!touched.current) fit()
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [fit])
+
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     // Only the background pans; a node handles its own pointer events.
     if (e.target !== e.currentTarget) return
+    touched.current = true
     drag.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y }
     e.currentTarget.setPointerCapture(e.pointerId)
   }
@@ -148,11 +172,24 @@ export function GraphCanvas({
     () =>
       edges.map((e, i) => {
         const mx = (e.from.x + e.to.x) / 2
+        // The arrow points along the curve's final tangent — the last control
+        // point to the end point — so it lands flush against the node it feeds
+        // whether the edge arrives horizontally, on a slant, or straight down.
+        // A vertical edge has its control point on top of the end point, which
+        // gives no tangent; there, the overall direction is the answer.
+        const tangent = mx === e.to.x
+          ? { x: e.to.x - e.from.x, y: e.to.y - e.from.y }
+          : { x: e.to.x - mx, y: 0 }
         return {
           i,
           kind: e.kind,
           flowing: e.flowing,
           d: `M${e.from.x},${e.from.y} C${mx},${e.from.y} ${mx},${e.to.y} ${e.to.x},${e.to.y}`,
+          arrow: {
+            x: e.to.x,
+            y: e.to.y,
+            deg: (Math.atan2(tangent.y, tangent.x) * 180) / Math.PI,
+          },
         }
       }),
     [edges],
@@ -180,7 +217,14 @@ export function GraphCanvas({
       <div className='absolute right-2 top-2 z-20 flex items-center gap-1 rounded-lg border border-edge-default bg-surface-raised/90 p-0.5 shadow-sm backdrop-blur'>
         {toolbar}
         {toolbar ? <span className='mx-0.5 h-4 w-px bg-edge-subtle' /> : null}
-        <CanvasBtn label='Zoom out' disabled={zoomIdx === 0} onClick={() => setZoomIdx((i) => Math.max(0, i - 1))}>
+        <CanvasBtn
+          label='Zoom out'
+          disabled={zoomIdx === 0}
+          onClick={() => {
+            touched.current = true
+            setZoomIdx((i) => Math.max(0, i - 1))
+          }}
+        >
           −
         </CanvasBtn>
         <button
@@ -194,7 +238,10 @@ export function GraphCanvas({
         <CanvasBtn
           label='Zoom in'
           disabled={zoomIdx === ZOOM_STEPS.length - 1}
-          onClick={() => setZoomIdx((i) => Math.min(ZOOM_STEPS.length - 1, i + 1))}
+          onClick={() => {
+            touched.current = true
+            setZoomIdx((i) => Math.min(ZOOM_STEPS.length - 1, i + 1))
+          }}
         >
           +
         </CanvasBtn>
@@ -264,6 +311,15 @@ export function GraphCanvas({
                     strokeLinecap='round'
                     strokeDasharray={p.flowing ? '7 7' : undefined}
                     className={p.flowing ? 'adhar-flow-dash' : undefined}
+                  />
+                  {/* Direction, stated rather than implied. A wrapped flow
+                      doubles back, so which way a change travels cannot be
+                      left to the reader's assumption about left-to-right. */}
+                  <path
+                    d='M-7,-4.5 L0,0 L-7,4.5 Z'
+                    fill={stroke}
+                    fillOpacity={p.flowing ? 0.95 : 0.65}
+                    transform={`translate(${p.arrow.x},${p.arrow.y}) rotate(${p.arrow.deg})`}
                   />
                 </g>
               )

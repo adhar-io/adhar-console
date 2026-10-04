@@ -8,9 +8,11 @@ import {
   StatusBadge,
   type StatusKind,
 } from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
-import type { argocd } from '@adhar-console/api-clients'
+import { cn, formatRelative } from '@adhar-console/utils'
+import type { argocd, kargo } from '@adhar-console/api-clients'
 import { useApplications, useStages } from '../data/delivery.ts'
+import { chainDrift, promotesFrom, promotionChain, type ChainLink } from '../data/promotion-chain.ts'
+import { shortFreight, stageStatus } from '../data/stage-order.ts'
 import {
   endpointOf,
   formatBytes,
@@ -89,6 +91,9 @@ export function Environments() {
   const [clusterF, setClusterF] = useState('all')
   const [open, setOpen] = useState<{ cluster: ClusterRow; env: EnvironmentRow } | null>(null)
 
+  const chain = useMemo(() => promotionChain(stages.data ?? []), [stages.data])
+  const drift = useMemo(() => chainDrift(chain), [chain])
+
   const stats = useMemo(() => {
     const envs = model.flatMap((c) => c.environments)
     return {
@@ -162,8 +167,15 @@ export function Environments() {
     <div className='space-y-4'>
       {/* Roll-up across every registered cluster. */}
       <div className='grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6'>
+        {/* An environment is a promotion stage — `dev`, `test`, `prod` — not
+            every namespace Argo CD happens to deploy into. This install has
+            three of the first and reported two of the second. */}
+        <Stat
+          label='Environments'
+          value={chain.length || '—'}
+          hint={chain.length ? chain.map((l) => l.stage.name).join(' → ') : 'no Kargo stages'}
+        />
         <Stat label='Clusters' value={stats.clusters} hint={`${stats.connected} reachable`} />
-        <Stat label='Environments' value={stats.environments} hint='cluster + namespace' />
         <Stat label='Applications' value={stats.apps} hint='deployed by Argo CD' />
         <Stat label='Nodes' value={stats.nodes || '—'} hint='where readable' />
         <Stat
@@ -182,6 +194,23 @@ export function Environments() {
           onClick={() => setHealthF((h) => (h === 'drift' ? 'all' : 'drift'))}
           active={healthF === 'drift'}
         />
+      </div>
+
+      {/* The environments themselves, in promotion order. */}
+      <PromotionEnvironments
+        chain={chain}
+        drift={drift}
+        loading={stages.isLoading}
+        error={stages.isError ? stages.error : undefined}
+      />
+
+      {/* Where they run. Real, and useful, but infrastructure — the section
+          used to be the whole page and was labelled "Environments". */}
+      <div className='flex items-baseline gap-2 pt-1'>
+        <h2 className='text-[15px] font-semibold tracking-tight text-content'>Deployment targets</h2>
+        <span className='text-[11px] text-content-subtle'>
+          the clusters and namespaces Argo CD deploys into
+        </span>
       </div>
 
       {/* Controls */}
@@ -1000,3 +1029,145 @@ function IconClose() {
 }
 
 export default Environments
+
+/* ─────────── the promotion chain ─────────── */
+
+/**
+ * The environments, in the order a change travels through them.
+ *
+ * Each card answers the two questions asked of an environment: what is in it
+ * right now, and is that the same thing that is in the one before it.
+ */
+function PromotionEnvironments({
+  chain,
+  drift,
+  loading,
+  error,
+}: {
+  chain: ChainLink[]
+  drift: { behind: string[]; empty: string[]; leading?: string }
+  loading: boolean
+  error?: unknown
+}) {
+  if (loading) {
+    return (
+      <div className='flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-5 text-sm text-content-muted shadow-sm'>
+        <Spinner size={14} /> Loading environments…
+      </div>
+    )
+  }
+  if (error) {
+    return (
+      <EmptyState
+        compact
+        title="Couldn't reach Kargo"
+        description={error instanceof Error ? error.message : 'Unknown error listing Kargo stages.'}
+      />
+    )
+  }
+  if (chain.length === 0) {
+    return (
+      <EmptyState
+        compact
+        title='No environments defined'
+        description='Environments are Kargo Stages. None are defined in this cluster, so there is no promotion chain to show — the deployment targets below are where Argo CD is deploying in the meantime.'
+      />
+    )
+  }
+
+  const inStep = drift.behind.length === 0 && drift.empty.length === 0
+
+  return (
+    <div className='space-y-3'>
+      <div className='flex flex-wrap items-baseline gap-2'>
+        <h2 className='text-[15px] font-semibold tracking-tight text-content'>Promotion chain</h2>
+        <span className='text-[11px] text-content-subtle'>
+          {inStep
+            ? 'every environment is carrying the same change'
+            : [
+              drift.behind.length ? `${drift.behind.join(', ')} behind` : '',
+              drift.empty.length ? `${drift.empty.join(', ')} has no freight` : '',
+            ].filter(Boolean).join(' · ')}
+        </span>
+      </div>
+
+      <div className='grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3'>
+        {chain.map((link) => (
+          <EnvironmentCard
+            key={`${link.stage.project}/${link.stage.name}`}
+            link={link}
+            leading={drift.leading}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function EnvironmentCard({ link, leading }: { link: ChainLink; leading?: string }) {
+  const s = link.stage
+  const status = stageStatus(s)
+  const freight = s.currentFreight
+  const behind = Boolean(leading && freight && freight !== leading)
+
+  const tone: Record<string, string> = {
+    healthy: 'border-emerald-300/70 dark:border-emerald-500/30',
+    progressing: 'border-indigo-300/70 dark:border-indigo-500/30',
+    failed: 'border-rose-300/70 dark:border-rose-500/30',
+    unknown: 'border-edge-default',
+  }
+
+  return (
+    <Card className={cn('flex h-full flex-col border', tone[status.kind] ?? 'border-edge-default')}>
+      <CardBody className='flex flex-1 flex-col'>
+        <div className='flex items-start justify-between gap-2'>
+          <div className='min-w-0'>
+            <div className='flex items-center gap-2'>
+              <span className='text-[15px] font-semibold text-content'>{s.name}</span>
+              <span className='rounded-full bg-surface-sunken px-1.5 py-px text-[10px] font-semibold uppercase tracking-wider text-content-subtle'>
+                step {link.index + 1}
+              </span>
+            </div>
+            <div className='mt-1 truncate text-[11px] text-content-subtle'>
+              promotes from {promotesFrom(link)}
+              {link.downstream.length ? ` · feeds ${link.downstream.join(', ')}` : ''}
+            </div>
+          </div>
+          <StatusBadge kind={status.kind}>{status.label}</StatusBadge>
+        </div>
+
+        <div className='mt-3 rounded-lg border border-edge-subtle bg-surface-sunken/50 px-2.5 py-2'>
+          <div className='flex items-center justify-between gap-2'>
+            <span className='text-[10px] font-semibold uppercase tracking-wider text-content-subtle'>
+              Current freight
+            </span>
+            {behind ? (
+              <span className='rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300'>
+                behind
+              </span>
+            ) : null}
+          </div>
+          <div className='mt-0.5 font-mono text-[12px] text-content' title={freight ?? undefined}>
+            {shortFreight(freight)}
+          </div>
+          {s.currentFreightAlias ? (
+            <div className='truncate text-[11px] text-content-subtle'>{s.currentFreightAlias}</div>
+          ) : null}
+        </div>
+
+        {s.message ? (
+          <p className='mt-2 line-clamp-2 text-[11px] leading-snug text-content-muted' title={s.message}>
+            {s.message}
+          </p>
+        ) : null}
+
+        <div className='mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 pt-3 text-[11px] text-content-subtle'>
+          <span>{s.project}</span>
+          {s.lastPromoted ? <span>promoted {formatRelative(s.lastPromoted)}</span> : null}
+          {s.lastPromotionPhase ? <span>· {s.lastPromotionPhase}</span> : null}
+          {link.isTerminal ? <span className='font-medium text-content-muted'>· end of chain</span> : null}
+        </div>
+      </CardBody>
+    </Card>
+  )
+}

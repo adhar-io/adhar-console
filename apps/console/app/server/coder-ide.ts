@@ -86,9 +86,45 @@ async function coder<T>(req: Request, path: string, init?: { method?: string; bo
 }
 
 interface CoderUser {
+  id?: string
   username: string
   email?: string
+  status?: 'active' | 'dormant' | 'suspended' | string
   organization_ids?: string[]
+}
+
+/**
+ * Coder marks an account `dormant` after a stretch of inactivity, and a
+ * dormant account cannot be used — not even by the workspace agent, which is
+ * where this actually bites. A workspace created for a dormant user builds
+ * fine and reports `running`, and then its agent is refused:
+ *
+ *   401: User is not active (status = "dormant"). Contact an admin to
+ *   reactivate your account.
+ *
+ * So the environment never becomes usable and no IDE can attach to it, while
+ * everything upstream looks healthy. Dormancy is cleared by signing in, and
+ * the person has just signed in to the console, so clear it here.
+ *
+ * `suspended` is deliberately NOT reactivated: that is an administrator
+ * disabling an account, and undoing it from a console page would be the
+ * console overriding a decision it knows nothing about.
+ */
+async function ensureActive(req: Request, user: CoderUser): Promise<string | undefined> {
+  if (user.status !== 'dormant') return undefined
+  const who = user.id || user.username
+  try {
+    await coder<CoderUser>(req, `/api/v2/users/${encodeURIComponent(who)}/status/activate`, {
+      method: 'PUT',
+    })
+    return undefined
+  } catch (e) {
+    // Worth reporting rather than swallowing: the workspace will build and
+    // then sit there with an agent nothing can talk to.
+    return `Coder account "${user.username}" is dormant and could not be reactivated: ${
+      e instanceof Error ? e.message : String(e)
+    }`
+  }
 }
 
 /** A Coder username from an e-mail, matching the client-side helper. */
@@ -125,7 +161,20 @@ export async function resolveCoderIdentity(req: Request): Promise<CoderIdentity>
 
     try {
       const exact = await findByEmail()
-      if (exact) return { owner: exact.username, matched: true, created: false }
+      if (exact) {
+        if (exact.status === 'suspended') {
+          return {
+            owner: '',
+            matched: false,
+            created: false,
+            reason:
+              `Coder account "${exact.username}" is suspended. An administrator has to reactivate ` +
+              `it; the console will not override that.`,
+          }
+        }
+        const problem = await ensureActive(req, exact)
+        return { owner: exact.username, matched: true, created: false, ...(problem ? { reason: problem } : {}) }
+      }
     } catch (e) {
       lookupError = e instanceof Error ? e.message : String(e)
     }
@@ -155,7 +204,10 @@ export async function resolveCoderIdentity(req: Request): Promise<CoderIdentity>
       if (/\b409\b|already exists/i.test(reason)) {
         try {
           const exact = await findByEmail()
-          if (exact) return { owner: exact.username, matched: true, created: false }
+          if (exact) {
+            const problem = await ensureActive(req, exact)
+            return { owner: exact.username, matched: true, created: false, ...(problem ? { reason: problem } : {}) }
+          }
         } catch { /* fall through to the reported error below */ }
 
         // Still nothing with this e-mail, so the USERNAME is taken by somebody

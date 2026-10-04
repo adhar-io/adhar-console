@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { tallyReadiness, workspaceState } from '../data/workspace-readiness.ts'
 import { createPortal } from 'react-dom'
 import {
   Button,
@@ -166,6 +167,10 @@ export function Environments() {
   const dashboard = info.data?.dashboard_url ?? ''
   const myOwner = owner.data?.matched ? owner.data.owner : undefined
 
+  // Build state and usability are different questions. A workspace can report
+  // `running` with an agent that never connected, and then no IDE can attach.
+  const ready = useMemo(() => tallyReadiness(all), [all])
+
   const stats = useMemo(() => ({
     total: all.length,
     running: all.filter((w) => status(w) === 'running').length,
@@ -249,7 +254,7 @@ export function Environments() {
       {/* ── stats strip (click to filter) ── */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
         <StatTile label="Environments" value={stats.total} hint={`${stats.owners} owner${stats.owners === 1 ? '' : 's'}`} on={statusFilter === 'all'} onClick={() => setStatusFilter('all')} />
-        <StatTile label="Running" value={stats.running} tone="emerald" on={statusFilter === 'running'} onClick={() => setStatusFilter(statusFilter === 'running' ? 'all' : 'running')} />
+        <StatTile label="Ready" value={ready.ready} tone="emerald" hint={ready.unreachable ? `${ready.unreachable} unreachable` : ready.starting ? `${ready.starting} starting` : undefined} on={statusFilter === 'running'} onClick={() => setStatusFilter(statusFilter === 'running' ? 'all' : 'running')} />
         <StatTile label="Stopped" value={stats.stopped} on={statusFilter === 'stopped'} onClick={() => setStatusFilter(statusFilter === 'stopped' ? 'all' : 'stopped')} />
         <StatTile label="Building" value={stats.building} tone="brand" on={statusFilter === 'building'} onClick={() => setStatusFilter(statusFilter === 'building' ? 'all' : 'building')} />
         <StatTile label="Failed" value={stats.failed} tone={stats.failed ? 'rose' : 'slate'} on={statusFilter === 'failed'} onClick={() => setStatusFilter(statusFilter === 'failed' ? 'all' : 'failed')} />
@@ -362,6 +367,8 @@ type Actions = { start(): void; stop(): void; restart(): void; update(): void; f
 
 function WorkspaceCard({ workspace: w, dashboard, myOwner, onOpen, actions, pending }: { workspace: coder.Workspace; dashboard: string; myOwner?: string; onOpen(): void; actions: Actions; pending: boolean }) {
   const s = status(w)
+  // `running` is the build; `state.usable` is whether an IDE could attach.
+  const state = workspaceState(w)
   const { agent } = primaryAgent(w)
   const code = codeApp(agent)
   const jetbrains = jetbrainsApp(agent)
@@ -422,10 +429,10 @@ function WorkspaceCard({ workspace: w, dashboard, myOwner, onOpen, actions, pend
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             {agent.apps.map((a) => {
               const ok = a.health === 'healthy' || a.health === 'disabled' || !a.health
-              const can = s === 'running' && openable(a)
+              const can = state.usable && openable(a)
               return (
                 <button type="button" key={a.slug} disabled={!can} title={!openable(a) ? `Owned by ${w.owner_name} and shared with the owner only — Coder would deny you` : undefined} onClick={() => openIn(w, agent.name, { app: a.slug, label: a.display_name || a.slug })} className={cn('inline-flex items-center gap-1 rounded-full bg-surface-sunken px-2 py-0.5 text-[10px] font-medium ring-1 ring-edge-subtle', can ? 'text-content hover:ring-brand-400' : 'text-content-subtle')}>
-                  <span className={cn('h-1.5 w-1.5 rounded-full', s === 'running' ? (ok ? 'bg-emerald-500' : 'bg-amber-500') : 'bg-edge-default')} />
+                  <span className={cn('h-1.5 w-1.5 rounded-full', state.usable ? (ok ? 'bg-emerald-500' : 'bg-amber-500') : 'bg-edge-default')} />
                   {a.display_name || a.slug}
                 </button>
               )
@@ -434,6 +441,11 @@ function WorkspaceCard({ workspace: w, dashboard, myOwner, onOpen, actions, pend
         ) : null}
 
         {w.latest_build.job?.error ? <p className="mt-2 line-clamp-2 text-[11px] text-rose-700 dark:text-rose-300">{w.latest_build.job.error}</p> : null}
+        {/* A workspace Coder calls `running` that nothing can attach to is the
+            state this page used to report as healthy. Say what is wrong. */}
+        {!w.latest_build.job?.error && state.reason && state.readiness !== 'starting' ? (
+          <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400">{state.reason}</p>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5 border-t border-edge-subtle bg-surface-sunken/40 px-4 py-2">
@@ -444,13 +456,13 @@ function WorkspaceCard({ workspace: w, dashboard, myOwner, onOpen, actions, pend
         ) : (
           <Button size="xs" variant="ghost" disabled loading>{s}</Button>
         )}
-        {s === 'running' && agent && code ? (
+        {state.usable && agent && code ? (
           <Button size="xs" variant="ghost" disabled={!openable(code)} title={!openable(code) ? `Owned by ${w.owner_name} — create your own environment to get an IDE you can open` : undefined} onClick={() => openIn(w, agent.name, { app: code.slug, label: 'VS Code' })}>VS Code</Button>
         ) : null}
-        {s === 'running' && agent && jetbrains ? (
+        {state.usable && agent && jetbrains ? (
           <Button size="xs" variant="ghost" disabled={!openable(jetbrains)} title={!openable(jetbrains) ? `Owned by ${w.owner_name} — create your own environment to get an IDE you can open` : 'Opens JetBrains Gateway on your machine'} onClick={() => openIn(w, agent.name, { app: jetbrains.slug, label: 'IntelliJ IDEA' })}>IntelliJ</Button>
         ) : null}
-        {s === 'running' && agent ? (
+        {state.usable && agent ? (
           <Button size="xs" variant="ghost" disabled={foreign} title={foreign ? `Owned by ${w.owner_name} — the terminal is owner-only` : undefined} onClick={() => openIn(w, agent.name, { kind: 'terminal', label: 'the terminal' })}>Terminal</Button>
         ) : null}
         <span className="ml-auto text-[10px] text-content-subtle">agent {agent?.status ?? 'none'}{agent?.lifecycle_state && agent.lifecycle_state !== 'ready' ? ` · ${agent.lifecycle_state}` : ''}</span>

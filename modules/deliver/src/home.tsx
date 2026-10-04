@@ -66,7 +66,7 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   },
   runtime: {
     label: 'Runtime Security',
-    description: 'Falco events + rule library — detect suspicious behaviour at the syscall level.',
+    description: 'Tetragon and Falco — what processes actually did inside running workloads.',
   },
   policy: {
     label: 'Policy',

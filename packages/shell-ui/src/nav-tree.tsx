@@ -285,7 +285,9 @@ export const DEFAULT_NAV: NavSection[] = [
             label: 'Runtime',
             to: '/deliver',
             search: 'runtime',
-            badge: { kind: 'progressing', value: 'Falco' },
+            // The page reads both engines; naming one of them in the rail made
+            // Tetragon look like it was somewhere else.
+            badge: { kind: 'progressing', value: 'eBPF' },
           },
           { id: 'deliver.policy', label: 'Policy', to: '/deliver', search: 'policy' },
         ],

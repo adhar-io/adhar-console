@@ -195,7 +195,7 @@ function HarborRegistry() {
 
       <ScannerNotice scanners={scanners} />
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[340px_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
         {/* ── repositories pane ── */}
         <Card className="flex min-h-0 flex-col">
           <CardHeader>
@@ -326,12 +326,21 @@ function ArtifactsPane({ repoName, host, scanners }: { repoName: string; host: s
     return t
   }, [list])
 
+  /**
+   * A column every row answers identically carries no information and costs
+   * the width that pushed the actions off the edge of the table. Platform is
+   * shown when the repository actually holds more than one, or any artifact is
+   * a multi-arch index; the value is on each row's drawer regardless.
+   */
+  const platforms = new Set(list.map((a) => a.platform ?? '').filter(Boolean))
+  const showPlatform = platforms.size > 1 || list.some((a) => (a.references?.length ?? 0) > 0)
+
   const columns: Column<harbor.Artifact>[] = [
     {
       key: 'tags',
       header: 'Tags',
       pinned: true,
-      minWidth: 200,
+      minWidth: 180,
       value: (a) => (a.tags ?? []).map((t) => t.name).join(' ') || 'untagged',
       cell: (a) => (
         <div>
@@ -344,7 +353,12 @@ function ArtifactsPane({ repoName, host, scanners }: { repoName: string; host: s
                 title={t.immutable ? 'immutable tag' : t.push_time ? `pushed ${formatRelative(t.push_time)}` : undefined}
               >
                 {t.immutable ? <span aria-label="immutable">🔒</span> : null}
-                {t.name}
+                {/* A long tag — `clusterbuilder-adhar-builder-run-image` — is
+                    the widest thing in the table, and in an auto-layout table
+                    the widest cell sets the minimum width of the whole thing.
+                    Truncating here is what lets the other seven columns fit on
+                    the screen instead of behind a horizontal scroll. */}
+                <span className="max-w-[150px] truncate" title={t.name}>{t.name}</span>
                 {!t.immutable ? (
                   <button
                     type="button"
@@ -378,10 +392,10 @@ function ArtifactsPane({ repoName, host, scanners }: { repoName: string; host: s
         </button>
       ),
     },
-    {
+    ...(showPlatform ? [{
       key: 'platform',
       header: 'Platform',
-      width: 120,
+      width: 92,
       value: (a) => a.platform ?? (a.references?.length ? 'multi-arch' : ''),
       cell: (a) =>
         a.references?.length ? (
@@ -391,39 +405,62 @@ function ArtifactsPane({ repoName, host, scanners }: { repoName: string; host: s
         ) : (
           <span className="font-mono text-[11px] text-content-muted">{a.platform ?? '—'}</span>
         ),
+    } as Column<harbor.Artifact>] : []),
+    {
+      key: 'size',
+      header: 'Size',
+      numeric: true,
+      width: 90,
+      value: (a) => a.size,
+      cell: (a) => <span className="whitespace-nowrap">{fmtBytes(a.size)}</span>,
     },
-    { key: 'size', header: 'Size', numeric: true, width: 90, value: (a) => a.size, cell: (a) => fmtBytes(a.size) },
     {
       key: 'pushed',
       header: 'Pushed',
-      width: 140,
+      width: 96,
       value: (a) => a.push_time,
+      // One line. The pull time was a second line under every row — it widened
+      // the column, it raised every row, and when an image was last pulled is
+      // a question for the drawer, not for a column people scan down.
       cell: (a) => (
-        <div className="text-content-muted">
-          <div title={formatAbsolute(a.push_time)}>{formatRelative(a.push_time)}</div>
-          {a.pull_time ? <div className="text-[10px] text-content-subtle" title={formatAbsolute(a.pull_time)}>pulled {formatRelative(a.pull_time)}</div> : null}
-        </div>
+        <span
+          className="whitespace-nowrap text-content-muted"
+          title={[
+            `pushed ${formatAbsolute(a.push_time)}`,
+            a.pull_time ? `last pulled ${formatAbsolute(a.pull_time)}` : null,
+          ].filter(Boolean).join('\n')}
+        >
+          {formatRelative(a.push_time)}
+        </span>
       ),
     },
     {
       key: 'signature',
       header: 'Signature',
-      width: 120,
+      width: 92,
       value: (a) => signatureLabel(a),
       cell: (a) => <SignatureCell artifact={a} />,
     },
     {
       key: 'scan',
       header: 'Scan',
-      minWidth: 180,
+      minWidth: 146,
       value: (a) => (a.vulnerabilities ? a.vulnerabilities.critical * 1e6 + a.vulnerabilities.high * 1e3 + a.vulnerabilities.medium : -1),
       cell: (a) =>
         a.vulnerabilities ? (
-          <div>
+          <div className="min-w-0">
             <VulnBar vulns={a.vulnerabilities} />
             {a.scan ? (
-              <div className="mt-1 text-[10px] text-content-subtle">
-                {a.scan.total ?? ''}{a.scan.fixable !== undefined ? ` · ${a.scan.fixable} fixable` : ''}{a.scan.scanner ? ` · ${a.scan.scanner}` : ''}{a.scan.endTime ? ` · ${formatRelative(a.scan.endTime)}` : ''}
+              // Which scanner and when are provenance, not the finding. They
+              // go on the title so the cell stays one line.
+              <div
+                className="mt-0.5 truncate whitespace-nowrap text-[10px] text-content-subtle"
+                title={[a.scan.scanner, a.scan.endTime ? `scanned ${formatAbsolute(a.scan.endTime)}` : null]
+                  .filter(Boolean)
+                  .join(' · ')}
+              >
+                {a.scan.total ?? ''} total
+                {a.scan.fixable !== undefined ? ` · ${a.scan.fixable} fixable` : ''}
               </div>
             ) : null}
           </div>
@@ -439,7 +476,10 @@ function ArtifactsPane({ repoName, host, scanners }: { repoName: string; host: s
       key: 'actions',
       header: '',
       align: 'right',
-      width: 210,
+      // Narrow on purpose. At 210 the column was the last of eight and sat off
+      // the right edge of the table, so the two actions people actually use
+      // were behind a horizontal scroll.
+      width: 132,
       sortable: false,
       filter: false,
       cell: (a) => (
@@ -455,7 +495,20 @@ function ArtifactsPane({ repoName, host, scanners }: { repoName: string; host: s
           >
             Scan
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => setConfirm(a)} title="Delete this artifact">Delete</Button>
+          {/* Icon-only, and still behind the confirm dialog: deleting an
+              artifact is irreversible and does not belong in a dense row as a
+              word the eye can mistake for the one beside it. */}
+          <button
+            type="button"
+            onClick={() => setConfirm(a)}
+            title="Delete this artifact"
+            aria-label={`Delete ${(a.tags ?? [])[0]?.name ?? shortDigest(a.digest)}`}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/40 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V6" />
+            </svg>
+          </button>
         </div>
       ),
     },
@@ -1632,21 +1685,40 @@ function TagModal({ artifact, onClose, onAdd, loading }: { artifact: harbor.Arti
   )
 }
 
+/**
+ * Severity split for one artifact.
+ *
+ * The legend used to wrap, and in a table column this narrow each of C/H/M/L
+ * took its own line — four lines of legend under a 2px bar, which drove the
+ * row to roughly 250px tall and pushed everything else off the screen. It is
+ * one line that does not wrap, and the full counts are on the bar's title.
+ *
+ * The palette matches the Vulnerability Scans page deliberately: the two
+ * pages show the same numbers, and they used different colours for `high`
+ * and `medium`, so the same image read differently depending which page you
+ * were on.
+ */
 function VulnBar({ vulns: v }: { vulns: NonNullable<harbor.Artifact['vulnerabilities']> }) {
   const total = v.critical + v.high + v.medium + v.low || 1
+  const label = `${v.critical} critical, ${v.high} high, ${v.medium} medium, ${v.low} low`
   return (
-    <div className="space-y-1">
-      <div className="flex h-2 w-full overflow-hidden rounded-full bg-surface-sunken ring-1 ring-inset ring-edge-subtle">
-        {v.critical > 0 ? <div className="h-full bg-rose-500" style={{ width: `${(v.critical / total) * 100}%` }} /> : null}
-        {v.high > 0 ? <div className="h-full bg-amber-500" style={{ width: `${(v.high / total) * 100}%` }} /> : null}
-        {v.medium > 0 ? <div className="h-full bg-sky-500" style={{ width: `${(v.medium / total) * 100}%` }} /> : null}
+    <div className="min-w-0 space-y-1">
+      <div
+        title={label}
+        aria-label={label}
+        role="img"
+        className="flex h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken ring-1 ring-inset ring-edge-subtle"
+      >
+        {v.critical > 0 ? <div className="h-full bg-rose-600" style={{ width: `${(v.critical / total) * 100}%` }} /> : null}
+        {v.high > 0 ? <div className="h-full bg-orange-500" style={{ width: `${(v.high / total) * 100}%` }} /> : null}
+        {v.medium > 0 ? <div className="h-full bg-amber-500" style={{ width: `${(v.medium / total) * 100}%` }} /> : null}
         {v.low > 0 ? <div className="h-full bg-slate-400" style={{ width: `${(v.low / total) * 100}%` }} /> : null}
       </div>
-      <div className="flex flex-wrap gap-2.5 font-mono text-[10px] text-content-muted">
-        <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-rose-500" />C {v.critical}</span>
-        <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-amber-500" />H {v.high}</span>
-        <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-sky-500" />M {v.medium}</span>
-        <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-slate-400" />L {v.low}</span>
+      <div className="flex items-center gap-2 whitespace-nowrap font-mono text-[10px] text-content-muted">
+        <span className={v.critical ? 'text-rose-700 dark:text-rose-300' : undefined}>C {v.critical}</span>
+        <span className={v.high ? 'text-orange-700 dark:text-orange-300' : undefined}>H {v.high}</span>
+        <span className={v.medium ? 'text-amber-700 dark:text-amber-400' : undefined}>M {v.medium}</span>
+        <span>L {v.low}</span>
       </div>
     </div>
   )

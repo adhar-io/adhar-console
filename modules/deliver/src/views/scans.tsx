@@ -4,499 +4,557 @@ import {
   Button,
   Card,
   CardBody,
-  CardHeader,
   EmptyState,
+  SearchInput,
   Spinner,
+  StatusBadge,
+  type StatusKind,
 } from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
-import type { trivy } from '@adhar-console/api-clients'
-import { useRescan, useScans } from '../data/delivery.ts'
-
-const TARGET_LABEL: Record<trivy.ScanTarget, string> = {
-  image: 'Image',
-  config: 'Config',
-  secret: 'Secrets',
-  rbac: 'RBAC',
-  compliance: 'Compliance',
-}
-
-const TARGET_TONE: Record<trivy.ScanTarget, 'brand' | 'amber' | 'rose' | 'sky' | 'emerald'> = {
-  image: 'brand',
-  config: 'amber',
-  secret: 'rose',
-  rbac: 'sky',
-  compliance: 'emerald',
-}
+import { cn, formatRelative } from '@adhar-console/utils'
+import type { harbor } from '@adhar-console/api-clients'
+import {
+  useArtifactVulnerabilities,
+  useHarborScanners,
+  useRegistryArtifacts,
+  useScanArtifact,
+} from '../data/delivery.ts'
+import {
+  byRisk,
+  byVulnRisk,
+  matchesVuln,
+  readArtifact,
+  SEVERITIES,
+  summariseScans,
+  vulnSeverity,
+  type ScannedArtifact,
+  type Severity,
+} from '../data/scan-rollup.ts'
 
 /**
- * Trivy vulnerability + audit reports across the cluster.
+ * Vulnerability Scans — what is in the images this platform ships.
  *
- * The list is filterable by target (image / config / secret / rbac /
- * compliance) and severity. Clicking a row opens a drawer with the full
- * vulnerability table, fix-version metadata, and a rescan trigger.
+ * The page read a BFF route backed by seeded sample reports, so it showed four
+ * zeros and "Trivy hasn't generated any matching reports yet" on a platform
+ * whose registry has Trivy registered as its default scanner. It now reads
+ * Harbor, which runs that scanner and holds a verdict per artifact.
+ *
+ * The distinction the page is built around: an artifact nobody has scanned and
+ * an artifact scanned with nothing found are both zero on a summary row and
+ * mean opposite things. Unscanned is reported as its own number, with the
+ * button that fixes it.
  */
+
+const SEV_TONE: Record<Severity, { chip: string; fill: string; text: string }> = {
+  critical: {
+    chip: 'bg-rose-100 text-rose-900 ring-rose-600/20 dark:bg-rose-500/15 dark:text-rose-200',
+    fill: 'bg-rose-600',
+    text: 'text-rose-700 dark:text-rose-300',
+  },
+  high: {
+    chip: 'bg-orange-100 text-orange-900 ring-orange-600/20 dark:bg-orange-500/15 dark:text-orange-200',
+    fill: 'bg-orange-500',
+    text: 'text-orange-700 dark:text-orange-300',
+  },
+  medium: {
+    chip: 'bg-amber-100 text-amber-900 ring-amber-600/20 dark:bg-amber-500/15 dark:text-amber-200',
+    fill: 'bg-amber-500',
+    text: 'text-amber-700 dark:text-amber-300',
+  },
+  low: {
+    chip: 'bg-slate-100 text-slate-700 ring-slate-500/20 dark:bg-slate-400/15 dark:text-slate-300',
+    fill: 'bg-slate-400',
+    text: 'text-content-muted',
+  },
+}
+
 export function Scans() {
-  const [target, setTarget] = useState<'all' | trivy.ScanTarget>('all')
-  const [severity, setSeverity] = useState<'all' | 'critical' | 'high'>('all')
+  const registry = useRegistryArtifacts()
+  const scanners = useHarborScanners()
+  const scan = useScanArtifact()
+
   const [search, setSearch] = useState('')
-  const [openId, setOpenId] = useState<string | null>(null)
+  const [severities, setSeverities] = useState<Severity[]>([])
+  const [onlyUnscanned, setOnlyUnscanned] = useState(false)
+  const [open, setOpen] = useState<ScannedArtifact | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
 
-  const q = useScans()
-  const rescan = useRescan()
+  const artifacts = useMemo(
+    () => (registry.data?.items ?? []).map((i) => readArtifact(i.repo, i.artifact)).sort(byRisk),
+    [registry.data],
+  )
+  const summary = useMemo(() => summariseScans(artifacts), [artifacts])
 
-  const all = q.data ?? []
-  const list = useMemo(() => {
-    const f = search.trim().toLowerCase()
-    return all
-      .filter((r) => target === 'all' || r.target === target)
-      .filter((r) => {
-        if (severity === 'all') return true
-        if (severity === 'critical') return r.summary.critical > 0
-        if (severity === 'high') return r.summary.high > 0
-        return true
-      })
-      .filter(
-        (r) =>
-          !f ||
-          r.artifact.toLowerCase().includes(f) ||
-          (r.workload ?? '').toLowerCase().includes(f) ||
-          (r.namespace ?? '').toLowerCase().includes(f),
-      )
-      .sort(rankReports)
-  }, [all, target, severity, search])
+  const visible = artifacts.filter((a) => {
+    if (onlyUnscanned && (a.scanned || a.failed || a.running)) return false
+    if (severities.length && !(a.worst && severities.includes(a.worst))) return false
+    const q = search.trim().toLowerCase()
+    if (q && !`${a.repo} ${a.tags.join(' ')} ${a.digest}`.toLowerCase().includes(q)) return false
+    return true
+  })
 
-  if (q.isLoading) {
+  const unscanned = artifacts.filter((a) => !a.scanned && !a.failed && !a.running)
+
+  const rescan = async (a: ScannedArtifact) => {
+    setBusy(a.digest)
+    try {
+      await scan.mutateAsync({ repo: a.repo, ref: a.digest })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const scanAll = async () => {
+    setBusy('all')
+    try {
+      // Sequential: a registry-wide rescan is a real load on one scanner pod.
+      for (const a of unscanned) await scan.mutateAsync({ repo: a.repo, ref: a.digest })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  if (registry.isLoading) {
     return (
       <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Loading scan reports…
+        <Spinner size={14} /> Reading the registry…
       </div>
     )
   }
-  if (q.isError) {
-    return <EmptyState title="Couldn't reach Trivy operator" />
+  if (registry.isError) {
+    return (
+      <EmptyState
+        title="Couldn't reach Harbor"
+        description={registry.error instanceof Error
+          ? registry.error.message
+          : 'Scan results come from the registry, which could not be read.'}
+      />
+    )
+  }
+  if (artifacts.length === 0) {
+    return (
+      <EmptyState
+        title="Nothing in the registry to scan"
+        description="Vulnerability scans are run against the images in Harbor. No artifacts have been pushed yet, so there is nothing to report."
+      />
+    )
   }
 
-  const counts = countByTarget(all)
-  const totals = sumSummaries(all)
+  const scanner = scanners.data?.find((s) => s.isDefault) ?? scanners.data?.[0]
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <SevTile label="Critical" value={totals.critical} tone="rose" />
-        <SevTile label="High" value={totals.high} tone="amber" />
-        <SevTile label="Medium" value={totals.medium} tone="sky" />
-        <SevTile label="Low" value={totals.low} tone="slate" />
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        {SEVERITIES.map((s) => (
+          <SevStat
+            key={s}
+            severity={s}
+            value={summary.counts[s]}
+            active={severities.includes(s)}
+            onClick={() =>
+              setSeverities((cur) => cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s])}
+          />
+        ))}
+        <Stat
+          label="Fixable"
+          value={summary.fixable}
+          hint={summary.fixable ? 'a newer package exists' : 'nothing has a fix yet'}
+          tone={summary.fixable ? 'progressing' : undefined}
+        />
+        <Stat
+          label="Unscanned"
+          value={summary.unscanned}
+          hint={summary.unscanned ? 'never scanned' : `all ${summary.scanned} scanned`}
+          tone={summary.unscanned ? 'degraded' : 'healthy'}
+          active={onlyUnscanned}
+          onClick={() => setOnlyUnscanned((v) => !v)}
+        />
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <TargetTabs target={target} setTarget={setTarget} counts={counts} />
-        <SeverityTabs severity={severity} setSeverity={setSeverity} />
-        <div className="ml-auto">
-          <SearchInput value={search} onChange={setSearch} placeholder="Search artifact / namespace…" />
+        <div className="min-w-[220px] flex-1">
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search repository, tag or digest…"
+            label="Search artifacts"
+          />
         </div>
+        {summary.unscanned > 0 ? (
+          <Button
+            size="sm"
+            onClick={scanAll}
+            loading={busy === 'all'}
+            disabled={busy !== null}
+          >
+            Scan {summary.unscanned} unscanned
+          </Button>
+        ) : null}
       </div>
 
-      {list.length === 0 ? (
-        <EmptyState title="No reports" description="Trivy hasn't generated any matching reports yet." />
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-content-subtle">
+        <span>
+          {summary.scanned} of {summary.artifacts} artifacts scanned
+          {summary.clean ? ` · ${summary.clean} clean` : ''}
+          {summary.atRisk ? ` · ${summary.atRisk} with critical or high` : ''}
+        </span>
+        {summary.running ? <span className="text-indigo-700 dark:text-indigo-300">{summary.running} scanning</span> : null}
+        {summary.failed ? <span className="text-rose-700 dark:text-rose-300">{summary.failed} scan failed</span> : null}
+        {scanner ? <span>scanner {scanner.name}{scanner.version ? ` ${scanner.version}` : ''}</span> : null}
+        {registry.data?.truncated
+          ? <span className="text-amber-700 dark:text-amber-400">showing the first 60 repositories</span>
+          : null}
+      </div>
+
+      {visible.length === 0 ? (
+        <EmptyState compact title="No matching artifacts" description="Relax the filters or the search." />
       ) : (
         <Card>
           <CardBody className="p-0!">
-            <ul className="divide-y divide-edge-subtle">
-              {list.map((r) => (
-                <ReportRow key={r.id} report={r} onOpen={() => setOpenId(r.id)} />
-              ))}
-            </ul>
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-edge-subtle text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+                  <th className="px-4 py-2">Artifact</th>
+                  <th className="px-4 py-2">Findings</th>
+                  <th className="px-4 py-2">Scan</th>
+                  <th className="px-4 py-2" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-edge-subtle">
+                {visible.map((a) => (
+                  <ArtifactRow
+                    key={`${a.repo}@${a.digest}`}
+                    artifact={a}
+                    busy={busy === a.digest}
+                    disabled={busy !== null}
+                    onOpen={() => setOpen(a)}
+                    onScan={() => rescan(a)}
+                  />
+                ))}
+              </tbody>
+            </table>
           </CardBody>
         </Card>
       )}
 
-      {openId ? (
-        <ReportDetail
-          report={all.find((r) => r.id === openId)!}
-          onClose={() => setOpenId(null)}
-          onRescan={() => rescan.mutate(openId)}
-          rescanning={rescan.isPending && rescan.variables === openId}
-        />
-      ) : null}
+      {open ? <VulnDrawer artifact={open} onClose={() => setOpen(null)} /> : null}
     </div>
   )
 }
 
-function rankReports(a: trivy.ScanReport, b: trivy.ScanReport) {
+function ArtifactRow({
+  artifact: a,
+  busy,
+  disabled,
+  onOpen,
+  onScan,
+}: {
+  artifact: ScannedArtifact
+  busy: boolean
+  disabled: boolean
+  onOpen(): void
+  onScan(): void
+}) {
   return (
-    b.summary.critical * 1000 +
-    b.summary.high * 50 -
-    (a.summary.critical * 1000 + a.summary.high * 50)
+    <tr className="transition-colors hover:bg-surface-sunken/50">
+      <td className="px-4 py-2.5">
+        <button type="button" onClick={onOpen} className="block max-w-full text-left" disabled={!a.scanned}>
+          <div className="truncate text-[13px] font-medium text-content">{a.repo}</div>
+          <div className="truncate text-[11px] text-content-subtle">
+            {a.tags.length ? a.tags.join(', ') : a.label}
+          </div>
+        </button>
+      </td>
+      <td className="px-4 py-2.5">
+        {a.scanned ? (
+          a.total === 0 ? (
+            <span className="text-[12px] text-emerald-700 dark:text-emerald-300">No findings</span>
+          ) : (
+            <SeverityBar counts={a.counts} total={a.total} fixable={a.fixable} />
+          )
+        ) : (
+          <span className="text-[12px] text-content-subtle">—</span>
+        )}
+      </td>
+      <td className="px-4 py-2.5">
+        {/* Never scanned, scanning, failed and scanned-clean are four states
+            and each says something different about what to do next. */}
+        {a.running ? (
+          <span className="inline-flex items-center gap-1.5 text-[12px] text-indigo-700 dark:text-indigo-300">
+            <Spinner size={11} /> scanning
+          </span>
+        ) : a.failed ? (
+          <StatusBadge kind="failed">Scan failed</StatusBadge>
+        ) : a.scanned ? (
+          <span className="text-[12px] text-content-muted" title={a.scan?.endTime}>
+            {a.scan?.endTime ? formatRelative(a.scan.endTime) : 'scanned'}
+          </span>
+        ) : (
+          <StatusBadge kind="unknown">Never scanned</StatusBadge>
+        )}
+      </td>
+      <td className="px-4 py-2.5 text-right">
+        <Button size="sm" variant="secondary" onClick={onScan} loading={busy} disabled={disabled}>
+          {a.scanned || a.failed ? 'Rescan' : 'Scan'}
+        </Button>
+      </td>
+    </tr>
   )
 }
 
-function countByTarget(all: trivy.ScanReport[]) {
-  const out: Record<string, number> = { all: all.length }
-  for (const r of all) out[r.target] = (out[r.target] ?? 0) + 1
-  return out
-}
-
-function sumSummaries(all: trivy.ScanReport[]) {
-  return all.reduce(
-    (acc, r) => ({
-      critical: acc.critical + (r.summary.critical ?? 0),
-      high: acc.high + (r.summary.high ?? 0),
-      medium: acc.medium + (r.summary.medium ?? 0),
-      low: acc.low + (r.summary.low ?? 0),
-    }),
-    { critical: 0, high: 0, medium: 0, low: 0 },
-  )
-}
-
-/* ─────────── filter bars ─────────── */
-
-function TargetTabs({
-  target,
-  setTarget,
+function SeverityBar({
   counts,
+  total,
+  fixable,
 }: {
-  target: 'all' | trivy.ScanTarget
-  setTarget(t: 'all' | trivy.ScanTarget): void
-  counts: Record<string, number>
+  counts: Record<Severity, number>
+  total: number
+  fixable?: number
 }) {
-  const tabs: ('all' | trivy.ScanTarget)[] = ['all', 'image', 'config', 'secret', 'rbac', 'compliance']
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-sm">
-      {tabs.map((t) => {
-        const on = target === t
-        const label = t === 'all' ? 'All' : TARGET_LABEL[t]
-        return (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTarget(t)}
-            className={
-              on
-                ? 'rounded-md bg-brand-50 px-2.5 py-1 text-[12px] font-semibold text-brand-700'
-                : 'rounded-md px-2.5 py-1 text-[12px] text-content-muted hover:bg-surface-sunken'
-            }
-          >
-            {label}
-            <span className="ml-1.5 font-mono text-[10px] tabular-nums opacity-60">
-              {counts[t] ?? 0}
-            </span>
-          </button>
-        )
-      })}
+    <div className="min-w-[170px]">
+      <div className="flex h-1.5 overflow-hidden rounded-full bg-surface-sunken">
+        {SEVERITIES.map((s) =>
+          counts[s] ? (
+            <span
+              key={s}
+              className={cn('h-full', SEV_TONE[s].fill)}
+              style={{ width: `${(counts[s] / total) * 100}%` }}
+            />
+          ) : null
+        )}
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[10px]">
+        {SEVERITIES.map((s) =>
+          counts[s]
+            ? (
+              <span key={s} className={SEV_TONE[s].text}>
+                {counts[s]} {s}
+              </span>
+            )
+            : null
+        )}
+        {fixable ? <span className="text-content-subtle">· {fixable} fixable</span> : null}
+      </div>
     </div>
   )
 }
 
-function SeverityTabs({
+function SevStat({
   severity,
-  setSeverity,
-}: {
-  severity: 'all' | 'critical' | 'high'
-  setSeverity(s: 'all' | 'critical' | 'high'): void
-}) {
-  const tabs: { id: 'all' | 'critical' | 'high'; label: string }[] = [
-    { id: 'all', label: 'Any sev' },
-    { id: 'critical', label: 'Critical+' },
-    { id: 'high', label: 'High+' },
-  ]
-  return (
-    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-sm">
-      {tabs.map((t) => {
-        const on = severity === t.id
-        return (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setSeverity(t.id)}
-            className={
-              on
-                ? 'rounded-md bg-rose-50 px-2.5 py-1 text-[12px] font-semibold text-rose-700'
-                : 'rounded-md px-2.5 py-1 text-[12px] text-content-muted hover:bg-surface-sunken'
-            }
-          >
-            {t.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-function SearchInput({
   value,
-  onChange,
-  placeholder,
+  active,
+  onClick,
 }: {
-  value: string
-  onChange(v: string): void
-  placeholder: string
+  severity: Severity
+  value: number
+  active: boolean
+  onClick(): void
 }) {
   return (
-    <div className="relative">
-      <span className="pointer-events-none absolute inset-y-0 left-2 flex items-center text-content-subtle">
-        <IconSearch />
-      </span>
-      <input
-        type="search"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="block h-9 w-44 rounded-lg border border-edge-default bg-surface-raised pl-7 pr-2 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-64"
-      />
-    </div>
-  )
-}
-
-/* ─────────── rows ─────────── */
-
-function ReportRow({ report: r, onOpen }: { report: trivy.ScanReport; onOpen(): void }) {
-  return (
-    <li>
-      <button
-        type="button"
-        onClick={onOpen}
-        className="flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-brand-50/40"
-      >
-        <TargetChip target={r.target} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate font-mono text-sm text-content">{r.artifact}</span>
-          </div>
-          <div className="mt-0.5 text-[11px] text-content-subtle">
-            {r.workload ?? '—'}
-            {r.namespace ? ` · ${r.namespace}` : ''} · scanned {formatRelative(r.scanned_at)} ·{' '}
-            {r.scanner}
-          </div>
-        </div>
-        <SevBlocks summary={r.summary} />
-      </button>
-    </li>
-  )
-}
-
-function TargetChip({ target }: { target: trivy.ScanTarget }) {
-  const tone = TARGET_TONE[target]
-  const cls = {
-    brand: 'bg-brand-50 text-brand-700 border-brand-200',
-    amber: 'bg-amber-50 text-amber-700 border-amber-200',
-    rose: 'bg-rose-50 text-rose-700 border-rose-200',
-    sky: 'bg-sky-50 text-sky-700 border-sky-200',
-    emerald: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  }[tone]
-  return (
-    <span
-      className={`inline-flex h-7 w-16 shrink-0 items-center justify-center rounded-md border text-[10px] font-semibold uppercase tracking-wider ${cls}`}
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        'rounded-xl border px-3.5 py-3 text-left transition-colors',
+        active
+          ? 'border-brand-300 bg-brand-50/70 dark:border-brand-500/40 dark:bg-brand-500/10'
+          : 'border-edge-default bg-surface-raised hover:border-edge-strong',
+      )}
     >
-      {TARGET_LABEL[target]}
-    </span>
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+        {severity}
+      </div>
+      <div className={cn('mt-1 text-2xl font-semibold leading-none tabular-nums', value ? SEV_TONE[severity].text : 'text-content')}>
+        {value}
+      </div>
+      <div className="mt-1 text-[11px] text-content-subtle">across scanned images</div>
+    </button>
   )
 }
 
-function SevBlocks({ summary: s }: { summary: trivy.ScanReport['summary'] }) {
-  return (
-    <div className="hidden items-center gap-1 sm:flex">
-      <SevPill value={s.critical} tone="rose" label="C" />
-      <SevPill value={s.high} tone="amber" label="H" />
-      <SevPill value={s.medium} tone="sky" label="M" />
-      <SevPill value={s.low} tone="slate" label="L" />
-    </div>
-  )
-}
-
-function SevPill({
-  value,
-  tone,
-  label,
-}: {
-  value: number
-  tone: 'rose' | 'amber' | 'sky' | 'slate'
-  label: string
-}) {
-  const empty = value === 0
-  const cls = empty
-    ? 'bg-surface-sunken text-content-subtle'
-    : {
-        rose: 'bg-rose-100 text-rose-700',
-        amber: 'bg-amber-100 text-amber-700',
-        sky: 'bg-sky-100 text-sky-700',
-        slate: 'bg-surface-sunken text-content-muted',
-      }[tone]
-  return (
-    <span className={`inline-flex min-w-[34px] items-center justify-center rounded-md px-1.5 py-0.5 text-[11px] font-mono font-semibold ${cls}`}>
-      <span className="mr-1 opacity-60">{label}</span>
-      {value}
-    </span>
-  )
-}
-
-/* ─────────── severity tile ─────────── */
-
-function SevTile({
+function Stat({
   label,
   value,
+  hint,
   tone,
+  active,
+  onClick,
 }: {
   label: string
-  value: number
-  tone: 'rose' | 'amber' | 'sky' | 'slate'
+  value: number | string
+  hint?: string
+  tone?: StatusKind
+  active?: boolean
+  onClick?(): void
 }) {
-  const cls = {
-    rose: 'from-rose-50 dark:from-rose-500/10 to-surface-raised text-rose-700 dark:text-rose-300',
-    amber: 'from-amber-50 dark:from-amber-500/10 to-surface-raised text-amber-700 dark:text-amber-300',
-    sky: 'from-sky-50 dark:from-sky-500/10 to-surface-raised text-sky-700 dark:text-sky-300',
-    slate: 'from-slate-50 to-surface-raised text-content-muted',
-  }[tone]
+  const toneText: Partial<Record<StatusKind, string>> = {
+    healthy: 'text-emerald-600 dark:text-emerald-300',
+    degraded: 'text-amber-600 dark:text-amber-300',
+    progressing: 'text-indigo-600 dark:text-indigo-300',
+  }
   return (
-    <Card className={`bg-linear-to-br ${cls} ring-1 ring-inset ring-edge-subtle`}>
-      <CardBody className="p-4">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
-          {label}
-        </div>
-        <div className="text-3xl font-semibold tabular-nums tracking-tight text-content">
-          {value}
-        </div>
-      </CardBody>
-    </Card>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!onClick}
+      aria-pressed={onClick ? Boolean(active) : undefined}
+      className={cn(
+        'rounded-xl border px-3.5 py-3 text-left transition-colors',
+        active
+          ? 'border-brand-300 bg-brand-50/70 dark:border-brand-500/40 dark:bg-brand-500/10'
+          : 'border-edge-default bg-surface-raised',
+        onClick ? 'hover:border-edge-strong' : 'cursor-default',
+      )}
+    >
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{label}</div>
+      <div className={cn('mt-1 text-2xl font-semibold leading-none tabular-nums', tone ? toneText[tone] ?? 'text-content' : 'text-content')}>
+        {value}
+      </div>
+      {hint ? <div className="mt-1 truncate text-[11px] text-content-subtle">{hint}</div> : null}
+    </button>
   )
 }
 
-/* ─────────── detail drawer ─────────── */
+/* ─────────── the findings of one artifact ─────────── */
 
-function ReportDetail({
-  report: r,
-  onClose,
-  onRescan,
-  rescanning,
-}: {
-  report: trivy.ScanReport
-  onClose(): void
-  onRescan(): void
-  rescanning: boolean
-}) {
+function VulnDrawer({ artifact: a, onClose }: { artifact: ScannedArtifact; onClose(): void }) {
+  const vulns = useArtifactVulnerabilities(a.repo, a.digest)
+  const [search, setSearch] = useState('')
+  const [severities, setSeverities] = useState<Severity[]>([])
+  const [fixableOnly, setFixableOnly] = useState(false)
+  const [limit, setLimit] = useState(250)
+
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+    const onKey = (k: KeyboardEvent) => {
+      if (k.key === 'Escape') onClose()
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    globalThis.addEventListener('keydown', onKey)
+    return () => globalThis.removeEventListener('keydown', onKey)
   }, [onClose])
   if (typeof document === 'undefined') return null
 
-  const vulns = (r.vulnerabilities ?? []).slice().sort((a, b) => sevRank(a.severity) - sevRank(b.severity))
+  const all = vulns.data ?? []
+  const list = all.filter((v) => matchesVuln(v, { severities, fixableOnly, search })).sort(byVulnRisk)
+  // Until the report arrives, the artifact's own count is the honest figure —
+  // deriving it from an empty list rendered "0 fixable" beside a row that had
+  // just said 184.
+  const fixableCount = vulns.data ? all.filter((v) => v.fixVersion).length : a.fixable ?? 0
+  // A full report for a base image is thousands of findings and megabytes of
+  // JSON; rendering every row at once is seconds of layout nobody asked for.
+  const shown = list.slice(0, limit)
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
-      <button
-        type="button"
-        aria-label="Close"
-        className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
-        onClick={onClose}
-      />
+      <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} />
       <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <TargetChip target={r.target} />
-              <span className="text-[11px] text-content-subtle">{r.scanner}</span>
+        <header className="border-b border-edge-default bg-surface-raised px-6 py-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
+                Image findings
+              </div>
+              <h2 className="mt-1 truncate text-lg font-semibold tracking-tight text-content">{a.repo}</h2>
+              <p className="mt-1 truncate font-mono text-[11px] text-content-subtle" title={a.digest}>
+                {a.tags.join(', ') || a.label}
+              </p>
             </div>
-            <h2 className="mt-1 truncate font-mono text-base font-semibold tracking-tight text-content">
-              {r.artifact}
-            </h2>
-            <div className="mt-1 text-[11px] text-content-muted">
-              {r.workload ?? '—'}
-              {r.namespace ? ` · ${r.namespace}` : ''} · scanned {formatRelative(r.scanned_at)}
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Button size="sm" onClick={onRescan} loading={rescanning} leading={<IconRefresh />}>
-              Rescan
-            </Button>
             <button
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
             >
-              <IconClose />
+              ✕
             </button>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {SEVERITIES.map((s) => (
+              <button
+                key={s}
+                type="button"
+                aria-pressed={severities.includes(s)}
+                onClick={() =>
+                  setSeverities((cur) => cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s])}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset transition-opacity',
+                  SEV_TONE[s].chip,
+                  severities.length && !severities.includes(s) && 'opacity-40',
+                )}
+              >
+                {a.counts[s]} {s}
+              </button>
+            ))}
+            <button
+              type="button"
+              aria-pressed={fixableOnly}
+              onClick={() => setFixableOnly((v) => !v)}
+              className={cn(
+                'rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset transition-colors',
+                fixableOnly
+                  ? 'bg-brand-50 text-brand-800 ring-brand-600/25 dark:bg-brand-500/15 dark:text-brand-200'
+                  : 'bg-surface-sunken text-content-muted ring-edge-subtle',
+              )}
+            >
+              {fixableCount} fixable
+            </button>
+          </div>
+          <div className="mt-3">
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder="Search CVE, package or version…"
+              label="Search findings"
+              shortcut={undefined}
+            />
           </div>
         </header>
 
-        <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
-          <Card>
-            <CardBody className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <SevTile label="Critical" value={r.summary.critical} tone="rose" />
-              <SevTile label="High" value={r.summary.high} tone="amber" />
-              <SevTile label="Medium" value={r.summary.medium} tone="sky" />
-              <SevTile label="Low" value={r.summary.low} tone="slate" />
-            </CardBody>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <div className="text-sm font-semibold text-content">Findings</div>
-              <div className="text-[11px] text-content-subtle">
-                Sorted by severity. Showing {vulns.length} of {sumSummaries([r]).critical + sumSummaries([r]).high + sumSummaries([r]).medium + sumSummaries([r]).low}.
-              </div>
-            </CardHeader>
-            <CardBody className="p-0!">
-              {vulns.length === 0 ? (
-                <EmptyState compact title="No findings exposed" description="Detailed list not available for this report." />
-              ) : (
-                <ul className="divide-y divide-edge-subtle">
-                  {vulns.map((v) => (
-                    <li key={v.vulnerability_id} className="px-5 py-3">
-                      <div className="flex items-center gap-2">
-                        <SevBadge severity={v.severity} />
-                        <code className="font-mono text-[11px] text-content-muted">
-                          {v.vulnerability_id}
-                        </code>
-                        {v.cvss_score != null ? (
-                          <span className="rounded-md bg-surface-sunken px-1.5 py-0.5 text-[10px] font-mono text-content-muted">
-                            CVSS {v.cvss_score.toFixed(1)}
-                          </span>
-                        ) : null}
-                        <span className="ml-auto truncate text-[11px] text-content-subtle">
-                          {v.resource}
-                          {v.installed_version ? ` @ ${v.installed_version}` : ''}
-                        </span>
-                      </div>
-                      <div className="mt-1 text-sm font-medium text-content">{v.title}</div>
-                      {v.description ? (
-                        <p className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-content-muted">
-                          {v.description}
-                        </p>
-                      ) : null}
-                      <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[11px] text-content-muted">
-                        {v.fixed_version ? (
-                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700">
-                            fix in {v.fixed_version}
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-rose-50 px-2 py-0.5 font-medium text-rose-700">
-                            no fix yet
-                          </span>
-                        )}
-                        {v.published_date ? (
-                          <span>published {formatRelative(v.published_date)}</span>
-                        ) : null}
-                        {v.primary_link ? (
-                          <a
-                            href={v.primary_link}
-                            target="_blank"
-                            rel="noopener"
-                            className="text-brand-700 hover:underline"
-                          >
-                            advisory ↗
-                          </a>
-                        ) : null}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardBody>
-          </Card>
+        <div className="flex-1 overflow-y-auto">
+          {vulns.isLoading ? (
+            <div className="flex items-center gap-2 px-6 py-8 text-sm text-content-muted">
+              <Spinner size={14} />
+              {/* A base image's report is thousands of findings and several
+                  megabytes, so say that rather than spin silently. */}
+              Loading {a.total.toLocaleString()} findings…
+              {a.total > 1000 ? <span className="text-content-subtle">this one is large</span> : null}
+            </div>
+          ) : vulns.isError ? (
+            <div className="px-6 py-8">
+              <EmptyState
+                compact
+                title="Couldn't read the report"
+                description={vulns.error instanceof Error ? vulns.error.message : 'Harbor did not return the vulnerability report for this artifact.'}
+              />
+            </div>
+          ) : list.length === 0 ? (
+            <div className="px-6 py-8">
+              <EmptyState
+                compact
+                title={all.length ? 'No matching findings' : 'No findings'}
+                description={all.length
+                  ? 'Relax the filters or the search.'
+                  : 'The scanner found no known vulnerabilities in this image.'}
+              />
+            </div>
+          ) : (
+            <>
+              <ul className="divide-y divide-edge-subtle">
+                {shown.map((v) => <VulnRow key={`${v.id}:${v.package}:${v.version}`} vuln={v} />)}
+              </ul>
+              {list.length > shown.length ? (
+                <div className="border-t border-edge-subtle px-6 py-3 text-center">
+                  <button
+                    type="button"
+                    onClick={() => setLimit((n) => n + 500)}
+                    className="text-[12px] font-medium text-brand-700 hover:underline dark:text-brand-300"
+                  >
+                    Show more — {(list.length - shown.length).toLocaleString()} further findings
+                  </button>
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
       </aside>
     </div>,
@@ -504,50 +562,50 @@ function ReportDetail({
   )
 }
 
-function SevBadge({ severity: s }: { severity: trivy.Severity }) {
-  const cls =
-    s === 'CRITICAL'
-      ? 'bg-rose-500 text-white'
-      : s === 'HIGH'
-        ? 'bg-amber-500 text-white'
-        : s === 'MEDIUM'
-          ? 'bg-sky-500 text-white'
-          : 'bg-slate-400 text-white'
+function VulnRow({ vuln: v }: { vuln: harbor.Vulnerability }) {
+  const sev = vulnSeverity(v)
+  const link = v.links?.[0]
   return (
-    <span className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${cls}`}>
-      {s.toLowerCase()}
-    </span>
+    <li className="px-6 py-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={cn('rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase ring-1 ring-inset', SEV_TONE[sev].chip)}>
+          {v.severity}
+        </span>
+        {link ? (
+          <a
+            href={link}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="font-mono text-[13px] font-medium text-brand-700 hover:underline dark:text-brand-300"
+          >
+            {v.id}
+          </a>
+        ) : (
+          <span className="font-mono text-[13px] font-medium text-content">{v.id}</span>
+        )}
+        {v.cvssScore ? (
+          <span className="text-[11px] tabular-nums text-content-subtle">CVSS {v.cvssScore}</span>
+        ) : null}
+        {/* The actionable half of a finding: what to upgrade to. */}
+        {v.fixVersion ? (
+          <span className="ml-auto rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300">
+            fixed in {v.fixVersion}
+          </span>
+        ) : (
+          <span className="ml-auto text-[11px] text-content-subtle">no fix available</span>
+        )}
+      </div>
+      <div className="mt-1 text-[12px] text-content">
+        <span className="font-medium">{v.package}</span>{' '}
+        <span className="font-mono text-content-muted">{v.version}</span>
+      </div>
+      {v.description ? (
+        <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-content-muted" title={v.description}>
+          {v.description}
+        </p>
+      ) : null}
+    </li>
   )
 }
 
-function sevRank(s: trivy.Severity): number {
-  return s === 'CRITICAL' ? 0 : s === 'HIGH' ? 1 : s === 'MEDIUM' ? 2 : s === 'LOW' ? 3 : 4
-}
-
-/* ─────────── icons ─────────── */
-
-function IconSearch() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <circle cx="11" cy="11" r="7" />
-      <path d="m20 20-3.5-3.5" />
-    </svg>
-  )
-}
-function IconRefresh() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <polyline points="23 4 23 10 17 10" />
-      <polyline points="1 20 1 14 7 14" />
-      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-    </svg>
-  )
-}
-function IconClose() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M18 6 6 18" />
-      <path d="m6 6 12 12" />
-    </svg>
-  )
-}
+export default Scans

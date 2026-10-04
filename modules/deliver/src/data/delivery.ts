@@ -297,6 +297,55 @@ export function useArtifacts(repo?: string) {
   })
 }
 
+/**
+ * Every artifact in the registry, with its scan verdict.
+ *
+ * Vulnerability Scans is a registry-wide question — "what are we shipping that
+ * has a critical in it" — and Harbor answers it per artifact, so the list is
+ * projects → repositories → artifacts fanned out. The scan verdict already
+ * rides along on the artifact; no extra call per image is needed until someone
+ * opens one.
+ *
+ * Bounded on purpose: this walks the registry, so it refetches slowly and the
+ * repository fan-out is capped. A registry with thousands of repositories
+ * needs a server-side index, not a thousand browser requests.
+ */
+export function useRegistryArtifacts(limitRepos = 60) {
+  const projects = useHarborProjects()
+  const list = projects.data ?? []
+  return useQuery({
+    queryKey: ['harbor', 'all-artifacts', list.map((p) => p.name).join(',')],
+    enabled: list.length > 0,
+    staleTime: 60_000,
+    retry: false,
+    queryFn: async () => {
+      const repos: Array<{ project: string; name: string }> = []
+      for (const p of list) {
+        const rs = await harborClient.listRepositories(p.name)
+        for (const r of rs) repos.push({ project: p.name, name: r.name })
+      }
+      const capped = repos.slice(0, limitRepos)
+      const results = await Promise.all(
+        capped.map(async (r) => {
+          const path = r.name.startsWith(`${r.project}/`) ? r.name.slice(r.project.length + 1) : r.name
+          try {
+            const artifacts = await harborClient.listArtifacts(r.project, path)
+            return artifacts.map((a) => ({ repo: r.name, artifact: a }))
+          } catch {
+            // One unreadable repository must not empty the whole page.
+            return []
+          }
+        }),
+      )
+      return {
+        items: results.flat(),
+        repoCount: repos.length,
+        truncated: repos.length > capped.length,
+      }
+    },
+  })
+}
+
 export function useHarborProjects() {
   return useQuery({
     queryKey: ['harbor', 'projects'],

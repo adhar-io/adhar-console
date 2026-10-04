@@ -15,6 +15,7 @@ import {
   useScans,
   useStages,
 } from '../data/delivery.ts'
+import { orderStages, shortFreight, stageStatus } from '../data/stage-order.ts'
 
 /**
  * Workspace-level Deliver dashboard. Aggregates ArgoCD, Kargo, Argo Rollouts,
@@ -37,7 +38,8 @@ export function Dashboard() {
   }
 
   const appList = apps.data ?? []
-  const stageList = stages.data ?? []
+  // Promotion order, not the API's alphabetical order — see stage-order.ts.
+  const stageList = orderStages(stages.data ?? [])
   const rolloutList = (rollouts.data ?? []) as Rollout[]
   const scanList = scans.data ?? []
   const eventList = events.data ?? []
@@ -285,26 +287,36 @@ function healthTone(s: string): 'healthy' | 'degraded' | 'progressing' | 'paused
 /* ─────────── stage promotion node ─────────── */
 
 function StageNode({ stage: s, terminal }: { stage: kargo.Stage; terminal: boolean }) {
-  const tone =
-    s.phase === 'Steady'
-      ? 'healthy'
-      : s.phase === 'Promoting' || s.phase === 'Verifying'
-        ? 'progressing'
-        : s.phase === 'Failed'
-          ? 'failed'
-          : 'unknown'
+  const status = stageStatus(s)
   return (
     <div>
-      <div className="flex items-center justify-between gap-2 rounded-lg border border-edge-subtle bg-surface-sunken/40 p-2.5">
-        <div className="flex items-center gap-2">
-          <span className="rounded-md bg-surface-raised px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content">
+      {/*
+        Two rows, not one. The freight id and the stage name were competing for
+        a single line in a narrow card, so a 40-character id pushed the
+        timestamp out through the right edge and was clipped by the viewport.
+        The name and status read on top; the freight — which is a long opaque
+        id and the slowest thing to read — gets its own line and is truncated
+        the way a commit is, with the full value on hover.
+      */}
+      <div className="rounded-lg border border-edge-subtle bg-surface-sunken/40 p-2.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate rounded-md bg-surface-raised px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content">
             {s.name}
           </span>
-          <StatusBadge kind={tone}>{s.phase}</StatusBadge>
+          <StatusBadge kind={status.kind}>{status.label}</StatusBadge>
+          {s.lastPromoted
+            ? (
+              <span className="ml-auto shrink-0 text-[10px] text-content-subtle">
+                {formatRelative(s.lastPromoted)}
+              </span>
+            )
+            : null}
         </div>
-        <div className="text-right text-[10px] text-content-subtle">
-          <div className="font-mono">{s.currentFreight ?? '—'}</div>
-          {s.lastPromoted ? <div>{formatRelative(s.lastPromoted)}</div> : null}
+        <div
+          className="mt-1.5 truncate font-mono text-[10px] text-content-subtle"
+          title={s.currentFreight ?? undefined}
+        >
+          {s.currentFreight ? shortFreight(s.currentFreight) : 'no freight yet'}
         </div>
       </div>
       {!terminal ? (

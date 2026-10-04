@@ -287,7 +287,7 @@ export const SEED_DIAGRAMS: Diagram[] = [
     title: 'Delivery pipeline',
     type: 'flowchart',
     source: `flowchart LR
-  PR[Gitea PR merged]--> AW[Argo Workflow]
+  PR[Gitea PR merged]--> AW[Tekton PipelineRun]
   AW --> HB[Harbor image]
   HB --> KR[Kargo warehouse]
   KR --> KS[stage: dev]

@@ -226,34 +226,6 @@ export const SOURCES: Source[] = [
     },
   },
 
-  /** Argo Workflows — everything that is a DAG of containers but not CI. */
-  {
-    id: 'argo-workflows',
-    group: 'argoproj.io',
-    version: 'v1alpha1',
-    resource: 'workflows',
-    signal(obj) {
-      const phase = get<string>(obj, 'status.phase')
-      if (phase !== 'Succeeded' && phase !== 'Failed' && phase !== 'Error') return null
-      const name = nameOf(obj)
-      const ok = phase === 'Succeeded'
-      return {
-        signature: phase,
-        doc: {
-          source: 'platform',
-          kind: ok ? 'success' : 'error',
-          severity: ok ? 'low' : 'high',
-          title: ok ? `Workflow ${name} completed` : `Workflow ${name} ${phase.toLowerCase()}`,
-          description: get<string>(obj, 'status.message'),
-          href: `/develop?section=workflows`,
-          key: `workflow:${nsOf(obj)}/${name}:${phase}`,
-          target: { type: 'workflow', id: name, label: name },
-          ...(ok ? {} : { prompt: `Argo Workflow ${name} ${phase.toLowerCase()}. Which step failed, and why?` }),
-        },
-      }
-    },
-  },
-
   /**
    * Kubernetes Warning events — the cluster itself complaining.
    *

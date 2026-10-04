@@ -1205,89 +1205,6 @@ function Radar({ metrics }: { metrics: RadarMetric[] }) {
 
 /* ───── Pipeline funnel · commits → builds → tests → deploys → prod ───── */
 
-export function PipelineFunnelPanel() {
-  const q = useWorkflows()
-
-  const stages = useMemo(() => {
-    const wfs = (q.data ?? []) as Array<Generic & { status?: { phase?: string } }>
-    const now = Date.now()
-    const windowMs = 7 * 24 * 3600_000
-    const recent = wfs.filter((w) => {
-      const ts = w.metadata.creationTimestamp
-      return ts ? now - new Date(ts).getTime() < windowMs : true
-    })
-    const started = recent.filter((w) => (w.status?.phase ?? 'Pending') !== 'Pending')
-    const finished = started.filter((w) =>
-      ['Succeeded', 'Failed', 'Error'].includes(w.status?.phase ?? ''),
-    )
-    const succeeded = finished.filter((w) => w.status?.phase === 'Succeeded')
-    return [
-      { label: 'Triggered', value: recent.length, color: 'oklch(0.71 0.13 262)' },
-      { label: 'Started', value: started.length, color: 'oklch(0.64 0.15 240)' },
-      { label: 'Completed', value: finished.length, color: 'oklch(0.58 0.17 215)' },
-      { label: 'Succeeded', value: succeeded.length, color: 'oklch(0.54 0.18 200)' },
-    ]
-  }, [q.data])
-
-  const max = stages[0]?.value ?? 0
-  if (q.isLoading || q.isError || max === 0) {
-    return (
-      <PanelCard>
-        <PanelHead title="Delivery funnel · 7d" subtitle="Argo Workflows · phase funnel" to="/deliver?section=releases" />
-        {q.isLoading ? (
-          <PanelLoading />
-        ) : q.isError ? (
-          <PanelEmpty message="Requires Argo Workflows (argoproj.io)" />
-        ) : (
-          <PanelEmpty message="No workflow runs in the last 7 days" />
-        )}
-      </PanelCard>
-    )
-  }
-  return (
-    <PanelCard>
-      <PanelHead title="Delivery funnel · 7d" subtitle="Argo Workflows · phase funnel" to="/deliver?section=releases" />
-      <div className="flex flex-col gap-1.5">
-        {stages.map((s, i) => {
-          const pct = (s.value / max) * 100
-          const conversion = i === 0 ? 100 : Math.round((s.value / stages[i - 1].value) * 100)
-          const dropped = i === 0 ? 0 : stages[i - 1].value - s.value
-          return (
-            <div key={s.label} className="space-y-0.5">
-              <div className="flex items-baseline justify-between text-[11px]">
-                <span className="font-medium text-content">{s.label}</span>
-                <span className="font-mono tabular-nums text-content-muted">
-                  {s.value.toLocaleString()}
-                  <span className="ml-2 text-content-subtle">{conversion}%</span>
-                </span>
-              </div>
-              <div
-                className="relative h-7 overflow-hidden rounded-md transition-all"
-                style={{
-                  width: `${Math.max(20, pct)}%`,
-                  background: `linear-gradient(90deg, ${s.color} 0%, color-mix(in oklch, ${s.color} 65%, white) 100%)`,
-                }}
-              >
-                {dropped > 0 ? (
-                  <span className="absolute inset-y-0 right-2 flex items-center font-mono text-[10px] font-semibold text-white/85">
-                    -{dropped}
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-      <div className="mt-3 flex items-baseline justify-between border-t border-edge-subtle pt-2 text-[11px]">
-        <span className="text-content-subtle">End-to-end conversion</span>
-        <span className="font-mono tabular-nums font-semibold text-content">
-          {Math.round((stages[stages.length - 1].value / stages[0].value) * 100)}%
-        </span>
-      </div>
-    </PanelCard>
-  )
-}
-
 /* ───── Traffic stream · stacked area RPS by top service ───── */
 
 export function TrafficStreamPanel() {
@@ -3173,7 +3090,6 @@ interface ToolHealth {
 const TOOL_META: Record<string, { name: string; href: string }> = {
   k8s: { name: 'Kubernetes', href: '/platform' },
   argocd: { name: 'ArgoCD', href: '/deliver' },
-  'argo-workflows': { name: 'Argo Workflows', href: '/develop' },
   'argo-rollouts': { name: 'Argo Rollouts', href: '/deliver' },
   kargo: { name: 'Kargo', href: '/deliver' },
   crossplane: { name: 'Crossplane', href: '/platform' },
@@ -4500,157 +4416,13 @@ export function BackupStatusPanel() {
   )
 }
 
-/* ───── Workflow runs (live Argo Workflows feed) ───── */
-
-interface WorkflowRun {
-  name: string
-  namespace: string
-  phase: 'Succeeded' | 'Running' | 'Failed' | 'Pending' | 'Error'
-  startedAt: string
-  durationSec: number | null
-  progress: string
-}
-
-export function WorkflowRunsPanel() {
-  const q = useWorkflows()
-
-  const runs = useMemo<WorkflowRun[]>(() => {
-    const wfs = (q.data ?? []) as Array<
-      Generic & {
-        status?: { phase?: string; startedAt?: string; finishedAt?: string; progress?: string }
-      }
-    >
-    const phaseOf = (p?: string): WorkflowRun['phase'] =>
-      p === 'Succeeded' || p === 'Running' || p === 'Failed' || p === 'Error' || p === 'Pending'
-        ? p
-        : 'Pending'
-    return wfs
-      .map((w) => {
-        const started = w.status?.startedAt ?? w.metadata.creationTimestamp ?? ''
-        const finished = w.status?.finishedAt
-        const durationSec =
-          started && finished
-            ? Math.max(0, Math.round((new Date(finished).getTime() - new Date(started).getTime()) / 1000))
-            : null
-        return {
-          name: w.metadata.name,
-          namespace: w.metadata.namespace ?? '—',
-          phase: phaseOf(w.status?.phase),
-          startedAt: started,
-          durationSec,
-          progress: w.status?.progress ?? '—',
-        }
-      })
-      .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
-      .slice(0, 8)
-  }, [q.data])
-
-  const running = runs.filter((r) => r.phase === 'Running').length
-  const failed24h = runs.filter((r) => r.phase === 'Failed' || r.phase === 'Error').length
-  const succeeded24h = runs.filter((r) => r.phase === 'Succeeded').length
-  const successRate = pct(succeeded24h, succeeded24h + failed24h)
-
-  const phaseTone: Record<WorkflowRun['phase'], { dot: string; pill: string; bar: string }> = {
-    Succeeded: { dot: 'bg-emerald-500', pill: 'border-emerald-200 dark:border-emerald-500/25 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300', bar: 'bg-emerald-500' },
-    Running: { dot: 'bg-sky-500', pill: 'border-sky-200 dark:border-sky-500/25 bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300', bar: 'bg-sky-500' },
-    Failed: { dot: 'bg-rose-500', pill: 'border-rose-200 dark:border-rose-500/25 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300', bar: 'bg-rose-500' },
-    Error: { dot: 'bg-rose-500', pill: 'border-rose-200 dark:border-rose-500/25 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300', bar: 'bg-rose-500' },
-    Pending: { dot: 'bg-slate-400', pill: 'border-edge-default bg-surface-sunken text-content-muted', bar: 'bg-slate-400' },
-  }
-
-  function fmtDuration(sec: number | null): string {
-    if (sec == null) return '—'
-    if (sec < 60) return `${sec}s`
-    if (sec < 3600) return `${Math.floor(sec / 60)}m ${sec % 60}s`
-    return `${(sec / 3600).toFixed(1)}h`
-  }
-
-  function progressPct(progress: string): number {
-    const [d, t] = progress.split('/').map(Number)
-    if (!Number.isFinite(d) || !Number.isFinite(t) || t === 0) return 0
-    return Math.round((d / t) * 100)
-  }
-
-  if (q.isLoading || q.isError || runs.length === 0) {
-    return (
-      <PanelCard>
-        <PanelHead title="CI workflow runs" subtitle="Argo Workflows · live executions" to="/develop" />
-        {q.isLoading ? (
-          <PanelLoading />
-        ) : q.isError ? (
-          <PanelEmpty message="Requires Argo Workflows (argoproj.io)" />
-        ) : (
-          <PanelEmpty message="No workflow runs found" />
-        )}
-      </PanelCard>
-    )
-  }
-  return (
-    <PanelCard>
-      <PanelHead
-        title="CI workflow runs"
-        subtitle="Argo Workflows · live executions"
-        to="/develop"
-      />
-      <div className="mb-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
-        <Stat label="Running" value={running} tone="brand" />
-        <Stat label="Success" value={`${successRate}%`} tone={successRate >= 90 ? 'emerald' : 'amber'} />
-        <Stat label="Failed" value={failed24h} tone={failed24h > 0 ? 'rose' : 'slate'} />
-      </div>
-      <ul className="flex-1 space-y-1.5 overflow-y-auto">
-        {runs.map((r) => {
-          const t = phaseTone[r.phase]
-          const p = progressPct(r.progress)
-          return (
-            <li
-              key={`${r.namespace}/${r.name}`}
-              className="rounded-xl border border-edge-subtle bg-surface-sunken/40 p-2.5"
-            >
-              <div className="flex items-center gap-2 text-[11px]">
-                <span className={cn('h-1.5 w-1.5 flex-none rounded-full', t.dot, r.phase === 'Running' && 'animate-pulse')} />
-                <span className="truncate font-mono text-content">{r.name}</span>
-                <span
-                  className={cn(
-                    'flex-none rounded-md border px-1.5 py-0.5 text-[10px] font-medium',
-                    t.pill,
-                  )}
-                >
-                  {r.phase}
-                </span>
-              </div>
-              <div className="mt-1 flex items-center gap-2 text-[10px] text-content-muted">
-                <span className="truncate">ns:{r.namespace}</span>
-                <span className="ml-auto flex-none tabular-nums">
-                  {r.progress} · {fmtDuration(r.durationSec)}
-                  <span className="text-content-subtle"> · {formatRelative(r.startedAt)}</span>
-                </span>
-              </div>
-              <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-surface-raised">
-                <div
-                  className={cn(
-                    'h-full rounded-full transition-all',
-                    t.bar,
-                    r.phase === 'Running' && 'animate-pulse',
-                  )}
-                  style={{ width: `${p}%` }}
-                />
-              </div>
-            </li>
-          )
-        })}
-      </ul>
-    </PanelCard>
-  )
-}
-
 /* ───── Pipeline success-rate trend ───── */
 
 export function PipelineSuccessTrendPanel() {
   // A 14-day pass/fail trend plus avg/p95 duration and flaky rate needs run
-  // history aggregated over time. The live Argo Workflows list is a point-in-
-  // time snapshot, not a 14-day time series, so we show an honest empty state
-  // rather than a synthesised trend. (Per-stage timings are shown live by the
-  // Pipeline stages panel.)
+  // history aggregated over time. A live PipelineRun list is a point-in-time
+  // snapshot, not a 14-day time series, so this shows an honest empty state
+  // rather than a synthesised trend.
   return (
     <PanelCard>
       <PanelHead
@@ -4672,142 +4444,6 @@ interface StagePerf {
   failRate: number
 }
 
-export function PipelineStagePerformancePanel() {
-  const q = useWorkflows()
-
-  const stages = useMemo<StagePerf[]>(() => {
-    const wfs = (q.data ?? []) as Array<
-      Generic & {
-        status?: {
-          nodes?: Record<
-            string,
-            {
-              templateName?: string
-              displayName?: string
-              type?: string
-              phase?: string
-              startedAt?: string
-              finishedAt?: string
-            }
-          >
-        }
-      }
-    >
-    // Aggregate real per-template step durations across all workflow Pod nodes.
-    const byStage = new Map<string, { durs: number[]; total: number; failed: number }>()
-    for (const w of wfs) {
-      for (const node of Object.values(w.status?.nodes ?? {})) {
-        if (node.type !== 'Pod') continue
-        const name = node.templateName ?? node.displayName
-        if (!name) continue
-        const agg = byStage.get(name) ?? { durs: [], total: 0, failed: 0 }
-        agg.total += 1
-        if (node.phase === 'Failed' || node.phase === 'Error') agg.failed += 1
-        if (node.startedAt && node.finishedAt) {
-          const d = (new Date(node.finishedAt).getTime() - new Date(node.startedAt).getTime()) / 1000
-          if (Number.isFinite(d) && d >= 0) agg.durs.push(d)
-        }
-        byStage.set(name, agg)
-      }
-    }
-    const p95 = (arr: number[]): number => {
-      if (arr.length === 0) return 0
-      const sorted = [...arr].sort((a, b) => a - b)
-      return sorted[Math.min(sorted.length - 1, Math.ceil(0.95 * sorted.length) - 1)]
-    }
-    return Array.from(byStage.entries())
-      .map(([name, agg]) => ({
-        name,
-        avgSec: agg.durs.length ? Math.round(agg.durs.reduce((s, d) => s + d, 0) / agg.durs.length) : 0,
-        p95Sec: Math.round(p95(agg.durs)),
-        failRate: agg.total ? Number(((agg.failed / agg.total) * 100).toFixed(1)) : 0,
-      }))
-      .sort((a, b) => b.avgSec - a.avgSec)
-      .slice(0, 6)
-  }, [q.data])
-
-  function fmt(sec: number): string {
-    if (sec < 60) return `${sec}s`
-    return `${Math.floor(sec / 60)}m ${sec % 60}s`
-  }
-
-  if (q.isLoading || q.isError || stages.length === 0) {
-    return (
-      <PanelCard>
-        <PanelHead title="Pipeline stages" subtitle="Per-stage duration · Argo Workflows" to="/develop" />
-        {q.isLoading ? (
-          <PanelLoading />
-        ) : q.isError ? (
-          <PanelEmpty message="Requires Argo Workflows (argoproj.io)" />
-        ) : (
-          <PanelEmpty message="No workflow step data available" />
-        )}
-      </PanelCard>
-    )
-  }
-
-  const max = Math.max(...stages.map((s) => s.p95Sec), 1)
-  const totalAvg = stages.reduce((s, x) => s + x.avgSec, 0)
-  const slowest = stages.reduce((a, b) => (a.p95Sec > b.p95Sec ? a : b))
-  const flakiest = stages.reduce((a, b) => (a.failRate > b.failRate ? a : b))
-
-  return (
-    <PanelCard>
-      <PanelHead
-        title="Pipeline stages"
-        subtitle="Per-stage duration · last 7 days"
-        to="/develop"
-      />
-      <div className="mb-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
-        <Stat label="Total avg" value={fmt(totalAvg)} tone="brand" />
-        <Stat label="Slowest" value={slowest.name} tone="violet" />
-        <Stat label="Flakiest" value={flakiest.name} tone={flakiest.failRate > 3 ? 'rose' : 'amber'} />
-      </div>
-      <ul className="flex-1 space-y-2">
-        {stages.map((s) => {
-          const avgPct = (s.avgSec / max) * 100
-          const p95Pct = (s.p95Sec / max) * 100
-          return (
-            <li key={s.name} className="text-[11px]">
-              <div className="flex items-baseline justify-between">
-                <span className="font-medium text-content">{s.name}</span>
-                <span className="tabular-nums text-content-muted">
-                  avg {fmt(s.avgSec)} · p95 {fmt(s.p95Sec)}
-                  {s.failRate > 2 ? (
-                    <span className="text-rose-700 dark:text-rose-300"> · {s.failRate}% fail</span>
-                  ) : null}
-                </span>
-              </div>
-              <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-surface-sunken">
-                <div className="relative h-full">
-                  <div
-                    className="absolute inset-y-0 left-0 rounded-full bg-sky-300"
-                    style={{ width: `${p95Pct}%` }}
-                    title={`p95 ${fmt(s.p95Sec)}`}
-                  />
-                  <div
-                    className="absolute inset-y-0 left-0 rounded-full bg-sky-600"
-                    style={{ width: `${avgPct}%` }}
-                    title={`avg ${fmt(s.avgSec)}`}
-                  />
-                </div>
-              </div>
-            </li>
-          )
-        })}
-      </ul>
-      <div className="mt-2 flex items-center gap-3 text-[10px] text-content-subtle">
-        <span className="flex items-center gap-1">
-          <span className="h-1.5 w-1.5 rounded-full bg-sky-600" /> avg
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="h-1.5 w-1.5 rounded-full bg-sky-300" /> p95
-        </span>
-      </div>
-    </PanelCard>
-  )
-}
-
 /* ───── Workflow triggers + templates ───── */
 
 interface Template {
@@ -4820,7 +4456,7 @@ interface Template {
 export function WorkflowTriggersPanel() {
   // Trigger-source breakdown and top-template usage/success stats need workflow
   // run history grouped by trigger label and template over 7 days. That
-  // aggregate isn't available from the live Argo Workflows snapshot, so we show
+  // aggregate isn't available from a live PipelineRun snapshot, so we show
   // an honest empty state rather than fabricated counts.
   return (
     <PanelCard>

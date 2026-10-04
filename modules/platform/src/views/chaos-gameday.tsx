@@ -233,7 +233,7 @@ function GameDayBuilder({
         <div className="border-b border-edge-default px-5 py-3">
           <div className="text-sm font-semibold text-content">New game day</div>
           <div className="text-[11px] text-content-subtle">
-            Litmus runs these as one Argo workflow. Everything is bounded and reversible.
+            Litmus runs these as one Argo workflow (an optional package). Everything is bounded and reversible.
           </div>
         </div>
 

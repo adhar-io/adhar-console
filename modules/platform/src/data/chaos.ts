@@ -273,7 +273,8 @@ export function createChaosEngine(input: NewChaosEngine): Promise<ChaosEngine> {
 /* ─────────────────────────── game days ─────────────────────────── */
 
 /**
- * A game day is an Argo `Workflow` — the platform's argo-workflows package —
+ * A game day is an Argo `Workflow`. Argo Workflows is an OPTIONAL package on
+ * this platform, so game days need it installed —
  * whose steps each create a ChaosEngine and wait for its ChaosResult, with
  * recovery pauses between them. This is the same shape Litmus's own Chaos
  * Center generates (`litmus-checker` per step), so a game day made here is

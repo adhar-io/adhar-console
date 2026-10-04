@@ -55,13 +55,6 @@ Deno.test('Tekton: only terminal runs, and only failures ask Adhar AI', () => {
   assertEquals(by('tekton').signal(run('True'))?.doc.prompt, undefined)
 })
 
-Deno.test('Argo Workflows: terminal phases only', () => {
-  assertEquals(by('argo-workflows').signal(wf('Running')), null)
-  assertEquals(by('argo-workflows').signal(wf('Pending')), null)
-  assertEquals(by('argo-workflows').signal(wf('Failed'))?.doc.kind, 'error')
-  assertEquals(by('argo-workflows').signal(wf('Succeeded'))?.doc.kind, 'success')
-})
-
 Deno.test('Warning events: allowlisted reasons only, and repeat thresholds hold', () => {
   assertEquals(by('k8s-events').signal(ev('Scheduled', 9)), null)
   assertEquals(by('k8s-events').signal(ev('OOMKilling', 1))?.doc.severity, 'high')
@@ -102,7 +95,6 @@ Deno.test('every source emits a dedupe key and a link to the thing it is about',
   const probe: Record<string, unknown> = {
     argocd: app('Degraded', 'Synced'),
     tekton: run('False', 'Failed'),
-    'argo-workflows': wf('Failed'),
     'k8s-events': ev('OOMKilling', 1),
   }
   for (const source of SOURCES) {

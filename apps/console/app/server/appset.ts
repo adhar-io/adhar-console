@@ -36,7 +36,6 @@ export function resolvePackageName(
   // Alias or provided-by. Values must be real package directory names.
   const PROVIDED_BY: Record<string, string> = {
     'argo-rollouts': 'argo-rollout',
-    'argo-workflow': 'argo-workflows',
     grafana: 'kube-prometheus',
     prometheus: 'kube-prometheus',
     alertmanager: 'kube-prometheus',

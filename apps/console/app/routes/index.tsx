@@ -68,9 +68,7 @@ import {
   KafkaBrokersPanel,
   LatencyDistributionPanel,
   MtlsCoveragePanel,
-  PipelineFunnelPanel,
   PipelinesPanel,
-  PipelineStagePerformancePanel,
   PipelineSuccessTrendPanel,
   PlatformHealthPanel,
   PodRestartsPanel,
@@ -92,7 +90,6 @@ import {
   TopErrorSourcesPanel,
   TrafficStreamPanel,
   VulnSummaryPanel,
-  WorkflowRunsPanel,
   WorkflowTriggersPanel,
 } from './_overview-panels.tsx'
 
@@ -355,14 +352,6 @@ const PANELS: PanelDef[] = [
     render: () => <DoraRadarPanel />,
   },
   {
-    id: 'pipeline-funnel',
-    title: 'Delivery funnel',
-    description: 'Commits → builds → tests → deploys → production.',
-    category: 'lifecycle',
-    defaultSize: 'md',
-    render: () => <PipelineFunnelPanel />,
-  },
-  {
     id: 'traffic-stream',
     title: 'Traffic stream',
     description: 'Stacked-area RPS by top service over the last hour.',
@@ -587,28 +576,12 @@ const PANELS: PanelDef[] = [
     render: () => <BackupStatusPanel />,
   },
   {
-    id: 'workflow-runs',
-    title: 'CI workflow runs',
-    description: 'Live Argo Workflows execution feed with phase, progress, retries.',
-    category: 'lifecycle',
-    defaultSize: 'lg',
-    render: () => <WorkflowRunsPanel />,
-  },
-  {
     id: 'pipeline-success',
     title: 'Pipeline success',
     description: 'Daily pass/fail volume + flaky-rate trend across all workflows.',
     category: 'lifecycle',
     defaultSize: 'md',
     render: () => <PipelineSuccessTrendPanel />,
-  },
-  {
-    id: 'pipeline-stages',
-    title: 'Pipeline stages',
-    description: 'Per-stage avg + p95 duration with slowest/flakiest call-out.',
-    category: 'lifecycle',
-    defaultSize: 'md',
-    render: () => <PipelineStagePerformancePanel />,
   },
   {
     id: 'workflow-triggers',

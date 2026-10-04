@@ -8,6 +8,7 @@ import {
   Checkbox,
   EmptyState,
   Field,
+  Markdown,
   Input,
   Modal,
   Select,
@@ -15,8 +16,10 @@ import {
   StatusBadge,
   Tabs,
   Textarea,
+  useGiteaOrg,
   useToast,
 } from '@adhar-console/shell-ui';
+import { dirOf, resolveReadmeImage } from '../data/readme-assets.ts';
 import { cn, formatRelative } from '@adhar-console/utils';
 import type { gitea } from '@adhar-console/api-clients';
 import {
@@ -212,6 +215,7 @@ function Tile({ label, value, onClick }: { label: string; value: string | number
 function OverviewTab({ repo: r, prs, onGo }: { repo: gitea.Repo; prs: number; onGo(t: TabId): void }) {
   const langs = useRepoLanguages(r.name);
   const topics = useRepoTopics(r.name);
+  const org = useGiteaOrg();
   const readme = useReadme(r.name, r.default_branch);
   const setTopics = useSetTopics();
   const act = useAct();
@@ -233,7 +237,20 @@ function OverviewTab({ repo: r, prs, onGo }: { repo: gitea.Repo; prs: number; on
       <div className='grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]'>
         <Section title={readme.data ? readme.data.path : 'README'} loading={readme.isLoading}>
           {readme.data
-            ? <Markdown text={readme.data.text} />
+            ? (
+              <Markdown
+                text={readme.data.text}
+                className='text-[12px] leading-relaxed'
+                images='show'
+                resolveSrc={(src) =>
+                  resolveReadmeImage(src, {
+                    owner: org,
+                    repo: r.name,
+                    ref: r.default_branch,
+                    dir: dirOf(readme.data!.path),
+                  })}
+              />
+            )
             : readme.isLoading
             ? null
             : (
@@ -1095,80 +1112,3 @@ function SettingsTab({ repo: r, onDeleted }: { repo: gitea.Repo; onDeleted(): vo
 
 /* ─────────── tiny markdown ─────────── */
 
-function esc(s: string) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-function inline(s: string) {
-  return esc(s)
-    .replace(/`([^`]+)`/g, '<code class="rounded bg-surface-sunken px-1 py-0.5 font-mono text-[11px]">$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
-    .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, '<img alt="$1" src="$2" class="inline-block max-h-6 align-middle" />')
-    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="text-brand-700 hover:underline dark:text-brand-300">$1</a>');
-}
-
-/** Minimal, safe markdown → HTML for README previews (headings, lists, code, links). */
-export function Markdown({ text }: { text: string }) {
-  const html = useMemo(() => {
-    const out: string[] = [];
-    const lines = text.split(/\r?\n/);
-    let i = 0;
-    let para: string[] = [];
-    const flush = () => {
-      if (para.length) out.push(`<p class="my-2 text-[12px] leading-relaxed text-content-muted">${inline(para.join(' '))}</p>`);
-      para = [];
-    };
-    while (i < lines.length) {
-      const l = lines[i];
-      if (/^```/.test(l)) {
-        flush();
-        const buf: string[] = [];
-        i++;
-        while (i < lines.length && !/^```/.test(lines[i])) buf.push(lines[i++]);
-        i++;
-        out.push(`<pre class="my-2 overflow-x-auto rounded-lg bg-surface-sunken p-3 font-mono text-[11px] leading-relaxed text-content">${esc(buf.join('\n'))}</pre>`);
-        continue;
-      }
-      const h = l.match(/^(#{1,6})\s+(.*)$/);
-      if (h) {
-        flush();
-        const lvl = h[1].length;
-        const cls = lvl === 1 ? 'mt-1 text-base font-semibold' : lvl === 2 ? 'mt-4 text-sm font-semibold' : 'mt-3 text-[13px] font-semibold';
-        out.push(`<h${lvl} class="${cls} text-content">${inline(h[2].replace(/\s#+$/, ''))}</h${lvl}>`);
-        i++;
-        continue;
-      }
-      if (/^\s*([-*+]|\d+\.)\s+/.test(l)) {
-        flush();
-        const items: string[] = [];
-        const ordered = /^\s*\d+\./.test(l);
-        while (i < lines.length && /^\s*([-*+]|\d+\.)\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*([-*+]|\d+\.)\s+/, ''));
-        out.push(`<${ordered ? 'ol' : 'ul'} class="my-2 ml-5 ${ordered ? 'list-decimal' : 'list-disc'} space-y-0.5 text-[12px] text-content-muted">${items.map((it) => `<li>${inline(it)}</li>`).join('')}</${ordered ? 'ol' : 'ul'}>`);
-        continue;
-      }
-      if (/^\s*>\s?/.test(l)) {
-        flush();
-        const buf: string[] = [];
-        while (i < lines.length && /^\s*>\s?/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, ''));
-        out.push(`<blockquote class="my-2 border-l-2 border-edge-default pl-3 text-[12px] italic text-content-muted">${inline(buf.join(' '))}</blockquote>`);
-        continue;
-      }
-      if (/^\s*(-{3,}|\*{3,})\s*$/.test(l)) {
-        flush();
-        out.push('<hr class="my-3 border-edge-subtle" />');
-        i++;
-        continue;
-      }
-      if (!l.trim()) {
-        flush();
-        i++;
-        continue;
-      }
-      para.push(l.trim());
-      i++;
-    }
-    flush();
-    return out.join('');
-  }, [text]);
-  return <div className='max-w-none' dangerouslySetInnerHTML={{ __html: html }} />;
-}

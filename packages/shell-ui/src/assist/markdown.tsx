@@ -8,8 +8,14 @@ import { cn } from '@adhar-console/utils'
  * quotes, bold, italic, links and paragraphs. Never injects HTML — every
  * construct becomes a React element, so model output cannot smuggle markup.
  */
-export function Markdown({ text, className }: { text: string; className?: string }) {
+export function Markdown(
+  { text, className, images, resolveSrc }: {
+    text: string
+    className?: string
+  } & InlineOpts,
+) {
   const blocks = useMemo(() => parseBlocks(text), [text])
+  const opts: InlineOpts = { images, resolveSrc }
   return (
     <div className={cn('space-y-2.5', className)}>
       {blocks.map((b, i) => {
@@ -22,24 +28,38 @@ export function Markdown({ text, className }: { text: string; className?: string
                 <button type="button" onClick={() => void navigator.clipboard?.writeText(b.text)} className="absolute bottom-2 right-2 rounded bg-code-raised px-1.5 py-0.5 text-[10px] text-code-fg/70 opacity-0 transition-opacity hover:text-white group-hover/code:opacity-100">copy</button>
               </div>
             )
-          case 'heading':
-            return <div key={i} className={cn('font-semibold tracking-tight text-content', b.level <= 2 ? 'text-[14px]' : 'text-[13px]')}>{inline(b.text)}</div>
+          case 'heading': {
+            // A real heading element. A README is a document with a structure,
+            // and a screen reader cannot navigate a stack of divs.
+            const H = (`h${Math.min(6, Math.max(1, b.level))}`) as 'h1'
+            return (
+              <H
+                key={i}
+                className={cn(
+                  'font-semibold tracking-tight text-content',
+                  b.level === 1 ? 'text-[16px]' : b.level === 2 ? 'text-[14px]' : 'text-[13px]',
+                )}
+              >
+                {inline(b.text, opts)}
+              </H>
+            )
+          }
           case 'ul':
-            return <ul key={i} className="list-disc space-y-1 pl-5 marker:text-content-subtle">{b.items.map((it, j) => <li key={j}>{inline(it)}</li>)}</ul>
+            return <ul key={i} className="list-disc space-y-1 pl-5 marker:text-content-subtle">{b.items.map((it, j) => <li key={j}>{inline(it, opts)}</li>)}</ul>
           case 'ol':
-            return <ol key={i} className="list-decimal space-y-1 pl-5 marker:text-content-subtle">{b.items.map((it, j) => <li key={j}>{inline(it)}</li>)}</ol>
+            return <ol key={i} className="list-decimal space-y-1 pl-5 marker:text-content-subtle">{b.items.map((it, j) => <li key={j}>{inline(it, opts)}</li>)}</ol>
           case 'quote':
-            return <blockquote key={i} className="border-l-2 border-brand-400/60 pl-3 text-content-muted">{inline(b.text)}</blockquote>
+            return <blockquote key={i} className="border-l-2 border-brand-400/60 pl-3 text-content-muted">{inline(b.text, opts)}</blockquote>
           case 'table':
             return (
               <div key={i} className="overflow-x-auto rounded-lg border border-edge-subtle">
                 <table className="w-full text-[12px]">
                   <thead className="bg-surface-sunken/60 text-[10px] uppercase tracking-wider text-content-subtle">
-                    <tr>{b.head.map((h, j) => <th key={j} className="px-2.5 py-1.5 text-left font-semibold">{inline(h)}</th>)}</tr>
+                    <tr>{b.head.map((h, j) => <th key={j} className="px-2.5 py-1.5 text-left font-semibold">{inline(h, opts)}</th>)}</tr>
                   </thead>
                   <tbody className="divide-y divide-edge-subtle">
                     {b.rows.map((r, j) => (
-                      <tr key={j}>{r.map((c, k) => <td key={k} className="px-2.5 py-1.5 align-top text-content">{inline(c)}</td>)}</tr>
+                      <tr key={j}>{r.map((c, k) => <td key={k} className="px-2.5 py-1.5 align-top text-content">{inline(c, opts)}</td>)}</tr>
                     ))}
                   </tbody>
                 </table>
@@ -48,7 +68,7 @@ export function Markdown({ text, className }: { text: string; className?: string
           case 'hr':
             return <hr key={i} className="border-edge-subtle" />
           default:
-            return <p key={i}>{inline(b.text)}</p>
+            return <p key={i}>{inline(b.text, opts)}</p>
         }
       })}
     </div>
@@ -136,7 +156,53 @@ function parseBlocks(src: string): Block[] {
   return out
 }
 
-function inline(text: string): ReactNode[] {
+/**
+ * How images are treated.
+ *
+ * `alt` is the assistant's rule: model output must never make this console
+ * fetch from someone else's CDN, and the console has to work air-gapped.
+ * `show` is for the user's own repository content, where a README whose every
+ * badge and screenshot is a word of grey text is not the README.
+ */
+export type ImagePolicy = 'alt' | 'show'
+
+export interface InlineOpts {
+  images?: ImagePolicy
+  /** Turns a README-relative `./docs/x.png` into something fetchable. */
+  resolveSrc?(src: string): string | undefined
+}
+
+function imageNode(
+  key: number,
+  alt: string,
+  src: string,
+  opts: InlineOpts,
+): ReactNode {
+  if (opts.images !== 'show') {
+    return alt
+      ? <span key={key} className="rounded bg-surface-sunken px-1.5 py-0.5 text-[11px] text-content-muted">{alt}</span>
+      : null
+  }
+  const resolved = opts.resolveSrc ? opts.resolveSrc(src) : src
+  // A relative path nothing can resolve would render as a broken image icon,
+  // which is worse than the alt text it replaced.
+  if (!resolved) {
+    return alt
+      ? <span key={key} className="rounded bg-surface-sunken px-1.5 py-0.5 text-[11px] text-content-muted">{alt}</span>
+      : null
+  }
+  return (
+    <img
+      key={key}
+      src={resolved}
+      alt={alt}
+      loading="lazy"
+      className="inline-block max-w-full align-middle"
+    />
+  )
+}
+
+function inline(text: string, opts: InlineOpts = {}): ReactNode[] {
   return tokenizeInline(text).map((t, k) => {
     switch (t.kind) {
       case 'code':
@@ -148,9 +214,13 @@ function inline(text: string): ReactNode[] {
       case 'link':
         return <a key={k} href={t.href} target="_blank" rel="noreferrer" className="text-brand-700 underline decoration-brand-300 underline-offset-2 hover:decoration-brand-600 dark:text-brand-300">{t.text}</a>
       case 'image':
-        return t.alt
-          ? <span key={k} className="rounded bg-surface-sunken px-1.5 py-0.5 text-[11px] text-content-muted">{t.alt}</span>
-          : null
+        return imageNode(k, t.alt, t.src, opts)
+      case 'image-link':
+        return (
+          <a key={k} href={t.href} target="_blank" rel="noreferrer" className="inline-block align-middle">
+            {imageNode(k, t.alt, t.src, opts)}
+          </a>
+        )
       default:
         return t.text
     }

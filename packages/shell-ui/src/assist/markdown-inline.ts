@@ -37,6 +37,11 @@ export type InlineToken =
 const INLINE_RE =
   /(`[^`]+`|\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)|!\[[^\]]*\]\([^)]*\)|\*\*[^*]+\*\*|\*[^*]+\*|_[^_]+_|\[[^\]]+\]\([^)]+\))/g
 
+/** The URL out of `src "optional title"`, which is valid markdown. */
+function srcOf(target: string): string {
+  return target.trim().split(/\s+/)[0] ?? ''
+}
+
 export function tokenizeInline(text: string): InlineToken[] {
   const out: InlineToken[] = []
   let last = 0
@@ -47,12 +52,13 @@ export function tokenizeInline(text: string): InlineToken[] {
     if (tok.startsWith('`')) {
       out.push({ kind: 'code', text: tok.slice(1, -1) })
     } else if (tok.startsWith('[![')) {
-      // Linked image: keep the link, show the alt where the badge would be.
-      const mm = /^\[!\[([^\]]*)\]\([^)]*\)\]\(([^)]*)\)$/.exec(tok)
-      if (mm) out.push({ kind: 'link', text: mm[1] || 'badge', href: mm[2] })
+      // Linked image: a README's badge row. Both the badge and where it links
+      // are kept; the renderer decides whether to fetch the badge.
+      const mm = /^\[!\[([^\]]*)\]\(([^)]*)\)\]\(([^)]*)\)$/.exec(tok)
+      if (mm) out.push({ kind: 'image-link', alt: mm[1], src: srcOf(mm[2]), href: mm[3] })
     } else if (tok.startsWith('![')) {
-      const mm = /^!\[([^\]]*)\]\([^)]*\)$/.exec(tok)
-      if (mm) out.push({ kind: 'image', alt: mm[1] })
+      const mm = /^!\[([^\]]*)\]\(([^)]*)\)$/.exec(tok)
+      if (mm) out.push({ kind: 'image', alt: mm[1], src: srcOf(mm[2]) })
     } else if (tok.startsWith('**')) {
       out.push({ kind: 'strong', text: tok.slice(2, -2) })
     } else if (tok.startsWith('[')) {

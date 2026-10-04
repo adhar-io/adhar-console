@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { EmptyState, Markdown, Spinner } from '@adhar-console/shell-ui';
+import { EmptyState, Markdown, Spinner, useGiteaOrg } from '@adhar-console/shell-ui';
+import { dirOf, resolveReadmeImage } from '../data/readme-assets.ts';
 import type { gitea } from '@adhar-console/api-clients';
 import { useBranches, useFile, useTree } from '../data/git.ts';
 import { CodeEditor } from './code-editor.tsx';
@@ -228,7 +229,7 @@ function FileView({
     );
   }
 
-  return <FileContents data={f.data} path={path} />;
+  return <FileContents data={f.data} path={path} repo={repo} branch={branch} />;
 }
 
 /**
@@ -239,7 +240,14 @@ function FileView({
  * for Monaco to tokenise without freezing the tab falls back to plain text,
  * and everything else goes to the editor.
  */
-function FileContents({ data, path }: { data: gitea.FileContent; path: string }) {
+function FileContents(
+  { data, path, repo, branch }: {
+    data: gitea.FileContent;
+    path: string;
+    repo: string;
+    branch: string;
+  },
+) {
   const decoded = useMemo(
     () => (data.encoding === 'base64' ? safeAtob(data.content) : data.content),
     [data],
@@ -247,6 +255,14 @@ function FileContents({ data, path }: { data: gitea.FileContent; path: string })
   const language = useMemo(() => languageForFilename(path), [path]);
   const name = path.split('/').pop() ?? path;
   const isMarkdown = language === 'markdown';
+  // A README's images are written relative to the file. Pointed at Gitea's raw
+  // endpoint through the console's own proxy they just load — including in a
+  // private repository, and with no call to anyone else's CDN.
+  const org = useGiteaOrg();
+  const imageCtx = useMemo(
+    () => ({ owner: org, repo, ref: branch, dir: dirOf(path) }),
+    [org, repo, branch, path],
+  );
   // Markdown opens rendered, the way every forge shows a README. The source is
   // one click away, because this is still a file browser.
   const [raw, setRaw] = useState(false);
@@ -293,7 +309,12 @@ function FileContents({ data, path }: { data: gitea.FileContent; path: string })
         }
       >
         <div className='max-h-[62vh] overflow-auto px-5 py-4'>
-          <Markdown text={decoded} className='text-[13px] leading-relaxed' />
+          <Markdown
+            text={decoded}
+            className='text-[13px] leading-relaxed'
+            images='show'
+            resolveSrc={(src) => resolveReadmeImage(src, imageCtx)}
+          />
         </div>
       </Shell>
     );

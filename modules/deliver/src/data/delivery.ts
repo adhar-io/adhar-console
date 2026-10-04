@@ -272,6 +272,22 @@ export function useAbortRollout() {
   })
 }
 
+/**
+ * Clear an abort and run the rollout again.
+ *
+ * The client has had this since it was written; nothing called it, so an
+ * aborted or degraded rollout could be looked at from the console but only
+ * recovered from a terminal.
+ */
+export function useRetryRollout() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ namespace, name }: { namespace: string; name: string }) =>
+      rolloutsClient.retryRollout(namespace, name),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['rollouts'] }),
+  })
+}
+
 /* ─────────── Harbor ─────────── */
 
 export function useRepositories() {

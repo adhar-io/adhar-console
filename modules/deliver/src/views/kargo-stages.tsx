@@ -32,17 +32,8 @@ import {
   useStages,
   useWarehouses,
 } from '../data/delivery.ts'
+import { stageStatus } from '../data/stage-order.ts'
 
-const PHASE_KIND: Record<string, StatusKind> = {
-  Steady: 'healthy',
-  Promoting: 'progressing',
-  Verifying: 'progressing',
-  Pending: 'info',
-  Failed: 'failed',
-  Erroring: 'failed',
-  NotApplicable: 'unknown',
-  Unknown: 'unknown',
-}
 const HEALTH_KIND: Record<string, StatusKind> = {
   Healthy: 'healthy',
   Unhealthy: 'degraded',
@@ -81,9 +72,15 @@ function verificationKind(phase?: string): StatusKind {
   }
 }
 
-/** A stage is "moving" when a promotion is running against it. */
+/**
+ * A stage is "moving" when a promotion is running against it.
+ *
+ * `status.phase` is deprecated and reports `NotApplicable` on a current
+ * cluster, so `status.health` is checked first here too — otherwise a stage
+ * that is actively progressing never looks busy.
+ */
 function isBusy(s: kargo.Stage): boolean {
-  return s.phase === 'Promoting' || s.phase === 'Verifying' || !!s.currentPromotion
+  return stageStatus(s).kind === 'progressing' || !!s.currentPromotion
 }
 
 /* ─────────── canvas layout constants ─────────── */
@@ -168,9 +165,14 @@ export function KargoStages() {
   const stats = useMemo(() => {
     const s = { steady: 0, active: 0, failed: 0, unhealthy: 0, verifying: 0, running: 0, failedPromos: 0 }
     for (const st of stageList) {
-      if (st.phase === 'Steady') s.steady++
-      if (st.phase === 'Promoting' || st.phase === 'Verifying' || st.phase === 'Pending') s.active++
-      if (st.phase === 'Failed' || st.phase === 'Erroring') s.failed++
+      // Read through `stageStatus`: Kargo deprecated `status.phase` and a
+      // current cluster reports `NotApplicable` for every stage, so counting
+      // phases directly made this strip read 0 steady / 0 active / 0 needing
+      // attention while three stages sat there healthy and verified.
+      const kind = stageStatus(st).kind
+      if (kind === 'healthy') s.steady++
+      if (kind === 'progressing') s.active++
+      if (kind === 'failed') s.failed++
       if (st.health === 'Unhealthy') s.unhealthy++
       if (st.verification?.phase === 'Running' || st.verification?.phase === 'Pending') s.verifying++
     }
@@ -228,8 +230,7 @@ export function KargoStages() {
         if (!from) continue
         downstream.set(u, [...(downstream.get(u) ?? []), s.name])
         const up = byName.get(u)
-        const kind = (up?.health ? HEALTH_KIND[up.health] : undefined) ??
-          PHASE_KIND[up?.phase ?? 'Unknown'] ?? 'unknown'
+        const kind = up ? stageStatus(up).kind : 'unknown'
         edges.push({
           ...edgeBetween(from, to, layout.nodeWidth, layout.nodeHeight),
           kind,
@@ -245,16 +246,17 @@ export function KargoStages() {
   const legend = useMemo(() => {
     const seen = new Map<StatusKind, string>()
     for (const s of stageList) {
-      if (s.health) seen.set(HEALTH_KIND[s.health] ?? 'unknown', s.health)
-      else seen.set(PHASE_KIND[s.phase] ?? 'unknown', s.phase)
+      const st = stageStatus(s)
+      seen.set(st.kind, st.label)
     }
     return [...seen].map(([kind, label]) => ({ kind, label })).sort((a, b) => a.label.localeCompare(b.label))
   }, [stageList])
 
   const visibleStage = (s: kargo.Stage) => {
-    if (phaseF === 'attention') return s.phase === 'Failed' || s.phase === 'Erroring' || s.health === 'Unhealthy' || (s.issues?.length ?? 0) > 0
-    if (phaseF === 'active') return s.phase === 'Promoting' || s.phase === 'Verifying' || s.phase === 'Pending' || !!s.currentPromotion
-    if (phaseF === 'steady') return s.phase === 'Steady'
+    const kind = stageStatus(s).kind
+    if (phaseF === 'attention') return kind === 'failed' || s.health === 'Unhealthy' || (s.issues?.length ?? 0) > 0
+    if (phaseF === 'active') return kind === 'progressing' || !!s.currentPromotion
+    if (phaseF === 'steady') return kind === 'healthy'
     return true
   }
 
@@ -708,8 +710,8 @@ function StageNode({
             {s.upstream?.length ? `← ${s.upstream.join(', ')}` : s.warehouse ? `← warehouse ${s.warehouse}` : 'no upstream'}
           </div>
         </div>
-        <StatusBadge kind={PHASE_KIND[s.phase] ?? 'unknown'}>
-          {busy ? <span className="inline-flex items-center gap-1"><Spinner size={9} /> {s.phase}</span> : s.phase}
+        <StatusBadge kind={stageStatus(s).kind}>
+          {busy ? <span className="inline-flex items-center gap-1"><Spinner size={9} /> {stageStatus(s).label}</span> : stageStatus(s).label}
         </StatusBadge>
       </div>
 
@@ -799,10 +801,14 @@ function StageDetailPanel({
             <button type="button" onClick={onClose} aria-label="Close (Esc)" className="-mr-1 rounded px-1.5 py-0.5 text-content-muted hover:bg-surface-sunken hover:text-content">✕</button>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <StatusBadge kind={PHASE_KIND[s.phase] ?? 'unknown'}>
-              {busy ? <span className="inline-flex items-center gap-1"><Spinner size={9} /> {s.phase}</span> : s.phase}
+            {/* One badge. `stageStatus` already prefers health over the
+                deprecated phase, so a second health badge beside it repeated
+                the same word — or, worse, sat next to `NotApplicable`. */}
+            <StatusBadge kind={stageStatus(s).kind}>
+              {busy
+                ? <span className="inline-flex items-center gap-1"><Spinner size={9} /> {stageStatus(s).label}</span>
+                : stageStatus(s).label}
             </StatusBadge>
-            {s.health ? <StatusBadge kind={HEALTH_KIND[s.health] ?? 'unknown'}>{s.health}</StatusBadge> : null}
             {s.verification ? (
               <StatusBadge kind={verificationKind(s.verification.phase)}>verify · {s.verification.phase}</StatusBadge>
             ) : null}
@@ -986,7 +992,7 @@ function StageCard({
   onRefresh(): void
   onAbort?(): void
 }) {
-  const tone = PHASE_KIND[s.phase] ?? 'unknown'
+  const tone = stageStatus(s).kind
   const current = freightList.find((f) => f.id === s.currentFreight)
   const lastPromo = promotions.find((p) => p.stage === s.name)
   const busy = isBusy(s)
@@ -1002,7 +1008,7 @@ function StageCard({
             </div>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
-            <StatusBadge kind={tone}>{busy ? <span className="inline-flex items-center gap-1"><Spinner size={9} /> {s.phase}</span> : s.phase}</StatusBadge>
+            <StatusBadge kind={tone}>{busy ? <span className="inline-flex items-center gap-1"><Spinner size={9} /> {stageStatus(s).label}</span> : stageStatus(s).label}</StatusBadge>
             {s.health ? <StatusBadge kind={HEALTH_KIND[s.health] ?? 'unknown'}>{s.health}</StatusBadge> : null}
           </div>
         </div>
@@ -1237,7 +1243,7 @@ function ApproveModal({
               className={cn('flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-[12px]', picked === s.name ? 'border-brand-400 bg-brand-50 dark:bg-brand-500/10' : 'border-edge-default bg-surface-raised hover:border-edge-strong')}
             >
               <span className="font-semibold text-content">{s.name}</span>
-              <StatusBadge kind={PHASE_KIND[s.phase] ?? 'unknown'}>{s.phase}</StatusBadge>
+              <StatusBadge kind={stageStatus(s).kind}>{stageStatus(s).label}</StatusBadge>
             </button>
           ))}
         </div>

@@ -43,12 +43,23 @@ export function RequirePermission({
     )
   }
   if (!allowed && readOnly) {
+    // Dimmed and inert, and that is all. The pill used to be absolutely
+    // positioned at `right-3 top-3` OVER this content: fine above a large
+    // form, and on top of the words when the gated thing is a button — which
+    // is what "Invite member", "New custom role" and every other gated action
+    // looked like, with a role pill sitting across the label.
+    //
+    // It was also saying nothing new. Every settings view but one already
+    // declares `required` on its ViewShell, which renders the same pill beside
+    // the page title, so the requirement is stated once, in a place that
+    // cannot collide with a control.
     return (
-      <div className="relative" aria-disabled="true">
-        <div className="pointer-events-none opacity-60">{children}</div>
-        <div className="pointer-events-none absolute right-3 top-3">
-          <RequiredRolePill required={required} />
-        </div>
+      <div
+        className="pointer-events-none opacity-60"
+        aria-disabled="true"
+        title={`Requires ${required.map((r) => ROLE_LABEL[r]).join(' or ')}`}
+      >
+        {children}
       </div>
     )
   }

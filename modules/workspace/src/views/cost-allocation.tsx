@@ -79,7 +79,7 @@ export function CostAllocation() {
               className={cn(
                 'inline-flex h-7 items-center rounded-md px-2.5 text-[12px] font-medium transition-all',
                 on
-                  ? 'bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-200'
+                  ? 'bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-200 dark:bg-brand-500/15 dark:text-brand-200 dark:ring-brand-500/40'
                   : 'text-content-muted hover:bg-surface-sunken hover:text-content',
               )}
             >

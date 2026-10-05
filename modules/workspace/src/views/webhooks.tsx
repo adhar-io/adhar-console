@@ -342,7 +342,7 @@ function WebhookEditor({
                   className={cn(
                     'flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-[12px] transition-colors',
                     on
-                      ? 'border-brand-300 bg-brand-50 text-brand-900'
+                      ? 'border-brand-300 bg-brand-50 text-brand-900 dark:border-brand-500/40 dark:bg-brand-500/15 dark:text-brand-200'
                       : 'border-edge-default bg-surface-raised text-content-muted hover:bg-surface-sunken',
                   )}
                 >

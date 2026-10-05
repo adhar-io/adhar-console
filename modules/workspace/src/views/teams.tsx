@@ -40,6 +40,7 @@ export function Teams() {
   return (
     <ViewShell
       title="Teams"
+      required={['admin', 'owner']}
       description="Teams grant project-scoped access to groups of members. Each team maps to a Keycloak group (ws-team-<slug>) so cluster RBAC follows the console."
       required={['admin', 'owner']}
       actions={

@@ -113,7 +113,7 @@ export function Plan() {
                 key={t.id}
                 className={
                   active
-                    ? 'rounded-xl border-2 border-brand-500 bg-brand-50/40 p-4 shadow-md'
+                    ? 'rounded-xl border-2 border-brand-500 bg-brand-50/40 p-4 shadow-md dark:bg-brand-500/10'
                     : 'rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm'
                 }
               >

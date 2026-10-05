@@ -201,7 +201,7 @@ function CustomRolesCard({
           {roles.map((r) => (
             <div key={r.id} className="rounded-2xl border border-edge-default bg-surface-raised p-4 shadow-sm">
               <div className="flex items-center justify-between gap-2">
-                <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-800 ring-1 ring-inset ring-brand-200">
+                <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-800 dark:bg-brand-500/15 dark:text-brand-200 ring-1 ring-inset ring-brand-200">
                   {r.name}
                 </span>
                 <span className="font-mono text-[11px] tabular-nums text-content-subtle">
@@ -342,7 +342,7 @@ function RoleEditor({
                     <button
                       type="button"
                       onClick={() => toggleGroup(g, !all)}
-                      className="text-[11px] font-medium text-brand-700 hover:text-brand-800"
+                      className="text-[11px] font-medium text-brand-700 hover:text-brand-800 dark:text-brand-300 dark:hover:text-brand-200"
                     >
                       {all ? 'Clear group' : 'Select all'}
                     </button>
@@ -358,7 +358,7 @@ function RoleEditor({
                           className={cn(
                             'flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-[12px] transition-colors',
                             on
-                              ? 'border-brand-300 bg-brand-50 text-brand-900'
+                              ? 'border-brand-300 bg-brand-50 text-brand-900 dark:border-brand-500/40 dark:bg-brand-500/15 dark:text-brand-200'
                               : 'border-edge-default bg-surface-raised text-content-muted hover:bg-surface-sunken',
                           )}
                         >
@@ -504,7 +504,7 @@ function RoleDetailGrid() {
               {ROLE_DESCRIPTION[r]}
             </p>
             <details className="mt-3 text-[11px]">
-              <summary className="cursor-pointer text-brand-700 hover:text-brand-800">
+              <summary className="cursor-pointer text-brand-700 hover:text-brand-800 dark:text-brand-300 dark:hover:text-brand-200">
                 View permissions
               </summary>
               <ul className="mt-2 grid grid-cols-1 gap-x-3 gap-y-0.5 sm:grid-cols-2">

@@ -193,7 +193,11 @@ export default function WorkspaceHome({ section: urlSection }: { section?: strin
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[260px_1fr]">
-        <aside className="space-y-5 lg:sticky lg:top-4 lg:self-start">
+        {/* The settings nav sat directly on the app background with no surface
+            of its own, so on every page it read as loose text floating beside
+            the content rather than as the panel it is. Every other navigation
+            surface in the console is raised. */}
+        <aside className="space-y-5 rounded-xl border border-edge-default bg-surface-raised p-3 shadow-sm lg:sticky lg:top-4 lg:self-start">
           {GROUPS.map((g) => (
             <div key={g.label}>
               <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
@@ -215,7 +219,7 @@ export default function WorkspaceHome({ section: urlSection }: { section?: strin
                       className={cn(
                         'group flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left transition-colors',
                         active
-                          ? 'bg-brand-50 text-brand-800 ring-1 ring-inset ring-brand-200'
+                          ? 'bg-brand-50 text-brand-800 ring-1 ring-inset ring-brand-200 dark:bg-brand-500/15 dark:text-brand-200 dark:ring-brand-500/40'
                           : 'text-content-muted hover:bg-surface-sunken hover:text-content',
                       )}
                     >
@@ -223,7 +227,7 @@ export default function WorkspaceHome({ section: urlSection }: { section?: strin
                         className={cn(
                           'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md',
                           active
-                            ? 'bg-surface-raised text-brand-700 ring-1 ring-brand-200'
+                            ? 'bg-surface-raised text-brand-700 ring-1 ring-brand-200 dark:text-brand-300 dark:ring-brand-500/40'
                             : 'text-content-subtle group-hover:text-content',
                         )}
                       >

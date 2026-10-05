@@ -198,7 +198,7 @@ function Preview() {
         <button className="h-9 rounded-md bg-brand-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-brand-700">
           Primary
         </button>
-        <button className="h-9 rounded-md border border-brand-200 bg-brand-50 px-4 text-sm font-medium text-brand-700 transition-colors hover:bg-brand-100">
+        <button className="h-9 rounded-md border border-brand-200 bg-brand-50 dark:border-brand-500/40 dark:bg-brand-500/15 dark:text-brand-200 px-4 text-sm font-medium text-brand-700 transition-colors hover:bg-brand-100">
           Soft
         </button>
         <button className="h-9 rounded-md border border-edge-strong bg-surface-raised px-4 text-sm font-medium text-content transition-colors hover:bg-surface-sunken">
@@ -257,7 +257,7 @@ function Preview() {
         <span>
           Body text uses <code className="font-mono text-content">--color-content</code>.
         </span>
-        <a className="font-medium text-brand-700 hover:text-brand-800" href="#">
+        <a className="font-medium text-brand-700 hover:text-brand-800 dark:text-brand-300 dark:hover:text-brand-200" href="#">
           A primary link
         </a>
         <span className="text-content-subtle">

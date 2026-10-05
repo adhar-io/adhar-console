@@ -105,6 +105,20 @@ export const CURATION: Record<string, Curation> = {
     description: 'Event streaming — Kafka / Strimzi topics with retention and partitions.',
     connectionSecret: { nameFromSpec: 'writeConnectionSecretToRef.name', nameTemplate: '<name>-conn' },
   },
+  CompositeSearch: {
+    family: 'data',
+    icon: 'compass',
+    description:
+      'Search clusters — an OpenSearch cluster of your own, with generated credentials, index lifecycle and daily snapshots.',
+    connectionSecret: { nameTemplate: '<name>-admin-credentials' },
+  },
+  CompositeVector: {
+    family: 'data',
+    icon: 'layers',
+    description:
+      'Vector databases — Qdrant for embeddings, RAG and semantic search, with a generated API key and your declared collections.',
+    connectionSecret: { nameTemplate: '<name>-api-key' },
+  },
   CompositeSecret: {
     family: 'data',
     icon: 'key',

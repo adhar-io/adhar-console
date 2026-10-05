@@ -64,13 +64,10 @@ import {
 } from '~/data/scorecard.ts'
 import type { CatalogSearch } from './catalog.tsx'
 import {
-  deleteView,
   isStarred,
   pushRecentlyViewed,
-  saveView,
   toggleStar,
   useRecentlyViewed,
-  useSavedViews,
   useStars,
 } from '~/data/catalog-prefs.ts'
 
@@ -184,15 +181,6 @@ const EMPTY_FILTER_SEARCH: Partial<SearchState> = {
   sort: undefined,
 }
 
-/** Serialise the current search into a plain string record for a saved view. */
-function searchToRecord(s: SearchState): Record<string, string> {
-  const out: Record<string, string> = {}
-  for (const [k, v] of Object.entries(s)) {
-    if (k === 'section') continue
-    if (typeof v === 'string' && v) out[k] = v
-  }
-  return out
-}
 
 /* ─────────── "owned by me" resolution ─────────── */
 
@@ -292,7 +280,6 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
   const list = useMemo(() => (q.data ?? []).map((e) => publicizeEntity(e, pub)), [q.data, pub])
   const stars = useStars()
   const recents = useRecentlyViewed()
-  const savedViews = useSavedViews()
   const user = useOptionalSession()?.user ?? PENDING_USER
   const navigate = useNavigate()
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -600,12 +587,6 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
         onText={setText}
         onClearSearch={() => setText('')}
         searchInputRef={searchInputRef}
-        savedViews={savedViews}
-        onSaveView={(name) => saveView(name, searchToRecord(search))}
-        onApplyView={(v) =>
-          patchSearch({ ...EMPTY_FILTER_SEARCH, ...(v.search as Partial<SearchState>) })
-        }
-        onDeleteView={deleteView}
       />
 
       {selectedEntity ? (
@@ -1282,10 +1263,6 @@ function BrowseAll({
   onText,
   onClearSearch,
   searchInputRef,
-  savedViews,
-  onSaveView,
-  onApplyView,
-  onDeleteView,
 }: {
   list: Entity[]
   total: number
@@ -1317,10 +1294,6 @@ function BrowseAll({
   onText(v: string): void
   onClearSearch(): void
   searchInputRef: React.RefObject<HTMLInputElement | null>
-  savedViews: SavedViewLike[]
-  onSaveView(name: string): void
-  onApplyView(v: SavedViewLike): void
-  onDeleteView(name: string): void
 }) {
   const [visible, setVisible] = useState(PAGE_SIZE)
   // Reset paging whenever the result set changes (filter / search / view).
@@ -1344,29 +1317,11 @@ function BrowseAll({
   const askAbout = useCallback((e: Entity) => askAboutEntity(ai, e), [ai])
 
   const groups = useMemo(() => groupEntities(shown, group), [shown, group])
-  const resultLabel = `${list.length} ${list.length === 1 ? 'result' : 'results'}${
-    list.length !== total ? ` of ${total}` : ''
-  }`
-
   return (
     <section className="space-y-3">
       <SectionHeader
         eyebrow={searching ? 'Search' : 'Browse'}
         title={searching ? 'Search results' : 'All entities'}
-        right={
-          <div className="flex items-center gap-2">
-            <span aria-live="polite" className="tabular-nums">
-              {resultLabel}
-            </span>
-            <SavedViewsMenu
-              views={savedViews}
-              onSave={onSaveView}
-              onApply={onApplyView}
-              onDelete={onDeleteView}
-            />
-            <ExportMenu list={list} />
-          </div>
-        }
       />
 
       {/* One click per kind — the Filters popover still has the multi-select,
@@ -1495,10 +1450,6 @@ function BrowseAll({
 }
 
 /* Minimal shape shared with catalog-prefs' SavedView to avoid a hard coupling. */
-interface SavedViewLike {
-  name: string
-  search: Record<string, string>
-}
 
 /**
  * Keyboard grid navigation: arrow keys move focus between cards; Enter/Space
@@ -1544,161 +1495,7 @@ function estimateColumns(cards: HTMLElement[]): number {
 
 /* ─────────── saved views + export menus ─────────── */
 
-function SavedViewsMenu({
-  views,
-  onSave,
-  onApply,
-  onDelete,
-}: {
-  views: SavedViewLike[]
-  onSave(name: string): void
-  onApply(v: SavedViewLike): void
-  onDelete(name: string): void
-}) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const away = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    globalThis.addEventListener('mousedown', away)
-    return () => globalThis.removeEventListener('mousedown', away)
-  }, [open])
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        className="inline-flex h-7 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-[11px] font-medium text-content-muted shadow-sm hover:border-edge-strong hover:text-content"
-      >
-        Views
-        {views.length ? (
-          <span className="rounded-full bg-surface-sunken px-1 text-[10px] tabular-nums">
-            {views.length}
-          </span>
-        ) : null}
-        <span className="text-[9px] opacity-70">▾</span>
-      </button>
-      {open ? (
-        <div
-          role="menu"
-          className="pop-in absolute right-0 top-full z-30 mt-1.5 w-64 overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-xl"
-        >
-          <div className="max-h-64 overflow-y-auto py-1">
-            {views.length === 0 ? (
-              <div className="px-3 py-2 text-[11px] italic text-content-subtle">
-                No saved views yet.
-              </div>
-            ) : (
-              views.map((v) => (
-                <div
-                  key={v.name}
-                  className="group flex items-center justify-between gap-2 px-2 py-1 text-[12px] hover:bg-surface-sunken/60"
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onApply(v)
-                      setOpen(false)
-                    }}
-                    className="flex-1 truncate text-left text-content hover:text-brand-700 dark:hover:text-brand-300"
-                  >
-                    {v.name}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDelete(v.name)}
-                    aria-label={`Delete view ${v.name}`}
-                    className="opacity-0 transition group-hover:opacity-100 hover:text-rose-600"
-                  >
-                    <IconClose />
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              const name =
-                typeof globalThis.prompt === 'function' ? globalThis.prompt('Name this view') : null
-              if (name && name.trim()) onSave(name.trim())
-              setOpen(false)
-            }}
-            className="flex w-full items-center gap-1.5 border-t border-edge-subtle px-3 py-2 text-left text-[12px] font-medium text-brand-700 dark:text-brand-300 hover:bg-brand-50 dark:hover:bg-brand-500/10"
-          >
-            <IconPlus />
-            Save current view
-          </button>
-        </div>
-      ) : null}
-    </div>
-  )
-}
 
-function ExportMenu({ list }: { list: Entity[] }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const away = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    globalThis.addEventListener('mousedown', away)
-    return () => globalThis.removeEventListener('mousedown', away)
-  }, [open])
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        disabled={list.length === 0}
-        className="inline-flex h-7 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-[11px] font-medium text-content-muted shadow-sm hover:border-edge-strong hover:text-content disabled:opacity-50"
-      >
-        Export
-        <span className="text-[9px] opacity-70">▾</span>
-      </button>
-      {open ? (
-        <div
-          role="menu"
-          className="pop-in absolute right-0 top-full z-30 mt-1.5 w-40 overflow-hidden rounded-xl border border-edge-default bg-surface-raised py-1 shadow-xl"
-        >
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              downloadFile(
-                'catalog.json',
-                JSON.stringify(stripOrigin(list), null, 2),
-                'application/json',
-              )
-              setOpen(false)
-            }}
-            className="block w-full px-3 py-1.5 text-left text-[12px] text-content hover:bg-surface-sunken/60"
-          >
-            Download JSON
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              downloadFile('catalog.yaml', toYaml(stripOrigin(list)), 'text/yaml')
-              setOpen(false)
-            }}
-            className="block w-full px-3 py-1.5 text-left text-[12px] text-content hover:bg-surface-sunken/60"
-          >
-            Download YAML
-          </button>
-        </div>
-      ) : null}
-    </div>
-  )
-}
 
 function stripOrigin(list: Entity[]): Array<Omit<Entity, 'origin'>> {
   return list.map(({ origin: _origin, ...rest }) => rest)

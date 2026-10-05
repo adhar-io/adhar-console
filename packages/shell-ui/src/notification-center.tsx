@@ -27,8 +27,12 @@ import type { Facet, FacetValues } from './filter-model.ts'
  * Everything the platform tells you, in one inbox: workspace operations,
  * platform insights (events, GitOps drift, policy, certificates), Adhar AI
  * outcomes and your own notices. Filters by kind / source / unread, search,
- * paging, bulk mark-read / dismiss, insight cards with **Ask Adhar AI**, and a
- * one-click **Scan for insights** that reads the cluster with your RBAC.
+ * paging, bulk mark-read / dismiss, and insight cards with **Ask Adhar AI**.
+ *
+ * Running a scan is not offered here. The notification bell in the topbar
+ * still has **Scan for insights**, so the capability is one click away from
+ * anywhere rather than duplicated onto this page twice — it used to sit both
+ * in the page header and in the empty state.
  */
 
 const KINDS: Array<{ id: NotificationKind | ''; label: string }> = [
@@ -107,13 +111,7 @@ export function NotificationCenter() {
     setSelected(new Set())
   }
 
-  const runScan = async () => {
-    const n = await api.scan(true)
-    if (n === null) toast.error('Insights scan unavailable', { description: 'The console needs a database and cluster access to generate insights.' })
-    else if (n === 0) toast.info('Scan complete — nothing new', { description: 'No new warnings, drift, policy failures or expiring certificates since the last scan.' })
-    else toast.success(`${n} new insight${n === 1 ? '' : 's'}`, { description: 'Generated from Warning events, Argo CD, Kyverno and cert-manager with your permissions.' })
-    feed.refetch()
-  }
+
 
   const values = useMemo<FacetValues>(() => ({
     ...(kind ? { kind: [kind] } : {}),
@@ -137,9 +135,6 @@ export function NotificationCenter() {
         badge={api.unreadCount ? <StatusBadge kind="info">{api.unreadCount} unread</StatusBadge> : null}
         actions={
           <>
-            <Button variant="secondary" size="md" onClick={runScan} disabled={api.scanning || !live} loading={api.scanning} leading={api.scanning ? undefined : <IconRadar />}>
-              Scan for insights
-            </Button>
             <Button variant="secondary" size="md" onClick={() => { api.markAllRead(); toast.success('All notifications marked as read') }} disabled={!api.unreadCount} leading={<IconCheck />}>
               Mark all read
             </Button>
@@ -196,7 +191,7 @@ export function NotificationCenter() {
           </div>
         ) : items.length === 0 ? (
           <div className="p-10">
-            <EmptyState title={q || kind || source || unread ? 'Nothing matches' : "You're all caught up"} description={q || kind || source || unread ? 'Try loosening the filters.' : 'Operations, insights and Assist outcomes will show up here as they happen. Run a scan to look for insights now.'} action={<Button variant="secondary" size="md" onClick={runScan} disabled={api.scanning || !live} leading={<IconRadar />}>Scan for insights</Button>} />
+            <EmptyState title={q || kind || source || unread ? 'Nothing matches' : "You're all caught up"} description={q || kind || source || unread ? 'Try loosening the filters.' : 'Operations, insights and Assist outcomes will show up here as they happen.'} />
           </div>
         ) : (
           grouped.map(([day, list]) => (
@@ -335,6 +330,5 @@ const I = ({ children, size = 13 }: { children: ReactNode; size?: number }) => (
 const IconInfo = () => <I><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></I>
 const IconCheck = () => <I><path d="M20 6 9 17l-5-5" /></I>
 const IconX = () => <I size={12}><path d="M18 6 6 18M6 6l12 12" /></I>
-const IconRadar = () => <I><circle cx="12" cy="12" r="2" /><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4" /><path d="M19.1 4.9a10 10 0 0 1 0 14.2M4.9 19.1a10 10 0 0 1 0-14.2" /></I>
 const IconSpark = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden className="shrink-0"><path d="M12 2l1.9 5.6L19.5 9l-5.6 1.9L12 16.5l-1.9-5.6L4.5 9l5.6-1.4L12 2z" /></svg>
 const Spinner = () => <svg className="animate-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden><circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.25" strokeWidth="3" /><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" /></svg>

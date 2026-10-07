@@ -17,9 +17,9 @@ import type { XrFormField } from '../views/xr-list.tsx'
  * Two XRD shapes exist in the Adhar platform and both are handled:
  *   1. parameters-style — user inputs live under `spec.parameters.*`, and the
  *      XRD declares `spec.{compositionSelector, parameters, providerConfigRef,
- *      writeConnectionSecretToRef}` (e.g. CompositeDatabase, CompositeEnvironment).
+ *      writeConnectionSecretToRef}` (e.g. Database, Environment).
  *   2. flat-style — user inputs live directly under `spec.*` and there is no
- *      `parameters` bag (e.g. CompositeStorage, CompositeMessaging).
+ *      `parameters` bag (e.g. Storage, Messaging).
  * The parser detects which by whether `spec.properties.parameters` exists, so
  * the built payload always nests values where the live schema declares them.
  */
@@ -97,10 +97,10 @@ export interface XrdInfo {
   gvr: k8s.GVR
   group: string
   version: string
-  /** XR Kubernetes kind, e.g. `CompositeDatabase`. */
+  /** XR Kubernetes kind, e.g. `Database`. */
   kind: string
   plural: string
-  /** Human singular derived from the kind (e.g. `CompositeDatabase` → `Database`). */
+  /** Human singular derived from the kind (e.g. `Database` → `Database`). */
   humanSingular: string
   humanPlural: string
   namespaced: boolean
@@ -126,7 +126,7 @@ function pickVersion(xrd: XrdObject) {
   )
 }
 
-/** `CompositeDatabase` → `Database`; `CompositeCostTracker` → `Cost Tracker`. */
+/** `Database` → `Database`; `CostTracker` → `Cost Tracker`. */
 export function humanizeKind(kind: string): string {
   const stripped = kind.replace(/^Composite/, '') || kind
   return humanizeWords(stripped)

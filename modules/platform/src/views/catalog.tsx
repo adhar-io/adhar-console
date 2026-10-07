@@ -863,7 +863,7 @@ function syncedStats(items: XR[]): { applicable: boolean; synced: number } {
  *
  * Two rules, in order:
  *   1. Anything in an `adhar.io` group is one of the platform's OWN abstractions
- *      (CompositeCluster, CompositeDatabase, …) — it carries the Adhar symbol.
+ *      (Cluster, Database, …) — it carries the Adhar symbol.
  *   2. An operator-managed kind carries its upstream project's official mark
  *      where `shell-ui/brand-icons` has one.
  * Everything else falls back to the line glyph, which is still better than a

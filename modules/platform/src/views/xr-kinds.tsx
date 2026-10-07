@@ -61,140 +61,176 @@ export interface Curation {
  * generic glyph, so the catalog still registers them.
  */
 export const CURATION: Record<string, Curation> = {
-  CompositeApplication: {
+  Application: {
     family: 'compute',
     icon: 'app',
     description: 'End-to-end service claims composed through Crossplane.',
   },
-  CompositeService: { family: 'compute', icon: 'app', description: 'Kubernetes service workloads.' },
-  CompositePipeline: {
+  Service: { family: 'compute', icon: 'app', description: 'Kubernetes service workloads.' },
+  Pipeline: {
     family: 'compute',
     icon: 'git',
     description: 'CI/CD pipelines — Tekton composed into reusable pipelines.',
   },
-  CompositeGitOps: {
+  GitOps: {
     family: 'compute',
     icon: 'git',
     description: 'GitOps delivery wiring — Argo CD applications and projects.',
   },
-  CompositeScale: {
+  Scale: {
     family: 'compute',
     icon: 'gauge',
     description: 'Autoscaling policies — HPA-backed scaling for workloads.',
   },
-  CompositeWebhook: {
+  Webhook: {
     family: 'compute',
     icon: 'bolt',
     description: 'Webhook endpoints wired into cluster events.',
   },
-  CompositeDatabase: {
+  Database: {
     family: 'data',
     icon: 'database',
     description: 'Managed databases — PostgreSQL / MySQL / Redis / Valkey via Crossplane providers.',
     connectionSecret: { nameFromSpec: 'writeConnectionSecretToRef.name', nameTemplate: '<name>-conn' },
   },
-  CompositeStorage: {
+  Cache: {
+    family: 'data',
+    icon: 'zap',
+    description: 'A team Valkey instance — operator-managed, with its exporter and ServiceMonitor.',
+    connectionSecret: { nameTemplate: '<name>-cache' },
+  },
+  Bucket: {
+    family: 'data',
+    icon: 'archive',
+    description: 'An S3 bucket on the platform object store, with versioning, quota and lifecycle.',
+    connectionSecret: { nameTemplate: '<name>-bucket' },
+  },
+  Table: {
+    family: 'data',
+    icon: 'layers',
+    description: 'An Iceberg table in the platform lakehouse, queryable through Trino.',
+    connectionSecret: { nameTemplate: '<name>-table' },
+  },
+  Topic: {
+    family: 'data',
+    icon: 'radio',
+    description: 'A Kafka topic on the shared Strimzi cluster.',
+    connectionSecret: { nameTemplate: '<name>-topic' },
+  },
+  Queue: {
+    family: 'data',
+    icon: 'waves',
+    description: 'A RabbitMQ queue with its exchange binding and dead-letter queue.',
+    connectionSecret: { nameTemplate: '<name>-queue' },
+  },
+  Repository: {
+    family: 'compute',
+    icon: 'git',
+    description: 'A Gitea repository with its Harbor project and Nexus package repositories.',
+    connectionSecret: { nameTemplate: '<name>-repository' },
+  },
+  Storage: {
     family: 'data',
     icon: 'archive',
     description: 'Object / block / file storage claims — S3, MinIO, PVs.',
     connectionSecret: { nameFromSpec: 'writeConnectionSecretToRef.name', nameTemplate: '<name>-conn' },
   },
-  CompositeMessaging: {
+  Messaging: {
     family: 'data',
     icon: 'radio',
     description: 'Event streaming — Kafka / Strimzi topics with retention and partitions.',
     connectionSecret: { nameFromSpec: 'writeConnectionSecretToRef.name', nameTemplate: '<name>-conn' },
   },
-  CompositeSearch: {
+  Search: {
     family: 'data',
     icon: 'compass',
     description:
       'Search clusters — an OpenSearch cluster of your own, with generated credentials, index lifecycle and daily snapshots.',
     connectionSecret: { nameTemplate: '<name>-admin-credentials' },
   },
-  CompositeVector: {
+  Vector: {
     family: 'data',
     icon: 'layers',
     description:
       'Vector databases — Qdrant for embeddings, RAG and semantic search, with a generated API key and your declared collections.',
     connectionSecret: { nameTemplate: '<name>-api-key' },
   },
-  CompositeSecret: {
+  Secret: {
     family: 'data',
     icon: 'key',
     description: 'Synced secrets — External Secrets backed material.',
   },
-  CompositeSecretRotation: {
+  SecretRotation: {
     family: 'data',
     icon: 'key',
     description: 'Automated secret rotation policies.',
   },
-  CompositeBackupPolicy: {
+  BackupPolicy: {
     family: 'data',
     icon: 'archive',
     description: 'Backup policies — Velero schedules and retention.',
   },
-  CompositeRestore: {
+  Restore: {
     family: 'data',
     icon: 'archive',
     description: 'Restore operations from backups.',
   },
-  CompositeNetwork: {
+  Network: {
     family: 'connectivity',
     icon: 'network',
     description: 'Networks — VPC / VNet provisioned across clouds.',
   },
-  CompositeHealth: {
+  Health: {
     family: 'observability',
     icon: 'eye',
     description: 'Health probes and synthetic checks across targets.',
   },
-  CompositeMetrics: {
+  Metrics: {
     family: 'observability',
     icon: 'gauge',
     description: 'Metrics pipelines — Prometheus scrape + rules.',
   },
-  CompositeLogging: {
+  Logging: {
     family: 'observability',
     icon: 'waves',
     description: 'Log aggregation — Loki stacks.',
   },
-  CompositeTrace: {
+  Trace: {
     family: 'observability',
     icon: 'waves',
     description: 'Distributed tracing — Jaeger pipelines.',
   },
-  CompositeCostTracker: {
+  CostTracker: {
     family: 'observability',
     icon: 'coins',
     description: 'Cost tracking — OpenCost integration.',
   },
-  CompositeEnvironment: {
+  Environment: {
     family: 'governance',
     icon: 'shield',
     description: 'Namespace blueprints — RBAC, quotas, NetworkPolicy composed as one unit.',
   },
-  CompositeProject: {
+  Project: {
     family: 'governance',
     icon: 'shield',
     description: 'Project scaffolding — namespaces, teams, and defaults.',
   },
-  CompositeCluster: {
+  Cluster: {
     family: 'governance',
     icon: 'cluster',
     description: 'Managed clusters — EKS / AKS / GKE / K3s provisioned via Crossplane.',
   },
-  CompositePlatformConfig: {
+  PlatformConfig: {
     family: 'governance',
     icon: 'file',
     description: 'Platform-wide configuration bundles.',
   },
-  CompositeCompliancePolicy: {
+  CompliancePolicy: {
     family: 'governance',
     icon: 'shield',
     description: 'Compliance policies — Kyverno / Gatekeeper rule sets.',
   },
-  CompositeAuthStack: {
+  AuthStack: {
     family: 'governance',
     icon: 'key',
     description: 'Authentication stacks — Keycloak realms and clients.',
@@ -257,9 +293,9 @@ export function XrListForKind({
   kind,
   namespace,
 }: {
-  /** XR plural resource, e.g. `compositedatabases`. */
+  /** XR plural resource, e.g. `databases`. */
   resource?: string
-  /** XR kind, e.g. `CompositeDatabase`. */
+  /** XR kind, e.g. `Database`. */
   kind?: string
   namespace?: string
 }) {
@@ -324,16 +360,16 @@ export function XrListForKind({
  */
 
 export function ApplicationsView({ namespace }: { namespace?: string }) {
-  return <XrListForKind resource="compositeapplications" namespace={namespace} />
+  return <XrListForKind resource="applications" namespace={namespace} />
 }
 export function DatabasesView({ namespace }: { namespace?: string }) {
-  return <XrListForKind resource="compositedatabases" namespace={namespace} />
+  return <XrListForKind resource="databases" namespace={namespace} />
 }
 export function DataPipelinesView({ namespace }: { namespace?: string }) {
   return <XrListForKind resource="datapipelines" namespace={namespace} />
 }
 export function PipelinesView({ namespace }: { namespace?: string }) {
-  return <XrListForKind resource="compositepipelines" namespace={namespace} />
+  return <XrListForKind resource="pipelines" namespace={namespace} />
 }
 export function RoutesView({ namespace }: { namespace?: string }) {
   return <XrListForKind resource="routes" namespace={namespace} />
@@ -342,10 +378,10 @@ export function CachesView({ namespace }: { namespace?: string }) {
   return <XrListForKind resource="compositecaches" namespace={namespace} />
 }
 export function BucketsView({ namespace }: { namespace?: string }) {
-  return <XrListForKind resource="compositestorages" namespace={namespace} />
+  return <XrListForKind resource="storages" namespace={namespace} />
 }
 export function TopicsView({ namespace }: { namespace?: string }) {
-  return <XrListForKind resource="compositemessagings" namespace={namespace} />
+  return <XrListForKind resource="messagings" namespace={namespace} />
 }
 export function FunctionsView({ namespace }: { namespace?: string }) {
   return <XrListForKind resource="compositefunctions" namespace={namespace} />
@@ -354,7 +390,7 @@ export function WorkflowsView({ namespace }: { namespace?: string }) {
   return <XrListForKind resource="compositeworkflows" namespace={namespace} />
 }
 export function EnvironmentsView({ namespace }: { namespace?: string }) {
-  return <XrListForKind resource="compositeenvironments" namespace={namespace} />
+  return <XrListForKind resource="environments" namespace={namespace} />
 }
 export function DomainsView({ namespace }: { namespace?: string }) {
   return <XrListForKind resource="domains" namespace={namespace} />
@@ -369,7 +405,7 @@ export function CertificatesView({ namespace }: { namespace?: string }) {
   return <XrListForKind resource="certificates" namespace={namespace} />
 }
 export function SecretStoresView({ namespace }: { namespace?: string }) {
-  return <XrListForKind resource="compositesecrets" namespace={namespace} />
+  return <XrListForKind resource="secrets" namespace={namespace} />
 }
 export function LoadBalancersView({ namespace }: { namespace?: string }) {
   return <XrListForKind resource="loadbalancers" namespace={namespace} />

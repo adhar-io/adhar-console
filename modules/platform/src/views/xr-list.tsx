@@ -91,7 +91,7 @@ export interface XrKindConfig {
    * Kubernetes `kind` for freshly provisioned claims/composites. Defaults to
    * the human `singular` with non-alphanumerics stripped, but the Adhar
    * Crossplane composites use `Composite<Domain>` kinds (e.g. a "Database"
-   * surfaces the `CompositeDatabase` kind), so it's set explicitly per kind.
+   * surfaces the `Database` kind), so it's set explicitly per kind.
    */
   kind?: string
   /** Singular + plural human names. */

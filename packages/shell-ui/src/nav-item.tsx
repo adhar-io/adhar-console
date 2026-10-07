@@ -137,7 +137,9 @@ export function NavItem({
           // desktop rail keeps its density from `lg` up, where there is a
           // pointer to aim with.
           'min-h-11 lg:min-h-0',
-          isSub ? 'py-1 pl-3 pr-2' : 'py-1.5 pr-2',
+          // One line now, so the padding sets the rhythm rather than absorbing
+          // a second line of text.
+          isSub ? 'py-1.5 pl-3 pr-2' : 'py-2 pr-2',
           // The HIGHLIGHTED row bleeds through the nav's own `px-3` to touch the
           // sidebar's left edge: `-ml-3` pulls it out by the 12px of padding,
           // and `pl-5.5` (22px) puts the content back exactly where an
@@ -171,7 +173,6 @@ export function NavItem({
         <ItemLink
           item={item}
           isActive={isActive}
-          isSub={isSub}
           onRowClick={hasChildren ? toggleExpanded : undefined}
         />
 
@@ -207,6 +208,15 @@ export function NavItem({
             <div
               className={cn(
                 'relative mt-0.5 space-y-0.5 pb-1 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                // One guide down the whole group, drawn here rather than per
+                // row. A row can only stretch a rail across its own content
+                // box, so eleven children drew eleven stubs with the padding
+                // and the 2px row gap showing through between them. On the
+                // container it is a single unbroken line; the rows paint over
+                // it, so the active row's pill interrupts it exactly where the
+                // amber marker takes over.
+                'before:absolute before:bottom-1 before:left-5 before:top-0 before:w-[3px]',
+                'before:rounded-full before:bg-edge-subtle before:content-[""]',
                 expanded ? 'translate-y-0' : '-translate-y-1',
               )}
             >
@@ -260,7 +270,12 @@ function ChildRail({ active }: { active: boolean }) {
   return (
     <span
       aria-hidden
-      className="relative ml-2 mr-3.25 flex h-5 w-[3px] shrink-0 items-center justify-center"
+      // `self-stretch` with no vertical inset is what makes this read as a
+      // guide rather than a tick. Each row drew a 20px stub inside a 26px row,
+      // so a group of eleven children was eleven dashes with gaps between
+      // them; stretched to the full row height, consecutive rows join into one
+      // continuous line down the group.
+      className="relative ml-2 mr-3.25 flex w-[3px] shrink-0 self-stretch items-center justify-center"
     >
       <span
         className={cn(
@@ -269,7 +284,11 @@ function ChildRail({ active }: { active: boolean }) {
           // are the same shape at different indents, so hue is what separates
           // them — blue flush at the edge for the section you are in, amber
           // indented for the page you are on.
-          active ? 'bg-amber-400' : 'bg-edge-default group-hover:bg-edge-strong',
+          //
+          // Inactive rows draw nothing: the group's guide is already there,
+          // and painting over it in the same colour is what used to leave a
+          // visible seam at every row boundary.
+          active ? 'bg-amber-400' : 'bg-transparent group-hover:bg-edge-strong',
         )}
       />
     </span>
@@ -279,30 +298,20 @@ function ChildRail({ active }: { active: boolean }) {
 function ItemLink({
   item,
   isActive,
-  isSub,
   onRowClick,
 }: {
   item: TNavItem
   isActive: boolean
-  isSub: boolean
   /** Called in addition to navigation — used to expand/collapse parents. */
   onRowClick?: () => void
 }) {
-  const label = (
-    <div className="min-w-0 flex-1">
-      <div className="truncate leading-tight">{item.label}</div>
-      {!isSub && item.description ? (
-        <div
-          className={cn(
-            'mt-0.5 truncate text-[11px] font-normal leading-tight',
-            isActive ? 'text-brand-700/70 dark:text-brand-100/70' : 'text-content-subtle',
-          )}
-        >
-          {item.description}
-        </div>
-      ) : null}
-    </div>
-  )
+  // One line per row. The description used to sit under every top-level label,
+  // which doubled the height of fourteen rows, pushed the last section off the
+  // bottom of a 1250px window, and still truncated the one that mattered
+  // ("Scaffold new servic…"). It survives where it costs nothing and earns
+  // its place: the tooltip and flyout of the COLLAPSED rail, where the label
+  // is the only thing on screen.
+  const label = <div className="min-w-0 flex-1 truncate leading-tight">{item.label}</div>
 
   // No `to` and no row action → static label (unusual).
   if (!item.to && !onRowClick) return label

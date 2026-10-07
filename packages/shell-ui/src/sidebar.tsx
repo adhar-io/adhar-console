@@ -153,6 +153,13 @@ export function Sidebar({
       <Header collapsed={collapsed} onToggle={toggleCollapsed} />
       {collapsed ? <ExpandRow onToggle={toggleCollapsed} /> : null}
 
+      {/* The nav hides its scrollbar, so a column taller than the window used
+          to end on a guillotined row — half of "Projects" and no sign that
+          anything followed it. The fade below sits over the last few pixels of
+          the scroll area and dissolves rows into the sidebar instead. It is an
+          overlay, not a mask, so it changes no layout, and when the nav fits
+          there is nothing under it to fade. */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
       <nav
         ref={navRef}
         aria-label="Primary navigation"
@@ -184,6 +191,11 @@ export function Sidebar({
           />
         ))}
       </nav>
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-surface-sidebar to-transparent"
+        />
+      </div>
 
       <Footer
         collapsed={collapsed}
@@ -308,13 +320,14 @@ function Section({
     )
   }
   return (
-    <div className={cn(!isFirst && 'mt-5', isFirst && 'mt-2')}>
+    <div className={cn(!isFirst && 'mt-6', isFirst && 'mt-1')}>
+      {/* The label alone. A hairline used to run from it to the right edge,
+          which drew a line across the column every few rows and competed with
+          the active rail for attention. Space does the grouping instead, which
+          is quieter and lets the one coloured mark in the nav mean one thing. */}
       {section.label ? (
-        <div className="mb-1.5 flex items-center gap-2 px-2">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
-            {section.label}
-          </span>
-          <span className="h-px flex-1 bg-edge-subtle" aria-hidden />
+        <div className="mb-2 px-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-content-subtle/80">
+          {section.label}
         </div>
       ) : null}
       <div className="space-y-0.5">

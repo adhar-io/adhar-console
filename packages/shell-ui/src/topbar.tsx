@@ -36,7 +36,7 @@ export function Topbar({
   headerControls,
 }: Props) {
   return (
-    <header className="sticky top-0 z-40 border-b border-edge-default bg-surface-raised/70 backdrop-blur-xl supports-[backdrop-filter]:bg-surface-raised/60">
+    <header className="sticky top-0 z-40 border-b border-edge-default shadow-(--shadow-bar) bg-surface-raised/70 backdrop-blur-xl supports-[backdrop-filter]:bg-surface-raised/60">
       <div
         className="pointer-events-none absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-brand-400/40 to-transparent"
         aria-hidden

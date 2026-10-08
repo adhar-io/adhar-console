@@ -152,6 +152,21 @@
   --shadow-2xl: 0 10px 20px oklch(0.25 0.05 265 / 0.11), 0 36px 68px oklch(0.25 0.05 265 / 0.16);
   --inset-shadow-sm: inset 0 1px 2px oklch(0.25 0.05 265 / 0.07);
 
+  /*
+   * Elevation for the two chrome surfaces that frame the app.
+   *
+   * The ramp above casts DOWNWARD, which is right for a card lying on the
+   * page and useless for a full-height sidebar: the shadow falls off the
+   * bottom of the screen and nothing lands beside it. The rail casts
+   * sideways instead, so the column reads as sitting above the content it
+   * scrolls past rather than being a region of it.
+   *
+   * Both are deliberately shallow. These surfaces are permanent — a shadow
+   * you look at all day should register as depth, not as a drop.
+   */
+  --shadow-rail: 1px 0 2px oklch(0.25 0.05 265 / 0.05), 6px 0 20px -10px oklch(0.25 0.05 265 / 0.12);
+  --shadow-bar: 0 1px 2px oklch(0.25 0.05 265 / 0.05), 0 6px 18px -10px oklch(0.25 0.05 265 / 0.12);
+
   --radius-xs: 4px;
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -701,6 +716,10 @@ body {
   --shadow-xl: 0 6px 12px oklch(0 0 0 / 0.40), 0 22px 44px oklch(0 0 0 / 0.44);
   --shadow-2xl: 0 10px 20px oklch(0 0 0 / 0.46), 0 36px 68px oklch(0 0 0 / 0.56);
   --inset-shadow-sm: inset 0 1px 2px oklch(0 0 0 / 0.30);
+
+  /* Near-black and heavier, for the same reason the ramp above is. */
+  --shadow-rail: 1px 0 2px oklch(0 0 0 / 0.30), 8px 0 24px -10px oklch(0 0 0 / 0.55);
+  --shadow-bar: 0 1px 2px oklch(0 0 0 / 0.30), 0 8px 22px -10px oklch(0 0 0 / 0.50);
 
   --color-edge: oklch(0.245 0.026 265);
   --color-edge-subtle: oklch(0.225 0.022 265);

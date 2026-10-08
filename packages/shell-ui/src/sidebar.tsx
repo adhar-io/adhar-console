@@ -146,6 +146,10 @@ export function Sidebar({
     <aside
       className={cn(
         'relative z-20 flex h-full shrink-0 flex-col border-r border-edge-default bg-surface-sidebar',
+        // Casts sideways, onto the content it sits in front of. The ramp's
+        // other shadows point down, which on a full-height column falls off
+        // the bottom of the screen and lands nowhere.
+        'shadow-(--shadow-rail)',
         'transition-[width] duration-300 ease-in-out',
         collapsed ? 'w-16' : 'w-64',
       )}

@@ -47,6 +47,7 @@ import {
   RustFSIcon,
   TempoIcon,
   TrinoIcon,
+  ValkeyIcon,
 } from './brand-icons.tsx'
 
 export type AppCategory =
@@ -443,6 +444,19 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     icon: <RabbitMQIcon />,
   },
   {
+    // The UI is Redis Commander (MIT; RedisInsight is SSPL), but nobody on this
+    // platform asked for Redis Commander — they asked to look inside the
+    // platform's Valkey. Without this entry the tile came from dynamic route
+    // discovery as a generic grey square titled from its hostname, and clicking
+    // it opened something branded for a different product entirely.
+    id: 'valkey-admin',
+    name: 'Valkey Admin',
+    description: 'Browse & edit the platform caches',
+    url: 'https://valkey-admin.adhar.localtest.me:8443',
+    category: 'Data',
+    icon: <ValkeyIcon />,
+  },
+  {
     id: 'rustfs',
     name: 'RustFS',
     description: 'S3-compatible object storage',
@@ -655,14 +669,41 @@ function useResolvedApps(apps: AppLink[]): { apps: ResolvedApp[]; loading: boole
       }
     }
 
+    // Does this cluster tell us anything about its routes at all? Discovery
+    // fails closed to an empty list (no RBAC, an API error, a dev build with no
+    // cluster), and in that case the curated registry is all we have.
+    const hasRouteEvidence = routed.size > 0
+
     const out = apps.map((a): ResolvedApp => {
       const toolIds = a.tools ?? [a.id]
       const infos = toolIds
         .map((id) => map[id])
         .filter((i): i is ToolInfo => Boolean(i))
-      // Availability: the BFF's word when it knows the tool(s); apps unknown
-      // to the BFF (custom `apps` prop entries) stay launchable as given.
-      const configured = infos.length ? infos.some((i) => i.configured) : true
+      // Availability.
+      //
+      // `info.configured` is NOT evidence that an app exists: every tool in the
+      // registry reports configured:true because its URL is DERIVED from the
+      // base domain rather than observed. The dynamic loop below has always
+      // known this and required a route; the curated tiles above did not, and
+      // that asymmetry is what put dead tiles in the drawer — a curated entry
+      // the BFF has never heard of fell through to `true` and rendered as a
+      // live app. On the AWS cluster (2026-10-09) that was `n8n` and
+      // `pyroscope`, both `enabled: false` in every profile and therefore
+      // never routed, plus `nexus`, whose Application had not synced. Three
+      // tiles that cost a sign-in round trip to reach a 404.
+      //
+      // So when the cluster has told us its routes, a route (its own, its
+      // `sub`, one of its backing tools, or the tool it deep-links through) or
+      // an operator-set absolute URL is what makes a tile real.
+      const routeIds = [a.id, a.sub, a.via?.tool, ...(a.tools ?? [])]
+        .filter((id): id is string => Boolean(id))
+      const hasRoute = routeIds.some((id) => routed.has(id))
+      const explicitUrl = infos.some((i) => i.configured && Boolean(i.url))
+      const configured = hasRouteEvidence
+        ? hasRoute || explicitUrl
+        : infos.length
+          ? infos.some((i) => i.configured)
+          : true
 
       let url = ''
       const viaInfo = a.via ? map[a.via.tool] : undefined
@@ -711,7 +752,13 @@ function useResolvedApps(apps: AppLink[]): { apps: ResolvedApp[]; loading: boole
         configured: true,
       })
     }
-    return out
+    // Drop what this cluster does not run. Dimming an app as "not set up" is
+    // the right affordance for something an operator could still turn on in
+    // THIS console; a package that is `enabled: false` in the profile is not
+    // that, and a greyed-out row of them is noise in front of the apps that do
+    // exist. Only ever filtered when discovery actually reported routes, so a
+    // console with no cluster access still shows the full curated registry.
+    return hasRouteEvidence ? out.filter((a) => a.configured) : out
   }, [apps, tools, publicBase, routed])
 
   return { apps: resolved, loading: loading && tools === null }

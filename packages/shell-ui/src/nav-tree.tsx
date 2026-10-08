@@ -169,7 +169,7 @@ export const DEFAULT_NAV: NavSection[] = [
         search: 'create',
         icon: <IconPlusCircle />,
         description: 'Scaffold new services',
-        badge: { kind: 'info', value: 'templates' },
+        badge: { kind: 'info', value: 'NEW' },
         roles: LIFECYCLE_ROLES,
       },
     ],

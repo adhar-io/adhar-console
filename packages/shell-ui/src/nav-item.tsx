@@ -123,7 +123,7 @@ export function NavItem({
         data-nav-active={!isSub && (isActive || hasActiveDescendant) ? 'true' : undefined}
         className={cn(
           'group relative flex items-center gap-2.5 text-sm',
-          'transition-[background-color,color,box-shadow,transform] duration-200 ease-out',
+          'transition-[background-color,color,box-shadow,transform] duration-150 ease-out',
           'active:scale-[0.985] active:duration-75 motion-reduce:transform-none motion-reduce:transition-none',
           // Rows size to their content. A floor was tried here to even out the
           // few rows with no description (Overview, Workspace, Platform
@@ -140,12 +140,18 @@ export function NavItem({
           // One line now, so the padding sets the rhythm rather than absorbing
           // a second line of text.
           isSub ? 'py-1.5 pl-3 pr-2' : 'py-2 pr-2',
-          // The HIGHLIGHTED row bleeds through the nav's own `px-3` to touch the
+          // EVERY top-level row bleeds through the nav's own `px-3` to touch the
           // sidebar's left edge: `-ml-3` pulls it out by the 12px of padding,
           // and `pl-5.5` (22px) puts the content back exactly where an
           // unhighlighted row's `pl-2.5` inside that padding would put it — so
           // selecting a row moves the highlight, never the label.
-          !isSub && (highlighted ? '-ml-3 pl-5.5' : 'pl-2.5'),
+          //
+          // This used to be conditional on `highlighted`, which meant the hover
+          // band was inset by 12px while the selected band was flush. Hovering
+          // a row and then clicking it slid the fill 12px left under the
+          // pointer — the one moment the user is looking straight at it. Same
+          // box for both states, so clicking only changes the colour.
+          !isSub && '-ml-3 pl-5.5',
           // A tinted row rather than a solid brand fill. The fill competed with
           // the sliding rail for the same job — two strong marks saying "you are
           // here" — and at 14 rows it made the column read as a stack of
@@ -156,20 +162,27 @@ export function NavItem({
           // marker, not to a slab of colour behind it. Lighter than the
           // parent's tint, with an inset ring to give the pill an edge of its
           // own instead of a soft blur, and the label carried in brand.
+          // A highlighted row still answers the pointer. Both highlighted
+          // branches used to have no `hover:` at all, so the current page —
+          // the row people aim at most — was the one dead target in the
+          // column. It deepens its own tint rather than taking the neutral
+          // hover, which would have read as being de-selected.
           highlighted && isSub
-            ? 'bg-brand-500/8 text-brand-700 ring-1 ring-inset ring-brand-500/20 dark:bg-brand-400/10 dark:text-brand-100 dark:ring-brand-400/25'
+            ? 'bg-brand-500/8 text-brand-700 ring-1 ring-inset ring-brand-500/20 hover:bg-brand-500/14 dark:bg-brand-400/10 dark:text-brand-100 dark:ring-brand-400/25 dark:hover:bg-brand-400/16'
             : highlighted
-            ? 'bg-brand-600/12 text-brand-700 dark:bg-brand-400/15 dark:text-brand-100'
+            ? 'bg-brand-600/12 text-brand-700 hover:bg-brand-600/18 dark:bg-brand-400/15 dark:text-brand-100 dark:hover:bg-brand-400/21'
             : isSub
             // Sub-rows sit on the same surface as the group's guide, so their
             // hover needs to read without swallowing it.
-            ? 'text-content-muted hover:bg-surface-sunken/70 hover:text-content'
-            : 'text-content-muted hover:bg-surface-sunken hover:text-content',
-          // Only a TOP-LEVEL highlight squares its left corner, because only
-          // that one has the sliding rail butted against it to continue the
-          // shape. A sub-item has nothing on its left, so squaring it there
-          // just read as a clipped corner — it keeps all four.
-          highlighted && !isSub ? 'rounded-l-none rounded-r-lg' : 'rounded-lg',
+            ? 'text-content-muted hover:bg-surface-hover/70 hover:text-content'
+            : 'text-content-muted hover:bg-surface-hover hover:text-content',
+          // A TOP-LEVEL row squares its left corner, because that edge is where
+          // the sliding rail butts against it to continue the shape. Like the
+          // bleed above this is unconditional: a hover band with two rounded
+          // left corners turning square on click was the same flinch in a
+          // different property. A sub-item has nothing on its left, so
+          // squaring it there just read as a clipped corner — it keeps all four.
+          !isSub ? 'rounded-l-none rounded-r-lg' : 'rounded-lg',
           // The page you are ON is bolder than the section you are IN, so a
           // parent holding the highlight for its open child never looks like
           // the current page itself.
@@ -429,7 +442,7 @@ function CollapsedItem({
         '[&>svg]:h-[18px] [&>svg]:w-[18px]',
         isActive
           ? 'bg-brand-600 text-white shadow-sm ring-1 ring-inset ring-white/10'
-          : 'text-content-muted hover:bg-surface-sunken hover:text-content',
+          : 'text-content-muted hover:bg-surface-hover hover:text-content',
       )}
     >
       {item.icon ?? <span className="h-1.5 w-1.5 rounded-full bg-current opacity-50" />}
@@ -543,7 +556,7 @@ function FlyoutPanel({
                   'flex items-center gap-2 px-3 py-1.5 text-[13px] transition-colors',
                   childActive
                     ? 'bg-brand-50 dark:bg-brand-500/10 font-semibold text-brand-800 dark:text-brand-300'
-                    : 'text-content hover:bg-surface-sunken',
+                    : 'text-content hover:bg-surface-hover',
                 )}
               >
                 <span className="flex-1 truncate">{child.label}</span>

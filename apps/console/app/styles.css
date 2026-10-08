@@ -81,6 +81,20 @@
   --color-surface-sunken: oklch(0.968 0.012 260);
   --color-surface-raised: oklch(1 0 0);
   --color-surface-sidebar: oklch(0.972 0.010 260);
+  /*
+   * The fill a nav row takes on hover.
+   *
+   * `surface-sunken` used to do this job and did it badly at both ends.
+   * In light mode it is oklch(0.968) against a 0.972 sidebar — a 0.4%
+   * lightness step, which is to say invisible. In dark mode it is DARKER
+   * than the sidebar, so hovering punched a hole in the rail instead of
+   * lifting the row out of it.
+   *
+   * This is the one token both themes point at, each moving AWAY from its
+   * own sidebar: down in light, up in dark, so hover always reads as the
+   * row coming toward the pointer.
+   */
+  --color-surface-hover: oklch(0.935 0.018 262);
 
   /* ─ Content / text (navy-leaning) ─ */
   --color-content: oklch(0.235 0.050 265);
@@ -692,6 +706,8 @@ body {
   --color-surface-sunken: oklch(0.135 0.020 265);
   --color-surface-raised: oklch(0.213 0.026 265);
   --color-surface-sidebar: oklch(0.185 0.024 265);
+  /* Lifts off the 0.185 sidebar rather than sinking below it. */
+  --color-surface-hover: oklch(0.252 0.030 265);
 
   /* ─ Content / text — light on dark, with the same 3-step contrast scale. ─ */
   --color-content: oklch(0.96 0.008 262);

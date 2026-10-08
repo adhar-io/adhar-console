@@ -253,7 +253,7 @@ function Header({
           onClick={onToggle}
           aria-label="Collapse sidebar"
           title="Collapse sidebar (⌘B)"
-          className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content"
+          className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-hover hover:text-content"
         >
           <IconSidebarCollapse />
         </button>
@@ -282,7 +282,7 @@ function ExpandRow({ onToggle }: { onToggle(): void }) {
         title="Expand sidebar (⌘B)"
         className={cn(
           'flex h-8 w-9 items-center justify-center rounded-lg text-content-subtle transition-colors',
-          'hover:bg-surface-sunken hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
+          'hover:bg-surface-hover hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
         )}
       >
         <IconChevronsRight />

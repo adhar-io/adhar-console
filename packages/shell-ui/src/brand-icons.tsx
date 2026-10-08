@@ -31,6 +31,8 @@ import {
   ONCALL_VIEWBOX,
   OPENBAO_MARKUP,
   OPENBAO_VIEWBOX,
+  OPENCOST_MARKUP,
+  OPENCOST_VIEWBOX,
   OPENMETADATA_MARKUP,
   OPENMETADATA_VIEWBOX,
   OPENSEARCH_D,
@@ -48,6 +50,7 @@ import {
   RABBITMQ_HEX,
   RUSTFS_PNG_URI,
   TRINO_D,
+  VALKEY_PNG_URI,
   TRINO_HEX,
 } from './brand-assets-more.ts'
 
@@ -296,6 +299,9 @@ export function FaroIcon(props: BrandProps) {
 export function RustFSIcon(props: BrandProps) {
   return <RasterTile {...props} src={RUSTFS_PNG_URI} alt="RustFS" />
 }
+export function ValkeyIcon(props: BrandProps) {
+  return <RasterTile {...props} src={VALKEY_PNG_URI} alt="Valkey" />
+}
 export function LitmusIcon(props: BrandProps) {
   return <LogoTile {...props} viewBox={LITMUS_VIEWBOX} markup={LITMUS_MARKUP} />
 }
@@ -408,5 +414,5 @@ export function PostHogIcon(props: BrandProps) {
 }
 
 export function OpenCostIcon(props: BrandProps) {
-  return <KubernetesIcon {...props} />
+  return <LogoTile {...props} viewBox={OPENCOST_VIEWBOX} markup={OPENCOST_MARKUP} />
 }

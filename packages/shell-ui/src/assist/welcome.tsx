@@ -42,12 +42,6 @@ export function Welcome({
 }) {
   return (
     <div className="relative flex w-full flex-1 flex-col">
-      {/* Outside the `max-w-5xl` column and outside the scroll container's own
-          padding, so the field spans the whole surface. Inside the column it
-          was 1024px of tinted background with plain surface either side of it,
-          which draws exactly the panel edge the design is built to avoid. */}
-      <Field />
-
       <div className="@container relative mx-auto w-full max-w-5xl">
         <Hero configured={configured} agents={agents} agent={agent} runtime={runtime} navHint={navHint} onPick={onPick} />
       </div>
@@ -185,35 +179,6 @@ function rise(ms: number): React.CSSProperties {
   return { animationDelay: `${ms}ms` }
 }
 
-/**
- * The field behind the landing — a blueprint grid, and nothing else.
- *
- * It used to carry two drifting colour washes as well. On a page whose whole
- * argument is restraint they were the loudest thing on it: a blue and a teal
- * bloom tinting half the surface, which on a light theme read as the page
- * having a background colour rather than as light falling across it. The grid
- * alone gives the surface a scale without giving it a hue. The only colour
- * left on the page is the mark's own, which is the one place it means
- * something.
- *
- * The negative insets are the scroll container's own padding, cancelled: the
- * field is positioned against a box inside that padding, and without this it
- * stops short of every edge in a way that reads as a border. They cannot
- * overflow the container, because they only reach its border box.
- *
- * Masked to an ellipse so the grid dissolves instead of ending on a line —
- * a grid with an edge is a panel, which is the thing this must never be.
- */
-function Field() {
-  return (
-    <div
-      aria-hidden
-      className="pointer-events-none absolute -inset-x-3 -inset-y-4 -z-10 overflow-hidden sm:-inset-x-5 sm:-inset-y-5 md:-inset-x-8 [mask-image:radial-gradient(ellipse_85%_70%_at_50%_26%,black_35%,transparent_100%)]"
-    >
-      <div className="absolute inset-0 opacity-45 dark:opacity-30 [background-image:linear-gradient(var(--color-edge-strong)_1px,transparent_1px),linear-gradient(90deg,var(--color-edge-strong)_1px,transparent_1px)] [background-size:56px_56px]" />
-    </div>
-  )
-}
 
 /**
  * The mark: a bloom under it, a hairline ring around it, and one arc of brand

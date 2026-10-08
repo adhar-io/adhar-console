@@ -23,6 +23,8 @@ import { age } from '../data/format.ts'
 import { useHasK8sPermission } from '../data/access.ts'
 import { useVariantsForKind } from '../data/xrds.ts'
 import { K8sRolePill } from '../components/role-gate.tsx'
+import { toYaml } from '../data/manifest-yaml.ts'
+import { YamlView } from '../components/yaml-view.tsx'
 
 /**
  * Generic list + detail drawer + **self-service provisioning** for a
@@ -693,6 +695,10 @@ export function ClaimFormModal({
   )
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
+  const [pane, setPane] = useState<'form' | 'yaml'>('form')
+  const [dryBusy, setDryBusy] = useState(false)
+  const [dryNote, setDryNote] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
+  const [copied, setCopied] = useState(false)
 
   const applyMut = useMutation({
     // Server-side apply through the per-user gateway; the gateway stamps
@@ -722,8 +728,14 @@ export function ClaimFormModal({
     return Array.from(map.entries()).map(([label, groupFields]) => ({ label, fields: groupFields }))
   }, [fields])
 
-  const submit = () => {
-    setFormError(null)
+  /**
+   * The manifest the dialog would apply, and what is wrong with it.
+   *
+   * One builder, used by Apply, by Dry run and by the YAML pane — so the YAML
+   * on screen is the bytes that get sent rather than a second rendering of
+   * the same intent that can drift from it.
+   */
+  const buildManifest = (): { manifest: XR | null; errors: Record<string, string>; specError?: string } => {
     // ── metadata validation ──
     const errors: Record<string, string> = {}
     const trimmedName = name.trim()
@@ -757,27 +769,77 @@ export function ClaimFormModal({
       spec = assembleSpec(config, built, matchLabels, initial?.spec)
     } else {
       const parsed = parseSpecText(specText)
-      if (!parsed.ok) {
-        setFieldErrors(errors)
-        setFormError(parsed.error)
-        return
-      }
+      if (!parsed.ok) return { manifest: null, errors, specError: parsed.error }
       spec = parsed.value
     }
-    setFieldErrors(errors)
-    if (Object.keys(errors).length) return
 
     const manifest: XR = {
       apiVersion: initial?.apiVersion ?? claimApiVersion(config.gvr),
       kind: initial?.kind ?? claimKind(config),
       metadata: {
-        name: trimmedName,
-        ...(namespaced ? { namespace: trimmedNs } : {}),
+        // The preview is live, so it renders whatever has been typed so far —
+        // including nothing. A placeholder keeps the YAML readable without
+        // pretending the field is filled; Apply still refuses it.
+        name: trimmedName || '<name>',
+        ...(namespaced ? { namespace: trimmedNs || '<namespace>' } : {}),
       },
       spec,
     }
+    return { manifest, errors }
+  }
+
+  /**
+   * Field errors render against the inputs, which live on the Form pane — and
+   * that pane is hidden while the YAML is showing. Pressing Provision or Dry
+   * run there with something missing therefore did nothing at all, visibly:
+   * the errors were set onto a pane nobody could see. Anything that fails
+   * validation sends you back to the pane that can explain why.
+   */
+  const reportInvalid = (errors: Record<string, string>, specError?: string) => {
+    setFieldErrors(errors)
+    if (specError) setFormError(specError)
+    if (specError || Object.keys(errors).length) {
+      setPane('form')
+      return true
+    }
+    return false
+  }
+
+  const submit = () => {
+    setFormError(null)
+    setDryNote(null)
+    const { manifest, errors, specError } = buildManifest()
+    if (reportInvalid(errors, specError) || !manifest) return
     applyMut.mutate(manifest)
   }
+
+  /** Validate against the real apiserver without creating anything. */
+  const dryRun = async () => {
+    setFormError(null)
+    setDryNote(null)
+    const { manifest, errors, specError } = buildManifest()
+    if (reportInvalid(errors, specError) || !manifest) return
+    setDryBusy(true)
+    try {
+      await kube.apply(manifest as unknown as Parameters<typeof kube.apply>[0], {
+        cluster: cp,
+        dryRun: true,
+      })
+      setDryNote({ tone: 'ok', text: 'The apiserver accepted this manifest. Nothing was created.' })
+    } catch (e) {
+      setDryNote({ tone: 'error', text: (e as Error).message })
+    } finally {
+      setDryBusy(false)
+    }
+  }
+
+  // The live manifest, for the YAML pane. Errors are ignored here on purpose:
+  // a half-filled form should still show what it is building.
+  const previewYaml = useMemo(() => {
+    const { manifest } = buildManifest()
+    return manifest ? toYaml(manifest as unknown as Record<string, unknown>) : ''
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, ns, values, specText, variantName, fields, config, initial, namespaced])
 
   if (typeof document === 'undefined') return null
   return createPortal(
@@ -790,7 +852,7 @@ export function ClaimFormModal({
           if (!applyMut.isPending) onClose()
         }}
       />
-      <div className="relative flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-app shadow-2xl">
+      <div className="relative flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-app shadow-2xl">
         <header className="border-b border-edge-default bg-surface-raised px-5 py-4">
           <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">
             {mode === 'create' ? 'Self-service provisioning' : 'Edit claim'}
@@ -803,10 +865,76 @@ export function ClaimFormModal({
               ? `Creates a real ${claimKind(config)} claim via server-side apply — Crossplane reconciles it into backing infrastructure.`
               : 'Updates the claim via server-side apply — Crossplane reconciles the change into the backing infrastructure.'}
           </p>
+
+          {/* The form builds it; the YAML is what gets sent. Both views are of
+              one manifest, so the second can never describe a different claim
+              than the one the button applies. */}
+          <div className="mt-3 inline-flex rounded-lg border border-edge-default bg-surface-sunken p-0.5">
+            {(['form', 'yaml'] as const).map((id) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setPane(id)}
+                aria-pressed={pane === id}
+                className={cn(
+                  'rounded-md px-3 py-1 text-[12px] font-medium transition-colors',
+                  pane === id
+                    ? 'bg-surface-raised text-content shadow-sm'
+                    : 'text-content-muted hover:text-content',
+                )}
+              >
+                {id === 'form' ? 'Form' : 'YAML'}
+              </button>
+            ))}
+          </div>
         </header>
 
+        {pane === 'yaml' ? (
+          <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[12px] text-content-muted">
+                Exactly what server-side apply will send. Read-only — the form above is the input.
+              </p>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    void navigator.clipboard?.writeText(previewYaml)
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 1600)
+                  }}
+                >
+                  {copied ? 'Copied' : 'Copy'}
+                </Button>
+                {/* The reason this pane exists at all: a claim belongs in the
+                    GitOps repository, and this is the file to put there. */}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    const blob = new Blob([previewYaml], { type: 'application/yaml' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `${(name.trim() || claimKind(config).toLowerCase())}.yaml`
+                    a.click()
+                    URL.revokeObjectURL(url)
+                  }}
+                >
+                  Download
+                </Button>
+              </div>
+            </div>
+            <YamlView value={previewYaml} ariaLabel="Claim manifest as YAML" />
+          </div>
+        ) : null}
+
         <form
-          className="flex-1 space-y-5 overflow-y-auto px-5 py-4"
+          className={cn(
+            'flex-1 space-y-5 overflow-y-auto px-5 py-4',
+            pane === 'yaml' && 'hidden',
+          )}
           onSubmit={(e) => {
             e.preventDefault()
             submit()
@@ -978,6 +1106,21 @@ export function ClaimFormModal({
           ) : null}
         </form>
 
+        {dryNote ? (
+          <div
+            role="status"
+            className={cn(
+              'border-t px-5 py-2 text-[12px]',
+              dryNote.tone === 'ok'
+                ? 'border-emerald-200/70 bg-emerald-50/70 text-emerald-800 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300'
+                : 'border-rose-200/70 bg-rose-50/70 text-rose-800 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300',
+            )}
+          >
+            <span className="font-semibold">{dryNote.tone === 'ok' ? 'Dry run passed' : 'Dry run failed'}</span>
+            <span className="ml-1.5 break-words font-mono text-[11px]">{dryNote.text}</span>
+          </div>
+        ) : null}
+
         <footer className="flex items-center justify-between gap-3 border-t border-edge-default bg-surface-raised px-5 py-3">
           <span className="text-[10px] text-content-subtle">
             Server-side apply · field manager <code className="font-mono">adhar-console</code>
@@ -985,6 +1128,22 @@ export function ClaimFormModal({
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={onClose} disabled={applyMut.isPending}>
               Cancel
+            </Button>
+            {/* The apiserver's own verdict, before anything exists. Schema
+                validation, admission and policy all run; nothing is written. */}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void dryRun()}
+              disabled={applyMut.isPending || dryBusy}
+            >
+              {dryBusy ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Spinner size={12} /> Checking…
+                </span>
+              ) : (
+                'Dry run'
+              )}
             </Button>
             <Button size="sm" disabled={applyMut.isPending} onClick={submit}>
               {applyMut.isPending ? (

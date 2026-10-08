@@ -150,8 +150,20 @@ export function NavItem({
           // the sliding rail for the same job — two strong marks saying "you are
           // here" — and at 14 rows it made the column read as a stack of
           // buttons. The rail carries the emphasis; the row carries the context.
-          highlighted
+          // A sub-item is the page you are actually ON, so it is the most
+          // precise mark in the column — but by the same argument the file
+          // makes about the top-level fill, the emphasis belongs to the amber
+          // marker, not to a slab of colour behind it. Lighter than the
+          // parent's tint, with an inset ring to give the pill an edge of its
+          // own instead of a soft blur, and the label carried in brand.
+          highlighted && isSub
+            ? 'bg-brand-500/8 text-brand-700 ring-1 ring-inset ring-brand-500/20 dark:bg-brand-400/10 dark:text-brand-100 dark:ring-brand-400/25'
+            : highlighted
             ? 'bg-brand-600/12 text-brand-700 dark:bg-brand-400/15 dark:text-brand-100'
+            : isSub
+            // Sub-rows sit on the same surface as the group's guide, so their
+            // hover needs to read without swallowing it.
+            ? 'text-content-muted hover:bg-surface-sunken/70 hover:text-content'
             : 'text-content-muted hover:bg-surface-sunken hover:text-content',
           // Only a TOP-LEVEL highlight squares its left corner, because only
           // that one has the sliding rail butted against it to continue the
@@ -279,7 +291,11 @@ function ChildRail({ active }: { active: boolean }) {
     >
       <span
         className={cn(
-          'absolute inset-y-0 left-0 w-[3px] rounded-full transition-colors',
+          // Inset and fully rounded when it is the marker: at full row height
+          // it reads as a length of the guide that changed colour, which is
+          // the one thing it must not look like inside the active pill.
+          'absolute left-0 w-[3px] rounded-full transition-all',
+          active ? 'inset-y-1' : 'inset-y-0',
           // Warm, against the top-level rail's cool brand ramp. The two rails
           // are the same shape at different indents, so hue is what separates
           // them — blue flush at the edge for the section you are in, amber

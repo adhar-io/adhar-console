@@ -292,7 +292,6 @@ export function Composer({
                   </span>
                 )
                 : null}
-              <span>Reads with your RBAC · changes only ever become a pull request</span>
             </span>
           ) : (
             <span>AI is not configured — search & navigate still work</span>

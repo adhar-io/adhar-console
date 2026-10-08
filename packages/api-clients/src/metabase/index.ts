@@ -91,7 +91,18 @@ export const DashboardSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
   collection_id: z.number().optional(),
-  cards: z.array(DashboardCardSchema),
+  /**
+   * Only the DETAIL endpoint fills this in.
+   *
+   * `GET /api/dashboard` (the list) returns dashboard summaries with no
+   * `cards` key at all; `GET /api/dashboard/:id` is what carries them. This
+   * was declared required, and `listDashboards` casts the response with
+   * `http.get<Dashboard[]>` rather than parsing it, so nothing — not zod, not
+   * the compiler — ever noticed. Every consumer that reached for
+   * `d.cards.length` off a list therefore threw against a real Metabase while
+   * the stub, which does include `cards`, stayed perfectly happy.
+   */
+  cards: z.array(DashboardCardSchema).optional(),
   created_at: z.string(),
   updated_at: z.string().optional(),
   view_count: z.number().optional(),
@@ -146,7 +157,9 @@ function build(http: HttpClient): MetabaseClient {
     listDashboards: () => http.get<Dashboard[]>(`/api/dashboard`),
     getDashboard: async (id) => {
       const dashboard = await http.get<Dashboard>(`/api/dashboard/${id}`)
-      const cards = await Promise.all(dashboard.cards.map((dc) => http.get<Question>(`/api/card/${dc.card_id}`)))
+      const cards = await Promise.all(
+        (dashboard.cards ?? []).map((dc) => http.get<Question>(`/api/card/${dc.card_id}`)),
+      )
       return { dashboard, cards }
     },
     listPulses: () => http.get<Pulse[]>(`/api/pulse`),

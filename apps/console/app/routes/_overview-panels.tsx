@@ -521,7 +521,8 @@ export function BiDashboardsPanel() {
           >
             <span className="truncate font-medium text-content">{d.name}</span>
             <span className="ml-2 shrink-0 font-mono text-[10px] text-content-subtle">
-              {d.cards.length} cards · {d.view_count ?? 0} views
+              {d.cards ? `${d.cards.length} cards · ` : ''}
+              {d.view_count ?? 0} views
             </span>
           </li>
         ))}

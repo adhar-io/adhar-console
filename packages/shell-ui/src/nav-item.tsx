@@ -139,7 +139,13 @@ export function NavItem({
           'min-h-11 lg:min-h-0',
           // One line now, so the padding sets the rhythm rather than absorbing
           // a second line of text.
-          isSub ? 'py-1.5 pl-3 pr-2' : 'py-2 pr-2',
+          // A sub-row's pill begins at the group's guide line (20px) rather than
+          // at the nav's content edge, so its left edge is a straight line the
+          // brand bar can butt against — the same relationship the top-level
+          // rows have with the sliding rail, just at the child indent. The
+          // 20px of `ml-5` is paid back by ChildRail dropping its own `ml-2`,
+          // so the label does not move.
+          isSub ? 'ml-5 py-1.5 pr-2' : 'py-2 pr-2',
           // EVERY top-level row bleeds through the nav's own `px-3` to touch the
           // sidebar's left edge: `-ml-3` pulls it out by the 12px of padding,
           // and `pl-5.5` (22px) puts the content back exactly where an
@@ -168,7 +174,7 @@ export function NavItem({
           // column. It deepens its own tint rather than taking the neutral
           // hover, which would have read as being de-selected.
           highlighted && isSub
-            ? 'bg-brand-500/8 text-brand-700 ring-1 ring-inset ring-brand-500/20 hover:bg-brand-500/14 dark:bg-brand-400/10 dark:text-brand-100 dark:ring-brand-400/25 dark:hover:bg-brand-400/16'
+            ? 'bg-brand-500/8 text-brand-700 hover:bg-brand-500/14 dark:bg-brand-400/10 dark:text-brand-100 dark:hover:bg-brand-400/16'
             : highlighted
             ? 'bg-brand-600/12 text-brand-700 hover:bg-brand-600/18 dark:bg-brand-400/15 dark:text-brand-100 dark:hover:bg-brand-400/21'
             : isSub
@@ -182,7 +188,7 @@ export function NavItem({
           // left corners turning square on click was the same flinch in a
           // different property. A sub-item has nothing on its left, so
           // squaring it there just read as a clipped corner — it keeps all four.
-          !isSub ? 'rounded-l-none rounded-r-lg' : 'rounded-lg',
+          'rounded-l-none rounded-r-lg',
           // The page you are ON is bolder than the section you are IN, so a
           // parent holding the highlight for its open child never looks like
           // the current page itself.
@@ -300,24 +306,35 @@ function ChildRail({ active }: { active: boolean }) {
       // so a group of eleven children was eleven dashes with gaps between
       // them; stretched to the full row height, consecutive rows join into one
       // continuous line down the group.
-      className="relative ml-2 mr-3.25 flex w-[3px] shrink-0 self-stretch items-center justify-center"
+      // No left margin: the bar sits flush against the pill's own squared left
+      // edge. The 8px it used to spend here is now the row's `ml-5`, so the
+      // label stays exactly where it was.
+      className="relative mr-3.25 flex w-[3px] shrink-0 self-stretch items-center justify-center"
     >
       <span
         className={cn(
-          // Inset and fully rounded when it is the marker: at full row height
-          // it reads as a length of the guide that changed colour, which is
-          // the one thing it must not look like inside the active pill.
-          'absolute left-0 w-[3px] rounded-full transition-all',
-          active ? 'inset-y-1' : 'inset-y-0',
-          // Warm, against the top-level rail's cool brand ramp. The two rails
-          // are the same shape at different indents, so hue is what separates
-          // them — blue flush at the edge for the section you are in, amber
-          // indented for the page you are on.
+          // Full height and square ends, for the reason nav-shuttle.tsx gives
+          // about the top-level rail: any rounding or inset here shows as a
+          // notch where the bar meets the pill's tinted face, and the two have
+          // to read as one shape.
+          // `-inset-y-1.5` cancels the row's own `py-1.5`. `self-stretch` only
+          // reaches the row's CONTENT box, so the bar came up 18px tall inside
+          // a 30px pill — a stub floating next to the fill rather than the
+          // edge of it. Pulled back out to the padding box it meets the pill's
+          // top and bottom exactly, which is what the top-level rail does.
+          'absolute -inset-y-1.5 left-0 w-[3px] rounded-none transition-all',
+          // The same brand ramp as the sliding rail. This was amber, on the
+          // argument that two rails at different indents needed different
+          // hues to tell them apart — but the indent already does that, and a
+          // second accent colour made the one row you are actually on the odd
+          // mark in the column.
           //
           // Inactive rows draw nothing: the group's guide is already there,
           // and painting over it in the same colour is what used to leave a
           // visible seam at every row boundary.
-          active ? 'bg-amber-400' : 'bg-transparent group-hover:bg-edge-strong',
+          active
+            ? 'bg-linear-to-b from-brand-400 to-brand-600'
+            : 'bg-transparent group-hover:bg-edge-strong',
         )}
       />
     </span>

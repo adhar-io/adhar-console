@@ -76,7 +76,7 @@ export function Dashboards() {
                     </div>
                   ) : null}
                   <div className="mt-1 flex items-center gap-2 text-[10px] text-content-subtle">
-                    <span>{d.cards.length} cards</span>
+                    {d.cards ? <span>{d.cards.length} cards</span> : null}
                     <span>· {d.view_count ?? 0} views</span>
                     {d.updated_at ? <span>· {formatRelative(d.updated_at)}</span> : null}
                   </div>
@@ -125,7 +125,7 @@ function DashboardCanvas({ id }: { id: number }) {
       </CardHeader>
       <CardBody>
         <div className="grid grid-cols-12 gap-3">
-          {dashboard.cards.map((dc) => {
+          {(dashboard.cards ?? []).map((dc) => {
             const card = cards.find((c) => c.id === dc.card_id)
             if (!card) return null
             return (

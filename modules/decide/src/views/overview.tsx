@@ -196,7 +196,8 @@ export function Overview() {
                 </CardHeader>
                 <CardBody className="flex items-center justify-between">
                   <span className="text-[11px] text-content-muted">
-                    {d.cards.length} cards · {d.view_count ?? 0} views
+                    {d.cards ? `${d.cards.length} cards · ` : ''}
+                    {d.view_count ?? 0} views
                   </span>
                   <a
                     href={`?dashboards`}

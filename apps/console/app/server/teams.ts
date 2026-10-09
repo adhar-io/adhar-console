@@ -2,6 +2,7 @@ import { env } from '@adhar-console/utils'
 import { getRequestUser, unauthorized } from './request-user.ts'
 import { getTool } from './tool-registry.ts'
 import { activeOrgSlug } from './organizations.ts'
+import { KIND, openStore, type TeamDoc } from './workspace/store.ts'
 
 /**
  * Team (Group entity) discovery — the source behind the Create-New wizard's
@@ -18,25 +19,31 @@ import { activeOrgSlug } from './organizations.ts'
  * only the two hardcoded defaults. Picking an owner was picking a label.
  *
  * Contract: `{ teams: [{ name, title }], source, org }` where `source` is
- *   - 'org'      → teams discovered in the organisation's own Gitea org,
- *   - 'catalog'  → the templates repo's Group descriptors (older installs that
- *                  keep their teams there, and no org teams exist),
- *   - 'default'  → neither was reachable; the two platform defaults stand.
+ *   - 'workspace' → the organisation's own teams, the same `workspace.team`
+ *                   documents the team switcher lists. This is the literal
+ *                   answer to "which teams does this organisation have",
+ *                   so it is asked first.
+ *   - 'org'       → teams in the organisation's Gitea org, for installs whose
+ *                   groups live in git rather than in the workspace store,
+ *   - 'catalog'   → the templates repo's Group descriptors (older installs
+ *                   that keep their teams there),
+ *   - 'none'      → the organisation has no teams this console can see.
  *
- * The defaults are always appended, so the picker is never empty and the
- * wizard can always proceed.
+ * There are no built-in teams. This used to append a hardcoded
+ * "Platform Team" / "Application Team" pair to EVERY response — including the
+ * ones that had found the organisation's real teams — and, when it found
+ * nothing, it wrote that same pair into the templates repo and then
+ * "discovered" it on the next call. The picker therefore showed two teams
+ * that belonged to no organisation, existed in no identity provider, and
+ * granted nobody access; choosing one wrote an owner reference to a group
+ * that was not real. An empty list is the honest answer, and the caller
+ * surfaces it rather than papering over it.
  */
 
 export interface Team {
   name: string
   title: string
 }
-
-/** The two teams every organisation must be able to own components with. */
-const DEFAULT_TEAMS: Team[] = [
-  { name: 'default-platform', title: 'Platform Team' },
-  { name: 'default-application', title: 'Application Team' },
-]
 
 /** owner/name of the curated templates repo that also holds the team catalog. */
 function templatesRepo(): { owner: string; name: string } {
@@ -55,14 +62,6 @@ function decodeBase64(b64: string): string {
   const bytes = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
   return new TextDecoder().decode(bytes)
-}
-
-/** UTF-8 safe base64 (Gitea contents API expects base64-encoded file bodies). */
-function toBase64(s: string): string {
-  const bytes = new TextEncoder().encode(s)
-  let bin = ''
-  for (const b of bytes) bin += String.fromCharCode(b)
-  return btoa(bin)
 }
 
 /**
@@ -149,48 +148,31 @@ export async function listOrgTeams(api: GiteaApi, org: string): Promise<Team[]> 
   }
 }
 
-/** The `teams.yaml` we seed into the templates repo (the two defaults). */
-function defaultTeamsYaml(): string {
-  const doc = (t: Team) =>
-    [
-      'apiVersion: backstage.io/v1alpha1',
-      'kind: Group',
-      'metadata:',
-      `  name: ${t.name}`,
-      `  title: ${JSON.stringify(t.title)}`,
-      `  description: ${JSON.stringify(`${t.title} — default owner for scaffolded components.`)}`,
-      'spec:',
-      '  type: team',
-      '  children: []',
-    ].join('\n')
-  return (
-    '# Default platform teams — auto-seeded by the Adhar console so every\n' +
-    '# organisation can own components with a Group entity out of the box.\n' +
-    DEFAULT_TEAMS.map(doc).join('\n---\n') +
-    '\n'
-  )
-}
-
 /**
- * Seed `teams.yaml` into the templates repo if absent (idempotent). Best-effort:
- * any failure is swallowed — the endpoint still returns the defaults.
+ * The active organisation's own teams.
+ *
+ * These are the `workspace.team` documents the team switcher lists and that
+ * Workspace admin creates — reflected into Keycloak as `ws-team-<slug>`
+ * groups. They are the organisation's teams in the sense the Owner picker
+ * means: a real group of real people, scoped to this tenant.
+ *
+ * `openStore` returns null when the deployment has no database configured, in
+ * which case this contributes nothing and the Gitea/catalog sources below get
+ * their turn.
  */
-async function seedTeamsFile(api: GiteaApi, owner: string, name: string): Promise<void> {
+async function listWorkspaceTeams(tenant: string): Promise<Team[]> {
   try {
-    const existing = await api(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/teams.yaml`)
-    if (existing.ok) return // already present — nothing to do
-    if (existing.status !== 404) return // unexpected (403/500) — don't fight it
-    await api(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/teams.yaml`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        content: toBase64(defaultTeamsYaml()),
-        message: 'chore: seed default platform teams (adhar console)',
-        branch: 'main',
-      }),
-    })
+    const store = await openStore(tenant)
+    if (!store) return []
+    const docs = await store.list<TeamDoc>(KIND.team)
+    return docs
+      .map((d) => d.data)
+      .filter((t) => typeof t?.slug === 'string' && t.slug.length > 0)
+      .map((t) => ({ name: t.slug, title: t.name?.trim() || humanize(t.slug) }))
   } catch {
-    /* non-fatal — discovery + defaults still work */
+    // A store that cannot be opened or read is a missing source, not an error
+    // the picker should fail on.
+    return []
   }
 }
 
@@ -214,13 +196,20 @@ export async function handleListTeams(req: Request): Promise<Response> {
 
   const org = await activeOrgSlug(auth.user.id, auth.activeTenant)
 
-  const gitea = getTool('gitea')
-  if (!gitea?.baseUrl || !gitea.serviceToken) {
-    // Gitea not configured — the two defaults are always selectable.
+  // The organisation's own teams come first — this is the question being asked.
+  const wsTeams = await listWorkspaceTeams(auth.activeTenant)
+  if (wsTeams.length > 0) {
     return withCookie(
-      Response.json({ teams: DEFAULT_TEAMS, source: 'default', org }),
+      Response.json({ teams: dedupeTeams(wsTeams), source: 'workspace', org }),
       auth.refreshedCookie,
     )
+  }
+
+  const gitea = getTool('gitea')
+  if (!gitea?.baseUrl || !gitea.serviceToken) {
+    // No workspace teams and no Gitea to ask. Nothing to offer, and saying so
+    // beats inventing two teams that exist nowhere.
+    return withCookie(Response.json({ teams: [], source: 'none', org }), auth.refreshedCookie)
   }
 
   const api: GiteaApi = (path, init) =>
@@ -238,7 +227,7 @@ export async function handleListTeams(req: Request): Promise<Response> {
   const orgTeams = await listOrgTeams(api, org)
   if (orgTeams.length > 0) {
     return withCookie(
-      Response.json({ teams: dedupeTeams([...orgTeams, ...DEFAULT_TEAMS]), source: 'org', org }),
+      Response.json({ teams: dedupeTeams(orgTeams), source: 'org', org }),
       auth.refreshedCookie,
     )
   }
@@ -246,9 +235,6 @@ export async function handleListTeams(req: Request): Promise<Response> {
   // No org teams — either this install predates per-tenant Gitea orgs, or the
   // tenant was never provisioned. Fall back to the curated templates repo.
   const { owner, name } = templatesRepo()
-
-  // Best-effort: make sure the repo actually declares the defaults.
-  await seedTeamsFile(api, owner, name)
 
   // Discover Group entities from the repo's catalog descriptors.
   const discovered: Team[] = []
@@ -275,8 +261,10 @@ export async function handleListTeams(req: Request): Promise<Response> {
     /* discovery failed — fall through to defaults only */
   }
 
-  // The two defaults are ALWAYS present, deduped with whatever the repo defines.
-  const teams = dedupeTeams([...discovered, ...DEFAULT_TEAMS])
+  const teams = dedupeTeams(discovered)
 
-  return withCookie(Response.json({ teams, source: 'catalog', org }), auth.refreshedCookie)
+  return withCookie(
+    Response.json({ teams, source: teams.length > 0 ? 'catalog' : 'none', org }),
+    auth.refreshedCookie,
+  )
 }

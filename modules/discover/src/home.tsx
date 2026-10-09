@@ -86,12 +86,24 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
 export default function DiscoverHome({ section }: { section?: string } = {}) {
   const active = (SECTIONS[section as Section] ? (section as Section) : 'dashboard') as Section
   const def = SECTIONS[active]
+  /*
+   * Logs is a workbench, not a document.
+   *
+   * Every other section here is a page you read top to bottom, so a title band
+   * above it is orientation. The log explorer is the opposite: it is a single
+   * pane that wants every pixel of the window, and it already names itself —
+   * the LogQL badge sits in its query bar, the sidebar row is highlighted, and
+   * the breadcrumb says Discover → Logs. The `<h1>` plus its `mb-6` and the
+   * wrapper's `space-y-6` cost about 80px, which is six log lines spent
+   * repeating a word that is on screen twice already.
+   */
+  if (active === 'logs') return <Logs />
+
   return (
     <div className="space-y-6">
       <PageHeader title={def.label} />
       {active === 'dashboard' && <Dashboard />}
       {active === 'metrics' && <Metrics />}
-      {active === 'logs' && <Logs />}
       {active === 'traces' && <Traces />}
       {active === 'servicemap' && <ServiceMap />}
       {active === 'alerts' && <Alerts />}

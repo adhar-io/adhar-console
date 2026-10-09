@@ -15,7 +15,7 @@ import {
 } from '@adhar-console/shell-ui'
 import { k8s } from '@adhar-console/api-clients'
 import { kube } from '@adhar-console/api-clients/k8s'
-import { cn } from '@adhar-console/utils'
+import { cn, tryParseYaml } from '@adhar-console/utils'
 import { client, clusterParam, useActiveCluster } from '../data/client.ts'
 import { useGeneric, useNamespaces } from '../data/hooks.ts'
 import { GVRS } from '../data/gvr.ts'
@@ -24,6 +24,7 @@ import { useHasK8sPermission } from '../data/access.ts'
 import { useVariantsForKind } from '../data/xrds.ts'
 import { K8sRolePill } from '../components/role-gate.tsx'
 import { toYaml } from '../data/manifest-yaml.ts'
+import { provisionState } from '../data/provision-state.ts'
 import { YamlView } from '../components/yaml-view.tsx'
 
 /**
@@ -428,7 +429,7 @@ function b64Decode(value: string): { ok: boolean; text: string } {
     const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
     // Control characters (except tab/newline/CR) mean binary content.
     // eslint-disable-next-line no-control-regex
-    if (/[ --]/.test(text)) return { ok: false, text: value }
+    if (/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text)) return { ok: false, text: value }
     return { ok: true, text }
   } catch {
     return { ok: false, text: value }
@@ -611,7 +612,13 @@ export function XrList({
           config={config}
           mode="create"
           defaultNamespace={namespace}
-          onClose={() => setProvisioning(false)}
+          // Closing can now happen AFTER an apply — the dialog stays open to
+          // report the reconcile — so the list has to refresh on this path too,
+          // or a claim that was just created is missing from it.
+          onClose={() => {
+            invalidate()
+            setProvisioning(false)
+          }}
           onApplied={(applied) => {
             invalidate()
             setProvisioning(false)
@@ -696,17 +703,70 @@ export function ClaimFormModal({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [pane, setPane] = useState<'form' | 'yaml'>('form')
+  /**
+   * The hand-edited manifest, or null while the form drives.
+   *
+   * Two-way binding between a form and a text buffer is a trap: a keystroke in
+   * the YAML would have to be reflected back into fields that may not exist for
+   * it, and a keystroke in the form would overwrite what was typed here. So
+   * editing the YAML DETACHES it — from that point the text is the manifest,
+   * the form says so, and "Revert to form" is the one way back.
+   */
+  const [yamlDraft, setYamlDraft] = useState<string | null>(null)
   const [dryBusy, setDryBusy] = useState(false)
   const [dryNote, setDryNote] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
   const [copied, setCopied] = useState(false)
+
+  /**
+   * The object the apiserver accepted, while this dialog watches it settle.
+   *
+   * Apply used to hand straight back to the list, which closed the dialog and
+   * opened the drawer on the apiserver's immediate response — an object whose
+   * `status` is empty, because Crossplane has not reconciled it yet. The one
+   * moment the person most wants an answer ("did that work?") showed a blank
+   * status and read as nothing having happened. The dialog now stays and
+   * reports the reconcile.
+   */
+  const [applied, setApplied] = useState<XR | null>(null)
 
   const applyMut = useMutation({
     // Server-side apply through the per-user gateway; the gateway stamps
     // fieldManager=adhar-console on the SSA patch. Never simulated.
     mutationFn: (manifest: XR) =>
       kube.apply<XR>(manifest as unknown as Parameters<typeof kube.apply>[0], { cluster: cp }),
-    onSuccess: (applied) => onApplied(applied),
+    onSuccess: (a) => setApplied(a),
   })
+
+  /*
+   * Watch it reconcile. The query key matches the drawer's, so opening the
+   * details after this does not refetch what is already in hand — and polling
+   * stops as soon as the dialog is gone.
+   */
+  const watch = useQuery({
+    queryKey: applied
+      ? [
+          'platform',
+          'xr',
+          config.gvr.group,
+          config.gvr.version,
+          config.gvr.resource,
+          applied.metadata.namespace ?? '-',
+          applied.metadata.name,
+        ]
+      : ['platform', 'xr', 'idle'],
+    queryFn: () =>
+      client.getGeneric(
+        undefined,
+        config.gvr,
+        applied!.metadata.namespace,
+        applied!.metadata.name,
+      ),
+    enabled: applied !== null,
+    refetchInterval: 4000,
+    initialData: applied ? (applied as unknown as k8s.Generic) : undefined,
+    retry: false,
+  })
+  const live = ((watch.data as unknown) ?? applied) as XR | null
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -736,6 +796,9 @@ export function ClaimFormModal({
    * the same intent that can drift from it.
    */
   const buildManifest = (): { manifest: XR | null; errors: Record<string, string>; specError?: string } => {
+    // ── hand-edited YAML wins, because it is what the person is looking at ──
+    if (yamlDraft !== null) return manifestFromYaml(yamlDraft)
+
     // ── metadata validation ──
     const errors: Record<string, string> = {}
     const trimmedName = name.trim()
@@ -789,6 +852,65 @@ export function ClaimFormModal({
   }
 
   /**
+   * Read the edited document back into a manifest.
+   *
+   * Everything here is a refusal rather than a repair. A dialog that quietly
+   * fixed a malformed manifest would apply something nobody wrote, and the
+   * subject is infrastructure: `yaml-view.tsx` put it as "a wrong database,
+   * not a wrong pixel". So each check that fails stops the apply and says
+   * what is wrong, and the server-side dry run still has the last word.
+   */
+  const manifestFromYaml = (
+    text: string,
+  ): { manifest: XR | null; errors: Record<string, string>; specError?: string } => {
+    const read = tryParseYaml(text)
+    if (!read.ok) return { manifest: null, errors: {}, specError: read.error }
+    const doc = read.value
+    if (doc === null || typeof doc !== 'object' || Array.isArray(doc)) {
+      return { manifest: null, errors: {}, specError: 'The document is not a Kubernetes manifest' }
+    }
+    const obj = doc as Record<string, unknown>
+    const meta = (obj.metadata ?? {}) as Record<string, unknown>
+    const missing: string[] = []
+    if (typeof obj.apiVersion !== 'string' || !obj.apiVersion) missing.push('apiVersion')
+    if (typeof obj.kind !== 'string' || !obj.kind) missing.push('kind')
+    if (typeof meta.name !== 'string' || !meta.name) missing.push('metadata.name')
+    if (missing.length) {
+      return { manifest: null, errors: {}, specError: `Missing ${missing.join(', ')}` }
+    }
+    // The placeholders the preview renders for an unfilled form are readable,
+    // but they are not names. Applying one would create `<name>`.
+    for (const [k, v] of Object.entries(meta)) {
+      if (typeof v === 'string' && /^<.*>$/.test(v)) {
+        return { manifest: null, errors: {}, specError: `metadata.${k} is still the placeholder ${v}` }
+      }
+    }
+    const nm = meta.name as string
+    if (nm.length > 253 || !DNS_SUBDOMAIN.test(nm)) {
+      return { manifest: null, errors: {}, specError: `metadata.name "${nm}" is not a valid Kubernetes name` }
+    }
+    if (namespaced && typeof meta.namespace === 'string' && meta.namespace &&
+        (meta.namespace.length > 63 || !DNS_SUBDOMAIN.test(meta.namespace))) {
+      return { manifest: null, errors: {}, specError: `metadata.namespace "${meta.namespace}" is not a valid namespace name` }
+    }
+    /*
+     * The dialog is scoped to ONE kind. Letting an edited document change its
+     * own kind would turn "Provision a Database" into a button that creates
+     * anything the apiserver accepts, from a dialog whose title still says
+     * Database — and on edit, into a way to replace a live object with a
+     * different kind under the same name.
+     */
+    const wantKind = initial?.kind ?? claimKind(config)
+    if (obj.kind !== wantKind) {
+      return { manifest: null, errors: {}, specError: `This dialog provisions ${wantKind}; the document says ${String(obj.kind)}` }
+    }
+    if (mode === 'edit' && initial && nm !== initial.metadata.name) {
+      return { manifest: null, errors: {}, specError: `Renaming is not possible — this edits ${initial.metadata.name}` }
+    }
+    return { manifest: obj as unknown as XR, errors: {} }
+  }
+
+  /**
    * Field errors render against the inputs, which live on the Form pane — and
    * that pane is hidden while the YAML is showing. Pressing Provision or Dry
    * run there with something missing therefore did nothing at all, visibly:
@@ -799,7 +921,11 @@ export function ClaimFormModal({
     setFieldErrors(errors)
     if (specError) setFormError(specError)
     if (specError || Object.keys(errors).length) {
-      setPane('form')
+      // Send the reader to the pane that can explain the problem. While the
+      // YAML drives, that IS the YAML pane — bouncing to a form whose fields
+      // no longer build this manifest would point at the wrong thing, which
+      // is the same bug this function was written to fix, mirrored.
+      if (yamlDraft === null) setPane('form')
       return true
     }
     return false
@@ -835,11 +961,27 @@ export function ClaimFormModal({
 
   // The live manifest, for the YAML pane. Errors are ignored here on purpose:
   // a half-filled form should still show what it is building.
-  const previewYaml = useMemo(() => {
+  const formYaml = useMemo(() => {
+    // While detached, `buildManifest` returns the EDITED document, so asking it
+    // here would make the preview echo the draft back at itself. The pane shows
+    // the draft directly in that case (`shownYaml`), and this stays the form's
+    // own rendering — what "Revert to form" goes back to.
+    if (yamlDraft !== null) return ''
     const { manifest } = buildManifest()
     return manifest ? toYaml(manifest as unknown as Record<string, unknown>) : ''
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, ns, values, specText, variantName, fields, config, initial, namespaced])
+  }, [name, ns, values, specText, variantName, fields, config, initial, namespaced, yamlDraft])
+
+  /** What the YAML pane shows: the hand-edited text, else the live preview. */
+  const shownYaml = yamlDraft ?? formYaml
+
+  /** Parse feedback for the edited document, shown as you type. */
+  const yamlProblem = useMemo(() => {
+    if (yamlDraft === null) return null
+    const { specError } = manifestFromYaml(yamlDraft)
+    return specError ?? null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [yamlDraft, config, initial, mode, namespaced])
 
   if (typeof document === 'undefined') return null
   return createPortal(
@@ -869,7 +1011,7 @@ export function ClaimFormModal({
           {/* The form builds it; the YAML is what gets sent. Both views are of
               one manifest, so the second can never describe a different claim
               than the one the button applies. */}
-          <div className="mt-3 inline-flex rounded-lg border border-edge-default bg-surface-sunken p-0.5">
+          <div className={cn('mt-3 inline-flex rounded-lg border border-edge-default bg-surface-sunken p-0.5', applied && 'hidden')}>
             {(['form', 'yaml'] as const).map((id) => (
               <button
                 key={id}
@@ -889,18 +1031,30 @@ export function ClaimFormModal({
           </div>
         </header>
 
-        {pane === 'yaml' ? (
+        {applied && live ? (
+          <ProvisionStatus
+            xr={live}
+            kind={claimKind(config)}
+            stale={watch.isError}
+            onOpenDetails={() => onApplied(live)}
+            onClose={onClose}
+          />
+        ) : null}
+
+        {pane === 'yaml' && !applied ? (
           <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-[12px] text-content-muted">
-                Exactly what server-side apply will send. Read-only — the form above is the input.
+                {yamlDraft === null
+                  ? 'Exactly what server-side apply will send. Edit it to take over from the form.'
+                  : 'This document is the manifest. The form no longer builds it.'}
               </p>
               <div className="flex items-center gap-1.5">
                 <Button
                   size="sm"
                   variant="secondary"
                   onClick={() => {
-                    void navigator.clipboard?.writeText(previewYaml)
+                    void navigator.clipboard?.writeText(shownYaml)
                     setCopied(true)
                     setTimeout(() => setCopied(false), 1600)
                   }}
@@ -913,7 +1067,7 @@ export function ClaimFormModal({
                   size="sm"
                   variant="secondary"
                   onClick={() => {
-                    const blob = new Blob([previewYaml], { type: 'application/yaml' })
+                    const blob = new Blob([shownYaml], { type: 'application/yaml' })
                     const url = URL.createObjectURL(blob)
                     const a = document.createElement('a')
                     a.href = url
@@ -926,20 +1080,68 @@ export function ClaimFormModal({
                 </Button>
               </div>
             </div>
-            <YamlView value={previewYaml} ariaLabel="Claim manifest as YAML" />
+            {yamlDraft !== null ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-500/40 dark:bg-amber-500/10">
+                <span className="text-[12px] text-amber-900 dark:text-amber-200">
+                  Editing YAML directly — form fields are no longer applied.
+                </span>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    setYamlDraft(null)
+                    setFormError(null)
+                    setDryNote(null)
+                  }}
+                >
+                  Revert to form
+                </Button>
+              </div>
+            ) : null}
+            {yamlProblem ? (
+              <p className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 font-mono text-[11px] text-rose-800 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
+                {yamlProblem}
+              </p>
+            ) : null}
+            <YamlView
+              value={shownYaml}
+              ariaLabel="Claim manifest as YAML"
+              onChange={(next) => {
+                setYamlDraft(next)
+                setFormError(null)
+                setDryNote(null)
+              }}
+            />
           </div>
         ) : null}
 
         <form
           className={cn(
             'flex-1 space-y-5 overflow-y-auto px-5 py-4',
-            pane === 'yaml' && 'hidden',
+            (pane === 'yaml' || applied) && 'hidden',
           )}
           onSubmit={(e) => {
             e.preventDefault()
             submit()
           }}
         >
+          {/*
+            A form that silently does nothing is worse than no form. While the
+            YAML pane is detached these inputs still accept typing — they are
+            the thing "Revert to form" restores — but they no longer build what
+            Provision sends, and that has to be on screen where the typing is.
+          */}
+          {yamlDraft !== null ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-500/40 dark:bg-amber-500/10">
+              <span className="text-[12px] text-amber-900 dark:text-amber-200">
+                The YAML pane is being edited directly, so these fields are not applied.
+              </span>
+              <Button size="sm" variant="secondary" onClick={() => { setYamlDraft(null); setFormError(null); setDryNote(null) }}>
+                Revert to form
+              </Button>
+            </div>
+          ) : null}
+
           {/* ── metadata ── */}
           <fieldset className="space-y-3" disabled={applyMut.isPending}>
             <legend className="text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
@@ -1106,7 +1308,7 @@ export function ClaimFormModal({
           ) : null}
         </form>
 
-        {dryNote ? (
+        {dryNote && !applied ? (
           <div
             role="status"
             className={cn(
@@ -1121,7 +1323,7 @@ export function ClaimFormModal({
           </div>
         ) : null}
 
-        <footer className="flex items-center justify-between gap-3 border-t border-edge-default bg-surface-raised px-5 py-3">
+        <footer className={cn('flex items-center justify-between gap-3 border-t border-edge-default bg-surface-raised px-5 py-3', applied && 'hidden')}>
           <span className="text-[10px] text-content-subtle">
             Server-side apply · field manager <code className="font-mono">adhar-console</code>
           </span>
@@ -1161,6 +1363,98 @@ export function ClaimFormModal({
       </div>
     </div>,
     document.body,
+  )
+}
+
+/**
+ * What happened after Provision — the reconcile, while it happens.
+ *
+ * `provision-state.ts` decides what the conditions mean; this shows it. The
+ * dialog stays open through this because closing on apply answered a question
+ * the person had not asked yet: the apiserver accepting a manifest is not the
+ * same event as the infrastructure existing, and only the second one is what
+ * "provision" means to the person who pressed the button.
+ */
+function ProvisionStatus({
+  xr,
+  kind,
+  stale,
+  onOpenDetails,
+  onClose,
+}: {
+  xr: XR
+  kind: string
+  /** The watch stopped answering — what is shown may no longer be current. */
+  stale: boolean
+  onOpenDetails(): void
+  onClose(): void
+}) {
+  const state = provisionState(xr.status?.conditions)
+  const tone =
+    state.phase === 'ready'
+      ? 'healthy'
+      : state.phase === 'failed'
+        ? 'degraded'
+        : ('info' as StatusKind)
+  return (
+    <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5">
+          {state.settling && !stale ? <Spinner size={18} /> : null}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge kind={tone}>{state.title}</StatusBadge>
+            {stale ? <StatusBadge kind="unknown">Not refreshing</StatusBadge> : null}
+          </div>
+          <p className="mt-1.5 break-words text-[12px] leading-relaxed text-content-muted">
+            {state.detail ??
+              (state.settling
+                ? 'Crossplane is reconciling the claim into backing infrastructure.'
+                : 'No further detail was reported.')}
+          </p>
+        </div>
+      </div>
+
+      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 rounded-lg border border-edge-default bg-surface-raised px-3.5 py-3 text-[12px]">
+        <dt className="text-content-subtle">Kind</dt>
+        <dd className="font-mono text-content">{kind}</dd>
+        <dt className="text-content-subtle">Name</dt>
+        <dd className="truncate font-mono text-content">{xr.metadata.name}</dd>
+        {xr.metadata.namespace ? (
+          <>
+            <dt className="text-content-subtle">Namespace</dt>
+            <dd className="truncate font-mono text-content">{xr.metadata.namespace}</dd>
+          </>
+        ) : null}
+        <dt className="text-content-subtle">Synced</dt>
+        <dd>{conditionBadge(xr, 'Synced')}</dd>
+        <dt className="text-content-subtle">Ready</dt>
+        <dd>{conditionBadge(xr, 'Ready')}</dd>
+      </dl>
+
+      {/*
+        Provisioning real infrastructure takes minutes, and nobody should have
+        to hold a dialog open to find out how it went. Saying so is the honest
+        alternative to a progress bar that implies otherwise.
+      */}
+      {state.settling ? (
+        <p className="text-[11px] leading-relaxed text-content-subtle">
+          This can take several minutes. It continues whether or not this dialog
+          is open — the details view shows the same reconcile, with its events
+          and composed resources.
+        </p>
+      ) : null}
+
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <Button variant="ghost" size="sm" onClick={onClose}>
+          Close
+        </Button>
+        <Button size="sm" onClick={onOpenDetails}>
+          Open details
+        </Button>
+      </div>
+    </div>
   )
 }
 

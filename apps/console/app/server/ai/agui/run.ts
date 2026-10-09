@@ -33,6 +33,22 @@ import { AUTONOMY_LADDER } from '../adhar-ai.ts'
 /** Hard ceiling on tool rounds per run, so a confused model can't loop forever. */
 const MAX_STEPS = 8
 
+/**
+ * The agent that answers when a delegated adhar-ai run cannot.
+ *
+ * The runtime fails for reasons that have nothing to do with the question — a
+ * gateway refusing its identity, an open circuit breaker, an exhausted budget —
+ * and until 2026-10-09 every one of those ended the turn with a bare RUN_ERROR
+ * and no answer. The console's own SRE agent reads the same cluster with the
+ * caller's own RBAC and streams, so the person still gets a grounded answer
+ * and a one-line note saying who gave it.
+ */
+const FALLBACK_AGENT = 'sre'
+
+/** Earlier turns a delegated run is given, and how much of each. */
+const PRIOR_TURNS = 6
+const PRIOR_TURN_CHARS = 400
+
 export interface RunState extends Record<string, unknown> {
   agent: { id: string; name: string; accent: string; icon: string }
   // `thinking`/`answering` belong to the delegated runtime, which has no plan
@@ -50,6 +66,25 @@ interface AguiMessage {
   name?: string
   toolCallId?: string
   toolCalls?: Array<{ id: string; type?: string; function: { name: string; arguments: string } }>
+}
+
+/**
+ * Earlier turns of the thread, as context for a delegated run.
+ *
+ * The runtime keeps its own per-session history, in memory: a restart or a
+ * second replica forgets it, and the follow-up "and the other one?" then
+ * starts from nothing. The console holds the whole thread, so the recent
+ * turns ride along. Bounded, or a long thread would crowd out the question;
+ * answers only, never tool transcripts. Empty for the first message.
+ */
+export function priorTurns(messages: AguiMessage[]): string {
+  const fromEnd = [...messages].reverse().findIndex((m) => m.role === 'user')
+  const before = fromEnd < 0 ? messages : messages.slice(0, messages.length - 1 - fromEnd)
+  const turns = before
+    .filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
+    .slice(-PRIOR_TURNS)
+    .map((m) => `${m.role}: ${(m.content as string).replace(/\s+/g, ' ').trim().slice(0, PRIOR_TURN_CHARS)}`)
+  return turns.length ? `Earlier in this conversation (oldest first):\n${turns.join('\n')}` : ''
 }
 
 /** AG-UI message list → the OpenAI-compatible shape our provider speaks. */
@@ -190,12 +225,15 @@ export function runAgent(rawInput: unknown, opts: RunOptions): Response {
   }
 
   const agent = getAgent(input.forwardedProps?.agent as string | undefined)
+  // The agent actually answering. Starts as the one asked for and changes only
+  // when a delegated run fails and the console's own agent takes the turn.
+  let active: AgentDef = agent
   // Frontend tools the browser declared it can run this turn.
   const clientTools = (input.tools ?? []).map((t) => ({
     type: 'function' as const,
     function: { name: t.name, description: t.description ?? '', parameters: t.parameters ?? { type: 'object', properties: {} } },
   }))
-  const tools = [...toolsForAgent(agent), ...clientTools]
+  let tools = [...toolsForAgent(agent), ...clientTools]
 
   const state: RunState = {
     agent: { id: agent.id, name: agent.name, accent: agent.accent, icon: agent.icon },
@@ -238,8 +276,14 @@ export function runAgent(rawInput: unknown, opts: RunOptions): Response {
             return
           }
           // Context the UI attached (the page you were on, the resource you had
-          // open) is prepended, because the runtime has no view of the console.
-          const context = (input.context ?? []).map((c) => `${c.description}: ${c.value}`).join('\n')
+          // open) is prepended, because the runtime has no view of the console —
+          // and so are the thread's earlier turns, because the runtime's own
+          // memory of them is best-effort (see priorTurns).
+          const earlier = priorTurns(input.messages)
+          const context = [
+            ...(input.context ?? []).map((c) => `${c.description}: ${c.value}`),
+            ...(earlier ? [earlier] : []),
+          ].join('\n\n')
           // Autonomy the operator picked. Validated against the ladder rather
           // than forwarded blind: adhar-ai rejects an unknown value outright,
           // so a typo would fail the whole run instead of falling back to the
@@ -254,17 +298,39 @@ export function runAgent(rawInput: unknown, opts: RunOptions): Response {
             session: input.threadId,
             signal: opts.signal,
           })
-          if (delegated.error) {
-            stream.runError(delegated.error, 'adhar_ai_error')
+          const answered = !delegated.error && delegated.result?.kind !== 'error' && delegated.text.trim() !== ''
+          if (answered) {
+            finalText = delegated.text
+            stream.patchState([{ op: 'replace', path: '/phase', value: 'done' }])
+            stream.runFinished({ text: finalText })
             stream.close()
+            opts.onComplete?.({ text: finalText, findings: state.findings, agent })
             return
           }
-          finalText = delegated.text
-          stream.patchState([{ op: 'replace', path: '/phase', value: 'done' }])
-          stream.runFinished({ text: finalText })
-          stream.close()
-          opts.onComplete?.({ text: finalText, findings: state.findings, agent })
-          return
+
+          // The runtime could not answer. Say so in one line — naming the
+          // reason only when the runtime did not already put it in its text —
+          // and let the console's own cluster-grounded agent take the turn
+          // below, with the caller's RBAC and the whole thread.
+          const reason = delegated.text.trim()
+            ? ''
+            : ` (${(delegated.error || delegated.result?.error || 'it returned no answer').replace(/\s+/g, ' ').slice(0, 300)})`
+          active = getAgent(FALLBACK_AGENT)
+          tools = [...toolsForAgent(active), ...clientTools]
+          convo[0] = { role: 'system', content: active.systemPrompt }
+          state.agent = { id: active.id, name: active.name, accent: active.accent, icon: active.icon }
+          state.phase = 'planning'
+          const noteId = stream.id('msg')
+          stream.textStart(noteId)
+          stream.textDelta(
+            noteId,
+            `_Adhar AI could not answer this one${reason}. Answering from the console's own cluster tools as ${active.name} instead._\n\n`,
+          )
+          stream.textEnd(noteId)
+          stream.patchState([
+            { op: 'replace', path: '/agent', value: state.agent },
+            { op: 'replace', path: '/phase', value: 'planning' },
+          ])
         }
 
         for (let step = 0; step < MAX_STEPS; step++) {
@@ -359,7 +425,7 @@ export function runAgent(rawInput: unknown, opts: RunOptions): Response {
             state.phase = 'awaiting-input'
             stream.patchState([{ op: 'replace', path: '/phase', value: 'awaiting-input' }])
             stream.runFinished({ status: 'awaiting_tool_result', ...awaitingClient })
-            opts.onComplete?.({ text: finalText, findings: state.findings, agent })
+            opts.onComplete?.({ text: finalText, findings: state.findings, agent: active })
             stream.close()
             return
           }
@@ -368,7 +434,7 @@ export function runAgent(rawInput: unknown, opts: RunOptions): Response {
         state.phase = 'done'
         stream.patchState([{ op: 'replace', path: '/phase', value: 'done' }])
         stream.runFinished({ status: 'complete', findings: state.findings.length, toolCalls: state.tools.called })
-        opts.onComplete?.({ text: finalText, findings: state.findings, agent })
+        opts.onComplete?.({ text: finalText, findings: state.findings, agent: active })
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e)
         // An aborted request is the user closing the panel, not a failure.

@@ -13,3 +13,4 @@ export {
   catalogPropsDescription,
   type GenerativeComponentSpec,
 } from './agui-catalog.ts'
+export { parseYaml, tryParseYaml, type YamlValue } from './yaml-lite.ts'

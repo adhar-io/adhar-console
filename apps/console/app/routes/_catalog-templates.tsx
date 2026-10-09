@@ -1212,16 +1212,6 @@ interface Team {
   title?: string
 }
 
-/**
- * The two teams every organisation can always own components with. Used as the
- * honest fallback when the BFF/`/api/teams` endpoint is absent (dev SPA) or the
- * platform Gitea isn't connected — the picker is never empty.
- */
-const DEFAULT_TEAMS: Team[] = [
-  { name: 'default-platform', title: 'Platform Team' },
-  { name: 'default-application', title: 'Application Team' },
-]
-
 /** Synthesize a `kind: Group` catalog Entity from a discovered team. */
 function teamGroupEntity(t: Team): Entity {
   return {
@@ -1233,13 +1223,20 @@ function teamGroupEntity(t: Team): Entity {
 }
 
 /**
- * Fetch the org's teams from the BFF (`GET /api/teams`) and expose them as
- * synthesized Group entities. Mirrors {@link loadGiteaTemplates}' honest
- * fallback: on any failure (no BFF, non-JSON, network) the two defaults stand,
- * so the Owner picker always offers at least default-platform + default-application.
+ * Fetch the active organisation's teams from the BFF (`GET /api/teams`) and
+ * expose them as synthesized Group entities.
+ *
+ * This starts EMPTY. It used to seed itself with a hardcoded
+ * "Platform Team" / "Application Team" pair so the picker was never blank,
+ * which meant those two were shown before the fetch answered, and stayed
+ * whenever it failed — so an organisation with real teams briefly offered two
+ * that were not its own, and one with none offered two that existed nowhere
+ * at all. Owning a component is a real grant to a real group; a placeholder
+ * that looks identical to a team is worse than an empty list, because the
+ * empty list is answerable ("create a team") and the placeholder is not.
  */
 function useTeamGroups(): Entity[] {
-  const [teams, setTeams] = useState<Team[]>(DEFAULT_TEAMS)
+  const [teams, setTeams] = useState<Team[]>([])
   useEffect(() => {
     let alive = true
     fetch('/api/teams', { credentials: 'include', headers: { accept: 'application/json' } })
@@ -1250,7 +1247,7 @@ function useTeamGroups(): Entity[] {
         if (alive && Array.isArray(json.teams) && json.teams.length > 0) setTeams(json.teams)
       })
       .catch(() => {
-        /* keep the defaults */
+        /* no teams to show — the picker says so rather than inventing some */
       })
     return () => {
       alive = false
@@ -1278,9 +1275,9 @@ function ScaffoldWizard({
 }) {
   const register = useRegisterEntity()
   const catalog = useCatalog().data ?? []
-  // Owner picker source: live catalog Groups ∪ the platform teams from
-  // /api/teams (which always guarantees default-platform + default-application),
-  // so Owner is never empty even when the live catalog defines no Group entity.
+  // Owner picker source: live catalog Groups ∪ the active organisation's teams
+  // from /api/teams. Both can legitimately be empty, and when they are the
+  // field says so instead of offering a team that does not exist.
   const teamGroups = useTeamGroups()
   const ownerGroups = useMemo(() => mergeGroups(catalog, teamGroups), [catalog, teamGroups])
   const [stepIdx, setStepIdx] = useState(0)
@@ -1662,7 +1659,15 @@ function renderInput(
           onChange={(e) => onChange(e.target.value)}
           className="rounded-md border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:outline-none"
         >
-          <option value="">— pick a group —</option>
+          {/*
+            An empty list is a real state now that no defaults are injected:
+            the organisation may genuinely have no teams yet, or the workspace
+            store may be unreachable. Saying which is more use than an empty
+            dropdown that looks broken.
+          */}
+          <option value="">
+            {groups.length > 0 ? '— pick a group —' : '— no teams in this organisation —'}
+          </option>
           {groups.map((g) => (
             <option key={g.metadata.name} value={`group:${g.metadata.name}`}>
               {g.metadata.title ?? g.metadata.name} ({g.metadata.name})

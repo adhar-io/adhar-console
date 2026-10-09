@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { EmptyState, LokiIcon, Spinner } from '@adhar-console/shell-ui'
 import { cn } from '@adhar-console/utils'
+import { availableHeight } from '../data/fill-height.ts'
 import type { lgtm } from '@adhar-console/api-clients'
 import {
   DEFAULT_RANGE,
@@ -368,6 +369,47 @@ export function Logs() {
 
   /* ── render ── */
 
+  /*
+   * The explorer pane ends at the bottom of the window, measured rather than
+   * assumed. See `fill-height.ts` — the `h-[calc(100vh-14rem)]` this replaces
+   * was 224px of guessed chrome that no longer matched the toolbar, so the
+   * page overflowed its own `main` and scrolled as a whole.
+   */
+  const paneRef = useRef<HTMLDivElement | null>(null)
+  const [paneH, setPaneH] = useState<number | null>(null)
+  useEffect(() => {
+    const measure = () => {
+      const el = paneRef.current
+      if (!el) return
+      // Where the pane must end: the content bottom of whatever scrolls it.
+      // The app shell wraps the page in `py-8`, so stopping at the window edge
+      // pushed that padding past it and left the whole page scrollable — the
+      // exact bug the fixed `14rem` had, in a new place.
+      const scroller = el.closest('main')
+      let bottom = globalThis.innerHeight
+      if (scroller) {
+        bottom = Math.min(bottom, scroller.getBoundingClientRect().bottom)
+        for (let n = el.parentElement; n && n !== scroller; n = n.parentElement) {
+          const cs = getComputedStyle(n)
+          bottom -= parseFloat(cs.paddingBottom) || 0
+          bottom -= parseFloat(cs.marginBottom) || 0
+        }
+      }
+      setPaneH(availableHeight(el.getBoundingClientRect().top, bottom))
+    }
+    measure()
+    globalThis.addEventListener('resize', measure)
+    // The band above changes height on its own — the query textarea grows, the
+    // severity row wraps — and none of that fires `resize`.
+    const ro = new ResizeObserver(measure)
+    const band = paneRef.current?.parentElement
+    if (band) ro.observe(band)
+    return () => {
+      globalThis.removeEventListener('resize', measure)
+      ro.disconnect()
+    }
+  }, [fullscreen, prefs.rail, query])
+
   const rail = prefs.rail && !fullscreen
 
   return (
@@ -606,10 +648,15 @@ export function Logs() {
         <SourceError tool="Loki" error={q.error} onRetry={() => q.refetch()} icon={<LokiIcon size={20} />} />
       ) : (
         <div
+          ref={paneRef}
+          style={paneH ? { height: paneH } : undefined}
           className={cn(
             'grid min-h-0 gap-3',
             rail ? 'lg:grid-cols-[248px_minmax(0,1fr)]' : 'grid-cols-1',
-            !query ? 'h-[calc(100vh-14rem)]' : fullscreen ? 'h-[calc(100vh-8rem)]' : 'h-[calc(100vh-14rem)]',
+            // Until the first measurement lands, a sensible floor rather than a
+            // zero-height flash. The three branches this replaces all resolved
+            // to one of two guesses anyway.
+            paneH ? '' : 'h-[calc(100vh-14rem)]',
           )}
         >
           {/* discovery rail */}

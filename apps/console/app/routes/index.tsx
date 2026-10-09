@@ -6,7 +6,6 @@ import {
   DonutGauge,
   Sparkline,
   StatusBadge,
-  useLiveStatus,
   useNotifications,
   type AppLink,
   type Notification,
@@ -1377,7 +1376,6 @@ function ClusterSnapshotPanel() {
   const s = summarizeCluster(data)
   const connected = s.connected
   const connecting = s.connecting
-  const liveStatus = useLiveStatus()
 
   // Rolling windows for the sparklines — recorded on each poll into local state
   // so the graph feels alive even on a calm cluster.
@@ -1423,17 +1421,26 @@ function ClusterSnapshotPanel() {
                 ? 'Cluster connected'
                 : 'Cluster unreachable'}
           </span>
-          {/* How this panel is actually being kept current. It used to say
-              "updates every 15s" unconditionally, which stopped being true once
-              the overview became watch-driven: while the live socket is up
-              changes arrive as they happen, and the interval is only the
-              fallback for when it is not. */}
-          <span className="text-content-subtle">
-            · {liveStatus === 'live' ? 'live updates' : 'updates every 15s'}
-          </span>
         </div>
-        <Link to="/platform" className="text-xs font-medium text-brand-700 dark:text-brand-300 hover:text-brand-800 dark:hover:text-brand-300">
-          Open Platform →
+        {/*
+          Arrow only — the label it used to carry ("Open Platform →") is gone,
+          and so is the live-updates line beside it.
+
+          `mr-8 sm:mr-7` is not decoration: the draggable grid parks its grab
+          handle at `right-4 top-4 h-8 w-8` (`sm:right-5 sm:top-5 sm:h-6 sm:w-6`,
+          see draggable-grid.tsx), while this card's `p-5` puts the header's
+          right edge at 20px — inside the handle on both breakpoints. The
+          margins push the arrow clear of the handle's box plus a 4px gap, so
+          the two controls never sit on top of each other and neither steals
+          the other's clicks.
+        */}
+        <Link
+          to="/platform"
+          aria-label="Open Platform"
+          title="Open Platform"
+          className="mr-8 text-xs font-medium text-brand-700 hover:text-brand-800 sm:mr-7 dark:text-brand-300 dark:hover:text-brand-200"
+        >
+          →
         </Link>
       </div>
 

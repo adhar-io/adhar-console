@@ -107,3 +107,46 @@ Deno.test('Group entities are read out of a catalog descriptor', () => {
   ].join('\n')
   assertEquals(parseGroups(yaml), [{ name: 'platform', title: 'Platform Team' }])
 })
+
+/*
+ * No built-in teams.
+ *
+ * The Owner picker used to be fed a hardcoded "Platform Team" /
+ * "Application Team" pair that was appended to every response — including the
+ * ones that had already found the organisation's real teams — so every org on
+ * the platform offered the same two groups on top of its own. Worse, when
+ * nothing was found the handler WROTE that pair into the templates repo and
+ * then discovered it on the next call, manufacturing the data it reported.
+ *
+ * These guard the shape the picker now depends on: whatever comes back
+ * describes teams that actually exist, and nothing is injected.
+ */
+
+Deno.test('an org with its own teams gets only those teams', async () => {
+  const call = api({
+    '/orgs/acme/teams': {
+      status: 200,
+      body: [
+        { name: 'Owners', description: 'Org owners' },
+        { name: 'payments', description: '' },
+      ],
+    },
+  })
+  const teams = await listOrgTeams(call, 'acme')
+  assertEquals(teams, [
+    { name: 'Owners', title: 'Org owners' },
+    { name: 'payments', title: 'Payments' },
+  ])
+  // The two names that used to be bolted onto every answer.
+  assertEquals(teams.some((t) => t.name.startsWith('default-')), false)
+})
+
+Deno.test('a catalog descriptor declaring no Group yields nothing to pick', () => {
+  const yaml = [
+    'apiVersion: backstage.io/v1alpha1',
+    'kind: Component',
+    'metadata:',
+    '  name: checkout',
+  ].join('\n')
+  assertEquals(parseGroups(yaml), [])
+})

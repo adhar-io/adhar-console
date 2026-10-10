@@ -64,11 +64,11 @@ export interface TerminalAction {
 /* ── Terminal color themes (raw hex is allowed here — this is the xterm theme) ── */
 
 const DARK_THEME = {
-  background: '#0f172a',
+  background: '#0b1120',
   foreground: '#e2e8f0',
-  cursor: '#e2e8f0',
-  cursorAccent: '#0f172a',
-  selectionBackground: '#33415580',
+  cursor: '#7dd3fc',
+  cursorAccent: '#0b1120',
+  selectionBackground: '#38bdf840',
   black: '#1e293b',
   red: '#f87171',
   green: '#4ade80',
@@ -112,7 +112,7 @@ const LIGHT_THEME = {
 }
 
 const FONT_FAMILY =
-  'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+  '"JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
 const MIN_FONT = 10
 const MAX_FONT = 22
 
@@ -258,8 +258,10 @@ export const PodTerminal = forwardRef<PodTerminalHandle, PodTerminalProps>(funct
       const mode = getResolvedMode()
       term = new Terminal({
         cursorBlink: true,
+        cursorStyle: 'block',
         fontFamily: FONT_FAMILY,
         fontSize,
+        lineHeight: 1.25,
         scrollback: 5000,
         allowProposedApi: true,
         macOptionIsMeta: true,
@@ -548,13 +550,25 @@ export const PodTerminal = forwardRef<PodTerminalHandle, PodTerminalProps>(funct
     <div
       ref={wrapRef}
       className={cn(
-        'flex flex-col overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm',
+        'flex flex-col overflow-hidden rounded-xl border bg-surface-raised',
+        // A terminal is a window, not a panel: when it is always dark the whole
+        // frame goes dark with it (`dark` re-scopes the design tokens for every
+        // descendant), sits on a deep shadow and carries a hairline highlight
+        // on its top edge like a real terminal window does.
+        alwaysDark || resolvedMode === 'dark'
+          ? 'dark border-white/10 shadow-2xl ring-1 ring-black/60 [box-shadow:inset_0_1px_0_0_rgb(255_255_255/0.06),0_24px_48px_-12px_rgb(0_0_0/0.6)]'
+          : 'border-edge-default shadow-sm',
         fullscreen ? 'fixed inset-0 z-50 rounded-none' : 'relative',
         fill && !fullscreen && 'h-full min-h-0',
       )}
     >
       {/* toolbar — one row, icon-only, never wrapping (see the note above) */}
       <div className="flex h-8 shrink-0 items-center gap-0.5 border-b border-edge-default bg-surface-sunken px-1.5">
+        <span className="mr-2 inline-flex items-center gap-1.5 pl-1" aria-hidden>
+          <span className="size-2.5 rounded-full bg-[#ff5f57] ring-1 ring-inset ring-black/10" />
+          <span className="size-2.5 rounded-full bg-[#febc2e] ring-1 ring-inset ring-black/10" />
+          <span className="size-2.5 rounded-full bg-[#28c840] ring-1 ring-inset ring-black/10" />
+        </span>
         {fill ? (
           <span
             title={`Session ${status}`}
@@ -699,7 +713,7 @@ export const PodTerminal = forwardRef<PodTerminalHandle, PodTerminalProps>(funct
       >
         {/* Padding is 1 row / 2 columns: enough that glyphs do not touch the
             border, little enough that the shell keeps the surface. */}
-        <div ref={hostRef} className="h-full w-full px-1.5 py-1" />
+        <div ref={hostRef} className="h-full w-full px-3 py-2" />
         {/* auto-reconnect affordance when the channel drops */}
         {dead ? (
           <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-3 border-t border-edge-default bg-surface-raised/95 px-3 py-2 backdrop-blur">

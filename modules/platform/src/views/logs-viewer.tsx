@@ -4,7 +4,6 @@ import { Button, Card, CardBody, CardHeader, EmptyState, Select } from '@adhar/s
 import { cn } from '@adhar/utils'
 import { useLiveList } from '../data/live.ts'
 import { GVRS } from '../data/gvr.ts'
-import { NamespacePicker } from '../components/namespace-picker.tsx'
 import { useHasK8sPermission } from '../data/access.ts'
 import { K8sPermissionDenied } from '../components/role-gate.tsx'
 import {
@@ -64,6 +63,17 @@ const WORKLOAD_KINDS: { value: WorkloadKind; label: string }[] = [
 ]
 
 /** Container names of a pod (init + regular), in order. */
+/** `namespace/name` — the key a cluster-wide list needs; `undefined` when either is missing. */
+function podKeyOf(o: KubeObject): string | undefined {
+  const ns = o.metadata?.namespace
+  const name = o.metadata?.name
+  return ns && name ? `${ns}/${name}` : undefined
+}
+/** The name half of a `namespace/name` key, for labels and filenames. */
+function nameOf(key: string): string {
+  return key.includes('/') ? key.slice(key.indexOf('/') + 1) : key
+}
+
 function containersOf(pod: PodSpecish | undefined): string[] {
   const spec = pod?.spec
   return [...(spec?.initContainers ?? []), ...(spec?.containers ?? [])]
@@ -90,11 +100,13 @@ interface LogsViewerProps {
 export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) {
   const canLogs = useHasK8sPermission('pods.logs')
 
-  const [ns, setNs] = useState<string | undefined>(namespace)
+  // No namespace picker any more: pods are offered cluster-wide, and the
+  // stream uses the chosen pod's own namespace. A caller may still pin one.
+  const ns = namespace
   const [sourceMode, setSourceMode] = useState<'pod' | 'workload'>('pod')
   const [workloadKind, setWorkloadKind] = useState<WorkloadKind>('deployments')
   const [workloadName, setWorkloadName] = useState<string>('')
-  const [podName, setPodName] = useState<string>(pod ?? '')
+  const [podName, setPodName] = useState<string>(pod ? `${namespace ?? ''}/${pod}` : '')
   const [containerSel, setContainerSel] = useState<string>(container ?? '')
   const [tailLines, setTailLines] = useState<Tail>(1000)
   const [sinceLabel, setSinceLabel] = useState<SinceLabel>('all')
@@ -109,10 +121,12 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
   })
 
   const pods = useLiveList(GVRS.pods, { namespace: ns, enabled: canLogs })
+  // Pods are offered across every namespace the user can read, so the key
+  // that identifies one is `namespace/name` — names alone collide.
   const podNames = useMemo(
     () =>
       (pods.data as KubeObject[])
-        .map((p) => p.metadata?.name)
+        .map(podKeyOf)
         .filter((n): n is string => Boolean(n))
         .sort(),
     [pods.data],
@@ -121,12 +135,13 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
   // Keep the selected pod valid as the namespace / list changes.
   useEffect(() => {
     if (podName && podNames.includes(podName)) return
-    setPodName(pod && podNames.includes(pod) ? pod : (podNames[0] ?? ''))
+    const wanted = pod ? podNames.find((k) => k.endsWith(`/${pod}`)) : undefined
+    setPodName(wanted ?? podNames[0] ?? '')
   }, [podNames, pod, podName])
 
   const selectedPod = useMemo(
     () =>
-      (pods.data as KubeObject[]).find((p) => p.metadata?.name === podName) as PodSpecish | undefined,
+      (pods.data as KubeObject[]).find((p) => podKeyOf(p) === podName) as PodSpecish | undefined,
     [pods.data, podName],
   )
   const containerNames = useMemo(() => containersOf(selectedPod), [selectedPod])
@@ -148,7 +163,7 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
   const workloadNames = useMemo(
     () =>
       (workloads.data as KubeObject[])
-        .map((w) => w.metadata?.name)
+        .map(podKeyOf)
         .filter((n): n is string => Boolean(n))
         .sort(),
     [workloads.data],
@@ -161,12 +176,13 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
 
   const workloadPods = useMemo(() => {
     if (sourceMode !== 'workload' || !workloadName) return [] as { name: string; pod: PodSpecish }[]
-    const wl = (workloads.data as KubeObject[]).find((w) => w.metadata?.name === workloadName) as
-      | { spec?: { selector?: { matchLabels?: Record<string, string> } } }
+    const wl = (workloads.data as KubeObject[]).find((w) => podKeyOf(w) === workloadName) as
+      | { metadata?: { namespace?: string }; spec?: { selector?: { matchLabels?: Record<string, string> } } }
       | undefined
     const selector = wl?.spec?.selector?.matchLabels
+    const wlNs = wl?.metadata?.namespace
     return (pods.data as KubeObject[])
-      .filter((p) => selectorMatches(p.metadata?.labels, selector))
+      .filter((p) => (!wlNs || p.metadata?.namespace === wlNs) && selectorMatches(p.metadata?.labels, selector))
       .map((p) => ({ name: p.metadata?.name ?? '', pod: p as PodSpecish }))
       .filter((p) => p.name)
   }, [sourceMode, workloadName, workloads.data, pods.data])
@@ -191,13 +207,15 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
       }
       return out
     }
+    const name = selectedPod?.metadata?.name ?? ''
+    if (!name) return []
     if (containerSel === ALL_CONTAINERS) {
-      return containerNames.map((c) => ({ pod: podName, container: c, label: c }))
+      return containerNames.map((c) => ({ pod: name, container: c, label: c }))
     }
     return containerSel && containerNames.includes(containerSel)
-      ? [{ pod: podName, container: containerSel, label: containerSel }]
+      ? [{ pod: name, container: containerSel, label: containerSel }]
       : []
-  }, [sourceMode, workloadPods, containerSel, containerNames, podName])
+  }, [sourceMode, workloadPods, containerSel, containerNames, selectedPod])
 
   const multi = activeSources.length > 1
 
@@ -249,10 +267,8 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
   return (
     <Card>
       <CardHeader className="space-y-3">
-        {/* Row 1 — source selectors (left) · stream controls (right) */}
+        {/* Row 1 — what to stream: source, pod or workload, container, window, tail */}
         <div className="flex flex-wrap items-center gap-3">
-          <NamespacePicker value={ns} onChange={setNs} />
-
           <FieldLabel text="Source">
             <div className="inline-flex overflow-hidden rounded-md border border-edge-default">
               {(['pod', 'workload'] as const).map((m) => (
@@ -357,43 +373,12 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
             </Select>
           </FieldLabel>
 
-          <StatusPill status={stream.status} reconnect={stream.reconnect} />
-
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              variant={follow ? 'secondary' : 'primary'}
-              disabled={previous}
-              onClick={() => setFollow((f) => !f)}
-              title={previous
-                ? 'Following is unavailable for previous-instance logs'
-                : follow
-                ? 'Pause the live stream (buffer is kept)'
-                : 'Resume live tailing'}
-            >
-              {follow && !previous ? 'Pause' : 'Resume'}
-            </Button>
-            {stream.status === 'error'
-              ? (
-                <Button size="sm" variant="secondary" onClick={stream.reload}>
-                  Reconnect
-                </Button>
-              )
-              : null}
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={stream.clear}
-              disabled={stream.lines.length === 0}
-            >
-              Clear
-            </Button>
-          </div>
         </div>
 
-        {/* Row 2 — severity filter + previous-instance toggle. Search, wrap,
-            timestamps, line numbers, copy, download and fullscreen all live in
-            the console's own toolbar now, so they are not repeated here. */}
+        {/* Row 2 — severity filter and previous-instance toggle on the left;
+            status, line count and the stream controls on the right. Search,
+            wrap, timestamps, copy, download and fullscreen live in the console's
+            own toolbar, so they are not repeated here. */}
         <div className="flex flex-wrap items-center gap-1.5">
           {SEVERITIES.map((s) => (
             <button
@@ -438,6 +423,38 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
               : ''} {stream.lines.length === 1 ? 'line' : 'lines'}
             {multi ? ` · merging ${activeSources.length} streams` : ''}
           </span>
+          <StatusPill status={stream.status} reconnect={stream.reconnect} />
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant={follow ? 'secondary' : 'primary'}
+              disabled={previous}
+              onClick={() => setFollow((f) => !f)}
+              title={previous
+                ? 'Following is unavailable for previous-instance logs'
+                : follow
+                ? 'Pause the live stream (buffer is kept)'
+                : 'Resume live tailing'}
+            >
+              {follow && !previous ? 'Pause' : 'Resume'}
+            </Button>
+            {stream.status === 'error'
+              ? (
+                <Button size="sm" variant="secondary" onClick={stream.reload}>
+                  Reconnect
+                </Button>
+              )
+              : null}
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={stream.clear}
+              disabled={stream.lines.length === 0}
+            >
+              Clear
+            </Button>
+          </div>
         </div>
       </CardHeader>
 
@@ -449,8 +466,8 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
                 compact
                 title={sourceMode === 'workload' ? 'No pods matched' : 'No container selected'}
                 description={sourceMode === 'workload'
-                  ? 'Pick a namespace and workload with running pods to stream its aggregated logs.'
-                  : 'Pick a namespace, pod, and container to start streaming logs.'}
+                  ? 'Pick a workload with running pods to stream its aggregated logs.'
+                  : 'Pick a pod and container to start streaming logs.'}
               />
             </div>
           )
@@ -461,12 +478,12 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
               error={stream.error}
               reconnect={stream.reconnect}
               label={sourceMode === 'workload'
-                ? `${workloadName || workloadKind}`
-                : `${podName}${containerSel && containerSel !== ALL_CONTAINERS ? ` · ${containerSel}` : ''}`}
+                ? `${nameOf(workloadName) || workloadKind}`
+                : `${nameOf(podName)}${containerSel && containerSel !== ALL_CONTAINERS ? ` · ${containerSel}` : ''}`}
               live={follow && !previous && stream.status === 'streaming'}
               filename={sourceMode === 'workload'
-                ? `${workloadKind}-${workloadName || 'workload'}`
-                : podName || 'pod'}
+                ? `${workloadKind}-${nameOf(workloadName) || 'workload'}`
+                : nameOf(podName) || 'pod'}
               height="h-[62vh]"
               emptyMessage={previous
                 ? 'The previous instance produced no output.'

@@ -618,7 +618,66 @@ export async function apiServerFetch(
  * proxy one. Listing pods in a busy namespace failed while listing one
  * DaemonSet succeeded; the metrics endpoint failed every time.
  */
-function passthrough(upstream: Response, refreshedCookie?: string): Response {
+/**
+ * Keep a quiet pod-log follow alive across the hops in front of the console.
+ *
+ * Ingress controllers and cloud load balancers close an upstream connection
+ * that has been idle for their read timeout (nginx ingress: 60s; the DO load
+ * balancer: 60s). A pod that logs nothing for a minute therefore had its
+ * follow stream cut, the client reconnected, and the Logs page flickered
+ * "Reconnecting" every minute on every quiet workload. A bare newline every
+ * 20s of silence keeps the hop busy; the client splits on newlines and drops
+ * empty lines, so nothing shows. The beat is only sent on a line boundary so
+ * it can never split a line the kubelet delivered in two chunks.
+ */
+function keepAlive(body: ReadableStream<Uint8Array> | null, everyMs = 20_000): ReadableStream<Uint8Array> | null {
+  if (!body) return body
+  const reader = body.getReader()
+  const NL = new Uint8Array([10])
+  let timer: ReturnType<typeof setInterval> | undefined
+  let atLineStart = true
+  let lastData = Date.now()
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      timer = setInterval(() => {
+        if (!atLineStart || Date.now() - lastData < everyMs) return
+        try {
+          controller.enqueue(NL)
+        } catch {
+          // Stream already closed; the pump below clears the timer.
+        }
+      }, 5_000)
+      ;(async () => {
+        try {
+          for (;;) {
+            const { value, done } = await reader.read()
+            if (done) break
+            if (value?.byteLength) {
+              atLineStart = value[value.byteLength - 1] === 10
+              lastData = Date.now()
+              controller.enqueue(value)
+            }
+          }
+          controller.close()
+        } catch (e) {
+          try {
+            controller.error(e)
+          } catch {
+            // Already errored or cancelled.
+          }
+        } finally {
+          clearInterval(timer)
+        }
+      })()
+    },
+    cancel(reason) {
+      clearInterval(timer)
+      return reader.cancel(reason)
+    },
+  })
+}
+
+function passthrough(upstream: Response, refreshedCookie?: string, opts: { keepAlive?: boolean } = {}): Response {
   const headers = new Headers()
   for (const [k, v] of upstream.headers) {
     const key = k.toLowerCase()
@@ -626,7 +685,7 @@ function passthrough(upstream: Response, refreshedCookie?: string): Response {
     headers.set(k, v)
   }
   if (refreshedCookie) headers.append('set-cookie', refreshedCookie)
-  return new Response(upstream.body, {
+  return new Response(opts.keepAlive && upstream.ok ? keepAlive(upstream.body) : upstream.body, {
     status: upstream.status,
     statusText: upstream.statusText,
     headers,
@@ -847,7 +906,9 @@ export async function handleK8s(req: Request, subpath: string): Promise<Response
   }
   // Streamed straight through — large LIST responses and watches are never
   // buffered in the gateway (Retry-After and friends survive; see passthrough).
-  return passthrough(upstream, id.refreshedCookie)
+  return passthrough(upstream, id.refreshedCookie, {
+    keepAlive: streaming && url.searchParams.get('follow') === 'true',
+  })
 }
 
 /* ─────────────── meta endpoints ─────────────── */

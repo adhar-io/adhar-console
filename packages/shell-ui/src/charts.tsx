@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { cn } from '@adhar/utils'
 import { chartMax, chartPeak } from './chart-scale.ts'
 
@@ -323,4 +323,224 @@ function defaultFormat(v: number) {
   if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`
   if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`
   return String(Math.round(v))
+}
+
+/* ───────────────────────────────────────────────── TimeSeriesChart ── */
+
+export interface TimeSeries {
+  name: string
+  /** Samples as [epoch ms, value]. Gaps are allowed; points are sorted on draw. */
+  points: Array<[number, number]>
+  color?: string
+  /** Draw as a dashed reference line (e.g. "desired replicas") instead of a filled area. */
+  dashed?: boolean
+}
+
+export interface Threshold {
+  value: number
+  label?: string
+  color?: string
+}
+
+/**
+ * A proper time-series chart for the metrics surfaces: gridlines, a time
+ * axis, a value axis, several series on one plot (filled area for the first,
+ * lines for the rest), optional threshold lines and a hover crosshair with a
+ * tooltip. Still plain SVG, still theme-aware through tokens, so it costs
+ * nothing to ship and looks identical in both modes.
+ *
+ * Nothing is interpolated: a series only draws where it has samples, so a
+ * gap in collection shows as a gap, which is what an operator needs to see.
+ */
+export function TimeSeriesChart({
+  series,
+  height = 160,
+  formatY = defaultFormat,
+  formatTime = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  thresholds = [],
+  yMax,
+  emptyLabel = 'Awaiting samples…',
+  className,
+}: {
+  series: TimeSeries[]
+  height?: number
+  formatY?(v: number): string
+  formatTime?(t: number): string
+  thresholds?: Threshold[]
+  /** Pin the top of the value axis (e.g. 100 for a percentage). */
+  yMax?: number
+  emptyLabel?: string
+  className?: string
+}) {
+  const [hover, setHover] = useState<number | null>(null)
+  const W = 640
+  const H = height
+  const PAD = { l: 44, r: 12, t: 10, b: 22 }
+  const plotW = W - PAD.l - PAD.r
+  const plotH = H - PAD.t - PAD.b
+
+  const data = useMemo(
+    () =>
+      series.map((s) => ({
+        ...s,
+        points: [...s.points].filter(([t, v]) => Number.isFinite(t) && Number.isFinite(v)).sort((a, b) => a[0] - b[0]),
+      })),
+    [series],
+  )
+  const all = data.flatMap((s) => s.points)
+  const gradId = useMemo(() => `ts-${Math.random().toString(36).slice(2, 9)}`, [])
+  if (all.length < 2) {
+    return (
+      <div
+        className={cn(
+          'flex items-center justify-center rounded-lg border border-dashed border-edge-default text-xs text-content-subtle',
+          className,
+        )}
+        style={{ height }}
+      >
+        {emptyLabel}
+      </div>
+    )
+  }
+  const t0 = Math.min(...all.map((p) => p[0]))
+  const t1 = Math.max(...all.map((p) => p[0]))
+  const span = Math.max(1, t1 - t0)
+  const peak = Math.max(chartPeak(all.map((p) => p[1])), ...thresholds.map((th) => th.value))
+  const top = yMax ?? niceCeil(peak || 1)
+  const x = (t: number) => PAD.l + ((t - t0) / span) * plotW
+  const y = (v: number) => PAD.t + plotH - (Math.min(v, top) / top) * plotH
+  const gridVals = [0, 0.25, 0.5, 0.75, 1].map((f) => f * top)
+  const tickCount = 4
+  const ticks = Array.from({ length: tickCount + 1 }, (_, i) => t0 + (span * i) / tickCount)
+
+  const pathOf = (pts: Array<[number, number]>) =>
+    pts.map(([t, v], i) => `${i === 0 ? 'M' : 'L'}${x(t).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
+
+  // Hover: nearest sample of the primary series by time.
+  const primary = data[0]
+  const hoverT = hover === null ? null : t0 + ((hover - PAD.l) / plotW) * span
+  const nearest = (pts: Array<[number, number]>, t: number) => {
+    let best = pts[0]
+    for (const p of pts) if (Math.abs(p[0] - t) < Math.abs(best[0] - t)) best = p
+    return best
+  }
+  const hoverPts = hoverT === null ? [] : data.filter((s) => s.points.length).map((s) => ({ s, p: nearest(s.points, hoverT) }))
+  const hoverX = hoverPts.length ? x(hoverPts[0].p[0]) : null
+
+  return (
+    <div className={cn('relative', className)}>
+      <svg
+        width="100%"
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        className="block"
+        onMouseMove={(e) => {
+          const r = (e.currentTarget as SVGSVGElement).getBoundingClientRect()
+          const px = ((e.clientX - r.left) / r.width) * W
+          setHover(px < PAD.l || px > W - PAD.r ? null : px)
+        }}
+        onMouseLeave={() => setHover(null)}
+      >
+        <defs>
+          <linearGradient id={gradId} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor={primary.color ?? 'var(--color-brand-500)'} stopOpacity="0.28" />
+            <stop offset="100%" stopColor={primary.color ?? 'var(--color-brand-500)'} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {/* gridlines + value axis */}
+        {gridVals.map((v) => (
+          <g key={v}>
+            <line x1={PAD.l} x2={W - PAD.r} y1={y(v)} y2={y(v)} stroke="var(--color-edge-default)" strokeWidth="1" strokeDasharray={v === 0 ? undefined : '3 4'} />
+            <text x={PAD.l - 6} y={y(v) + 3} textAnchor="end" fontSize="9" fill="var(--color-content-subtle)" fontFamily="var(--font-mono)">
+              {formatY(v)}
+            </text>
+          </g>
+        ))}
+        {/* time axis */}
+        {ticks.map((t, i) => (
+          <text
+            key={i}
+            x={x(t)}
+            y={H - 6}
+            textAnchor={i === 0 ? 'start' : i === tickCount ? 'end' : 'middle'}
+            fontSize="9"
+            fill="var(--color-content-subtle)"
+            fontFamily="var(--font-mono)"
+          >
+            {formatTime(t)}
+          </text>
+        ))}
+        {/* thresholds */}
+        {thresholds.map((th) => (
+          <g key={th.label ?? th.value}>
+            <line x1={PAD.l} x2={W - PAD.r} y1={y(th.value)} y2={y(th.value)} stroke={th.color ?? 'var(--color-rose-500, #f43f5e)'} strokeWidth="1" strokeDasharray="4 3" strokeOpacity="0.8" />
+            {th.label ? (
+              <text x={W - PAD.r - 2} y={y(th.value) - 3} textAnchor="end" fontSize="9" fill={th.color ?? 'var(--color-rose-500, #f43f5e)'} fontFamily="var(--font-mono)">
+                {th.label}
+              </text>
+            ) : null}
+          </g>
+        ))}
+        {/* series */}
+        {data.map((s, i) => {
+          if (s.points.length < 2) return null
+          const color = s.color ?? (i === 0 ? 'var(--color-brand-500)' : 'var(--color-accent-500)')
+          const d = pathOf(s.points)
+          const first = s.points[0]
+          const last = s.points[s.points.length - 1]
+          return (
+            <g key={s.name}>
+              {i === 0 && !s.dashed ? <path d={`${d} L${x(last[0]).toFixed(1)},${(PAD.t + plotH).toFixed(1)} L${x(first[0]).toFixed(1)},${(PAD.t + plotH).toFixed(1)} Z`} fill={`url(#${gradId})`} /> : null}
+              <path d={d} fill="none" stroke={color} strokeWidth={s.dashed ? 1.25 : 1.75} strokeDasharray={s.dashed ? '5 4' : undefined} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+              {!s.dashed ? <circle cx={x(last[0])} cy={y(last[1])} r="3" fill={color} /> : null}
+            </g>
+          )
+        })}
+        {/* crosshair */}
+        {hoverX !== null ? (
+          <g>
+            <line x1={hoverX} x2={hoverX} y1={PAD.t} y2={PAD.t + plotH} stroke="var(--color-content-subtle)" strokeWidth="1" strokeDasharray="2 3" />
+            {hoverPts.map(({ s, p }, i) => (
+              <circle key={s.name} cx={x(p[0])} cy={y(p[1])} r="3.5" fill={s.color ?? (i === 0 ? 'var(--color-brand-500)' : 'var(--color-accent-500)')} stroke="var(--color-surface-raised)" strokeWidth="1.5" />
+            ))}
+          </g>
+        ) : null}
+      </svg>
+      {hoverPts.length ? (
+        <div
+          className="pointer-events-none absolute top-1 z-10 rounded-md border border-edge-default bg-surface-raised/95 px-2 py-1 font-mono text-[10px] text-content shadow-md backdrop-blur"
+          style={{ left: `${Math.min(92, Math.max(8, ((hoverX ?? 0) / W) * 100))}%`, transform: 'translateX(-50%)' }}
+        >
+          <div className="text-content-subtle">{new Date(hoverPts[0].p[0]).toLocaleTimeString()}</div>
+          {hoverPts.map(({ s, p }, i) => (
+            <div key={s.name} className="flex items-center gap-1.5 whitespace-nowrap">
+              <span className="inline-block size-1.5 rounded-full" style={{ backgroundColor: s.color ?? (i === 0 ? 'var(--color-brand-500)' : 'var(--color-accent-500)') }} />
+              <span className="text-content-muted">{s.name}</span>
+              <span className="tabular-nums">{formatY(p[1])}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {data.length > 1 ? (
+        <div className="mt-1 flex flex-wrap items-center gap-3 text-[10px] text-content-subtle">
+          {data.map((s, i) => (
+            <span key={s.name} className="inline-flex items-center gap-1.5">
+              <span className={cn('inline-block h-0.5 w-3', s.dashed && 'border-t border-dashed bg-transparent')} style={s.dashed ? { borderColor: s.color ?? 'var(--color-accent-500)' } : { backgroundColor: s.color ?? (i === 0 ? 'var(--color-brand-500)' : 'var(--color-accent-500)') }} />
+              {s.name}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/** Round a chart ceiling up to a tidy number (1, 2, 2.5, 5 × 10ⁿ). */
+function niceCeil(v: number): number {
+  if (!(v > 0)) return 1
+  const exp = Math.floor(Math.log10(v))
+  const base = Math.pow(10, exp)
+  const m = v / base
+  const step = m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10
+  return step * base
 }

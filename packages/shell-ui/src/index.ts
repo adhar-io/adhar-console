@@ -180,7 +180,10 @@ export {
   HeatMap,
   LegendDot,
   Sparkline,
+  TimeSeriesChart,
   type SeriesPoint,
+  type TimeSeries,
+  type Threshold,
 } from './charts.tsx'
 export {
   NOTIFICATION_KIND_LABEL,

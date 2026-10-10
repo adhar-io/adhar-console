@@ -2,24 +2,35 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { lgtm } from '@adhar/api-clients'
 import {
-  AreaChart,
   Card,
   CardBody,
   CardHeader,
   GrafanaIcon,
+  Sparkline,
   Spinner,
+  TimeSeriesChart,
+  type Threshold,
+  type TimeSeries,
   usePollingInterval,
-  useToolPublicUrl, Sparkline, usePublicUrl } from '@adhar/shell-ui'
+  usePublicUrl,
+  useToolPublicUrl,
+} from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 
 /**
  * Live metrics + the Grafana entry point for one catalog entity.
  *
- * The catalog knows a workload's name and namespace, which is all Prometheus
- * needs: every panel below is a real range query scoped to that workload
- * (cAdvisor for CPU/memory/network — present on every kubelet — and
- * kube-state-metrics for replicas/restarts). Nothing is synthesised: a panel
- * with no series says the metric isn't being collected for this workload.
+ * The catalog knows a workload's name and (when annotated or deployed by
+ * Argo CD) its Kubernetes namespace, which is all Prometheus needs: every
+ * panel below is a real range query scoped to that workload (cAdvisor for
+ * CPU/memory/network — present on every kubelet — and kube-state-metrics for
+ * replicas/restarts). Nothing is synthesised: a panel with no series says the
+ * metric isn't being collected for this workload.
+ *
+ * Scoping rule: the namespace is only pinned when it is KNOWN to be the
+ * workload's Kubernetes namespace. A catalog entity's own namespace is a
+ * catalog grouping, not a cluster namespace — scoping to it was why every
+ * panel read "No series" for workloads that live in `adhar-system`.
  *
  * "Monitor" opens the same workload in Grafana (a dashboard when the install
  * pins one via `adhar.io/grafana-dashboard`, else Explore pre-filled with the
@@ -30,24 +41,39 @@ const lgtmClient = lgtm.LgtmClient.auto({ tool: 'lgtm' })
 const REFRESH_MS = 15_000
 
 export interface EntityTarget {
-  /** Workload name (Deployment/StatefulSet/Pod prefix). */
+  /** Workload name (Deployment/StatefulSet/DaemonSet). */
   name: string
+  /** Kubernetes namespace, when known. Omitted → the pod name alone scopes the query. */
   namespace?: string
   /** `app.kubernetes.io/name` style label when the entity carries one. */
   appLabel?: string
 }
 
 type PanelGroup = 'resources' | 'workload' | 'network' | 'http'
+type Unit = 'cores' | 'bytes' | 'bytes/s' | 'rps' | 'count' | 'percent' | 'ms'
+
+interface SeriesDef {
+  name: string
+  query(t: EntityTarget): string
+  dashed?: boolean
+  color?: string
+}
 
 interface PanelDef {
   id: string
   label: string
-  unit: 'cores' | 'bytes' | 'rps' | 'count' | 'percent' | 'ms'
+  unit: Unit
   group: PanelGroup
-  query(t: EntityTarget): string
+  /** First series is the headline (filled area, KPI value); the rest are overlays. */
+  series: SeriesDef[]
   hint: string
   /** For panels that only exist when the app exposes the metric — shown instead of "no series". */
   absent?: string
+  thresholds?: Threshold[]
+  /** Pin the top of the axis (percent panels). */
+  yMax?: number
+  /** Going up is bad (restarts, errors, throttling, latency): colour the delta accordingly. */
+  upIsBad?: boolean
 }
 
 const GROUP_LABEL: Record<PanelGroup, { title: string; blurb: string }> = {
@@ -72,21 +98,24 @@ function regexQuoted(v: string): string {
   return quoted(v).replace(/[.*+?^${}()|[\]\\]/g, (c) => `\\${c}`)
 }
 
-/** `pod=~"<name>(-hash)*"` — Deployments own ReplicaSet-suffixed pods. */
+/**
+ * Pods that belong to this workload, by name shape:
+ *   Deployment  → `<name>-<replicaset hash>-<pod hash>`
+ *   DaemonSet   → `<name>-<pod hash>`
+ *   StatefulSet → `<name>-<ordinal>`
+ *
+ * Hash segments are 5–10 lowercase alphanumerics. Anchoring on that shape is
+ * what keeps `gitea` from also matching `gitea-postgresql-0` and
+ * `gitea-valkey-primary-0` — which the old `(-[a-z0-9]+)*` did, so Gitea's
+ * CPU quietly included its database.
+ */
 function podSelector(t: EntityTarget): string {
   const ns = t.namespace ? `namespace="${quoted(t.namespace)}",` : ''
-  return `${ns}pod=~"${regexQuoted(t.name)}(-[a-z0-9]+)*"`
+  const n = regexQuoted(t.name)
+  return `${ns}pod=~"${n}(-[a-z0-9]{5,10}){1,2}|${n}-[0-9]+"`
 }
 
-/**
- * Ready replicas, for any workload kind.
- *
- * This used to ask only `kube_deployment_status_replicas_ready`, so a
- * StatefulSet or DaemonSet — a database, a queue consumer, a node agent — always
- * rendered "No series", which reads as "metrics are broken" rather than "this
- * panel asked the wrong question". kube-state-metrics publishes a different
- * metric per kind, so all three are asked and whichever answers wins.
- */
+/** Ready replicas, for any workload kind — whichever kube-state metric answers wins. */
 function readyReplicasQuery(t: EntityTarget): string {
   const ns = t.namespace ? `namespace="${quoted(t.namespace)}",` : ''
   const n = quoted(t.name)
@@ -108,15 +137,7 @@ function desiredReplicasQuery(t: EntityTarget): string {
   ].join(' or ')
 }
 
-/**
- * Golden-signal queries assume the Prometheus client conventions most apps
- * follow (`http_requests_total` with a `status` or `code` label, and an
- * `http_request_duration_seconds` histogram). A workload that names them
- * differently shows "not instrumented" here rather than a wrong number.
- */
-function httpRequestsSelector(t: EntityTarget): string {
-  return podSelector(t)
-}
+const CONTAINERS = `container!="",container!="POD"`
 
 const PANELS: PanelDef[] = [
   // ── resources ──
@@ -125,16 +146,22 @@ const PANELS: PanelDef[] = [
     label: 'CPU',
     unit: 'cores',
     group: 'resources',
-    hint: 'container_cpu_usage_seconds_total, 5m rate',
-    query: (t) => `sum(rate(container_cpu_usage_seconds_total{${podSelector(t)},container!="",container!="POD"}[5m]))`,
+    hint: 'container_cpu_usage_seconds_total, 5m rate, against the CPU limit when one is set',
+    series: [
+      { name: 'used', query: (t) => `sum(rate(container_cpu_usage_seconds_total{${podSelector(t)},${CONTAINERS}}[5m]))` },
+      { name: 'limit', dashed: true, query: (t) => `sum(kube_pod_container_resource_limits{${podSelector(t)},resource="cpu"})` },
+    ],
   },
   {
     id: 'memory',
     label: 'Memory',
     unit: 'bytes',
     group: 'resources',
-    hint: 'container_memory_working_set_bytes',
-    query: (t) => `sum(container_memory_working_set_bytes{${podSelector(t)},container!="",container!="POD"})`,
+    hint: 'container_memory_working_set_bytes, against the memory limit when one is set',
+    series: [
+      { name: 'working set', query: (t) => `sum(container_memory_working_set_bytes{${podSelector(t)},${CONTAINERS}})` },
+      { name: 'limit', dashed: true, query: (t) => `sum(kube_pod_container_resource_limits{${podSelector(t)},resource="memory"})` },
+    ],
   },
   {
     id: 'cpu-throttle',
@@ -142,8 +169,16 @@ const PANELS: PanelDef[] = [
     unit: 'percent',
     group: 'resources',
     hint: 'share of CFS periods throttled, 5m — sustained throttling means the CPU limit is too low',
-    query: (t) =>
-      `100 * sum(rate(container_cpu_cfs_throttled_periods_total{${podSelector(t)},container!="",container!="POD"}[5m])) / clamp_min(sum(rate(container_cpu_cfs_periods_total{${podSelector(t)},container!="",container!="POD"}[5m])), 1)`,
+    yMax: 100,
+    upIsBad: true,
+    thresholds: [{ value: 25, label: '25% — raise the limit', color: 'var(--color-amber-500, #f59e0b)' }],
+    series: [
+      {
+        name: 'throttled',
+        query: (t) =>
+          `100 * sum(rate(container_cpu_cfs_throttled_periods_total{${podSelector(t)},${CONTAINERS}}[5m])) / clamp_min(sum(rate(container_cpu_cfs_periods_total{${podSelector(t)},${CONTAINERS}}[5m])), 1)`,
+      },
+    ],
     absent: 'No CFS throttling series — the containers may have no CPU limit.',
   },
   {
@@ -151,35 +186,39 @@ const PANELS: PanelDef[] = [
     label: 'Memory vs limit',
     unit: 'percent',
     group: 'resources',
-    hint: 'working set as a share of the memory limit — above ~90% is OOM territory',
-    query: (t) =>
-      `100 * sum(container_memory_working_set_bytes{${podSelector(t)},container!="",container!="POD"}) / clamp_min(sum(kube_pod_container_resource_limits{${podSelector(t)},resource="memory"}), 1)`,
+    hint: 'working set as a share of the memory limit — above 90% is OOM territory',
+    yMax: 100,
+    upIsBad: true,
+    thresholds: [{ value: 90, label: '90% — OOM risk' }],
+    series: [
+      {
+        name: 'of limit',
+        query: (t) =>
+          `100 * sum(container_memory_working_set_bytes{${podSelector(t)},${CONTAINERS}}) / clamp_min(sum(kube_pod_container_resource_limits{${podSelector(t)},resource="memory"}), 1)`,
+      },
+    ],
     absent: 'No memory limit set on these containers.',
   },
   // ── workload ──
   {
     id: 'replicas',
-    label: 'Ready replicas',
+    label: 'Replicas',
     unit: 'count',
     group: 'workload',
-    hint: 'kube_{deployment,statefulset,daemonset} ready replicas',
-    query: readyReplicasQuery,
-  },
-  {
-    id: 'desired',
-    label: 'Desired replicas',
-    unit: 'count',
-    group: 'workload',
-    hint: 'spec replicas — ready should sit on this line',
-    query: desiredReplicasQuery,
+    hint: 'ready replicas against the desired count — ready should sit on the dashed line',
+    series: [
+      { name: 'ready', query: readyReplicasQuery },
+      { name: 'desired', dashed: true, query: desiredReplicasQuery },
+    ],
   },
   {
     id: 'restarts',
-    label: 'Restarts (1h)',
+    label: 'Restarts',
     unit: 'count',
     group: 'workload',
     hint: 'kube_pod_container_status_restarts_total, 1h increase',
-    query: (t) => `sum(increase(kube_pod_container_status_restarts_total{${podSelector(t)}}[1h]))`,
+    upIsBad: true,
+    series: [{ name: 'restarts / 1h', query: (t) => `sum(increase(kube_pod_container_status_restarts_total{${podSelector(t)}}[1h]))` }],
   },
   {
     id: 'oom',
@@ -187,24 +226,20 @@ const PANELS: PanelDef[] = [
     unit: 'count',
     group: 'workload',
     hint: 'containers whose last termination was OOMKilled',
-    query: (t) => `sum(kube_pod_container_status_last_terminated_reason{${podSelector(t)},reason="OOMKilled"}) or vector(0)`,
+    upIsBad: true,
+    series: [{ name: 'OOM killed', query: (t) => `sum(kube_pod_container_status_last_terminated_reason{${podSelector(t)},reason="OOMKilled"}) or vector(0)` }],
   },
   // ── network ──
   {
     id: 'network',
-    label: 'Network in',
-    unit: 'bytes',
+    label: 'Network',
+    unit: 'bytes/s',
     group: 'network',
-    hint: 'container_network_receive_bytes_total, 5m rate',
-    query: (t) => `sum(rate(container_network_receive_bytes_total{${podSelector(t)}}[5m]))`,
-  },
-  {
-    id: 'network-out',
-    label: 'Network out',
-    unit: 'bytes',
-    group: 'network',
-    hint: 'container_network_transmit_bytes_total, 5m rate',
-    query: (t) => `sum(rate(container_network_transmit_bytes_total{${podSelector(t)}}[5m]))`,
+    hint: 'container_network_{receive,transmit}_bytes_total, 5m rate',
+    series: [
+      { name: 'in', query: (t) => `sum(rate(container_network_receive_bytes_total{${podSelector(t)}}[5m]))` },
+      { name: 'out', color: 'var(--color-accent-500)', query: (t) => `sum(rate(container_network_transmit_bytes_total{${podSelector(t)}}[5m]))` },
+    ],
   },
   // ── http ──
   {
@@ -213,7 +248,7 @@ const PANELS: PanelDef[] = [
     unit: 'rps',
     group: 'http',
     hint: 'http_requests_total, 5m rate',
-    query: (t) => `sum(rate(http_requests_total{${httpRequestsSelector(t)}}[5m]))`,
+    series: [{ name: 'req/s', query: (t) => `sum(rate(http_requests_total{${podSelector(t)}}[5m]))` }],
     absent: 'Not instrumented — expose http_requests_total to see request rate.',
   },
   {
@@ -222,18 +257,29 @@ const PANELS: PanelDef[] = [
     unit: 'percent',
     group: 'http',
     hint: 'share of responses with a 5xx status, 5m',
-    query: (t) =>
-      `100 * sum(rate(http_requests_total{${httpRequestsSelector(t)},status=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total{${httpRequestsSelector(t)}}[5m])), 0.001)`,
+    yMax: 100,
+    upIsBad: true,
+    thresholds: [{ value: 5, label: '5% error budget' }],
+    series: [
+      {
+        name: '5xx',
+        query: (t) =>
+          `100 * sum(rate(http_requests_total{${podSelector(t)},status=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total{${podSelector(t)}}[5m])), 0.001)`,
+      },
+    ],
     absent: 'Not instrumented — needs http_requests_total with a status label.',
   },
   {
     id: 'p95',
-    label: 'Latency p95',
+    label: 'Latency',
     unit: 'ms',
     group: 'http',
-    hint: 'histogram_quantile(0.95) over http_request_duration_seconds, 5m',
-    query: (t) =>
-      `1000 * histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{${httpRequestsSelector(t)}}[5m])))`,
+    hint: 'histogram_quantile over http_request_duration_seconds, 5m',
+    upIsBad: true,
+    series: [
+      { name: 'p95', query: (t) => `1000 * histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{${podSelector(t)}}[5m])))` },
+      { name: 'p50', dashed: true, query: (t) => `1000 * histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{${podSelector(t)}}[5m])))` },
+    ],
     absent: 'Not instrumented — expose an http_request_duration_seconds histogram.',
   },
 ]
@@ -248,7 +294,27 @@ const RANGES = [
 ] as const
 export type RangeId = (typeof RANGES)[number]['id']
 
-function usePanel(query: string, range: RangeId, enabled: boolean) {
+/** [epoch ms, value] samples, several Prometheus series folded into one by summing per timestamp. */
+type Samples = Array<[number, number]>
+
+function fold(series: lgtm.MetricSeries[] | undefined): Samples {
+  if (!series?.length) return []
+  if (series.length === 1) {
+    return series[0].values.map(([t, v]) => [Number(t) * 1000, Number(v)] as [number, number]).filter(([, v]) => Number.isFinite(v))
+  }
+  const byT = new Map<number, number>()
+  for (const s of series) {
+    for (const [t, v] of s.values) {
+      const n = Number(v)
+      if (!Number.isFinite(n)) continue
+      const ms = Number(t) * 1000
+      byT.set(ms, (byT.get(ms) ?? 0) + n)
+    }
+  }
+  return [...byT.entries()].sort((a, b) => a[0] - b[0])
+}
+
+function useSeries(query: string, range: RangeId, enabled: boolean) {
   const r = RANGES.find((x) => x.id === range) ?? RANGES[0]
   return useQuery({
     queryKey: ['entity-metrics', query, range],
@@ -259,13 +325,62 @@ function usePanel(query: string, range: RangeId, enabled: boolean) {
     },
     refetchInterval: usePollingInterval(REFRESH_MS),
     enabled,
-    // `retry: false` meant one transient failure — a proxy connection reset, a
-    // Prometheus pod rolling — painted all five panels "unavailable" until the
-    // next 15s poll. Opening the tab during that window is indistinguishable
-    // from metrics being broken, so allow one fast retry.
+    // One fast retry: a proxy reset or a Prometheus pod rolling painted every
+    // panel "unavailable" until the next poll otherwise.
     retry: 1,
     retryDelay: 700,
+    select: fold,
   })
+}
+
+/** Every series of a panel, as one hook call per series (stable order → stable hooks). */
+function usePanelSeries(panel: PanelDef, target: EntityTarget, range: RangeId) {
+  const enabled = Boolean(target.name)
+  // Panels have at most two series; call the hook for both slots so the hook
+  // order never changes between panels.
+  const q0 = useSeries(panel.series[0].query(target), range, enabled)
+  const q1 = useSeries(panel.series[1]?.query(target) ?? 'vector(0)', range, enabled && panel.series.length > 1)
+  const queries = panel.series.length > 1 ? [q0, q1] : [q0]
+  return {
+    primary: q0,
+    queries,
+    isLoading: q0.isLoading,
+    isError: q0.isError,
+    error: q0.error,
+    chart: panel.series.map((s, i) => ({
+      name: s.name,
+      color: s.color,
+      dashed: s.dashed,
+      points: queries[i]?.data ?? [],
+    })) as TimeSeries[],
+  }
+}
+
+function stats(samples: Samples) {
+  const vals = samples.map(([, v]) => v)
+  if (!vals.length) return null
+  const last = vals[vals.length - 1]
+  const first = vals[0]
+  return {
+    last,
+    peak: Math.max(...vals),
+    low: Math.min(...vals),
+    avg: vals.reduce((a, b) => a + b, 0) / vals.length,
+    delta: first !== 0 ? ((last - first) / Math.abs(first)) * 100 : null,
+  }
+}
+
+function Delta({ delta, upIsBad }: { delta: number | null; upIsBad?: boolean }) {
+  if (delta === null || Math.abs(delta) < 1) return null
+  const up = delta > 0
+  const cls = upIsBad
+    ? up ? 'text-rose-600 dark:text-rose-300' : 'text-emerald-600 dark:text-emerald-400'
+    : 'text-content-subtle'
+  return (
+    <span className={cn('font-mono text-[10px] tabular-nums', cls)} title="Change from the first to the last sample in this range">
+      {up ? '▲' : '▼'} {Math.abs(delta).toFixed(0)}%
+    </span>
+  )
 }
 
 export function EntityMetrics({
@@ -279,6 +394,7 @@ export function EntityMetrics({
   onRange(r: RangeId): void
   grafanaUrl: string
 }) {
+  const scope = target.namespace ? `${target.namespace}/${target.name}` : `${target.name} (any namespace)`
   return (
     <Card>
       <CardHeader>
@@ -286,8 +402,7 @@ export function EntityMetrics({
           <div>
             <h3 className="text-sm font-semibold text-content">Live metrics</h3>
             <p className="text-[11px] text-content-subtle">
-              {PANELS.length} signals from Prometheus, scoped to {target.namespace ? `${target.namespace}/` : ''}
-              {target.name} · last {range} · refreshes every {REFRESH_MS / 1000}s
+              {PANELS.length} panels from Prometheus, scoped to <span className="font-mono">{scope}</span> · last {range} · refreshes every {REFRESH_MS / 1000}s
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -310,7 +425,7 @@ export function EntityMetrics({
           </div>
         </div>
       </CardHeader>
-      <CardBody className="space-y-5">
+      <CardBody className="space-y-6">
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           {KPI_IDS.map((id) => {
             const p = PANELS.find((x) => x.id === id)!
@@ -325,7 +440,7 @@ export function EntityMetrics({
                 <h4 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-content-subtle">{GROUP_LABEL[g].title}</h4>
                 <span className="text-[11px] text-content-subtle">{GROUP_LABEL[g].blurb}</span>
               </div>
-              <div className={cn('grid gap-3 sm:grid-cols-2', panels.length > 2 && 'xl:grid-cols-4', panels.length === 3 && 'xl:grid-cols-3')}>
+              <div className={cn('grid gap-3', panels.length > 1 && 'lg:grid-cols-2')}>
                 {panels.map((p) => (
                   <MetricPanel key={p.id} panel={p} target={target} range={range} grafanaBase={grafanaUrl} />
                 ))}
@@ -340,28 +455,20 @@ export function EntityMetrics({
 
 /** One headline number: the latest sample, its change over the window, and a sparkline. */
 function KpiTile({ panel, target, range }: { panel: PanelDef; target: EntityTarget; range: RangeId }) {
-  const query = useMemo(() => panel.query(target), [panel, target])
-  const q = usePanel(query, range, Boolean(target.name))
-  const series = q.data ?? []
-  const points = useMemo(() => series.flatMap((s) => s.values.map(([, v]) => Number(v))).filter((n) => Number.isFinite(n)), [series])
-  const last = points.length ? points[points.length - 1] : null
-  const first = points.length ? points[0] : null
-  const delta = first !== null && last !== null && first !== 0 ? ((last - first) / Math.abs(first)) * 100 : null
+  const { primary } = usePanelSeries(panel, target, range)
+  const samples = primary.data ?? []
+  const st = stats(samples)
   return (
     <div className="min-w-0 rounded-xl border border-edge-default bg-surface-raised px-3.5 py-3 shadow-sm">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-content-subtle">{panel.label}</span>
-        {delta !== null && Math.abs(delta) >= 1 ? (
-          <span className={cn('font-mono text-[10px] tabular-nums', panel.id === 'restarts' ? (delta > 0 ? 'text-rose-600 dark:text-rose-300' : 'text-emerald-600 dark:text-emerald-400') : 'text-content-subtle')}>
-            {delta > 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(0)}%
-          </span>
-        ) : null}
+        <Delta delta={st?.delta ?? null} upIsBad={panel.upIsBad} />
       </div>
       <div className="mt-1 font-mono text-[20px] font-semibold tabular-nums leading-none text-content">
-        {q.isLoading ? '…' : last === null ? '—' : fmt(last, panel.unit)}
+        {primary.isLoading ? '…' : st ? fmt(st.last, panel.unit) : '—'}
       </div>
       <div className="mt-2 h-6">
-        {points.length > 1 ? <Sparkline points={points} height={24} color="var(--color-brand-500)" /> : null}
+        {samples.length > 1 ? <Sparkline points={samples.map(([, v]) => v)} height={24} color="var(--color-brand-500)" /> : null}
       </div>
     </div>
   )
@@ -378,64 +485,51 @@ function MetricPanel({
   range: RangeId
   grafanaBase: string
 }) {
-  const query = useMemo(() => panel.query(target), [panel, target])
-  const q = usePanel(query, range, Boolean(target.name))
-  const series = q.data ?? []
-  const points = useMemo(() => series.flatMap((s) => s.values.map(([, v]) => Number(v))).filter((n) => Number.isFinite(n)), [series])
-  const last = points.length ? points[points.length - 1] : null
-  const peak = points.length ? Math.max(...points) : null
-  const low = points.length ? Math.min(...points) : null
-  const avg = points.length ? points.reduce((a, b) => a + b, 0) / points.length : null
-  // Change over the window, first sample to last — the direction a person
-  // reads a chart for, stated so it does not have to be eyeballed.
-  const first = points.length ? points[0] : null
-  const delta = first !== null && last !== null && first !== 0 ? ((last - first) / Math.abs(first)) * 100 : null
-  const explore = grafanaBase ? `${grafanaBase.replace(/\/$/, '')}/explore?left=${encodeURIComponent(JSON.stringify({ queries: [{ expr: query }], range: { from: `now-${range}`, to: 'now' } }))}` : ''
+  const { primary, isLoading, isError, error, chart } = usePanelSeries(panel, target, range)
+  const samples = primary.data ?? []
+  const st = stats(samples)
+  const query = panel.series[0].query(target)
+  const explore = grafanaBase
+    ? `${grafanaBase.replace(/\/$/, '')}/explore?left=${encodeURIComponent(JSON.stringify({ queries: [{ expr: query }], range: { from: `now-${range}`, to: 'now' } }))}`
+    : ''
+  const formatY = (v: number) => fmt(v, panel.unit)
 
   return (
-    <div className="rounded-xl border border-edge-subtle bg-surface-sunken/30 p-3">
+    <div className="rounded-xl border border-edge-default bg-surface-raised p-3 shadow-sm">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[12px] font-semibold text-content">{panel.label}</span>
-        <span className="flex items-baseline gap-2">
-          {delta !== null && Math.abs(delta) >= 1 ? (
-            <span
-              className={cn(
-                'font-mono text-[10px] tabular-nums',
-                // Restarts going up is bad; everything else is just a direction.
-                panel.id === 'restarts' ? (delta > 0 ? 'text-rose-600 dark:text-rose-300' : 'text-emerald-600 dark:text-emerald-400') : 'text-content-subtle',
-              )}
-              title="Change from the first to the last sample in this range"
-            >
-              {delta > 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(0)}%
-            </span>
-          ) : null}
+        <div className="min-w-0">
+          <span className="text-[12px] font-semibold text-content">{panel.label}</span>
+          <span className="ml-2 hidden text-[10px] text-content-subtle sm:inline" title={panel.hint}>
+            {panel.hint}
+          </span>
+        </div>
+        <span className="flex shrink-0 items-baseline gap-2">
+          <Delta delta={st?.delta ?? null} upIsBad={panel.upIsBad} />
           <span className="font-mono text-[13px] font-semibold tabular-nums text-content">
-            {q.isLoading ? '…' : last === null ? '—' : fmt(last, panel.unit)}
+            {isLoading ? '…' : st ? fmt(st.last, panel.unit) : '—'}
           </span>
         </span>
       </div>
-      <div className="mt-1.5">
-        {q.isLoading ? (
-          <div className="flex h-14 items-center justify-center text-[11px] text-content-subtle">
+      <div className="mt-2">
+        {isLoading ? (
+          <div className="flex h-40 items-center justify-center text-[11px] text-content-subtle">
             <Spinner size={12} />
           </div>
-        ) : q.isError ? (
-          <div className="flex h-14 items-center text-[11px] text-content-subtle">
-            Prometheus unavailable — {(q.error as Error)?.message?.slice(0, 60) ?? 'query failed'}
+        ) : isError ? (
+          <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-rose-300/60 px-3 text-center text-[11px] text-rose-700 dark:border-rose-500/30 dark:text-rose-300">
+            Prometheus unavailable — {(error as Error)?.message?.slice(0, 80) ?? 'query failed'}
           </div>
-        ) : points.length === 0 ? (
-          <div className="flex h-14 items-center text-[11px] text-content-subtle">
+        ) : samples.length === 0 ? (
+          <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-edge-default px-3 text-center text-[11px] text-content-subtle">
             {panel.absent ?? "No series — this metric isn't collected for this workload."}
           </div>
         ) : (
-          <AreaChart points={points} color="var(--color-brand-500)" height={72} showAxis={false} />
+          <TimeSeriesChart series={chart} height={160} formatY={formatY} thresholds={panel.thresholds} yMax={panel.yMax} />
         )}
       </div>
-      <div className="mt-1 flex items-center justify-between font-mono text-[10px] text-content-subtle">
-        <span title={panel.hint}>
-          {peak !== null && low !== null && avg !== null
-            ? `min ${fmt(low, panel.unit)} · avg ${fmt(avg, panel.unit)} · peak ${fmt(peak, panel.unit)}`
-            : panel.hint}
+      <div className="mt-1.5 flex items-center justify-between font-mono text-[10px] text-content-subtle">
+        <span>
+          {st ? `min ${fmt(st.low, panel.unit)} · avg ${fmt(st.avg, panel.unit)} · peak ${fmt(st.peak, panel.unit)} · ${samples.length} samples` : ''}
         </span>
         {explore ? (
           <a href={explore} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline dark:text-brand-300">
@@ -454,8 +548,6 @@ function MetricPanel({
  */
 export function EntitySparklines({ target, onOpen }: { target: EntityTarget; onOpen(): void }) {
   const panels = PANELS.filter((p) => p.id === 'cpu' || p.id === 'memory' || p.id === 'replicas')
-  // Rows, not three tiles across: in a 300px column three tiles left the
-  // labels as "C…" / "M…" / "R…".
   return (
     <div className="divide-y divide-edge-subtle">
       {panels.map((p) => (
@@ -466,14 +558,9 @@ export function EntitySparklines({ target, onOpen }: { target: EntityTarget; onO
 }
 
 function SparkTile({ panel, target, onOpen }: { panel: PanelDef; target: EntityTarget; onOpen(): void }) {
-  const query = useMemo(() => panel.query(target), [panel, target])
-  const q = usePanel(query, '1h', Boolean(target.name))
-  const series = q.data ?? []
-  const points = useMemo(
-    () => series.flatMap((s) => s.values.map(([t, v]) => ({ t: Number(t) * 1000, v: Number(v) }))).filter((pt) => Number.isFinite(pt.v)),
-    [series],
-  )
-  const last = points.length ? points[points.length - 1].v : null
+  const q = useSeries(panel.series[0].query(target), '1h', Boolean(target.name))
+  const samples = q.data ?? []
+  const last = samples.length ? samples[samples.length - 1][1] : null
   return (
     <button
       type="button"
@@ -483,10 +570,10 @@ function SparkTile({ panel, target, onOpen }: { panel: PanelDef; target: EntityT
     >
       <span className="w-24 shrink-0 truncate text-[11px] font-medium text-content-muted">{panel.label}</span>
       <span className="min-w-0 flex-1">
-        {q.isLoading || q.isError || points.length === 0 ? (
+        {q.isLoading || q.isError || samples.length === 0 ? (
           <span className="block text-[10px] text-content-subtle">{q.isLoading ? '…' : q.isError ? 'unavailable' : 'no series'}</span>
         ) : (
-          <Sparkline points={points} height={24} color="var(--color-brand-500)" />
+          <Sparkline points={samples.map(([t, v]) => ({ t, v }))} height={24} color="var(--color-brand-500)" />
         )}
       </span>
       <span className="w-16 shrink-0 text-right font-mono text-[11px] tabular-nums text-content">
@@ -507,12 +594,7 @@ export function MonitorButton({ url, compact = false }: { url: string; compact?:
       title="Open this workload's Grafana dashboard"
       className={cn(
         'inline-flex items-center gap-1.5 font-medium transition-colors',
-        // A link out, so it looks like the other links beside it (Source,
-        // Docs) rather than like the page's one primary action. The filled
-        // brand button made "open Grafana" the loudest thing in every drawer.
         compact
-          // The compact form sits in a card footer, where on a phone it is
-          // tapped rather than clicked — 23px was under the thumb's reach.
           ? 'min-h-8 rounded-md bg-surface-raised px-2 py-1 text-[10px] text-content-muted ring-1 ring-edge-default hover:text-brand-700 dark:hover:text-brand-300 sm:min-h-0 sm:px-1.5'
           : 'rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-xs text-content-muted shadow-sm hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300',
       )}
@@ -538,12 +620,10 @@ export function useGrafanaMonitorUrl(target: EntityTarget, pinned?: string): { u
     if (!grafanaBase) return ''
     const base = grafanaBase.replace(/\/$/, '')
     if (pinned) {
-      // A pinned dashboard URL may carry Grafana's in-cluster host.
       if (/^https?:/.test(pinned)) return pub(pinned, 'grafana')
       const [uid, slug] = pinned.split('/')
       return `${base}/d/${uid}${slug ? `/${slug}` : ''}?${varParams(target)}`
     }
-    // kube-prometheus-stack's "Kubernetes / Compute Resources / Workload".
     return `${base}/d/a164a7f0339f99e89cea5cb47e9be617/kubernetes-compute-resources-workload?${varParams(target)}`
   }, [grafanaBase, pinned, target, pub])
   return { url, grafanaBase }
@@ -555,9 +635,10 @@ function varParams(t: EntityTarget): string {
   return p.toString()
 }
 
-function fmt(v: number, unit: PanelDef['unit']): string {
+function fmt(v: number, unit: Unit): string {
   switch (unit) {
-    case 'bytes': {
+    case 'bytes':
+    case 'bytes/s': {
       const u = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
       let n = v
       let i = 0
@@ -565,7 +646,7 @@ function fmt(v: number, unit: PanelDef['unit']): string {
         n /= 1024
         i++
       }
-      return `${n < 10 ? n.toFixed(1) : Math.round(n)} ${u[i]}`
+      return `${n < 10 ? n.toFixed(1) : Math.round(n)} ${u[i]}${unit === 'bytes/s' ? '/s' : ''}`
     }
     case 'cores':
       return v < 1 ? `${(v * 1000).toFixed(0)}m` : v.toFixed(2)

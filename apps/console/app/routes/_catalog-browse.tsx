@@ -3004,7 +3004,7 @@ function EntityCard({
   const links = entity.metadata.links ?? []
   // "Monitor" — the workload's Grafana dashboard, alongside Source/Docs.
   const { url: monitorUrl } = useGrafanaMonitorUrl(
-    { name: entityAnnotations(entity)['adhar.io/workload'] ?? entity.metadata.name, namespace: entity.metadata.namespace !== 'default' ? entity.metadata.namespace : undefined },
+    { name: entityAnnotations(entity)['adhar.io/workload'] ?? entity.metadata.name, namespace: (entityAnnotations(entity)['adhar.io/namespace'] ?? '').trim() || undefined },
     entityAnnotations(entity)['adhar.io/grafana-dashboard'],
   )
   const ageLabel = relativeTime(entity.metadata.updatedAt ?? entity.metadata.createdAt)
@@ -3814,17 +3814,6 @@ function EntityDrawer({
   // Live metrics apply to anything that actually runs: a Component or Resource
   // the catalog resolved to a workload. `adhar.io/grafana-dashboard` pins a
   // dashboard when the team has one.
-  const metricTarget = useMemo(() => {
-    if (entity.kind !== 'Component' && entity.kind !== 'Resource') return null
-    const ann = entityAnnotations(entity)
-    const name = ann['adhar.io/workload'] ?? entity.metadata.name
-    const namespace = ann['adhar.io/namespace'] ?? entity.metadata.namespace
-    return name ? { name, namespace: namespace && namespace !== 'default' ? namespace : undefined } : null
-  }, [entity])
-  const { url: monitorUrl, grafanaBase } = useGrafanaMonitorUrl(
-    metricTarget ?? { name: entity.metadata.name },
-    entityAnnotations(entity)['adhar.io/grafana-dashboard'],
-  )
   const relationCount =
     provides.length +
     consumes.length +
@@ -3849,6 +3838,22 @@ function EntityDrawer({
     Boolean(repoUrl) ||
     Boolean(ann['adhar.io/argocd-app'] || ann['adhar.io/ci'] || ann['adhar.io/ci-pipeline'])
   const deployment = useEntityDeployment(entity, wantsDeploy)
+  // Where Prometheus should look. The namespace is pinned only when it is
+  // KNOWN to be the Kubernetes one — the `adhar.io/namespace` annotation or
+  // the Argo CD destination. The entity's own namespace is a catalog grouping
+  // (every platform workload here runs in `adhar-system`), and scoping to it
+  // was why the Metrics tab showed "No series" on every panel.
+  const metricTarget = useMemo(() => {
+    if (entity.kind !== 'Component' && entity.kind !== 'Resource') return null
+    const ann = entityAnnotations(entity)
+    const name = ann['adhar.io/workload'] ?? entity.metadata.name
+    const namespace = (ann['adhar.io/namespace'] ?? '').trim() || deployment.primary?.spec.destination.namespace || undefined
+    return name ? { name, namespace } : null
+  }, [entity, deployment.primary])
+  const { url: monitorUrl, grafanaBase } = useGrafanaMonitorUrl(
+    metricTarget ?? { name: entity.metadata.name },
+    entityAnnotations(entity)['adhar.io/grafana-dashboard'],
+  )
   // Where the thing actually IS. Asked for the same entities as the deployment
   // query: a Group or a Domain has no HTTP surface, so it never hits the API.
   const routes = useEntityRoutes(entity, wantsDeploy)

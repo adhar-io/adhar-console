@@ -84,6 +84,9 @@ WORKDIR /build
 COPY deno.json ./
 COPY packages/ packages/
 COPY apps/console/deno.json apps/console/deno.json
+# The launch site is a workspace member too; its config must exist for the
+# workspace to resolve while caching (its sources are not shipped in this image).
+COPY apps/launch/deno.json apps/launch/deno.json
 COPY apps/console/server.ts apps/console/server.ts
 COPY apps/console/app apps/console/app
 # Module member configs must exist for the workspace to resolve while caching;
@@ -94,11 +97,12 @@ RUN deno cache --node-modules-dir=none \
     apps/console/server.ts packages/db/src/index.ts packages/auth/src/server-index.ts
 
 # The runtime only ships packages/ + apps/console (federated remotes are
-# pre-built into dist/mf). Drop modules/* from the workspace list so Deno
-# doesn't fail on missing member configs at startup. The @adhar/*
+# pre-built into dist/mf; the launch site is its own deployable). Drop
+# modules/* and apps/launch from the workspace list so Deno doesn't fail on
+# missing member configs at startup. The @adhar/*
 # import map (unchanged) still resolves every runtime dependency.
 RUN deno eval \
-    "const p='/build/deno.json'; const j=JSON.parse(Deno.readTextFileSync(p)); j.workspace=(j.workspace||[]).filter((w)=>!String(w).startsWith('./modules/')); Deno.writeTextFileSync(p, JSON.stringify(j,null,2));"
+    "const p='/build/deno.json'; const j=JSON.parse(Deno.readTextFileSync(p)); j.workspace=(j.workspace||[]).filter((w)=>!String(w).startsWith('./modules/') && String(w)!=='./apps/launch'); Deno.writeTextFileSync(p, JSON.stringify(j,null,2));"
 
 ###############################################################################
 # Runtime stage — small Deno server hosting the SPA + BFF API.

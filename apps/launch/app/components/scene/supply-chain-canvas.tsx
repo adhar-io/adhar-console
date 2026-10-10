@@ -253,7 +253,6 @@ function Chain({ animate }: { animate: boolean }) {
         pos={at(byId.build.u)}
         shared={shared}
         compact={compact}
-        animate={animate}
       />
       <ScanGate
         n={index(byId.attest)}
@@ -457,7 +456,7 @@ function Source({ n, stage, pos, shared, compact }: StationProps) {
 }
 
 /* 2 · Build — a forge: slabs assembling in sequence, a gear turning, sparks. */
-function Build({ n, stage, pos, shared, compact, animate }: StationProps & { animate: boolean }) {
+function Build({ n, stage, pos, shared, compact }: StationProps) {
   const slabs = useRef<(THREE.Mesh | null)[]>([])
   const gear = useRef<THREE.Mesh>(null)
   const gearGeo = useMemo(() => gearGeometry(12, 0.42, 0.14), [])

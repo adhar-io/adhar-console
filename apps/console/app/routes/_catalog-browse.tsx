@@ -560,7 +560,6 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
 
       <BrowseAll
         list={filtered}
-        total={list.length}
         kindCounts={counts}
         owners={owners}
         systems={systems}
@@ -1236,7 +1235,6 @@ const PAGE_SIZE = 60
 
 function BrowseAll({
   list,
-  total,
   kindCounts,
   owners,
   systems,
@@ -1266,7 +1264,6 @@ function BrowseAll({
   searchInputRef,
 }: {
   list: Entity[]
-  total: number
   kindCounts: Record<string, number>
   owners: Array<{ value: string; label: string; count: number }>
   systems: Array<{ value: string; label: string; count: number }>
@@ -1325,10 +1322,6 @@ function BrowseAll({
         title={searching ? 'Search results' : 'All entities'}
       />
 
-      {/* One click per kind — the Filters popover still has the multi-select,
-          but "just the APIs" is the most common narrowing and should not
-          need a popover. */}
-      <KindRail counts={kindCounts} total={total} filter={filter} onFilter={onFilter} />
 
       <Toolbar
         filter={filter}
@@ -3669,66 +3662,6 @@ function groupEntities(
       items,
     }))
     .sort((a, b) => Number(a.key === '~') - Number(b.key === '~') || a.label.localeCompare(b.label))
-}
-
-/**
- * One click per kind. Selecting a kind here sets the kind filter to exactly
- * that kind (the popover can still add more); "All" clears it. Kinds with no
- * entities are not offered — a tab that always shows nothing is a trap.
- */
-function KindRail({
-  counts,
-  total,
-  filter,
-  onFilter,
-}: {
-  counts: Record<string, number>
-  total: number
-  filter: FilterState
-  onFilter(next: FilterState): void
-}) {
-  const active: EntityKind | 'all' | 'mixed' =
-    filter.kinds.size === 0 ? 'all' : filter.kinds.size === 1 ? [...filter.kinds][0] : 'mixed'
-  const items: Array<{ kind: EntityKind | 'all'; label: string; count: number }> = [
-    { kind: 'all', label: 'All', count: total },
-    ...ALL_KINDS.filter((k) => (counts[k] ?? 0) > 0).map((k) => ({
-      kind: k,
-      label: KIND_PLURAL[k],
-      count: counts[k] ?? 0,
-    })),
-  ]
-  return (
-    <div role="tablist" aria-label="Entity kind" className="flex flex-wrap items-center gap-1">
-      {items.map((it) => {
-        const on = it.kind === active
-        return (
-          <button
-            key={it.kind}
-            type="button"
-            role="tab"
-            aria-selected={on}
-            onClick={() =>
-              onFilter({
-                ...filter,
-                kinds: it.kind === 'all' ? new Set() : new Set([it.kind]),
-              })
-            }
-            className={cn(
-              'inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-medium transition-colors',
-              on
-                ? 'bg-brand-600 text-white shadow-sm'
-                : 'text-content-muted hover:bg-surface-sunken hover:text-content',
-            )}
-          >
-            {it.label}
-            <span className={cn('font-mono text-[10px] tabular-nums', on ? 'text-white/75' : 'text-content-subtle')}>
-              {it.count}
-            </span>
-          </button>
-        )
-      })}
-    </div>
-  )
 }
 
 function SectionHeader({

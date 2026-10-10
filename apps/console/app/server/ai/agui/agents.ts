@@ -1,4 +1,4 @@
-import { GENERATIVE_COMPONENT_IDS, catalogEnumDescription, catalogPropsDescription } from '@adhar-console/utils'
+import { GENERATIVE_COMPONENT_IDS, catalogEnumDescription, catalogPropsDescription } from '@adhar/utils'
 import type { ToolDef } from '../provider.ts'
 import { TOOL_DEFS } from '../tools.ts'
 

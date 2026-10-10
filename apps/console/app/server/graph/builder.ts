@@ -1,4 +1,4 @@
-import { env } from '@adhar-console/utils'
+import { env } from '@adhar/utils'
 import { getK8sServiceToken } from '../tool-registry.ts'
 import { type KubeObject, objectKey, runWatch, type WatchSpec } from '../k8s/sa-watch.ts'
 import { GraphIndex } from './index-store.ts'

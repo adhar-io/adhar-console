@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { AdharLogo, Button } from '@adhar-console/shell-ui'
-import { getDemoSession, useAuth } from '@adhar-console/auth'
+import { AdharLogo, Button } from '@adhar/shell-ui'
+import { getDemoSession, useAuth } from '@adhar/auth'
 
 /**
  * Sign-up landing page.

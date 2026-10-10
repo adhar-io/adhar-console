@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { Card, CardBody, EmptyState, Spinner, StatusBadge } from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+import { Card, CardBody, EmptyState, Spinner, StatusBadge } from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import { useIssues } from '../data/git.ts'
 import { RepoScope } from '../components/repo-scope.tsx'
 

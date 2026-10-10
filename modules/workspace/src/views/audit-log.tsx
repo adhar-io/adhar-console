@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { EmptyState, StatusBadge, useToast } from '@adhar-console/shell-ui'
-import { cn, formatAbsolute, formatRelative } from '@adhar-console/utils'
+import { EmptyState, StatusBadge, useToast } from '@adhar/shell-ui'
+import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
 import {
   fetchAllAuditEvents,
   isDbUnavailable,

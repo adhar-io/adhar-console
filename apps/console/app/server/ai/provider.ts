@@ -1,4 +1,4 @@
-import { env } from '@adhar-console/utils'
+import { env } from '@adhar/utils'
 
 /**
  * LLM provider — OpenAI-compatible chat completions. Self-hosted / air-gapped

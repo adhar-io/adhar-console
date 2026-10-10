@@ -23,14 +23,14 @@ place.
 `apps/console/vite.config.ts` is literally:
 
 ```ts
-import { defineHostConfig } from '@adhar-console/build-config/host'
+import { defineHostConfig } from '@adhar/build-config/host'
 export default defineHostConfig({ appDir: import.meta.dirname! })
 ```
 
 And each module's `vite.config.ts`:
 
 ```ts
-import { defineRemoteConfig } from '@adhar-console/build-config/remote'
+import { defineRemoteConfig } from '@adhar/build-config/remote'
 
 export default defineRemoteConfig({
   name: 'platform',

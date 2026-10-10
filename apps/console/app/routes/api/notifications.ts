@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { getRequestUser, unauthorized } from '~/server/request-user.ts'
 
 // Dynamic import keeps postgres.js (node:net/tls) out of the browser bundle.
-const db = () => import('@adhar-console/db')
+const db = () => import('@adhar/db')
 
 /**
  * /api/notifications — per-user read/dismissed state for notifications.

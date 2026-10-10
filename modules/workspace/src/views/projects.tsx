@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { DataTable, EmptyState, Modal, StatusBadge, TeamScopeBar, useTeamScope } from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+import { DataTable, EmptyState, Modal, StatusBadge, TeamScopeBar, useTeamScope } from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import {
   isDbUnavailable,
   useCreateProject,

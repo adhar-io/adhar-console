@@ -18,7 +18,7 @@ which the user picks via the Tenant switcher in the sidebar.
 - Mapped to one or more Keycloak groups.
 - Visible in `useTenant()` everywhere in the UI.
 
-Shape (see `@adhar-console/tenancy`):
+Shape (see `@adhar/tenancy`):
 
 ```ts
 interface Tenant {
@@ -42,7 +42,7 @@ scoping primitive; Organization is the product noun.
 - Unit of shipping: a deployable thing lives inside one project.
 - Users belong to tenants; teams own projects; teams are assigned to projects.
 
-Defined in `@adhar-console/api-clients/workspace`.
+Defined in `@adhar/api-clients/workspace`.
 
 ## Environment
 

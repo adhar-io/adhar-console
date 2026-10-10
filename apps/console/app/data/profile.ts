@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { applyTheme, DEFAULT_APP_LINKS, DEFAULT_THEME_ID, THEMES } from '@adhar-console/shell-ui'
-import type { Session } from '@adhar-console/auth'
+import { applyTheme, DEFAULT_APP_LINKS, DEFAULT_THEME_ID, THEMES } from '@adhar/shell-ui'
+import type { Session } from '@adhar/auth'
 
 /**
  * Profile settings data layer — the client hooks behind /profile.

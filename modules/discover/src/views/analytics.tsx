@@ -7,9 +7,9 @@ import {
   CardHeader,
   EmptyState,
   StatusBadge,
-} from '@adhar-console/shell-ui'
-import { cn, formatRelative } from '@adhar-console/utils'
-import type { posthog } from '@adhar-console/api-clients'
+} from '@adhar/shell-ui'
+import { cn, formatRelative } from '@adhar/utils'
+import type { posthog } from '@adhar/api-clients'
 import {
   useAnalyticsEvents,
   useInsights,

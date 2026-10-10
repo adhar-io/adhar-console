@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 
 /**
  * Pointer-driven drag-and-drop grid for the Overview page.

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { docStore, type StoredDoc } from '@adhar-console/shell-ui'
+import { docStore, type StoredDoc } from '@adhar/shell-ui'
 
 /**
  * ENTERPRISE-SECURITY data layer — real, tenant-scoped persistence.

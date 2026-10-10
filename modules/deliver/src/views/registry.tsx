@@ -15,9 +15,9 @@ import {
   useToolPublicUrl,
   type Column,
   type StatusKind,
-} from '@adhar-console/shell-ui'
-import { cn, formatAbsolute, formatRelative } from '@adhar-console/utils'
-import type { harbor, nexus } from '@adhar-console/api-clients'
+} from '@adhar/shell-ui'
+import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
+import type { harbor, nexus } from '@adhar/api-clients'
 import {
   useAddTag,
   useAdmissionImagePolicies,

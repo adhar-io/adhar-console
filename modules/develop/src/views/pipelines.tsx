@@ -9,9 +9,9 @@ import {
   Spinner,
   StatusBadge,
   type StatusKind,
-} from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
-import type { airbyte } from '@adhar-console/api-clients'
+} from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
+import type { airbyte } from '@adhar/api-clients'
 import {
   useConnections,
   useDestinations,

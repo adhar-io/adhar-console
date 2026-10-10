@@ -7,8 +7,8 @@ import {
   EmptyState,
   Spinner,
   StatusBadge,
-} from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import { useDeleteView, useLabels, useMembers, useStates, useViews } from '../data/plane.ts'
 import { CreateViewModal } from '../components/create-forms.tsx'
 import { ListToolbar } from '../components/list-toolbar.tsx'

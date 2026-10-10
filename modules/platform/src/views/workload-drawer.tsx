@@ -11,9 +11,9 @@ import {
   useLiveRefetch,
   type StatusKind,
   type TabDef,
-} from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
-import type { k8s } from '@adhar-console/api-clients'
+} from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
+import type { k8s } from '@adhar/api-clients'
 import { client, LOCAL_CLUSTER } from '../data/client.ts'
 import { GVRS } from '../data/gvr.ts'
 import { age, formatBytes, formatCpu, parseQuantity, shortImage } from '../data/format.ts'

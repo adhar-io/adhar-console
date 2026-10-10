@@ -10,8 +10,8 @@ import {
   Spinner,
   StatusBadge,
   type Column,
-} from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import {
   formatPct,
   formatUsd,

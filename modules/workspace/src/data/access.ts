@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from 'react'
-import type { workspace } from '@adhar-console/api-clients'
+import type { workspace } from '@adhar/api-clients'
 import { useWorkspaceMe } from './client.ts'
 
 /**

@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { DataTable, EmptyState, StatusBadge } from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+import { DataTable, EmptyState, StatusBadge } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { useGeneric } from '../data/hooks.ts'
 import { age } from '../data/format.ts'
 

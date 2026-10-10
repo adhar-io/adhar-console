@@ -1,6 +1,6 @@
 import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import postgres, { type Sql } from 'postgres'
-import { env } from '@adhar-console/utils'
+import { env } from '@adhar/utils'
 import * as schema from './schema.ts'
 import { runInitDdl } from './migrate.ts'
 

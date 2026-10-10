@@ -6,8 +6,8 @@ import {
   EmptyState,
   Spinner,
   StatusBadge,
-} from '@adhar-console/shell-ui'
-import type { plane } from '@adhar-console/api-clients'
+} from '@adhar/shell-ui'
+import type { plane } from '@adhar/api-clients'
 import { priorityKind, useIssues, useStates } from '../data/plane.ts'
 
 /**

@@ -1,5 +1,5 @@
 {
-  "name": "@adhar-console/module-decide",
+  "name": "@adhar/module-decide",
   "version": "0.1.0",
   "private": true,
   "type": "module",

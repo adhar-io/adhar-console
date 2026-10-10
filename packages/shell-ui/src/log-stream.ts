@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { kube } from '@adhar-console/api-clients/k8s'
+import { kube } from '@adhar/api-clients/k8s'
 import { detectSeverity } from './log-format.tsx'
 import type { LogLine, StreamStatus } from './log-console.tsx'
 

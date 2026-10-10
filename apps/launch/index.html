@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>Adhar Cloud — Source to production. One platform.</title>
+    <meta
+      name="description"
+      content="Adhar Cloud builds, signs, promotes, deploys and observes every release on open, Kubernetes-native foundations. Opening soon. Register for early access."
+    />
+    <meta property="og:title" content="Adhar Cloud — Source to production. One platform." />
+    <meta
+      property="og:description"
+      content="Every release built, signed, promoted, deployed and observed on one open platform. Opening soon. Get early access."
+    />
+    <meta property="og:image" content="/branding/banner-og.svg" />
+    <meta property="og:type" content="website" />
+    <meta name="theme-color" content="#6366F1" />
+    <!--
+      Paint the saved colour mode before the bundle arrives, so a dark-mode
+      visitor never sees a white flash. Mirrors shell-ui's theme.ts storage keys.
+    -->
+    <script>
+    try {
+      var m = localStorage.getItem('adhar.theme.mode') || 'system'
+      var dark = m === 'dark' || (m === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)
+      if (dark) document.documentElement.classList.add('dark')
+    } catch (_) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/app/main.tsx"></script>
+  </body>
+</html>

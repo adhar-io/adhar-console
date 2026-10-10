@@ -8,8 +8,8 @@ import {
   Spinner,
   StatusBadge,
   type Column,
-} from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { useNodeMetrics, useNodes, usePodMetrics, usePods } from '../data/hooks.ts'
 import { formatBytes, formatCpu, nodeRoles, parseQuantity } from '../data/format.ts'
 

@@ -1,4 +1,4 @@
-import { env } from '@adhar-console/utils'
+import { env } from '@adhar/utils'
 import { apiServerFetch, originOk, resolveClusterBase, resolveIdentity, type K8sIdentity } from './k8s/gateway.ts'
 import { getRequestUser } from './request-user.ts'
 import { proxyToolRequest } from './proxy.ts'

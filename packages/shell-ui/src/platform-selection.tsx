@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 import { useOrganizations } from './use-organizations.ts'
 import {
   LOCAL_CLUSTER,

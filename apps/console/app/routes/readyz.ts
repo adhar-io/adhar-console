@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { getDiscovery, getServerAuthConfig } from '@adhar-console/auth/server'
+import { getDiscovery, getServerAuthConfig } from '@adhar/auth/server'
 
 /**
  * Readiness probe. Reports whether the console can actually serve authenticated
@@ -16,7 +16,7 @@ export const Route = createFileRoute('/readyz')({
         // The database is optional persistence — report its status but don't
         // gate readiness on it (K8s-sourced views work without it). Loaded
         // dynamically so postgres.js stays out of the browser bundle.
-        const { isDbConfigured, pingDb } = await import('@adhar-console/db')
+        const { isDbConfigured, pingDb } = await import('@adhar/db')
         const db = isDbConfigured() ? ((await pingDb()) ? 'ok' : 'down') : 'unconfigured'
 
         const cfg = getServerAuthConfig()

@@ -1,4 +1,4 @@
-# @adhar-console/module-define
+# @adhar/module-define
 
 Federated remote for the **Define** phase — requirements, issues, roadmap,
 OKRs. Backed by Plane.so. Dev port **5101**.

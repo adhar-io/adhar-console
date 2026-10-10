@@ -1,4 +1,4 @@
-import { env } from '@adhar-console/utils'
+import { env } from '@adhar/utils'
 
 /**
  * Client for **adhar-ai**, the platform's agentic runtime.

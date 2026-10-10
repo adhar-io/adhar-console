@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button } from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+import { Button } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { LogConsole, type LogSource, useLogStream } from '../components/log-console.tsx'
 import {
   SEVERITIES,
@@ -11,7 +11,7 @@ import {
   TAIL_OPTIONS,
   type Severity,
   type SinceLabel,
-} from '@adhar-console/shell-ui'
+} from '@adhar/shell-ui'
 
 /**
  * Pod logs (drawer panel).

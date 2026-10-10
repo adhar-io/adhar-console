@@ -9,9 +9,9 @@ import {
   Spinner,
   StatusBadge,
   type StatusKind,
-} from '@adhar-console/shell-ui'
-import { cn, formatRelative } from '@adhar-console/utils'
-import type { harbor } from '@adhar-console/api-clients'
+} from '@adhar/shell-ui'
+import { cn, formatRelative } from '@adhar/utils'
+import type { harbor } from '@adhar/api-clients'
 import {
   useArtifactVulnerabilities,
   useHarborScanners,

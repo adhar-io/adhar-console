@@ -8,8 +8,8 @@ import {
   Spinner,
   StatusBadge,
   useOrganizations,
-} from '@adhar-console/shell-ui'
-import { cn, formatRelative } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { cn, formatRelative } from '@adhar/utils'
 import { summarizeCluster, useClusterSignals } from '~/data/cluster-signals.ts'
 import {
   useAirbyteConnections,
@@ -64,7 +64,7 @@ import {
   formatDuration,
   mttrSummary,
 } from '~/data/dora-radar-sources.ts'
-import type { Generic } from '@adhar-console/api-clients/k8s'
+import type { Generic } from '@adhar/api-clients/k8s'
 
 /**
  * Cross-module Overview panels. Each one pulls from its module's stub-backed

@@ -1,6 +1,6 @@
-import { k8s } from '@adhar-console/api-clients'
+import { k8s } from '@adhar/api-clients'
 import { useQuery } from '@tanstack/react-query'
-import { useLiveRefetch } from '@adhar-console/shell-ui'
+import { useLiveRefetch } from '@adhar/shell-ui'
 
 /**
  * Shared Overview cluster summary. Deliberately host-local — the Decide module

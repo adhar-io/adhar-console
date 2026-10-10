@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { metabase } from '@adhar-console/api-clients'
+import { metabase } from '@adhar/api-clients'
 
 /**
  * Metabase BI hooks — REAL. `MetabaseClient.auto` is real by default: it talks

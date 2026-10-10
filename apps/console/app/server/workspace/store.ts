@@ -144,8 +144,8 @@ export interface AuditDoc {
 
 /* ─────────────────── db access ─────────────────── */
 
-type DbModule = typeof import('@adhar-console/db')
-export type DocumentQuery = import('@adhar-console/db').DocumentQuery
+type DbModule = typeof import('@adhar/db')
+export type DocumentQuery = import('@adhar/db').DocumentQuery
 type Conn = NonNullable<Awaited<ReturnType<DbModule['getMigratedDb']>>>
 
 export interface StoredDoc<T> {
@@ -177,7 +177,7 @@ export interface Store {
 
 /** Returns null when no database is configured — callers must respond 503. */
 export async function openStore(tenant: string): Promise<Store | null> {
-  const mod = await import('@adhar-console/db')
+  const mod = await import('@adhar/db')
   const conn = await mod.getMigratedDb()
   if (!conn) return null
   return {

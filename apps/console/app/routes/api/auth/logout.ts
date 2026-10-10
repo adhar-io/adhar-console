@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { handleLogout } from '@adhar-console/auth/server'
+import { handleLogout } from '@adhar/auth/server'
 
 /**
  * GET /api/auth/logout

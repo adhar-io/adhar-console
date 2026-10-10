@@ -1,4 +1,4 @@
-import type { coder } from '@adhar-console/api-clients'
+import type { coder } from '@adhar/api-clients'
 
 /**
  * Whether a cloud development environment can actually be used.

@@ -28,7 +28,7 @@ the org lives here.
 
 ## Data layer
 
-All views call `@adhar-console/api-clients/workspace`. Default in v1 is
+All views call `@adhar/api-clients/workspace`. Default in v1 is
 the stub; production wires through the BFF (same pattern as other clients).
 Tenant = the active org; resolved from session, never from request body.
 
@@ -53,7 +53,7 @@ Users can re-run it from the Help menu at any time — it's idempotent.
 - **Audit log** is visible to every org admin (not just platform admins) and
   retained for 365 days on Business plans.
 - **Integrations** page shows real versions + source URLs via
-  `@adhar-console/platform-info`.
+  `@adhar/platform-info`.
 
 ## Extension
 

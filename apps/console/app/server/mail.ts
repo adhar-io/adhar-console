@@ -1,4 +1,4 @@
-import { env } from '@adhar-console/utils'
+import { env } from '@adhar/utils'
 
 /**
  * Outbound email for the console (workspace provisioning, invitations).

@@ -1,4 +1,4 @@
-import { getServerAuthConfig, getValidSession } from '@adhar-console/auth/server'
+import { getServerAuthConfig, getValidSession } from '@adhar/auth/server'
 import { originOk } from '../k8s/gateway.ts'
 import {
   defaultSubscription,
@@ -53,7 +53,7 @@ import {
  *   GET  provider                POST provider/checkout | provider/portal | provider/sync
  */
 
-const db = () => import('@adhar-console/db')
+const db = () => import('@adhar/db')
 
 const SUBSCRIPTION_KIND = 'billing.subscription'
 const INVOICE_KIND = 'billing.invoice'

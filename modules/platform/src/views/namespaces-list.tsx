@@ -14,8 +14,8 @@ import {
   StatusBadge,
   Textarea,
   useOverlayDismiss,
-} from '@adhar-console/shell-ui'
-import { kube } from '@adhar-console/api-clients/k8s'
+} from '@adhar/shell-ui'
+import { kube } from '@adhar/api-clients/k8s'
 import { GVRS } from '../data/gvr.ts'
 import { useDaemonSets, useDeployments, usePods, useStatefulSets } from '../data/hooks.ts'
 import {

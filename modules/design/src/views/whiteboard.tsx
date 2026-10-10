@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Button, EmptyState, Modal } from '@adhar-console/shell-ui'
+import { Button, EmptyState, Modal } from '@adhar/shell-ui'
 import { KIND, newId, useCollection, useCreate, useRemove, useSeedExamples, useUpdate } from '../data/store.ts'
 import { SEED_NOTES } from '../data/seed.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'

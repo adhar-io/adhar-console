@@ -10,6 +10,8 @@ importers:
 
   apps/console: {}
 
+  apps/launch: {}
+
   modules/decide: {}
 
   modules/define: {}

@@ -1,5 +1,5 @@
 {
-  "name": "@adhar-console/db",
+  "name": "@adhar/db",
   "version": "0.1.0",
   "exports": {
     ".": "./src/index.ts"

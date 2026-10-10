@@ -6,7 +6,7 @@ import { useSyncExternalStore } from 'react'
  * between the host shell (which renders the pickers in the top bar) and the
  * platform remote (whose data hooks read the selection).
  *
- * `@adhar-console/shell-ui` is **not** a Module-Federation shared singleton, so
+ * `@adhar/shell-ui` is **not** a Module-Federation shared singleton, so
  * a plain module-level variable does NOT sync across the host↔remote boundary —
  * the host and the platform remote each get their own copy of this module.
  * Instead the source of truth is `localStorage`, and every mutation broadcasts

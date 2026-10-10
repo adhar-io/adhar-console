@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Card, CardBody, CardHeader, EmptyState, GrafanaIcon, StatusBadge } from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+import { Card, CardBody, CardHeader, EmptyState, GrafanaIcon, StatusBadge } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { useGrafanaDashboards, useGrafanaEmbedUrl } from '../data/observability.ts'
 import { LoadingCard, SourceError } from './states.tsx'
 

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { EmptyState, Spinner, StatusBadge } from '@adhar-console/shell-ui'
+import { EmptyState, Spinner, StatusBadge } from '@adhar/shell-ui'
 import {
   fmtMoney,
   isStoreUnavailable,

@@ -8,9 +8,9 @@ import {
   StatusBadge,
   type AiContext,
   type StatusKind,
-} from '@adhar-console/shell-ui'
-import type { KubeObject } from '@adhar-console/api-clients/k8s'
-import { cn } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import type { KubeObject } from '@adhar/api-clients/k8s'
+import { cn } from '@adhar/utils'
 import { age } from '../data/format.ts'
 import { CodeEditor } from '../components/code-editor.tsx'
 import { ResourcePlaybooks } from '../components/resource-playbooks.tsx'

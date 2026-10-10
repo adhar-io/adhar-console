@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 import { useLiveStatus } from './live.ts'
 
 /**

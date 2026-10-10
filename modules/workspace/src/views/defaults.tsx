@@ -1,6 +1,6 @@
-import { useToast } from '@adhar-console/shell-ui'
+import { useToast } from '@adhar/shell-ui'
 import { useEffect, useState } from 'react'
-import { formatRelative } from '@adhar-console/utils'
+import { formatRelative } from '@adhar/utils'
 import {
   DEFAULT_CLOUDS,
   isValidLabelKey,

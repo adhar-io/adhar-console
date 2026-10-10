@@ -5,9 +5,9 @@ import {
   EmptyState,
   Spinner,
   StatusBadge,
-} from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
-import type { argocd, falco, kargo } from '@adhar-console/api-clients'
+} from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
+import type { argocd, falco, kargo } from '@adhar/api-clients'
 import {
   useApplications,
   useFalcoEvents,

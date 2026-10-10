@@ -1,11 +1,12 @@
 {
-  "name": "@adhar-console/build-config",
+  "name": "@adhar/build-config",
   "version": "0.1.0",
   "exports": {
     ".": "./src/index.ts",
     "./remote": "./src/remote.ts",
     "./host": "./src/host.ts",
-    "./registry": "./src/registry.ts"
+    "./registry": "./src/registry.ts",
+    "./paths": "./src/paths.ts"
   },
   "imports": {
     "vite": "npm:vite@^7.1.12",
@@ -15,5 +16,7 @@
     "@tanstack/react-start": "npm:@tanstack/react-start@^1.167.0",
     "@tanstack/react-start/plugin/vite": "npm:@tanstack/react-start@^1.167.0/plugin/vite"
   },
-  "tasks": { "check": "deno check src/index.ts src/remote.ts src/host.ts" }
+  "tasks": {
+    "check": "deno check src/index.ts src/remote.ts src/host.ts"
+  }
 }

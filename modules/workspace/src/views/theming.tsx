@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { cn, formatRelative } from '@adhar-console/utils'
+import { cn, formatRelative } from '@adhar/utils'
 import {
   applyTheme,
   DEFAULT_THEME_ID,
@@ -8,7 +8,7 @@ import {
   StatusBadge,
   THEMES,
   type ThemePreset,
-} from '@adhar-console/shell-ui'
+} from '@adhar/shell-ui'
 import { useSaveWorkspaceTheme, useWorkspaceTheme } from '../data/security.ts'
 import { PrimaryButton, SecondaryButton, ViewShell } from '../components/section-shell.tsx'
 

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
-import { kube, type GatewayGVR as GVR, type KubeObject } from '@adhar-console/api-clients/k8s'
-import { cn } from '@adhar-console/utils'
+import { kube, type GatewayGVR as GVR, type KubeObject } from '@adhar/api-clients/k8s'
+import { cn } from '@adhar/utils'
 import { GVRS } from '../data/gvr.ts'
 
 /**

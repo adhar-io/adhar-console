@@ -1,4 +1,4 @@
-import { defineRemoteConfig } from '@adhar-console/build-config/remote'
+import { defineRemoteConfig } from '@adhar/build-config/remote'
 
 export default defineRemoteConfig({
   name: 'design',

@@ -1,4 +1,4 @@
-import { Select } from '@adhar-console/shell-ui'
+import { Select } from '@adhar/shell-ui'
 import { useNamespaces } from '../data/hooks.ts'
 
 interface Props {

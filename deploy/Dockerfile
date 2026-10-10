@@ -95,7 +95,7 @@ RUN deno cache --node-modules-dir=none \
 
 # The runtime only ships packages/ + apps/console (federated remotes are
 # pre-built into dist/mf). Drop modules/* from the workspace list so Deno
-# doesn't fail on missing member configs at startup. The @adhar-console/*
+# doesn't fail on missing member configs at startup. The @adhar/*
 # import map (unchanged) still resolves every runtime dependency.
 RUN deno eval \
     "const p='/build/deno.json'; const j=JSON.parse(Deno.readTextFileSync(p)); j.workspace=(j.workspace||[]).filter((w)=>!String(w).startsWith('./modules/')); Deno.writeTextFileSync(p, JSON.stringify(j,null,2));"

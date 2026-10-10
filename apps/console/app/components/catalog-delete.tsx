@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Modal, useToast, useToolPublicUrl } from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+import { Button, Modal, useToast, useToolPublicUrl } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { type Entity, entityRef, useUnregisterEntity } from '~/data/catalog.ts'
 import { useEntityDeployment } from '~/data/catalog-deployment.ts'
 import { entityRepoUrl, planTeardown, type TeardownResult, useTeardown } from '~/data/catalog-teardown.ts'

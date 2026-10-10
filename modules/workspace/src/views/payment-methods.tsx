@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { DataTable, EmptyState, StatusBadge } from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+import { DataTable, EmptyState, StatusBadge } from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import {
   isStoreUnavailable,
   useAddPaymentMethod,

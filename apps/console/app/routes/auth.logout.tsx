@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Spinner } from '@adhar-console/shell-ui'
-import { useAuth } from '@adhar-console/auth'
+import { Spinner } from '@adhar/shell-ui'
+import { useAuth } from '@adhar/auth'
 
 /**
  * Logout endpoint. Calls `signout()` which:

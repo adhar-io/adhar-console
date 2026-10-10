@@ -1,5 +1,5 @@
-import { Card, CardBody, EmptyState, StatusBadge } from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+import { Card, CardBody, EmptyState, StatusBadge } from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import { useFeatureFlags, useToggleFlag } from '../data/observability.ts'
 import { LoadingCard, SourceError } from './states.tsx'
 

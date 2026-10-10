@@ -9,8 +9,8 @@ import {
   Spinner,
   StatusBadge,
   useToolPublicUrl,
-} from '@adhar-console/shell-ui'
-import { cn, formatAbsolute } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { cn, formatAbsolute } from '@adhar/utils'
 import { type PerfTestConfig } from '../data/perf-format.ts'
 import { type PanelSpec, panelsFor, usePerfPanels, usePrometheusReachable } from '../data/perf-metrics.ts'
 import { type K6Summary } from '../data/k6-summary.ts'

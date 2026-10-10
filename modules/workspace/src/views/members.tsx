@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { DataTable, EmptyState, Modal, StatusBadge, type StatusKind } from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+import { DataTable, EmptyState, Modal, StatusBadge, type StatusKind } from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import {
   isDbUnavailable,
   useCreateInvitation,

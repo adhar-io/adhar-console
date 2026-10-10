@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { StatusBadge } from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+import { StatusBadge } from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import {
   useCurrentSession,
   useSaveSecurityPolicy,

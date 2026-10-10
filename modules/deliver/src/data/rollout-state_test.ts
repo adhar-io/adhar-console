@@ -7,7 +7,7 @@ import {
   summariseRollouts,
   type RolloutView,
 } from './rollout-state.ts'
-import type { argoRollouts } from '@adhar-console/api-clients'
+import type { argoRollouts } from '@adhar/api-clients'
 
 /** The canary this cluster actually runs. */
 function rollout(over: {

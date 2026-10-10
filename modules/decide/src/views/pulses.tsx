@@ -4,9 +4,9 @@ import {
   CardHeader,
   EmptyState,
   StatusBadge,
-} from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
-import type { metabase } from '@adhar-console/api-clients'
+} from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
+import type { metabase } from '@adhar/api-clients'
 import { useQuestions, usePulses, useTogglePulse } from '../data/bi.ts'
 import { BiSkeletonGrid, MetabaseUnavailable } from './bi-states.tsx'
 

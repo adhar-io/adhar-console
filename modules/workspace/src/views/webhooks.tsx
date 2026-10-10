@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { DataTable, EmptyState, Modal, StatusBadge } from '@adhar-console/shell-ui'
-import { cn, formatRelative } from '@adhar-console/utils'
-import type { workspace } from '@adhar-console/api-clients'
+import { DataTable, EmptyState, Modal, StatusBadge } from '@adhar/shell-ui'
+import { cn, formatRelative } from '@adhar/utils'
+import type { workspace } from '@adhar/api-clients'
 import {
   useDeleteWebhook,
   useSaveWebhook,

@@ -4,5 +4,5 @@
  * hook the pipeline drawer uses. Re-exported here so platform call sites keep
  * importing from one place.
  */
-export { ConsoleBtn, LogConsole, useLogStream } from '@adhar-console/shell-ui'
-export type { LogConsoleProps, LogLine, LogSource, LogStream, StreamStatus, UseLogStreamOptions } from '@adhar-console/shell-ui'
+export { ConsoleBtn, LogConsole, useLogStream } from '@adhar/shell-ui'
+export type { LogConsoleProps, LogLine, LogSource, LogStream, StreamStatus, UseLogStreamOptions } from '@adhar/shell-ui'

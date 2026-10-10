@@ -1,21 +1,21 @@
-# @adhar-console/api-clients
+# @adhar/api-clients
 
 Typed clients for every backing tool. One package, many subpath exports:
 
 | Import                                           | Tool                                                |
 | ------------------------------------------------ | --------------------------------------------------- |
-| `@adhar-console/api-clients/gitea`               | Gitea (repos, PRs)                                  |
-| `@adhar-console/api-clients/plane`               | Plane.so (projects, issues)                         |
-| `@adhar-console/api-clients/argocd`              | Argo CD (Applications)                              |
-| `@adhar-console/api-clients/kargo`               | Kargo (Stages, Freight, promotions)                 |
-| `@adhar-console/api-clients/harbor`              | Harbor (repositories, artifacts, vulnerabilities)   |
-| `@adhar-console/api-clients/k8s`                 | Kubernetes (clusters, workloads, CRD generic list)  |
-| `@adhar-console/api-clients/kyverno`             | Kyverno (PolicyReports)                             |
-| `@adhar-console/api-clients/crossplane`          | Crossplane (Compositions, Providers, Claims)        |
-| `@adhar-console/api-clients/argo-workflows`      | Argo Workflows (Workflows)                          |
-| `@adhar-console/api-clients/argo-rollouts`       | Argo Rollouts (Rollouts + promote/abort)            |
-| `@adhar-console/api-clients/lgtm`                | Grafana / Loki / Mimir / Tempo                      |
-| `@adhar-console/api-clients/workspace`           | Adhar's own SaaS API (orgs, projects, envs, tokens, audit, plan, usage, webhooks) |
+| `@adhar/api-clients/gitea`               | Gitea (repos, PRs)                                  |
+| `@adhar/api-clients/plane`               | Plane.so (projects, issues)                         |
+| `@adhar/api-clients/argocd`              | Argo CD (Applications)                              |
+| `@adhar/api-clients/kargo`               | Kargo (Stages, Freight, promotions)                 |
+| `@adhar/api-clients/harbor`              | Harbor (repositories, artifacts, vulnerabilities)   |
+| `@adhar/api-clients/k8s`                 | Kubernetes (clusters, workloads, CRD generic list)  |
+| `@adhar/api-clients/kyverno`             | Kyverno (PolicyReports)                             |
+| `@adhar/api-clients/crossplane`          | Crossplane (Compositions, Providers, Claims)        |
+| `@adhar/api-clients/argo-workflows`      | Argo Workflows (Workflows)                          |
+| `@adhar/api-clients/argo-rollouts`       | Argo Rollouts (Rollouts + promote/abort)            |
+| `@adhar/api-clients/lgtm`                | Grafana / Loki / Mimir / Tempo                      |
+| `@adhar/api-clients/workspace`           | Adhar's own SaaS API (orgs, projects, envs, tokens, audit, plan, usage, webhooks) |
 
 ## Shape
 

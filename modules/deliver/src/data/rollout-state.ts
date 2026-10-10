@@ -1,4 +1,4 @@
-import type { argoRollouts } from '@adhar-console/api-clients'
+import type { argoRollouts } from '@adhar/api-clients'
 
 /**
  * Reading an Argo Rollout into what the page needs to show and offer.

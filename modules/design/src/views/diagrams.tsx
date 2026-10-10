@@ -7,8 +7,8 @@ import {
   EmptyState,
   Modal,
   StatusBadge,
-} from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import { KIND, newId, useCollection, useCreate, useRemove, useSeedExamples, useUpdate } from '../data/store.ts'
 import {
   SEED_DIAGRAMS,

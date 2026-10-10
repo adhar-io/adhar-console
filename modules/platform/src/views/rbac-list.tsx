@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { DataTable, EmptyState, Tabs, type TabDef } from '@adhar-console/shell-ui'
+import { DataTable, EmptyState, Tabs, type TabDef } from '@adhar/shell-ui'
 import {
   useClusterRoleBindings,
   useClusterRoles,

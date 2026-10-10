@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
-import { useLiveRefetch } from '@adhar-console/shell-ui'
-import { k8s } from '@adhar-console/api-clients'
-import { kube } from '@adhar-console/api-clients/k8s'
+import { useLiveRefetch } from '@adhar/shell-ui'
+import { k8s } from '@adhar/api-clients'
+import { kube } from '@adhar/api-clients/k8s'
 import { rerunName } from './k6-summary.ts'
 
 // The pure half — parser, naming, formatting — lives next door so it can be

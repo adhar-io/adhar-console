@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { DataTable, EmptyState, Modal } from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+import { DataTable, EmptyState, Modal } from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import {
   isDbUnavailable,
   useApiTokens,

@@ -3,8 +3,8 @@ import {
   CardBody,
   CardHeader,
   StatusBadge,
-} from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import { KIND, useCollection } from '../data/store.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import type { Adr, Diagram, Journey, Persona, WhiteboardBoard, Wireframe } from '../data/types.ts'

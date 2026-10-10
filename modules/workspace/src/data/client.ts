@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { workspace } from '@adhar-console/api-clients'
-import { docStore, DocStoreError, type StoredDoc } from '@adhar-console/shell-ui'
+import { workspace } from '@adhar/api-clients'
+import { docStore, DocStoreError, type StoredDoc } from '@adhar/shell-ui'
 import type { Permission } from './access.ts'
 
 /**

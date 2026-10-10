@@ -7,7 +7,7 @@ import {
   EmptyState,
   Modal,
   StatusBadge,
-} from '@adhar-console/shell-ui'
+} from '@adhar/shell-ui'
 import { KIND, newId, useCollection, useCreate, useRemove, useSeedExamples, useUpdate } from '../data/store.ts'
 import { SEED_WIREFRAMES } from '../data/seed.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'

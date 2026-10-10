@@ -1,4 +1,4 @@
-import { env } from '@adhar-console/utils'
+import { env } from '@adhar/utils'
 import { openStore, type Store } from './workspace/store.ts'
 import { provisionTenant, type ProvisionStepResult } from './tenant-provisioner.ts'
 import { emitNotification } from './notify.ts'

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useMemo, type ComponentType, type ReactNode } from 'react'
-import { ErrorBoundary } from '@adhar-console/shell-ui'
+import { ErrorBoundary } from '@adhar/shell-ui'
 
 interface Props {
   loader(): Promise<{ default: ComponentType<Record<string, unknown>> }>

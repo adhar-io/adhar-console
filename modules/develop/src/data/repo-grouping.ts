@@ -1,4 +1,4 @@
-import type { gitea } from '@adhar-console/api-clients';
+import type { gitea } from '@adhar/api-clients';
 
 /**
  * How a repository list is qualified and sectioned.

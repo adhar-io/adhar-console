@@ -1,4 +1,4 @@
-import { env } from '@adhar-console/utils'
+import { env } from '@adhar/utils'
 import { giteaConn, giteaFetcher } from '../gitea-auth.ts'
 import type { ToolDef } from './provider.ts'
 

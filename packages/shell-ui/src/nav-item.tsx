@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useRouterState } from '@tanstack/react-router'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 import type { NavBadge, NavItem as TNavItem } from './nav-tree.tsx'
 import { claimedSections, ownsDestination } from './nav-ownership.ts'
 import { DEFAULT_NAV } from './nav-tree.tsx'

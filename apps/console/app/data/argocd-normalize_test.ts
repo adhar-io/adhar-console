@@ -1,5 +1,5 @@
 import { assertEquals } from 'jsr:@std/assert'
-import { argocd } from '@adhar-console/api-clients'
+import { argocd } from '@adhar/api-clients'
 
 /**
  * `normalizeApplication` is the boundary the Overview's DORA panels read

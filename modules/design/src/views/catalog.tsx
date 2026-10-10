@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Card, CardBody, CardHeader, EmptyState, StatusBadge } from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+import { Card, CardBody, CardHeader, EmptyState, StatusBadge } from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import { KIND, type Listed, useCollection } from '../data/store.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import type {

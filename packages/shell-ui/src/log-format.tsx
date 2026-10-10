@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 
 /**
  * Shared log-rendering helpers for the streaming Logs page (`logs-viewer.tsx`)

@@ -8,9 +8,9 @@ import {
   PrometheusIcon,
   Spinner,
   StatusBadge,
-} from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
-import type { lgtm } from '@adhar-console/api-clients'
+} from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
+import type { lgtm } from '@adhar/api-clients'
 import {
   DEFAULT_RANGE,
   PROMQL,

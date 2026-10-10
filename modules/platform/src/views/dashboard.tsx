@@ -7,8 +7,8 @@ import {
   Sparkline,
   Spinner,
   StatusBadge,
-} from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import {
   useApiSurface,
   useClusters,

@@ -7,9 +7,9 @@ import {
   Spinner,
   StatusBadge,
   type StatusKind,
-} from '@adhar-console/shell-ui'
-import { cn, formatRelative } from '@adhar-console/utils'
-import type { argocd, kargo } from '@adhar-console/api-clients'
+} from '@adhar/shell-ui'
+import { cn, formatRelative } from '@adhar/utils'
+import type { argocd, kargo } from '@adhar/api-clients'
 import { useApplications, useStages } from '../data/delivery.ts'
 import { chainDrift, promotesFrom, promotionChain, type ChainLink } from '../data/promotion-chain.ts'
 import { shortFreight, stageStatus } from '../data/stage-order.ts'

@@ -7,9 +7,9 @@ import {
   EmptyState,
   Sparkline,
   StatusBadge,
-} from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
-import type { lgtm, posthog } from '@adhar-console/api-clients'
+} from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
+import type { lgtm, posthog } from '@adhar/api-clients'
 import {
   PROMQL,
   seriesLabel,

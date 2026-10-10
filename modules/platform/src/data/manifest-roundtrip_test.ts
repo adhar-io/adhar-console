@@ -1,5 +1,5 @@
 import { assertEquals } from 'jsr:@std/assert'
-import { tryParseYaml } from '@adhar-console/utils'
+import { tryParseYaml } from '@adhar/utils'
 import { toYaml } from './manifest-yaml.ts'
 
 /**

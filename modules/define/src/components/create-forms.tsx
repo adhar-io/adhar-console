@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { Button, Modal } from '@adhar-console/shell-ui'
-import type { plane } from '@adhar-console/api-clients'
+import { Button, Modal } from '@adhar/shell-ui'
+import type { plane } from '@adhar/api-clients'
 import {
   memberDisplayName,
   memberInitials,

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { gitea } from '@adhar-console/api-clients'
-import { useGiteaOrg } from '@adhar-console/shell-ui'
+import { gitea } from '@adhar/api-clients'
+import { useGiteaOrg } from '@adhar/shell-ui'
 
 /**
  * DORA flow metrics that ArgoCD alone can't provide.

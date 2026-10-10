@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { gitea } from '@adhar-console/api-clients'
+import { gitea } from '@adhar/api-clients'
 import type { Entity } from './catalog.ts'
 
 /**

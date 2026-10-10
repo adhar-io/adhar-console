@@ -17,7 +17,7 @@ Requirements, epics, agile issues, roadmap, OKRs.
 
 ## Data sources
 
-- `@adhar-console/api-clients/plane` — list projects, list issues.
+- `@adhar/api-clients/plane` — list projects, list issues.
 - Roadmap and OKRs are currently rendered from in-module fixtures; they
   graduate to Plane cycles + custom fields in v0.3.x.
 

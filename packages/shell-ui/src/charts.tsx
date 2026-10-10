@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from 'react'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 import { chartMax, chartPeak } from './chart-scale.ts'
 
 /**

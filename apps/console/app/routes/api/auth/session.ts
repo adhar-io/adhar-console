@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { handleSession } from '@adhar-console/auth/server'
+import { handleSession } from '@adhar/auth/server'
 
 /**
  * GET /api/auth/session

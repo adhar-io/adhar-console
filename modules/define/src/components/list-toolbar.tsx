@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from 'react'
-import { Button } from '@adhar-console/shell-ui'
+import { Button } from '@adhar/shell-ui'
 
 /**
  * Shared toolbar for list pages — left side shows count + search,

@@ -1,4 +1,4 @@
-import type { GatewayGVR as GVR } from '@adhar-console/api-clients/k8s'
+import type { GatewayGVR as GVR } from '@adhar/api-clients/k8s'
 
 /**
  * Group/Version/Resource constants for the built-in resources the platform

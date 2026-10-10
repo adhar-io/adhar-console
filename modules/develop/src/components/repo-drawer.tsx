@@ -18,10 +18,10 @@ import {
   Textarea,
   useGiteaOrg,
   useToast,
-} from '@adhar-console/shell-ui';
+} from '@adhar/shell-ui';
 import { dirOf, resolveReadmeImage } from '../data/readme-assets.ts';
-import { cn, formatRelative } from '@adhar-console/utils';
-import type { gitea } from '@adhar-console/api-clients';
+import { cn, formatRelative } from '@adhar/utils';
+import type { gitea } from '@adhar/api-clients';
 import {
   useAddCollaborator,
   useBranchProtections,

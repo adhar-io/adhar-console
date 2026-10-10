@@ -1,5 +1,5 @@
-import { StatusBadge, type ToastApi } from '@adhar-console/shell-ui';
-import type { gitea } from '@adhar-console/api-clients';
+import { StatusBadge, type ToastApi } from '@adhar/shell-ui';
+import type { gitea } from '@adhar/api-clients';
 
 /**
  * Small shared pieces for the repository views — language colours (GitHub

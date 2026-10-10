@@ -1,9 +1,9 @@
 import { useState, type ReactElement } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import { cn } from '@adhar-console/utils'
-import { useToast } from '@adhar-console/shell-ui'
-import { coder } from '@adhar-console/api-clients'
+import { cn } from '@adhar/utils'
+import { useToast } from '@adhar/shell-ui'
+import { coder } from '@adhar/api-clients'
 import { coderClient, editorOf, ensureRepoWorkspace, ideSessionUrl, useCoderInfo, useRepoWorkspace } from '../data/coder.ts'
 
 /**

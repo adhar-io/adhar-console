@@ -6,9 +6,9 @@ import {
   useRouterState,
 } from '@tanstack/react-router'
 import type { QueryClient } from '@tanstack/react-query'
-import { AdharSymbol, Spinner, subscribeUnauthorized } from '@adhar-console/shell-ui'
-import { useAuth, type Session } from '@adhar-console/auth'
-import type { Tenant } from '@adhar-console/tenancy'
+import { AdharSymbol, Spinner, subscribeUnauthorized } from '@adhar/shell-ui'
+import { useAuth, type Session } from '@adhar/auth'
+import type { Tenant } from '@adhar/tenancy'
 
 export interface RouterContext {
   queryClient: QueryClient

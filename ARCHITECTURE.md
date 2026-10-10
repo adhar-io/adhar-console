@@ -12,7 +12,7 @@
                                        │ server fn
                                        ▼
                        ┌───────────────────────────────────────────┐
-                       │   @adhar-console/api-clients              │
+                       │   @adhar/api-clients              │
                        │   gitea / plane / argocd / kargo / harbor │
                        │   k8s / kyverno / crossplane / workflows  │
                        │   rollouts / lgtm / workspace             │

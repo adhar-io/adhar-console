@@ -1,6 +1,6 @@
 import { assertEquals } from 'jsr:@std/assert'
 import { chainDrift, promotesFrom, promotionChain } from './promotion-chain.ts'
-import type { kargo } from '@adhar-console/api-clients'
+import type { kargo } from '@adhar/api-clients'
 
 function stage(name: string, upstream: string[] = [], extra: Partial<kargo.Stage> = {}): kargo.Stage {
   return { name, project: 'adhar-environments', upstream, ...extra } as unknown as kargo.Stage

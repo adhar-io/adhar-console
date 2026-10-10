@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
-import { kube } from '@adhar-console/api-clients/k8s'
-import { useLiveK8sList } from '@adhar-console/shell-ui'
-import type { GatewayGVR as GVR, KubeObject } from '@adhar-console/api-clients/k8s'
+import { kube } from '@adhar/api-clients/k8s'
+import { useLiveK8sList } from '@adhar/shell-ui'
+import type { GatewayGVR as GVR, KubeObject } from '@adhar/api-clients/k8s'
 import { clusterParam, useActiveCluster, useActiveNamespace } from './client.ts'
 
 /**

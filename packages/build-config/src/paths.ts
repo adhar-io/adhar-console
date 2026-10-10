@@ -47,9 +47,9 @@ export function findWorkspaceRoot(start: string): string {
 }
 
 /**
- * Build a Vite `resolve.alias` map for every `@adhar-console/*` workspace
+ * Build a Vite `resolve.alias` map for every `@adhar/*` workspace
  * package. Deno's `nodeModulesDir: auto` does not create symlinks under
- * `node_modules/@adhar-console/*`, so Vite can't find them via Node module
+ * `node_modules/@adhar/*`, so Vite can't find them via Node module
  * resolution — we have to point the resolver at the source files directly.
  *
  * Specific subpaths (`/workspace`, `/gitea`, …) must be listed **before** the
@@ -59,28 +59,28 @@ export function consoleAliases(workspaceRoot: string): Record<string, string> {
   const p = (sub: string) => resolve(workspaceRoot, sub)
   return {
     // Subpaths first — prefix-match order matters.
-    '@adhar-console/api-clients/workspace': p('packages/api-clients/src/workspace/index.ts'),
-    '@adhar-console/api-clients/gitea': p('packages/api-clients/src/gitea/index.ts'),
-    '@adhar-console/api-clients/plane': p('packages/api-clients/src/plane/index.ts'),
-    '@adhar-console/api-clients/argocd': p('packages/api-clients/src/argocd/index.ts'),
-    '@adhar-console/api-clients/kargo': p('packages/api-clients/src/kargo/index.ts'),
-    '@adhar-console/api-clients/harbor': p('packages/api-clients/src/harbor/index.ts'),
-    '@adhar-console/api-clients/k8s': p('packages/api-clients/src/k8s/index.ts'),
-    '@adhar-console/api-clients/kyverno': p('packages/api-clients/src/kyverno/index.ts'),
-    '@adhar-console/api-clients/crossplane': p('packages/api-clients/src/crossplane/index.ts'),
-    '@adhar-console/api-clients/argo-rollouts': p('packages/api-clients/src/argo-rollouts/index.ts'),
-    '@adhar-console/api-clients/lgtm': p('packages/api-clients/src/lgtm/index.ts'),
-    '@adhar-console/api-clients/base': p('packages/api-clients/src/base/index.ts'),
+    '@adhar/api-clients/workspace': p('packages/api-clients/src/workspace/index.ts'),
+    '@adhar/api-clients/gitea': p('packages/api-clients/src/gitea/index.ts'),
+    '@adhar/api-clients/plane': p('packages/api-clients/src/plane/index.ts'),
+    '@adhar/api-clients/argocd': p('packages/api-clients/src/argocd/index.ts'),
+    '@adhar/api-clients/kargo': p('packages/api-clients/src/kargo/index.ts'),
+    '@adhar/api-clients/harbor': p('packages/api-clients/src/harbor/index.ts'),
+    '@adhar/api-clients/k8s': p('packages/api-clients/src/k8s/index.ts'),
+    '@adhar/api-clients/kyverno': p('packages/api-clients/src/kyverno/index.ts'),
+    '@adhar/api-clients/crossplane': p('packages/api-clients/src/crossplane/index.ts'),
+    '@adhar/api-clients/argo-rollouts': p('packages/api-clients/src/argo-rollouts/index.ts'),
+    '@adhar/api-clients/lgtm': p('packages/api-clients/src/lgtm/index.ts'),
+    '@adhar/api-clients/base': p('packages/api-clients/src/base/index.ts'),
     // Roots last.
-    '@adhar-console/api-clients': p('packages/api-clients/src/index.ts'),
-    '@adhar-console/utils': p('packages/utils/src/index.ts'),
+    '@adhar/api-clients': p('packages/api-clients/src/index.ts'),
+    '@adhar/utils': p('packages/utils/src/index.ts'),
     // Auth subpath before the root.
-    '@adhar-console/auth/server': p('packages/auth/src/server-index.ts'),
-    '@adhar-console/auth': p('packages/auth/src/index.ts'),
-    '@adhar-console/db': p('packages/db/src/index.ts'),
-    '@adhar-console/tenancy': p('packages/tenancy/src/index.ts'),
-    '@adhar-console/shell-ui': p('packages/shell-ui/src/index.ts'),
-    '@adhar-console/mf-utils': p('packages/mf-utils/src/index.ts'),
-    '@adhar-console/platform-info': p('packages/platform-info/src/index.ts'),
+    '@adhar/auth/server': p('packages/auth/src/server-index.ts'),
+    '@adhar/auth': p('packages/auth/src/index.ts'),
+    '@adhar/db': p('packages/db/src/index.ts'),
+    '@adhar/tenancy': p('packages/tenancy/src/index.ts'),
+    '@adhar/shell-ui': p('packages/shell-ui/src/index.ts'),
+    '@adhar/mf-utils': p('packages/mf-utils/src/index.ts'),
+    '@adhar/platform-info': p('packages/platform-info/src/index.ts'),
   }
 }

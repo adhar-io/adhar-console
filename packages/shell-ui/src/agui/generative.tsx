@@ -1,5 +1,5 @@
 import { Component, useState, type ErrorInfo, type ReactNode } from 'react'
-import { cn, GENERATIVE_COMPONENT_IDS } from '@adhar-console/utils'
+import { cn, GENERATIVE_COMPONENT_IDS } from '@adhar/utils'
 import { AreaChart, DonutGauge, HeatMap, Sparkline } from '../charts.tsx'
 import { assistStore, useAssist, type UiBlock } from './store.ts'
 

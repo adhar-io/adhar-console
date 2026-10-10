@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { DataTable, EmptyState, StatusBadge, type StatusKind } from '@adhar-console/shell-ui'
-import { cn, formatRelative } from '@adhar-console/utils'
+import { DataTable, EmptyState, StatusBadge, type StatusKind } from '@adhar/shell-ui'
+import { cn, formatRelative } from '@adhar/utils'
 import {
   CLOUD_BY_ID,
   CLOUD_CATALOG,

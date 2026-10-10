@@ -5,9 +5,9 @@ import {
   EmptyState,
   Spinner,
   StatusBadge,
-} from '@adhar-console/shell-ui'
-import { cn, formatRelative } from '@adhar-console/utils'
-import { plane } from '@adhar-console/api-clients'
+} from '@adhar/shell-ui'
+import { cn, formatRelative } from '@adhar/utils'
+import { plane } from '@adhar/api-clients'
 import {
   memberDisplayName,
   memberInitials,

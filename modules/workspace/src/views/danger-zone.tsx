@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { EmptyState, StatusBadge } from '@adhar-console/shell-ui'
+import { EmptyState, StatusBadge } from '@adhar/shell-ui'
 import {
   isDbUnavailable,
   useDeleteOrg,

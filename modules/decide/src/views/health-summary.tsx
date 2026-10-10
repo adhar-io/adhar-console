@@ -1,4 +1,4 @@
-import { StatusBadge, type StatusKind } from '@adhar-console/shell-ui'
+import { StatusBadge, type StatusKind } from '@adhar/shell-ui'
 import { summarize, useDecideSignals } from '../data/k8s.ts'
 
 interface Signal {

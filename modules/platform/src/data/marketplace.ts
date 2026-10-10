@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { k8s } from '@adhar-console/api-clients'
-import { notifyUnauthorized, useLiveRefetch } from '@adhar-console/shell-ui'
+import type { k8s } from '@adhar/api-clients'
+import { notifyUnauthorized, useLiveRefetch } from '@adhar/shell-ui'
 import { client, useActiveCluster } from './client.ts'
 
 /**
@@ -106,7 +106,7 @@ export interface MarketplaceChart {
   description: string
   longDescription?: string
   category: ChartCategory
-  /** Brand icon id from `@adhar-console/shell-ui` brand icons. */
+  /** Brand icon id from `@adhar/shell-ui` brand icons. */
   iconId?:
     | 'argocd'
     | 'argoworkflows'

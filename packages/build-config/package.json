@@ -1,5 +1,5 @@
 {
-  "name": "@adhar-console/build-config",
+  "name": "@adhar/build-config",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,10 @@
     ".": "./src/index.ts",
     "./remote": "./src/remote.ts",
     "./host": "./src/host.ts",
-    "./registry": "./src/registry.ts"
+    "./registry": "./src/registry.ts",
+    "./paths": "./src/paths.ts"
   },
-  "files": ["src"]
+  "files": [
+    "src"
+  ]
 }

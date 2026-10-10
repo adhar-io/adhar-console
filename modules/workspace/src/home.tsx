@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { PageHeader, StatusBadge } from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+import { PageHeader, StatusBadge } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { Organization } from './views/organization.tsx'
 import { Members } from './views/members.tsx'
 import { Teams } from './views/teams.tsx'

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { LokiIcon, Spinner, StatusBadge, type StatusKind } from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
-import type { lgtm } from '@adhar-console/api-clients'
+import { LokiIcon, Spinner, StatusBadge, type StatusKind } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
+import type { lgtm } from '@adhar/api-clients'
 import {
   useLogLabelValues,
   useLogLabels,

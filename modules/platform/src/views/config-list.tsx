@@ -7,8 +7,8 @@ import {
   StatusBadge,
   Tabs,
   type TabDef,
-} from '@adhar-console/shell-ui'
-import { kube } from '@adhar-console/api-clients/k8s'
+} from '@adhar/shell-ui'
+import { kube } from '@adhar/api-clients/k8s'
 import { useConfigMaps, useSecrets } from '../data/hooks.ts'
 import { GVRS } from '../data/gvr.ts'
 import { age } from '../data/format.ts'

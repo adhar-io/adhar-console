@@ -32,5 +32,5 @@ lives here.
 
 1. `mkdir packages/<name>/src` and add `package.json`, `deno.json`, `src/index.ts`.
 2. Add the path to `deno.json` workspace + imports map at the repo root.
-3. Depend on it from another package via the `@adhar-console/<name>`
+3. Depend on it from another package via the `@adhar/<name>`
    specifier — no further wiring needed.

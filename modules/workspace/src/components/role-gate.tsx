@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
-import { StatusBadge } from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+import { StatusBadge } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import {
   ROLE_LABEL,
   ROLE_TONE,

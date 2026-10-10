@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { cn, globalSingleton } from '@adhar-console/utils'
+import { cn, globalSingleton } from '@adhar/utils'
 
 /**
  * Application-wide toasts — the ONE way to confirm an outcome to the user.

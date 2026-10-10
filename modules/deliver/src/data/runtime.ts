@@ -1,5 +1,5 @@
 import { useQueries, useQuery } from '@tanstack/react-query'
-import type { k8s as K8s } from '@adhar-console/api-clients'
+import type { k8s as K8s } from '@adhar/api-clients'
 import { client, useCRD } from './k8s.ts'
 import {
   byNewest,

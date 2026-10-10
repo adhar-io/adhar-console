@@ -1,4 +1,4 @@
-import type { KubeObject } from '@adhar-console/api-clients/k8s'
+import type { KubeObject } from '@adhar/api-clients/k8s'
 import { useGeneric } from './hooks.ts'
 import { useLiveList } from './live.ts'
 import { useNamespaceScope } from './client.ts'

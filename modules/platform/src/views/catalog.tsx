@@ -14,8 +14,8 @@ import {
   Spinner,
   StatusBadge,
   useOverlayDismiss,
-} from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { client, useActiveCluster } from '../data/client.ts'
 import { useHasK8sPermission } from '../data/access.ts'
 import { age } from '../data/format.ts'

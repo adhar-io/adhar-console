@@ -14,9 +14,9 @@ import {
   Select,
   StatusBadge,
   useOverlayDismiss,
-} from '@adhar-console/shell-ui'
-import { kube } from '@adhar-console/api-clients/k8s'
-import type { KubeObject } from '@adhar-console/api-clients/k8s'
+} from '@adhar/shell-ui'
+import { kube } from '@adhar/api-clients/k8s'
+import type { KubeObject } from '@adhar/api-clients/k8s'
 import { GVRS } from '../data/gvr.ts'
 import { useDeployments, useHorizontalPodAutoscalers, useStatefulSets } from '../data/hooks.ts'
 import { useHasK8sPermission } from '../data/access.ts'

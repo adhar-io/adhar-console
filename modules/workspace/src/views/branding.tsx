@@ -1,6 +1,6 @@
-import { useToast } from '@adhar-console/shell-ui'
+import { useToast } from '@adhar/shell-ui'
 import { useEffect, useMemo, useState } from 'react'
-import { formatRelative } from '@adhar-console/utils'
+import { formatRelative } from '@adhar/utils'
 import {
   LOCALES,
   TIMEZONES,

@@ -1,4 +1,4 @@
-import { EmptyState } from '@adhar-console/shell-ui'
+import { EmptyState } from '@adhar/shell-ui'
 import type { ReactNode } from 'react'
 
 /**

@@ -2,7 +2,7 @@ import { apiServerFetch } from '../k8s/gateway.ts'
 import { getK8sServiceToken } from '../tool-registry.ts'
 import { emitNotification, type NotificationDoc } from '../notify.ts'
 import { openStore } from '../workspace/store.ts'
-import { env } from '@adhar-console/utils'
+import { env } from '@adhar/utils'
 import { type KubeObject as SaKubeObject, runWatch, type WatchSpec } from '../k8s/sa-watch.ts'
 
 /**

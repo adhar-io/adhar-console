@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import { DataTable, EmptyState, Modal, StatusBadge } from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+import { DataTable, EmptyState, Modal, StatusBadge } from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import {
   ENVIRONMENT_KINDS,
   useCloudConnections,

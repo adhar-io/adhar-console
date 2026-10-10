@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
-import { EmptyState, Spinner, StatusBadge } from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+import { EmptyState, Spinner, StatusBadge } from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import {
   fmtMoney,
   isStoreUnavailable,

@@ -1,4 +1,4 @@
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 import type { AgentInfo } from '../agui/store.ts'
 import type { RuntimeInfo } from '../agui/client.ts'
 import type { CommandItem } from './nav.ts'

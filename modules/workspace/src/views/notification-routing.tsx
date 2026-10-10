@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { StatusBadge, useToast } from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+import { StatusBadge, useToast } from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import {
   NOTIFICATION_CATEGORIES,
   NOTIFICATION_CHANNELS,

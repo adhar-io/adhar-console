@@ -6,8 +6,8 @@ import {
   EmptyState,
   PrometheusIcon,
   StatusBadge,
-} from '@adhar-console/shell-ui'
-import type { lgtm } from '@adhar-console/api-clients'
+} from '@adhar/shell-ui'
+import type { lgtm } from '@adhar/api-clients'
 import { useSlos } from '../data/observability.ts'
 import { LoadingCard, SourceError } from './states.tsx'
 

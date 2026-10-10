@@ -595,7 +595,7 @@ All notable changes to Adhar Console are documented here. Format based on
 - **A DigitalOcean install redirected to a `*.localtest.me` Keycloak.** The
   Keycloak and console URLs were pinned per-deployment rather than derived, so
   any manifest carrying the local host convention pinned the whole install to
-  it. The single-domain resolver moved into `@adhar-console/utils` where auth
+  it. The single-domain resolver moved into `@adhar/utils` where auth
   can reach it, and both URLs now resolve through it: an install configures one
   domain and every public URL follows as `<name>.<domain>`, inheriting scheme
   and port. An explicit `<TOOL>_URL` still wins.
@@ -1996,7 +1996,7 @@ locally-running adhar cluster, and a dedicated `adhar-console` Keycloak client.
 - New tenant-scoped **document store**: `documents` table (`(tenant, kind, id) →
   jsonb`), Drizzle CRUD, idempotent bootstrap DDL, an auth-gated
   `/api/store/<kind>[/<id>]` API, and a `docStore` browser client
-  (`@adhar-console/shell-ui`). Backs OKRs, saved views, custom roles, webhooks,
+  (`@adhar/shell-ui`). Backs OKRs, saved views, custom roles, webhooks,
   design docs, and API specs with **real, multi-user persistence** (no
   localStorage/in-memory fallback — a missing DB returns `503`).
 
@@ -2078,9 +2078,9 @@ First tagged release — published to `ghcr.io/adhar-io/adhar-console`.
   refresh near expiry. Sessions are **stateless signed JWTs** in an HttpOnly,
   SameSite=Lax, Secure cookie — multi-replica safe with no shared store. Tokens
   never reach the browser.
-- **Server entrypoint split** `@adhar-console/auth/server` (config, discovery,
+- **Server entrypoint split** `@adhar/auth/server` (config, discovery,
   cookies, session, handlers) keeps `jose` + the client secret out of the
-  browser bundle; `@adhar-console/auth` stays client-safe.
+  browser bundle; `@adhar/auth` stays client-safe.
 - **Server routes** `/api/auth/{login,callback,logout,session}`, `/healthz`,
   `/readyz`, and `/api/config` (runtime browser config from env — one image,
   many environments).
@@ -2095,7 +2095,7 @@ First tagged release — published to `ghcr.io/adhar-io/adhar-console`.
 
 ### Added — Postgres + Drizzle persistence
 
-- **`@adhar-console/db`** package: Drizzle ORM over Postgres (postgres.js) for
+- **`@adhar/db`** package: Drizzle ORM over Postgres (postgres.js) for
   the console's own state — `users`, `user_preferences`, `notification_state`.
   Lazy connection from `DATABASE_URL`, idempotent self-bootstrap DDL on first
   query (no migration Job), `drizzle-kit` config for versioned migrations, and

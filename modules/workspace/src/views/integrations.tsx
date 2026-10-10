@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { EmptyState, Modal, StatusBadge } from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+import { EmptyState, Modal, StatusBadge } from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import {
   INTEGRATION_TYPES,
   useDeleteIntegration,

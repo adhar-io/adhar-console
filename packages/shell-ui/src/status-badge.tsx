@@ -1,4 +1,4 @@
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 
 export type StatusKind =
   | 'healthy'

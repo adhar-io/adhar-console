@@ -8,9 +8,9 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { execPod, type PodExecSession } from '@adhar-console/api-clients/k8s'
-import { Button, getResolvedMode, StatusBadge, type StatusKind } from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+import { execPod, type PodExecSession } from '@adhar/api-clients/k8s'
+import { Button, getResolvedMode, StatusBadge, type StatusKind } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { loadXterm } from '../components/xterm-loader.ts'
 
 /**

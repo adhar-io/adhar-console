@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { PageHeader, Spinner, StatusBadge } from '@adhar-console/shell-ui'
+import { PageHeader, Spinner, StatusBadge } from '@adhar/shell-ui'
 import { Dashboard } from './views/dashboard.tsx'
 import { Projects } from './views/projects.tsx'
 import { Issues } from './views/issues.tsx'

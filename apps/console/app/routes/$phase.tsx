@@ -1,7 +1,7 @@
 import { createFileRoute, notFound, Outlet } from '@tanstack/react-router'
 import { z } from 'zod'
-import { AppShell, PlatformSelectionControls } from '@adhar-console/shell-ui'
-import { PENDING_USER, useOptionalSession } from '@adhar-console/auth'
+import { AppShell, PlatformSelectionControls } from '@adhar/shell-ui'
+import { PENDING_USER, useOptionalSession } from '@adhar/auth'
 import { getLayoutData } from '~/server/session.ts'
 
 const PhaseSchema = z.enum([

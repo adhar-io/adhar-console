@@ -1,7 +1,7 @@
 /**
  * Module-scoped, real ArgoCD detail calls for the Deliver drawer.
  *
- * The shared `@adhar-console/api-clients` ArgoCD client only models the
+ * The shared `@adhar/api-clients` ArgoCD client only models the
  * Application summary (list / get / sync). The detail drawer additionally needs
  * the managed-resource tree, deployment history, an options-aware sync, and a
  * rollback — so we call the ArgoCD REST API directly through the console BFF

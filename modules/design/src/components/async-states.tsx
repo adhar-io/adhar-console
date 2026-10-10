@@ -1,4 +1,4 @@
-import { Spinner } from '@adhar-console/shell-ui'
+import { Spinner } from '@adhar/shell-ui'
 
 /**
  * Shared loading / error blocks for views backed by the document store.

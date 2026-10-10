@@ -8,8 +8,8 @@ import {
   Tabs,
   useLiveRefetch,
   type TabDef,
-} from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { client, LOCAL_CLUSTER } from '../data/client.ts'
 import { GVRS } from '../data/gvr.ts'
 import { age, shortImage } from '../data/format.ts'

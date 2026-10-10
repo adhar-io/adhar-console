@@ -5,8 +5,8 @@ import {
   EmptyState,
   Spinner,
   StatusBadge,
-} from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import {
   memberDisplayName,
   useDeleteProject,

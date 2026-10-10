@@ -348,10 +348,10 @@ Postgres via a generic, tenant-scoped store at `/api/store/<kind>[/<id>]`
 everyone in a tenant sees the same objectives. There is **no** localStorage or
 in-memory fallback — a missing DB returns `503`.
 
-Modules use the `docStore` browser client (from `@adhar-console/shell-ui`):
+Modules use the `docStore` browser client (from `@adhar/shell-ui`):
 
 ```ts
-import { docStore } from '@adhar-console/shell-ui'
+import { docStore } from '@adhar/shell-ui'
 
 await docStore.list('okr.objective')          // → StoredDoc[]
 await docStore.create('okr.objective', {...})  // server-assigned id

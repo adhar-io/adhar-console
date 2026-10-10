@@ -5,8 +5,8 @@ import {
   CardHeader,
   EmptyState,
   StatusBadge,
-} from '@adhar-console/shell-ui'
-import type { posthog } from '@adhar-console/api-clients'
+} from '@adhar/shell-ui'
+import type { posthog } from '@adhar/api-clients'
 import { useInsights } from '../data/observability.ts'
 import { LoadingCard, SourceError } from './states.tsx'
 

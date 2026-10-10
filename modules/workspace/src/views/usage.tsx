@@ -5,8 +5,8 @@ import {
   DonutGauge,
   EmptyState,
   Spinner,
-} from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { fmtMoney, useSubscription, useUsage } from '../data/billing.ts'
 
 /**

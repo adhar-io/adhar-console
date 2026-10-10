@@ -1,5 +1,5 @@
 import { EventSchemas, EventType } from '@ag-ui/core'
-import { env } from '@adhar-console/utils'
+import { env } from '@adhar/utils'
 
 /**
  * AG-UI (Agent-User Interaction Protocol) emission layer.

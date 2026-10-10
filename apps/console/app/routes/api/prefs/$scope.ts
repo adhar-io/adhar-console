@@ -1,9 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { getRequestUser, unauthorized } from '~/server/request-user.ts'
 
-// `@adhar-console/db` pulls in postgres.js (node:net/tls) — load it dynamically
+// `@adhar/db` pulls in postgres.js (node:net/tls) — load it dynamically
 // inside handlers so it never enters the browser bundle.
-const db = () => import('@adhar-console/db')
+const db = () => import('@adhar/db')
 
 /**
  * /api/prefs/<scope> — per-user preference documents (overview layout, catalog

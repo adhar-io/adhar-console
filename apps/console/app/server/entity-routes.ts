@@ -1,4 +1,4 @@
-import { platformDomain } from '@adhar-console/utils'
+import { platformDomain } from '@adhar/utils'
 import { getRequestUser, unauthorized } from './request-user.ts'
 import { apiServerFetch, resolveIdentity } from './k8s/gateway.ts'
 

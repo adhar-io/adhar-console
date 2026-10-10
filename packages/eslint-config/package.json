@@ -1,5 +1,5 @@
 {
-  "name": "@adhar-console/eslint-config",
+  "name": "@adhar/eslint-config",
   "version": "0.1.0",
   "private": true,
   "type": "module",

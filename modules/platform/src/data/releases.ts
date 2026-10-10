@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { KubeObject } from '@adhar-console/api-clients/k8s'
+import type { KubeObject } from '@adhar/api-clients/k8s'
 import { useLiveList } from './live.ts'
 import { GVRS } from './gvr.ts'
 

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button } from '@adhar-console/shell-ui'
+import { Button } from '@adhar/shell-ui'
 import { useHasK8sPermission } from '../data/access.ts'
 import { K8sRolePill } from '../components/role-gate.tsx'
 import { PodTerminal } from './pod-terminal.tsx'

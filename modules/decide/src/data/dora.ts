@@ -1,5 +1,5 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
-import { argocd } from '@adhar-console/api-clients'
+import { argocd } from '@adhar/api-clients'
 
 /**
  * DORA metrics — REAL, derived from ArgoCD Application deploy history.

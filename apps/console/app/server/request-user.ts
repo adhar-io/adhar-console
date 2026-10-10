@@ -1,6 +1,6 @@
-import { getServerAuthConfig, getValidSession } from '@adhar-console/auth/server'
-import type { User } from '@adhar-console/auth'
-import { env } from '@adhar-console/utils'
+import { getServerAuthConfig, getValidSession } from '@adhar/auth/server'
+import type { User } from '@adhar/auth'
+import { env } from '@adhar/utils'
 
 /**
  * The identity a laptop runs as when there is no identity provider.

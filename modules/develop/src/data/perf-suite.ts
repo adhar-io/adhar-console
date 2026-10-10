@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useGiteaOrg } from '@adhar-console/shell-ui'
-import { kube } from '@adhar-console/api-clients/k8s'
+import { useGiteaOrg } from '@adhar/shell-ui'
+import { kube } from '@adhar/api-clients/k8s'
 import { giteaClient } from './git.ts'
 import {
   CONFIG_FILE,

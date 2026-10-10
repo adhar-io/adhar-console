@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { argocd } from '@adhar-console/api-clients'
+import { argocd } from '@adhar/api-clients'
 import type { Entity } from './catalog.ts'
 
 /**

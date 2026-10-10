@@ -32,7 +32,7 @@ See [docs/getting-started.md](./docs/getting-started.md) for more.
 - Dates in memory/files/comments are absolute ISO — never relative ("last week").
 - Every client method returns typed data validated by `zod` at the boundary.
 - `StatusBadge`, `DataTable`, `EmptyState`, `PageHeader`, and `ErrorBoundary`
-  from `@adhar-console/shell-ui` cover 90% of list/detail views. Reach for them
+  from `@adhar/shell-ui` cover 90% of list/detail views. Reach for them
   before introducing a bespoke component.
 - UI labels lead with the noun, not the action. "Repositories" > "View
   repositories". Actions are buttons.
@@ -58,10 +58,10 @@ export const listThings = createServerFn({ method: 'GET' })
 ```
 
 - All input shapes are validated via `zod`.
-- Inside `.handler`, call `@adhar-console/api-clients` — don't talk to backing
+- Inside `.handler`, call `@adhar/api-clients` — don't talk to backing
   tools directly.
 - Tokens: the handler resolves the user's access token from the session cookie;
-  tenant scoping is applied via `@adhar-console/tenancy`.
+  tenant scoping is applied via `@adhar/tenancy`.
 
 ## Before opening a PR
 

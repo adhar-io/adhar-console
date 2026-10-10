@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 import { speechLang } from './speech.ts'
 import { AUTONOMY_LEVELS, type AgentInfo, type Autonomy } from '../agui/store.ts'
 import type { CommandItem } from './nav.ts'

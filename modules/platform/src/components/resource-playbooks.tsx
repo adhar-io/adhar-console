@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useDocsUrl } from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+import { useDocsUrl } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 
 /**
  * Minimal, copy-paste playbooks for day-to-day operations on a resource —

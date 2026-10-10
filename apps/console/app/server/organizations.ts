@@ -3,7 +3,7 @@ import {
   getValidSession,
   serializeCookie,
   signSessionToken,
-} from '@adhar-console/auth/server'
+} from '@adhar/auth/server'
 import { requireUser, unauthorized } from './request-user.ts'
 import { originOk } from './k8s/gateway.ts'
 import { getProvisioningJob, listProvisioningJobs, startProvisioning } from './provisioning-jobs.ts'
@@ -29,7 +29,7 @@ import { getProvisioningJob, listProvisioningJobs, startProvisioning } from './p
  *   DELETE /api/organizations/<id>          → delete (can't delete the last one)
  */
 
-const db = () => import('@adhar-console/db')
+const db = () => import('@adhar/db')
 const PREFS_SCOPE = 'organizations'
 
 export interface Organization {

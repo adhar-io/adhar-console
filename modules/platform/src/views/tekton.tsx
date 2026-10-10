@@ -13,10 +13,10 @@ import {
   useActiveNamespace,
   useLiveRefetch,
   type StatusKind,
-} from '@adhar-console/shell-ui';
-import type { GatewayGVR as GVR, KubeObject } from '@adhar-console/api-clients/k8s';
-import { kube } from '@adhar-console/api-clients/k8s';
-import { cn } from '@adhar-console/utils';
+} from '@adhar/shell-ui';
+import type { GatewayGVR as GVR, KubeObject } from '@adhar/api-clients/k8s';
+import { kube } from '@adhar/api-clients/k8s';
+import { cn } from '@adhar/utils';
 import { type LiveStatus, useLiveList } from '../data/live.ts';
 import { clusterParam, useActiveCluster } from '../data/client.ts';
 import { CodeEditor } from '../components/code-editor.tsx';

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Button, StatusBadge } from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
-import { plane } from '@adhar-console/api-clients'
+import { Button, StatusBadge } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
+import { plane } from '@adhar/api-clients'
 import {
   memberDisplayName,
   memberInitials,

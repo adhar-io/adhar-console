@@ -1,5 +1,5 @@
 {
-  "name": "@adhar-console/module-workspace",
+  "name": "@adhar/module-workspace",
   "version": "0.1.0",
   "private": true,
   "type": "module",

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { plane } from '@adhar-console/api-clients'
-import { usePlaneWorkspace } from '@adhar-console/shell-ui'
+import { plane } from '@adhar/api-clients'
+import { usePlaneWorkspace } from '@adhar/shell-ui'
 
 /**
  * Plane.so client + per-resource hooks for the Define module.

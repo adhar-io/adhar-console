@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { DataTable, EmptyState, StatusBadge, Tabs, type TabDef } from '@adhar-console/shell-ui'
-import type { k8s } from '@adhar-console/api-clients'
+import { DataTable, EmptyState, StatusBadge, Tabs, type TabDef } from '@adhar/shell-ui'
+import type { k8s } from '@adhar/api-clients'
 import {
   useEndpoints,
   useIngresses,

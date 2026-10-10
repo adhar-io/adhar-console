@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
-import { cn, formatRelative } from '@adhar-console/utils'
+import { cn, formatRelative } from '@adhar/utils'
 import {
   NOTIFICATION_KIND_LABEL,
   NOTIFICATION_SOURCE_LABEL,

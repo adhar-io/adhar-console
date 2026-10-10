@@ -1,4 +1,4 @@
-import { EmptyState, Spinner } from '@adhar-console/shell-ui'
+import { EmptyState, Spinner } from '@adhar/shell-ui'
 import { XrList, type XrKindConfig } from './xr-list.tsx'
 import { ResourcePlaybooks } from '../components/resource-playbooks.tsx'
 import { useXrds, type XrdInfo } from '../data/xrds.ts'

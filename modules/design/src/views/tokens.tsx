@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Card, CardBody, CardHeader, StatusBadge } from '@adhar-console/shell-ui'
+import { Button, Card, CardBody, CardHeader, StatusBadge } from '@adhar/shell-ui'
 import { KIND, TOKEN_SET_ID, useDoc, useUpsertDoc } from '../data/store.ts'
 import { DEFAULT_TOKENS } from '../data/tokens-seed.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'

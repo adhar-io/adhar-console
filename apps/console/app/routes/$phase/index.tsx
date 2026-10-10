@@ -1,6 +1,6 @@
 import { createFileRoute, useSearch } from '@tanstack/react-router'
-import { RemoteModule } from '@adhar-console/mf-utils'
-import type { Phase } from '@adhar-console/shell-ui'
+import { RemoteModule } from '@adhar/mf-utils'
+import type { Phase } from '@adhar/shell-ui'
 
 export const Route = createFileRoute('/$phase/')({
   component: PhaseLanding,

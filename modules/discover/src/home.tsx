@@ -1,4 +1,4 @@
-import { PageHeader } from '@adhar-console/shell-ui'
+import { PageHeader } from '@adhar/shell-ui'
 import { Dashboard } from './views/dashboard.tsx'
 import { Metrics } from './views/metrics.tsx'
 import { Logs } from './views/logs.tsx'

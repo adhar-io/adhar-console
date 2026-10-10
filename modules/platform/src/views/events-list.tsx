@@ -4,7 +4,7 @@ import {
   EmptyState,
   StatusBadge,
   type StatusKind,
-} from '@adhar-console/shell-ui'
+} from '@adhar/shell-ui'
 import { useEvents } from '../data/hooks.ts'
 import { age } from '../data/format.ts'
 import { ListShell, StatusFilterPills, matchesSearch } from './list-shell.tsx'

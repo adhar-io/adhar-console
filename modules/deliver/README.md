@@ -1,4 +1,4 @@
-# @adhar-console/module-deliver
+# @adhar/module-deliver
 
 Federated remote for the **Deliver** phase — ArgoCD Applications, Kargo
 Stages + Freight, Argo Rollouts, Harbor registry, Kyverno policy. Dev port

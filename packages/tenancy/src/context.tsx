@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react'
-import { globalSingleton } from '@adhar-console/utils'
+import { globalSingleton } from '@adhar/utils'
 import type { Tenant } from './types.ts'
 
 // One context per page, not per bundled copy — see globalSingleton.

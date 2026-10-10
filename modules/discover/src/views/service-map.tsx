@@ -6,9 +6,9 @@ import {
   EmptyState,
   OTelIcon,
   StatusBadge,
-} from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
-import type { lgtm } from '@adhar-console/api-clients'
+} from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
+import type { lgtm } from '@adhar/api-clients'
 import { useServiceMap } from '../data/observability.ts'
 import { LoadingCard, SourceError } from './states.tsx'
 

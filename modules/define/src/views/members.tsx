@@ -8,7 +8,7 @@ import {
   EmptyState,
   Spinner,
   StatusBadge,
-} from '@adhar-console/shell-ui'
+} from '@adhar/shell-ui'
 import {
   memberDisplayName,
   memberInitials,

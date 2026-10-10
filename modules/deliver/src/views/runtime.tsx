@@ -11,8 +11,8 @@ import {
   Tabs,
   type StatusKind,
   type TabDef,
-} from '@adhar-console/shell-ui'
-import { cn, formatRelative } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { cn, formatRelative } from '@adhar/utils'
 import {
   matchesFilter,
   SEVERITIES,

@@ -1,13 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { AppShell } from '@adhar-console/shell-ui'
+import { AppShell } from '@adhar/shell-ui'
 import {
   CHANGELOG,
   FEATURE_HIGHLIGHTS,
   type FeatureHighlight,
   PLATFORM_VERSION,
   ROADMAP_HIGHLIGHTS,
-} from '@adhar-console/platform-info'
-import { PENDING_USER, useOptionalSession } from '@adhar-console/auth'
+} from '@adhar/platform-info'
+import { PENDING_USER, useOptionalSession } from '@adhar/auth'
 import { getLayoutData } from '~/server/session.ts'
 
 export const Route = createFileRoute('/changelog')({

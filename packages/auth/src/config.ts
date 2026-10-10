@@ -1,4 +1,4 @@
-import { derivedUrl, env } from '@adhar-console/utils'
+import { derivedUrl, env } from '@adhar/utils'
 
 /**
  * Server-side auth configuration, read from the runtime environment.

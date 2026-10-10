@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
-import { AreaChart, Card, CardBody, CardHeader, EmptyState, StatusBadge } from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+import { AreaChart, Card, CardBody, CardHeader, EmptyState, StatusBadge } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { STAGE_ORDER, type TestRun, type TestRunStage } from '../data/k6.ts'
 import { parseProgress, stageTimings, type ProgressSeries } from '../data/perf-progress.ts'
 

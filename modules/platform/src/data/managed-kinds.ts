@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import type { k8s } from '@adhar-console/api-clients'
+import type { k8s } from '@adhar/api-clients'
 import { client, useActiveCluster } from './client.ts'
 import type { XrdInfo } from './xrds.ts'
 import type { FamilyId, GlyphId } from '../views/xr-kinds.tsx'

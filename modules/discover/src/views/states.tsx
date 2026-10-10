@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Button, EmptyState, Spinner } from '@adhar-console/shell-ui'
+import { Button, EmptyState, Spinner } from '@adhar/shell-ui'
 
 /**
  * Honest source states for every Discover view.

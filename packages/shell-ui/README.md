@@ -1,4 +1,4 @@
-# @adhar-console/shell-ui
+# @adhar/shell-ui
 
 The components that make every phase look like the same product.
 

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Button, DataTable, EmptyState, StatusBadge, Tabs, type TabDef } from '@adhar-console/shell-ui'
-import { kube, type KubeObject } from '@adhar-console/api-clients/k8s'
+import { Button, DataTable, EmptyState, StatusBadge, Tabs, type TabDef } from '@adhar/shell-ui'
+import { kube, type KubeObject } from '@adhar/api-clients/k8s'
 import { GVRS } from '../data/gvr.ts'
 import { useHasK8sPermission } from '../data/access.ts'
 import { K8sRolePill } from '../components/role-gate.tsx'
@@ -15,7 +15,7 @@ import {
   useStatefulSets,
 } from '../data/hooks.ts'
 import { age, shortImage } from '../data/format.ts'
-import type { k8s } from '@adhar-console/api-clients'
+import type { k8s } from '@adhar/api-clients'
 import { ListShell, matchesSearch } from './list-shell.tsx'
 import { WorkloadDrawer, type WorkloadKind } from './workload-drawer.tsx'
 

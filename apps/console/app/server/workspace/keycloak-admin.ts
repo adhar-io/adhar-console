@@ -1,5 +1,5 @@
-import { getServerAuthConfig } from '@adhar-console/auth/server'
-import { env } from '@adhar-console/utils'
+import { getServerAuthConfig } from '@adhar/auth/server'
+import { env } from '@adhar/utils'
 
 /**
  * Minimal Keycloak Admin REST client used to reflect workspace teams and org

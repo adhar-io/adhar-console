@@ -1,4 +1,4 @@
-import { env } from '@adhar-console/utils'
+import { env } from '@adhar/utils'
 import { apiServerFetch } from '../k8s/gateway.ts'
 
 /**
@@ -48,7 +48,7 @@ export interface UsageReport {
   breakdownByNamespace: NamespaceUsage[]
 }
 
-/** Minimal doc-store surface the meter needs (satisfied by `@adhar-console/db`). */
+/** Minimal doc-store surface the meter needs (satisfied by `@adhar/db`). */
 export interface MeterDb {
   conn: unknown
   listDocuments(conn: unknown, tenant: string, kind: string): Promise<unknown[]>

@@ -39,16 +39,16 @@ existing module for a reference.
 
 - **No router.** Modules do NOT define TanStack routes. The host decides
   the route path; the module just renders a component.
-- **Stick to `@adhar-console/shell-ui`.** `DataTable`, `StatusBadge`,
+- **Stick to `@adhar/shell-ui`.** `DataTable`, `StatusBadge`,
   `EmptyState`, `PageHeader` cover 90% of list/detail views.
 - **Data via BFF.** In v1, modules can call stub clients directly from
-  `@adhar-console/api-clients`. Production will swap every call for a
+  `@adhar/api-clients`. Production will swap every call for a
   `useServerFn(...)` against the host's BFF — so keep fetch logic thin and
   colocated (a `src/data/` folder is fine).
 - **Errors.** Rely on the `ErrorBoundary` inside `RemoteModule` from
-  `@adhar-console/mf-utils` — throw or return errors from queries naturally.
+  `@adhar/mf-utils` — throw or return errors from queries naturally.
 - **Tenant context.** Read tenant from `useTenant()` (from
-  `@adhar-console/tenancy`); never hard-code an org or project slug.
+  `@adhar/tenancy`); never hard-code an org or project slug.
 
 See [../docs/architecture/module-federation.md](../docs/architecture/module-federation.md)
 for the deeper why.

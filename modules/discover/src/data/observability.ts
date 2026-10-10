@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { lgtm, posthog } from '@adhar-console/api-clients'
-import { useLiveInvalidate, useLivePoll, usePollingInterval, useToolPublicUrl } from '@adhar-console/shell-ui'
+import { lgtm, posthog } from '@adhar/api-clients'
+import { useLiveInvalidate, useLivePoll, usePollingInterval, useToolPublicUrl } from '@adhar/shell-ui'
 
 /**
  * Discover hooks layer — wraps the LGTM stack (Loki / Mimir / Tempo /

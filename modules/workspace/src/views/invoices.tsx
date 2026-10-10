@@ -1,5 +1,5 @@
-import { DataTable, EmptyState, StatusBadge, type StatusKind } from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+import { DataTable, EmptyState, StatusBadge, type StatusKind } from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import {
   downloadInvoice,
   fmtMoney,

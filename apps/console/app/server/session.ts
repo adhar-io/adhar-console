@@ -1,5 +1,5 @@
-import { DEFAULT_TENANT } from '@adhar-console/tenancy'
-import type { Notification } from '@adhar-console/shell-ui'
+import { DEFAULT_TENANT } from '@adhar/tenancy'
+import type { Notification } from '@adhar/shell-ui'
 
 /**
  * App-shell layout data: the available tenants and the seed notification feed.
@@ -15,7 +15,7 @@ export function getLayoutData() {
   // The shell's organization switcher loads the user's REAL organizations from
   // `/api/organizations` client-side; these are only the fallback shown while
   // that list loads / when signed out. The built-in default organization is a
-  // real, manageable org (not a demo company) — see @adhar-console/tenancy.
+  // real, manageable org (not a demo company) — see @adhar/tenancy.
   return {
     tenants: [DEFAULT_TENANT],
     activeTenant: DEFAULT_TENANT,

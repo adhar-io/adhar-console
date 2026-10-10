@@ -1,4 +1,4 @@
-import { env } from '@adhar-console/utils'
+import { env } from '@adhar/utils'
 import { openStore } from './workspace/store.ts'
 import { emitNotification, type NotificationDoc } from './notify.ts'
 

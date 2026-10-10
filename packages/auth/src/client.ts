@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { globalSingleton } from '@adhar-console/utils'
+import { globalSingleton } from '@adhar/utils'
 import type { Role, Session, User } from './types.ts'
 import { rememberUser } from './last-user.ts'
 

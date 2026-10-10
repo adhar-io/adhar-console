@@ -1,0 +1,196 @@
+/*
+ * Launch site stylesheet.
+ *
+ * One import gives this app the console's entire foundation — Tailwind v4,
+ * the `.dark` custom variant, every brand/surface/content/edge token, the
+ * elevation ramp, typography and the base layer — so the two surfaces can
+ * never disagree about what "Adhar blue" is. Everything below is additive
+ * and specific to a marketing page: ambient backgrounds, the hero display
+ * type and a few motion helpers.
+ */
+@import '../../console/app/styles.css';
+
+/* Tailwind scans the console's `app/` automatically; add ours and shell-ui. */
+@source './';
+@source '../../../packages/shell-ui/src';
+
+@theme {
+  --animate-drift: drift 18s ease-in-out infinite alternate;
+  --animate-rise: rise 700ms var(--ease-smooth) both;
+  --animate-pulse-ring: pulse-ring 2.4s ease-out infinite;
+  --animate-scan: scan 3.6s ease-in-out infinite;
+  --animate-marquee: marquee 40s linear infinite;
+}
+
+@keyframes drift {
+  from {
+    transform: translate3d(-2%, -1%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(2%, 2%, 0) scale(1.06);
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+@keyframes scan {
+  0%,
+  100% {
+    transform: translateY(-120%);
+    opacity: 0;
+  }
+  10%,
+  90% {
+    opacity: 1;
+  }
+  50% {
+    transform: translateY(120%);
+  }
+}
+
+@keyframes marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/*
+ * Ambient field — two soft brand blooms and a hairline grid that fades out
+ * towards the bottom. Sits on the page root under everything; the hero's 3D
+ * canvas is transparent so the scene floats on the same field.
+ */
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  background-color: var(--color-surface-app);
+}
+.ambient::before,
+.ambient::after {
+  content: '';
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(80px);
+  opacity: 0.55;
+  animation: var(--animate-drift);
+}
+.ambient::before {
+  width: 56vw;
+  height: 56vw;
+  top: -22vw;
+  left: -10vw;
+  background: radial-gradient(closest-side, oklch(0.78 0.14 260 / 0.9), transparent 70%);
+}
+.ambient::after {
+  width: 48vw;
+  height: 48vw;
+  right: -14vw;
+  top: 18vh;
+  background: radial-gradient(closest-side, oklch(0.74 0.17 293 / 0.8), transparent 70%);
+  animation-delay: -9s;
+}
+.dark .ambient::before,
+.dark .ambient::after {
+  opacity: 0.32;
+}
+.ambient-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, var(--color-edge-default) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-edge-default) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(to bottom, black 0%, transparent 70%);
+  -webkit-mask-image: linear-gradient(to bottom, black 0%, transparent 70%);
+  opacity: 0.5;
+}
+
+/* Display type — tighter than body, with the brand gradient available as a span. */
+.display {
+  letter-spacing: -0.035em;
+  line-height: 0.98;
+  text-wrap: balance;
+}
+.gradient-text {
+  background-image: linear-gradient(105deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Frosted panel — the one surface treatment the console doesn't need. */
+.glass {
+  background-color: color-mix(in oklch, var(--color-surface-raised) 78%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  backdrop-filter: blur(14px) saturate(1.2);
+}
+
+/* Staggered entrance for hero children. */
+.rise > * {
+  animation: var(--animate-rise);
+}
+.rise > *:nth-child(2) {
+  animation-delay: 80ms;
+}
+.rise > *:nth-child(3) {
+  animation-delay: 160ms;
+}
+.rise > *:nth-child(4) {
+  animation-delay: 240ms;
+}
+.rise > *:nth-child(5) {
+  animation-delay: 320ms;
+}
+
+/* Hazard tape — the one "under construction" cliché we allow, used sparingly. */
+.hazard {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    oklch(0.82 0.17 85) 0 14px,
+    oklch(0.25 0.04 265) 14px 28px
+  );
+}
+
+/* 3D canvas host: the scene must never cause a horizontal scrollbar. */
+/* Positioning is left to the caller (`relative` for an inline block, `absolute
+   inset-0` for a full-bleed backdrop): an unlayered rule here would override
+   either utility. */
+.scene-host {
+  width: 100%;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+.scene-host canvas {
+  display: block;
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ambient::before,
+  .ambient::after,
+  .rise > * {
+    animation: none;
+  }
+}

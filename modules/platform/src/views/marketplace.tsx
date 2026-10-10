@@ -29,8 +29,8 @@ import {
   StatusBadge,
   TempoIcon,
   type StatusKind,
-} from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import {
   APPSET_NAMESPACE,
   SOURCE_LABEL,

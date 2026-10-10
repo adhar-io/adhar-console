@@ -1,10 +1,10 @@
-import { useOptionalConsoleRole, type ConsoleRole } from '@adhar-console/shell-ui'
+import { useOptionalConsoleRole, type ConsoleRole } from '@adhar/shell-ui'
 
 /**
  * Kubernetes-scoped RBAC.
  *
  * The console maps four broad roles to fine-grained permissions on cluster
- * resources. Roles come from the auth session (`@adhar-console/auth`'s
+ * resources. Roles come from the auth session (`@adhar/auth`'s
  * `Role` type) — we keep them in lockstep here so the same identity that
  * authenticates the user gates every action they take inside the cluster
  * dashboard.

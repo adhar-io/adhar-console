@@ -16,9 +16,9 @@ import {
   FilterBar,
   PageHeader,
   StatusBadge,
-} from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
-import { PENDING_USER, useOptionalSession } from '@adhar-console/auth'
+} from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
+import { PENDING_USER, useOptionalSession } from '@adhar/auth'
 import { getLayoutData } from '~/server/session.ts'
 import { type EntityKind, parseRef } from '~/data/catalog.ts'
 import {

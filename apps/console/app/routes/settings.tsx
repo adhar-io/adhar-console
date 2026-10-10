@@ -1,8 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { z } from 'zod'
-import { AppShell } from '@adhar-console/shell-ui'
-import { RemoteModule } from '@adhar-console/mf-utils'
-import { PENDING_USER, useOptionalSession } from '@adhar-console/auth'
+import { AppShell } from '@adhar/shell-ui'
+import { RemoteModule } from '@adhar/mf-utils'
+import { PENDING_USER, useOptionalSession } from '@adhar/auth'
 import { getLayoutData } from '~/server/session.ts'
 
 const SettingsSearchSchema = z.object({

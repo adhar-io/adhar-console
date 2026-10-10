@@ -1,5 +1,5 @@
-import { kube } from '@adhar-console/api-clients/k8s'
-import { notifyUnauthorized } from '@adhar-console/shell-ui'
+import { kube } from '@adhar/api-clients/k8s'
+import { notifyUnauthorized } from '@adhar/shell-ui'
 import type {
   ApiSurface,
   Cluster,
@@ -16,7 +16,7 @@ import type {
   PodMetrics,
   Service,
   VersionInfo,
-} from '@adhar-console/api-clients/k8s'
+} from '@adhar/api-clients/k8s'
 import {
   getActiveCluster,
   getActiveNamespace,
@@ -27,14 +27,14 @@ import {
   useActiveCluster,
   useActiveNamespace,
   useNamespaceScope,
-} from '@adhar-console/shell-ui'
+} from '@adhar/shell-ui'
 import { GVRS } from './gvr.ts'
 
 /* ─────────── shared cluster + namespace selection ─────────── */
 
 /**
  * The active cluster **and** the active namespace now live in the shell's
- * shared selection store (`@adhar-console/shell-ui`), so the top-bar pickers
+ * shared selection store (`@adhar/shell-ui`), so the top-bar pickers
  * (rendered by the host) and this data layer (in the platform remote) stay in
  * sync across the Module-Federation boundary via `localStorage` + a `window`
  * event — shell-ui is not a shared singleton, so a plain variable would not.

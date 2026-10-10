@@ -1,6 +1,6 @@
-import { env } from '@adhar-console/utils'
+import { env } from '@adhar/utils'
 import { getRequestUser } from './request-user.ts'
-import { getServerAuthConfig } from '@adhar-console/auth/server'
+import { getServerAuthConfig } from '@adhar/auth/server'
 import { getTool } from './tool-registry.ts'
 import { proxyToolRequest } from './proxy.ts'
 import { toPublicToolUrl, toolPublicUrl } from './domain.ts'

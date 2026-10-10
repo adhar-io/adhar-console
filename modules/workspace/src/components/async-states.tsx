@@ -1,4 +1,4 @@
-import { DocStoreError, Spinner, StatusBadge } from '@adhar-console/shell-ui'
+import { DocStoreError, Spinner, StatusBadge } from '@adhar/shell-ui'
 
 /**
  * Shared loading / error blocks for the docStore-backed ENTERPRISE-SECURITY

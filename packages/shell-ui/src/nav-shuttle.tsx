@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 
 /**
  * The sidebar's active-row indicator — one rail that SLIDES between rows

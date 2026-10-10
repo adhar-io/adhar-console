@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 
 /**
  * DataTable — the console's grid.
@@ -295,7 +295,7 @@ export function DataTable<T>({
     return {
       /** Comparable/searchable text for a cell. */
       text(col: Column<T>, row: T): string {
-        const id = `${col.key} ${rowKey(row)}`
+        const id = `${col.key}\u0000${rowKey(row)}`
         const hit = cache.get(id)
         if (hit !== undefined) return hit
         let v: CellValue
@@ -315,7 +315,7 @@ export function DataTable<T>({
       },
       /** The typed value when there is one — used for numeric ordering. */
       raw(col: Column<T>, row: T): CellValue {
-        const id = `${col.key} ${rowKey(row)}`
+        const id = `${col.key}\u0000${rowKey(row)}`
         if (!raw.has(id)) this.text(col, row)
         return raw.get(id)
       },

@@ -1,6 +1,6 @@
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { Link, type LinkProps } from '@tanstack/react-router'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'link'
 export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg'

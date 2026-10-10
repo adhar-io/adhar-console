@@ -1,4 +1,4 @@
-# @adhar-console/module-develop
+# @adhar/module-develop
 
 Federated remote for the **Develop** phase — Gitea repositories, pull
 requests, and Argo Workflows pipelines. Dev port **5103**.

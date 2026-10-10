@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 import { assistStore, AUTONOMY_LEVELS, useAssist, type AdharAiRunInfo, type Finding, type PlanStep, type UiBlock } from '../agui/store.ts'
 import { GenerativeBlock } from '../agui/generative.tsx'
 import type { KnowledgeHit } from '../agui/client.ts'

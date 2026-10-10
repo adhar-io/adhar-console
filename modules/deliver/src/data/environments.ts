@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { k8s } from '@adhar-console/api-clients'
-import type { argocd } from '@adhar-console/api-clients'
-import { usePollingInterval } from '@adhar-console/shell-ui'
+import { k8s } from '@adhar/api-clients'
+import type { argocd } from '@adhar/api-clients'
+import { usePollingInterval } from '@adhar/shell-ui'
 
 /**
  * Data layer for **Environments**.

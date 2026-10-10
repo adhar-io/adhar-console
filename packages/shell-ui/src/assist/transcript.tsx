@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 import { assistStore, useAssist, type ChatEntry, type RunState, type ToolCallView } from '../agui/store.ts'
 import { GenerativeBlock } from '../agui/generative.tsx'
 import { useToast } from '../toast.tsx'

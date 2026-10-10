@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { AppShell, PageHeader } from '@adhar-console/shell-ui'
-import { PENDING_USER, useOptionalSession } from '@adhar-console/auth'
+import { AppShell, PageHeader } from '@adhar/shell-ui'
+import { PENDING_USER, useOptionalSession } from '@adhar/auth'
 import { getLayoutData } from '~/server/session.ts'
 
 export const Route = createFileRoute('/help')({

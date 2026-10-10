@@ -42,8 +42,8 @@ browser ─▶│ host   │─────────────────�
 
 ## Code shape
 
-Auth is split into a **client-safe** entry (`@adhar-console/auth`) and a
-**server-only** entry (`@adhar-console/auth/server`) so the confidential client
+Auth is split into a **client-safe** entry (`@adhar/auth`) and a
+**server-only** entry (`@adhar/auth/server`) so the confidential client
 secret and `jose` never reach the browser bundle.
 
 `packages/auth/src`:

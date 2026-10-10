@@ -12,3 +12,5 @@ coverage/
 .cache/
 .deno/
 .dev/
+# Vite drops these next to vite.config.ts when a config load is interrupted.
+*.timestamp-*.mjs

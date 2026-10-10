@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { coder, gitea, type k8s } from '@adhar-console/api-clients'
-import { useGiteaOrg } from '@adhar-console/shell-ui'
+import { coder, gitea, type k8s } from '@adhar/api-clients'
+import { useGiteaOrg } from '@adhar/shell-ui'
 import { useCRD } from './k8s.ts'
 
 /**

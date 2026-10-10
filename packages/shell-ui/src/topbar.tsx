@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from '@tanstack/react-router'
-import { formatRelative, cn } from '@adhar-console/utils'
+import { formatRelative, cn } from '@adhar/utils'
 import { Kbd } from './primitives.tsx'
 import { AppLauncher, type AppLink } from './app-launcher.tsx'
 import { ModeToggle } from './mode-toggle.tsx'
@@ -9,7 +9,7 @@ import { LiveIndicator } from './live-indicator.tsx'
 import { useNotifications, type Notification } from './notifications.ts'
 import { NotificationCard } from './notification-center.tsx'
 import { useAi } from './ai-assistant.tsx'
-import type { User } from '@adhar-console/auth'
+import type { User } from '@adhar/auth'
 
 interface Props {
   user: User
@@ -35,8 +35,18 @@ export function Topbar({
   onOpenSidebar,
   headerControls,
 }: Props) {
+  /*
+   * One surface for the whole chrome: the topbar and the sidebar share
+   * `surface-sidebar`, so the two meet at the corner with no seam.
+   *
+   * This was `bg-surface-raised/70` with a backdrop blur. Translucency tints
+   * the bar with whatever content happens to be scrolling under it, which is
+   * fine when the bar floats over a page and wrong when it butts against a
+   * solid sidebar — the two halves of one L-shaped frame drifted apart in
+   * colour as you scrolled. Opaque is what makes them read as one piece.
+   */
   return (
-    <header className="sticky top-0 z-40 border-b border-edge-default shadow-(--shadow-bar) bg-surface-raised/70 backdrop-blur-xl supports-[backdrop-filter]:bg-surface-raised/60">
+    <header className="sticky top-0 z-40 border-b border-edge-default shadow-(--shadow-bar) bg-surface-sidebar">
       <div
         className="pointer-events-none absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-brand-400/40 to-transparent"
         aria-hidden

@@ -1,4 +1,4 @@
-import { env } from '@adhar-console/utils'
+import { env } from '@adhar/utils'
 import { apiServerFetch } from '../k8s/gateway.ts'
 import type { K8sIdentity } from '../k8s/gateway.ts'
 import type { ToolDef } from './provider.ts'

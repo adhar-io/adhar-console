@@ -10,9 +10,9 @@ import {
   StatusBadge,
   useToast,
   type StatusKind,
-} from '@adhar-console/shell-ui'
-import { cn, formatAbsolute, formatRelative } from '@adhar-console/utils'
-import type { kargo } from '@adhar-console/api-clients'
+} from '@adhar/shell-ui'
+import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
+import type { kargo } from '@adhar/api-clients'
 import {
   CanvasBtn,
   edgeBetween,

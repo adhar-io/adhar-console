@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 import { RequiredRolePill } from './role-gate.tsx'
 import type { Role } from '../data/access.ts'
 

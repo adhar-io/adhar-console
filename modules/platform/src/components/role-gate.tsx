@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
-import { StatusBadge } from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+import { StatusBadge } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import {
   K8S_PERMISSION_LABEL,
   K8S_ROLE_LABEL,

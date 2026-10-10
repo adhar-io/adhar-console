@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { cn } from '@adhar-console/utils'
-import type { StatusKind } from '@adhar-console/shell-ui'
+import { cn } from '@adhar/utils'
+import type { StatusKind } from '@adhar/shell-ui'
 
 /**
  * Canvas shell for the Deliver module's graph views.

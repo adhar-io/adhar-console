@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { PENDING_USER, useOptionalSession } from '@adhar-console/auth'
+import { PENDING_USER, useOptionalSession } from '@adhar/auth'
 import {
   BarChart,
   Button,
@@ -24,8 +24,8 @@ import {
   usePublicUrl,
   useToast,
   useToolPublicUrl,
-} from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { EntityMetrics, EntitySparklines, MonitorButton, useGrafanaMonitorUrl, type RangeId } from '~/components/entity-observability.tsx'
 import {
   type Entity,
@@ -51,6 +51,7 @@ import {
 } from '~/data/catalog-deployment.ts'
 import { type EntityRoute, routeLabel, useEntityRoutes } from '~/data/catalog-routes.ts'
 import { type PipelineRunSummary, usePipelineRuns } from '~/data/catalog-pipelines.ts'
+import { describeProgress } from '../data/pipeline-progress.ts'
 import { type DocPage, type DocsSource, editUrl, headingOf, rawBase, useDocPage, useDocsPages, useDocsSource } from '~/data/catalog-docs.ts'
 import { useDiscoverAlerts } from '~/data/cross-module-signals.ts'
 import { DeleteEntityDialog } from '~/components/catalog-delete.tsx'
@@ -6516,7 +6517,7 @@ function PipelinesCard({ entity, repoUrl }: { entity: Entity; repoUrl?: string }
                       {r.commit ? <span className="shrink-0 font-mono text-[10px] text-content-subtle">{shortSha(r.commit) ?? r.commit.slice(0, 7)}</span> : null}
                     </div>
                     <div className="truncate text-[10px] text-content-subtle">
-                      {r.pipeline ? `${r.pipeline} · ` : ''}{r.namespace}{r.tasks ? ` · ${r.tasks.done}/${r.tasks.total} tasks` : ''}{r.message && r.state === 'failed' ? ` · ${r.message.slice(0, 80)}` : ''}
+                      {r.pipeline ? `${r.pipeline} · ` : ''}{r.namespace}{r.tasks ? ` · ${describeProgress(r.tasks)}` : ''}{r.message && r.state === 'failed' ? ` · ${r.message.slice(0, 80)}` : ''}
                     </div>
                   </div>
                   <span className="shrink-0 text-right text-[11px] text-content-muted">

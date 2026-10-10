@@ -6,8 +6,8 @@ import {
   Button,
   ModeToggle,
   useAppConfig,
-} from '@adhar-console/shell-ui'
-import { forgetLastUser, getDemoSession, getLastUser, useAuth } from '@adhar-console/auth'
+} from '@adhar/shell-ui'
+import { forgetLastUser, getDemoSession, getLastUser, useAuth } from '@adhar/auth'
 import { z } from 'zod'
 
 /**
@@ -38,9 +38,8 @@ import { z } from 'zod'
  * `body::before` texture never reaches this route — without this layer the
  * sign-in side is a flat void holding a small card.
  *
- * Below `lg` the hero is hidden entirely. That used to leave a phone with no
- * statement of what the product is and a third of a screen of empty space, so
- * the compact logo line and `COMPACT_PROOF` strip stand in for it.
+ * Below `lg` the hero is hidden entirely; the compact logo line stands in
+ * for it.
  */
 export const Route = createFileRoute('/login')({
   validateSearch: z.object({
@@ -60,17 +59,8 @@ const HIGHLIGHTS = [
   'GitOps delivery with progressive rollouts and policy guardrails.',
   'Logs, metrics, traces, cost and policy in one lifecycle view.',
   'Single sign-on — your Kubernetes RBAC applies everywhere.',
-  'Self-hosted, multi-tenant and 100% open source.',
+  'Self-hosted, kubernetes-native, multi-tenant and 100% open source.',
 ]
-
-/* The same promise, compressed — shown under the card on small screens, where
- * the hero panel is hidden and the page would otherwise say nothing about the
- * product at all. */
-const COMPACT_PROOF = [
-  ['Lifecycle', 'Plan → ship → observe'],
-  ['Delivery', 'GitOps + rollouts'],
-  ['Open', 'Self-hosted, no lock-in'],
-] as const
 
 /**
  * Where sign-in will land — for the "you'll be returned to…" hint.
@@ -561,24 +551,6 @@ function LoginPage() {
             </div>
           </div>
 
-          {/* Below `lg` the hero panel is hidden, so the page said nothing
-              about the product and left a third of a phone screen empty under
-              the card. Three compressed proof points fill it and carry the
-              same promise the hero makes on desktop. */}
-          <ul className="mt-6 grid grid-cols-3 gap-2 lg:hidden">
-            {COMPACT_PROOF.map(([label, detail]) => (
-              <li
-                key={label}
-                className="rounded-xl border border-edge-subtle bg-surface-raised/60 px-2.5 py-2 text-center backdrop-blur-sm"
-              >
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-brand-600 dark:text-brand-300">
-                  {label}
-                </div>
-                <div className="mt-0.5 text-[11px] leading-snug text-content-muted">{detail}</div>
-              </li>
-            ))}
-          </ul>
-
           <p className="mt-6 text-center text-xs text-content-subtle">
             By continuing you agree to the{' '}
             <a href="#terms" className="font-medium text-content-muted underline-offset-2 hover:text-content hover:underline">
@@ -673,13 +645,13 @@ function BrandPanel() {
         aria-hidden
         className="pointer-events-none absolute -bottom-32 -right-24 opacity-[0.05] blur-[1px] xl:-bottom-40 xl:-right-28"
       >
-        <AdharSymbol size={560} title="" />
+        <AdharSymbol size={640} title="" />
       </div>
 
       <div className="relative z-10 flex h-full flex-col justify-between p-10 xl:p-14">
         <div className="flex items-center gap-2.5">
-          <AdharSymbol size={38} />
-          <span className="text-lg font-extrabold uppercase tracking-tight text-white">Adhar</span>
+          <AdharSymbol size={48} />
+          <span className="text-2xl font-extrabold uppercase tracking-tight text-white">Adhar</span>
           <span className="rounded-md bg-white/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/70">
             Console
           </span>
@@ -724,10 +696,10 @@ function BrandPanel() {
         </div>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-white/55">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 font-medium text-white/80 ring-1 ring-inset ring-white/10">
-            <IconShield /> SSO by Keycloak
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 font-medium text-green-400/80 ring-1 ring-inset ring-white/10">
+            <IconShield /> Secured by Keycloak
           </span>
-          <span className="hidden xl:inline">Kubernetes-native · Multi-tenant · 100% open source</span>
+          <span className="hidden xl:inline">Super powered by · Anvita Systems Pte Ltd.</span>
         </div>
       </div>
     </aside>

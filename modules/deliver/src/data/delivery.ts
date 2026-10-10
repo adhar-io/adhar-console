@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { argocd, argoRollouts, falco, harbor, k8s, kargo, nexus, trivy } from '@adhar-console/api-clients'
-import { useArgocdProject, useHarborProject, useLiveInvalidate, useLiveToolPoll, usePollingInterval } from '@adhar-console/shell-ui'
+import { argocd, argoRollouts, falco, harbor, k8s, kargo, nexus, trivy } from '@adhar/api-clients'
+import { useArgocdProject, useHarborProject, useLiveInvalidate, useLiveToolPoll, usePollingInterval } from '@adhar/shell-ui'
 import {
   deleteApplication,
   fetchManagedResources,

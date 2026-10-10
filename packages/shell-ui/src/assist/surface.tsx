@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 import { assistStore, useAssist, type UiBlock } from '../agui/store.ts'
 import { GenerativeBlock } from '../agui/generative.tsx'
 import { DEFAULT_NAV, type NavSection } from '../nav-tree.tsx'

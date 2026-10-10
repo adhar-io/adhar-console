@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { EmptyState, Modal, StatusBadge, useToast } from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+import { EmptyState, Modal, StatusBadge, useToast } from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import {
   isDbUnavailable,
   useAddTeamMember,

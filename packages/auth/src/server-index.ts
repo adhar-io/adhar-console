@@ -1,10 +1,10 @@
 /**
- * Server-only entrypoint for `@adhar-console/auth/server`.
+ * Server-only entrypoint for `@adhar/auth/server`.
  *
  * Everything here runs exclusively in the BFF / TanStack Start server routes.
  * It pulls in `jose` and the confidential client secret, so it MUST NOT be
  * imported from any browser-reachable module. The browser uses
- * `@adhar-console/auth` (client-safe) instead.
+ * `@adhar/auth` (client-safe) instead.
  */
 export {
   getServerAuthConfig,

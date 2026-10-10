@@ -1,4 +1,4 @@
-import { derivedUrl, env, subdomainUrl } from '@adhar-console/utils'
+import { derivedUrl, env, subdomainUrl } from '@adhar/utils'
 
 /**
  * ONE control-plane URL, everything else derived.
@@ -22,8 +22,8 @@ import { derivedUrl, env, subdomainUrl } from '@adhar-console/utils'
  * right answer for server-side calls when the platform sets them.
  */
 
-export type { PlatformDomain } from '@adhar-console/utils'
-export { platformDomain, resetPlatformDomain, subdomainUrl } from '@adhar-console/utils'
+export type { PlatformDomain } from '@adhar/utils'
+export { platformDomain, resetPlatformDomain, subdomainUrl } from '@adhar/utils'
 
 /**
  * Resolve a tool's base URL: the first explicit env var that is set, else the

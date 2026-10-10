@@ -12,8 +12,8 @@ import {
   Spinner,
   StatusBadge,
   Textarea,
-} from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { useRegisterEntity, useCatalog, type Entity } from '~/data/catalog.ts'
 import {
   buildCustomTemplate,

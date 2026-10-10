@@ -1,0 +1,45 @@
+{
+  "tasks": {
+    "dev": "deno run -A npm:vite@^7.1.12 --host --port 5200",
+    "dev:server": "PORT=5199 deno run -A --watch server.ts",
+    "build": "deno run -A npm:vite@^7.1.12 build",
+    "preview": "deno run -A npm:vite@^7.1.12 preview --port 5200",
+    "serve": "deno run -A server.ts",
+    "check": "deno check app/**/*.ts app/**/*.tsx server.ts",
+    "test": "deno test --allow-read --allow-env app/"
+  },
+  "imports": {
+    "react": "npm:react@^19.2.0",
+    "react-dom": "npm:react-dom@^19.2.0",
+    "react-dom/client": "npm:react-dom@^19.2.0/client",
+    "react/jsx-runtime": "npm:react@^19.2.0/jsx-runtime",
+    "@tanstack/react-router": "npm:@tanstack/react-router@^1.167.0",
+    "@tailwindcss/vite": "npm:@tailwindcss/vite@^4.0.0",
+    "tailwindcss": "npm:tailwindcss@^4.0.0",
+    "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^4.3.0",
+    "vite": "npm:vite@^7.1.12",
+    "three": "npm:three@^0.186.0",
+    "@types/three": "npm:@types/three@^0.186.0",
+    "@react-three/fiber": "npm:@react-three/fiber@^9.8.0",
+    "@react-three/drei": "npm:@react-three/drei@^10.7.0",
+    "clsx": "npm:clsx@^2.1.1",
+    "tailwind-merge": "npm:tailwind-merge@^2.5.0",
+    "~/": "./app/"
+  },
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "es2022",
+      "deno.window"
+    ],
+    "types": [
+      "npm:@types/three@^0.186.0"
+    ]
+  },
+  "fmt": {
+    "semiColons": false
+  }
+}

@@ -1,4 +1,4 @@
-import { env } from '@adhar-console/utils'
+import { env } from '@adhar/utils'
 import { getRequestUser, unauthorized } from './request-user.ts'
 import { openStore } from './workspace/store.ts'
 import { apiServerFetch, resolveIdentity } from './k8s/gateway.ts'
@@ -19,7 +19,7 @@ import { emitNotification, NOTIFICATION_KIND, type NotificationDoc } from './not
  * policy failures and certificates about to expire. Keys de-dupe re-scans.
  */
 
-const db = () => import('@adhar-console/db')
+const db = () => import('@adhar/db')
 
 function withCookie(res: Response, cookie?: string): Response {
   if (cookie) res.headers.append('set-cookie', cookie)

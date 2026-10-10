@@ -1,5 +1,5 @@
 /**
- * `@adhar-console/db` — server-only. Postgres + Drizzle for the console's own
+ * `@adhar/db` — server-only. Postgres + Drizzle for the console's own
  * relational state. Never import from the browser bundle.
  */
 export { getDb, getMigratedDb, ensureMigrated, isDbConfigured, pingDb, type Db } from './client.ts'

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { cn } from '@adhar-console/utils'
-import { useOverlayDismiss } from '@adhar-console/shell-ui'
+import { cn } from '@adhar/utils'
+import { useOverlayDismiss } from '@adhar/shell-ui'
 import { loadMonaco, type MonacoEditorInstance } from './monaco-loader.ts'
 
 /*

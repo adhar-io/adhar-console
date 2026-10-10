@@ -7,7 +7,7 @@ import {
   summariseScans,
   vulnSeverity,
 } from './scan-rollup.ts'
-import type { harbor } from '@adhar-console/api-clients'
+import type { harbor } from '@adhar/api-clients'
 
 function artifact(over: Partial<harbor.Artifact> = {}): harbor.Artifact {
   return {

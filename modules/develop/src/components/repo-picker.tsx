@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { cn } from '@adhar-console/utils'
-import type { gitea } from '@adhar-console/api-clients'
+import { cn } from '@adhar/utils'
+import type { gitea } from '@adhar/api-clients'
 import { useRepos } from '../data/git.ts'
 
 /**

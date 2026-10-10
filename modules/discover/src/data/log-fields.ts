@@ -1,4 +1,4 @@
-import type { lgtm } from '@adhar-console/api-clients'
+import type { lgtm } from '@adhar/api-clients'
 
 /**
  * Pure helpers for the Logs explorer — field extraction, dedup keys, text

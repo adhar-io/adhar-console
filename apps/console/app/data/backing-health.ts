@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { k8s } from '@adhar-console/api-clients'
-import type { ServiceHealth } from '@adhar-console/platform-info'
+import { k8s } from '@adhar/api-clients'
+import type { ServiceHealth } from '@adhar/platform-info'
 
 /**
  * Live health for the platform's backing open-source components.

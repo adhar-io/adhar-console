@@ -1,4 +1,4 @@
-import type { argocd } from '@adhar-console/api-clients'
+import type { argocd } from '@adhar/api-clients'
 
 /**
  * Telling platform packages apart from the applications a team builds.

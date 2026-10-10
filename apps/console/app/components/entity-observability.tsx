@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { lgtm } from '@adhar-console/api-clients'
+import { lgtm } from '@adhar/api-clients'
 import {
   AreaChart,
   Card,
@@ -9,8 +9,8 @@ import {
   GrafanaIcon,
   Spinner,
   usePollingInterval,
-  useToolPublicUrl, Sparkline, usePublicUrl } from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+  useToolPublicUrl, Sparkline, usePublicUrl } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 
 /**
  * Live metrics + the Grafana entry point for one catalog entity.

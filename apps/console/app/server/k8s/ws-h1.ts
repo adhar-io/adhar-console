@@ -1,4 +1,4 @@
-import { env } from '@adhar-console/utils'
+import { env } from '@adhar/utils'
 
 /**
  * A minimal WebSocket **client** that is pinned to HTTP/1.1.

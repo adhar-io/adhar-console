@@ -1,5 +1,5 @@
 import { useConnection } from '../data/hooks.ts'
-import { Button } from '@adhar-console/shell-ui'
+import { Button } from '@adhar/shell-ui'
 
 /**
  * Gate for the Kubernetes-backed platform views. The connection to the cluster

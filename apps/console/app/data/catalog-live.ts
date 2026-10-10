@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { gitea, k8s } from '@adhar-console/api-clients'
-import { toPublicUrl, useGiteaOrg, usePublicBaseDomain, useToolPublicUrl } from '@adhar-console/shell-ui'
+import { gitea, k8s } from '@adhar/api-clients'
+import { toPublicUrl, useGiteaOrg, usePublicBaseDomain, useToolPublicUrl } from '@adhar/shell-ui'
 import {
   type ApiType,
   type ComponentType,

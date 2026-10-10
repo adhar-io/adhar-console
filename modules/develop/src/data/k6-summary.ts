@@ -1,7 +1,7 @@
 /**
  * The pure half of the k6 integration: parsing, naming and formatting.
  *
- * Kept apart from `k6.ts` because that file imports `@adhar-console/shell-ui`
+ * Kept apart from `k6.ts` because that file imports `@adhar/shell-ui`
  * for `useLiveRefetch`, which pulls React in and makes the whole module
  * unloadable under `deno test`. These functions are the ones most worth
  * testing — a text parser is fragile by nature — so they live where a test can

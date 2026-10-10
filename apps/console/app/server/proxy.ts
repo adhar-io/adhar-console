@@ -1,4 +1,4 @@
-import { getServerAuthConfig, getValidSession } from '@adhar-console/auth/server'
+import { getServerAuthConfig, getValidSession } from '@adhar/auth/server'
 import { getTool, type ToolDef } from './tool-registry.ts'
 import { fetchWithApiServerClient } from './k8s/gateway.ts'
 

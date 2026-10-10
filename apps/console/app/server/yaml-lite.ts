@@ -1,5 +1,5 @@
 /**
- * The YAML reader moved to `@adhar-console/utils`.
+ * The YAML reader moved to `@adhar/utils`.
  *
  * It was server-only while the only things reading YAML were the template
  * discovery and the scaffolder. The platform module's provisioning dialog now
@@ -9,4 +9,4 @@
  *
  * This file stays so the existing server imports keep working.
  */
-export { parseYaml, type YamlValue } from '@adhar-console/utils'
+export { parseYaml, type YamlValue } from '@adhar/utils'

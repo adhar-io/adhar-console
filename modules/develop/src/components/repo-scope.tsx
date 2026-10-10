@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { EmptyState, Spinner } from '@adhar-console/shell-ui'
+import { EmptyState, Spinner } from '@adhar/shell-ui'
 import {
   getStoredRepo,
   setStoredRepo,

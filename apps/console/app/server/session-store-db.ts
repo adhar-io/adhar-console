@@ -1,4 +1,4 @@
-import { setSessionStore, type ServerSession, type ServerSessionStore } from '@adhar-console/auth/server'
+import { setSessionStore, type ServerSession, type ServerSessionStore } from '@adhar/auth/server'
 
 /**
  * Postgres-backed server-side session store.
@@ -14,7 +14,7 @@ import { setSessionStore, type ServerSession, type ServerSessionStore } from '@a
  * When no database is configured (local dev) `put` throws → the auth layer
  * transparently falls back to the legacy inline cookie.
  */
-const db = () => import('@adhar-console/db')
+const db = () => import('@adhar/db')
 
 const SESSION_TENANT = 'auth'
 const SESSION_KIND = 'auth.session'

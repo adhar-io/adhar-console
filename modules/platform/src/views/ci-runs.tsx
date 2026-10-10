@@ -1,4 +1,4 @@
-import { Tabs, type TabDef } from '@adhar-console/shell-ui'
+import { Tabs, type TabDef } from '@adhar/shell-ui'
 import { TektonPipelineRuns, TektonPipelines, TektonTasks, TektonTriggers } from './tekton.tsx'
 
 /**

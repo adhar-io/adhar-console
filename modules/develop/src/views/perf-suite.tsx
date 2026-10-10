@@ -14,8 +14,8 @@ import {
   Textarea,
   useCan,
   useToast,
-} from '@adhar-console/shell-ui'
-import { cn, formatRelative } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { cn, formatRelative } from '@adhar/utils'
 import { CodeEditor } from '../components/code-editor.tsx'
 import { useTestRuns, type TestRun } from '../data/k6.ts'
 import {

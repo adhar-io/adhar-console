@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { k8s } from '@adhar-console/api-clients'
-import { kube, type KubeObject } from '@adhar-console/api-clients/k8s'
+import { k8s } from '@adhar/api-clients'
+import { kube, type KubeObject } from '@adhar/api-clients/k8s'
 import {
   CHAOS_FAULTS,
   CHAOS_NAMESPACE,

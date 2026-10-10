@@ -1,5 +1,5 @@
 import { type ReactNode } from 'react'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 
 /**
  * Core display primitives — every card-shaped surface in the app should use

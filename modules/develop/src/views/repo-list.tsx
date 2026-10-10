@@ -11,9 +11,9 @@ import {
   Textarea,
   useClickOutside,
   useToast,
-} from '@adhar-console/shell-ui';
-import { cn, formatRelative } from '@adhar-console/utils';
-import type { gitea } from '@adhar-console/api-clients';
+} from '@adhar/shell-ui';
+import { cn, formatRelative } from '@adhar/utils';
+import type { gitea } from '@adhar/api-clients';
 import { groupByOwner, repoOwner } from '../data/repo-grouping.ts';
 import {
   useAllOpenPullRequests,

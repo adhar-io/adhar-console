@@ -1,4 +1,4 @@
-import { Button, EmptyState, MetabaseIcon, Skeleton } from '@adhar-console/shell-ui'
+import { Button, EmptyState, MetabaseIcon, Skeleton } from '@adhar/shell-ui'
 
 /**
  * Shared honest states for the Metabase-backed BI surfaces (dashboards,

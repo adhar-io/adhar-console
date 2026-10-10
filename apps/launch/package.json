@@ -1,0 +1,14 @@
+{
+  "name": "@adhar/launch",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Adhar Cloud launch site — under-construction landing with early-access registration, plus the maintenance page.",
+  "scripts": {
+    "dev": "deno task dev",
+    "build": "deno task build",
+    "preview": "deno task preview",
+    "typecheck": "deno task check",
+    "test": "deno task test"
+  }
+}

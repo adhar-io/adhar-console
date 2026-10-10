@@ -43,7 +43,7 @@ logic when you want richer columns.
 
 Accessed via `/status`, not under `/platform`. It lists every backing OSS
 tool with real version, license, source URL, and live health. The page is
-driven by `@adhar-console/platform-info` — update `BACKING_TOOLS` there to
+driven by `@adhar/platform-info` — update `BACKING_TOOLS` there to
 add / remove components.
 
 ## Permissions

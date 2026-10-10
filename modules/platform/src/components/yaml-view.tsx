@@ -9,7 +9,7 @@ import { loadMonaco, type MonacoEditorInstance } from './monaco-loader.ts'
  * "a subtle mis-parse there is a wrong database, not a wrong pixel". That
  * argument was right and is now answered rather than ignored:
  *
- *   • The reader is `tryParseYaml` from `@adhar-console/utils` — the same one
+ *   • The reader is `tryParseYaml` from `@adhar/utils` — the same one
  *     that reads the platform's own template documents, not a second parser
  *     written for this dialog.
  *   • `manifest-roundtrip_test.ts` holds the property the trade depends on:

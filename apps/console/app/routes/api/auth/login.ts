@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { handleLogin } from '@adhar-console/auth/server'
+import { handleLogin } from '@adhar/auth/server'
 
 /**
  * GET /api/auth/login?returnTo=/path&intent=login|register

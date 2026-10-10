@@ -1,4 +1,4 @@
-import { env } from '@adhar-console/utils'
+import { env } from '@adhar/utils'
 import { getRequestUser, unauthorized } from './request-user.ts'
 import { apiServerFetch, resolveIdentity } from './k8s/gateway.ts'
 

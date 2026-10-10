@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from 'react'
 import { tokenizeInline } from './markdown-inline.ts'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 
 /**
  * Small, dependency-free renderer for the subset the assistant emits:

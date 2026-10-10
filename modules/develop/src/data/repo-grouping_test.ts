@@ -1,6 +1,6 @@
 import { assertEquals } from 'jsr:@std/assert'
 import { groupByOwner, repoOwner } from './repo-grouping.ts'
-import type { gitea } from '@adhar-console/api-clients'
+import type { gitea } from '@adhar/api-clients'
 
 /**
  * Repositories are shown as `owner/name` and sectioned by owner, so a long

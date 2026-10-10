@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Spinner } from '@adhar-console/shell-ui'
+import { Spinner } from '@adhar/shell-ui'
 
 /**
  * Legacy client OIDC callback. In the server-side cookie auth model the

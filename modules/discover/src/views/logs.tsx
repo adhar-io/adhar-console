@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { EmptyState, LokiIcon, Spinner } from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+import { EmptyState, LokiIcon, Spinner } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { availableHeight } from '../data/fill-height.ts'
-import type { lgtm } from '@adhar-console/api-clients'
+import type { lgtm } from '@adhar/api-clients'
 import {
   DEFAULT_RANGE,
   TIME_RANGES,

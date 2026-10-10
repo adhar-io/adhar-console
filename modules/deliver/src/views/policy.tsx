@@ -10,9 +10,9 @@ import {
   StatusBadge,
   useLiveRefetch,
   type StatusKind,
-} from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
-import type { kyverno } from '@adhar-console/api-clients'
+} from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
+import type { kyverno } from '@adhar/api-clients'
 import { kyvernoClient as client } from '../data/kyverno-api.ts'
 import {
   packCoverage,

@@ -1,4 +1,4 @@
-import type { kargo } from '@adhar-console/api-clients'
+import type { kargo } from '@adhar/api-clients'
 
 /**
  * Put Kargo stages in promotion order.

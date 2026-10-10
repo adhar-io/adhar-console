@@ -2,7 +2,7 @@
  * Module-scoped, real Kyverno + Policy-Reporter reads for the Deliver → Policy
  * view.
  *
- * The shared `@adhar-console/api-clients` Kyverno client models a flattened
+ * The shared `@adhar/api-clients` Kyverno client models a flattened
  * `Policy` / `PolicyReport` shape, but its `build()` casts raw CRD items to
  * those shapes verbatim — which does not actually hold for `kyverno.io`
  * ClusterPolicies (spec is nested, result counts live in separate
@@ -16,8 +16,8 @@
  * empty result, not an error; any other failure propagates to react-query.
  */
 
-import type { kyverno } from '@adhar-console/api-clients'
-import type { k8s } from '@adhar-console/api-clients'
+import type { kyverno } from '@adhar/api-clients'
+import type { k8s } from '@adhar/api-clients'
 import { client } from './k8s.ts'
 
 type Generic = k8s.Generic

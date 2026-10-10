@@ -1,4 +1,4 @@
-import { Card, CardBody, EmptyState, StatusBadge } from '@adhar-console/shell-ui'
+import { Card, CardBody, EmptyState, StatusBadge } from '@adhar/shell-ui'
 import { useDatabases, useQuestions } from '../data/bi.ts'
 import { BiSkeletonGrid, MetabaseUnavailable } from './bi-states.tsx'
 

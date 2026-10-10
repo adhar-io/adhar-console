@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 import { useProjects } from '../data/plane.ts'
-import type { plane } from '@adhar-console/api-clients'
+import type { plane } from '@adhar/api-clients'
 
 /**
  * Workspace-wide project switcher rendered in every Define page header.

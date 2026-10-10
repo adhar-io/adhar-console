@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 import { assistStore, useAssist, type Thread } from '../agui/store.ts'
 import { relTime } from './inspector.tsx'
 import { IconPlus, IconSearch, IconTrash } from './icons.tsx'

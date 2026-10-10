@@ -1,6 +1,17 @@
 {
-  "name": "@adhar-console/shell-ui",
+  "name": "@adhar/shell-ui",
   "version": "0.1.0",
-  "exports": "./src/index.ts",
-  "tasks": { "check": "deno check src/index.ts" }
+  "exports": {
+    ".": "./src/index.ts",
+    "./brand": "./src/brand.tsx",
+    "./button": "./src/button.tsx",
+    "./primitives": "./src/primitives.tsx",
+    "./toast": "./src/toast.tsx",
+    "./theme": "./src/theme.ts",
+    "./mode-toggle": "./src/mode-toggle.tsx",
+    "./brand-icons": "./src/brand-icons.tsx"
+  },
+  "tasks": {
+    "check": "deno check src/index.ts"
+  }
 }

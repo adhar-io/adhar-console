@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { EmptyState, StatusBadge, useToast } from '@adhar-console/shell-ui'
+import { EmptyState, StatusBadge, useToast } from '@adhar/shell-ui'
 import {
   isDbUnavailable,
   useMembers,

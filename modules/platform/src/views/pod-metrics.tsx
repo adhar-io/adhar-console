@@ -10,7 +10,7 @@ import {
   StatusBadge,
   useLiveRefetch,
   type SeriesPoint,
-} from '@adhar-console/shell-ui'
+} from '@adhar/shell-ui'
 import { client, LOCAL_CLUSTER } from '../data/client.ts'
 import { formatBytes, formatCpu, parseQuantity } from '../data/format.ts'
 import { GVRS } from '../data/gvr.ts'

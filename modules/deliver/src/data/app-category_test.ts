@@ -9,7 +9,7 @@ import {
   matchesCategory,
   packageName,
 } from './app-category.ts'
-import type { argocd } from '@adhar-console/api-clients'
+import type { argocd } from '@adhar/api-clients'
 
 function app(name: string, labels?: Record<string, string>): argocd.Application {
   return {

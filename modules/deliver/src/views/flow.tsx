@@ -8,9 +8,9 @@ import {
   Spinner,
   StatusBadge,
   type StatusKind,
-} from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
-import type { argocd, argoRollouts } from '@adhar-console/api-clients'
+} from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
+import type { argocd, argoRollouts } from '@adhar/api-clients'
 import { CanvasBtn, GraphCanvas, type CanvasEdge } from '../components/canvas.tsx'
 import { layoutSerpentine } from '../data/flow-layout.ts'
 import { orderStages, stageStatus } from '../data/stage-order.ts'

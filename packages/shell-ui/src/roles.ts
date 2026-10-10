@@ -1,4 +1,4 @@
-import { useOptionalSession } from '@adhar-console/auth'
+import { useOptionalSession } from '@adhar/auth'
 import type { NavItem, NavSection } from './nav-tree.tsx'
 
 /**

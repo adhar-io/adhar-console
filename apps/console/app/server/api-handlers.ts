@@ -4,11 +4,11 @@ import { getRequestUser, unauthorized } from './request-user.ts'
  * Framework-agnostic handlers for the Postgres-backed preferences and
  * notification-state APIs. Shared by the standalone server (server.ts).
  *
- * `@adhar-console/db` is dynamically imported so postgres.js is only pulled in
+ * `@adhar/db` is dynamically imported so postgres.js is only pulled in
  * when these endpoints are actually hit, and the endpoints degrade gracefully
  * (persisted:false / empty) when no DB is configured.
  */
-const db = () => import('@adhar-console/db')
+const db = () => import('@adhar/db')
 
 const SCOPE_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
 /** Collection namespace, e.g. `okr.objective`, `design.adr`, `workspace.webhook`. */

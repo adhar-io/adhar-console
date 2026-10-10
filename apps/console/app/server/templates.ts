@@ -1,4 +1,4 @@
-import { env } from '@adhar-console/utils'
+import { env } from '@adhar/utils'
 import { getRequestUser, unauthorized } from './request-user.ts'
 import { getTool } from './tool-registry.ts'
 import { giteaConn, giteaFetcher } from './gitea-auth.ts'

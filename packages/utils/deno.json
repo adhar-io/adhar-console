@@ -1,5 +1,5 @@
 {
-  "name": "@adhar-console/utils",
+  "name": "@adhar/utils",
   "version": "0.1.0",
   "exports": "./src/index.ts",
   "tasks": {

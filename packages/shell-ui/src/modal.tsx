@@ -1,7 +1,7 @@
 import { type ReactNode } from 'react'
 import { useOverlayDismiss } from './overlay.ts'
 import { createPortal } from 'react-dom'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 
 interface ModalProps {
   open: boolean

@@ -1,4 +1,4 @@
-import type { harbor } from '@adhar-console/api-clients'
+import type { harbor } from '@adhar/api-clients'
 
 /**
  * Rolling image scans up into the numbers the Vulnerability Scans page states.

@@ -1,4 +1,4 @@
-# @adhar-console/module-platform
+# @adhar/module-platform
 
 Cross-cutting Kubernetes dashboard — clusters, workloads, pods, events,
 and a CRD browser for the Adhar stack (ArgoCD, Kargo, Crossplane, Kyverno,

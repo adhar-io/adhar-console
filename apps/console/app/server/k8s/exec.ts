@@ -1,6 +1,6 @@
 import { audit, canI, originOk, resolveIdentity, usingServiceAccountAuth } from './gateway.ts'
 import { getK8sServiceToken } from '../tool-registry.ts'
-import { env } from '@adhar-console/utils'
+import { env } from '@adhar/utils'
 import { connectH1WebSocket } from './ws-h1.ts'
 
 /**

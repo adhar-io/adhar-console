@@ -1,4 +1,4 @@
-import { PageHeader } from '@adhar-console/shell-ui'
+import { PageHeader } from '@adhar/shell-ui'
 import { ConnectionGate } from './components/connection-banner.tsx'
 import { ChaosView } from './views/chaos.tsx'
 import { KnowledgeGraph } from './views/knowledge-graph.tsx'

@@ -1,5 +1,5 @@
 {
-  "name": "@adhar-console/module-discover",
+  "name": "@adhar/module-discover",
   "version": "0.1.0",
   "private": true,
   "type": "module",

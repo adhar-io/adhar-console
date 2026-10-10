@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { handleCallback } from '@adhar-console/auth/server'
+import { handleCallback } from '@adhar/auth/server'
 
 /**
  * GET /api/auth/callback?code=…&state=…

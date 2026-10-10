@@ -9,8 +9,8 @@ import {
   Spinner,
   StatusBadge,
   type StatusKind,
-} from '@adhar-console/shell-ui'
-import { cn, formatRelative } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { cn, formatRelative } from '@adhar/utils'
 import {
   ALL_KINDS,
   EDGE_PHRASE,

@@ -1,5 +1,5 @@
 {
-  "name": "@adhar-console/module-design",
+  "name": "@adhar/module-design",
   "version": "0.1.0",
   "private": true,
   "type": "module",

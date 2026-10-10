@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { k8s } from '@adhar-console/api-clients'
+import { k8s } from '@adhar/api-clients'
 import type { Entity } from './catalog.ts'
+import { taskProgress, type TaskProgress } from './pipeline-progress.ts'
 
 /**
  * Tekton PipelineRuns for one catalog entity — the Deployment tab's
@@ -38,8 +39,8 @@ export interface PipelineRunSummary {
   /** Git details the triggers put on the run, when present. */
   branch?: string
   commit?: string
-  /** How many tasks finished out of how many, from the child references. */
-  tasks?: { done: number; total: number }
+  /** Terminal tasks out of the whole graph, with failures and skips beside it (see pipeline-progress.ts). */
+  tasks?: TaskProgress
 }
 
 interface RawRun {
@@ -108,8 +109,7 @@ export function summarise(run: RawRun): PipelineRunSummary {
   const durationSecs = Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, Math.round((end - start) / 1000)) : undefined
   const labels = run.metadata?.labels ?? {}
   const ann = run.metadata?.annotations ?? {}
-  const total = run.status?.pipelineSpec?.tasks?.length
-  const done = run.status?.childReferences?.length
+  const tasks = taskProgress(message, run.status?.pipelineSpec?.tasks?.length, run.status?.childReferences?.length)
   return {
     name: run.metadata?.name ?? '',
     namespace: run.metadata?.namespace ?? '',
@@ -122,7 +122,7 @@ export function summarise(run: RawRun): PipelineRunSummary {
     durationSecs,
     branch: paramValue(run, 'git-branch', 'branch', 'revision') ?? labels['tekton.dev/git-branch'] ?? ann['tekton.dev/git-branch'],
     commit: paramValue(run, 'git-revision', 'commit', 'sha') ?? labels['tekton.dev/git-revision'] ?? ann['tekton.dev/git-revision'],
-    ...(typeof total === 'number' && typeof done === 'number' ? { tasks: { done: Math.min(done, total), total } } : {}),
+    ...(tasks ? { tasks } : {}),
   }
 }
 

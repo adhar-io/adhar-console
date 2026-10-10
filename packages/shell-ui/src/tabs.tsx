@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 import type { StatusKind } from './status-badge.tsx'
 
 export interface TabDef<T extends string = string> {

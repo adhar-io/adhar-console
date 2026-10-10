@@ -4,12 +4,12 @@ import { Topbar } from './topbar.tsx'
 import { ErrorBoundary } from './error-boundary.tsx'
 import { CommandPalette, type CommandItem } from './command-palette.tsx'
 import { CLOSE_EVENT, OPEN_EVENT } from './ai-assistant.tsx'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 import type { NavSection } from './nav-tree.tsx'
 import type { AppLink } from './app-launcher.tsx'
 import type { Notification } from './notifications.ts'
-import type { Tenant } from '@adhar-console/tenancy'
-import type { User } from '@adhar-console/auth'
+import type { Tenant } from '@adhar/tenancy'
+import type { User } from '@adhar/auth'
 
 /** @deprecated breadcrumbs were removed; the prop is accepted but ignored. */
 type LegacyCrumb = { label: string; to?: string }

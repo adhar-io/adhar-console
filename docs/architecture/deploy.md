@@ -88,7 +88,7 @@ release workflow (when wired).
 One console deployment can front many clusters:
 
 - The Platform view tracks each cluster in a registry
-  (`@adhar-console/api-clients/k8s`'s `listClusters()`).
+  (`@adhar/api-clients/k8s`'s `listClusters()`).
 - Credentials are held as Kubeconfig secrets OR the console's SA in each
   cluster trusts the central Keycloak realm for user impersonation.
 - Latency note: the BFF talks cluster-to-cluster via the kube-apiserver of

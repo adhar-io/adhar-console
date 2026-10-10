@@ -4,8 +4,8 @@ import {
   EmptyState,
   StatusBadge,
   type StatusKind,
-} from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { usePods } from '../data/hooks.ts'
 import { age, shortImage } from '../data/format.ts'
 import { PodDrawer } from './pod-drawer.tsx'

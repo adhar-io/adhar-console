@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { DataTable, EmptyState, Modal, StatusBadge, type StatusKind } from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+import { DataTable, EmptyState, Modal, StatusBadge, type StatusKind } from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import { ROLE_LABEL, type Role } from '../data/access.ts'
 import {
   APPROVAL_SCOPES,

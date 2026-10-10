@@ -1,5 +1,5 @@
 import { Link, useRouterState } from '@tanstack/react-router'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 
 export type Phase =
   | 'define'

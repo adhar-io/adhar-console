@@ -4,7 +4,7 @@
  * The console is a Module Federation host with a remote per lifecycle phase.
  * Workspace packages are aliased to their source in every build, which means
  * federation cannot share them: the host and each remote end up with their own
- * copy of `@adhar-console/shell-ui`, `@adhar-console/auth` and so on.
+ * copy of `@adhar/shell-ui`, `@adhar/auth` and so on.
  *
  * For plain functions that is harmless. For a React CONTEXT it is not: a
  * context's identity IS the module-level object `createContext` returned, so a

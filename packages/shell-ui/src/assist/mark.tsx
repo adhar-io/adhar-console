@@ -1,5 +1,5 @@
 import { useId } from 'react'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 
 /**
  * The Adhar AI mark — a spark on the platform's tile.

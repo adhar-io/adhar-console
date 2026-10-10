@@ -1,4 +1,4 @@
-# @adhar-console/module-discover
+# @adhar/module-discover
 
 Federated remote for the **Discover** phase — observability via the LGTM
 stack (Grafana, Loki, Mimir, Tempo). Dev port **5105**.

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Modal } from '@adhar-console/shell-ui'
-import { cn, formatRelative } from '@adhar-console/utils'
+import { Modal } from '@adhar/shell-ui'
+import { cn, formatRelative } from '@adhar/utils'
 import {
   ALL_ROLES,
   ROLE_DESCRIPTION,

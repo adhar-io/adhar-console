@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import type { k8s } from '@adhar-console/api-clients'
-import { useLiveRefetch } from '@adhar-console/shell-ui'
+import type { k8s } from '@adhar/api-clients'
+import { useLiveRefetch } from '@adhar/shell-ui'
 import { client, useActiveCluster, useActiveNamespace, useNamespaceScope } from './client.ts'
 import { useLiveList } from './live.ts'
 import { GVRS } from './gvr.ts'

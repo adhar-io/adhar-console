@@ -43,7 +43,7 @@ trace view.
 Every service view elsewhere in the console can build a logs query via:
 
 ```ts
-import { lgtm } from '@adhar-console/api-clients'
+import { lgtm } from '@adhar/api-clients'
 const url = lgtm.LgtmClient.stub().grafanaEmbedUrl('golden-signals', {
   'var-service': 'adhar-console',
 })

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { airbyte } from '@adhar-console/api-clients'
+import { airbyte } from '@adhar/api-clients'
 
 /**
  * Airbyte data-pipeline hooks. Stub-backed in dev so the Develop pipelines

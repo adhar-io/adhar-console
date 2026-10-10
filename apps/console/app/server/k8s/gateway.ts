@@ -1,6 +1,6 @@
-import { env, platformDomain } from '@adhar-console/utils'
+import { env, platformDomain } from '@adhar/utils'
 import { getK8sServiceToken } from '../tool-registry.ts'
-import { getServerAuthConfig, getValidSession } from '@adhar-console/auth/server'
+import { getServerAuthConfig, getValidSession } from '@adhar/auth/server'
 
 /**
  * Kubernetes gateway — the server-side bridge between the browser and the

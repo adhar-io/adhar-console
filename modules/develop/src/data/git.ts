@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { gitea } from '@adhar-console/api-clients';
-import { toPublicUrl, useGiteaOrg, usePublicBaseDomain, useToolPublicUrl } from '@adhar-console/shell-ui';
+import { gitea } from '@adhar/api-clients';
+import { toPublicUrl, useGiteaOrg, usePublicBaseDomain, useToolPublicUrl } from '@adhar/shell-ui';
 
 /**
  * Gitea hooks for the Develop module.

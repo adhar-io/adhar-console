@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { gitea, lgtm } from '@adhar-console/api-clients'
+import { gitea, lgtm } from '@adhar/api-clients'
 import {
   type AlertSeries,
   type Incident,

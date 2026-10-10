@@ -6,10 +6,10 @@ import {
   StatusBadge,
   type Column,
   type StatusKind,
-} from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
-import { kube } from '@adhar-console/api-clients/k8s'
-import type { GatewayGVR as GVR, KubeObject, DiscoveredResource } from '@adhar-console/api-clients/k8s'
+} from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
+import { kube } from '@adhar/api-clients/k8s'
+import type { GatewayGVR as GVR, KubeObject, DiscoveredResource } from '@adhar/api-clients/k8s'
 import { age } from '../data/format.ts'
 import { useAccess, useDiscovery, useLiveList, type LiveStatus } from '../data/live.ts'
 import { NamespacePicker } from '../components/namespace-picker.tsx'

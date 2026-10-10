@@ -6,9 +6,9 @@ import {
   Spinner,
   StatusBadge,
   type StatusKind,
-} from '@adhar-console/shell-ui'
-import { BACKING_TOOLS, PLATFORM_VERSION } from '@adhar-console/platform-info'
-import { PENDING_USER, useOptionalSession } from '@adhar-console/auth'
+} from '@adhar/shell-ui'
+import { BACKING_TOOLS, PLATFORM_VERSION } from '@adhar/platform-info'
+import { PENDING_USER, useOptionalSession } from '@adhar/auth'
 import { getLayoutData } from '~/server/session.ts'
 import { overallHealth, useBackingHealth } from '~/data/backing-health.ts'
 

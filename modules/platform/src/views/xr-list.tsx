@@ -12,10 +12,10 @@ import {
   StatusBadge,
   type StatusKind,
   type Column,
-} from '@adhar-console/shell-ui'
-import { k8s } from '@adhar-console/api-clients'
-import { kube } from '@adhar-console/api-clients/k8s'
-import { cn, tryParseYaml } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { k8s } from '@adhar/api-clients'
+import { kube } from '@adhar/api-clients/k8s'
+import { cn, tryParseYaml } from '@adhar/utils'
 import { client, clusterParam, useActiveCluster } from '../data/client.ts'
 import { useGeneric, useNamespaces } from '../data/hooks.ts'
 import { GVRS } from '../data/gvr.ts'

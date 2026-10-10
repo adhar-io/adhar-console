@@ -20,10 +20,10 @@ import {
   TempoIcon,
   useAppConfig,
   usePlatformApps,
-} from '@adhar-console/shell-ui'
-import { getDemoSession, useAuth, type Session } from '@adhar-console/auth'
-import { BACKING_TOOLS } from '@adhar-console/platform-info'
-import { cn } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { getDemoSession, useAuth, type Session } from '@adhar/auth'
+import { BACKING_TOOLS } from '@adhar/platform-info'
+import { cn } from '@adhar/utils'
 import {
   createOrganization,
   getProvisioningJob,

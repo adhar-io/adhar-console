@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { argocd, k8s } from '@adhar-console/api-clients'
-import { useLiveRefetch } from '@adhar-console/shell-ui'
+import { argocd, k8s } from '@adhar/api-clients'
+import { useLiveRefetch } from '@adhar/shell-ui'
 
 /**
  * Platform-signal hooks for the Overview page — REAL data, no stubs / no

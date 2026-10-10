@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { formatRelative } from '@adhar-console/utils'
+import { formatRelative } from '@adhar/utils'
 import {
   useSaveSecurityPolicy,
   useSecurityPolicy,

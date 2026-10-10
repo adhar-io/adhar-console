@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 
 interface Props {
   title: string

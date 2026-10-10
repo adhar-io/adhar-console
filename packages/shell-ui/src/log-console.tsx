@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { cn } from '@adhar-console/utils'
+import { cn } from '@adhar/utils'
 import { Spinner } from './primitives.tsx'
 import {
   buildMatcher,

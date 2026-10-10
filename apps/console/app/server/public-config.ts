@@ -1,5 +1,5 @@
-import { env } from '@adhar-console/utils'
-import { getDiscovery, getServerAuthConfig, isServerAuthConfigured } from '@adhar-console/auth/server'
+import { env } from '@adhar/utils'
+import { getDiscovery, getServerAuthConfig, isServerAuthConfigured } from '@adhar/auth/server'
 import { publicToolInfo } from './tool-registry.ts'
 import { discoverRoutedApps } from './app-discovery.ts'
 import { consolePublicUrl, platformDomain } from './domain.ts'

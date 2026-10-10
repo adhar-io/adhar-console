@@ -5,9 +5,9 @@ import {
   EmptyState,
   Spinner,
   StatusBadge,
-} from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
-import type { coder, gitea } from '@adhar-console/api-clients'
+} from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
+import type { coder, gitea } from '@adhar/api-clients'
 import { useAllOpenPullRequests, useRepos } from '../data/git.ts'
 import { useTemplates, useWorkspaces } from '../data/coder.ts'
 import { RepoMark } from '../components/repo-picker.tsx'

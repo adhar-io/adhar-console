@@ -1,8 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { z } from 'zod'
-import { AppShell } from '@adhar-console/shell-ui'
+import { AppShell } from '@adhar/shell-ui'
 import { getLayoutData } from '~/server/session.ts'
-import { PENDING_USER, useOptionalSession } from '@adhar-console/auth'
+import { PENDING_USER, useOptionalSession } from '@adhar/auth'
 import { CatalogBrowse } from './_catalog-browse.tsx'
 import { CatalogTemplates } from './_catalog-templates.tsx'
 

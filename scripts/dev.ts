@@ -40,6 +40,10 @@ const PROCS: Proc[] = [
   { name: 'decide   ', cwd: 'modules/decide', port: 5106, color: '95' },
   { name: 'platform ', cwd: 'modules/platform', port: 5107, color: '96' },
   { name: 'workspace', cwd: 'modules/workspace', port: 5108, color: '94' },
+  // The public launch site (coming-soon + maintenance). Independent of the
+  // console and its remotes; `deno task launch:dev` starts just these two.
+  { name: 'launch-api', cwd: 'apps/launch', port: 5199, color: '1;35', task: 'dev:server' },
+  { name: 'launch   ', cwd: 'apps/launch', port: 5200, color: '1;32' },
 ]
 
 const args = Deno.args.map((a) => a.trim()).filter(Boolean)

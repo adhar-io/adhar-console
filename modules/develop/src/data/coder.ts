@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { coder } from '@adhar-console/api-clients'
-import { toPublicUrl, useLiveToolPoll, usePublicBaseDomain, useToolPublicUrl } from '@adhar-console/shell-ui'
+import { coder } from '@adhar/api-clients'
+import { toPublicUrl, useLiveToolPoll, usePublicBaseDomain, useToolPublicUrl } from '@adhar/shell-ui'
 
 /**
  * Coder hooks for cloud development environments.

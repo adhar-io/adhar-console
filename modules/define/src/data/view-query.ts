@@ -1,4 +1,4 @@
-import type { plane } from '@adhar-console/api-clients'
+import type { plane } from '@adhar/api-clients'
 import { memberDisplayName } from './plane.ts'
 
 /**

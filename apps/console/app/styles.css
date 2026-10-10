@@ -80,7 +80,14 @@
   --color-surface-app: oklch(0.981 0.008 260);
   --color-surface-sunken: oklch(0.968 0.012 260);
   --color-surface-raised: oklch(1 0 0);
-  --color-surface-sidebar: oklch(0.972 0.010 260);
+  /*
+   * The app chrome — sidebar rail and topbar — is white, not the faint
+   * blue-grey it used to be. At 0.972 against a 0.981 page it read as a
+   * slightly dirty panel rather than a deliberate surface, and it sat BELOW
+   * the white cards it frames, which inverted the depth: the chrome should be
+   * the ground the content sits on, not a shadow behind it.
+   */
+  --color-surface-sidebar: oklch(1 0 0);
   /*
    * The fill a nav row takes on hover.
    *

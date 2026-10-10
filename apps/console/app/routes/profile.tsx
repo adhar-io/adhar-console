@@ -21,9 +21,9 @@ import {
   Tabs,
   Textarea,
   THEMES,
-} from '@adhar-console/shell-ui'
-import { formatAbsolute, formatRelative } from '@adhar-console/utils'
-import { PENDING_USER, useOptionalSession, type Session, type User } from '@adhar-console/auth'
+} from '@adhar/shell-ui'
+import { formatAbsolute, formatRelative } from '@adhar/utils'
+import { PENDING_USER, useOptionalSession, type Session, type User } from '@adhar/auth'
 import { getLayoutData } from '~/server/session.ts'
 import {
   applyAppearance,

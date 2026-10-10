@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { EmptyState, Markdown, Spinner, useGiteaOrg } from '@adhar-console/shell-ui';
+import { EmptyState, Markdown, Spinner, useGiteaOrg } from '@adhar/shell-ui';
 import { dirOf, resolveReadmeImage } from '../data/readme-assets.ts';
-import type { gitea } from '@adhar-console/api-clients';
+import type { gitea } from '@adhar/api-clients';
 import { useBranches, useFile, useTree } from '../data/git.ts';
 import { CodeEditor } from './code-editor.tsx';
 import {

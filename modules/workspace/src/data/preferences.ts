@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { docStore } from '@adhar-console/shell-ui'
+import { docStore } from '@adhar/shell-ui'
 
 /**
  * WORKSPACE-CONFIGURATION data layer — real, tenant-scoped persistence for

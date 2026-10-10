@@ -22,8 +22,8 @@ import {
   useToast,
   type Column,
   type StatusKind,
-} from '@adhar-console/shell-ui'
-import { cn, formatAbsolute, formatRelative } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
 import { CrdMissing } from '../components/crd-missing.tsx'
 import { PerfSuite } from './perf-suite.tsx'
 import { PerfReport } from './perf-report.tsx'

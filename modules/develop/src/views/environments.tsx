@@ -21,9 +21,9 @@ import {
   type LogLine,
   detectSeverity,
   type Severity,
-} from '@adhar-console/shell-ui'
-import { cn, formatRelative } from '@adhar-console/utils'
-import { coder } from '@adhar-console/api-clients'
+} from '@adhar/shell-ui'
+import { cn, formatRelative } from '@adhar/utils'
+import { coder } from '@adhar/api-clients'
 import {
   useBuildLogs,
   useBuilds,

@@ -8,8 +8,8 @@ import {
   Spinner,
   StatusBadge,
   type StatusKind,
-} from '@adhar-console/shell-ui'
-import { cn, formatRelative } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { cn, formatRelative } from '@adhar/utils'
 import { useFreight, usePromote, usePromotions, useStages } from '../data/delivery.ts'
 import { promotionChain } from '../data/promotion-chain.ts'
 import {

@@ -8,7 +8,7 @@ import {
   shaEq,
   type JourneyInput,
 } from './commit-journey.ts'
-import type { gitea, kargo } from '@adhar-console/api-clients'
+import type { gitea, kargo } from '@adhar/api-clients'
 import type { CRDObject } from './flow.ts'
 
 const SHA = 'e4ea34bd11c2405bf6218403d4a1a3e9d5235565'

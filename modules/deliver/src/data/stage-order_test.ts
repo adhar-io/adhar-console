@@ -1,6 +1,6 @@
 import { assertEquals } from 'jsr:@std/assert'
 import { orderStages, shortFreight, stageStatus } from './stage-order.ts'
-import type { kargo } from '@adhar-console/api-clients'
+import type { kargo } from '@adhar/api-clients'
 
 /**
  * The API returns stages alphabetically, so a `dev → test → prod` pipeline

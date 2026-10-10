@@ -1,5 +1,5 @@
-import { Sparkline, type SeriesPoint } from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+import { Sparkline, type SeriesPoint } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 
 interface Props {
   label: string

@@ -1,5 +1,5 @@
-import { Card, CardBody, EmptyState, Spinner } from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+import { Card, CardBody, EmptyState, Spinner } from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import { useBranches, useCommits } from '../data/git.ts'
 import { RepoScope } from '../components/repo-scope.tsx'
 

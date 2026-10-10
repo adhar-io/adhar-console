@@ -12,8 +12,8 @@ import {
   Tabs,
   type TabDef,
   useOverlayDismiss,
-} from '@adhar-console/shell-ui'
-import { kube } from '@adhar-console/api-clients/k8s'
+} from '@adhar/shell-ui'
+import { kube } from '@adhar/api-clients/k8s'
 import { useNodes } from '../data/hooks.ts'
 import { GVRS } from '../data/gvr.ts'
 import { useHasK8sPermission } from '../data/access.ts'

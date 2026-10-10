@@ -9,8 +9,8 @@ import {
   Modal,
   StatusBadge,
   type StatusKind,
-} from '@adhar-console/shell-ui'
-import { formatRelative } from '@adhar-console/utils'
+} from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import { KIND, newId, useCollection, useCreate, useRemove, useSeedExamples, useUpdate } from '../data/store.ts'
 import { SEED_ADRS } from '../data/seed.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'

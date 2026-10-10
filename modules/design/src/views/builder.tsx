@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
-import { AdharSymbol, Spinner } from '@adhar-console/shell-ui'
-import { RemoteModule, loadBuilderApp } from '@adhar-console/mf-utils'
-import { cn } from '@adhar-console/utils'
+import { AdharSymbol, Spinner } from '@adhar/shell-ui'
+import { RemoteModule, loadBuilderApp } from '@adhar/mf-utils'
+import { cn } from '@adhar/utils'
 import type { Wireframe } from '../data/types.ts'
 
 /**

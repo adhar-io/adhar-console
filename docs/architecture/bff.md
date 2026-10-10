@@ -29,7 +29,7 @@ server functions first.
 // apps/console/app/server/bff.ts
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
-import { gitea } from '@adhar-console/api-clients'
+import { gitea } from '@adhar/api-clients'
 
 const clients = {
   gitea: gitea.GiteaClient.stub(), // swap to .create(...) in prod
@@ -59,7 +59,7 @@ tree-shakes the server bits from the client bundle.
 ## Tenancy + auth inside a handler
 
 ```ts
-import { requireSession } from '@adhar-console/auth/server'
+import { requireSession } from '@adhar/auth/server'
 
 export const listRepos = createServerFn({ method: 'GET' }).handler(async () => {
   const session = await requireSession() // reads the signed session cookie
@@ -74,7 +74,7 @@ Four rules:
 2. **Every handler has a `zod` validator for input.**
 3. **Every client call uses a tenant-scoped identifier** (Gitea org, ArgoCD
    project, Harbor project, etc.). Tenancy maps live in
-   `@adhar-console/tenancy`.
+   `@adhar/tenancy`.
 4. **Never trust backing-tool responses as-is.** Schemas in
    `api-clients/<tool>/types.ts` validate what comes back.
 
@@ -107,6 +107,6 @@ For user-friendly messages, views read `error.status`:
 | ----------------------------------------- | --------------------------------------------- |
 | Add a new endpoint                        | `apps/console/app/server/bff.ts`              |
 | Add a new backing tool                    | `packages/api-clients/src/<tool>/`            |
-| Route-tenant mapping change               | `@adhar-console/tenancy`                      |
-| Common retry / timeout policy             | `@adhar-console/api-clients/base/http.ts`     |
+| Route-tenant mapping change               | `@adhar/tenancy`                      |
+| Common retry / timeout policy             | `@adhar/api-clients/base/http.ts`     |
 | Turn on tracing for backing calls         | Wrap `HttpClient` (open an issue; planned)    |

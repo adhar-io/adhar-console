@@ -16,7 +16,7 @@
  */
 import { extname, join, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { env } from '@adhar-console/utils'
+import { env } from '@adhar/utils'
 import {
   getDiscovery,
   getServerAuthConfig,
@@ -25,7 +25,7 @@ import {
   handleLogout,
   handleSession,
   isServerAuthConfigured,
-} from '@adhar-console/auth/server'
+} from '@adhar/auth/server'
 import { proxyToolRequest } from './app/server/proxy.ts'
 import { publicConfigResponse } from './app/server/public-config.ts'
 import { handleDocuments, handlePreferences } from './app/server/api-handlers.ts'
@@ -130,7 +130,7 @@ function healthz(): Response {
 }
 
 async function readyz(): Promise<Response> {
-  const { isDbConfigured, pingDb } = await import('@adhar-console/db')
+  const { isDbConfigured, pingDb } = await import('@adhar/db')
   const db = isDbConfigured() ? ((await pingDb()) ? 'ok' : 'down') : 'unconfigured'
   const cfg = getServerAuthConfig()
   if (!cfg) {
@@ -234,7 +234,7 @@ async function diagnostics(req: Request): Promise<Response> {
 
   // ── Database ──
   try {
-    const { isDbConfigured, pingDb } = await import('@adhar-console/db')
+    const { isDbConfigured, pingDb } = await import('@adhar/db')
     out.db = isDbConfigured()
       ? { status: (await pingDb()) ? 'ok' : 'down', configured: true }
       : { status: 'unconfigured', configured: false }

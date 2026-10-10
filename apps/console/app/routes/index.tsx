@@ -10,9 +10,9 @@ import {
   type AppLink,
   type Notification,
   useOverlayDismiss,
-} from '@adhar-console/shell-ui'
-import { cn, formatRelative } from '@adhar-console/utils'
-import { PENDING_USER, useOptionalSession } from '@adhar-console/auth'
+} from '@adhar/shell-ui'
+import { cn, formatRelative } from '@adhar/utils'
+import { PENDING_USER, useOptionalSession } from '@adhar/auth'
 import { summarizeCluster, useClusterSignals } from '~/data/cluster-signals.ts'
 import { appWorkloads, useDoraApps } from '~/data/platform-signals.ts'
 import { useDoraLeadTime, useDoraOps } from '~/data/dora-ops.ts'

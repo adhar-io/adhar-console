@@ -1,4 +1,4 @@
-import { Card, CardBody, CardHeader, EmptyState, StatusBadge } from '@adhar-console/shell-ui'
+import { Card, CardBody, CardHeader, EmptyState, StatusBadge } from '@adhar/shell-ui'
 import { useGeneric } from '../data/hooks.ts'
 import { age } from '../data/format.ts'
 

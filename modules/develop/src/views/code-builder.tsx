@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { Button, Spinner } from '@adhar-console/shell-ui'
-import { RemoteModule, getBuilderHost, loadBuilderApp } from '@adhar-console/mf-utils'
+import { Button, Spinner } from '@adhar/shell-ui'
+import { RemoteModule, getBuilderHost, loadBuilderApp } from '@adhar/mf-utils'
 
 /**
  * Code Builder — mounts the shared Adhar Builder via Module Federation
@@ -13,7 +13,7 @@ import { RemoteModule, getBuilderHost, loadBuilderApp } from '@adhar-console/mf-
  *
  * Setup: set `VITE_ADHAR_BUILDER_URL` to point at the deployed builder;
  * defaults to `http://localhost:5174` for local dev. The actual federation
- * loading happens via the runtime API in `@adhar-console/mf-utils/builder`.
+ * loading happens via the runtime API in `@adhar/mf-utils/builder`.
  */
 
 interface BuilderAppProps {

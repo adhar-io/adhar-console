@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { KubeObject } from '@adhar-console/api-clients/k8s'
-import { Button, Card, CardBody, CardHeader, EmptyState, Select } from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+import type { KubeObject } from '@adhar/api-clients/k8s'
+import { Button, Card, CardBody, CardHeader, EmptyState, Select } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { useLiveList } from '../data/live.ts'
 import { GVRS } from '../data/gvr.ts'
 import { NamespacePicker } from '../components/namespace-picker.tsx'
@@ -23,7 +23,7 @@ import {
   type Severity,
   type SinceLabel,
   type Tail,
-} from '@adhar-console/shell-ui'
+} from '@adhar/shell-ui'
 
 /**
  * The Logs page — live container logs for a pod, or merged across a workload.

@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { EmptyState, Spinner } from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
+import { EmptyState, Spinner } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { fmtMoney, useAllocation, type AllocationDimension, type AllocationRow } from '../data/billing.ts'
 import {
   SecondaryButton,

@@ -1,4 +1,4 @@
-import type { gitea, kargo } from '@adhar-console/api-clients'
+import type { gitea, kargo } from '@adhar/api-clients'
 import type { CRDObject } from './flow.ts'
 import { orderStages } from './stage-order.ts'
 

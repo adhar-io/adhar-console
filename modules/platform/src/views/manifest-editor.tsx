@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Button, Spinner } from '@adhar-console/shell-ui'
-import { cn } from '@adhar-console/utils'
-import { kube } from '@adhar-console/api-clients/k8s'
-import type { GatewayGVR as GVR, KubeObject } from '@adhar-console/api-clients/k8s'
+import { Button, Spinner } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
+import { kube } from '@adhar/api-clients/k8s'
+import type { GatewayGVR as GVR, KubeObject } from '@adhar/api-clients/k8s'
 import { useAccess } from '../data/live.ts'
 import { loadMonaco, type MonacoEditorInstance } from '../components/monaco-loader.ts'
 

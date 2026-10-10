@@ -1,6 +1,6 @@
 import { assert, assertEquals } from 'jsr:@std/assert'
 import { buildReleases, readContents, summariseReleases } from './releases.ts'
-import type { kargo } from '@adhar-console/api-clients'
+import type { kargo } from '@adhar/api-clients'
 
 function freight(over: Partial<kargo.Freight> = {}): kargo.Freight {
   return {

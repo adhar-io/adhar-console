@@ -1,4 +1,4 @@
-# @adhar-console/module-workspace
+# @adhar/module-workspace
 
 Cross-cutting SaaS admin surface — organization settings, members, teams,
 projects, environments, integrations, API tokens, audit log, plan, usage,

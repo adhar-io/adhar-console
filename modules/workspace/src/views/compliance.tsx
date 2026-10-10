@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { StatusBadge, type StatusKind } from '@adhar-console/shell-ui'
-import { k8s } from '@adhar-console/api-clients'
-import { formatRelative } from '@adhar-console/utils'
+import { StatusBadge, type StatusKind } from '@adhar/shell-ui'
+import { k8s } from '@adhar/api-clients'
+import { formatRelative } from '@adhar/utils'
 import {
   FRAMEWORK_PRESETS,
   presetToFramework,

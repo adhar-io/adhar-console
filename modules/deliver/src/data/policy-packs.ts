@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { kyverno } from '@adhar-console/api-clients'
+import type { kyverno } from '@adhar/api-clients'
 import { CIS_BASELINE_YAML, SOC2_BASELINE_YAML } from './bundles/index.ts'
 
 /**

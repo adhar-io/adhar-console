@@ -9,8 +9,8 @@ import {
   plane,
   posthog,
   trivy,
-} from '@adhar-console/api-clients'
-import { useArgocdProject, useGiteaOrg, usePlaneWorkspace } from '@adhar-console/shell-ui'
+} from '@adhar/api-clients'
+import { useArgocdProject, useGiteaOrg, usePlaneWorkspace } from '@adhar/shell-ui'
 
 /**
  * Cross-module signal hooks for the Overview page.

@@ -77,7 +77,14 @@
   --color-accent-950: oklch(0.283 0.141 291);
 
   /* ─ Surfaces (blue-tinted, as in the artwork) ─ */
-  --color-surface-app: oklch(0.981 0.008 260);
+  /*
+   * The page canvas is pure white in light mode. It was a faint blue-tinted
+   * off-white, which read as a grey wash behind the white cards on every page
+   * (most visibly on the notification center and the workspace sub pages).
+   * Cards keep their borders and shadows for depth; `surface-sunken` stays
+   * tinted for secondary fills such as table headers and chips.
+   */
+  --color-surface-app: oklch(1 0 0);
   --color-surface-sunken: oklch(0.968 0.012 260);
   --color-surface-raised: oklch(1 0 0);
   /*

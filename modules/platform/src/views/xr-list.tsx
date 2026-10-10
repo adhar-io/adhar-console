@@ -10,6 +10,7 @@ import {
   EmptyState,
   Spinner,
   StatusBadge,
+  useToast,
   type StatusKind,
   type Column,
 } from '@adhar/shell-ui'
@@ -450,6 +451,11 @@ export function XrList({
   const [selected, setSelected] = useState<XR | null>(null)
   const [provisioning, setProvisioning] = useState(false)
   const canProvision = useHasK8sPermission('crds.write')
+  const toast = useToast()
+  const [search, setSearch] = useState('')
+  const [health, setHealth] = useState<HealthFilter>('all')
+  const [pendingDelete, setPendingDelete] = useState<XR | null>(null)
+  const cluster = useActiveCluster()
 
   // Honour a "create" intent handed off by the catalog dashboard — open the
   // provisioning wizard once, on mount, only for the matching kind and only
@@ -569,17 +575,127 @@ export function XrList({
       },
     },
     ...(config.extraColumns ?? []),
+    {
+      key: 'secret',
+      header: 'Connection secret',
+      cell: (r) => {
+        const ref = r.spec?.writeConnectionSecretToRef as { name?: string; namespace?: string } | undefined
+        return ref?.name ? (
+          <code className="text-xs text-content-muted" title={ref.namespace ? `${ref.namespace}/${ref.name}` : ref.name}>
+            {ref.name}
+          </code>
+        ) : (
+          <span className="text-content-subtle">—</span>
+        )
+      },
+    },
+    {
+      key: 'since',
+      header: 'Ready since',
+      cell: (r) => {
+        const c = findCondition(r, 'Ready')
+        return c?.status === 'True' && c.lastTransitionTime ? (
+          <span className="text-xs text-content-muted" title={c.lastTransitionTime}>
+            {age(c.lastTransitionTime)}
+          </span>
+        ) : (
+          <span className="text-content-subtle">—</span>
+        )
+      },
+    },
     { key: 'age', header: 'Age', cell: (r) => age(r.metadata.creationTimestamp) },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      cell: (r) => (
+        <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+          <RowBtn title="Open details" onClick={() => setSelected(r)}>
+            Details
+          </RowBtn>
+          <RowBtn
+            title="Copy name"
+            onClick={() => {
+              navigator.clipboard?.writeText(r.metadata.name).then(
+                () => toast.success('Name copied', { description: r.metadata.name }),
+                () => toast.error('Could not copy'),
+              )
+            }}
+          >
+            Copy
+          </RowBtn>
+          {canProvision && !r.metadata.deletionTimestamp ? (
+            <RowBtn title={`Delete this ${config.singular.toLowerCase()}`} danger onClick={() => setPendingDelete(r)}>
+              Delete
+            </RowBtn>
+          ) : null}
+        </div>
+      ),
+    },
   ]
+
+  // Management toolbar: the counts double as filters, search narrows by name,
+  // namespace or composition.
+  const counts = {
+    total: rows.length,
+    ready: rows.filter((r) => !r.metadata.deletionTimestamp && findCondition(r, 'Ready')?.status === 'True').length,
+    notReady: rows.filter((r) => !r.metadata.deletionTimestamp && findCondition(r, 'Ready')?.status !== 'True').length,
+    deleting: rows.filter((r) => Boolean(r.metadata.deletionTimestamp)).length,
+  }
+  const needle = search.trim().toLowerCase()
+  const shown = rows.filter((r) => {
+    if (health === 'ready' && !(findCondition(r, 'Ready')?.status === 'True' && !r.metadata.deletionTimestamp)) return false
+    if (health === 'not-ready' && (findCondition(r, 'Ready')?.status === 'True' || r.metadata.deletionTimestamp)) return false
+    if (health === 'deleting' && !r.metadata.deletionTimestamp) return false
+    if (!needle) return true
+    const comp = (r.spec?.compositionRef as { name?: string } | undefined)?.name ?? ''
+    return [r.metadata.name, r.metadata.namespace ?? '', comp].some((v) => v.toLowerCase().includes(needle))
+  })
+
+  const confirmDelete = async () => {
+    const r = pendingDelete
+    if (!r) return
+    setPendingDelete(null)
+    try {
+      await kube.delete(config.gvr, r.metadata.namespace, r.metadata.name, { cluster: clusterParam(cluster) })
+      toast.success(`Deleting ${r.metadata.name}`, {
+        description: `Crossplane is tearing down the ${config.singular.toLowerCase()} and everything it composed.`,
+      })
+      invalidate()
+    } catch (e) {
+      toast.error(`Could not delete ${r.metadata.name}`, { description: e instanceof Error ? e.message : String(e) })
+    }
+  }
 
   return (
     <>
-      <div className="mb-3 flex items-center justify-end gap-2">
+      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <CountTile label={`All ${config.plural.toLowerCase()}`} value={counts.total} active={health === 'all'} onClick={() => setHealth('all')} />
+        <CountTile label="Ready" value={counts.ready} tone="healthy" active={health === 'ready'} onClick={() => setHealth(health === 'ready' ? 'all' : 'ready')} />
+        <CountTile label="Not ready" value={counts.notReady} tone={counts.notReady ? 'degraded' : undefined} active={health === 'not-ready'} onClick={() => setHealth(health === 'not-ready' ? 'all' : 'not-ready')} />
+        <CountTile label="Deleting" value={counts.deleting} tone={counts.deleting ? 'paused' : undefined} active={health === 'deleting'} onClick={() => setHealth(health === 'deleting' ? 'all' : 'deleting')} />
+      </div>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={`Search ${config.plural.toLowerCase()} by name, namespace or composition…`}
+          aria-label={`Search ${config.plural.toLowerCase()}`}
+          className="h-9 min-w-[240px] flex-1 rounded-lg border border-edge-default bg-surface-raised px-3 text-[13px] text-content placeholder:text-content-subtle focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+        />
+        <span className="text-[11px] tabular-nums text-content-subtle">
+          {shown.length === rows.length ? `${rows.length}` : `${shown.length} of ${rows.length}`}{' '}
+          {rows.length === 1 ? 'item' : 'items'}
+        </span>
         {q.isFetching && !q.isLoading ? (
           <span className="inline-flex items-center gap-1 text-[11px] text-content-subtle">
             <Spinner size={12} /> refreshing
           </span>
         ) : null}
+        <Button size="sm" variant="secondary" onClick={() => q.refetch()} disabled={q.isFetching}>
+          Refresh
+        </Button>
         {canProvision ? (
           <Button size="sm" onClick={() => setProvisioning(true)}>
             Provision {config.singular}
@@ -593,10 +709,16 @@ export function XrList({
       <DataTable
         loading={q.isLoading}
         columns={columns}
-        rows={rows}
+        rows={shown}
         rowKey={(r) => r.metadata.uid ?? `${r.metadata.namespace ?? '-'}/${r.metadata.name}`}
         onRowClick={(r) => setSelected(r)}
         empty={
+          rows.length ? (
+            <EmptyState
+              title="Nothing matches"
+              description="Clear the search or pick another status to see the rest."
+            />
+          ) : (
           <EmptyState
             title={`No ${config.plural.toLowerCase()} yet`}
             description={
@@ -605,8 +727,16 @@ export function XrList({
                 : `Claim a ${config.singular} via GitOps to populate this list.`
             }
           />
+          )
         }
       />
+      {pendingDelete ? (
+        <ConfirmDelete
+          what={`${config.singular.toLowerCase()} ${pendingDelete.metadata.name}`}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={confirmDelete}
+        />
+      ) : null}
       {provisioning ? (
         <ClaimFormModal
           config={config}
@@ -1622,7 +1752,7 @@ function XrDrawer({
 
   if (typeof document === 'undefined') return null
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <button
         type="button"
         aria-label="Close"
@@ -2714,6 +2844,86 @@ function EventsSection({ xr, cluster }: { xr: XR; cluster?: string }) {
 }
 
 /* ───── helpers + atoms ───── */
+
+type HealthFilter = 'all' | 'ready' | 'not-ready' | 'deleting'
+
+function CountTile({
+  label,
+  value,
+  tone,
+  active,
+  onClick,
+}: {
+  label: string
+  value: number
+  tone?: StatusKind
+  active: boolean
+  onClick(): void
+}) {
+  const valueCls = tone === 'healthy'
+    ? 'text-emerald-700 dark:text-emerald-300'
+    : tone === 'degraded'
+      ? 'text-rose-700 dark:text-rose-300'
+      : tone === 'paused'
+        ? 'text-amber-700 dark:text-amber-300'
+        : 'text-content'
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        'rounded-xl border bg-surface-raised px-3 py-2.5 text-left shadow-sm transition-colors',
+        active ? 'border-brand-400 ring-1 ring-brand-400 dark:border-brand-500/60 dark:ring-brand-500/60' : 'border-edge-default hover:border-edge-strong',
+      )}
+    >
+      <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">{label}</div>
+      <div className={cn('mt-1 font-mono text-[20px] font-semibold tabular-nums leading-none', valueCls)}>{value}</div>
+    </button>
+  )
+}
+
+function RowBtn({ title, onClick, danger = false, children }: { title: string; onClick(): void; danger?: boolean; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      className={cn(
+        'rounded-md border px-2 py-1 text-[11px] font-medium transition-colors',
+        danger
+          ? 'border-rose-200 text-rose-700 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-500/10'
+          : 'border-edge-default text-content-muted hover:border-edge-strong hover:text-content',
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+/** Inline confirmation — a delete here tears down real infrastructure. */
+function ConfirmDelete({ what, onCancel, onConfirm }: { what: string; onCancel(): void; onConfirm(): void }) {
+  return createPortal(
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="alertdialog" aria-modal="true">
+      <button type="button" aria-label="Cancel" className="fixed inset-0 bg-scrim/40" onClick={onCancel} />
+      <div className="relative w-full max-w-md rounded-2xl border border-edge-default bg-surface-raised p-5 shadow-2xl">
+        <h3 className="text-sm font-semibold text-content">Delete {what}?</h3>
+        <p className="mt-1.5 text-[13px] text-content-muted">
+          Crossplane will deprovision everything this claim composed. This cannot be undone.
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button size="sm" variant="secondary" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button size="sm" variant="danger" onClick={onConfirm}>
+            Delete
+          </Button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
 
 function conditionBadge(xr: XR, type: 'Ready' | 'Synced') {
   const c = findCondition(xr, type)

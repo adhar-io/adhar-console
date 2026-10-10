@@ -327,8 +327,8 @@ function BrowseModal({ info, onClose }: { info: XrdInfo; onClose(): void }) {
         className="fixed inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
-      <div className="relative w-full max-w-6xl rounded-2xl border border-edge-default bg-surface-app shadow-2xl">
-        <header className="flex items-center justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
+      <div className="relative flex max-h-[calc(100vh-4rem)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-2xl">
+        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-edge-default px-6 py-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">
               {cur.label ?? info.humanPlural}
@@ -336,8 +336,13 @@ function BrowseModal({ info, onClose }: { info: XrdInfo; onClose(): void }) {
             <h2 className="mt-0.5 truncate text-lg font-semibold text-content">
               {info.kind}
             </h2>
-            <div className="mt-0.5 font-mono text-[11px] text-content-muted">
-              {info.group}/{info.version}
+            <p className="mt-1 max-w-2xl text-[13px] text-content-muted">
+              {cur.description ?? `${info.kind} — provisioned via Crossplane.`}
+            </p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2 font-mono text-[11px] text-content-subtle">
+              <span>{info.group}/{info.version}</span>
+              <span aria-hidden>·</span>
+              <span>{info.plural}</span>
             </div>
           </div>
           <button
@@ -349,7 +354,7 @@ function BrowseModal({ info, onClose }: { info: XrdInfo; onClose(): void }) {
             <IconClose />
           </button>
         </header>
-        <div className="p-6">
+        <div className="min-h-0 flex-1 overflow-y-auto p-6">
           <XrList config={configFromXrd(info)} />
         </div>
       </div>

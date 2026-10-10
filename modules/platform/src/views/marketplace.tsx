@@ -59,7 +59,7 @@ export function MarketplaceView() {
     useMarketplaceApps()
 
   const [search, setSearch] = useState('')
-  const [status, setStatus] = useState<'enabled' | 'disabled' | 'all'>('all')
+  const [status, setStatus] = useState<StatusFilter>('all')
   const [category, setCategory] = useState<string>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
@@ -74,7 +74,15 @@ export function MarketplaceView() {
   const visible = useMemo(
     () =>
       apps
-        .filter((a) => (status === 'all' ? true : status === 'enabled' ? a.enabled : !a.enabled))
+        .filter((a) =>
+          status === 'all'
+            ? true
+            : status === 'enabled'
+              ? a.enabled
+              : status === 'healthy'
+                ? a.enabled && a.live?.health === 'Healthy'
+                : !a.enabled
+        )
         .filter((a) => category === 'all' || a.category === category)
         .filter((a) => {
           if (!search) return true
@@ -246,7 +254,7 @@ function SkeletonGrid() {
 
 /* ─────────────────────────── toolbar (hero · stats · search · filters) ─────────────────────────── */
 
-type StatusFilter = 'enabled' | 'disabled' | 'all'
+type StatusFilter = 'enabled' | 'disabled' | 'healthy' | 'all'
 
 function MarketplaceToolbar({
   apps,
@@ -393,6 +401,8 @@ function MarketplaceToolbar({
                 : 'every enabled app is healthy'
           }
           bar={enabledCount ? healthy / enabledCount : 0}
+          active={status === 'healthy'}
+          onClick={() => onStatusChange(status === 'healthy' ? 'all' : 'healthy')}
         />
         <StatTile
           label="Disabled"
@@ -450,6 +460,7 @@ function MarketplaceToolbar({
               [
                 { value: 'all', label: 'All', count: total },
                 { value: 'enabled', label: 'Enabled', count: enabledCount, dot: 'bg-emerald-500' },
+                { value: 'healthy', label: 'Healthy', count: healthy, dot: 'bg-sky-500' },
                 { value: 'disabled', label: 'Disabled', count: disabledCount, dot: 'bg-slate-400' },
               ] as Array<{ value: StatusFilter; label: string; count: number; dot?: string }>
             ).map((o) => {
@@ -505,7 +516,7 @@ function MarketplaceToolbar({
             </span>
             {search ? <FilterToken label={`“${search}”`} onClear={() => onSearchChange('')} /> : null}
             {status !== 'all' ? (
-              <FilterToken label={status === 'enabled' ? 'Enabled' : 'Disabled'} onClear={() => onStatusChange('all')} />
+              <FilterToken label={status === 'enabled' ? 'Enabled' : status === 'healthy' ? 'Healthy' : 'Disabled'} onClear={() => onStatusChange('all')} />
             ) : null}
             {category !== 'all' ? (
               <FilterToken label={appCategoryLabel(category)} onClear={() => onCategoryChange('all')} />

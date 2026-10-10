@@ -113,7 +113,7 @@ async function loadRegistry(): Promise<void> {
 // position or interleave their lines.
 let writeChain: Promise<void> = Promise.resolve()
 
-async function appendRecord(record: InterestRecord): Promise<void> {
+function appendRecord(record: InterestRecord): Promise<void> {
   const run = async () => {
     await Deno.mkdir(join(INTEREST_FILE, '..'), { recursive: true }).catch(() => {})
     await Deno.writeTextFile(INTEREST_FILE, JSON.stringify(record) + '\n', { append: true })

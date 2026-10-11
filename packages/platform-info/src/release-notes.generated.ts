@@ -4,6 +4,31 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.122",
+    "date": "2026-10-11",
+    "changes": [
+      {
+        "type": "change",
+        "text": "Ci/cd: pipeline step log console without rounded corners"
+      },
+      {
+        "type": "change",
+        "scope": "adhar resources",
+        "text": "A page per XRD, and day-2 operations on every page"
+      },
+      {
+        "type": "change",
+        "scope": "catalog deploy tab",
+        "text": "Real namespace, matched CI runs, why it is degraded"
+      },
+      {
+        "type": "change",
+        "scope": "console",
+        "text": "Tinted canvas behind the default page content again"
+      }
+    ]
+  },
+  {
     "version": "0.1.121",
     "date": "2026-10-11",
     "changes": [
@@ -1009,16 +1034,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
       {
         "type": "fix",
         "text": "Fix sidebar navigation issue"
-      }
-    ]
-  },
-  {
-    "version": "0.1.82",
-    "date": "2026-09-20",
-    "changes": [
-      {
-        "type": "fix",
-        "text": "Notifications fix"
       }
     ]
   }

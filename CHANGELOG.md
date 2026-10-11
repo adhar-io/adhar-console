@@ -6,6 +6,15 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.122] - 2026-10-11
+
+### Changed
+
+- Ci/cd: pipeline step log console without rounded corners
+- **adhar resources:** A page per XRD, and day-2 operations on every page
+- **catalog deploy tab:** Real namespace, matched CI runs, why it is degraded
+- **console:** Tinted canvas behind the default page content again
+
 ## [0.1.121] - 2026-10-11
 
 ### Added

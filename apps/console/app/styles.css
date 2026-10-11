@@ -85,6 +85,13 @@
    * tinted for secondary fills such as table headers and chips.
    */
   --color-surface-app: oklch(1 0 0);
+  /*
+   * The default page content area keeps the faint blue tint (the old
+   * `surface-app`), so pages read as a tinted canvas with white cards on it.
+   * Only AppShell's standard content <main> uses it; the shell chrome,
+   * full-bleed pages, drawers and panels stay on `surface-app`.
+   */
+  --color-surface-canvas: oklch(0.981 0.008 260);
   --color-surface-sunken: oklch(0.968 0.012 260);
   --color-surface-raised: oklch(1 0 0);
   /*
@@ -717,6 +724,7 @@ body {
 
   /* ─ Surfaces (page → section → card) inverted to a deep slate ramp. ─ */
   --color-surface-app: oklch(0.165 0.022 265);
+  --color-surface-canvas: oklch(0.165 0.022 265);
   --color-surface-sunken: oklch(0.135 0.020 265);
   --color-surface-raised: oklch(0.213 0.026 265);
   --color-surface-sidebar: oklch(0.185 0.024 265);

@@ -228,7 +228,7 @@ export function AppShell({
             <ErrorBoundary>{children}</ErrorBoundary>
           </main>
         ) : (
-          <main className="isolate flex-1 overflow-y-auto">
+          <main className="isolate flex-1 overflow-y-auto bg-surface-canvas">
             <ErrorBoundary>
               <div
                 className={cn(

@@ -439,7 +439,7 @@ export const kube = {
     // `tailLines` again would re-send lines the viewer already has, so a stream
     // that reconnects a few times fills the pane with duplicates. Resuming from
     // the last timestamp seen returns only what was missed.
-    opts: { container?: string; follow?: boolean; tailLines?: number; timestamps?: boolean; previous?: boolean; sinceSeconds?: number; sinceTime?: string; signal?: AbortSignal; cluster?: string } = {},
+    opts: { container?: string; follow?: boolean; tailLines?: number; timestamps?: boolean; previous?: boolean; sinceSeconds?: number; sinceTime?: string; signal?: AbortSignal; cluster?: string; onOpen?: () => void } = {},
     onChunk?: (text: string) => void,
   ): Promise<string> {
     const q = new URLSearchParams()
@@ -462,6 +462,9 @@ export const kube = {
       const body = parseMaybeJson(await res.text().catch(() => ''))
       throw K8sError.fromStatus(res.status, body, `logs failed: ${res.status}`, res.headers.get('retry-after'))
     }
+    // The server accepted the stream: it is live from here, whether or not a
+    // quiet pod has written anything yet.
+    opts.onOpen?.()
     const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
     let all = ''
     for (;;) {

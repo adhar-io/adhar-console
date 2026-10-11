@@ -178,9 +178,15 @@ export function useLogStream(opts: UseLogStreamOptions): LogStream {
       return null
     }
 
+    // Sources whose current connection the server has accepted. A clean end of
+    // an accepted stream (kubelet / proxy recycling it) is resumed quietly
+    // instead of flashing "Reconnecting".
+    const opened = new Map<string, number>()
+
     const connect = (s: LogSource, attempt: number) => {
       if (disposed) return
       const k = key(s)
+      opened.delete(k)
       const ac = new AbortController()
       controllers.add(ac)
       // This attempt's own signal — never read a shared, reassigned controller.
@@ -202,6 +208,17 @@ export function useLogStream(opts: UseLogStreamOptions): LogStream {
             timestamps: true,
             cluster,
             signal: mine,
+            onOpen: () => {
+              if (disposed || mine.aborted) return
+              opened.set(k, Date.now())
+              // Live as soon as the server accepts the stream. Waiting for a new
+              // line meant a quiet pod — or one resumed from its last line,
+              // which is dropped as a duplicate — never left "Reconnecting".
+              if (follow) {
+                setStatus((st) => (st === 'forbidden' || st === 'notfound' ? st : 'streaming'))
+                setReconnect(undefined)
+              }
+            },
           },
           (chunk) => {
             if (disposed || mine.aborted) return
@@ -222,7 +239,20 @@ export function useLogStream(opts: UseLogStreamOptions): LogStream {
             return
           }
           // A follow stream resolving means the server closed it — the pod
-          // ended, or the log rotated. Reconnect; the pod may come back.
+          // ended, the log rotated, or a proxy recycled the connection. If it
+          // had been accepted, resume right away and stay "Live"; the resume
+          // asks from the last timestamp, so nothing is lost or repeated.
+          // Only for a stream that stayed up: a finished container answers 200 and
+          // closes at once, which would otherwise loop every 250ms.
+          const upFor = Date.now() - (opened.get(k) ?? Date.now())
+          if (opened.has(k) && upFor > 5_000) {
+            const t = globalThis.setTimeout(() => {
+              timers.delete(t)
+              connect(s, 1)
+            }, 250) as unknown as number
+            timers.add(t)
+            return
+          }
           schedule(s, attempt, undefined)
         })
         .catch((e) => {

@@ -268,8 +268,11 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
     <Card>
       <CardHeader className="space-y-3">
         {/* Row 1 — what to stream: source, pod or workload, container, window, tail */}
-        <div className="flex flex-wrap items-center gap-3">
-          <FieldLabel text="Source">
+        {/* One line from laptop widths up: the pod / workload picker is the only
+            flexible control — it takes the free space and truncates — and every
+            other control keeps a compact fixed width. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 lg:flex-nowrap">
+          <FieldLabel text="Source" className="shrink-0">
             <div className="inline-flex overflow-hidden rounded-md border border-edge-default">
               {(['pod', 'workload'] as const).map((m) => (
                 <button
@@ -297,11 +300,12 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
 
           {sourceMode === 'pod'
             ? (
-              <FieldLabel text="Pod">
+              <FieldLabel text="Pod" className="min-w-0 flex-1">
                 <Select
                   value={podName}
                   onChange={(e) => setPodName(e.target.value)}
-                  className="w-56 min-w-0 truncate py-1.5 text-xs"
+                  className="w-full min-w-40 max-w-80 truncate py-1.5 text-xs"
+                  wrapperClassName="min-w-0 flex-1 max-w-80"
                   disabled={podNames.length === 0}
                 >
                   {podNames.length === 0 ? <option value="">No pods</option> : null}
@@ -311,22 +315,23 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
             )
             : (
               <>
-                <FieldLabel text="Kind">
+                <FieldLabel text="Kind" className="shrink-0">
                   <Select
                     value={workloadKind}
                     onChange={(e) => setWorkloadKind(e.target.value as WorkloadKind)}
-                    className="min-w-32 py-1.5 text-xs"
+                    className="w-28 py-1.5 text-xs"
                   >
                     {WORKLOAD_KINDS.map((k) => (
                       <option key={k.value} value={k.value}>{k.label}</option>
                     ))}
                   </Select>
                 </FieldLabel>
-                <FieldLabel text="Workload">
+                <FieldLabel text="Workload" className="min-w-0 flex-1">
                   <Select
                     value={workloadName}
                     onChange={(e) => setWorkloadName(e.target.value)}
-                    className="w-56 min-w-0 truncate py-1.5 text-xs"
+                    className="w-full min-w-36 max-w-80 truncate py-1.5 text-xs"
+                  wrapperClassName="min-w-0 flex-1 max-w-80"
                     disabled={workloadNames.length === 0}
                   >
                     {workloadNames.length === 0
@@ -338,11 +343,11 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
               </>
             )}
 
-          <FieldLabel text="Tail">
+          <FieldLabel text="Tail" className="shrink-0">
             <Select
               value={String(tailLines)}
               onChange={(e) => setTailLines(Number(e.target.value) as Tail)}
-              className="min-w-24 py-1.5 text-xs"
+              className="w-20 py-1.5 text-xs"
             >
               {TAIL_OPTIONS.map((n) => <option key={n} value={n}>{n.toLocaleString()}</option>)}
             </Select>
@@ -350,12 +355,12 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
 
           {/* Container and window stay pinned to the right edge whatever the
               pod name's length; the pod select no longer grows to push them. */}
-          <div className="ml-auto flex shrink-0 flex-wrap items-center gap-3">
+          <div className="ml-auto flex shrink-0 items-center gap-3">
             <FieldLabel text="Container">
               <Select
                 value={containerSel}
                 onChange={(e) => setContainerSel(e.target.value)}
-                className="min-w-40 py-1.5 text-xs"
+                className="w-32 truncate py-1.5 text-xs"
                 disabled={unionContainers.length === 0}
               >
                 {sourceMode === 'workload' || unionContainers.length > 1
@@ -370,7 +375,7 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
               <Select
                 value={sinceLabel}
                 onChange={(e) => setSinceLabel(e.target.value as SinceLabel)}
-                className="min-w-20 py-1.5 text-xs"
+                className="w-20 py-1.5 text-xs"
               >
                 {SINCE_OPTIONS.map((s) => <option key={s.label} value={s.label}>{s.label}</option>)}
               </Select>
@@ -507,10 +512,12 @@ export default LogsViewer
 
 /* ─────────────────────────────── chrome ─────────────────────────────── */
 
-function FieldLabel({ text, children }: { text: string; children: React.ReactNode }) {
+function FieldLabel({ text, className, children }: { text: string; className?: string; children: React.ReactNode }) {
   return (
-    <label className="inline-flex items-center gap-1.5">
-      <span className="text-[11px] font-medium uppercase tracking-wide text-content-subtle">
+    <label className={cn('inline-flex items-center gap-1.5', className)} title={text}>
+      {/* Visible only where the row has room for it; elsewhere it stays the
+          control's accessible name and a tooltip, so the row never wraps. */}
+      <span className="sr-only shrink-0 text-[11px] font-medium uppercase tracking-wide text-content-subtle 2xl:not-sr-only">
         {text}
       </span>
       {children}

@@ -111,14 +111,16 @@ export interface SelectOption {
 interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   options?: SelectOption[]
   invalid?: boolean
+  /** Classes for the positioning wrapper — e.g. `min-w-0 flex-1` to let the select flex. */
+  wrapperClassName?: string
 }
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
-  { options, children, invalid, className, ...rest },
+  { options, children, invalid, className, wrapperClassName, ...rest },
   ref,
 ) {
   return (
-    <div className="relative">
+    <div className={cn('relative', wrapperClassName)}>
       <select
         ref={ref}
         className={cn(

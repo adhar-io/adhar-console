@@ -244,6 +244,7 @@ export const DEFAULT_NAV: NavSection[] = [
           { id: 'develop.ci', label: 'CI Pipelines', to: '/platform', search: 'ci', crossLink: true },
           { id: 'develop.pipelines', label: 'Data Pipelines', to: '/develop', search: 'pipelines' },
           { id: 'develop.performance', label: 'Performance', to: '/develop', search: 'performance' },
+          { id: 'develop.content', label: 'Content', to: '/develop', search: 'content' },
           { id: 'develop.codebuilder', label: 'Code Builder', to: '/develop', search: 'codebuilder' },
         ],
       },

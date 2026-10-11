@@ -5,12 +5,14 @@ import {
   EmptyState,
   Spinner,
   StatusBadge,
+  useToast,
 } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import { plane } from '@adhar/api-clients'
 import {
   memberDisplayName,
   memberInitials,
+  planeError,
   priorityKind,
   useCreateIssue,
   useIssues,
@@ -78,6 +80,7 @@ export function Issues({ projectId, appliedQuery }: Props) {
   const labels = useLabels(projectId)
   const members = useMembers()
   const update = useUpdateIssue(projectId)
+  const toast = useToast()
 
   if (!projectId) {
     return (
@@ -292,7 +295,11 @@ export function Issues({ projectId, appliedQuery }: Props) {
                 patch.module = key === '_none' ? null : key
                 break
             }
-            update.mutate({ id: issueId, patch })
+            const before = all.find((i) => i.id === issueId)
+            update.mutate(
+              { id: issueId, patch, current: { cycle: before?.cycle ?? null, module: before?.module ?? null } },
+              { onError: (e) => toast.error(planeError(e, "Couldn't move the issue.")) },
+            )
           }}
           loading={issues.isLoading || states.isLoading}
         />
@@ -673,6 +680,7 @@ function InlineAddIssue({
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState('')
   const create = useCreateIssue(projectId)
+  const toast = useToast()
   if (!defaultState) return null
   if (!open) {
     return (
@@ -703,6 +711,7 @@ function InlineAddIssue({
           setDraft('')
           setOpen(false)
         },
+        onError: (e) => toast.error(planeError(e, "Couldn't create the issue.")),
       },
     )
   }

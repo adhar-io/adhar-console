@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { Button, Modal } from '@adhar/shell-ui'
+import { Button, Modal, useToast } from '@adhar/shell-ui'
 import type { plane } from '@adhar/api-clients'
 import {
   memberDisplayName,
   memberInitials,
+  planeError,
   useCreateCycle,
   useCreateModule,
   useCreateProject,
@@ -39,6 +40,7 @@ export function CreateProjectModal({
   onCreated?(p: plane.Project): void
 }) {
   const create = useCreateProject()
+  const toast = useToast()
   const [name, setName] = useState('')
   const [identifier, setIdentifier] = useState('')
   const [emoji, setEmoji] = useState('')
@@ -56,7 +58,9 @@ export function CreateProjectModal({
         description: description || undefined,
       },
       {
+        onError: (e) => toast.error(planeError(e, "Couldn't create the project.")),
         onSuccess: (p) => {
+          toast.success(`Created project ${p.name}.`)
           onCreated?.(p)
           setName('')
           setIdentifier('')
@@ -147,6 +151,7 @@ export function CreateCycleModal({
   onCreated?(c: plane.Cycle): void
 }) {
   const create = useCreateCycle(projectId)
+  const toast = useToast()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [start, setStart] = useState('')
@@ -160,10 +165,11 @@ export function CreateCycleModal({
         description: description || undefined,
         start_date: start || null,
         end_date: end || null,
-        status: start && new Date(start) <= new Date() ? 'current' : 'upcoming',
       },
       {
+        onError: (e) => toast.error(planeError(e, "Couldn't create the cycle.")),
         onSuccess: (c) => {
+          toast.success(`Created cycle ${c.name}.`)
           onCreated?.(c)
           setName('')
           setDescription('')
@@ -191,7 +197,7 @@ export function CreateCycleModal({
             size="sm"
             onClick={submit}
             loading={create.isPending}
-            disabled={!name.trim() || !projectId}
+            disabled={!name.trim() || !projectId || Boolean(start) !== Boolean(end) || (Boolean(start && end) && end < start)}
           >
             Create cycle
           </Button>
@@ -226,6 +232,13 @@ export function CreateCycleModal({
             />
           </Field>
         </div>
+        <p className="-mt-2 text-[11px] text-content-subtle">
+          {Boolean(start) !== Boolean(end)
+            ? 'Plane needs both dates, or neither for a draft cycle.'
+            : start && end && end < start
+              ? 'The end date is before the start date.'
+              : 'Leave both empty to save a draft cycle.'}
+        </p>
         <Field label="Description">
           <textarea
             value={description}
@@ -254,6 +267,7 @@ export function CreateModuleModal({
   onCreated?(m: plane.Module): void
 }) {
   const create = useCreateModule(projectId)
+  const toast = useToast()
   const members = useMembers()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -274,7 +288,9 @@ export function CreateModuleModal({
         members: lead ? [lead] : [],
       },
       {
+        onError: (e) => toast.error(planeError(e, "Couldn't create the module.")),
         onSuccess: (m) => {
+          toast.success(`Created module ${m.name}.`)
           onCreated?.(m)
           setName('')
           setDescription('')
@@ -382,12 +398,12 @@ export function CreateViewModal({
   onCreated?(v: plane.View): void
 }) {
   const create = useCreateView(projectId)
+  const toast = useToast()
   const states = useStates(projectId)
   const labels = useLabels(projectId)
   const members = useMembers()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [access, setAccess] = useState<plane.View['access']>('private')
 
   // Editable filter criteria — seeded from the board when saving live filters.
   const [priority, setPriority] = useState<plane.Priority | ''>(initialQuery?.priority ?? '')
@@ -418,11 +434,12 @@ export function CreateViewModal({
       {
         name: name.trim(),
         description: description || undefined,
-        access,
         query_data: query,
       },
       {
+        onError: (e) => toast.error(planeError(e, "Couldn't create the view.")),
         onSuccess: (v) => {
+          toast.success(`Created view ${v.name}.`)
           onCreated?.(v)
           setName('')
           setDescription('')
@@ -437,7 +454,7 @@ export function CreateViewModal({
       open={open}
       onClose={onClose}
       title="Save filters as view"
-      description="Pick the filter, group-by, and sort this view should re-apply on the Issues board."
+      description="Pick the filter, group-by, and sort this view should re-apply on the Issues board. Views are saved to your console profile."
       branded
       footer={
         <>
@@ -465,26 +482,14 @@ export function CreateViewModal({
             className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </Field>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_140px]">
-          <Field label="Description">
-            <input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="What this view shows"
-              className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
-            />
-          </Field>
-          <Field label="Access">
-            <select
-              value={access}
-              onChange={(e) => setAccess(e.target.value as plane.View['access'])}
-              className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm"
-            >
-              <option value="private">private</option>
-              <option value="public">public</option>
-            </select>
-          </Field>
-        </div>
+        <Field label="Description">
+          <input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What this view shows"
+            className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+          />
+        </Field>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Priority">
@@ -615,19 +620,23 @@ export function InviteMemberModal({
   onClose(): void
 }) {
   const invite = useInviteMember()
+  const toast = useToast()
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<number>(15)
 
   const submit = () => {
-    if (!email.trim()) return
+    const to = email.trim()
+    if (!to) return
     invite.mutate(
-      { email: email.trim(), role },
+      { email: to, role },
       {
         onSuccess: () => {
+          toast.success(`Invitation sent to ${to}.`)
           setEmail('')
           setRole(15)
           onClose()
         },
+        onError: (e) => toast.error(planeError(e, 'Couldn\'t send the invitation.')),
       },
     )
   }
@@ -673,10 +682,9 @@ export function InviteMemberModal({
             onChange={(e) => setRole(Number(e.target.value))}
             className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm"
           >
-            <option value={5}>Admin · full workspace access</option>
+            <option value={20}>Admin · full workspace access</option>
             <option value={15}>Member · default contributor</option>
-            <option value={20}>Guest · limited access</option>
-            <option value={25}>Viewer · read-only</option>
+            <option value={5}>Guest · limited access</option>
           </select>
         </Field>
       </div>

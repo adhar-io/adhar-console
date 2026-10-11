@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Button, StatusBadge } from '@adhar/shell-ui'
+import { Button, StatusBadge, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { plane } from '@adhar/api-clients'
 import {
   memberDisplayName,
   memberInitials,
   priorityKind,
+  planeError,
   useCreateIssue,
   useCycles,
   useLabels,
@@ -70,6 +71,7 @@ export function NewIssueModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, state, priority, assignees, labelIds, estimate, startDate, targetDate, cycle, module])
 
+  const toast = useToast()
   const canSubmit = name.trim().length > 0 && !!state && !create.isPending
 
   const submit = () => {
@@ -89,9 +91,11 @@ export function NewIssueModal({
     }
     create.mutate(body, {
       onSuccess: (issue) => {
+        toast.success(`Created ${issue.name}.`)
         onCreated?.(issue)
         onClose()
       },
+      onError: (e) => toast.error(planeError(e, "Couldn't create the issue.")),
     })
   }
 

@@ -116,6 +116,8 @@ export async function buildPublicConfig(): Promise<Record<string, unknown>> {
     planeWorkspace:
       env('PLANE_WORKSPACE') ?? env('PLANE_WORKSPACE_SLUG') ?? env('GITEA_TEMPLATES_ORG') ?? env('GITEA_ORG') ?? 'adhar',
     docsBaseUrl: env('DOCS_BASE_URL') ?? env('DOCS_URL') ?? 'https://docs.adhar.io',
+    // Credentials the console holds, never their values — see AppConfig.integrations.
+    integrations: { plane: Boolean(env('PLANE_TOKEN')), strapi: Boolean(env('STRAPI_TOKEN')) },
     publicBaseDomain: base,
     // The one URL an install configures; the client derives tool hosts from it
     // exactly the way the server does.

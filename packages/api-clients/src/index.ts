@@ -1,6 +1,7 @@
 export * as gitea from './gitea/index.ts'
 export * as coder from './coder/index.ts'
 export * as plane from './plane/index.ts'
+export * as strapi from './strapi/index.ts'
 export * as argocd from './argocd/index.ts'
 export * as kargo from './kargo/index.ts'
 export * as harbor from './harbor/index.ts'

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { plane } from '@adhar/api-clients'
-import { usePlaneWorkspace } from '@adhar/shell-ui'
+import { usePlaneWorkspace, useToolPublicUrl } from '@adhar/shell-ui'
 
 /**
  * Plane.so client + per-resource hooks for the Define module.
@@ -9,9 +9,13 @@ import { usePlaneWorkspace } from '@adhar/shell-ui'
  * hook reads the active project from `useActiveProject()` and skips the query
  * when nothing's selected. Pass an explicit `projectId` to override.
  *
- * In dev we use `.stub()` so the views render rich data without a Plane
- * backend; production swaps for `.create({ baseUrl, token })` once Keycloak
- * mints a token.
+ * Calls go through the console's BFF proxy (`/api/svc/plane/…`), which
+ * injects the platform's Plane API key and shares reads for a few seconds so
+ * every console user together stays inside Plane's per-key rate limit.
+ *
+ * Plane's public API has no Pages or Views endpoints: Pages open in Plane
+ * itself (see `usePlaneLink`), and saved views are kept by the console in the
+ * signed-in user's preferences.
  */
 
 export const planeClient = plane.PlaneClient.auto({ tool: 'plane' })
@@ -110,22 +114,23 @@ export function useModules(projectId?: string) {
   })
 }
 
-export function usePages(projectId?: string) {
-  const WORKSPACE_SLUG = usePlaneWorkspace()
-  return useQuery({
-    queryKey: ['plane', 'pages', WORKSPACE_SLUG, projectId],
-    queryFn: () => planeClient.listPages(WORKSPACE_SLUG, projectId!),
-    enabled: !!projectId,
-    staleTime: REFRESH_MS,
-  })
+/**
+ * A link into Plane's own UI for this workspace — `path` is appended after the
+ * workspace slug, e.g. `projects/<id>/pages`. Empty when the console cannot
+ * tell where Plane is published.
+ */
+export function usePlaneLink(path = ''): string {
+  const base = useToolPublicUrl('plane')
+  const slug = usePlaneWorkspace()
+  if (!base) return ''
+  return `${base}/${slug}/${path.replace(/^\/+/, '')}`
 }
 
-export function useViews(projectId?: string) {
+export function useInvitations() {
   const WORKSPACE_SLUG = usePlaneWorkspace()
   return useQuery({
-    queryKey: ['plane', 'views', WORKSPACE_SLUG, projectId],
-    queryFn: () => planeClient.listViews(WORKSPACE_SLUG, projectId!),
-    enabled: !!projectId,
+    queryKey: ['plane', 'invitations', WORKSPACE_SLUG],
+    queryFn: () => planeClient.listInvitations(WORKSPACE_SLUG),
     staleTime: REFRESH_MS,
   })
 }
@@ -185,10 +190,20 @@ export function useUpdateIssue(projectId?: string) {
   const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: Partial<plane.Issue> }) =>
-      planeClient.updateIssue(WORKSPACE_SLUG, projectId!, id, patch),
+    mutationFn: ({
+      id,
+      patch,
+      current,
+    }: {
+      id: string
+      patch: Partial<plane.Issue>
+      /** The issue as last read — needed to move it out of its old cycle or module. */
+      current?: Pick<plane.Issue, 'cycle' | 'module'>
+    }) => planeClient.updateIssue(WORKSPACE_SLUG, projectId!, id, patch, current),
     onSuccess: (issue) => {
       qc.invalidateQueries({ queryKey: ['plane', 'issues', WORKSPACE_SLUG, projectId] })
+      qc.invalidateQueries({ queryKey: ['plane', 'cycles', WORKSPACE_SLUG, projectId] })
+      qc.invalidateQueries({ queryKey: ['plane', 'modules', WORKSPACE_SLUG, projectId] })
       qc.invalidateQueries({ queryKey: ['plane', 'issue', WORKSPACE_SLUG, projectId, issue.id] })
       qc.invalidateQueries({ queryKey: ['plane', 'activities', WORKSPACE_SLUG, projectId, issue.id] })
     },
@@ -203,6 +218,8 @@ export function useCreateIssue(projectId?: string) {
       planeClient.createIssue(WORKSPACE_SLUG, projectId!, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['plane', 'issues', WORKSPACE_SLUG, projectId] })
+      qc.invalidateQueries({ queryKey: ['plane', 'cycles', WORKSPACE_SLUG, projectId] })
+      qc.invalidateQueries({ queryKey: ['plane', 'modules', WORKSPACE_SLUG, projectId] })
     },
   })
 }
@@ -254,26 +271,16 @@ export function useInviteMember() {
   return useMutation({
     mutationFn: (body: { email: string; role: number }) =>
       planeClient.inviteMember(WORKSPACE_SLUG, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['plane', 'members', WORKSPACE_SLUG] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['plane', 'invitations', WORKSPACE_SLUG] }),
   })
 }
 
-export function useUpdateMemberRole() {
+export function useDeleteInvitation() {
   const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, role }: { id: string; role: number }) =>
-      planeClient.updateMemberRole(WORKSPACE_SLUG, id, role),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['plane', 'members', WORKSPACE_SLUG] }),
-  })
-}
-
-export function useRemoveMember() {
-  const WORKSPACE_SLUG = usePlaneWorkspace()
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) => planeClient.removeMember(WORKSPACE_SLUG, id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['plane', 'members', WORKSPACE_SLUG] }),
+    mutationFn: (id: string) => planeClient.deleteInvitation(WORKSPACE_SLUG, id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['plane', 'invitations', WORKSPACE_SLUG] }),
   })
 }
 
@@ -319,58 +326,84 @@ export function useDeleteModule(projectId?: string) {
   })
 }
 
+/* ───── saved views (console-side; Plane's API has none) ───── */
+
+/**
+ * Saved issue views live in the signed-in user's console preferences
+ * (`/api/prefs/define-views`), keyed by Plane workspace and project. Plane's
+ * public API exposes no views endpoint, so this is the only place a view
+ * saved from the console can be kept.
+ */
+const VIEWS_SCOPE = 'define-views'
+type ViewStore = Record<string, plane.View[]>
+
+async function readViewStore(): Promise<ViewStore> {
+  const res = await fetch(`/api/prefs/${VIEWS_SCOPE}`, { credentials: 'same-origin' })
+  if (!res.ok) throw new Error(`Couldn't load saved views (${res.status})`)
+  const body = (await res.json()) as { data?: { views?: ViewStore } | null }
+  return body.data?.views ?? {}
+}
+
+async function writeViewStore(views: ViewStore): Promise<void> {
+  const res = await fetch(`/api/prefs/${VIEWS_SCOPE}`, {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ data: { views } }),
+  })
+  if (!res.ok) throw new Error(`Couldn't save the view (${res.status})`)
+  const body = (await res.json().catch(() => ({}))) as { persisted?: boolean }
+  if (body.persisted === false) throw new Error('Saved views need the console database, which is not configured.')
+}
+
+const viewKey = (slug: string, projectId: string) => `${slug}/${projectId}`
+
+export function useViews(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
+  return useQuery({
+    queryKey: ['plane', 'views', WORKSPACE_SLUG, projectId],
+    queryFn: async () => (await readViewStore())[viewKey(WORKSPACE_SLUG, projectId!)] ?? [],
+    enabled: !!projectId,
+    staleTime: REFRESH_MS,
+  })
+}
+
 export function useCreateView(projectId?: string) {
   const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (body: Partial<plane.View>) =>
-      planeClient.createView(WORKSPACE_SLUG, projectId!, body),
+    mutationFn: async (body: Partial<plane.View>) => {
+      const store = await readViewStore()
+      const key = viewKey(WORKSPACE_SLUG, projectId!)
+      const view: plane.View = {
+        id: `view-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+        name: body.name?.trim() || 'Untitled view',
+        description: body.description,
+        query_data: body.query_data ?? {},
+        access: 'private',
+        project: projectId!,
+        workspace: WORKSPACE_SLUG,
+        created_at: new Date().toISOString(),
+      }
+      await writeViewStore({ ...store, [key]: [...(store[key] ?? []), view] })
+      return view
+    },
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ['plane', 'views', WORKSPACE_SLUG, projectId] }),
   })
 }
+
 export function useDeleteView(projectId?: string) {
   const WORKSPACE_SLUG = usePlaneWorkspace()
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => planeClient.deleteView(WORKSPACE_SLUG, projectId!, id),
+    mutationFn: async (id: string) => {
+      const store = await readViewStore()
+      const key = viewKey(WORKSPACE_SLUG, projectId!)
+      await writeViewStore({ ...store, [key]: (store[key] ?? []).filter((v) => v.id !== id) })
+    },
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ['plane', 'views', WORKSPACE_SLUG, projectId] }),
-  })
-}
-
-export function useUpdatePage(projectId?: string) {
-  const WORKSPACE_SLUG = usePlaneWorkspace()
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: Partial<plane.Page> }) =>
-      planeClient.updatePage(WORKSPACE_SLUG, projectId!, id, patch),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['plane', 'pages', WORKSPACE_SLUG, projectId] })
-    },
-  })
-}
-
-export function useCreatePage(projectId?: string) {
-  const WORKSPACE_SLUG = usePlaneWorkspace()
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (body: Partial<plane.Page>) =>
-      planeClient.createPage(WORKSPACE_SLUG, projectId!, body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['plane', 'pages', WORKSPACE_SLUG, projectId] })
-    },
-  })
-}
-
-export function useDeletePage(projectId?: string) {
-  const WORKSPACE_SLUG = usePlaneWorkspace()
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) => planeClient.deletePage(WORKSPACE_SLUG, projectId!, id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['plane', 'pages', WORKSPACE_SLUG, projectId] })
-    },
   })
 }
 
@@ -402,16 +435,21 @@ export function memberInitials(m?: plane.Member): string {
   return name.slice(0, 2).toUpperCase()
 }
 
+/** Plane workspace roles: 20 Admin, 15 Member, 5 Guest. */
+export const ROLE_OPTIONS: Array<{ value: number; label: string }> = [
+  { value: plane.PLANE_ROLE.ADMIN, label: 'Admin' },
+  { value: plane.PLANE_ROLE.MEMBER, label: 'Member' },
+  { value: plane.PLANE_ROLE.GUEST, label: 'Guest' },
+]
+
 export function rolePill(role: number): { label: string; tone: 'failed' | 'progressing' | 'info' | 'unknown' } {
   switch (role) {
-    case 5:
+    case plane.PLANE_ROLE.ADMIN:
       return { label: 'Admin', tone: 'failed' }
-    case 15:
+    case plane.PLANE_ROLE.MEMBER:
       return { label: 'Member', tone: 'progressing' }
-    case 20:
+    case plane.PLANE_ROLE.GUEST:
       return { label: 'Guest', tone: 'info' }
-    case 25:
-      return { label: 'Viewer', tone: 'unknown' }
     default:
       return { label: `role ${role}`, tone: 'unknown' }
   }
@@ -447,4 +485,36 @@ export function stateGroupKind(g: plane.StateGroup): 'unknown' | 'info' | 'progr
     case 'cancelled':
       return 'failed'
   }
+}
+
+/* ───── errors ───── */
+
+/**
+ * A sentence a person can act on, from whatever a Plane call threw. The BFF
+ * and Plane both answer in JSON — `{error}`, `{detail}`, or DRF field errors
+ * (`{name: ["This field is required."]}`) — and the raw `HTTP 400 at …`
+ * message names none of that.
+ */
+export function planeError(e: unknown, fallback = 'Plane request failed.'): string {
+  const err = e as { status?: number; body?: unknown; message?: string } | undefined
+  const status = err?.status
+  const body = err?.body
+  if (status === 429) return 'Plane is rate-limiting the console right now. Try again in a minute.'
+  if (status === 401 || status === 403) {
+    return 'Plane rejected the console\'s API key. An operator needs to re-run the Plane setup so the console gets a valid token.'
+  }
+  if (body && typeof body === 'object') {
+    const b = body as Record<string, unknown>
+    if (b.error === 'tool_not_configured') return 'Plane is not connected to this console (no PLANE_URL).'
+    if (b.error === 'upstream_unreachable') return 'The console could not reach Plane. It may be restarting.'
+    for (const key of ['error', 'detail', 'message']) {
+      if (typeof b[key] === 'string' && b[key]) return b[key] as string
+    }
+    const fields = Object.entries(b)
+      .filter(([, v]) => Array.isArray(v) && v.length && typeof v[0] === 'string')
+      .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${(v as string[])[0]}`)
+    if (fields.length) return fields.join(' · ')
+  }
+  if (status === 404) return 'Plane has no such item, or it was deleted.'
+  return e instanceof Error && e.message ? e.message : fallback
 }

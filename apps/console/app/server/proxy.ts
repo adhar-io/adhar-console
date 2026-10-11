@@ -1,6 +1,23 @@
 import { getServerAuthConfig, getValidSession } from '@adhar/auth/server'
 import { getTool, type ToolDef } from './tool-registry.ts'
 import { fetchWithApiServerClient } from './k8s/gateway.ts'
+import { type CachedResponse, retryAfterMs, snapshot, toolGetCache } from './tool-cache.ts'
+
+/** The longest a request waits on a 429 before retrying once. */
+const MAX_RATE_LIMIT_WAIT_MS = 5_000
+const STRIP_RESPONSE = new Set(['set-cookie', 'content-encoding', 'content-length'])
+
+function fromSnapshot(s: CachedResponse, cache: 'hit' | 'miss' | 'stale'): Response {
+  const headers = new Headers()
+  for (const [k, v] of s.headers) {
+    const key = k.toLowerCase()
+    if (!HOP_BY_HOP.has(key) && !STRIP_RESPONSE.has(key)) headers.set(k, v)
+  }
+  headers.set('x-adhar-cache', cache)
+  // A 204/304 must not carry a body.
+  const body = s.status === 204 || s.status === 304 ? null : s.body
+  return new Response(body, { status: s.status, statusText: s.statusText, headers })
+}
 
 /**
  * Same-origin reverse proxy for backing tools.
@@ -288,8 +305,66 @@ export async function proxyToolRequest(
     }
   }
 
+  /*
+   * Shared GET cache for tools the console calls with ONE service credential
+   * that the upstream rate-limits (Plane). See tool-cache.ts.
+   */
+  const cacheMs = def.authMode === 'service' ? def.sharedGetCacheMs ?? 0 : 0
+  const cachePrefix = `${tool}\0`
+  if (cacheMs > 0 && method === 'GET') {
+    const key = `${cachePrefix}${upstreamUrl}`
+    const fresh = toolGetCache.get(key, cacheMs)
+    if (fresh) return fromSnapshot(fresh, 'hit')
+    let served: 'miss' | 'stale' = 'miss'
+    const snap = await toolGetCache.coalesce(key, async () => {
+      let r = await attempt(false)
+      if ('error' in r) {
+        // Unreachable upstream: the last good answer beats an error panel.
+        const stale = toolGetCache.get(key, def.sharedGetStaleMs ?? 0)
+        if (stale) {
+          served = 'stale'
+          return stale
+        }
+        return snapshot(r.error)
+      }
+      if (r.upstream.status === 429) {
+        const stale = toolGetCache.get(key, def.sharedGetStaleMs ?? 0)
+        if (stale) {
+          await r.upstream.body?.cancel()
+          served = 'stale'
+          return stale
+        }
+        const wait = retryAfterMs(r.upstream.headers)
+        if (wait !== undefined && wait <= MAX_RATE_LIMIT_WAIT_MS) {
+          await r.upstream.body?.cancel()
+          await new Promise((ok) => setTimeout(ok, wait + 100))
+          r = await attempt(false)
+          if ('error' in r) return snapshot(r.error)
+        }
+      }
+      const s = await snapshot(r.upstream)
+      if (s.status >= 200 && s.status < 300) toolGetCache.set(key, s)
+      return s
+    })
+    return fromSnapshot(snap, served)
+  }
+
   let result = await attempt(false)
   if ('error' in result) return result.error
+
+  // A rate-limited write waits out a short window once rather than failing.
+  if (cacheMs > 0 && result.upstream.status === 429) {
+    const wait = retryAfterMs(result.upstream.headers)
+    if (wait !== undefined && wait <= MAX_RATE_LIMIT_WAIT_MS) {
+      await result.upstream.body?.cancel()
+      await new Promise((ok) => setTimeout(ok, wait + 100))
+      const retry = await attempt(false)
+      if ('error' in retry) return retry.error
+      result = retry
+    }
+  }
+  // Any successful write makes the tool's cached reads suspect.
+  if (cacheMs > 0 && result.upstream.status < 400) toolGetCache.invalidate(cachePrefix)
 
   // Refresh-on-failure (login mode only): a rotated/expired session token shows
   // up as an upstream 401/403. Invalidate the cache, re-mint once, and retry the
@@ -326,10 +401,9 @@ export async function proxyToolRequest(
    * compression with the actual client over the actual bytes.
    */
   const respHeaders = new Headers()
-  const STRIP = new Set(['set-cookie', 'content-encoding', 'content-length'])
   for (const [k, v] of upstream.headers) {
     const key = k.toLowerCase()
-    if (!HOP_BY_HOP.has(key) && !STRIP.has(key)) respHeaders.set(k, v)
+    if (!HOP_BY_HOP.has(key) && !STRIP_RESPONSE.has(key)) respHeaders.set(k, v)
   }
   if (refreshedCookie) respHeaders.append('set-cookie', refreshedCookie)
 

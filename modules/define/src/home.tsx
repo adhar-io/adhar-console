@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { PageHeader, Spinner, StatusBadge } from '@adhar/shell-ui'
+import { EmptyState, PageHeader, Spinner, StatusBadge, useIntegration } from '@adhar/shell-ui'
 import { Dashboard } from './views/dashboard.tsx'
 import { Projects } from './views/projects.tsx'
 import { Issues } from './views/issues.tsx'
@@ -126,6 +126,19 @@ export default function DefineHome({ section }: { section?: string } = {}) {
   const project = useProject(activeProjectId)
   const projectScoped = PROJECT_SCOPED.has(active)
   const switching = projectScoped && project.isFetching && !project.data
+  const connected = useIntegration('plane')
+
+  if (connected === false) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title={def.label} />
+        <EmptyState
+          title="Plane isn't connected to this console"
+          description="The console has no Plane API key. Plane's setup job writes one (PLANE_URL, PLANE_TOKEN, PLANE_WORKSPACE) into the plane-api-token Secret and restarts the console; re-sync the Plane application in Argo CD, or ask an operator to check that job's logs."
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

@@ -65,6 +65,15 @@ export interface ToolDef {
      */
     scheme?: string
   }
+  /**
+   * Serve identical GETs from a shared cache for this many ms (service mode
+   * only — the upstream sees one token, so every caller gets the same bytes).
+   * For tools that rate-limit the console's single credential; see
+   * tool-cache.ts. Writes through the proxy clear the tool's entries.
+   */
+  sharedGetCacheMs?: number
+  /** How old a cached GET may be and still stand in for an upstream 429. */
+  sharedGetStaleMs?: number
 }
 
 function clean(url: string | undefined): string {
@@ -138,6 +147,25 @@ export function getToolRegistry(): Record<string, ToolDef> {
       authMode: 'service',
       serviceToken: env('PLANE_TOKEN'),
       headers: env('PLANE_TOKEN') ? { 'x-api-key': env('PLANE_TOKEN')! } : undefined,
+      // Plane throttles each API key (API_KEY_RATE_LIMIT, 60/minute by
+      // default) and the console uses ONE key for everybody, so reads are
+      // shared for a few seconds and a 429 falls back to the last good answer.
+      sharedGetCacheMs: Number(env('PLANE_CACHE_MS') ?? 10_000),
+      sharedGetStaleMs: 5 * 60_000,
+    },
+    // Strapi's Content API, with an API token (Settings → API Tokens, full
+    // access) in STRAPI_TOKEN. Server-side calls go straight to the Service:
+    // the public host sits behind an OAuth2 proxy that answers API calls with a
+    // sign-in redirect. STRAPI_URL still wins when the platform sets it.
+    strapi: {
+      baseUrl: clean(
+        env('STRAPI_URL') ??
+          (env('KUBERNETES_SERVICE_HOST')
+            ? `http://strapi.${env('STRAPI_NAMESPACE') ?? 'adhar-system'}.svc.cluster.local:1337`
+            : toolUrl('strapi')),
+      ),
+      authMode: 'service',
+      serviceToken: env('STRAPI_TOKEN'),
     },
     // ArgoCD session tokens expire (~24h). Prefer durable admin creds
     // (`ARGOCD_USERNAME`/`ARGOCD_PASSWORD`) in `login` mode so the BFF mints and

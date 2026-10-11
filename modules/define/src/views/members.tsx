@@ -8,31 +8,36 @@ import {
   EmptyState,
   Spinner,
   StatusBadge,
+  useToast,
 } from '@adhar/shell-ui'
+import { formatRelative } from '@adhar/utils'
 import {
   memberDisplayName,
   memberInitials,
   rolePill,
+  useDeleteInvitation,
+  useInvitations,
   useMembers,
-  useRemoveMember,
-  useUpdateMemberRole,
+  usePlaneLink,
 } from '../data/plane.ts'
 import { InviteMemberModal } from '../components/create-forms.tsx'
 
 /**
- * Workspace members from Plane (`/workspaces/{slug}/members/`).
+ * Workspace members and pending invitations, live from Plane.
  *
- * Plane's role enum:
- *   5  = Admin
- *   15 = Member
- *   20 = Guest
- *   25 = Viewer
+ * Plane's public API lists members and manages invitations; it has no
+ * endpoint to change a member's role or remove them. Those two actions open
+ * Plane's own member settings instead of pretending to work here.
+ *
+ * Roles are Plane's: 20 Admin, 15 Member, 5 Guest.
  */
 export function Members() {
   const q = useMembers()
-  const updateRole = useUpdateMemberRole()
-  const remove = useRemoveMember()
+  const invites = useInvitations()
+  const cancel = useDeleteInvitation()
+  const toast = useToast()
   const [inviteOpen, setInviteOpen] = useState(false)
+  const manageUrl = usePlaneLink('settings/members')
 
   if (q.isLoading) {
     return (
@@ -50,17 +55,32 @@ export function Members() {
     )
   }
   const rows = q.data ?? []
-  const adminCount = rows.filter((m) => m.role === 5).length
+  const adminCount = rows.filter((m) => rolePill(m.role).label === 'Admin').length
+  const pending = (invites.data ?? []).filter((i) => !i.accepted)
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-[11px] text-content-muted">
           {rows.length} member{rows.length === 1 ? '' : 's'} · {adminCount} admin
+          {pending.length ? ` · ${pending.length} invited` : ''}
         </div>
-        <Button size="sm" onClick={() => setInviteOpen(true)} leading={<IconPlus />}>
-          Invite member
-        </Button>
+        <div className="flex items-center gap-2">
+          {manageUrl ? (
+            <a
+              href={manageUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-[12px] font-medium text-content shadow-sm hover:border-edge-strong"
+              title="Change roles or remove members in Plane"
+            >
+              Manage roles in Plane ↗
+            </a>
+          ) : null}
+          <Button size="sm" onClick={() => setInviteOpen(true)} leading={<IconPlus />}>
+            Invite member
+          </Button>
+        </div>
       </div>
 
       {rows.length === 0 ? (
@@ -75,7 +95,7 @@ export function Members() {
               <div>
                 <div className="text-sm font-semibold text-content">Workspace members</div>
                 <div className="text-[11px] text-content-subtle">
-                  Manage roles or remove access.
+                  Roles and removal are managed in Plane.
                 </div>
               </div>
               <StatusBadge kind="info">live from Plane</StatusBadge>
@@ -91,7 +111,7 @@ export function Members() {
                   header: 'Person',
                   cell: (m) => (
                     <div className="flex items-center gap-3">
-                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-50 text-[11px] font-semibold text-brand-700 ring-1 ring-inset ring-brand-200">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-50 text-[11px] font-semibold text-brand-700 ring-1 ring-inset ring-brand-200 dark:bg-brand-500/15 dark:text-brand-300 dark:ring-brand-500/30">
                         {memberInitials(m)}
                       </span>
                       <div className="min-w-0">
@@ -108,63 +128,11 @@ export function Members() {
                 {
                   key: 'role',
                   header: 'Role',
+                  width: 140,
                   cell: (m) => {
                     const r = rolePill(m.role)
-                    return (
-                      <div className="flex items-center gap-2">
-                        <StatusBadge kind={r.tone}>{r.label}</StatusBadge>
-                        <select
-                          value={m.role}
-                          disabled={updateRole.isPending}
-                          onChange={(e) =>
-                            updateRole.mutate({
-                              id: m.id,
-                              role: Number(e.target.value),
-                            })
-                          }
-                          className="rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-[11px] focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
-                          aria-label={`Change role for ${memberDisplayName(m)}`}
-                        >
-                          <option value={5}>Admin</option>
-                          <option value={15}>Member</option>
-                          <option value={20}>Guest</option>
-                          <option value={25}>Viewer</option>
-                        </select>
-                      </div>
-                    )
+                    return <StatusBadge kind={r.tone}>{r.label}</StatusBadge>
                   },
-                },
-                {
-                  key: 'id',
-                  header: 'Member ID',
-                  cell: (m) => (
-                    <code className="font-mono text-[11px] text-content-muted">
-                      {m.member?.id ?? m.id}
-                    </code>
-                  ),
-                },
-                {
-                  key: 'actions',
-                  header: '',
-                  width: 80,
-                  cell: (m) => (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      loading={remove.isPending}
-                      onClick={() => {
-                        if (
-                          !confirm(
-                            `Remove ${memberDisplayName(m)} from the workspace? They'll lose access immediately.`,
-                          )
-                        )
-                          return
-                        remove.mutate(m.id)
-                      }}
-                    >
-                      Remove
-                    </Button>
-                  ),
                 },
               ]}
               rows={rows}
@@ -174,6 +142,70 @@ export function Members() {
           </CardBody>
         </Card>
       )}
+
+      {pending.length ? (
+        <Card>
+          <CardHeader>
+            <div className="text-sm font-semibold text-content">Pending invitations</div>
+            <div className="text-[11px] text-content-subtle">
+              Plane emails each person a link; they join with the role shown once they accept.
+            </div>
+          </CardHeader>
+          <CardBody className="p-0">
+            <DataTable
+              tableId="define.invitations"
+              columns={[
+                {
+                  key: 'email',
+                  header: 'Email',
+                  cell: (i) => <span className="font-medium text-content">{i.email}</span>,
+                },
+                {
+                  key: 'role',
+                  header: 'Role',
+                  width: 140,
+                  cell: (i) => {
+                    const r = rolePill(i.role)
+                    return <StatusBadge kind={r.tone}>{r.label}</StatusBadge>
+                  },
+                },
+                {
+                  key: 'sent',
+                  header: 'Sent',
+                  width: 140,
+                  cell: (i) => (
+                    <span className="text-[12px] text-content-muted">
+                      {i.created_at ? formatRelative(i.created_at) : '—'}
+                    </span>
+                  ),
+                },
+                {
+                  key: 'actions',
+                  header: '',
+                  width: 90,
+                  cell: (i) => (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      loading={cancel.isPending && cancel.variables === i.id}
+                      onClick={() =>
+                        cancel.mutate(i.id, {
+                          onSuccess: () => toast.success(`Invitation to ${i.email} cancelled.`),
+                          onError: (e) =>
+                            toast.error(e instanceof Error ? e.message : 'Couldn\'t cancel the invitation.'),
+                        })}
+                    >
+                      Cancel
+                    </Button>
+                  ),
+                },
+              ]}
+              rows={pending}
+              rowKey={(i) => i.id}
+            />
+          </CardBody>
+        </Card>
+      ) : null}
 
       <InviteMemberModal open={inviteOpen} onClose={() => setInviteOpen(false)} />
     </div>

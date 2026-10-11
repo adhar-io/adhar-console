@@ -37,6 +37,12 @@ export interface AppConfig {
   publicBaseDomain: string
   /** Plane workspace slug the Define phase works in (PLANE_WORKSPACE, else the Gitea org). */
   planeWorkspace: string
+  /**
+   * Whether the console holds a credential for tools that cannot be used
+   * without one (Plane's API key, Strapi's API token). Lets a page explain
+   * "not connected" instead of surfacing a 401 from deep inside a query.
+   */
+  integrations?: { plane: boolean; strapi: boolean }
 }
 
 /** Safe defaults matching the real platform install, used until `/api/config`
@@ -53,6 +59,13 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   docsBaseUrl: 'https://docs.adhar.io',
   publicBaseDomain: '',
   planeWorkspace: 'adhar',
+}
+
+/** Whether the console is connected to `tool` (undefined until the config loads). */
+export function useIntegration(tool: 'plane' | 'strapi'): boolean | undefined {
+  const cfg = useAppConfig()
+  if (!cfg.data) return undefined
+  return cfg.data.integrations?.[tool] ?? true
 }
 
 export function useAppConfig() {

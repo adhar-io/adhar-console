@@ -6,12 +6,14 @@ import {
   CardBody,
   Spinner,
   StatusBadge,
+  useToast,
 } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
 import {
   memberDisplayName,
   memberInitials,
+  planeError,
   priorityKind,
   useActivities,
   useComments,
@@ -60,6 +62,7 @@ export function IssueDrawer({ projectId, issueId, onClose, onPick }: Props) {
   const update = useUpdateIssue(projectId)
   const remove = useDeleteIssue(projectId)
   const create = useCreateIssue(projectId)
+  const toast = useToast()
 
   // ESC closes.
   useEffect(() => {
@@ -80,6 +83,14 @@ export function IssueDrawer({ projectId, issueId, onClose, onPick }: Props) {
   )
 
   const i = issue.data
+  /** Save a patch; the issue as read tells the client which cycle/module to leave. */
+  const save = (patch: Partial<plane.Issue>) => {
+    if (!i) return
+    update.mutate(
+      { id: i.id, patch, current: { cycle: i.cycle ?? null, module: i.module ?? null } },
+      { onError: (e) => toast.error(planeError(e, "Couldn't save the issue.")) },
+    )
+  }
   if (typeof document === 'undefined') return null
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
@@ -103,7 +114,7 @@ export function IssueDrawer({ projectId, issueId, onClose, onPick }: Props) {
             {i ? (
               <TitleField
                 value={i.name}
-                onSave={(name) => update.mutate({ id: i.id, patch: { name } })}
+                onSave={(name) => save({ name })}
               />
             ) : (
               <div className="mt-1 h-6 w-72 animate-pulse rounded bg-edge-default/40" />
@@ -133,12 +144,18 @@ export function IssueDrawer({ projectId, issueId, onClose, onPick }: Props) {
                       cycle: i.cycle ?? null,
                       module: i.module ?? null,
                     } as Partial<plane.Issue>,
-                    { onSuccess: (next) => onPick(next.id) },
+                    {
+                      onSuccess: (next) => onPick(next.id),
+                      onError: (e) => toast.error(planeError(e, "Couldn't duplicate the issue.")),
+                    },
                   )
                 }}
                 onDelete={() => {
                   if (!confirm(`Delete "${i.name}"? This can't be undone.`)) return
-                  remove.mutate(i.id, { onSuccess: onClose })
+                  remove.mutate(i.id, {
+                    onSuccess: onClose,
+                    onError: (e) => toast.error(planeError(e, "Couldn't delete the issue.")),
+                  })
                 }}
               />
             ) : null}
@@ -158,7 +175,7 @@ export function IssueDrawer({ projectId, issueId, onClose, onPick }: Props) {
             <DescriptionBlock
               issue={i}
               onSave={(description_html) =>
-                i ? update.mutate({ id: i.id, patch: { description_html } }) : null
+                save({ description_html })
               }
             />
 
@@ -188,7 +205,7 @@ export function IssueDrawer({ projectId, issueId, onClose, onPick }: Props) {
                 members={members.data ?? []}
                 cycles={cycles.data ?? []}
                 modules={modules.data ?? []}
-                onPatch={(patch) => update.mutate({ id: i.id, patch })}
+                onPatch={save}
               />
             )}
           </aside>

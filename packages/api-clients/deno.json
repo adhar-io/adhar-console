@@ -6,6 +6,7 @@
     "./base": "./src/base/index.ts",
     "./gitea": "./src/gitea/index.ts",
     "./plane": "./src/plane/index.ts",
+    "./strapi": "./src/strapi/index.ts",
     "./argocd": "./src/argocd/index.ts",
     "./kargo": "./src/kargo/index.ts",
     "./harbor": "./src/harbor/index.ts",

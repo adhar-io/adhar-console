@@ -1,5 +1,18 @@
 import { z } from 'zod'
 import { defineClient, HttpClient } from '../base/index.ts'
+import {
+  cycleProgress,
+  cycleStatus,
+  filterIssues,
+  membershipIndex,
+  nextCursor,
+  normalizeMember,
+  type RawWorkspaceMember,
+  stripHtml,
+  unwrapList,
+} from './normalize.ts'
+
+export { cycleProgress, cycleStatus, PLANE_ROLE, stripHtml } from './normalize.ts'
 
 /**
  * Plane.so v1 API client — every shape mirrors the upstream JSON the apiserver
@@ -101,7 +114,13 @@ export const IssueSchema = z.object({
   assignees: z.array(z.string()).default([]),
   /** UUIDs of labels. */
   labels: z.array(z.string()).default([]),
+  /**
+   * The estimate's numeric value. Plane 1.x sends the id of an estimate point
+   * instead; the client resolves it (see `estimate_point_id`).
+   */
   estimate_point: z.number().nullable().optional(),
+  /** The Plane estimate point id behind `estimate_point` (set by the client). */
+  estimate_point_id: z.string().nullable().optional(),
   start_date: z.string().nullable().optional(),
   target_date: z.string().nullable().optional(),
   completed_at: z.string().nullable().optional(),
@@ -138,7 +157,7 @@ export const CycleSchema = z.object({
   started_issues: z.number().optional(),
   unstarted_issues: z.number().optional(),
   backlog_issues: z.number().optional(),
-  /** 0–100 progress percentage derived server-side. */
+  /** 0–100, derived by the client from the issue counts (Plane sends none). */
   progress: z.number().optional(),
 })
 export type Cycle = z.infer<typeof CycleSchema>
@@ -149,7 +168,7 @@ export const ModuleSchema = z.object({
   description: z.string().optional(),
   start_date: z.string().nullable().optional(),
   target_date: z.string().nullable().optional(),
-  status: z.enum(['planned', 'in-progress', 'paused', 'completed', 'cancelled']),
+  status: z.enum(['backlog', 'planned', 'in-progress', 'paused', 'completed', 'cancelled']),
   lead: z.string().nullable().optional(),
   members: z.array(z.string()).default([]),
   total_issues: z.number().optional(),
@@ -270,13 +289,31 @@ const Paginated = <T extends z.ZodTypeAny>(item: T) =>
 
 /* ───────────────────────────── Client ───────────────────────────── */
 
+export const EstimatePointSchema = z.object({
+  id: z.string(),
+  key: z.number().optional(),
+  value: z.string(),
+  description: z.string().optional(),
+})
+export type EstimatePoint = z.infer<typeof EstimatePointSchema>
+
+export const InvitationSchema = z.object({
+  id: z.string(),
+  email: z.string(),
+  role: z.number(),
+  accepted: z.boolean().optional(),
+  responded_at: z.string().nullable().optional(),
+  created_at: z.string().optional(),
+  updated_at: z.string().optional(),
+})
+export type Invitation = z.infer<typeof InvitationSchema>
+
 export interface PlaneClient {
-  /* Workspaces */
-  getWorkspace(slug: string): Promise<Workspace>
+  /* Workspace members + invitations */
   listMembers(slug: string): Promise<Member[]>
-  inviteMember(slug: string, body: { email: string; role: number }): Promise<Member>
-  updateMemberRole(slug: string, memberId: string, role: number): Promise<Member>
-  removeMember(slug: string, memberId: string): Promise<void>
+  listInvitations(slug: string): Promise<Invitation[]>
+  inviteMember(slug: string, body: { email: string; role: number }): Promise<Invitation>
+  deleteInvitation(slug: string, invitationId: string): Promise<void>
 
   /* Projects */
   listProjects(slug: string): Promise<Project[]>
@@ -289,13 +326,24 @@ export interface PlaneClient {
   listStates(slug: string, project: string): Promise<State[]>
   listLabels(slug: string, project: string): Promise<Label[]>
 
-  /* Issues */
+  /* Issues (Plane calls them work items) */
   listIssues(slug: string, project: string, params?: IssueListParams): Promise<Issue[]>
   getIssue(slug: string, project: string, issue: string): Promise<Issue>
+  /** `cycle` / `module` in the body are applied through Plane's membership endpoints. */
   createIssue(slug: string, project: string, body: Partial<Issue>): Promise<Issue>
-  updateIssue(slug: string, project: string, issue: string, patch: Partial<Issue>): Promise<Issue>
+  /**
+   * `cycle` / `module` in the patch move the issue between containers; pass
+   * `current` (the issue as last read) so the old membership can be removed.
+   */
+  updateIssue(
+    slug: string,
+    project: string,
+    issue: string,
+    patch: Partial<Issue>,
+    current?: Pick<Issue, 'cycle' | 'module'>,
+  ): Promise<Issue>
   deleteIssue(slug: string, project: string, issue: string): Promise<void>
-  /** Sub-issues — `parent` set to the given issue id. */
+  /** Sub-issues — issues whose `parent` is the given issue. */
   listSubIssues(slug: string, project: string, issue: string): Promise<Issue[]>
 
   /* Comments + activity for an issue */
@@ -314,18 +362,6 @@ export interface PlaneClient {
   createModule(slug: string, project: string, body: Partial<Module>): Promise<Module>
   updateModule(slug: string, project: string, module: string, patch: Partial<Module>): Promise<Module>
   deleteModule(slug: string, project: string, module: string): Promise<void>
-
-  /* Pages + Views */
-  listPages(slug: string, project: string): Promise<Page[]>
-  getPage(slug: string, project: string, page: string): Promise<Page>
-  createPage(slug: string, project: string, body: Partial<Page>): Promise<Page>
-  updatePage(slug: string, project: string, page: string, patch: Partial<Page>): Promise<Page>
-  deletePage(slug: string, project: string, page: string): Promise<void>
-
-  listViews(slug: string, project: string): Promise<View[]>
-  createView(slug: string, project: string, body: Partial<View>): Promise<View>
-  updateView(slug: string, project: string, view: string, patch: Partial<View>): Promise<View>
-  deleteView(slug: string, project: string, view: string): Promise<void>
 }
 
 export interface IssueListParams {
@@ -338,122 +374,237 @@ export interface IssueListParams {
   has_target_date?: boolean
 }
 
+/** Pages a list may follow before giving up — a guard against a cursor loop. */
+const MAX_PAGES = 50
+/** Above this many cycles + modules, issue lists skip membership enrichment. */
+const MAX_MEMBERSHIP_LOOKUPS = 40
+
 function build(http: HttpClient): PlaneClient {
-  // Plane wraps lists in either a bare array (older) or {results} (newer).
-  // unwrap() handles both so we don't have to know which version is talking.
-  const unwrap = <T>(raw: unknown): T[] => {
-    if (Array.isArray(raw)) return raw as T[]
-    if (raw && typeof raw === 'object' && 'results' in raw) {
-      return ((raw as { results: T[] }).results) ?? []
-    }
-    return []
+  const qs = (params?: Record<string, string | undefined>) => {
+    const parts = Object.entries(params ?? {})
+      .filter(([, v]) => v !== undefined && v !== '')
+      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+    return parts.length ? `?${parts.join('&')}` : ''
   }
 
-  const list = async <T>(path: string, params?: Record<string, string | undefined>) => {
-    const q = params
-      ? '?' +
-        Object.entries(params)
-          .filter(([, v]) => v !== undefined)
-          .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
-          .join('&')
-      : ''
-    return unwrap<T>(await http.get<unknown>(`${path}${q}`))
+  /** Every row of a list, following Plane's cursor (bare arrays end at once). */
+  const list = async <T>(path: string, params?: Record<string, string | undefined>): Promise<T[]> => {
+    const out: T[] = []
+    let cursor: string | undefined
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const raw = await http.get<unknown>(`${path}${qs({ ...params, cursor })}`)
+      out.push(...unwrapList<T>(raw))
+      cursor = nextCursor(raw)
+      if (!cursor) break
+    }
+    return out
+  }
+
+  const ws = (slug: string) => `/api/v1/workspaces/${slug}`
+  const proj = (slug: string, p: string) => `${ws(slug)}/projects/${p}`
+
+  const shapeCycle = (c: Cycle): Cycle => ({
+    ...c,
+    status: cycleStatus(c),
+    progress: cycleProgress(c),
+  })
+  const shapeModule = (m: Module): Module => ({ ...m, members: m.members ?? [] })
+  const shapeIssue = (i: Issue): Issue => ({
+    ...i,
+    assignees: i.assignees ?? [],
+    labels: i.labels ?? [],
+    description_stripped: i.description_stripped ?? stripHtml(i.description_html),
+  })
+
+  const issueIdsIn = async (path: string) =>
+    (await list<{ id: string }>(path, { fields: 'id' })).map((r) => r.id)
+
+  /**
+   * issue id → cycle id and → module id for a project. Plane only exposes
+   * membership per container, so this is one call per cycle and per module;
+   * the BFF's shared cache keeps repeated reads off Plane's rate limit.
+   */
+  const membership = async (slug: string, p: string) => {
+    const [cycles, modules] = await Promise.all([
+      list<Cycle>(`${proj(slug, p)}/cycles/`),
+      list<Module>(`${proj(slug, p)}/modules/`),
+    ])
+    if (cycles.length + modules.length > MAX_MEMBERSHIP_LOOKUPS) {
+      return { cycle: new Map<string, string>(), module: new Map<string, string>(), complete: false }
+    }
+    const [c, m] = await Promise.all([
+      Promise.all(cycles.map(async (x) => ({ id: x.id, issueIds: await issueIdsIn(`${proj(slug, p)}/cycles/${x.id}/cycle-issues/`) }))),
+      Promise.all(modules.map(async (x) => ({ id: x.id, issueIds: await issueIdsIn(`${proj(slug, p)}/modules/${x.id}/module-issues/`) }))),
+    ])
+    return { cycle: membershipIndex(c), module: membershipIndex(m), complete: true }
+  }
+
+  const withMembership = (issues: Issue[], idx: { cycle: Map<string, string>; module: Map<string, string> }) =>
+    issues.map((i) => ({ ...i, cycle: idx.cycle.get(i.id) ?? null, module: idx.module.get(i.id) ?? null }))
+
+  const addToCycle = (slug: string, p: string, cycle: string, issue: string) =>
+    http.post<unknown>(`${proj(slug, p)}/cycles/${cycle}/cycle-issues/`, { issues: [issue] })
+  const removeFromCycle = (slug: string, p: string, cycle: string, issue: string) =>
+    http.delete<void>(`${proj(slug, p)}/cycles/${cycle}/cycle-issues/${issue}/`)
+  const addToModule = (slug: string, p: string, module: string, issue: string) =>
+    http.post<unknown>(`${proj(slug, p)}/modules/${module}/module-issues/`, { issues: [issue] })
+  const removeFromModule = (slug: string, p: string, module: string, issue: string) =>
+    http.delete<void>(`${proj(slug, p)}/modules/${module}/module-issues/${issue}/`)
+
+  /**
+   * The project's estimate points (`[]` when it has no estimate). Plane 1.x
+   * stores an issue's estimate as the id of one of these; the console works
+   * in their values.
+   */
+  const estimatePoints = async (slug: string, p: string): Promise<EstimatePoint[]> => {
+    let estimate: { id?: string } | undefined
+    try {
+      estimate = await http.get<{ id?: string }>(`${proj(slug, p)}/estimates/`)
+    } catch {
+      return [] // 404 — the project has no estimate configured
+    }
+    if (!estimate?.id) return []
+    return list<EstimatePoint>(`${proj(slug, p)}/estimates/${estimate.id}/estimate-points/`)
+  }
+
+  /** Swap estimate point ids for their numeric values, keeping the id alongside. */
+  const withEstimates = async (slug: string, p: string, issues: Issue[]): Promise<Issue[]> => {
+    const raw = (i: Issue) => i.estimate_point as unknown
+    if (!issues.some((i) => typeof raw(i) === 'string')) return issues
+    const points = await estimatePoints(slug, p).catch(() => [] as EstimatePoint[])
+    const byId = new Map(points.map((pt) => [pt.id, pt]))
+    return issues.map((i) => {
+      const id = raw(i)
+      if (typeof id !== 'string') return i
+      const pt = byId.get(id)
+      const value = pt ? Number(pt.value) : NaN
+      return { ...i, estimate_point_id: id, estimate_point: Number.isFinite(value) ? value : null }
+    })
+  }
+
+  /** Strip the fields Plane's issue serializer does not own; map an estimate value to its point id. */
+  const issueBody = async (slug: string, p: string, body: Partial<Issue>) => {
+    const { cycle: _c, module: _m, estimate_point_id: _e, ...rest } = body
+    if (typeof rest.estimate_point === 'number') {
+      const points = await estimatePoints(slug, p)
+      if (!points.length) {
+        throw new Error('This project has no estimate in Plane. Set one up under the project\'s Estimates settings first.')
+      }
+      const match = points.find((pt) => Number(pt.value) === rest.estimate_point)
+      if (!match) {
+        throw new Error(`No estimate point ${rest.estimate_point}. This project's points are ${points.map((pt) => pt.value).join(', ')}.`)
+      }
+      return { ...rest, estimate_point: match.id as unknown as number }
+    }
+    return rest
   }
 
   return {
-    getWorkspace: (slug) => http.get<Workspace>(`/api/v1/workspaces/${slug}/`),
-    listMembers: (slug) => list<Member>(`/api/v1/workspaces/${slug}/members/`),
-    inviteMember: (slug, body) =>
-      http.post<Member>(`/api/v1/workspaces/${slug}/invitations/`, body),
-    updateMemberRole: (slug, id, role) =>
-      http.patch<Member>(`/api/v1/workspaces/${slug}/members/${id}/`, { role }),
-    removeMember: async (slug, id) => {
-      await http.delete<void>(`/api/v1/workspaces/${slug}/members/${id}/`)
+    listMembers: async (slug) =>
+      (await list<RawWorkspaceMember>(`${ws(slug)}/members/`)).map((m) => normalizeMember(m, slug) as Member),
+    listInvitations: (slug) => list<Invitation>(`${ws(slug)}/invitations/`),
+    inviteMember: (slug, body) => http.post<Invitation>(`${ws(slug)}/invitations/`, body),
+    deleteInvitation: async (slug, id) => {
+      await http.delete<void>(`${ws(slug)}/invitations/${id}/`)
     },
 
-    listProjects: (slug) => list<Project>(`/api/v1/workspaces/${slug}/projects/`),
-    getProject: (slug, p) => http.get<Project>(`/api/v1/workspaces/${slug}/projects/${p}/`),
-    createProject: (slug, body) =>
-      http.post<Project>(`/api/v1/workspaces/${slug}/projects/`, body),
-    updateProject: (slug, p, patch) =>
-      http.patch<Project>(`/api/v1/workspaces/${slug}/projects/${p}/`, patch),
+    listProjects: (slug) => list<Project>(`${ws(slug)}/projects/`),
+    getProject: (slug, p) => http.get<Project>(`${proj(slug, p)}/`),
+    createProject: (slug, body) => http.post<Project>(`${ws(slug)}/projects/`, body),
+    updateProject: (slug, p, patch) => http.patch<Project>(`${proj(slug, p)}/`, patch),
     deleteProject: async (slug, p) => {
-      await http.delete<void>(`/api/v1/workspaces/${slug}/projects/${p}/`)
+      await http.delete<void>(`${proj(slug, p)}/`)
     },
 
-    listStates: (slug, p) =>
-      list<State>(`/api/v1/workspaces/${slug}/projects/${p}/states/`),
-    listLabels: (slug, p) =>
-      list<Label>(`/api/v1/workspaces/${slug}/projects/${p}/labels/`),
+    listStates: (slug, p) => list<State>(`${proj(slug, p)}/states/`),
+    listLabels: (slug, p) => list<Label>(`${proj(slug, p)}/labels/`),
 
-    listIssues: (slug, p, params) => {
-      const qs: Record<string, string | undefined> = {}
-      if (params?.state) qs.state = params.state
-      if (params?.priority) qs.priority = params.priority
-      if (params?.cycle) qs.cycle = params.cycle
-      if (params?.module) qs.module = params.module
-      if (params?.assignees?.length) qs.assignees = params.assignees.join(',')
-      if (params?.has_target_date) qs.target_date__isnull = 'false'
-      return list<Issue>(`/api/v1/workspaces/${slug}/projects/${p}/issues/`, qs)
+    listIssues: async (slug, p, params) => {
+      // A container filter reads that container's own list — cheaper than
+      // indexing every cycle and module, and exact.
+      if (params?.cycle) {
+        const rows = (await list<Issue>(`${proj(slug, p)}/cycles/${params.cycle}/cycle-issues/`)).map(shapeIssue)
+        const shaped = await withEstimates(slug, p, rows.map((i) => ({ ...i, cycle: params.cycle })))
+        return filterIssues(shaped, { ...params, cycle: undefined })
+      }
+      if (params?.module) {
+        const rows = (await list<Issue>(`${proj(slug, p)}/modules/${params.module}/module-issues/`)).map(shapeIssue)
+        const shaped = await withEstimates(slug, p, rows.map((i) => ({ ...i, module: params.module })))
+        return filterIssues(shaped, { ...params, module: undefined })
+      }
+      const [rows, idx] = await Promise.all([
+        list<Issue>(`${proj(slug, p)}/issues/`),
+        membership(slug, p).catch(() => ({ cycle: new Map<string, string>(), module: new Map<string, string>() })),
+      ])
+      return filterIssues(await withEstimates(slug, p, withMembership(rows.map(shapeIssue), idx)), params)
     },
-    getIssue: (slug, p, id) =>
-      http.get<Issue>(`/api/v1/workspaces/${slug}/projects/${p}/issues/${id}/`),
-    createIssue: (slug, p, body) =>
-      http.post<Issue>(`/api/v1/workspaces/${slug}/projects/${p}/issues/`, body),
-    updateIssue: (slug, p, id, patch) =>
-      http.patch<Issue>(`/api/v1/workspaces/${slug}/projects/${p}/issues/${id}/`, patch),
+    getIssue: async (slug, p, id) => {
+      const [issue, idx] = await Promise.all([
+        http.get<Issue>(`${proj(slug, p)}/issues/${id}/`),
+        membership(slug, p).catch(() => ({ cycle: new Map<string, string>(), module: new Map<string, string>() })),
+      ])
+      return (await withEstimates(slug, p, withMembership([shapeIssue(issue)], idx)))[0]
+    },
+    createIssue: async (slug, p, body) => {
+      const created = shapeIssue(await http.post<Issue>(`${proj(slug, p)}/issues/`, await issueBody(slug, p, body)))
+      if (body.cycle) await addToCycle(slug, p, body.cycle, created.id)
+      if (body.module) await addToModule(slug, p, body.module, created.id)
+      const [withPoints] = await withEstimates(slug, p, [created])
+      return { ...withPoints, cycle: body.cycle ?? null, module: body.module ?? null }
+    },
+    updateIssue: async (slug, p, id, patch, current) => {
+      const rest = await issueBody(slug, p, patch)
+      const updated = Object.keys(rest).length
+        ? shapeIssue(await http.patch<Issue>(`${proj(slug, p)}/issues/${id}/`, rest))
+        : shapeIssue(await http.get<Issue>(`${proj(slug, p)}/issues/${id}/`))
+      let cycle = current?.cycle ?? null
+      let module = current?.module ?? null
+      if ('cycle' in patch && (patch.cycle ?? null) !== cycle) {
+        // Adding to a cycle moves the issue out of any other one server-side.
+        if (patch.cycle) await addToCycle(slug, p, patch.cycle, id)
+        else if (cycle) await removeFromCycle(slug, p, cycle, id)
+        cycle = patch.cycle ?? null
+      }
+      if ('module' in patch && (patch.module ?? null) !== module) {
+        if (module) await removeFromModule(slug, p, module, id)
+        if (patch.module) await addToModule(slug, p, patch.module, id)
+        module = patch.module ?? null
+      }
+      const [withPoints] = await withEstimates(slug, p, [updated])
+      return { ...withPoints, cycle, module }
+    },
     deleteIssue: async (slug, p, id) => {
-      await http.delete<void>(`/api/v1/workspaces/${slug}/projects/${p}/issues/${id}/`)
+      await http.delete<void>(`${proj(slug, p)}/issues/${id}/`)
     },
-    listSubIssues: (slug, p, id) =>
-      list<Issue>(`/api/v1/workspaces/${slug}/projects/${p}/issues/${id}/sub-issues/`),
+    listSubIssues: async (slug, p, id) =>
+      withEstimates(slug, p, (await list<Issue>(`${proj(slug, p)}/issues/`)).map(shapeIssue).filter((i) => i.parent === id)),
 
-    listComments: (slug, p, id) =>
-      list<Comment>(`/api/v1/workspaces/${slug}/projects/${p}/issues/${id}/comments/`),
-    createComment: (slug, p, id, body) =>
-      http.post<Comment>(`/api/v1/workspaces/${slug}/projects/${p}/issues/${id}/comments/`, body),
+    listComments: (slug, p, id) => list<Comment>(`${proj(slug, p)}/issues/${id}/comments/`),
+    createComment: (slug, p, id, body) => http.post<Comment>(`${proj(slug, p)}/issues/${id}/comments/`, body),
     deleteComment: async (slug, p, id, c) => {
-      await http.delete<void>(`/api/v1/workspaces/${slug}/projects/${p}/issues/${id}/comments/${c}/`)
+      await http.delete<void>(`${proj(slug, p)}/issues/${id}/comments/${c}/`)
     },
-    listActivities: (slug, p, id) =>
-      list<Activity>(`/api/v1/workspaces/${slug}/projects/${p}/issues/${id}/activities/`),
+    listActivities: (slug, p, id) => list<Activity>(`${proj(slug, p)}/issues/${id}/activities/`),
 
-    listCycles: (slug, p) => list<Cycle>(`/api/v1/workspaces/${slug}/projects/${p}/cycles/`),
-    createCycle: (slug, p, body) =>
-      http.post<Cycle>(`/api/v1/workspaces/${slug}/projects/${p}/cycles/`, body),
-    updateCycle: (slug, p, id, patch) =>
-      http.patch<Cycle>(`/api/v1/workspaces/${slug}/projects/${p}/cycles/${id}/`, patch),
+    listCycles: async (slug, p) => (await list<Cycle>(`${proj(slug, p)}/cycles/`)).map(shapeCycle),
+    createCycle: async (slug, p, body) => {
+      const { status: _s, progress: _p, ...rest } = body
+      return shapeCycle(await http.post<Cycle>(`${proj(slug, p)}/cycles/`, rest))
+    },
+    updateCycle: async (slug, p, id, patch) => {
+      const { status: _s, progress: _p, ...rest } = patch
+      return shapeCycle(await http.patch<Cycle>(`${proj(slug, p)}/cycles/${id}/`, rest))
+    },
     deleteCycle: async (slug, p, id) => {
-      await http.delete<void>(`/api/v1/workspaces/${slug}/projects/${p}/cycles/${id}/`)
+      await http.delete<void>(`${proj(slug, p)}/cycles/${id}/`)
     },
 
-    listModules: (slug, p) =>
-      list<Module>(`/api/v1/workspaces/${slug}/projects/${p}/modules/`),
-    createModule: (slug, p, body) =>
-      http.post<Module>(`/api/v1/workspaces/${slug}/projects/${p}/modules/`, body),
-    updateModule: (slug, p, id, patch) =>
-      http.patch<Module>(`/api/v1/workspaces/${slug}/projects/${p}/modules/${id}/`, patch),
+    listModules: async (slug, p) => (await list<Module>(`${proj(slug, p)}/modules/`)).map(shapeModule),
+    createModule: async (slug, p, body) => shapeModule(await http.post<Module>(`${proj(slug, p)}/modules/`, body)),
+    updateModule: async (slug, p, id, patch) =>
+      shapeModule(await http.patch<Module>(`${proj(slug, p)}/modules/${id}/`, patch)),
     deleteModule: async (slug, p, id) => {
-      await http.delete<void>(`/api/v1/workspaces/${slug}/projects/${p}/modules/${id}/`)
-    },
-
-    listPages: (slug, p) => list<Page>(`/api/v1/workspaces/${slug}/projects/${p}/pages/`),
-    getPage: (slug, p, id) =>
-      http.get<Page>(`/api/v1/workspaces/${slug}/projects/${p}/pages/${id}/`),
-    createPage: (slug, p, body) =>
-      http.post<Page>(`/api/v1/workspaces/${slug}/projects/${p}/pages/`, body),
-    updatePage: (slug, p, id, patch) =>
-      http.patch<Page>(`/api/v1/workspaces/${slug}/projects/${p}/pages/${id}/`, patch),
-    deletePage: async (slug, p, id) => {
-      await http.delete<void>(`/api/v1/workspaces/${slug}/projects/${p}/pages/${id}/`)
-    },
-    listViews: (slug, p) => list<View>(`/api/v1/workspaces/${slug}/projects/${p}/views/`),
-    createView: (slug, p, body) =>
-      http.post<View>(`/api/v1/workspaces/${slug}/projects/${p}/views/`, body),
-    updateView: (slug, p, id, patch) =>
-      http.patch<View>(`/api/v1/workspaces/${slug}/projects/${p}/views/${id}/`, patch),
-    deleteView: async (slug, p, id) => {
-      await http.delete<void>(`/api/v1/workspaces/${slug}/projects/${p}/views/${id}/`)
+      await http.delete<void>(`${proj(slug, p)}/modules/${id}/`)
     },
   }
 }
@@ -569,11 +720,15 @@ const STUB_LABELS_CON: Label[] = [
   { id: 'lbl-security', name: 'security', color: '#a855f7', project: 'proj-con' },
 ]
 
+const STUB_INVITES: Invitation[] = [
+  { id: 'inv-1', email: 'nadia@example.com', role: 15, accepted: false, responded_at: null, created_at: '2026-04-20T09:00:00Z' },
+]
+
 const STUB_MEMBERS: Member[] = [
   {
     id: 'mem-1',
     member: { id: 'usr-tapas', display_name: 'Tapas Mishra', email: 'tapas@example.com', avatar: null },
-    role: 5,
+    role: 20,
     workspace: 'ws-default',
   },
   {
@@ -591,7 +746,7 @@ const STUB_MEMBERS: Member[] = [
   {
     id: 'mem-4',
     member: { id: 'usr-priya', display_name: 'Priya Shah', email: 'priya@example.com', avatar: null },
-    role: 5,
+    role: 20,
     workspace: 'ws-default',
   },
   {
@@ -603,7 +758,7 @@ const STUB_MEMBERS: Member[] = [
   {
     id: 'mem-6',
     member: { id: 'usr-sam', display_name: 'Sam Carter', email: 'sam@example.com', avatar: null },
-    role: 20,
+    role: 5,
     workspace: 'ws-default',
   },
 ]
@@ -902,97 +1057,7 @@ const STUB_MODULES_CON: Module[] = [
   },
 ]
 
-const STUB_PAGES_CON: Page[] = [
-  {
-    id: 'pg-arch',
-    name: 'Architecture · Module Federation + TanStack Start',
-    description_stripped:
-      'How the host loads phase remotes, BFF boundaries, and where session state lives.',
-    owned_by: 'usr-tapas',
-    access: 'public',
-    blocks: [],
-    labels: [],
-    project: 'proj-con',
-    workspace: 'ws-default',
-    created_at: days(-30),
-    updated_at: days(-2),
-    is_favorite: true,
-  },
-  {
-    id: 'pg-runbook',
-    name: 'Runbook · Cluster unreachable',
-    description_stripped:
-      'Steps to triage when the cluster is unreachable — check /api/diagnostics, the apiserver, and RBAC.',
-    owned_by: 'usr-leo',
-    access: 'public',
-    blocks: [],
-    labels: [],
-    project: 'proj-con',
-    workspace: 'ws-default',
-    created_at: days(-12),
-    updated_at: days(-1),
-  },
-  {
-    id: 'pg-design',
-    name: 'Design tokens & theming presets',
-    description_stripped:
-      'OKLCH ramps for brand/accent/surface, theme picker behaviour, customisation.',
-    owned_by: 'usr-arun',
-    access: 'public',
-    blocks: [],
-    labels: [],
-    project: 'proj-con',
-    workspace: 'ws-default',
-    created_at: days(-22),
-    updated_at: days(-5),
-  },
-  {
-    id: 'pg-onboarding',
-    name: 'Onboarding wizard copy',
-    description_stripped: 'Source of truth for the 5 onboarding steps + tone of voice.',
-    owned_by: 'usr-arun',
-    access: 'private',
-    blocks: [],
-    labels: [],
-    project: 'proj-con',
-    workspace: 'ws-default',
-    created_at: days(-10),
-    updated_at: days(-3),
-  },
-]
 
-const STUB_VIEWS_CON: View[] = [
-  {
-    id: 'vw-mine',
-    name: 'My open issues',
-    description: 'All issues assigned to me, not done.',
-    query_data: { assignees: ['me'], state__group: ['backlog', 'unstarted', 'started'] },
-    project: 'proj-con',
-    workspace: 'ws-default',
-    access: 'private',
-    created_at: days(-30),
-  },
-  {
-    id: 'vw-bugs',
-    name: 'Open bugs',
-    description: 'Anything labelled bug that isn\'t closed.',
-    query_data: { labels: ['lbl-bug'], state__group: ['backlog', 'unstarted', 'started'] },
-    project: 'proj-con',
-    workspace: 'ws-default',
-    access: 'public',
-    created_at: days(-20),
-  },
-  {
-    id: 'vw-blocked',
-    name: 'Blocked / urgent',
-    description: 'Priority urgent or paused waiting for review.',
-    query_data: { priority: ['urgent'] },
-    project: 'proj-con',
-    workspace: 'ws-default',
-    access: 'public',
-    created_at: days(-14),
-  },
-]
 
 const STUB_COMMENTS: Comment[] = [
   {
@@ -1085,8 +1150,12 @@ function issuesFor(p: string): Issue[] {
 }
 
 export const PlaneClient = defineClient<PlaneClient>(build, () => ({
-  getWorkspace: async () => STUB_WS,
   listMembers: async () => STUB_MEMBERS,
+  listInvitations: async () => STUB_INVITES,
+  deleteInvitation: async (_slug, id) => {
+    const at = STUB_INVITES.findIndex((i) => i.id === id)
+    if (at >= 0) STUB_INVITES.splice(at, 1)
+  },
   listProjects: async () => STUB_PROJECTS,
   getProject: async (_slug, p) =>
     STUB_PROJECTS.find((x) => x.id === p) ?? STUB_PROJECTS[0],
@@ -1118,22 +1187,18 @@ export const PlaneClient = defineClient<PlaneClient>(build, () => ({
     return { ...(cur as Project), ...patch, id: p }
   },
   deleteProject: async () => undefined,
-  inviteMember: async (_slug, body) => ({
-    id: `mem-new-${Date.now().toString(36)}`,
-    member: {
-      id: `usr-new-${Date.now().toString(36)}`,
-      display_name: body.email.split('@')[0],
+  inviteMember: async (_slug, body) => {
+    const inv: Invitation = {
+      id: `inv-${Date.now().toString(36)}`,
       email: body.email,
-      avatar: null,
-    },
-    role: body.role,
-    workspace: STUB_WS.id,
-  }),
-  updateMemberRole: async (_slug, id, role) => {
-    const cur = STUB_MEMBERS.find((m) => m.id === id) ?? STUB_MEMBERS[0]
-    return { ...cur, role }
+      role: body.role,
+      accepted: false,
+      responded_at: null,
+      created_at: new Date().toISOString(),
+    }
+    STUB_INVITES.push(inv)
+    return inv
   },
-  removeMember: async () => undefined,
   listStates: async (_slug, p) => statesFor(p),
   listLabels: async (_slug, p) => labelsFor(p),
   listIssues: async (_slug, p, params) => {
@@ -1232,58 +1297,6 @@ export const PlaneClient = defineClient<PlaneClient>(build, () => ({
     return { ...(cur as Module), ...patch, id, project: p }
   },
   deleteModule: async () => undefined,
-  listPages: async (_slug, p) =>
-    p === 'proj-con' ? STUB_PAGES_CON : STUB_PAGES_CON.slice(0, 1).map((g) => ({ ...g, project: p })),
-  getPage: async (_slug, p, id) => {
-    const found = STUB_PAGES_CON.find((g) => g.id === id)
-    if (!found) throw new Error(`stub: page ${id} not found`)
-    return { ...found, project: p }
-  },
-  createPage: async (_slug, p, body) =>
-    ({
-      ...(body as Page),
-      id: `pg-new-${Date.now().toString(36)}`,
-      owned_by: 'usr-tapas',
-      access: body.access ?? 'public',
-      blocks: [],
-      labels: [],
-      project: p,
-      workspace: STUB_WS.id,
-      created_at: new Date().toISOString(),
-      name: body.name ?? '(untitled page)',
-    }) as Page,
-  updatePage: async (_slug, p, id, patch) => {
-    const found = STUB_PAGES_CON.find((g) => g.id === id)
-    return {
-      ...(found ?? ({} as Page)),
-      ...patch,
-      id,
-      project: p,
-      updated_at: new Date().toISOString(),
-    } as Page
-  },
-  deletePage: async () => undefined,
-  listViews: async (_slug, p) =>
-    p === 'proj-con' ? STUB_VIEWS_CON : [],
-  createView: async (_slug, p, body) =>
-    ({
-      id: `vw-new-${Date.now().toString(36)}`,
-      name: body.name ?? 'Untitled view',
-      description: body.description,
-      query_data: body.query_data ?? {},
-      access: body.access ?? 'private',
-      project: p,
-      workspace: STUB_WS.id,
-      created_at: new Date().toISOString(),
-    }) as View,
-  updateView: async (_slug, p, id, patch) =>
-    ({
-      ...(STUB_VIEWS_CON.find((v) => v.id === id) as View),
-      ...patch,
-      id,
-      project: p,
-    }),
-  deleteView: async () => undefined,
 }))
 
 /* Helpful re-exports for views that don't want to import from /base. */

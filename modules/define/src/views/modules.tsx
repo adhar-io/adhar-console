@@ -29,6 +29,7 @@ import { CreateModuleModal } from '../components/create-forms.tsx'
 import { ListToolbar } from '../components/list-toolbar.tsx'
 
 const STATUS_KIND: Record<plane.Module['status'], StatusKind> = {
+  backlog: 'unknown',
   planned: 'info',
   'in-progress': 'progressing',
   paused: 'paused',

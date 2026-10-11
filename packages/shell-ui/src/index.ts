@@ -211,6 +211,7 @@ export {
   usePublicBaseDomain,
   usePlaneWorkspace,
   useToolPublicUrl,
+  useIntegration,
   usePublicUrl,
   toolForInternalHost,
   toPublicUrl,

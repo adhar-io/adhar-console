@@ -9,6 +9,7 @@ import { Environments } from './views/environments.tsx'
 import { CodeBuilder } from './views/code-builder.tsx'
 import { Pipelines } from './views/pipelines.tsx'
 import { Performance } from './views/performance.tsx'
+import { Content } from './views/content.tsx'
 
 type Section =
   | 'dashboard'
@@ -20,6 +21,7 @@ type Section =
   | 'environments'
   | 'pipelines'
   | 'performance'
+  | 'content'
   | 'codebuilder'
 
 const SECTIONS: Record<Section, { label: string; description: string }> = {
@@ -60,6 +62,10 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
     description:
       'k6 load and API performance tests — run them on the cluster, watch the stages, read the thresholds that passed or failed.',
   },
+  content: {
+    label: 'Content',
+    description: 'Strapi headless CMS — content types, entries, drafts and publishing, media, and the API services read.',
+  },
   codebuilder: {
     label: 'Code Builder',
     description: 'Drag-and-drop code scaffolder — wire components, generate source.',
@@ -81,6 +87,7 @@ export default function DevelopHome({ section }: { section?: string } = {}) {
       {active === 'environments' && <Environments />}
       {active === 'pipelines' && <Pipelines />}
       {active === 'performance' && <Performance />}
+      {active === 'content' && <Content />}
       {active === 'codebuilder' && <CodeBuilder />}
     </div>
   )

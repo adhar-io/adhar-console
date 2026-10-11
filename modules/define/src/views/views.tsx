@@ -15,9 +15,10 @@ import { ListToolbar } from '../components/list-toolbar.tsx'
 import { issueQueryChips, readIssueQuery, type SavedIssueQuery } from '../data/view-query.ts'
 
 /**
- * Saved Views — Plane's per-project filter bookmarks. Each view's `query_data`
- * renders as a resolved chip strip (ids → names), and Open re-applies the
- * saved filter set to the Issues board.
+ * Saved Views — per-project filter bookmarks for the Issues board. Plane's
+ * public API has no views endpoint, so the console keeps them in the signed-in
+ * user's preferences (see `useViews`). Each view's `query_data` renders as a
+ * resolved chip strip (ids → names), and Open re-applies the saved filters.
  */
 export function Views({
   projectId,
@@ -51,7 +52,7 @@ export function Views({
   if (q.isError) {
     return (
       <EmptyState
-        title="Couldn't reach Plane"
+        title="Couldn't load saved views"
         description={q.error instanceof Error ? q.error.message : 'Unknown error.'}
       />
     )
@@ -103,9 +104,7 @@ export function Views({
                         </div>
                       ) : null}
                     </div>
-                    <StatusBadge kind={v.access === 'public' ? 'info' : 'unknown'}>
-                      {v.access ?? 'public'}
-                    </StatusBadge>
+                    <StatusBadge kind="unknown">private</StatusBadge>
                   </div>
                 </CardHeader>
                 <CardBody className="space-y-3">

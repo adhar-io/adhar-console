@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { XR_FAMILIES, XR_SECTIONS } from './xr-sections.ts'
 import type { StatusKind } from './status-badge.tsx'
 import {
   IconActivity,
@@ -441,109 +442,17 @@ export const DEFAULT_NAV: NavSection[] = [
             to: '/platform',
             search: 'catalog',
           },
-          {
-            id: 'platform.applications',
-            label: 'Applications',
-            to: '/platform',
-            search: 'applications',
-          },
-          {
-            id: 'platform.functions',
-            label: 'Functions',
-            to: '/platform',
-            search: 'functions',
-          },
-          {
-            id: 'platform.workflows',
-            label: 'Workflows',
-            to: '/platform',
-            search: 'workflows',
-          },
-          {
-            id: 'platform.pipelines',
-            label: 'Pipelines',
-            to: '/platform',
-            search: 'pipelines',
-          },
-          {
-            id: 'platform.databases',
-            label: 'Databases',
-            to: '/platform',
-            search: 'databases',
-          },
-          {
-            id: 'platform.caches',
-            label: 'Caches',
-            to: '/platform',
-            search: 'caches',
-          },
-          {
-            id: 'platform.buckets',
-            label: 'Buckets',
-            to: '/platform',
-            search: 'buckets',
-          },
-          {
-            id: 'platform.topics',
-            label: 'Topics',
-            to: '/platform',
-            search: 'topics',
-          },
-          {
-            id: 'platform.data-pipelines',
-            label: 'Data Pipelines',
-            to: '/platform',
-            search: 'data-pipelines',
-          },
-          {
-            id: 'platform.routes',
-            label: 'Routes',
-            to: '/platform',
-            search: 'routes',
-          },
-          {
-            id: 'platform.domains',
-            label: 'Domains',
-            to: '/platform',
-            search: 'domains',
-          },
-          {
-            id: 'platform.api-contracts',
-            label: 'API Contracts',
-            to: '/platform',
-            search: 'api-contracts',
-          },
-          {
-            id: 'platform.queues',
-            label: 'Queues',
-            to: '/platform',
-            search: 'queues',
-          },
-          {
-            id: 'platform.certificates',
-            label: 'Certificates',
-            to: '/platform',
-            search: 'certificates',
-          },
-          {
-            id: 'platform.secret-stores',
-            label: 'Secret Stores',
-            to: '/platform',
-            search: 'secret-stores',
-          },
-          {
-            id: 'platform.load-balancers',
-            label: 'Load Balancers',
-            to: '/platform',
-            search: 'load-balancers',
-          },
-          {
-            id: 'platform.environments',
-            label: 'Environments',
-            to: '/platform',
-            search: 'environments',
-            badge: { kind: 'info', value: 'governance' },
-          },
+          // One group per family, one page per XRD — see xr-sections.ts.
+          ...XR_FAMILIES.map((fam): NavItem => ({
+            id: `platform.xr.${fam.id}`,
+            label: fam.label,
+            children: XR_SECTIONS.filter((x) => x.family === fam.id).map((x) => ({
+              id: `platform.${x.id}`,
+              label: x.label,
+              to: '/platform',
+              search: x.id,
+            })),
+          })),
         ],
       },
     ],

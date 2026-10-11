@@ -1,4 +1,4 @@
-import { PageHeader } from '@adhar/shell-ui'
+import { PageHeader, XR_SECTION_BY_ID } from '@adhar/shell-ui'
 import { ConnectionGate } from './components/connection-banner.tsx'
 import { ChaosView } from './views/chaos.tsx'
 import { KnowledgeGraph } from './views/knowledge-graph.tsx'
@@ -39,6 +39,7 @@ import {
   SecretStoresView,
   TopicsView,
   WorkflowsView,
+  XrListForKind,
 } from './views/xr-kinds.tsx'
 import { PlatformCatalog } from './views/catalog.tsx'
 import { NamespacesView } from './views/namespaces-list.tsx'
@@ -359,6 +360,26 @@ const SECTIONS: Record<Section, SectionDef> = {
 }
 
 export default function PlatformHome({ section }: { section?: string } = {}) {
+  // An Adhar Resource page — one per XRD, from the shared registry the
+  // sidebar is built from (shell-ui xr-sections.ts).
+  const xr = section ? XR_SECTION_BY_ID[section] : undefined
+  const { namespace: xrNamespace } = useActiveNamespace()
+  if (xr) {
+    return (
+      <ClusterProvider>
+        <div className="space-y-6">
+          <PageHeader title={xr.label} />
+          <ConnectionGate>
+            <XrListForKind resource={xr.plural} namespace={xrNamespace} />
+          </ConnectionGate>
+        </div>
+      </ClusterProvider>
+    )
+  }
+  return <PlatformSection section={section} />
+}
+
+function PlatformSection({ section }: { section?: string }) {
   const active = (SECTIONS[section as Section]?.id ?? 'dashboard') as Section
   const def = SECTIONS[active]
   // Cluster + Namespace selection now live in the top bar (rendered by the host

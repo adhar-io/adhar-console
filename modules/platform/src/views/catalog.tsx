@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useQueries, useQueryClient } from '@tanstack/react-query'
 import {
+  XR_SECTIONS,
   AdharSymbol,
   Badge,
   CiliumIcon,
@@ -594,6 +595,7 @@ function KindCard({
   const total = items.length
   const notInstalled = error?.status === 404
   const failed = Boolean(error) && !notInstalled
+  const page = XR_SECTIONS.find((x) => x.plural === info.plural)
 
   return (
     <article
@@ -715,6 +717,15 @@ function KindCard({
         >
           Browse
         </button>
+        {page ? (
+          <a
+            href={`/platform?section=${page.id}`}
+            title={`Open the ${page.label} page — filters, bulk actions, operations`}
+            className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-edge-default bg-surface-raised px-2.5 text-xs font-medium text-content shadow-sm outline-none transition-colors hover:border-edge-strong hover:bg-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-500/40"
+          >
+            Page
+          </a>
+        ) : null}
         {managed ? (
           // Operator-owned: creating one is the operator's concern, not a claim.
           <span

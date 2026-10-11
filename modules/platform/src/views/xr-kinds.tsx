@@ -375,13 +375,13 @@ export function RoutesView({ namespace }: { namespace?: string }) {
   return <XrListForKind resource="routes" namespace={namespace} />
 }
 export function CachesView({ namespace }: { namespace?: string }) {
-  return <XrListForKind resource="compositecaches" namespace={namespace} />
+  return <XrListForKind resource="caches" namespace={namespace} />
 }
 export function BucketsView({ namespace }: { namespace?: string }) {
-  return <XrListForKind resource="storages" namespace={namespace} />
+  return <XrListForKind resource="buckets" namespace={namespace} />
 }
 export function TopicsView({ namespace }: { namespace?: string }) {
-  return <XrListForKind resource="messagings" namespace={namespace} />
+  return <XrListForKind resource="topics" namespace={namespace} />
 }
 export function FunctionsView({ namespace }: { namespace?: string }) {
   return <XrListForKind resource="compositefunctions" namespace={namespace} />
@@ -399,7 +399,7 @@ export function ApiContractsView({ namespace }: { namespace?: string }) {
   return <XrListForKind resource="apicontracts" namespace={namespace} />
 }
 export function QueuesView({ namespace }: { namespace?: string }) {
-  return <XrListForKind resource="messagequeues" namespace={namespace} />
+  return <XrListForKind resource="queues" namespace={namespace} />
 }
 export function CertificatesView({ namespace }: { namespace?: string }) {
   return <XrListForKind resource="certificates" namespace={namespace} />

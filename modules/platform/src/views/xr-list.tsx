@@ -27,6 +27,22 @@ import { K8sRolePill } from '../components/role-gate.tsx'
 import { toYaml } from '../data/manifest-yaml.ts'
 import { provisionState } from '../data/provision-state.ts'
 import { YamlView } from '../components/yaml-view.tsx'
+import {
+  attentionItems,
+  cloneManifest,
+  cloneName,
+  compositionOf,
+  facet,
+  filterXrs,
+  type GroupKey,
+  groupXrs,
+  isProtected,
+  ownership,
+  toYamlBundle,
+  type XrState,
+  xrState,
+} from '../data/xr-ops.ts'
+import { AttentionPanel, BulkBar, ChangeLog, downloadText, FilterSelect, GroupSelect, OperationsPanel, STATE_META } from './xr-ops-ui.tsx'
 
 /**
  * Generic list + detail drawer + **self-service provisioning** for a
@@ -455,9 +471,16 @@ export function XrList({
   const canProvision = useHasK8sPermission('crds.write')
   const toast = useToast()
   const [search, setSearch] = useState('')
-  const [health, setHealth] = useState<HealthFilter>('all')
+  const [health, setHealth] = useState<StateFilter>('all')
+  const [nsFilter, setNsFilter] = useState('')
+  const [compFilter, setCompFilter] = useState('')
+  const [teamFilter, setTeamFilter] = useState('')
+  const [groupBy, setGroupBy] = useState<GroupKey>('none')
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [cloneFrom, setCloneFrom] = useState<XR | null>(null)
   const [pendingDelete, setPendingDelete] = useState<XR | null>(null)
   const cluster = useActiveCluster()
+  const now = Date.now()
 
   // Honour a "create" intent handed off by the catalog dashboard — open the
   // provisioning wizard once, on mount, only for the matching kind and only
@@ -527,13 +550,53 @@ export function XrList({
 
   const rows = (q.data ?? []) as unknown as XR[]
 
+  const keyOf = (r: XR) => r.metadata.uid ?? `${r.metadata.namespace ?? '-'}/${r.metadata.name}`
+  // What "select all" means: every row the filters currently show.
+  const shownAll = filterXrs(rows, {
+    search,
+    namespace: nsFilter || undefined,
+    composition: compFilter || undefined,
+    team: teamFilter || undefined,
+    states: new Set(STATE_FILTER_STATES[health]),
+  }, now)
+  const togglePick = (r: XR) =>
+    setPicked((cur) => {
+      const next = new Set(cur)
+      const k = keyOf(r)
+      if (next.has(k)) next.delete(k)
+      else next.add(k)
+      return next
+    })
+
   const columns: Column<XR>[] = [
+    {
+      key: 'select',
+      header: (
+        <input
+          type="checkbox"
+          aria-label="Select all shown"
+          checked={shownAll.length > 0 && shownAll.every((r) => picked.has(keyOf(r)))}
+          onChange={(e) => setPicked(e.target.checked ? new Set(shownAll.map(keyOf)) : new Set())}
+        />
+      ),
+      width: 36,
+      sortable: false,
+      cell: (r) => (
+        <span onClick={(e) => e.stopPropagation()}>
+          <input type="checkbox" aria-label={`Select ${r.metadata.name}`} checked={picked.has(keyOf(r))} onChange={() => togglePick(r)} />
+        </span>
+      ),
+    },
     {
       key: 'name',
       header: 'Name',
+      value: (r) => r.metadata.name,
       cell: (r) => (
         <div>
-          <div className="font-medium text-content">{r.metadata.name}</div>
+          <div className="flex items-center gap-1.5 font-medium text-content">
+            {r.metadata.name}
+            {isProtected(r) ? <span title="Deletion protection is on" aria-label="Protected" className="text-[11px] text-content-subtle">🔒</span> : null}
+          </div>
           {r.metadata.namespace ? (
             <div className="text-xs text-content-muted">{r.metadata.namespace}</div>
           ) : (
@@ -543,14 +606,18 @@ export function XrList({
       ),
     },
     {
-      key: 'ready',
-      header: 'Ready',
-      cell: (r) =>
-        r.metadata.deletionTimestamp ? (
-          <StatusBadge kind="paused">Deleting</StatusBadge>
-        ) : (
-          conditionBadge(r, 'Ready')
-        ),
+      key: 'status',
+      header: 'Status',
+      value: (r) => xrState(r, now),
+      cell: (r) => {
+        const st = xrState(r, now)
+        const c = findCondition(r, st === 'failing' ? 'Synced' : 'Ready')
+        return (
+          <span title={c?.message ?? c?.reason ?? ''}>
+            <StatusBadge kind={STATE_META[st].kind} pulse={st === 'progressing'}>{STATE_META[st].label}</StatusBadge>
+          </span>
+        )
+      },
     },
     {
       key: 'synced',
@@ -574,6 +641,22 @@ export function XrList({
           )
         }
         return <span className="text-content-subtle">—</span>
+      },
+    },
+    {
+      key: 'owner',
+      header: 'Owner',
+      value: (r) => ownership(r).team ?? ownership(r).owner ?? '',
+      cell: (r) => {
+        const o = ownership(r)
+        if (!o.team && !o.owner) return <span className="text-content-subtle">—</span>
+        return (
+          <div className="min-w-0 text-xs">
+            {o.team ? <div className="truncate text-content">{o.team}</div> : null}
+            {o.owner ? <div className="truncate text-content-muted">{o.owner}</div> : null}
+            {o.environment ? <div className="truncate text-content-subtle">{o.environment}</div> : null}
+          </div>
+        )
       },
     },
     ...(config.extraColumns ?? []),
@@ -626,7 +709,12 @@ export function XrList({
           >
             Copy
           </RowBtn>
-          {canProvision && !r.metadata.deletionTimestamp ? (
+          {canProvision ? (
+            <RowBtn title={`Provision a copy of ${r.metadata.name}`} onClick={() => setCloneFrom(r)}>
+              Clone
+            </RowBtn>
+          ) : null}
+          {canProvision && !r.metadata.deletionTimestamp && !isProtected(r) ? (
             <RowBtn title={`Delete this ${config.singular.toLowerCase()}`} danger onClick={() => setPendingDelete(r)}>
               Delete
             </RowBtn>
@@ -636,23 +724,26 @@ export function XrList({
     },
   ]
 
-  // Management toolbar: the counts double as filters, search narrows by name,
-  // namespace or composition.
+  // Management toolbar: the counts double as filters; search, namespace,
+  // composition and team narrow further; grouping and bulk actions act on
+  // what is shown.
+  const states = rows.map((r) => xrState(r, now))
   const counts = {
     total: rows.length,
-    ready: rows.filter((r) => !r.metadata.deletionTimestamp && findCondition(r, 'Ready')?.status === 'True').length,
-    notReady: rows.filter((r) => !r.metadata.deletionTimestamp && findCondition(r, 'Ready')?.status !== 'True').length,
-    deleting: rows.filter((r) => Boolean(r.metadata.deletionTimestamp)).length,
+    ready: states.filter((x) => x === 'ready').length,
+    progressing: states.filter((x) => x === 'progressing').length,
+    attention: states.filter((x) => x === 'stuck' || x === 'failing').length,
+    paused: states.filter((x) => x === 'paused').length,
+    deleting: states.filter((x) => x === 'deleting').length,
   }
-  const needle = search.trim().toLowerCase()
-  const shown = rows.filter((r) => {
-    if (health === 'ready' && !(findCondition(r, 'Ready')?.status === 'True' && !r.metadata.deletionTimestamp)) return false
-    if (health === 'not-ready' && (findCondition(r, 'Ready')?.status === 'True' || r.metadata.deletionTimestamp)) return false
-    if (health === 'deleting' && !r.metadata.deletionTimestamp) return false
-    if (!needle) return true
-    const comp = (r.spec?.compositionRef as { name?: string } | undefined)?.name ?? ''
-    return [r.metadata.name, r.metadata.namespace ?? '', comp].some((v) => v.toLowerCase().includes(needle))
-  })
+  const attention = attentionItems(rows, now) as unknown as Array<ReturnType<typeof attentionItems>[number] & { xr: XR }>
+  const shown = shownAll
+  const groups = groupXrs(shown, groupBy, now)
+  const pickedRows = rows.filter((r) => picked.has(keyOf(r)))
+  const namespaces = facet(rows, (r) => r.metadata.namespace)
+  const compositions = facet(rows, compositionOf)
+  const teams = facet(rows, (r) => ownership(r).team)
+  const takenNames = new Set(rows.map((r) => r.metadata.name))
 
   const confirmDelete = async () => {
     const r = pendingDelete
@@ -671,21 +762,28 @@ export function XrList({
 
   return (
     <>
-      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
         <CountTile label={`All ${config.plural.toLowerCase()}`} value={counts.total} active={health === 'all'} onClick={() => setHealth('all')} />
         <CountTile label="Ready" value={counts.ready} tone="healthy" active={health === 'ready'} onClick={() => setHealth(health === 'ready' ? 'all' : 'ready')} />
-        <CountTile label="Not ready" value={counts.notReady} tone={counts.notReady ? 'degraded' : undefined} active={health === 'not-ready'} onClick={() => setHealth(health === 'not-ready' ? 'all' : 'not-ready')} />
+        <CountTile label="Provisioning" value={counts.progressing} tone={counts.progressing ? 'progressing' : undefined} active={health === 'progressing'} onClick={() => setHealth(health === 'progressing' ? 'all' : 'progressing')} />
+        <CountTile label="Needs attention" value={counts.attention} tone={counts.attention ? 'degraded' : undefined} active={health === 'attention'} onClick={() => setHealth(health === 'attention' ? 'all' : 'attention')} />
+        <CountTile label="Paused" value={counts.paused} tone={counts.paused ? 'paused' : undefined} active={health === 'paused'} onClick={() => setHealth(health === 'paused' ? 'all' : 'paused')} />
         <CountTile label="Deleting" value={counts.deleting} tone={counts.deleting ? 'paused' : undefined} active={health === 'deleting'} onClick={() => setHealth(health === 'deleting' ? 'all' : 'deleting')} />
       </div>
+      <AttentionPanel items={attention} plural={config.plural} onOpen={(x) => setSelected(x as XR)} />
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <input
           type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder={`Search ${config.plural.toLowerCase()} by name, namespace or composition…`}
+          placeholder={`Search ${config.plural.toLowerCase()} by name, namespace, team, composition or label…`}
           aria-label={`Search ${config.plural.toLowerCase()}`}
-          className="h-9 min-w-[240px] flex-1 rounded-lg border border-edge-default bg-surface-raised px-3 text-[13px] text-content placeholder:text-content-subtle focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+          className="h-9 min-w-[220px] flex-1 rounded-lg border border-edge-default bg-surface-raised px-3 text-[13px] text-content placeholder:text-content-subtle focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
         />
+        <FilterSelect label="Namespace" value={nsFilter} options={namespaces} onChange={setNsFilter} />
+        <FilterSelect label="Team" value={teamFilter} options={teams} onChange={setTeamFilter} />
+        <FilterSelect label="Composition" value={compFilter} options={compositions} onChange={setCompFilter} />
+        <GroupSelect value={groupBy} onChange={setGroupBy} />
         <span className="text-[11px] tabular-nums text-content-subtle">
           {shown.length === rows.length ? `${rows.length}` : `${shown.length} of ${rows.length}`}{' '}
           {rows.length === 1 ? 'item' : 'items'}
@@ -695,43 +793,88 @@ export function XrList({
             <Spinner size={12} /> refreshing
           </span>
         ) : null}
-        <Button size="sm" variant="secondary" onClick={() => q.refetch()} disabled={q.isFetching}>
-          Refresh
-        </Button>
-        {canProvision ? (
-          <Button size="sm" onClick={() => setProvisioning(true)}>
-            Provision {config.singular}
+        <div className="ml-auto flex items-center gap-2">
+          <Button size="sm" variant="secondary" onClick={() => q.refetch()} disabled={q.isFetching}>
+            Refresh
           </Button>
-        ) : (
-          <span className="inline-flex items-center gap-1.5 rounded-md border border-edge-default px-2 py-1 text-[11px] text-content-muted">
-            Provision <K8sRolePill perm="crds.write" />
-          </span>
-        )}
-      </div>
-      <DataTable
-        loading={q.isLoading}
-        columns={columns}
-        rows={shown}
-        rowKey={(r) => r.metadata.uid ?? `${r.metadata.namespace ?? '-'}/${r.metadata.name}`}
-        onRowClick={(r) => setSelected(r)}
-        empty={
-          rows.length ? (
-            <EmptyState
-              title="Nothing matches"
-              description="Clear the search or pick another status to see the rest."
-            />
+          {canProvision ? (
+            <Button size="sm" variant="primary" onClick={() => setProvisioning(true)}>
+              Provision {config.singular}
+            </Button>
           ) : (
-          <EmptyState
-            title={`No ${config.plural.toLowerCase()} yet`}
-            description={
-              canProvision
-                ? `Provision your first ${config.singular} with the button above — Crossplane reconciles the claim into real infrastructure.`
-                : `Claim a ${config.singular} via GitOps to populate this list.`
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-edge-default px-2 py-1 text-[11px] text-content-muted">
+              Provision <K8sRolePill perm="crds.write" />
+            </span>
+          )}
+        </div>
+      </div>
+      <BulkBar
+        gvr={config.gvr}
+        singular={config.singular}
+        plural={config.plural}
+        selected={pickedRows}
+        canMutate={canProvision}
+        cluster={clusterParam(cluster)}
+        onClear={() => setPicked(new Set())}
+        onDone={invalidate}
+      />
+      {groups.map((g) => (
+        <section key={g.key || '__all'} className={groupBy === 'none' ? '' : 'mb-4'}>
+          {groupBy !== 'none' ? (
+            <div className="mb-1.5 flex items-center gap-2 px-1">
+              {groupBy === 'state' ? (
+                <StatusBadge kind={STATE_META[g.key as XrState]?.kind ?? 'unknown'}>{STATE_META[g.key as XrState]?.label ?? g.key}</StatusBadge>
+              ) : (
+                <span className="font-mono text-[12px] font-semibold text-content">{g.key}</span>
+              )}
+              <span className="text-[11px] text-content-subtle">{g.rows.length}</span>
+            </div>
+          ) : null}
+          <DataTable
+            tableId={`platform.xr.${config.gvr.resource}`}
+            features={{ columns: true, density: true }}
+            loading={q.isLoading}
+            columns={columns}
+            rows={g.rows as XR[]}
+            rowKey={keyOf}
+            onRowClick={(r) => setSelected(r)}
+            empty={
+              rows.length ? (
+                <EmptyState
+                  title="Nothing matches"
+                  description="Clear the search or filters, or pick another status, to see the rest."
+                />
+              ) : (
+              <EmptyState
+                title={`No ${config.plural.toLowerCase()} yet`}
+                description={
+                  canProvision
+                    ? `Provision your first ${config.singular} with the button above — Crossplane reconciles the claim into real infrastructure.`
+                    : `Claim a ${config.singular} via GitOps to populate this list.`
+                }
+              />
+              )
             }
           />
-          )
-        }
-      />
+        </section>
+      ))}
+      {cloneFrom ? (
+        <ClaimFormModal
+          config={config}
+          mode="create"
+          initial={cloneManifest(cloneFrom, cloneName(cloneFrom.metadata.name, takenNames))}
+          defaultNamespace={cloneFrom.metadata.namespace ?? namespace}
+          onClose={() => {
+            invalidate()
+            setCloneFrom(null)
+          }}
+          onApplied={(applied) => {
+            invalidate()
+            setCloneFrom(null)
+            setSelected(applied)
+          }}
+        />
+      ) : null}
       {pendingDelete ? (
         <ConfirmDelete
           what={`${config.singular.toLowerCase()} ${pendingDelete.metadata.name}`}
@@ -764,6 +907,10 @@ export function XrList({
           xr={selected}
           onClose={() => setSelected(null)}
           onMutated={invalidate}
+          onClone={(x) => {
+            setSelected(null)
+            setCloneFrom(x)
+          }}
         />
       ) : null}
     </>
@@ -1716,11 +1863,14 @@ function XrDrawer({
   xr,
   onClose,
   onMutated,
+  onClone,
 }: {
   config: XrKindConfig
   xr: XR
   onClose(): void
   onMutated(): void
+  /** Opens the provisioning form pre-filled from this resource. */
+  onClone?(xr: XR): void
 }) {
   const { cluster } = useActiveCluster()
   const cp = clusterParam(cluster)
@@ -1803,6 +1953,16 @@ function XrDrawer({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            {!isGone ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => downloadText(`${current.metadata.name}.yaml`, toYamlBundle([current]), 'application/yaml')}
+                title="Download the manifest, without status or server fields"
+              >
+                Export YAML
+              </Button>
+            ) : null}
             {canMutate && !deleting && !isGone ? (
               <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
                 Edit
@@ -1905,6 +2065,28 @@ function XrDrawer({
             </CardBody>
           </Card>
 
+          {/* ─── Operations: reconcile, pause, protection, ownership, clone ─── */}
+          {!isGone && !deleting ? (
+            <Card>
+              <CardHeader>
+                <div className="text-sm font-semibold text-content">Operations</div>
+              </CardHeader>
+              <CardBody>
+                <OperationsPanel
+                  gvr={config.gvr}
+                  xr={current}
+                  canMutate={canMutate}
+                  cluster={cp}
+                  onMutated={() => {
+                    live.refetch()
+                    onMutated()
+                  }}
+                  onClone={canMutate && onClone ? () => onClone(current) : undefined}
+                />
+              </CardBody>
+            </Card>
+          ) : null}
+
           {/* ─── Connection details ─── */}
           {config.connectionSecret ? (
             <ConnectionSecretSection config={config} xr={current} cluster={cp} />
@@ -1915,6 +2097,16 @@ function XrDrawer({
 
           {/* ─── Events ─── */}
           <EventsSection xr={current} cluster={cp} />
+
+          {/* ─── Change log (field managers) ─── */}
+          <Card>
+            <CardHeader>
+              <div className="text-sm font-semibold text-content">Change log</div>
+            </CardHeader>
+            <CardBody>
+              <ChangeLog xr={current} />
+            </CardBody>
+          </Card>
 
           {/* ─── All conditions ─── */}
           {current.status?.conditions?.length ? (
@@ -2010,7 +2202,11 @@ function XrDrawer({
                       {(current.status?.resourceRefs?.length ?? 0) === 1 ? '' : 's'}). This cannot
                       be undone.
                     </p>
-                    {canMutate ? (
+                    {canMutate && isProtected(current) ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-md border border-edge-default px-2 py-1 text-[11px] text-content-muted" title="Turn deletion protection off under Operations first">
+                        Protected — turn protection off to deprovision
+                      </span>
+                    ) : canMutate ? (
                       <Button variant="danger" size="sm" onClick={() => setConfirmDelete(true)}>
                         Deprovision
                       </Button>
@@ -2869,7 +3065,16 @@ function EventsSection({ xr, cluster }: { xr: XR; cluster?: string }) {
 
 /* ───── helpers + atoms ───── */
 
-type HealthFilter = 'all' | 'ready' | 'not-ready' | 'deleting'
+type StateFilter = 'all' | 'ready' | 'progressing' | 'attention' | 'paused' | 'deleting'
+
+const STATE_FILTER_STATES: Record<StateFilter, XrState[]> = {
+  all: [],
+  ready: ['ready'],
+  progressing: ['progressing'],
+  attention: ['stuck', 'failing'],
+  paused: ['paused'],
+  deleting: ['deleting'],
+}
 
 function CountTile({
   label,

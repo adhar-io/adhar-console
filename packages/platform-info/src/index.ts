@@ -11,6 +11,5 @@ export type {
 export {
   BACKING_TOOLS,
   FEATURE_HIGHLIGHTS,
-  PLATFORM_VERSION,
 } from './data.ts'
 export { RELEASE_NOTES } from './release-notes.generated.ts'

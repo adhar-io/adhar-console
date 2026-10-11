@@ -45,6 +45,7 @@ import { startGraph } from './app/server/graph/builder.ts'
 import { handleGraph } from './app/server/graph/handlers.ts'
 import { handleBilling } from './app/server/billing/handlers.ts'
 import { handleOrganizations } from './app/server/organizations.ts'
+import { handleStatus } from './app/server/status.ts'
 import { registerDbSessionStore, sessionStoreStatus } from './app/server/session-store-db.ts'
 
 // Keep the Keycloak tokens server-side (Postgres) so the session cookie stays
@@ -314,6 +315,7 @@ async function route(req: Request): Promise<Response> {
   if (path === '/readyz') return readyz()
   if (path === '/api/config') return apiConfig()
   if (path === '/api/diagnostics') return diagnostics(req)
+  if (path === '/api/status') return handleStatus(req)
 
   // Auth (OIDC) — all GET, full-page navigations + the session probe.
   if (path === '/api/auth/login') return handleLogin(req)

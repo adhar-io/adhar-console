@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { k8s } from '@adhar/api-clients'
 import type { ServiceHealth } from '@adhar/platform-info'
+import { foldHealth, MATCHERS, matchWorkloads, type Workload } from './backing-match.ts'
 
 /**
  * Live health for the platform's backing open-source components.
@@ -20,34 +21,6 @@ const REFRESH_MS = 15_000
 const DEPLOY_GVR = { group: 'apps', version: 'v1', resource: 'deployments', namespaced: true } as const
 const STS_GVR = { group: 'apps', version: 'v1', resource: 'statefulsets', namespaced: true } as const
 const DS_GVR = { group: 'apps', version: 'v1', resource: 'daemonsets', namespaced: true } as const
-
-/** Per-component name matchers (include keywords, optional excludes). */
-const MATCHERS: Record<string, { include: string[]; exclude?: string[] }> = {
-  gitea: { include: ['gitea'] },
-  argocd: { include: ['argo-cd', 'argocd'] },
-  kargo: { include: ['kargo'] },
-  'argo-rollouts': { include: ['argo-rollout'] },
-  // "plane" collides with "crossplane"/"control-plane" — exclude them.
-  crossplane: { include: ['crossplane'] },
-  keycloak: { include: ['keycloak'] },
-  harbor: { include: ['harbor'] },
-  kyverno: { include: ['kyverno'] },
-  plane: { include: ['plane'], exclude: ['crossplane', 'control-plane'] },
-  grafana: { include: ['grafana'] },
-  loki: { include: ['loki'] },
-  mimir: { include: ['mimir'] },
-  tempo: { include: ['tempo'] },
-  prometheus: { include: ['prometheus', 'kube-prometheus'] },
-  opentelemetry: { include: ['opentelemetry', 'otel', 'alloy'] },
-  beyla: { include: ['beyla'] },
-}
-
-interface Workload {
-  name: string
-  kind: 'Deployment' | 'StatefulSet' | 'DaemonSet'
-  ready: number
-  desired: number
-}
 
 export interface ToolHealth {
   health: ServiceHealth
@@ -83,26 +56,6 @@ function toWorkloads(items: unknown[], kind: Workload['kind']): Workload[] {
       desired: o.spec?.replicas ?? 0,
     }
   })
-}
-
-function matchWorkloads(all: Workload[], id: string): Workload[] {
-  const m = MATCHERS[id]
-  if (!m) return []
-  return all.filter((w) => {
-    const n = w.name.toLowerCase()
-    if (m.exclude?.some((e) => n.includes(e))) return false
-    return m.include.some((k) => n.includes(k))
-  })
-}
-
-function foldHealth(workloads: Workload[]): { health: ServiceHealth; ready: number; desired: number } {
-  if (workloads.length === 0) return { health: 'unknown', ready: 0, desired: 0 }
-  const ready = workloads.reduce((s, w) => s + Math.min(w.ready, w.desired || w.ready), 0)
-  const desired = workloads.reduce((s, w) => s + (w.desired || 0), 0)
-  const allReady = workloads.every((w) => (w.desired ? w.ready >= w.desired : w.ready > 0))
-  const noneReady = workloads.every((w) => w.ready === 0)
-  const health: ServiceHealth = allReady ? 'operational' : noneReady ? 'outage' : 'degraded'
-  return { health, ready, desired }
 }
 
 export interface BackingHealth {

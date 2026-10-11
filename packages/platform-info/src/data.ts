@@ -1,16 +1,7 @@
 import type {
   BackingTool,
   FeatureHighlight,
-  PlatformVersion,
 } from './types.ts'
-
-export const PLATFORM_VERSION: PlatformVersion = {
-  console: '0.1.42',
-  api: '0.1.42',
-  built: '2026-09-06T10:00:00Z',
-  commit: 'main',
-  released: '2026-09-06',
-}
 
 /**
  * What the console can do today, as shown on What's New. Kept to capabilities

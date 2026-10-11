@@ -12,6 +12,7 @@ import {
 import { cn } from '@adhar/utils'
 import { useNodeMetrics, useNodes, usePodMetrics, usePods } from '../data/hooks.ts'
 import { formatBytes, formatCpu, nodeRoles, parseQuantity } from '../data/format.ts'
+import { CapacityDetail, NamespaceDetail, StorageDetail, TrendsDetail } from './metrics-detail.tsx'
 
 /**
  * Cluster metrics dashboard — live CPU + memory utilization sourced from
@@ -143,6 +144,12 @@ export function MetricsView() {
         />
       </div>
 
+      {/* ── Capacity: used / requested / limits / allocatable ───────── */}
+      <CapacityDetail cpuAlloc={totals.cpuAlloc} memAlloc={totals.memAlloc} cpuUsed={totals.cpuUsed} memUsed={totals.memUsed} hasUsage={hasNodeMetrics} />
+
+      {/* ── Trends over time (Prometheus) ──────────────────────────── */}
+      <TrendsDetail />
+
       {/* ── Per-node breakdown ─────────────────────────────────────── */}
       <Card>
         <CardHeader>
@@ -165,6 +172,12 @@ export function MetricsView() {
 
       {/* ── Top pods ───────────────────────────────────────────────── */}
       <TopPods rows={podRows} hasMetrics={hasPodMetrics} loading={podMetrics.isLoading} />
+
+      {/* ── Who uses and reserves what ─────────────────────────────── */}
+      <NamespaceDetail />
+
+      {/* ── Storage: claims, volumes, classes ──────────────────────── */}
+      <StorageDetail />
     </div>
   )
 }

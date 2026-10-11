@@ -674,6 +674,7 @@ export function isItemActive(
   const section = (search as { section?: string }).section
   if (item.search) {
     if (section === item.search) return true
+    if (section && item.alsoActiveFor?.includes(section)) return true
     // The row standing in for the page's default also holds the highlight when
     // the URL names no section, or names one that no row claims — otherwise
     // both cases light nothing, which is what they used to do.

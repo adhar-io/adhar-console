@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { ErrorBoundary, PageHeader } from '@adhar/shell-ui'
+import { ErrorBoundary, PageHeader, SETTINGS_CATEGORIES } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { Organization } from './views/organization.tsx'
 import { Members } from './views/members.tsx'
@@ -84,7 +84,7 @@ interface Group {
   items: NavItem[]
 }
 
-const GROUPS: Group[] = [
+const GROUP_DEFS: Group[] = [
   {
     label: 'Organization',
     caption: 'Identity, people, and access shape',
@@ -159,6 +159,19 @@ const GROUPS: Group[] = [
   },
 ]
 
+/**
+ * The categories — and which pages each holds, in tab order — come from the
+ * shared registry the main sidebar is built from (shell-ui
+ * settings-sections.ts); GROUP_DEFS above only supplies each page's label,
+ * icon and permissions.
+ */
+const ITEM_BY_ID = new Map(GROUP_DEFS.flatMap((g) => g.items).map((it) => [it.id, it] as const))
+const GROUPS: Group[] = SETTINGS_CATEGORIES.map((c) => ({
+  label: c.label,
+  caption: c.caption,
+  items: c.sections.map((id) => ITEM_BY_ID.get(id as Section)).filter((it): it is NavItem => Boolean(it)),
+}))
+
 const ALL_SECTIONS = new Set<Section>(GROUPS.flatMap((g) => g.items.map((i) => i.id)))
 
 function coerce(section?: string): Section {
@@ -198,7 +211,7 @@ export default function WorkspaceHome({ section: urlSection }: { section?: strin
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Workspace settings"
+        title={activeGroup?.label ?? 'Workspace settings'}
         badge={
           <div className="inline-flex flex-wrap items-center gap-1">
             {roles.map((r) => (
@@ -208,7 +221,7 @@ export default function WorkspaceHome({ section: urlSection }: { section?: strin
         }
       />
 
-      <SettingsTabs groups={groups} active={activeItem?.id} onPick={go} />
+      {activeGroup ? <CategoryTabs group={activeGroup} active={activeItem?.id} onPick={go} /> : null}
 
       <div id="settings-panel" role="tabpanel" aria-label={activeItem?.label} className="min-w-0 space-y-6">
         {/* One page failing must not blank the whole settings screen. */}
@@ -221,113 +234,78 @@ export default function WorkspaceHome({ section: urlSection }: { section?: strin
 }
 
 /**
- * Every settings page as its own tab, grouped by category and all visible at
- * once — 30 pages fit in a few rows, so nothing hides behind a second click.
- * Arrow keys (and Home / End) walk every tab in order; each pick updates the
- * URL through the caller.
+ * The pages of one category as tabs. The category itself is chosen in the main
+ * sidebar; this row moves between its pages. Arrow keys / Home / End move
+ * between tabs, and every pick updates the URL through the caller.
  */
-function SettingsTabs({ groups, active, onPick }: { groups: Group[]; active?: Section; onPick(id: Section): void }) {
-  const flat = groups.flatMap((g) => g.items)
+function CategoryTabs({ group, active, onPick }: { group: Group; active?: Section; onPick(id: Section): void }) {
   const refs = useRef(new Map<Section, HTMLButtonElement | null>())
+  const items = group.items
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    const keys = ['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End']
-    if (!keys.includes(e.key)) return
+    if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return
     e.preventDefault()
-    const i = Math.max(0, flat.findIndex((it) => it.id === active))
-    const n = flat.length
-    const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1
-    const next = e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : (i + step + n) % n
-    onPick(flat[next].id)
-    refs.current.get(flat[next].id)?.focus()
+    const i = Math.max(0, items.findIndex((it) => it.id === active))
+    const n = items.length
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + n) % n
+    onPick(items[next].id)
+    refs.current.get(items[next].id)?.focus()
   }
-  const activeItem = flat.find((it) => it.id === active)
   return (
-    <>
-    {/* Phones: thirty tabs would fill the first screen, so a grouped picker
-        stands in for them below md. Same pages, same URL updates. */}
-    <label className="block md:hidden">
-      <span className="sr-only">Settings page</span>
-      <span className="relative block">
-        <span className="pointer-events-none absolute left-3 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center text-brand-600 dark:text-brand-300">
-          {activeItem?.icon}
-        </span>
-        <select
-          value={active}
-          onChange={(e) => onPick(e.target.value as Section)}
-          className="h-11 w-full appearance-none rounded-xl border border-edge-default bg-surface-raised pl-9 pr-9 text-[14px] font-medium text-content shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+    <div className="-mt-5">
+      {group.caption ? <p className="mb-4 text-[13px] text-content-muted">{group.caption}</p> : null}
+      <div className="overflow-x-auto [scrollbar-width:none]">
+        <div
+          role="tablist"
+          aria-label={group.label}
+          onKeyDown={onKey}
+          className="flex min-w-max items-end gap-1 border-b border-edge-default"
         >
-          {groups.map((g) => (
-            <optgroup key={g.label} label={g.label}>
-              {g.items.map((it) => <option key={it.id} value={it.id}>{it.label}</option>)}
-            </optgroup>
-          ))}
-        </select>
-        <span aria-hidden className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-content-subtle">▾</span>
-      </span>
-    </label>
-    <div
-      role="tablist"
-      aria-label="Settings pages"
-      aria-orientation="horizontal"
-      onKeyDown={onKey}
-      className="relative hidden overflow-hidden rounded-2xl border border-edge-default bg-surface-raised p-3 shadow-sm md:block"
-    >
-      <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-brand-500 via-accent-500 to-brand-500 opacity-60" />
-      <div className="flex flex-wrap gap-x-5 gap-y-3">
-        {groups.map((g) => {
-          const groupOn = g.items.some((it) => it.id === active)
-          return (
-            <div key={g.label} role="group" aria-label={g.label} className="min-w-0">
-              <div
+          {items.map((it) => {
+            const on = it.id === active
+            const danger = it.id === 'danger'
+            return (
+              <button
+                key={it.id}
+                ref={(el) => {
+                  refs.current.set(it.id, el)
+                }}
+                type="button"
+                role="tab"
+                aria-selected={on}
+                aria-controls="settings-panel"
+                tabIndex={on ? 0 : -1}
+                title={it.description}
+                onClick={() => onPick(it.id)}
                 className={cn(
-                  'mb-1.5 flex items-center gap-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.08em]',
-                  groupOn ? 'text-brand-700 dark:text-brand-300' : 'text-content-subtle',
+                  'group relative -mb-px inline-flex items-center gap-2 whitespace-nowrap rounded-t-lg border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
+                  on
+                    ? danger
+                      ? 'border-rose-600 bg-rose-50/60 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300'
+                      : 'border-brand-600 bg-brand-50/60 text-brand-700 dark:border-brand-400 dark:bg-brand-500/10 dark:text-brand-300'
+                    : danger
+                      ? 'border-transparent text-rose-700/80 hover:border-rose-300 hover:text-rose-700 dark:text-rose-300/80'
+                      : 'border-transparent text-content-muted hover:border-edge-strong hover:bg-surface-sunken/60 hover:text-content',
                 )}
-                title={g.caption}
               >
-                {groupOn ? <span className="h-1.5 w-1.5 rounded-full bg-brand-500" /> : null}
-                {g.label}
-              </div>
-              <div className="flex flex-wrap gap-1 rounded-xl bg-surface-sunken/70 p-1 ring-1 ring-inset ring-edge-subtle">
-                {g.items.map((it) => {
-                  const on = it.id === active
-                  const danger = it.id === 'danger'
-                  return (
-                    <button
-                      key={it.id}
-                      ref={(el) => {
-                        refs.current.set(it.id, el)
-                      }}
-                      type="button"
-                      role="tab"
-                      aria-selected={on}
-                      aria-controls="settings-panel"
-                      tabIndex={on ? 0 : -1}
-                      title={it.description}
-                      onClick={() => onPick(it.id)}
-                      className={cn(
-                        'inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[12.5px] font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50',
-                        on
-                          ? danger
-                            ? 'bg-rose-600 text-white shadow-md shadow-rose-600/20'
-                            : 'bg-gradient-to-b from-brand-500 to-brand-600 text-white shadow-md shadow-brand-600/25'
-                          : danger
-                            ? 'text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10'
-                            : 'text-content-muted hover:bg-surface-raised hover:text-content hover:shadow-sm',
-                      )}
-                    >
-                      <span className={cn('flex h-4 w-4 items-center justify-center', on ? 'text-white' : 'text-content-subtle')}>{it.icon}</span>
-                      {it.label}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          )
-        })}
+                <span
+                  className={cn(
+                    'flex h-6 w-6 items-center justify-center rounded-md transition-colors',
+                    on
+                      ? danger
+                        ? 'bg-rose-600 text-white'
+                        : 'bg-brand-600 text-white shadow-sm shadow-brand-600/30'
+                      : 'bg-surface-sunken text-content-subtle group-hover:text-content',
+                  )}
+                >
+                  {it.icon}
+                </span>
+                {it.label}
+              </button>
+            )
+          })}
+        </div>
       </div>
     </div>
-    </>
   )
 }
 

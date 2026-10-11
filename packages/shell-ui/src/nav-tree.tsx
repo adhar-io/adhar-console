@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { XR_FAMILIES, XR_SECTIONS } from './xr-sections.ts'
+import { SETTINGS_CATEGORIES } from './settings-sections.ts'
 import type { StatusKind } from './status-badge.tsx'
 import {
   IconActivity,
@@ -10,25 +11,20 @@ import {
   IconCode,
   IconCompass,
   IconCreditCard,
-  IconFolder,
   IconGauge,
   IconHeartPulse,
   IconDesign,
   IconHelp,
   IconHome,
   IconKey,
-  IconLayers,
   IconPalette,
   IconPlug,
   IconPlusCircle,
   IconRocket,
-  IconRoute,
   IconServer,
   IconShield,
   IconSparkle,
   IconTarget,
-  IconUsers,
-  IconWebhook,
 } from './icons.tsx'
 
 export interface NavItem {
@@ -48,6 +44,11 @@ export interface NavItem {
    * the bare URL highlighted nothing at all.
    */
   sectionDefault?: boolean
+  /**
+   * Further `?section=` values this row owns. A Workspace category row lands
+   * on its first page and stays highlighted on all of them.
+   */
+  alsoActiveFor?: readonly string[]
   /** Icon rendered left of the label. */
   icon?: ReactNode
   /** Short descriptive text rendered below the label in expanded mode. */
@@ -92,6 +93,16 @@ const PLATFORM_OPS_ROLES = ['platform-admin', 'platform-engineer']
 /** Workspace surfaces an application admin also needs. */
 const WORKSPACE_ADMIN_ROLES = ['platform-admin', 'platform-engineer', 'application-admin']
 /** Org-level administration — members, audit, billing, branding. */
+const WORKSPACE_ICON: Record<string, ReactNode> = {
+  organization: <IconCompass />,
+  identity: <IconKey />,
+  security: <IconShield />,
+  workloads: <IconCloud />,
+  connectivity: <IconPlug />,
+  billing: <IconCreditCard />,
+  preferences: <IconPalette />,
+}
+
 const ORG_ADMIN_ROLES = ['platform-admin', 'platform-engineer']
 
 export type NavBadge =
@@ -461,130 +472,19 @@ export const DEFAULT_NAV: NavSection[] = [
     id: 'workspace',
     label: 'Workspace',
     items: [
-      {
-        // `/settings` with no section renders this one (workspace/home.tsx
-        // coerces anything unknown to 'organization'), so without a row for it
-        // the sidebar showed no selection on the page you land on first.
-        id: 'ws.general',
-        label: 'General',
+      // One row per settings category; the page shows that category's pages as
+      // tabs (shell-ui settings-sections.ts is shared with the workspace module).
+      ...SETTINGS_CATEGORIES.map((c, i): NavItem => ({
+        id: `ws.${c.id}`,
+        label: c.label,
         to: '/settings',
-        search: 'organization',
-        sectionDefault: true,
-        icon: <IconCompass />,
-        roles: ORG_ADMIN_ROLES,
-      },
-      {
-        id: 'ws.members',
-        label: 'Members',
-        to: '/settings',
-        search: 'members',
-        icon: <IconUsers />,
-        roles: ORG_ADMIN_ROLES,
-      },
-      {
-        id: 'ws.projects',
-        label: 'Projects',
-        to: '/settings',
-        search: 'projects',
-        icon: <IconFolder />,
-        roles: WORKSPACE_ADMIN_ROLES,
-      },
-      {
-        id: 'ws.envs',
-        label: 'Environments',
-        to: '/settings',
-        search: 'environments',
-        icon: <IconCloud />,
-        roles: WORKSPACE_ADMIN_ROLES,
-      },
-      {
-        id: 'ws.defaults',
-        label: 'Resource defaults',
-        to: '/settings',
-        search: 'defaults',
-        icon: <IconLayers />,
-        roles: WORKSPACE_ADMIN_ROLES,
-      },
-      {
-        id: 'ws.integrations',
-        label: 'Integrations',
-        to: '/settings',
-        search: 'integrations',
-        icon: <IconPlug />,
-        roles: WORKSPACE_ADMIN_ROLES,
-      },
-      {
-        id: 'ws.tokens',
-        label: 'API Tokens',
-        to: '/settings',
-        search: 'tokens',
-        icon: <IconKey />,
-        roles: WORKSPACE_ADMIN_ROLES,
-      },
-      {
-        id: 'ws.webhooks',
-        label: 'Webhooks',
-        to: '/settings',
-        search: 'webhooks',
-        icon: <IconWebhook />,
-        roles: WORKSPACE_ADMIN_ROLES,
-      },
-      {
-        id: 'ws.notifications',
-        label: 'Notifications',
-        to: '/settings',
-        search: 'notifications',
-        icon: <IconRoute />,
-        roles: WORKSPACE_ADMIN_ROLES,
-      },
-      {
-        id: 'ws.audit',
-        label: 'Audit log',
-        to: '/settings',
-        search: 'audit',
-        icon: <IconShield />,
-        roles: ORG_ADMIN_ROLES,
-      },
-      {
-        id: 'ws.plan',
-        label: 'Plan',
-        to: '/settings',
-        search: 'plan',
-        icon: <IconCreditCard />,
-        roles: ORG_ADMIN_ROLES,
-      },
-      {
-        id: 'ws.usage',
-        label: 'Usage & quotas',
-        to: '/settings',
-        search: 'usage',
-        icon: <IconGauge />,
-        roles: ORG_ADMIN_ROLES,
-      },
-      {
-        id: 'ws.branding',
-        label: 'Branding & locale',
-        to: '/settings',
-        search: 'branding',
-        icon: <IconDesign />,
-        roles: ORG_ADMIN_ROLES,
-      },
-      {
-        id: 'ws.theming',
-        label: 'Theming',
-        to: '/settings',
-        search: 'theming',
-        icon: <IconPalette />,
-        roles: ORG_ADMIN_ROLES,
-      },
-      {
-        id: 'ws.features',
-        label: 'Feature previews',
-        to: '/settings',
-        search: 'features',
-        icon: <IconSparkle />,
-        roles: ORG_ADMIN_ROLES,
-      },
+        search: c.sections[0],
+        alsoActiveFor: c.sections.slice(1),
+        // `/settings` with no section lands on the first category.
+        sectionDefault: i === 0 ? true : undefined,
+        icon: WORKSPACE_ICON[c.id],
+        roles: c.id === 'workloads' || c.id === 'connectivity' ? WORKSPACE_ADMIN_ROLES : ORG_ADMIN_ROLES,
+      })),
     ],
   },
   {

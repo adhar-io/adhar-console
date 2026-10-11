@@ -23,6 +23,8 @@ export interface NavOwnership {
   crossLink?: boolean
   /** Holds the highlight for this `to` when the URL's section matches no row. */
   sectionDefault?: boolean
+  /** Further `?section=` values this row owns — a category row and its pages. */
+  alsoActiveFor?: readonly string[]
   children?: NavOwnership[]
 }
 
@@ -53,6 +55,7 @@ export function claimedSections(items: NavOwnership[], to: string): Set<string> 
   for (const item of flattenNav(items)) {
     if (!ownsDestination(item) || item.to !== to || !item.search) continue
     out.add(item.search)
+    for (const s of item.alsoActiveFor ?? []) out.add(s)
   }
   return out
 }

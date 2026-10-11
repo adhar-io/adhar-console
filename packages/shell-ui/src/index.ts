@@ -285,3 +285,4 @@ export {
   Spinner,
 } from './primitives.tsx'
 export { XR_FAMILIES, XR_SECTION_BY_ID, XR_SECTIONS, type XrFamily, type XrSection } from './xr-sections.ts'
+export { SETTINGS_CATEGORIES, settingsCategoryOf, type SettingsCategory } from './settings-sections.ts'

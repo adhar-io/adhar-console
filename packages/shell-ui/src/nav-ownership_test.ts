@@ -131,3 +131,18 @@ Deno.test('rows nested under a section are not reached by the item walk', () => 
   const sectionShaped = [{ id: 'workspace' }] as unknown as NavOwnership[]
   assertEquals(claimedSections(sectionShaped, '/settings'), new Set())
 })
+
+Deno.test('a category row claims its landing section and every page in it', () => {
+  const rows = [
+    { id: 'ws.billing', to: '/settings', search: 'plan', alsoActiveFor: ['usage', 'invoices'] },
+    { id: 'ws.prefs', to: '/settings', search: 'features', alsoActiveFor: ['theming'] },
+  ]
+  assertEquals([...claimedSections(rows, '/settings')].sort(), ['features', 'invoices', 'plan', 'theming', 'usage'])
+})
+
+Deno.test('settings categories cover every page exactly once', async () => {
+  const { SETTINGS_CATEGORIES } = await import('./settings-sections.ts')
+  const all = SETTINGS_CATEGORIES.flatMap((c) => [...c.sections])
+  assertEquals(all.length, new Set(all).size)
+  assertEquals(all.length, 30)
+})

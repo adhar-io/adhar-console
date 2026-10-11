@@ -28,6 +28,10 @@ import { CrdMissing } from '../components/crd-missing.tsx'
 import { PerfSuite } from './perf-suite.tsx'
 import { PerfReport } from './perf-report.tsx'
 import { LiveCharts, StageRail } from './perf-run-live.tsx'
+import { PerfOverview } from './perf-overview.tsx'
+import { ResultsView } from './perf-results.tsx'
+import { SchedulesView } from './perf-schedules.tsx'
+import { harvestedRuns, useHarvester, usePerfInsights } from '../data/perf-automation.ts'
 import { DEFAULT_CONFIG, LABEL_COMMIT, LABEL_TEST } from '../data/perf-format.ts'
 import { usePerfTest, useSuiteRepo } from '../data/perf-suite.ts'
 import {
@@ -70,147 +74,164 @@ import {
  * it out of the logs. When there is no summary yet the page says so rather
  * than rendering empty tables that look like a test with no results.
  */
-type PerfTab = 'tests' | 'runs'
+type PerfTab = 'tests' | 'runs' | 'results' | 'schedules'
+
+const PERF_TABS: Array<[PerfTab, string]> = [
+  ['tests', 'Tests'],
+  ['runs', 'Runs'],
+  ['results', 'Results'],
+  ['schedules', 'Schedules'],
+]
 
 export function Performance() {
   /*
-   * Two halves of one job. "Tests" is the authoring side — scripts and their
-   * configuration, in git. "Runs" is what actually happened on the cluster.
-   * They are tabs rather than separate pages because the loop between them is
-   * tight: edit, commit, run, read the report, edit again.
+   * "Tests" is the authoring side — scripts, configuration and gates, in
+   * git. "Runs" is what is happening on the cluster right now. "Results" is
+   * the kept history every trend, baseline and verdict is computed from, and
+   * "Schedules" is what runs unattended. The overview above them reads all
+   * four, so the state of performance is visible before any click.
    */
   const [tab, setTab] = useState<PerfTab>('tests')
   const runs = useTestRuns()
+  const insights = usePerfInsights()
   const [selected, setSelected] = useState<{ namespace: string; name: string } | null>(null)
   const [creating, setCreating] = useState(false)
+  const [resultsFor, setResultsFor] = useState<string | undefined>(undefined)
+  const [scheduleFor, setScheduleFor] = useState<string | undefined>(undefined)
   const canCreate = useCan('develop')
+  const crdMissing = runs.isError && isCrdMissing(runs.error)
 
-  const tabs = (
-    <div className="flex gap-1">
-      {([['tests', 'Tests'], ['runs', 'Runs']] as Array<[PerfTab, string]>).map(([id, label]) => (
-        <button
-          key={id}
-          type="button"
-          onClick={() => setTab(id)}
-          className={cn(
-            'rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors',
-            tab === id ? 'bg-brand-600 text-white' : 'text-content-muted hover:bg-surface-sunken hover:text-content',
-          )}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
-  )
-
-  if (tab === 'tests') {
-    return (
-      <div className="space-y-4">
-        {tabs}
-        <PerfSuite
-          onOpenRun={(namespace, name) => {
-            setSelected({ namespace, name })
-            setTab('runs')
-          }}
-        />
-        {selected ? (
-          <RunDrawer namespace={selected.namespace} name={selected.name} onClose={() => setSelected(null)} />
-        ) : null}
-      </div>
-    )
-  }
-
-  if (runs.isError && isCrdMissing(runs.error)) {
-    return (
-      <CrdMissing
-        tool="k6"
-        href="https://grafana.com/docs/k6/latest/set-up/set-up-distributed-k6/"
-        action={
-          <span className="text-[12px] text-content-subtle">
-            The platform ships k6 as an optional application — enable it in the stack to run load tests here.
-          </span>
-        }
-      />
-    )
-  }
+  // Keep the result of every run the console started, as soon as it finishes.
+  useHarvester(!crdMissing)
 
   const items = runs.data ?? []
 
+  const tabs = (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex gap-1">
+        {PERF_TABS.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => {
+              setTab(id)
+              if (id !== 'results') setResultsFor(undefined)
+              if (id !== 'schedules') setScheduleFor(undefined)
+            }}
+            className={cn(
+              'rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors',
+              tab === id ? 'bg-brand-600 text-white' : 'text-content-muted hover:bg-surface-sunken hover:text-content',
+            )}
+          >
+            {label}
+            {id === 'schedules' && insights.schedules.length
+              ? <span className="ml-1.5 tabular-nums opacity-70">{insights.schedules.length}</span>
+              : null}
+          </button>
+        ))}
+      </div>
+      {tab === 'runs' && canCreate && !crdMissing
+        ? (
+          <div className="ml-auto flex items-center gap-1.5">
+            <ClearFinished runs={items} />
+            <Button size="sm" onClick={() => setCreating(true)}>New test run</Button>
+          </div>
+        )
+        : null}
+    </div>
+  )
+
+  const drawer = selected
+    ? <RunDrawer namespace={selected.namespace} name={selected.name} onClose={() => setSelected(null)} />
+    : null
+
   return (
     <div className="space-y-4">
+      <PerfOverview insights={insights} runs={items} />
       {tabs}
-      <Summary runs={items} loading={runs.isLoading} />
 
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center gap-2">
-            <div>
-              <div className="text-sm font-semibold text-content">Test runs</div>
-              <div className="text-[12px] text-content-muted">
-                Every k6 TestRun on the cluster. Click one for stages, runner pods and the end-of-test summary.
-              </div>
+      {tab === 'tests'
+        ? (
+          <PerfSuite
+            onOpenRun={(namespace, name) => {
+              setSelected({ namespace, name })
+              setTab('runs')
+            }}
+            onOpenResults={(test) => {
+              setResultsFor(test)
+              setTab('results')
+            }}
+            onSchedule={(test) => {
+              setScheduleFor(test)
+              setTab('schedules')
+            }}
+          />
+        )
+        : tab === 'results'
+        ? <ResultsView key={resultsFor ?? 'all'} insights={insights} initialTest={resultsFor} />
+        : tab === 'schedules'
+        ? <SchedulesView key={scheduleFor ?? 'list'} insights={insights} presetTest={scheduleFor} />
+        : crdMissing
+        ? (
+          <CrdMissing
+            tool="k6"
+            href="https://grafana.com/docs/k6/latest/set-up/set-up-distributed-k6/"
+            action={
+              <span className="text-[12px] text-content-subtle">
+                The platform ships k6 as an optional application — enable it in the stack to run load tests here.
+              </span>
+            }
+          />
+        )
+        : (
+          <div className="space-y-2">
+            <div className="text-[12px] text-content-muted">
+              Every k6 TestRun on the cluster. Click one for stages, runner pods and the end-of-test summary. Finished runs
+              started from the console are kept under Results automatically.
             </div>
-            {canCreate ? (
-              <Button className="ml-auto" onClick={() => setCreating(true)}>
-                New test run
-              </Button>
-            ) : null}
+            <RunTable runs={items} loading={runs.isLoading} onSelect={setSelected} />
           </div>
-        </CardHeader>
-        <CardBody className="p-0">
-          <RunTable runs={items} loading={runs.isLoading} onSelect={setSelected} />
-        </CardBody>
-      </Card>
+        )}
 
-      {selected ? (
-        <RunDrawer
-          namespace={selected.namespace}
-          name={selected.name}
-          onClose={() => setSelected(null)}
-        />
-      ) : null}
-
+      {drawer}
       {creating ? <NewRunDialog onClose={() => setCreating(false)} /> : null}
     </div>
   )
 }
 
-/* ─────────────────────────── summary tiles ─────────────────────────── */
-
-function Summary({ runs, loading }: { runs: TestRun[]; loading: boolean }) {
-  const stats = useMemo(() => {
-    const running = runs.filter(isRunning).length
-    const errored = runs.filter((r) => r.status?.stage === 'error').length
-    const finished = runs.filter((r) => r.status?.stage === 'finished').length
-    return { total: runs.length, running, finished, errored }
-  }, [runs])
-
-  const tiles: Array<{ label: string; value: ReactNode; hint: string; tone?: StatusKind }> = [
-    { label: 'Test runs', value: stats.total, hint: 'TestRun objects on the cluster' },
-    { label: 'In flight', value: stats.running, hint: 'Initialising, created or started', tone: stats.running ? 'progressing' : undefined },
-    { label: 'Finished', value: stats.finished, hint: 'Ran to completion — see the summary for pass/fail' },
-    { label: 'Failed to run', value: stats.errored, hint: 'The operator could not run the test', tone: stats.errored ? 'failed' : undefined },
-  ]
-
+/**
+ * Delete every finished TestRun whose result is already kept. Console runs
+ * no longer clean themselves up (that would delete them before their result
+ * could be harvested), so this is the tidy-up.
+ */
+function ClearFinished({ runs }: { runs: TestRun[] }) {
+  const toast = useToast()
+  const qc = useQueryClient()
+  const done = harvestedRuns(runs)
+  const [armed, setArmed] = useState(false)
+  const clear = useMutation({
+    mutationFn: async () => {
+      for (const r of done) await deleteTestRun(r.metadata.namespace ?? '', r.metadata.name)
+      return done.length
+    },
+    onSuccess: (n) => {
+      toast.success(`Cleared ${n} finished run${n === 1 ? '' : 's'}`, { description: 'Their results stay under Results.' })
+      void qc.invalidateQueries({ queryKey: ['k6'] })
+    },
+    onError: (e: Error) => toast.error('Could not clear finished runs', { description: e.message }),
+    onSettled: () => setArmed(false),
+  })
+  if (!done.length) return null
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      {tiles.map((t) => (
-        <Card key={t.label}>
-          <CardBody className="space-y-1">
-            <div className="text-[11px] font-medium uppercase tracking-wide text-content-subtle">{t.label}</div>
-            <div
-              className={cn(
-                'text-2xl font-semibold tabular-nums',
-                t.tone === 'failed' ? 'text-rose-600 dark:text-rose-400' : 'text-content',
-              )}
-            >
-              {loading ? '—' : t.value}
-            </div>
-            <div className="text-[11px] text-content-subtle">{t.hint}</div>
-          </CardBody>
-        </Card>
-      ))}
-    </div>
+    <Button
+      size="sm"
+      variant="ghost"
+      disabled={clear.isPending}
+      onBlur={() => setArmed(false)}
+      onClick={() => (armed ? clear.mutate() : setArmed(true))}
+    >
+      {clear.isPending ? 'Clearing…' : armed ? `Delete ${done.length} TestRun${done.length === 1 ? '' : 's'}?` : `Clear finished (${done.length})`}
+    </Button>
   )
 }
 

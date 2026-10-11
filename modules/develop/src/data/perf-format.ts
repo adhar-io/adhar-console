@@ -25,6 +25,15 @@
  * test rather than an unusable page.
  */
 
+import {
+  parseBaseline,
+  parseGate,
+  type PerfBaseline,
+  type PerfGate,
+  serialiseBaseline,
+  serialiseGate,
+} from './perf-gate.ts'
+
 export const TESTS_DIR = 'tests'
 export const SCRIPT_FILE = 'script.js'
 export const CONFIG_FILE = 'test.json'
@@ -70,6 +79,13 @@ export interface PerfTestConfig {
     /** Service the test calls, for the report header. */
     service?: string
   }
+  /**
+   * Pass criteria beyond the script's thresholds — SLO budgets and the
+   * regression rule. Evaluated by the console, the scheduled runner and CI.
+   */
+  gate?: PerfGate
+  /** The run every later run is compared against. */
+  baseline?: PerfBaseline
 }
 
 export const DEFAULT_CONFIG: PerfTestConfig = {
@@ -132,6 +148,8 @@ export function parseConfig(raw: string, name: string): PerfTestConfig {
       (str(rawTarget.namespace) || str(rawTarget.selector) || str(rawTarget.service))
     ? rawTarget
     : undefined
+  const gate = parseGate(doc.gate)
+  const baseline = parseBaseline(doc.baseline)
 
   return {
     title: str(doc.title) || humanize(name),
@@ -160,6 +178,8 @@ export function parseConfig(raw: string, name: string): PerfTestConfig {
         },
       }
       : {}),
+    ...(gate ? { gate } : {}),
+    ...(baseline ? { baseline } : {}),
   }
 }
 
@@ -178,6 +198,8 @@ export function serialiseConfig(c: PerfTestConfig): string {
   if (c.target && (c.target.namespace || c.target.selector || c.target.service)) {
     ordered.target = c.target
   }
+  if (c.gate) ordered.gate = serialiseGate(c.gate)
+  if (c.baseline) ordered.baseline = serialiseBaseline(c.baseline)
   return `${JSON.stringify(ordered, null, 2)}\n`
 }
 

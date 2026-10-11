@@ -40,6 +40,8 @@ import {
   useSavePerfTest,
   useSuiteRepo,
 } from '../data/perf-suite.ts'
+import { materialiseArtefact, usePerfInsights } from '../data/perf-automation.ts'
+import { CiPanel, GatePanel, TrendsPanel } from './perf-test-insights.tsx'
 
 /**
  * The performance test workbench — write the test, configure it, run it.
@@ -49,7 +51,15 @@ import {
  * diff. The console commits, then runs the committed version, so a result
  * can always be traced to the exact script that produced it.
  */
-export function PerfSuite({ onOpenRun }: { onOpenRun?(namespace: string, name: string): void }) {
+export function PerfSuite({
+  onOpenRun,
+  onOpenResults,
+  onSchedule,
+}: {
+  onOpenRun?(namespace: string, name: string): void
+  onOpenResults?(test: string): void
+  onSchedule?(test: string): void
+}) {
   const suiteQ = useSuiteRepo()
   const suite = suiteQ.data
   const testsQ = usePerfTests(suite)
@@ -106,7 +116,16 @@ export function PerfSuite({ onOpenRun }: { onOpenRun?(namespace: string, name: s
         onOpenRun={onOpenRun}
       />
       {selected
-        ? <TestWorkbench suite={suite} name={selected} canEdit={canEdit} onOpenRun={onOpenRun} />
+        ? (
+          <TestWorkbench
+            suite={suite}
+            name={selected}
+            canEdit={canEdit}
+            onOpenRun={onOpenRun}
+            onOpenResults={onOpenResults}
+            onSchedule={onSchedule}
+          />
+        )
         : (
           <Card>
             <CardBody className="py-12">
@@ -290,19 +309,33 @@ function TestList({
 
 /* ─────────────────────────── workbench ─────────────────────────── */
 
-type Tab = 'script' | 'config' | 'history'
+type Tab = 'script' | 'config' | 'gate' | 'trends' | 'ci' | 'history'
+
+const TAB_LABEL: Record<Tab, string> = {
+  script: 'Script',
+  config: 'Config',
+  gate: 'Gate',
+  trends: 'Trends',
+  ci: 'CI & promotion',
+  history: 'History',
+}
 
 function TestWorkbench({
   suite,
   name,
   canEdit,
   onOpenRun,
+  onOpenResults,
+  onSchedule,
 }: {
   suite: SuiteRepo
   name: string
   canEdit: boolean
   onOpenRun?(namespace: string, runName: string): void
+  onOpenResults?(test: string): void
+  onSchedule?(test: string): void
 }) {
+  const insights = usePerfInsights()
   const q = usePerfTest(suite, name)
   const save = useSavePerfTest(suite)
   const run = useRunPerfTest()
@@ -343,6 +376,10 @@ function TestWorkbench({
       setScript(null)
       setConfig(null)
       toast.success('Committed', { description: res.commit ? `commit ${res.commit.slice(0, 7)}` : undefined })
+      // Keep the cluster copy that schedules and CI run in step with git, so
+      // a budget committed here is the budget the next scheduled run enforces.
+      // Best effort: the namespace may not exist until the first run.
+      materialiseArtefact({ name, config: liveConfig, script: liveScript }, res.commit).catch(() => undefined)
     } catch (e) {
       toast.error((e as Error).message)
     }
@@ -382,6 +419,9 @@ function TestWorkbench({
             {canEdit
               ? (
                 <>
+                  {onSchedule
+                    ? <Button variant="ghost" size="sm" onClick={() => onSchedule(name)}>Schedule</Button>
+                    : null}
                   <Button variant="ghost" size="sm" disabled={!dirty || save.isPending} onClick={doSave}>
                     {save.isPending ? 'Committing…' : 'Commit'}
                   </Button>
@@ -394,17 +434,17 @@ function TestWorkbench({
           </div>
         </div>
         <div className="mt-2 flex gap-1">
-          {(['script', 'config', 'history'] as Tab[]).map((t) => (
+          {(Object.keys(TAB_LABEL) as Tab[]).map((t) => (
             <button
               key={t}
               type="button"
               onClick={() => setTab(t)}
               className={cn(
-                'rounded-md px-2.5 py-1 text-[12px] font-medium capitalize transition-colors',
+                'rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors',
                 tab === t ? 'bg-surface-sunken text-content' : 'text-content-muted hover:text-content',
               )}
             >
-              {t}
+              {TAB_LABEL[t]}
             </button>
           ))}
         </div>
@@ -425,6 +465,12 @@ function TestWorkbench({
           )
           : tab === 'config'
           ? <ConfigForm value={liveConfig} onChange={setConfig} readOnly={!canEdit} />
+          : tab === 'gate'
+          ? <GatePanel name={name} value={liveConfig} onChange={setConfig} readOnly={!canEdit} insights={insights} />
+          : tab === 'trends'
+          ? <TrendsPanel name={name} config={test.config} insights={insights} onOpenResults={onOpenResults} />
+          : tab === 'ci'
+          ? <CiPanel test={test} dirty={dirty} />
           : <History suite={suite} name={name} />}
       </CardBody>
     </Card>

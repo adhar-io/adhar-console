@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useGiteaOrg } from '@adhar/shell-ui'
 import { kube } from '@adhar/api-clients/k8s'
 import { giteaClient } from './git.ts'
+import { artefactConfigMap, artefactName } from './perf-runner.ts'
+import { LABEL_TRIGGER } from './perf-results.ts'
 import {
   CONFIG_FILE,
   configPath,
@@ -158,24 +160,33 @@ export function usePerfTest(suite: SuiteRepo | undefined, name: string | null) {
   const enabled = Boolean(suite?.exists && name)
   return useQuery<PerfTest>({
     queryKey: ['perf', 'test', suite?.org, suite?.repo, name],
-    queryFn: async () => {
-      const [script, config] = await Promise.all([
-        readFile(suite!, scriptPath(name!)),
-        readFile(suite!, configPath(name!)),
-      ])
-      const configRaw = config?.text ?? ''
-      return {
-        name: name!,
-        script: script?.text ?? '',
-        scriptSha: script?.sha,
-        configSha: config?.sha,
-        configRaw,
-        config: parseConfig(configRaw, name!),
-      }
-    },
+    queryFn: () => fetchPerfTest(suite!, name!),
     enabled,
     retry: false,
   })
+}
+
+/** Read one test fresh from git — script, config and the shas an update needs. */
+export async function fetchPerfTest(suite: SuiteRepo, name: string): Promise<PerfTest> {
+  const [script, config] = await Promise.all([
+    readFile(suite, scriptPath(name)),
+    readFile(suite, configPath(name)),
+  ])
+  const configRaw = config?.text ?? ''
+  return {
+    name,
+    script: script?.text ?? '',
+    scriptSha: script?.sha,
+    configSha: config?.sha,
+    configRaw,
+    config: parseConfig(configRaw, name),
+  }
+}
+
+/** Just `test.json`, for views that need many tests' gates at once. */
+export async function fetchPerfTestConfig(suite: SuiteRepo, name: string): Promise<PerfTestConfig> {
+  const config = await readFile(suite, configPath(name))
+  return parseConfig(config?.text ?? '', name)
 }
 
 async function readFile(
@@ -308,13 +319,14 @@ const CONFIG_MAPS = { group: '', version: 'v1', resource: 'configmaps', namespac
 const TEST_RUNS = { group: 'k6.io', version: 'v1alpha1', resource: 'testruns', namespaced: true }
 
 /** `checkout-load` → `k6-checkout-load`, the generated ConfigMap. */
-export const scriptConfigMapName = (test: string) => `k6-${test}`.slice(0, 253)
+export const scriptConfigMapName = artefactName
 
 /**
  * Run a committed test.
  *
  * Two objects, in order:
- *   1. a ConfigMap holding the script exactly as committed, and
+ *   1. the artefact ConfigMap: the script exactly as committed, plus the
+ *      runner, TestRun template and gate that schedules and CI reuse, and
  *   2. a TestRun pointing at it.
  *
  * Both carry the test name and the commit sha as labels. That is the whole
@@ -330,20 +342,9 @@ export function useRunPerfTest() {
       const commit = (input.commit ?? '').slice(0, 40)
       const cmName = scriptConfigMapName(test.name)
 
-      await kube.apply({
-        apiVersion: 'v1',
-        kind: 'ConfigMap',
-        metadata: {
-          name: cmName,
-          namespace: ns,
-          labels: {
-            [LABEL_MANAGED]: 'adhar-console',
-            [LABEL_TEST]: test.name,
-            ...(commit ? { [LABEL_COMMIT]: commit.slice(0, 63) } : {}),
-          },
-        },
-        data: { [SCRIPT_FILE]: test.script },
-      })
+      // The artefact: the script exactly as committed, plus the TestRun
+      // template, gate and runner script that schedules and CI reuse.
+      await kube.apply(artefactConfigMap({ test: test.name, config: { ...test.config, namespace: ns }, script: test.script, commit }))
 
       const runName = input.runName ?? `${test.name}-${stamp()}`
       const run = await kube.apply<{ metadata: { name: string; namespace?: string } }>({
@@ -355,6 +356,7 @@ export function useRunPerfTest() {
           labels: {
             [LABEL_MANAGED]: 'adhar-console',
             [LABEL_TEST]: test.name,
+            [LABEL_TRIGGER]: 'console',
             ...(commit ? { [LABEL_COMMIT]: commit.slice(0, 63) } : {}),
           },
         },
@@ -367,7 +369,11 @@ export function useRunPerfTest() {
           // "false" explicitly; pausing stays a deliberate act in the drawer.
           paused: 'false',
           ...(test.config.arguments ? { arguments: test.config.arguments } : {}),
-          cleanup: 'post',
+          // No `cleanup: 'post'`: with it the operator deletes the TestRun —
+          // and with it the runner pods — the moment the run finishes, before
+          // the console can harvest the summary into a durable result. The
+          // harvester stamps the run once its result is kept, and the Runs
+          // tab clears harvested runs in one action.
           ...(Object.keys(test.config.env).length
             ? {
               runner: {

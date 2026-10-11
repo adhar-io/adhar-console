@@ -29,6 +29,10 @@
  */
 
 import type * as Monaco from 'monaco-editor'
+// Monaco's stylesheet as a string: a federated remote's CSS file is never
+// loaded by the console host, so without this the editor mounts unstyled
+// (every line stacked, content looks empty).
+import monacoCss from 'monaco-editor/min/vs/editor/editor.main.css?inline'
 
 export type MonacoApi = typeof Monaco
 export type MonacoEditorInstance = Monaco.editor.IStandaloneCodeEditor
@@ -42,6 +46,7 @@ export function loadMonaco(): Promise<MonacoApi> {
   if (typeof window === 'undefined') {
     return Promise.reject(new Error('Monaco requires a browser'))
   }
+  ensureMonacoCss()
   if (globalThis.__adharMonaco) return globalThis.__adharMonaco
 
   globalThis.__adharMonaco = Promise.all([
@@ -58,4 +63,12 @@ export function loadMonaco(): Promise<MonacoApi> {
     })
 
   return globalThis.__adharMonaco
+}
+
+function ensureMonacoCss(): void {
+  if (typeof document === 'undefined' || document.getElementById('adhar-monaco-css')) return
+  const el = document.createElement('style')
+  el.id = 'adhar-monaco-css'
+  el.textContent = monacoCss
+  document.head.appendChild(el)
 }

@@ -29,6 +29,11 @@
  */
 
 import type * as Monaco from 'monaco-editor'
+// Monaco's own stylesheet, as a string. This module is a federated remote and
+// the console host never loads a remote's CSS file, so the editor mounted with
+// all of its DOM and none of its layout — every line stacked at the top and the
+// raw-object viewer looked empty. Injected once, the first time it loads.
+import monacoCss from 'monaco-editor/min/vs/editor/editor.main.css?inline'
 
 export type MonacoApi = typeof Monaco
 export type MonacoEditorInstance = Monaco.editor.IStandaloneCodeEditor
@@ -42,7 +47,17 @@ export function loadMonaco(): Promise<MonacoApi> {
   if (typeof window === 'undefined') {
     return Promise.reject(new Error('Monaco requires a browser'))
   }
-  if (globalThis.__adharMonaco) return globalThis.__adharMonaco
+  // Styles and this module's grammars/themes are applied on EVERY call: the
+  // runtime is shared on globalThis, so Develop or Decide may have loaded it
+  // first, without them. All three steps are idempotent.
+  ensureMonacoCss()
+  if (globalThis.__adharMonaco) {
+    return globalThis.__adharMonaco.then((m) => {
+      registerJson(m)
+      defineAdharThemes(m)
+      return m
+    })
+  }
 
   globalThis.__adharMonaco = Promise.all([
     import('monaco-editor/esm/vs/editor/editor.api'),
@@ -69,6 +84,7 @@ export function loadMonaco(): Promise<MonacoApi> {
       }
       monaco.languages.setMonarchTokensProvider('yaml', grammar.language)
       monaco.languages.setLanguageConfiguration('yaml', grammar.conf)
+      registerJson(monaco)
       defineAdharThemes(monaco)
       return monaco
     })
@@ -79,6 +95,41 @@ export function loadMonaco(): Promise<MonacoApi> {
     })
 
   return globalThis.__adharMonaco
+}
+
+function ensureMonacoCss(): void {
+  if (typeof document === 'undefined' || document.getElementById('adhar-monaco-css')) return
+  const el = document.createElement('style')
+  el.id = 'adhar-monaco-css'
+  el.textContent = monacoCss
+  document.head.appendChild(el)
+}
+
+/**
+ * JSON highlighting without the JSON language service (which needs a worker —
+ * see the header). Raw Kubernetes objects are JSON, and without a grammar they
+ * read as one colour. Keys use the `type` token so they match YAML keys.
+ */
+function registerJson(monaco: MonacoApi): void {
+  if (!monaco.languages.getLanguages().some((l) => l.id === 'json')) {
+    monaco.languages.register({ id: 'json', extensions: ['.json'], aliases: ['JSON', 'json'] })
+  }
+  monaco.languages.setMonarchTokensProvider('json', {
+    tokenizer: {
+      root: [
+        [/"(?:[^"\\]|\\.)*"(?=\s*:)/, 'type'],
+        [/"(?:[^"\\]|\\.)*"/, 'string'],
+        [/-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/, 'number'],
+        [/\b(?:true|false|null)\b/, 'keyword'],
+        [/[{}[\],:]/, 'delimiter'],
+        [/\s+/, 'white'],
+      ],
+    },
+  } as Monaco.languages.IMonarchLanguage)
+  monaco.languages.setLanguageConfiguration('json', {
+    brackets: [['{', '}'], ['[', ']']],
+    autoClosingPairs: [{ open: '{', close: '}' }, { open: '[', close: ']' }, { open: '"', close: '"' }],
+  })
 }
 
 /**

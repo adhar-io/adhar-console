@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@adhar/utils'
 import { useOverlayDismiss } from '@adhar/shell-ui'
-import { ADHAR_THEME_DARK, ADHAR_THEME_LIGHT, loadMonaco, type MonacoEditorInstance } from './monaco-loader.ts'
+import { adharMonacoTheme, loadMonaco, type MonacoEditorInstance } from './monaco-loader.ts'
 
 /**
  * Shared, enterprise-grade code editor — a single Monaco-backed component used
@@ -50,16 +50,10 @@ interface RichMonaco {
 
 /** Resolve the Monaco theme from the app's current theme setting. */
 function themeName(): string {
-  // The console themes defined by monaco-loader.ts. `adhar-light` was named
-  // here before anything defined it, so Monaco silently fell back to `vs`.
-  if (typeof document === 'undefined') return ADHAR_THEME_LIGHT
-  const attr = document.documentElement.getAttribute('data-theme')
-  if (attr === 'dark') return ADHAR_THEME_DARK
-  if (attr === 'light') return ADHAR_THEME_LIGHT
-  const prefersDark =
-    typeof globalThis.matchMedia === 'function' &&
-    globalThis.matchMedia('(prefers-color-scheme: dark)').matches
-  return prefersDark ? ADHAR_THEME_DARK : ADHAR_THEME_LIGHT
+  // The console resolves light / dark / system itself and marks the result with
+  // the `dark` class on <html> (shell-ui theme.ts) — that class is the truth.
+  // Reading the OS preference here gave a dark editor in a light console.
+  return adharMonacoTheme()
 }
 
 /** Pretty-print JSON / YAML-ish content for the Format action (best-effort). */
@@ -214,7 +208,8 @@ export function CodeEditor({
   useEffect(() => {
     if (typeof document === 'undefined') return
     const obs = new MutationObserver(() => monacoRef.current?.editor.setTheme(themeName()))
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    // The app switches theme with the `dark` class (data-theme is older).
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme'] })
     return () => obs.disconnect()
   }, [])
 

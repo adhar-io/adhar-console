@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { PageHeader, StatusBadge } from '@adhar/shell-ui'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useNavigate } from '@tanstack/react-router'
+import { PageHeader } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { Organization } from './views/organization.tsx'
 import { Members } from './views/members.tsx'
@@ -33,6 +34,7 @@ import { NotificationRouting } from './views/notification-routing.tsx'
 import { FeatureFlags } from './views/feature-flags.tsx'
 import { rolesHavePermission, useCurrentRoles, type Permission, type Role } from './data/access.ts'
 import { RoleBadge } from './components/role-gate.tsx'
+import { useWorkspaceMe } from './data/client.ts'
 
 type Section =
   | 'organization'
@@ -147,16 +149,13 @@ const GROUPS: Group[] = [
     ],
   },
   {
-    label: 'Preview features',
-    items: [{ id: 'features', label: 'Feature previews', description: 'Opt-in console capabilities', icon: <IconFlag />, required: ['admin', 'owner'], readPerm: 'org.read' }],
-  },
-  {
-    label: 'Appearance',
-    items: [{ id: 'theming', label: 'Theming', description: 'Color presets', icon: <IconPalette /> }],
-  },
-  {
-    label: 'Danger zone',
-    items: [{ id: 'danger', label: 'Delete org', description: 'Irreversible', icon: <IconAlert />, required: ['owner'] }],
+    label: 'Preferences',
+    caption: 'Previews, appearance, and the danger zone',
+    items: [
+      { id: 'features', label: 'Feature previews', description: 'Opt-in console capabilities', icon: <IconFlag />, required: ['admin', 'owner'], readPerm: 'org.read' },
+      { id: 'theming', label: 'Theming', description: 'Color presets', icon: <IconPalette /> },
+      { id: 'danger', label: 'Delete org', description: 'Irreversible', icon: <IconAlert />, required: ['owner'] },
+    ],
   },
 ]
 
@@ -169,18 +168,35 @@ function coerce(section?: string): Section {
 export default function WorkspaceHome({ section: urlSection }: { section?: string } = {}) {
   const [section, setSection] = useState<Section>(() => coerce(urlSection))
   const roles = useCurrentRoles()
+  const me = useWorkspaceMe()
+  const navigate = useNavigate()
 
   useEffect(() => {
     setSection(coerce(urlSection))
   }, [urlSection])
 
-  const activeItem = useMemo(
-    () => GROUPS.flatMap((g) => g.items).find((i) => i.id === section),
-    [section],
+  // Only what this person may read; a category with nothing readable is
+  // hidden. While the role is still loading everything shows, rather than
+  // flashing a single category and jumping when the role arrives.
+  const groups = useMemo(
+    () =>
+      me.isLoading
+        ? GROUPS
+        : GROUPS.map((g) => ({ ...g, items: g.items.filter((it) => !it.readPerm || rolesHavePermission(roles, it.readPerm)) }))
+          .filter((g) => g.items.length > 0),
+    [roles, me.isLoading],
   )
+  const activeGroup = groups.find((g) => g.items.some((i) => i.id === section)) ?? groups[0]
+  const activeItem = activeGroup?.items.find((i) => i.id === section) ?? activeGroup?.items[0]
+
+  /** Change page AND the URL, so the console sidebar, Back and shared links agree. */
+  const go = (id: Section) => {
+    setSection(id)
+    navigate({ to: '/settings', search: { section: id } as never })
+  }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHeader
         title="Workspace settings"
         badge={
@@ -192,74 +208,95 @@ export default function WorkspaceHome({ section: urlSection }: { section?: strin
         }
       />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[260px_1fr]">
-        {/* The settings nav sat directly on the app background with no surface
-            of its own, so on every page it read as loose text floating beside
-            the content rather than as the panel it is. Every other navigation
-            surface in the console is raised. */}
-        <aside className="space-y-5 rounded-xl border border-edge-default bg-surface-raised p-3 shadow-sm lg:sticky lg:top-4 lg:self-start">
-          {GROUPS.map((g) => (
-            <div key={g.label}>
-              <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
+      {/* Categories — one underlined row, the page's primary navigation. */}
+      <div className="-mx-1 overflow-x-auto [scrollbar-width:none]">
+        <div role="tablist" aria-label="Settings categories" className="flex min-w-max items-end gap-1 border-b border-edge-default px-1">
+          {groups.map((g) => {
+            const on = g === activeGroup
+            return (
+              <button
+                key={g.label}
+                type="button"
+                role="tab"
+                aria-selected={on}
+                onClick={() => go(g.items[0].id)}
+                title={g.caption}
+                className={cn(
+                  '-mb-px inline-flex items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-[13px] font-medium transition-colors',
+                  on
+                    ? 'border-brand-600 text-brand-700 dark:border-brand-400 dark:text-brand-300'
+                    : 'border-transparent text-content-muted hover:border-edge-strong hover:text-content',
+                )}
+              >
                 {g.label}
-              </div>
-              {g.caption ? (
-                <div className="mb-2 px-2 text-[11px] text-content-subtle/80">{g.caption}</div>
-              ) : null}
-              <div className="space-y-0.5">
-                {g.items.map((it) => {
-                  const canRead = !it.readPerm || rolesHavePermission(roles, it.readPerm)
-                  if (!canRead) return null
-                  const active = section === it.id
-                  return (
-                    <button
-                      key={it.id}
-                      type="button"
-                      onClick={() => setSection(it.id)}
-                      className={cn(
-                        'group flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left transition-colors',
-                        active
-                          ? 'bg-brand-50 text-brand-800 ring-1 ring-inset ring-brand-200 dark:bg-brand-500/15 dark:text-brand-200 dark:ring-brand-500/40'
-                          : 'text-content-muted hover:bg-surface-sunken hover:text-content',
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md',
-                          active
-                            ? 'bg-surface-raised text-brand-700 ring-1 ring-brand-200 dark:text-brand-300 dark:ring-brand-500/40'
-                            : 'text-content-subtle group-hover:text-content',
-                        )}
-                      >
-                        {it.icon}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[13px] font-medium">{it.label}</span>
-                        {it.description ? (
-                          <span
-                            className={cn(
-                              'block text-[10px] leading-tight',
-                              active ? 'text-brand-700/70' : 'text-content-subtle',
-                            )}
-                          >
-                            {it.description}
-                          </span>
-                        ) : null}
-                      </span>
-                      {it.id === 'danger' ? (
-                        <StatusBadge kind="failed">!</StatusBadge>
-                      ) : null}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          ))}
-        </aside>
-
-        <div className="min-w-0 space-y-6">
-          <SectionBody section={activeItem?.id ?? 'organization'} />
+                <span
+                  className={cn(
+                    'rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums',
+                    on ? 'bg-brand-100 text-brand-700 dark:bg-brand-500/20 dark:text-brand-200' : 'bg-surface-sunken text-content-subtle',
+                  )}
+                >
+                  {g.items.length}
+                </span>
+              </button>
+            )
+          })}
         </div>
+      </div>
+
+      {activeGroup ? <PageTabs group={activeGroup} active={activeItem?.id} onPick={go} /> : null}
+
+      <div className="min-w-0 space-y-6">
+        <SectionBody section={activeItem?.id ?? 'organization'} />
+      </div>
+    </div>
+  )
+}
+
+/** The pages inside a category, as pill tabs. Arrow keys move between them. */
+function PageTabs({ group, active, onPick }: { group: Group; active?: Section; onPick(id: Section): void }) {
+  const refs = useRef<Array<HTMLButtonElement | null>>([])
+  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== 'Home' && e.key !== 'End') return
+    e.preventDefault()
+    const i = group.items.findIndex((it) => it.id === active)
+    const n = group.items.length
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + n) % n
+    onPick(group.items[next].id)
+    refs.current[next]?.focus()
+  }
+  if (group.items.length < 2) return null
+  return (
+    <div className="-mx-1 overflow-x-auto px-1 py-0.5 [scrollbar-width:none]">
+      <div role="tablist" aria-label={group.label} onKeyDown={onKey} className="inline-flex min-w-max items-center gap-1 rounded-xl border border-edge-default bg-surface-raised p-1 shadow-sm">
+        {group.items.map((it, i) => {
+          const on = it.id === active
+          return (
+            <button
+              key={it.id}
+              ref={(el) => {
+                refs.current[i] = el
+              }}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              tabIndex={on ? 0 : -1}
+              onClick={() => onPick(it.id)}
+              className={cn(
+                'inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-[12.5px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
+                on
+                  ? it.id === 'danger'
+                    ? 'bg-rose-600 text-white shadow-sm'
+                    : 'bg-brand-600 text-white shadow-sm'
+                  : it.id === 'danger'
+                    ? 'text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10'
+                    : 'text-content-muted hover:bg-surface-sunken hover:text-content',
+              )}
+            >
+              <span className={cn('flex h-4 w-4 items-center justify-center', on ? 'text-white' : '')}>{it.icon}</span>
+              {it.label}
+            </button>
+          )
+        })}
       </div>
     </div>
   )

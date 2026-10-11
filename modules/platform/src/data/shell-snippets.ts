@@ -223,17 +223,65 @@ export function saveShellPrefs(p: ShellPrefs) {
   write(KEYS.prefs, p)
 }
 
-/** argv for a shell preference. `auto` tries bash then falls back to sh. */
+/**
+ * The rc every Cloud Shell session sources, after the image's own bashrc.
+ *
+ * POSIX-only at the top level: `sh`/`ash`/`dash` read it through `$ENV`, so
+ * bash-only syntax lives inside `eval` strings that only run under bash.
+ */
+const SHELL_RC = [
+  '[ -n "$BASH_VERSION" ] && [ -f /etc/bash.bashrc ] && . /etc/bash.bashrc',
+  '[ -n "$BASH_VERSION" ] && [ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"',
+  'export TERM=xterm-256color COLORTERM=truecolor',
+  '[ -n "$LANG" ] || export LANG=C.UTF-8',
+  // user@pod  ~/cwd  (two lines, so a long path never pushes the cursor off-screen)
+  "PS1='\\[\\e[1;38;5;117m\\]\\u\\[\\e[0;38;5;245m\\]@\\h\\[\\e[0m\\] \\[\\e[38;5;222m\\]\\w\\[\\e[0m\\]\\n\\[\\e[38;5;117m\\]\\$\\[\\e[0m\\] '",
+  "alias ll='ls -alF' la='ls -A' l='ls -CF' ..='cd ..'",
+  'if ls --color=auto / >/dev/null 2>&1; then alias ls="ls --color=auto"; alias grep="grep --color=auto"; fi',
+  'command -v kubectl >/dev/null 2>&1 && alias k=kubectl',
+  '[ -n "$BASH_VERSION" ] && eval \'HISTSIZE=10000; HISTCONTROL=ignoredups:erasedups; shopt -s histappend checkwinsize cdspell 2>/dev/null; bind "\\"\\e[A\\": history-search-backward" 2>/dev/null; bind "\\"\\e[B\\": history-search-forward" 2>/dev/null\'',
+  '[ -n "$BASH_VERSION" ] && command -v kubectl >/dev/null 2>&1 && eval \'source <(kubectl completion bash) 2>/dev/null && complete -o default -F __start_kubectl k\'',
+  '[ -n "$BASH_VERSION" ] && [ -f /usr/share/bash-completion/bash_completion ] && . /usr/share/bash-completion/bash_completion 2>/dev/null',
+].join('\n')
+
+/**
+ * argv that starts an interactive shell with the Cloud Shell rc.
+ *
+ * The old `auto` command was `exec /bin/bash 2>/dev/null || exec /bin/sh`.
+ * Under `exec` that redirect stays on bash for the whole session, and bash
+ * draws its prompt and line editing on stderr — so the prompt and every typed
+ * character went to /dev/null while command output still showed. Redirects
+ * here are scoped to single probes, never to the shell itself.
+ */
+function interactive(prefer: 'auto' | 'bash' | 'sh'): string[] {
+  const start = prefer === 'sh'
+    ? 'exec sh -i'
+    : prefer === 'bash'
+    ? 'exec bash ${RC:+--rcfile "$RC"} -i'
+    : 'if command -v bash >/dev/null 2>&1; then exec bash ${RC:+--rcfile "$RC"} -i; fi; exec sh -i'
+  const script = [
+    'RC="${TMPDIR:-/tmp}/.adhar-shellrc"',
+    "cat > \"$RC\" 2>/dev/null <<'ADHAR_RC' || RC=",
+    SHELL_RC,
+    'ADHAR_RC',
+    '[ -n "$RC" ] && export ENV="$RC"',
+    'export TERM=xterm-256color COLORTERM=truecolor',
+    start,
+  ].join('\n')
+  return ['/bin/sh', '-c', script]
+}
+
+/** argv for a shell preference. `auto` uses bash when the image has it, else sh. */
 export function shellCommand(shell: ShellPrefs['shell'], custom: string): string[] {
   switch (shell) {
     case 'bash':
-      return ['/bin/bash']
+      return interactive('bash')
     case 'sh':
-      return ['/bin/sh']
+      return interactive('sh')
     case 'custom':
-      return ['/bin/sh', '-c', `exec ${custom.trim() || '/bin/sh'}`]
+      return ['/bin/sh', '-c', `export TERM=xterm-256color COLORTERM=truecolor; exec ${custom.trim() || '/bin/sh -i'}`]
     default:
-      return ['/bin/sh', '-c', 'exec /bin/bash 2>/dev/null || exec /bin/sh']
+      return interactive('auto')
   }
 }
 

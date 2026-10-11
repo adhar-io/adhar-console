@@ -113,6 +113,7 @@ const LIGHT_THEME = {
 
 const FONT_FAMILY =
   '"JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
 const MIN_FONT = 10
 const MAX_FONT = 22
 
@@ -259,10 +260,16 @@ export const PodTerminal = forwardRef<PodTerminalHandle, PodTerminalProps>(funct
       term = new Terminal({
         cursorBlink: true,
         cursorStyle: 'block',
+        // Unfocused, the cursor stays visible as an outline instead of vanishing.
+        cursorInactiveStyle: 'outline',
         fontFamily: FONT_FAMILY,
         fontSize,
+        fontWeightBold: '600',
         lineHeight: 1.25,
-        scrollback: 5000,
+        drawBoldTextInBrightColors: true,
+        rightClickSelectsWord: true,
+        smoothScrollDuration: 60,
+        scrollback: 10000,
         allowProposedApi: true,
         macOptionIsMeta: true,
         theme: alwaysDark || mode === 'dark' ? DARK_THEME : LIGHT_THEME,
@@ -308,6 +315,41 @@ export const PodTerminal = forwardRef<PodTerminalHandle, PodTerminalProps>(funct
 
       term.open(hostRef.current)
 
+      // Terminal-native keys that the browser or the console would otherwise take:
+      //   ⌘K / Ctrl+L-style clear (⌘K is the console's palette everywhere else)
+      //   Ctrl+Shift+C / Ctrl+Shift+V copy and paste (Linux/Windows terminals)
+      //   ⌘C with a selection copies; without one it falls through as usual.
+      term.attachCustomKeyEventHandler((ev: KeyboardEvent) => {
+        if (ev.type !== 'keydown') return true
+        const mod = ev.metaKey || ev.ctrlKey
+        const k = ev.key.toLowerCase()
+        if (ev.metaKey && !ev.shiftKey && k === 'k') {
+          ev.preventDefault()
+          ev.stopPropagation()
+          term?.clear()
+          return false
+        }
+        if (mod && ev.shiftKey && k === 'c') {
+          const sel = term?.getSelection()
+          if (sel) void navigator.clipboard?.writeText(sel)
+          ev.preventDefault()
+          return false
+        }
+        if (mod && ev.shiftKey && k === 'v') {
+          ev.preventDefault()
+          void navigator.clipboard?.readText().then((t) => t && term?.paste(t)).catch(() => {})
+          return false
+        }
+        if (ev.metaKey && k === 'c' && term?.hasSelection()) {
+          void navigator.clipboard?.writeText(term.getSelection())
+          return false
+        }
+        return true
+      })
+
+      const where = `${namespace}/${pod}${container ? ` · ${container}` : ''}`
+      term.write(`\x1b[38;5;245mConnecting to ${where}…\x1b[0m\r\n`)
+
       // WebGL renderer with graceful degradation to the built-in DOM renderer.
       let usedWebgl = false
       if (api.WebglAddon) {
@@ -347,6 +389,11 @@ export const PodTerminal = forwardRef<PodTerminalHandle, PodTerminalProps>(funct
       const socket = session.socket
       const markOpen = () => {
         if (disposed) return
+        term?.write(
+          `\x1b[1A\x1b[2K\r\x1b[38;5;114m●\x1b[0m \x1b[1mConnected\x1b[0m \x1b[38;5;245m${where} · runs with your access · ${
+            IS_MAC ? '⌘' : 'Ctrl+Shift+'
+          }C/V copy·paste · ${IS_MAC ? '⌘K' : 'Ctrl+L'} clear\x1b[0m\r\n`,
+        )
         setStatus('connected')
         refit()
         term?.focus()

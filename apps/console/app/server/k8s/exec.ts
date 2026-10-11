@@ -65,7 +65,11 @@ export async function handleExec(req: Request): Promise<Response> {
   upstream.set('stderr', q.get('stderr') ?? 'true')
   upstream.set('tty', q.get('tty') ?? 'true')
   const cmds = q.getAll('command')
-  const command = cmds.length ? cmds : ['/bin/sh', '-c', 'exec /bin/bash 2>/dev/null || exec /bin/sh']
+  // No `2>/dev/null` on the exec'd shell: bash draws its prompt and line
+  // editing on stderr, so silencing it hid the prompt for the whole session.
+  const command = cmds.length
+    ? cmds
+    : ['/bin/sh', '-c', 'export TERM=xterm-256color; if command -v bash >/dev/null 2>&1; then exec bash -i; fi; exec sh -i']
   for (const c of command) upstream.append('command', c)
   const verb = q.get('attach') === 'true' ? 'attach' : 'exec'
   const execUrl =

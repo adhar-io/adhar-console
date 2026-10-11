@@ -6,6 +6,19 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.123] - 2026-10-11
+
+### Changed
+
+- **adhar resources nav:** One flat list again
+- **workspace settings:** Tabs and page content on one white panel
+- **workspace settings:** Tab bar on a white surface
+- **workspace settings:** Categories in the sidebar, their pages as tabs
+- **workspace settings:** Review pass over all 30 pages
+- **workspace settings:** Every page its own tab, all visible
+- What's new and help: colour, hierarchy and a searchable help hero
+- **workspace settings:** Tabs instead of a second sidebar
+
 ## [0.1.122] - 2026-10-11
 
 ### Changed

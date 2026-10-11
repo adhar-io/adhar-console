@@ -49,10 +49,15 @@ export interface FeatureHighlight {
     | 'security'
     | 'editor'
     | 'scorecard'
+    | 'assist'
+    | 'workspace'
+    | 'marketplace'
   /** Short category tag (e.g. "Develop", "Deliver", "Platform"). */
   category: string
   /** Highlight as newly shipped. */
   isNew?: boolean
+  /** Where in the console it lives, for a deep link. */
+  href?: string
 }
 
 /** One release, derived from git by scripts/release-notes.mjs. */

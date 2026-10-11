@@ -1,9 +1,7 @@
 import type {
   BackingTool,
-  ChangelogEntry,
   FeatureHighlight,
   PlatformVersion,
-  RoadmapItem,
 } from './types.ts'
 
 export const PLATFORM_VERSION: PlatformVersion = {
@@ -15,83 +13,107 @@ export const PLATFORM_VERSION: PlatformVersion = {
 }
 
 /**
- * Marquee capabilities showcased on the What's New page. Curated (not every
- * patch) — the headline experiences that define the Adhar platform.
+ * What the console can do today, as shown on What's New. Kept to capabilities
+ * that exist in the product right now — each one links to where it lives —
+ * and `isNew` marks the ones reworked in the last few releases (see the
+ * release notes in release-notes.generated.ts for the detail).
  */
 export const FEATURE_HIGHLIGHTS: FeatureHighlight[] = [
   {
+    title: 'Adhar Assist',
+    description:
+      'An AI assistant on ⌘K that knows the platform: ask about a failing rollout, a noisy pod or a cost spike and it answers from live cluster, Git and telemetry data, and proposes changes you approve.',
+    icon: 'assist',
+    category: 'Platform',
+    href: '/ai',
+  },
+  {
     title: 'Service Catalog',
     description:
-      'A Backstage-style catalog of every service, API, resource, system and team — with lifecycle, ownership, tech-docs and a deployment drawer wiring repo, GitOps, environments and monitoring together.',
+      'Every component, API, resource and system with ownership, TechDocs, a deployment view across environments and live Prometheus metrics charted per workload.',
     icon: 'catalog',
     category: 'Develop',
     isNew: true,
+    href: '/catalog',
   },
   {
-    title: 'Blue Ocean pipelines',
+    title: 'Pipelines and GitOps delivery',
     description:
-      'A Jenkins Blue Ocean-style PipelineRun viewer: a live stage graph with parallel branches and per-stage streaming console — search, follow, per-step log downloads and fullscreen.',
+      'Tekton pipelines with a stage graph and streaming console, Argo CD applications, Kargo promotions and progressive rollouts in one Deliver view.',
     icon: 'pipeline',
     category: 'Deliver',
-    isNew: true,
+    href: '/deliver?section=apps',
   },
   {
-    title: 'GitOps delivery',
+    title: 'Live logs',
     description:
-      'ArgoCD applications, sync status, revisions and environments surfaced across the console — from the catalog drawer to the Deliver phase — so what is running is always tied back to Git.',
-    icon: 'gitops',
-    category: 'Deliver',
-  },
-  {
-    title: 'OpenShift-grade logs',
-    description:
-      'Live, streaming pod logs with follow, regex/severity filtering, ANSI colour, timestamps, download — and workload-level aggregation that merges every pod of a Deployment in one view.',
+      'Stream any pod or a whole workload across its pods, filter by severity, search and download. Quiet streams stay connected instead of reconnecting every minute.',
     icon: 'logs',
     category: 'Observe',
     isNew: true,
+    href: '/platform?section=logs',
   },
   {
-    title: 'In-browser Cloud Shell',
+    title: 'Cloud Shell',
     description:
-      'A full terminal into any pod — or a cluster shell with kubectl, helm and k9s — running as you, under your Kubernetes RBAC. No kubeconfig juggling.',
+      'A real terminal in the browser into a tools pod or any container, with sessions, split panes, broadcast input and snippets. Runs with your own RBAC.',
     icon: 'shell',
     category: 'Platform',
+    isNew: true,
+    href: '/platform?section=shell',
   },
   {
     title: 'Adhar Resources',
     description:
-      'Self-service infrastructure via Crossplane composites — provision databases, environments, buckets and more from a schema-driven catalog with a Composition/variant picker.',
+      'Claim databases, buckets, queues and clusters through Crossplane: guided forms, a YAML preview, composed-resource graphs, events, and per-resource details, copy and delete.',
     icon: 'resources',
     category: 'Platform',
+    isNew: true,
+    href: '/platform?section=catalog',
   },
   {
-    title: 'Unified observability',
+    title: 'Marketplace',
     description:
-      'Golden-signal metrics, SLOs, alerts, traces and service maps from the LGTM stack — with an incident timeline and platform-health scoring on the overview.',
+      'Turn platform apps on and off through Argo CD ApplicationSets, and see which are enabled, healthy or need attention.',
+    icon: 'marketplace',
+    category: 'Platform',
+    href: '/platform?section=marketplace',
+  },
+  {
+    title: 'Observability',
+    description:
+      'Metrics, logs and traces from the LGTM stack with alerts and SLOs, linked back to the service and release that produced them.',
     icon: 'observability',
     category: 'Observe',
+    href: '/discover?section=dashboard',
   },
   {
-    title: 'Policy & supply-chain security',
-    description:
-      'Kyverno policy reports, Trivy image scans and runtime signals fold into a live security score, so drift and vulnerabilities surface where you work.',
+    title: 'Policy and supply-chain security',
+    description: 'Kyverno policy reports, Harbor image scanning and signatures, and the guardrails each release passes on its way to production.',
     icon: 'security',
     category: 'Secure',
-  },
-  {
-    title: 'First-class code editor',
-    description:
-      'A Monaco-powered editor everywhere you touch YAML or JSON — manifests, ConfigMaps, Secrets, pipeline specs — with folding, search, format, diff-ready theming and one-click copy/download.',
-    icon: 'editor',
-    category: 'Platform',
-    isNew: true,
+    href: '/deliver?section=policy',
   },
   {
     title: 'Production-readiness scorecards',
-    description:
-      'Every service graded against ownership, docs, delivery, security and observability checks — so teams see exactly what to fix before shipping.',
+    description: 'Checks for ownership, docs, alerts, rollouts and security per service, with history and a rerun on demand.',
     icon: 'scorecard',
     category: 'Decide',
+    href: '/scorecards',
+  },
+  {
+    title: 'Workspace administration',
+    description:
+      'Organizations, teams, projects, members and roles, SSO and MFA, API tokens, audit log, usage and billing — tenancy managed from one place.',
+    icon: 'workspace',
+    category: 'Workspace',
+    href: '/settings?section=organization',
+  },
+  {
+    title: 'Code editor everywhere',
+    description: 'One Monaco editor with schema-aware YAML and JSON on every manifest, ConfigMap, Secret and pipeline spec.',
+    icon: 'editor',
+    category: 'Platform',
   },
 ]
 
@@ -257,40 +279,4 @@ export const BACKING_TOOLS: BackingTool[] = [
     license: 'Apache-2.0',
     health: 'operational',
   },
-]
-
-export const CHANGELOG: ChangelogEntry[] = [
-  {
-    version: '0.1.42',
-    date: '2026-09-06',
-    highlights: [
-      'Service Catalog: redesigned entity cards, a Deployment drawer (repo · GitOps · environments · monitoring) and embedded TechDocs',
-      'Pipelines: a Jenkins Blue Ocean-style stage viewer with a live stage graph and per-stage streaming console (search, follow, downloads)',
-      'Logs: OpenShift-grade viewer with workload-level aggregation across every pod of a Deployment/StatefulSet/DaemonSet/Job',
-      'A shared Monaco code editor across every YAML/JSON surface (manifests, ConfigMaps, Secrets, pipeline specs)',
-      'Overview: real storage capacity, live security & performance health, and DORA lead time from Git',
-      'Platform status: fully dynamic, live component health derived from the cluster',
-    ],
-  },
-  {
-    version: '0.1.0',
-    date: '2026-04-19',
-    highlights: [
-      'Initial shell with 6D phase navigation (Define, Design, Develop, Deliver, Discover, Decide) + cross-cutting Platform view',
-      'Module Federation host + remotes for each phase',
-      'Stubbed BFF facade across Gitea, Plane, ArgoCD, Kargo, Harbor, K8s, Kyverno, Crossplane, Argo Rollouts, LGTM',
-      'Kubernetes dashboard (cluster + workloads + events + Adhar-stack CRD browser)',
-      'SaaS admin: onboarding, orgs, members, teams, projects, environments, tokens, audit, billing',
-      'Public platform status page showing each OSS tool with version and source links',
-    ],
-  },
-]
-
-export const ROADMAP_HIGHLIGHTS: RoadmapItem[] = [
-  { title: 'Real Keycloak OIDC + tenant-scoped access tokens', status: 'in-progress', target: '0.2.0' },
-  { title: 'Live K8s API streaming (watch + server-sent events)', status: 'in-progress', target: '0.2.0' },
-  { title: 'Kargo-driven promotions visible in Deliver', status: 'planned', target: '0.3.0' },
-  { title: 'Per-user personal access tokens + CLI', status: 'planned', target: '0.3.0' },
-  { title: 'External Secrets + SOPS-native secret management UI', status: 'planned', target: '0.4.0' },
-  { title: 'Organization SSO (Keycloak realm federation) from UI', status: 'planned', target: '0.4.0' },
 ]

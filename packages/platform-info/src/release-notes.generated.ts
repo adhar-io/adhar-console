@@ -4,6 +4,42 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.121",
+    "date": "2026-10-11",
+    "changes": [
+      {
+        "type": "change",
+        "scope": "performance center",
+        "text": "Schedules, results history, baselines, gates, CI"
+      },
+      {
+        "type": "change",
+        "scope": "plane and strapi",
+        "text": "Integrations that match the real APIs"
+      },
+      {
+        "type": "change",
+        "scope": "knowledge graph",
+        "text": "Interactive React Flow canvas with depth details"
+      },
+      {
+        "type": "change",
+        "scope": "platform metrics",
+        "text": "CPU, memory and storage in full"
+      },
+      {
+        "type": "feature",
+        "scope": "platform logs",
+        "text": "Show Live once the stream is open; keep row one on one line"
+      },
+      {
+        "type": "change",
+        "scope": "cloud shell",
+        "text": "No white inside the terminal in a light console"
+      }
+    ]
+  },
+  {
     "version": "0.1.120",
     "date": "2026-10-11",
     "changes": [
@@ -983,22 +1019,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
       {
         "type": "fix",
         "text": "Notifications fix"
-      }
-    ]
-  },
-  {
-    "version": "0.1.81",
-    "date": "2026-09-19",
-    "changes": [
-      {
-        "type": "fix",
-        "scope": "discover",
-        "text": "Grafana boards embedded a hardcoded host that resolves nowhere"
-      },
-      {
-        "type": "fix",
-        "scope": "traces",
-        "text": "Tempo omits zero values, and the client believed the type"
       }
     ]
   }

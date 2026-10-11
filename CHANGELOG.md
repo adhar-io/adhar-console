@@ -6,6 +6,20 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.121] - 2026-10-11
+
+### Added
+
+- **platform logs:** Show Live once the stream is open; keep row one on one line
+
+### Changed
+
+- **performance center:** Schedules, results history, baselines, gates, CI
+- **plane and strapi:** Integrations that match the real APIs
+- **knowledge graph:** Interactive React Flow canvas with depth details
+- **platform metrics:** CPU, memory and storage in full
+- **cloud shell:** No white inside the terminal in a light console
+
 ## [0.1.120] - 2026-10-11
 
 ### Fixed

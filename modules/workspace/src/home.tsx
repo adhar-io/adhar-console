@@ -221,14 +221,19 @@ export default function WorkspaceHome({ section: urlSection }: { section?: strin
         }
       />
 
-      {activeGroup ? <CategoryTabs group={activeGroup} active={activeItem?.id} onPick={go} /> : null}
+      {activeGroup?.caption ? <p className="-mt-5 text-[13px] text-content-muted">{activeGroup.caption}</p> : null}
 
-      <div id="settings-panel" role="tabpanel" aria-label={activeItem?.label} className="min-w-0 space-y-6">
-        {/* One page failing must not blank the whole settings screen. */}
-        <ErrorBoundary key={activeItem?.id}>
-          <SectionBody section={activeItem?.id ?? 'organization'} />
-        </ErrorBoundary>
-      </div>
+      {/* The tabs and the page they open are one white surface, set on the
+          tinted canvas — the tab row is that surface's header. */}
+      <section className="overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm">
+        {activeGroup ? <CategoryTabs group={activeGroup} active={activeItem?.id} onPick={go} /> : null}
+        <div id="settings-panel" role="tabpanel" aria-label={activeItem?.label} className="min-w-0 space-y-6 p-5 sm:p-6">
+          {/* One page failing must not blank the whole settings screen. */}
+          <ErrorBoundary key={activeItem?.id}>
+            <SectionBody section={activeItem?.id ?? 'organization'} />
+          </ErrorBoundary>
+        </div>
+      </section>
     </div>
   )
 }
@@ -251,10 +256,8 @@ function CategoryTabs({ group, active, onPick }: { group: Group; active?: Sectio
     refs.current.get(items[next].id)?.focus()
   }
   return (
-    <div className="-mt-5">
-      {group.caption ? <p className="mb-4 text-[13px] text-content-muted">{group.caption}</p> : null}
-      {/* The bar sits on its own white surface, not the tinted page canvas. */}
-      <div className="overflow-x-auto rounded-xl border border-edge-default bg-surface-raised px-2 pt-1.5 shadow-sm [scrollbar-width:none]">
+    <div>
+      <div className="overflow-x-auto border-b border-edge-default px-3 pt-2 [scrollbar-width:none]">
         <div
           role="tablist"
           aria-label={group.label}

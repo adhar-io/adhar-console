@@ -124,6 +124,7 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
   const [recents, setRecents] = useState<RecentTarget[]>(() => loadRecents())
   const [now, setNow] = useState(() => Date.now())
   const handles = useRef(new Map<string, PodTerminalHandle>())
+  const rootRef = useRef<HTMLDivElement | null>(null)
 
   const setPrefs = useCallback((patch: Partial<ShellPrefs>) => {
     setPrefsState((p) => {
@@ -237,8 +238,38 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
     return () => globalThis.removeEventListener('keydown', onKey)
   }, [sessions, activeId, close, setPrefs])
 
+  /*
+   * Fullscreen is the browser's own (Fullscreen API), not a `fixed inset-0`
+   * overlay. The workbench renders inside the shell's <main>, which is its own
+   * stacking context, so an overlay — whatever its z-index — stayed UNDER the
+   * console's sidebar and top bar: clipped on the left and top, and sized to
+   * the wrong box. The top layer sits above everything at the screen's size,
+   * and the terminals refit through their ResizeObserver. The browser exits it
+   * on Esc; `fullscreenchange` keeps the state in step either way.
+   */
   useEffect(() => {
-    if (!fullscreen) return
+    const sync = () => setFullscreen(Boolean(rootRef.current) && document.fullscreenElement === rootRef.current)
+    document.addEventListener('fullscreenchange', sync)
+    return () => document.removeEventListener('fullscreenchange', sync)
+  }, [])
+
+  const toggleFullscreen = () => {
+    const el = rootRef.current
+    if (!el) return
+    if (document.fullscreenElement) {
+      void document.exitFullscreen()
+      return
+    }
+    if (typeof el.requestFullscreen === 'function') {
+      el.requestFullscreen().catch(() => setFullscreen((f) => !f))
+    } else {
+      setFullscreen((f) => !f)
+    }
+  }
+
+  // Fallback overlay only (no Fullscreen API): Esc leaves it.
+  useEffect(() => {
+    if (!fullscreen || document.fullscreenElement) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setFullscreen(false)
     }
@@ -306,7 +337,16 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
   }
 
   return (
-    <div className={cn('flex flex-col gap-3', fullscreen && 'fixed inset-0 z-40 overflow-hidden bg-surface-app p-3')}>
+    <div
+      ref={rootRef}
+      className={cn(
+        'flex flex-col gap-3',
+        // In the browser's fullscreen this element IS the screen; the fixed
+        // overlay is only the fallback where the API is unavailable.
+        fullscreen && 'h-screen w-screen overflow-hidden bg-surface-app p-2 sm:p-3',
+        fullscreen && !(typeof document !== 'undefined' && document.fullscreenElement) && 'fixed inset-0 z-[70]',
+      )}
+    >
       {restorable.length && sessions.length === 0 ? (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-brand-200 bg-brand-50/60 px-3 py-2 text-[12px] text-brand-900 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-100">
           <IconHistory />
@@ -398,7 +438,7 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
               </IconBtn>
               <SettingsMenu prefs={prefs} onChange={setPrefs} />
               <ShortcutsMenu />
-              <IconBtn label={fullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen workbench'} active={fullscreen} onClick={() => setFullscreen((f) => !f)}>
+              <IconBtn label={fullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen workbench'} active={fullscreen} onClick={toggleFullscreen}>
                 {fullscreen ? <IconCollapse /> : <IconExpand />}
               </IconBtn>
             </div>

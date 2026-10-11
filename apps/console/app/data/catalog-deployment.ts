@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { argocd } from '@adhar/api-clients'
+import { argocd, kargo } from '@adhar/api-clients'
 import type { Entity } from './catalog.ts'
 
 /**
@@ -21,6 +21,7 @@ import type { Entity } from './catalog.ts'
  */
 
 const argocdClient = argocd.ArgoCDClient.auto({ tool: 'argocd' })
+const kargoClient = kargo.KargoClient.auto({ tool: 'kargo' })
 
 const REFRESH_MS = 30_000
 
@@ -131,7 +132,10 @@ export function deriveDeployment(
         const ns = app.spec.destination.namespace.toLowerCase()
         key =
           ENV_SUFFIXES.find((s) => ns === s || ns.endsWith(`-${s}`) || ns.startsWith(`${s}-`)) ??
-          (matched.length > 1 ? app.metadata.name : 'default')
+          // Nothing in the name or namespace says which environment this is
+          // (the service's bootstrap app, say). Label it by where it deploys —
+          // "default" read as an environment called default.
+          (app.spec.destination.namespace || app.metadata.name)
       }
       return { key, label: envLabel(key), app }
     })
@@ -190,4 +194,65 @@ export function useEntityDeployment(entity: Entity, enabled = true): EntityDeplo
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [q.data, q.isLoading, q.isError, entity],
   )
+}
+
+
+/* ─────────── Kargo environments ─────────── */
+
+/**
+ * On this platform an environment is a Kargo Stage — `dev`, `test`, `prod` in
+ * the `adhar-environments` project, each one promoting from the last. A
+ * service's Argo CD apps rarely say which stage they belong to (the bootstrap
+ * app is named `<service>-bootstrap`), so the Deploy tab reads the stages
+ * directly instead of inventing environments from app names.
+ */
+export interface KargoEnvironment {
+  stage: kargo.Stage
+  label: string
+  /** Position along the promotion chain, entry stage first. */
+  index: number
+  /** The service's Argo CD app for this stage, when one can be matched. */
+  app?: argocd.Application
+}
+
+/** Topological order along `upstream` edges; entry stages first, ties by name. */
+export function orderKargoStages(stages: readonly kargo.Stage[]): kargo.Stage[] {
+  const byName = new Map(stages.map((s) => [s.name, s]))
+  const depth = new Map<string, number>()
+  const visit = (s: kargo.Stage, seen: Set<string>): number => {
+    if (depth.has(s.name)) return depth.get(s.name)!
+    if (seen.has(s.name)) return 0
+    seen.add(s.name)
+    const ups = (s.upstream ?? []).map((u) => byName.get(u)).filter((u): u is kargo.Stage => Boolean(u))
+    const d = ups.length ? Math.max(...ups.map((u) => visit(u, seen))) + 1 : 0
+    depth.set(s.name, d)
+    return d
+  }
+  for (const s of stages) visit(s, new Set())
+  return [...stages].sort((a, b) => (depth.get(a.name) ?? 0) - (depth.get(b.name) ?? 0) || a.name.localeCompare(b.name))
+}
+
+export function useKargoStages(enabled = true) {
+  return useQuery({
+    queryKey: ['catalog', 'kargo', 'stages'],
+    queryFn: async () => orderKargoStages(await kargoClient.listStages('')),
+    refetchInterval: enabled ? REFRESH_MS : false,
+    staleTime: REFRESH_MS,
+    enabled,
+    retry: 1,
+  })
+}
+
+/** Stage → this service's app for it, matched on the derived environment key or namespace. */
+export function kargoEnvironments(stages: readonly kargo.Stage[] | undefined, deployment: EntityDeployment | undefined): KargoEnvironment[] {
+  if (!stages?.length) return []
+  return stages.map((stage, index) => {
+    const key = stage.name.toLowerCase()
+    const app = deployment?.environments.find((e) => {
+      const k = e.key.toLowerCase()
+      const ns = e.app.spec.destination.namespace.toLowerCase()
+      return k === key || envLabel(k) === envLabel(key) || ns === key || ns.endsWith(`-${key}`)
+    })?.app
+    return { stage, label: envLabel(stage.name), index, app }
+  })
 }

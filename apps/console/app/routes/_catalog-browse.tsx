@@ -45,6 +45,9 @@ import { parseApiDefinition, type ParsedApi, type SourceStatus } from '~/data/ca
 import {
   deriveDeployment,
   type EntityDeployment,
+  kargoEnvironments,
+  type KargoEnvironment,
+  useKargoStages,
   type EntityEnvironment,
   useDeploymentIndex,
   useEntityDeployment,
@@ -5847,7 +5850,9 @@ function DeploymentSummary({ deployment, appUrl }: { deployment: EntityDeploymen
   const r = p.status.resources
   const op = p.status.operationState
   const auto = p.spec.syncPolicy.automated
-  const envs = deployment.environments
+  const stages = useKargoStages()
+  const kenvs = kargoEnvironments(stages.data, deployment)
+  const envs = kenvs.length ? kenvs.map((e) => ({ label: e.label })) : deployment.environments
   const dotFor = (k: StatusKind) =>
     k === 'healthy' ? 'bg-emerald-500' : k === 'degraded' || k === 'failed' ? 'bg-rose-500' : k === 'paused' ? 'bg-amber-500' : k === 'progressing' ? 'bg-sky-500 animate-pulse' : 'bg-slate-400'
   const tiles: Array<{ label: string; value: React.ReactNode; sub: string; dot?: string }> = [
@@ -5889,20 +5894,137 @@ function commitUrl(repoUrl: string | undefined, rev: string | undefined): string
   return `${base}/commit/${rev}`
 }
 
-/** One card per environment, production first — what is running there, from which commit, since when. */
-function EnvironmentsGrid({
-  deployment,
-  appUrl,
-  repoUrl,
-}: {
+/**
+ * Environments are Kargo stages (dev → test → prod). The chain comes first,
+ * each stage with its Kargo health, current freight and last promotion, and
+ * the service's Argo CD app for that stage when one matches. The service's
+ * Argo CD applications follow as their own section — they are how it is
+ * deployed, not a list of environments.
+ */
+function EnvironmentsGrid(props: {
   deployment: EntityDeployment
   appUrl(app: ArgoApp): string | undefined
   repoUrl?: string
 }) {
+  const stages = useKargoStages()
+  const envs = kargoEnvironments(stages.data, props.deployment)
+  return (
+    <>
+      {envs.length ? (
+        <DrawerSection
+          title={`Environments · ${envs.length}`}
+          aside={<PhaseLink href="/deliver?section=environments">Promotions →</PhaseLink>}
+        >
+          <ol className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {envs.map((env, i) => (
+              <li key={`${env.stage.project}/${env.stage.name}`} className="relative">
+                <KargoEnvCard env={env} appUrl={props.appUrl} />
+                {i < envs.length - 1 ? (
+                  <span aria-hidden className="absolute -right-2.5 top-1/2 hidden -translate-y-1/2 text-content-subtle xl:block">→</span>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+          <p className="mt-2 text-[11px] text-content-subtle">
+            Kargo project <span className="font-mono">{envs[0].stage.project}</span> · each stage promotes the freight its upstream has verified.
+          </p>
+        </DrawerSection>
+      ) : null}
+      <AppsGrid {...props} titled={envs.length > 0} />
+    </>
+  )
+}
+
+function kargoHealthKind(h: KargoEnvironment['stage']['health'], phase: KargoEnvironment['stage']['phase']): StatusKind {
+  if (phase === 'Failed' || phase === 'Erroring') return 'failed'
+  if (phase === 'Promoting' || phase === 'Verifying' || h === 'Progressing') return 'progressing'
+  if (h === 'Healthy') return 'healthy'
+  if (h === 'Unhealthy') return 'degraded'
+  return 'unknown'
+}
+
+function KargoEnvCard({ env, appUrl }: { env: KargoEnvironment; appUrl(app: ArgoApp): string | undefined }) {
+  const { stage, app } = env
+  const kind = kargoHealthKind(stage.health, stage.phase)
+  const url = app ? appUrl(app) : undefined
+  return (
+    <div className="flex h-full min-w-0 flex-col rounded-xl border border-edge-default bg-surface-raised shadow-sm">
+      <div className="flex items-start justify-between gap-2 px-3.5 pt-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="inline-flex size-4 items-center justify-center rounded-full bg-brand-600 text-[9px] font-bold text-white">{env.index + 1}</span>
+            <span className="truncate text-[13px] font-semibold text-content">{env.label}</span>
+          </div>
+          <div className="mt-0.5 truncate font-mono text-[10px] text-content-subtle">
+            stage {stage.name}{stage.upstream?.length ? ` · from ${stage.upstream.join(', ')}` : stage.warehouse ? ` · from warehouse ${stage.warehouse}` : ''}
+          </div>
+        </div>
+        <StatusBadge kind={kind} className="shrink-0 px-1.5 py-0 text-[10px]" pulse={kind === 'progressing'}>
+          {stage.phase === 'Promoting' || stage.phase === 'Verifying' ? stage.phase : stage.health ?? stage.phase}
+        </StatusBadge>
+      </div>
+      <dl className="mt-2.5 space-y-1.5 px-3.5 pb-3 text-[11px]">
+        <div className="flex items-center justify-between gap-2">
+          <dt className="text-content-subtle">Freight</dt>
+          <dd className="min-w-0 truncate font-mono text-content" title={stage.currentFreight}>
+            {stage.currentFreightAlias ?? (stage.currentFreight ? stage.currentFreight.slice(0, 12) : '—')}
+          </dd>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <dt className="text-content-subtle">Last promotion</dt>
+          <dd className="truncate text-content">
+            {stage.lastPromoted ? relativeTime(stage.lastPromoted) || formatDate(stage.lastPromoted) : '—'}
+            {stage.lastPromotionPhase ? <span className={cn(stage.lastPromotionPhase === 'Succeeded' ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300')}> · {stage.lastPromotionPhase.toLowerCase()}</span> : null}
+          </dd>
+        </div>
+        {stage.verification ? (
+          <div className="flex items-center justify-between gap-2">
+            <dt className="text-content-subtle">Verification</dt>
+            <dd className="truncate text-content">{stage.verification.phase}</dd>
+          </div>
+        ) : null}
+        {stage.currentPromotion ? (
+          <div className="flex items-center justify-between gap-2">
+            <dt className="text-content-subtle">Promoting</dt>
+            <dd className="truncate font-mono text-sky-700 dark:text-sky-300">{stage.currentPromotion}</dd>
+          </div>
+        ) : null}
+        {stage.issues?.length ? <p className="truncate text-rose-700 dark:text-rose-300" title={stage.issues.join('\n')}>{stage.issues[0]}</p> : null}
+      </dl>
+      <div className="mt-auto flex items-center justify-between gap-2 border-t border-edge-subtle bg-surface-sunken/40 px-3.5 py-1.5 text-[10px]">
+        {app ? (
+          <>
+            <span className="flex min-w-0 items-center gap-1.5">
+              <StatusBadge kind={argoHealthKind(app.status.health.status)} className="px-1 py-0 text-[9px]">{app.status.health.status}</StatusBadge>
+              <span className="truncate font-mono text-content-subtle">{app.metadata.name}</span>
+            </span>
+            {url ? <a href={url} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 font-medium text-brand-700 hover:underline dark:text-brand-300">Argo CD <IconArrowUpRight /></a> : null}
+          </>
+        ) : (
+          <span className="text-content-subtle">Deployed from the environments repo</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** The service's Argo CD applications — what is running, from which commit, since when. */
+function AppsGrid({
+  deployment,
+  appUrl,
+  repoUrl,
+  titled,
+}: {
+  deployment: EntityDeployment
+  appUrl(app: ArgoApp): string | undefined
+  repoUrl?: string
+  /** Kargo already listed the environments; this section is the Argo CD apps. */
+  titled?: boolean
+}) {
   const pub = usePublicUrl()
   return (
     <DrawerSection
-      title={`Environments · ${deployment.environments.length}`}
+      title={titled ? `Argo CD applications · ${deployment.apps.length}` : `Environments · ${deployment.environments.length}`}
       aside={<PhaseLink href="/deliver?section=apps">GitOps view →</PhaseLink>}
     >
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

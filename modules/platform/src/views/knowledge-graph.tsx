@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Badge,
   Card,
@@ -14,7 +14,6 @@ import { cn, formatRelative } from '@adhar/utils'
 import {
   ALL_KINDS,
   EDGE_PHRASE,
-  type GraphEdge,
   type GraphNode,
   KIND_COLOR,
   KIND_LABEL,
@@ -25,6 +24,7 @@ import {
   useGraphSearch,
   useGraphStatus,
 } from '../data/graph.ts'
+import { DepthSummary, GraphCanvas } from './graph-canvas.tsx'
 
 /**
  * Knowledge Graph — the platform and everything it runs, and how it all
@@ -45,7 +45,25 @@ export function KnowledgeGraph({ namespace }: { namespace?: string }) {
   const status = useGraphStatus()
   const [query, setQuery] = useState('')
   const [kinds, setKinds] = useState<NodeKind[]>([])
-  const [selected, setSelected] = useState<string | null>(null)
+  const [selected, setSelectedRaw] = useState<string | null>(null)
+  // What the inspector shows: a click inspects without moving the graph.
+  const [focused, setFocused] = useState<string | null>(null)
+  // Where the graph has been centred, for a back trail.
+  const [trail, setTrail] = useState<string[]>([])
+  const setSelected = (id: string) => {
+    setSelectedRaw((prev) => {
+      if (prev && prev !== id) setTrail((t) => [...t.filter((x) => x !== prev), prev].slice(-8))
+      return id
+    })
+    setFocused(null)
+  }
+  const back = () => {
+    const prev = trail[trail.length - 1]
+    if (!prev) return
+    setTrail((t) => t.slice(0, -1))
+    setSelectedRaw(prev)
+    setFocused(null)
+  }
   // Two hops by default: one hop shows a thing's immediate relations, which
   // for an application is four nodes on a mostly empty canvas. Two is where
   // the picture starts answering questions — app → workloads → pods/images.
@@ -90,7 +108,7 @@ export function KnowledgeGraph({ namespace }: { namespace?: string }) {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[300px_1fr_320px]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[280px_minmax(0,1fr)_320px]">
         <Finder
           query={query}
           onQuery={setQuery}
@@ -109,7 +127,13 @@ export function KnowledgeGraph({ namespace }: { namespace?: string }) {
                 {detail.data?.node.name ?? 'Select something'}
               </div>
               {detail.data ? <Badge>{KIND_LABEL[detail.data.node.kind]}</Badge> : null}
+              {trail.length ? (
+                <button type="button" onClick={back} className="rounded-md px-2 py-0.5 text-[11px] font-medium text-content-muted hover:bg-surface-sunken hover:text-content" title="Back to the previous centre">
+                  ← Back
+                </button>
+              ) : null}
               <div className="ml-auto flex items-center gap-1">
+                <span className="mr-1 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Depth</span>
                 {[1, 2, 3].map((d) => (
                   <button
                     key={d}
@@ -137,22 +161,32 @@ export function KnowledgeGraph({ namespace }: { namespace?: string }) {
                 />
               </div>
             ) : neighbourhood.isLoading ? (
-              <div className="flex h-[440px] items-center justify-center"><Spinner /></div>
+              <div className="flex h-[600px] items-center justify-center"><Spinner /></div>
             ) : neighbourhood.data ? (
-              <RadialGraph
-                root={neighbourhood.data.root}
-                nodes={neighbourhood.data.nodes}
-                edges={neighbourhood.data.edges}
-                truncated={neighbourhood.data.truncated}
-                onSelect={setSelected}
-              />
+              <>
+                <GraphCanvas
+                  root={neighbourhood.data.root}
+                  nodes={neighbourhood.data.nodes}
+                  edges={neighbourhood.data.edges}
+                  truncated={neighbourhood.data.truncated}
+                  focusedId={focused}
+                  onFocus={setFocused}
+                  onRecentre={setSelected}
+                />
+                <DepthSummary
+                  root={neighbourhood.data.root}
+                  nodes={neighbourhood.data.nodes}
+                  edges={neighbourhood.data.edges}
+                  onFocus={setFocused}
+                />
+              </>
             ) : (
               <div className="p-8"><EmptyState title="Could not load that neighbourhood" /></div>
             )}
           </CardBody>
         </Card>
 
-        <Inspector id={selected} onSelect={setSelected} />
+        <Inspector id={focused ?? selected} centred={!focused || focused === selected} onSelect={setFocused} onCentre={setSelected} />
       </div>
     </div>
   )
@@ -307,220 +341,6 @@ function Finder({
   )
 }
 
-/* ─────────────────────────── the canvas ─────────────────────────── */
-
-const WIDTH = 760
-const HEIGHT = 460
-const CX = WIDTH / 2
-const CY = HEIGHT / 2
-
-interface Placed {
-  node: GraphNode
-  x: number
-  y: number
-  ring: 0 | 1 | 2
-}
-
-/**
- * Radial layout: root centred, first hop on an inner ring, second hop outside.
- *
- * Deterministic by construction — positions come from the node's index within
- * its ring, which is sorted by kind then name. The same graph draws the same
- * way every time, which is what makes it possible to say "the red one on the
- * left" to a colleague.
- */
-function layout(root: GraphNode, nodes: GraphNode[], edges: GraphEdge[]): Placed[] {
-  const direct = new Set<string>()
-  for (const e of edges) {
-    if (e.from === root.id) direct.add(e.to)
-    if (e.to === root.id) direct.add(e.from)
-  }
-
-  const inner = nodes.filter((n) => n.id !== root.id && direct.has(n.id))
-  const outer = nodes.filter((n) => n.id !== root.id && !direct.has(n.id))
-  const byKindName = (a: GraphNode, b: GraphNode) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name)
-  inner.sort(byKindName)
-  outer.sort(byKindName)
-
-  const placed: Placed[] = [{ node: root, x: CX, y: CY, ring: 0 }]
-
-  // Elliptical rather than circular: the canvas is wider than it is tall, and
-  // a circle wastes the sides while crowding the top and bottom.
-  const at = (angle: number, rx: number, ry: number) => ({
-    x: CX + rx * Math.cos(angle),
-    y: CY + ry * Math.sin(angle),
-  })
-
-  const innerAngle = new Map<string, number>()
-  inner.forEach((node, i) => {
-    const angle = -Math.PI / 2 + (2 * Math.PI * i) / Math.max(inner.length, 1)
-    innerAngle.set(node.id, angle)
-    placed.push({ node, ...at(angle, 190, 130), ring: 1 })
-  })
-
-  // Second-hop nodes sit in an arc around the first-hop node they hang off,
-  // rather than spread evenly around the whole ellipse. Spreading them evenly
-  // is what produced a canvas full of long crossing lines: an image belonging
-  // to the workload on the left would be placed on the right purely because
-  // of its alphabetical position.
-  const parentOf = (id: string): string | undefined => {
-    for (const e of edges) {
-      if (e.from === id && innerAngle.has(e.to)) return e.to
-      if (e.to === id && innerAngle.has(e.from)) return e.from
-    }
-    return undefined
-  }
-
-  const groups = new Map<string, GraphNode[]>()
-  const orphans: GraphNode[] = []
-  for (const node of outer) {
-    const parent = parentOf(node.id)
-    if (!parent) {
-      orphans.push(node)
-      continue
-    }
-    const list = groups.get(parent)
-    if (list) list.push(node)
-    else groups.set(parent, [node])
-  }
-
-  // The arc each group may occupy, so neighbouring groups do not overlap.
-  const slice = (2 * Math.PI) / Math.max(inner.length, 1)
-  for (const [parent, children] of groups) {
-    const base = innerAngle.get(parent)!
-    const span = Math.min(slice * 0.8, (Math.PI / 6) * children.length)
-    children.forEach((node, i) => {
-      const t = children.length === 1 ? 0 : i / (children.length - 1) - 0.5
-      placed.push({ node, ...at(base + t * span, 330, 205), ring: 2 })
-    })
-  }
-
-  orphans.forEach((node, i) => {
-    const angle = -Math.PI / 2 + (2 * Math.PI * i) / Math.max(orphans.length, 1)
-    placed.push({ node, ...at(angle, 345, 215), ring: 2 })
-  })
-
-  return placed
-}
-
-function RadialGraph({
-  root,
-  nodes,
-  edges,
-  truncated,
-  onSelect,
-}: {
-  root: GraphNode
-  nodes: GraphNode[]
-  edges: GraphEdge[]
-  truncated: boolean
-  onSelect(id: string): void
-}) {
-  const placed = useMemo(() => layout(root, nodes, edges), [root, nodes, edges])
-  const at = useMemo(() => new Map(placed.map((p) => [p.node.id, p])), [placed])
-  const [hover, setHover] = useState<string | null>(null)
-
-  const touching = (id: string) =>
-    hover === null || hover === id || edges.some((e) => (e.from === hover && e.to === id) || (e.to === hover && e.from === id))
-
-  return (
-    <div className="relative">
-      {/* A wide graph must scroll inside its own box, never the page. */}
-      <div className="overflow-x-auto">
-        <svg
-          viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-          className="h-[460px] w-full min-w-[640px]"
-          role="img"
-          aria-label={`Relationships around ${root.name}`}
-        >
-          {edges.map((e) => {
-            const a = at.get(e.from)
-            const b = at.get(e.to)
-            if (!a || !b) return null
-            const lit = hover === null || hover === e.from || hover === e.to
-            return (
-              <g key={`${e.from}|${e.kind}|${e.to}`} opacity={lit ? 1 : 0.15}>
-                <line
-                  x1={a.x}
-                  y1={a.y}
-                  x2={b.x}
-                  y2={b.y}
-                  className="stroke-edge-strong"
-                  strokeWidth={a.ring === 0 || b.ring === 0 ? 1.5 : 1}
-                />
-                {lit && hover !== null ? (
-                  <text
-                    x={(a.x + b.x) / 2}
-                    y={(a.y + b.y) / 2 - 3}
-                    textAnchor="middle"
-                    className="fill-content-subtle text-[9px]"
-                  >
-                    {EDGE_PHRASE[e.kind]?.out ?? e.kind}
-                  </text>
-                ) : null}
-              </g>
-            )
-          })}
-
-          {placed.map((p) => {
-            const dim = !touching(p.node.id)
-            const r = p.ring === 0 ? 9 : p.ring === 1 ? 6 : 4.5
-            return (
-              <g
-                key={p.node.id}
-                transform={`translate(${p.x},${p.y})`}
-                opacity={dim ? 0.25 : 1}
-                onMouseEnter={() => setHover(p.node.id)}
-                onMouseLeave={() => setHover(null)}
-                onClick={() => onSelect(p.node.id)}
-                className="cursor-pointer"
-              >
-                <circle
-                  r={r + 3}
-                  className={cn(
-                    'fill-surface-raised',
-                    p.node.status === 'failed'
-                      ? 'stroke-rose-500'
-                      : p.node.status === 'degraded'
-                      ? 'stroke-amber-500'
-                      : p.node.status === 'progressing'
-                      ? 'stroke-sky-500'
-                      : 'stroke-transparent',
-                  )}
-                  strokeWidth={2}
-                />
-                {/* A literal class from the map — deriving one with
-                    `.replace('bg-','fill-')` would produce a class Tailwind
-                    never sees in source, and every node would render black. */}
-                <circle r={r} className={KIND_COLOR[p.node.kind].fill} />
-                {p.ring <= 1 || nodes.length < 40 ? (
-                  <text
-                    y={r + 12}
-                    textAnchor="middle"
-                    className={cn('fill-content text-[10px]', p.ring === 0 && 'font-semibold')}
-                  >
-                    {p.node.name.length > 22 ? `${p.node.name.slice(0, 21)}…` : p.node.name}
-                  </text>
-                ) : null}
-              </g>
-            )
-          })}
-        </svg>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 border-t border-edge-default px-3 py-1.5 text-[11px] text-content-subtle">
-        <span>{nodes.length} nodes · {edges.length} relationships</span>
-        {truncated ? (
-          <span className="text-amber-700 dark:text-amber-400">
-            capped — this is part of the neighbourhood, not all of it
-          </span>
-        ) : null}
-        <span className="ml-auto">hover to trace · click to recentre</span>
-      </div>
-    </div>
-  )
-}
-
 /* ─────────────────────────── inspector ─────────────────────────── */
 
 const STATUS_KIND: Record<string, StatusKind> = {
@@ -531,7 +351,7 @@ const STATUS_KIND: Record<string, StatusKind> = {
   unknown: 'unknown',
 }
 
-function Inspector({ id, onSelect }: { id: string | null; onSelect(id: string): void }) {
+function Inspector({ id, centred, onSelect, onCentre }: { id: string | null; centred: boolean; onSelect(id: string): void; onCentre(id: string): void }) {
   const q = useGraphNode(id)
 
   if (!id) return null
@@ -564,6 +384,11 @@ function Inspector({ id, onSelect }: { id: string | null; onSelect(id: string): 
             <StatusBadge kind={STATUS_KIND[node.status] ?? 'unknown'}>{node.status}</StatusBadge>
           ) : null}
         </div>
+        {!centred ? (
+          <button type="button" onClick={() => onCentre(node.id)} className="mb-1 mt-1 rounded-md border border-brand-300 bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700 hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300">
+            Centre the graph here
+          </button>
+        ) : null}
         <div className="text-[11px] text-content-subtle">
           {KIND_LABEL[node.kind]}
           {node.namespace ? ` · ${node.namespace}` : ''}

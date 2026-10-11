@@ -18,8 +18,8 @@
     "monaco-editor": "npm:monaco-editor@^0.52.2",
     "clsx": "npm:clsx@^2.1.1",
     "tailwind-merge": "npm:tailwind-merge@^2.5.0",
-    "@xyflow/react": "npm:@xyflow/react@^12.3.5",
-    "@xyflow/react/": "npm:/@xyflow/react@^12.3.5/"
+    "@xyflow/react": "npm:@xyflow/react@^12.12.0",
+    "@xyflow/react/": "npm:/@xyflow/react@^12.12.0/"
   },
   "compilerOptions": {
     "jsx": "react-jsx",

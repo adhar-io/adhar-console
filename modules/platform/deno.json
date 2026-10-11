@@ -25,7 +25,12 @@
     "@xterm/addon-web-links": "npm:@xterm/addon-web-links@^0.11.0",
     "@xterm/addon-clipboard": "npm:@xterm/addon-clipboard@^0.1.0",
     "@xterm/addon-unicode11": "npm:@xterm/addon-unicode11@^0.8.0",
-    "@xterm/addon-webgl": "npm:@xterm/addon-webgl@^0.18.0"
+    "@xterm/addon-webgl": "npm:@xterm/addon-webgl@^0.18.0",
+    "@xyflow/react": "npm:@xyflow/react@^12.12.0",
+    "@xyflow/react/dist/style.css": "npm:@xyflow/react@^12.12.0/dist/style.css"
   },
-  "compilerOptions": { "jsx": "react-jsx", "jsxImportSource": "react" }
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "react"
+  }
 }

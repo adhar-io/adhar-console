@@ -3,6 +3,7 @@ import { apiServerFetch } from './k8s/gateway.ts'
 import { getK8sServiceToken, getTool } from './tool-registry.ts'
 import { giteaConn, giteaFetcher } from './gitea-auth.ts'
 import { getKeycloakAdmin } from './workspace/keycloak-admin.ts'
+import { applyXr, organisationManifest } from './control-plane.ts'
 
 /**
  * Tenant provisioner — turns a logical organization into a real, isolated tenant
@@ -30,7 +31,7 @@ import { getKeycloakAdmin } from './workspace/keycloak-admin.ts'
  */
 
 export interface ProvisionStepResult {
-  system: 'keycloak' | 'namespace' | 'argocd' | 'gitea' | 'grafana' | 'harbor'
+  system: 'controlplane' | 'keycloak' | 'namespace' | 'argocd' | 'gitea' | 'grafana' | 'harbor'
   label: string
   status: 'done' | 'skipped' | 'failed'
   detail?: string
@@ -41,6 +42,8 @@ export interface ProvisionInput {
   name: string
   /** Creating user — id (sub), email, or username, for group membership. */
   userRef?: string
+  /** What the organisation is for, as typed during onboarding. */
+  description?: string
 }
 
 /** Group name convention used for tenant RBAC (matches ws-* group bindings). */
@@ -339,9 +342,37 @@ async function provisionHarbor(input: ProvisionInput): Promise<ProvisionStepResu
  * (identity + isolation), then ArgoCD + Gitea in parallel. Never throws — always
  * resolves with one result per system.
  */
+/* ── the control plane: the Organisation XR ── */
+async function provisionControlPlane(input: ProvisionInput): Promise<ProvisionStepResult> {
+  const out = await applyXr(organisationManifest({ slug: input.slug, name: input.name, description: input.description }))
+  return {
+    system: 'controlplane',
+    label: 'Organisation resource',
+    status: out.ok ? 'done' : 'failed',
+    detail: out.ok ? out.detail : `${out.detail} — falling back to direct provisioning`,
+  }
+}
+
 export async function provisionTenant(input: ProvisionInput): Promise<ProvisionStepResult[]> {
   const results: ProvisionStepResult[] = []
+  // Identity stays the console's: the Organisation composition BINDS the
+  // `org-<slug>` groups, it does not create them.
   results.push(await provisionKeycloak(input))
+  // Declare the organisation to the control plane. Its composition creates the
+  // home namespace, quota and role bindings and the Gitea organisation, so
+  // when it is accepted those two steps are not repeated here — two writers
+  // for one namespace is how drift starts. If the platform has no control
+  // plane (or refuses the write) the direct path below still provisions.
+  const cp = await provisionControlPlane(input)
+  results.push(cp)
+  if (cp.status === 'done') {
+    const via = 'via the control plane (Organisation XR)'
+    results.push({ system: 'namespace', label: 'Namespace & RBAC', status: 'done', detail: via })
+    const rest = await Promise.all([provisionArgoProject(input), provisionGrafana(input), provisionHarbor(input)])
+    results.push(...rest)
+    results.push({ system: 'gitea', label: 'Git organization', status: 'done', detail: via })
+    return results
+  }
   results.push(await provisionNamespace(input))
   // The rest are independent of each other and of the order they finish in, so
   // they run together — provisioning an organization should not take as long as

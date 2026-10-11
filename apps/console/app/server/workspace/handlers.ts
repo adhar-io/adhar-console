@@ -1,5 +1,7 @@
 import { getRequestUser, unauthorized } from '../request-user.ts'
 import { getKeycloakAdmin, groupForRole, groupForTeam } from './keycloak-admin.ts'
+import { applyXr, backfillXrs, teamManifest } from '../control-plane.ts'
+import { organizationForTenant } from '../organizations.ts'
 import {
   isExpired,
   KIND,
@@ -672,6 +674,12 @@ async function listTeams(ctx: Ctx): Promise<Response> {
     ctx.store.list<TeamDoc>(KIND.team),
     teamCounters(ctx.store),
   ])
+  // Teams created before the control plane owned tenancy become Team XRs the
+  // first time they are listed (background, throttled; see control-plane.ts).
+  const org = await organizationForTenant(ctx.user.id, ctx.tenant)
+  if (org) {
+    backfillXrs(docs.map((d) => teamManifest({ slug: d.data.slug, name: d.data.name, description: d.data.description }, org.slug)))
+  }
   return json({ items: docs.map((d) => toTeam(d, members, projects)) })
 }
 
@@ -704,15 +712,25 @@ async function createTeam(ctx: Ctx): Promise<Response> {
   const saved = await ctx.store.put(KIND.team, id, doc, ctx.user.id)
   const { members, projects } = await teamCounters(ctx.store)
 
+  // The team is a Team XR: its composition creates the Keycloak group (the
+  // same `ws-team-<slug>` ensured above, idempotently) and the Gitea team.
+  // Reported, not fatal — the team exists for the console either way, and the
+  // next listing back-fills a missed XR.
+  const org = await organizationForTenant(ctx.user.id, ctx.tenant)
+  const controlPlane = org
+    ? await applyXr(teamManifest({ slug, name, description }, org.slug))
+    : { ok: false, status: 0, detail: 'organisation slug unknown for this tenant' }
+  if (!controlPlane.ok) console.warn(`[control-plane] Team ${slug}: ${controlPlane.detail}`)
+
   await writeAudit(
     ctx.store,
     ctx.user,
     'team.create',
     { type: 'team', id, label: name },
     ctx.req,
-    { slug, keycloakSynced },
+    { slug, keycloakSynced, controlPlaneSynced: controlPlane.ok },
   )
-  return json({ item: toTeam(saved, members, projects), keycloakSynced }, 201)
+  return json({ item: toTeam(saved, members, projects), keycloakSynced, controlPlaneSynced: controlPlane.ok }, 201)
 }
 
 async function patchTeam(ctx: Ctx, id: string): Promise<Response> {

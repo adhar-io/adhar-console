@@ -49,8 +49,29 @@ export function loadMonaco(): Promise<MonacoApi> {
     // Registers the Monarch grammars. Imported for its side effect; the module
     // itself exports nothing we call.
     import('monaco-editor/esm/vs/basic-languages/monaco.contribution'),
+    // YAML's grammar, imported DIRECTLY rather than left to the contribution's
+    // lazy loader. The contribution registers each language with
+    // `loader: () => import('./yaml/yaml.js')`, a chunk this federated remote
+    // resolves relative to its own base URL — when that misses, Monaco still
+    // mounts and edits, and highlights nothing: the editor reads as a plain
+    // textarea with line numbers. YAML is this console's main surface, so its
+    // tokenizer travels with the editor.
+    import('monaco-editor/esm/vs/basic-languages/yaml/yaml.js'),
   ])
-    .then(([api]) => api as unknown as MonacoApi)
+    .then(([api, , yaml]) => {
+      const monaco = api as unknown as MonacoApi
+      const grammar = yaml as {
+        conf: Monaco.languages.LanguageConfiguration
+        language: Monaco.languages.IMonarchLanguage
+      }
+      if (!monaco.languages.getLanguages().some((l) => l.id === 'yaml')) {
+        monaco.languages.register({ id: 'yaml', extensions: ['.yaml', '.yml'], aliases: ['YAML', 'yaml'] })
+      }
+      monaco.languages.setMonarchTokensProvider('yaml', grammar.language)
+      monaco.languages.setLanguageConfiguration('yaml', grammar.conf)
+      defineAdharThemes(monaco)
+      return monaco
+    })
     .catch((err) => {
       // Do not cache the failure — let the next mount try again.
       globalThis.__adharMonaco = undefined
@@ -58,4 +79,69 @@ export function loadMonaco(): Promise<MonacoApi> {
     })
 
   return globalThis.__adharMonaco
+}
+
+/**
+ * The console's editor themes. `vs` / `vs-dark` give YAML keys and strings
+ * nearly the same tone, which reads as "no highlighting". These extend them
+ * with a rule for every token the YAML grammar emits — keys (`type`), strings,
+ * numbers, booleans and null (`keyword`), comments, tags/anchors/aliases, and
+ * the structural punctuation — on the console's own surfaces.
+ */
+export const ADHAR_THEME_LIGHT = 'adhar-light'
+export const ADHAR_THEME_DARK = 'adhar-dark'
+
+function defineAdharThemes(monaco: MonacoApi): void {
+  monaco.editor.defineTheme(ADHAR_THEME_LIGHT, {
+    base: 'vs',
+    inherit: true,
+    rules: [
+      { token: 'type', foreground: '1d4ed8', fontStyle: 'bold' },
+      { token: 'string', foreground: '047857' },
+      { token: 'string.escape', foreground: 'b45309' },
+      { token: 'number', foreground: 'b45309' },
+      { token: 'keyword', foreground: '7c3aed', fontStyle: 'bold' },
+      { token: 'comment', foreground: '6b7280', fontStyle: 'italic' },
+      { token: 'tag', foreground: 'be185d' },
+      { token: 'namespace', foreground: 'be185d' },
+      { token: 'operators', foreground: '374151' },
+      { token: 'delimiter', foreground: '374151' },
+    ],
+    colors: {
+      'editor.background': '#f8fafc',
+      'editorLineNumber.foreground': '#94a3b8',
+      'editorLineNumber.activeForeground': '#334155',
+      'editor.lineHighlightBackground': '#f1f5f9',
+      'editorIndentGuide.background1': '#e2e8f0',
+    },
+  })
+  monaco.editor.defineTheme(ADHAR_THEME_DARK, {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [
+      { token: 'type', foreground: '93c5fd', fontStyle: 'bold' },
+      { token: 'string', foreground: '6ee7b7' },
+      { token: 'string.escape', foreground: 'fcd34d' },
+      { token: 'number', foreground: 'fcd34d' },
+      { token: 'keyword', foreground: 'c4b5fd', fontStyle: 'bold' },
+      { token: 'comment', foreground: '6b7280', fontStyle: 'italic' },
+      { token: 'tag', foreground: 'f9a8d4' },
+      { token: 'namespace', foreground: 'f9a8d4' },
+      { token: 'operators', foreground: 'cbd5e1' },
+      { token: 'delimiter', foreground: 'cbd5e1' },
+    ],
+    colors: {
+      'editor.background': '#0b1220',
+      'editorLineNumber.foreground': '#475569',
+      'editorLineNumber.activeForeground': '#cbd5e1',
+      'editor.lineHighlightBackground': '#111a2e',
+      'editorIndentGuide.background1': '#1e293b',
+    },
+  })
+}
+
+/** The console theme matching the current light/dark setting. */
+export function adharMonacoTheme(): string {
+  if (typeof document === 'undefined') return ADHAR_THEME_LIGHT
+  return document.documentElement.classList.contains('dark') ? ADHAR_THEME_DARK : ADHAR_THEME_LIGHT
 }

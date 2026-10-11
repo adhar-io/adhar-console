@@ -22,7 +22,7 @@ import { useGeneric, useNamespaces } from '../data/hooks.ts'
 import { GVRS } from '../data/gvr.ts'
 import { age } from '../data/format.ts'
 import { useHasK8sPermission } from '../data/access.ts'
-import { useVariantsForKind } from '../data/xrds.ts'
+import { useVariantsForKind, useXrOptions } from '../data/xrds.ts'
 import { K8sRolePill } from '../components/role-gate.tsx'
 import { toYaml } from '../data/manifest-yaml.ts'
 import { provisionState } from '../data/provision-state.ts'
@@ -81,6 +81,8 @@ export interface XrFormField {
   help?: string
   default?: string | number | boolean
   options?: Array<{ value: string; label: string }>
+  /** Offer the names of every XR of this kind on the cluster as the options. */
+  optionsFromKind?: string
   min?: number
   max?: number
   mono?: boolean
@@ -1600,6 +1602,15 @@ function FormFieldInput({
   onChange(v: string | boolean): void
 }) {
   const id = `xr-field-${field.key.replace(/\./g, '-')}`
+  // Reference fields list the objects they can name. Resolved here, per field,
+  // so the form needs no knowledge of which kinds exist.
+  const ref = useXrOptions(field.optionsFromKind)
+  const refOptions = field.optionsFromKind ? ref.options : null
+  useEffect(() => {
+    // One possible parent and nothing chosen yet: choose it. A required field
+    // with a single legal value should not ask.
+    if (refOptions && refOptions.length === 1 && field.required && !value) onChange(refOptions[0].value)
+  }, [refOptions, field.required, value, onChange])
   const inputCls = cn(
     'w-full rounded-md border border-edge-default bg-surface-raised px-2 text-xs text-content outline-none placeholder:text-content-subtle focus:ring-2 focus:ring-brand-500/30',
     field.mono && 'font-mono',
@@ -1632,18 +1643,31 @@ function FormFieldInput({
         {field.label}
         {field.required ? ' *' : ''}
       </label>
-      {field.type === 'select' ? (
+      {field.optionsFromKind && refOptions && refOptions.length === 0 && !ref.isLoading ? (
+        // Nothing of that kind exists yet. Typing a name still works — the
+        // composition resolves it when the parent appears — but say so.
+        <input
+          id={id}
+          type="text"
+          value={typeof value === 'string' ? value : ''}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={`No ${field.optionsFromKind} exists yet — type its name, or create one first`}
+          className={cn(inputCls, 'h-9')}
+          aria-invalid={Boolean(error)}
+        />
+      ) : field.type === 'select' ? (
         <select
           id={id}
           value={typeof value === 'string' ? value : ''}
           onChange={(e) => onChange(e.target.value)}
           className={cn(inputCls, 'h-9')}
           aria-invalid={Boolean(error)}
+          disabled={Boolean(field.optionsFromKind) && ref.isLoading}
         >
           {!field.required || (typeof value === 'string' && value === '') ? (
-            <option value="">— none —</option>
+            <option value="">{field.optionsFromKind && ref.isLoading ? 'Loading…' : '— none —'}</option>
           ) : null}
-          {(field.options ?? []).map((o) => (
+          {(refOptions ?? field.options ?? []).map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
             </option>

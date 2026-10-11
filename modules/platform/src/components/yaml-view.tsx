@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { loadMonaco, type MonacoEditorInstance } from './monaco-loader.ts'
+import { adharMonacoTheme, loadMonaco, type MonacoEditorInstance } from './monaco-loader.ts'
 
 /**
  * A manifest, shown as YAML in a real editor — and, when `onChange` is given,
@@ -22,10 +22,9 @@ import { loadMonaco, type MonacoEditorInstance } from './monaco-loader.ts'
  *     is the second line of defence, not the first.
  */
 /** Monaco ships its own themes; this picks the one matching the console. */
-function monacoTheme(): 'vs' | 'vs-dark' {
-  if (typeof document === 'undefined') return 'vs'
-  return document.documentElement.classList.contains('dark') ? 'vs-dark' : 'vs'
-}
+// The console's own themes (monaco-loader.ts): vs/vs-dark coloured YAML keys
+// and strings almost alike, which read as no highlighting at all.
+const monacoTheme = adharMonacoTheme
 
 export function YamlView({
   value,

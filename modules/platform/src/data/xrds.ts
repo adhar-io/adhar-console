@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { hierarchyRefKind } from './hierarchy-refs.ts'
 import type { k8s } from '@adhar/api-clients'
 import { client, useActiveCluster } from './client.ts'
 import type { XrFormField } from '../views/xr-list.tsx'
@@ -193,6 +194,14 @@ function propToField(name: string, prop: JSONSchemaProp, required: boolean): XrF
     }
   }
   // string (and unknown → string)
+  // A field named after a parent kind (`organisation`, `team`, …) names an
+  // object that already exists: offer those objects. The options are resolved
+  // at render time from the live cluster (useXrOptions); here the field only
+  // records which kind to list.
+  const refKind = prop.type === 'string' || prop.type === undefined ? hierarchyRefKind(name) : undefined
+  if (refKind) {
+    return { ...base, type: 'select', optionsFromKind: refKind, mono: true }
+  }
   const d = scalarDefault(prop)
   return {
     ...base,
@@ -362,4 +371,38 @@ export function useVariantsForKind(kind: string) {
   const q = useCompositions()
   const variants = toVariants((q.data ?? []).filter((c) => c.kind === kind))
   return { ...q, variants }
+}
+
+/**
+ * The names of every XR of `kind` on the active cluster, as select options —
+ * the source for a form field that references a parent object.
+ *
+ * Labels carry the display name when the object has one, so a team picking its
+ * organisation sees "ACME Corporation (acme)" rather than a slug it has to
+ * recognise. Disabled (no request) until the XRD list has resolved the kind.
+ */
+export function useXrOptions(kind: string | undefined) {
+  const { cluster } = useActiveCluster()
+  const xrds = useXrds()
+  const info = kind ? xrds.data?.find((x) => x.kind === kind) : undefined
+  const q = useQuery({
+    queryKey: ['platform', 'xr-options', kind ?? '-', cluster],
+    enabled: Boolean(info),
+    queryFn: async (): Promise<Array<{ value: string; label: string }>> => {
+      const items = (await client.listGeneric(cluster, info!.gvr)) as unknown as Array<{
+        metadata: { name: string }
+        spec?: { parameters?: { displayName?: string } }
+      }>
+      return items
+        .map((it) => {
+          const name = it.metadata.name
+          const display = it.spec?.parameters?.displayName?.trim()
+          return { value: name, label: display && display !== name ? `${display} (${name})` : name }
+        })
+        .sort((a, b) => a.label.localeCompare(b.label))
+    },
+    staleTime: 30_000,
+    retry: false,
+  })
+  return { options: q.data ?? [], isLoading: Boolean(kind) && (xrds.isLoading || q.isLoading), kindKnown: Boolean(info) }
 }

@@ -26,7 +26,7 @@ export interface CreatedOrg {
 
 /** Per-system tenant-provisioning result reported by the BFF. */
 export interface ProvisionStepResult {
-  system: 'keycloak' | 'namespace' | 'argocd' | 'gitea'
+  system: 'controlplane' | 'keycloak' | 'namespace' | 'argocd' | 'gitea' | 'grafana' | 'harbor'
   label: string
   status: 'done' | 'skipped' | 'failed'
   detail?: string

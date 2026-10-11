@@ -42,6 +42,7 @@ export interface ProvisioningJob {
 /** Steps we report before the provisioner has produced its own results. */
 const PENDING_STEPS: ProvisionStepResult[] = [
   { system: 'keycloak', label: 'Identity group & role mapping', status: 'skipped', detail: 'queued' },
+  { system: 'controlplane', label: 'Organisation resource', status: 'skipped', detail: 'queued' },
   { system: 'namespace', label: 'Namespace & RBAC', status: 'skipped', detail: 'queued' },
   { system: 'argocd', label: 'Argo CD project', status: 'skipped', detail: 'queued' },
   { system: 'gitea', label: 'Git organization', status: 'skipped', detail: 'queued' },
@@ -69,6 +70,7 @@ export async function startProvisioning(input: {
   orgId: string
   orgName: string
   orgSlug: string
+  orgDescription?: string
   user: { id: string; name: string; email: string }
   /** Contact address for the completion email; defaults to the requester. */
   contactEmail?: string
@@ -91,7 +93,12 @@ export async function startProvisioning(input: {
   void (async () => {
     let steps: ProvisionStepResult[] = []
     try {
-      steps = await provisionTenant({ slug: input.orgSlug, name: input.orgName, userRef: input.user.email || input.user.id })
+      steps = await provisionTenant({
+        slug: input.orgSlug,
+        name: input.orgName,
+        description: input.orgDescription,
+        userRef: input.user.email || input.user.id,
+      })
     } catch (e) {
       steps = PENDING_STEPS.map((s) => ({ ...s, status: 'failed', detail: e instanceof Error ? e.message : String(e) }))
     }

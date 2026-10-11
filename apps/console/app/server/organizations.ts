@@ -1,4 +1,5 @@
 import {
+import { backfillXrs, organisationManifest } from './control-plane.ts'
   getServerAuthConfig,
   getValidSession,
   serializeCookie,
@@ -75,6 +76,18 @@ function randomSuffix(): string {
 }
 
 /* ─────────── per-user registry (preferences table) ─────────── */
+
+/**
+ * The organisation a request is working in, by its tenant id. Team XRs name
+ * their organisation by SLUG — the XR's name — not by the suffixed tenant id.
+ */
+export async function organizationForTenant(
+  userId: string,
+  tenantId: string,
+): Promise<Organization | undefined> {
+  const reg = await readRegistry(userId, tenantId).catch(() => null)
+  return reg?.orgs.find((o) => o.id === tenantId)
+}
 
 async function readRegistry(userId: string, fallbackActive: string): Promise<Registry | null> {
   const { getMigratedDb, getPreferences } = await db()
@@ -166,6 +179,10 @@ export async function handleOrganizations(req: Request, subpath: string): Promis
   try {
     // GET /api/organizations
     if (seg.length === 0 && method === 'GET') {
+      // Every organisation the console knows is an Organisation XR — the ones
+      // created before the control plane owned tenancy included. Applied in
+      // the background, at most once per object per ten minutes.
+      backfillXrs(reg.orgs.map((o) => organisationManifest({ slug: o.slug, name: o.name, description: o.description })))
       return attach(json({ organizations: reg.orgs, activeId: reg.activeId }))
     }
     // POST /api/organizations  → create + activate
@@ -209,6 +226,7 @@ export async function handleOrganizations(req: Request, subpath: string): Promis
           orgId: org.id,
           orgName: org.name,
           orgSlug: org.slug,
+          orgDescription: description || undefined,
           user: auth.user,
           contactEmail: contactEmail || undefined,
           contactName: contactName || undefined,

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@adhar/utils'
 import { useOverlayDismiss } from '@adhar/shell-ui'
-import { loadMonaco, type MonacoEditorInstance } from './monaco-loader.ts'
+import { ADHAR_THEME_DARK, ADHAR_THEME_LIGHT, loadMonaco, type MonacoEditorInstance } from './monaco-loader.ts'
 
 /**
  * Shared, enterprise-grade code editor — a single Monaco-backed component used
@@ -50,14 +50,16 @@ interface RichMonaco {
 
 /** Resolve the Monaco theme from the app's current theme setting. */
 function themeName(): string {
-  if (typeof document === 'undefined') return 'adhar-light'
+  // The console themes defined by monaco-loader.ts. `adhar-light` was named
+  // here before anything defined it, so Monaco silently fell back to `vs`.
+  if (typeof document === 'undefined') return ADHAR_THEME_LIGHT
   const attr = document.documentElement.getAttribute('data-theme')
-  if (attr === 'dark') return 'vs-dark'
-  if (attr === 'light') return 'adhar-light'
+  if (attr === 'dark') return ADHAR_THEME_DARK
+  if (attr === 'light') return ADHAR_THEME_LIGHT
   const prefersDark =
     typeof globalThis.matchMedia === 'function' &&
     globalThis.matchMedia('(prefers-color-scheme: dark)').matches
-  return prefersDark ? 'vs-dark' : 'adhar-light'
+  return prefersDark ? ADHAR_THEME_DARK : ADHAR_THEME_LIGHT
 }
 
 /** Pretty-print JSON / YAML-ish content for the Format action (best-effort). */

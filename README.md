@@ -6,13 +6,9 @@
   <img alt="Adhar — Open Cloud-Native Foundation" src="./apps/console/public/branding/adhar-logo.svg" width="300">
 </picture>
 
-<h1>Adhar Console — one window onto the whole platform</h1>
+<h1>Adhar Console — Your entire platform, one console.</h1>
 
-<p><em>Every tool the platform runs, behind one sign-in and one design system.</em></p>
-
-[![CI](https://github.com/adhar-io/adhar-console/actions/workflows/ci.yml/badge.svg)](./.github/workflows/ci.yml)
-[![Release](https://github.com/adhar-io/adhar-console/actions/workflows/release.yml/badge.svg)](./.github/workflows/release.yml)
-[![Image](https://img.shields.io/badge/ghcr.io-adhar--io%2Fadhar--console-2496ED?logo=github&logoColor=white)](https://github.com/adhar-io/adhar-console/pkgs/container/adhar-console)
+[![Version](https://img.shields.io/github/v/release/adhar-io/adhar-console?label=adhar%20console&color=2563EB&logo=github&logoColor=white&sort=semver)](https://github.com/adhar-io/adhar-console/releases/latest)
 [![Deno](https://img.shields.io/badge/deno-2.x-000000?logo=deno&logoColor=white)](https://deno.com)
 [![React](https://img.shields.io/badge/react-19.2-61DAFB?logo=react&logoColor=black)](https://react.dev)
 [![Module Federation](https://img.shields.io/badge/module_federation-8_remotes-7C3AED)](./docs/architecture/module-federation.md)

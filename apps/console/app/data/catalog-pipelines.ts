@@ -10,12 +10,20 @@ import { taskProgress, type TaskProgress } from './pipeline-progress.ts'
  *
  * A PipelineRun does not point at a catalog entity, so the match is made the
  * way a person would make it, most certain first:
- *   1. the entity names its pipeline (`adhar.io/ci-pipeline` / `adhar.io/ci`)
- *      and the run carries that pipeline's label;
- *   2. the run is labelled with the component (`adhar.io/component`,
- *      `app.kubernetes.io/name`);
- *   3. a run parameter names the entity's repository;
- *   4. the run's name starts with the entity name (`cart-run-abc12`).
+ *   1. the run is labelled with the app (`adhar.io/app` — what the platform's
+ *      `app-ci` trigger sets to the repository name — or `adhar.io/component`,
+ *      `app.kubernetes.io/name`, `adhar.io/service`);
+ *   2. the entity names its pipeline (`adhar.io/ci-pipeline` / `adhar.io/ci`)
+ *      and the run carries that pipeline's label — unless the run is labelled
+ *      for a DIFFERENT app, because `app-ci` is one pipeline shared by every
+ *      service and would otherwise hand each of them everyone's runs;
+ *   3. a run parameter names the entity's repository (`repo-url` as a URL, or
+ *      `repo-name` as the bare name the app-ci trigger passes);
+ *   4. the run's name starts with the entity or repository name
+ *      (`cart-abc12`, or the trigger's `app-ci-cart-abc12`).
+ *
+ * The app-ci EventListener creates its runs in the platform namespace, not
+ * the namespace the service deploys to, so both are read.
  * Nothing matched is an honest empty state, never another service's runs.
  */
 
@@ -82,22 +90,43 @@ function repoKey(url: string | undefined): string {
   }
 }
 
+/** The repository's own name — the last path segment of its URL. */
+function repoName(url: string | undefined): string {
+  return repoKey(url).split('/').filter(Boolean).pop() ?? ''
+}
+
+/** Prefixes the platform's Tekton triggers put before the repository name. */
+const RUN_PREFIXES = ['', 'app-ci-', 'app-pr-ci-']
+
 export function matchRun(run: RawRun, entity: Entity, repoUrl?: string): boolean {
-  const name = entity.metadata.name.toLowerCase()
   const ann = entity.metadata.annotations ?? {}
+  // The names this entity answers to: itself, and its repository.
+  const names = new Set([entity.metadata.name.toLowerCase(), repoName(repoUrl)].filter(Boolean))
   const labels = run.metadata?.labels ?? {}
+
+  const app = (labels['adhar.io/app'] ?? labels['adhar.io/component'] ?? labels['app.kubernetes.io/name'] ?? labels['adhar.io/service'] ?? '').toLowerCase()
+  if (app) return names.has(app)
+
   const ci = (ann['adhar.io/ci-pipeline'] ?? ann['adhar.io/ci'] ?? '').trim()
   const pipeline = (labels['tekton.dev/pipeline'] ?? run.spec?.pipelineRef?.name ?? '').toLowerCase()
   if (ci && !/^https?:/.test(ci) && pipeline === ci.toLowerCase()) return true
-  const comp = (labels['adhar.io/component'] ?? labels['app.kubernetes.io/name'] ?? labels['adhar.io/service'] ?? '').toLowerCase()
-  if (comp && comp === name) return true
+
   const repo = repoKey(repoUrl)
   if (repo) {
     const p = paramValue(run, 'repo-url', 'git-url', 'repoUrl', 'gitUrl', 'url', 'repository')
     if (p && repoKey(p) === repo) return true
   }
+  const bare = paramValue(run, 'repo-name', 'repoName', 'app-name', 'app')
+  if (bare && names.has(bare.toLowerCase())) return true
+
   const rn = (run.metadata?.name ?? '').toLowerCase()
-  return rn === name || rn.startsWith(`${name}-`)
+  for (const n of names) {
+    for (const prefix of RUN_PREFIXES) {
+      const stem = `${prefix}${n}`
+      if (rn === stem || rn.startsWith(`${stem}-`)) return true
+    }
+  }
+  return false
 }
 
 export function summarise(run: RawRun): PipelineRunSummary {
@@ -126,18 +155,31 @@ export function summarise(run: RawRun): PipelineRunSummary {
   }
 }
 
-export function usePipelineRuns(entity: Entity, repoUrl: string | undefined, enabled = true): {
+/** Where the platform's Tekton EventListeners create PipelineRuns. */
+export const CI_NAMESPACE = 'adhar-system'
+
+export function usePipelineRuns(entity: Entity, repoUrl: string | undefined, enabled = true, runsIn?: string): {
   runs: PipelineRunSummary[]
   isLoading: boolean
   isError: boolean
   /** The CRD is not installed (404 on the list). */
   notInstalled: boolean
 } {
-  const ns = (entity.metadata.annotations?.['adhar.io/namespace'] ?? '').trim() || undefined
+  const ns = (runsIn ?? '').trim() || (entity.metadata.annotations?.['adhar.io/namespace'] ?? '').trim() || undefined
+  // The service's own namespace (runs a team creates itself) plus the CI
+  // namespace (runs the platform's triggers create). No annotation: the whole
+  // cluster, which covers both.
+  const namespaces = ns ? [...new Set([ns, CI_NAMESPACE])] : [undefined]
   const q = useQuery({
-    // One list per namespace serves every entity in it.
-    queryKey: ['catalog', 'tekton', 'pipelineruns', ns ?? '*'],
-    queryFn: () => client.listGeneric(undefined, PIPELINERUNS_GVR, ns),
+    // One list per namespace set serves every entity that shares it.
+    queryKey: ['catalog', 'tekton', 'pipelineruns', namespaces.map((n) => n ?? '*').join(',')],
+    queryFn: async () => {
+      const results = await Promise.allSettled(namespaces.map((n) => client.listGeneric(undefined, PIPELINERUNS_GVR, n)))
+      const ok = results.filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof client.listGeneric>>> => r.status === 'fulfilled')
+      // One readable namespace is enough; only fail when none answered.
+      if (!ok.length) throw (results[0] as PromiseRejectedResult).reason
+      return ok.flatMap((r) => r.value)
+    },
     enabled,
     staleTime: REFRESH_MS,
     refetchInterval: enabled ? REFRESH_MS : false,
@@ -145,8 +187,14 @@ export function usePipelineRuns(entity: Entity, repoUrl: string | undefined, ena
   })
   const runs = useMemo(() => {
     const all = (q.data ?? []) as unknown as RawRun[]
+    const seen = new Set<string>()
     return all
-      .filter((r) => matchRun(r, entity, repoUrl))
+      .filter((r) => {
+        const key = `${r.metadata?.namespace}/${r.metadata?.name}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return matchRun(r, entity, repoUrl)
+      })
       .map(summarise)
       .sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))
       .slice(0, 8)

@@ -51,6 +51,9 @@ import {
   type EntityEnvironment,
   useDeploymentIndex,
   useEntityDeployment,
+  unhealthyNodes,
+  useResourceTree,
+  workloadNamespace,
 } from '~/data/catalog-deployment.ts'
 import { type EntityRoute, routeLabel, useEntityRoutes } from '~/data/catalog-routes.ts'
 import { type PipelineRunSummary, usePipelineRuns } from '~/data/catalog-pipelines.ts'
@@ -3850,16 +3853,19 @@ function EntityDrawer({
     if (entity.kind !== 'Component' && entity.kind !== 'Resource') return null
     const ann = entityAnnotations(entity)
     const name = ann['adhar.io/workload'] ?? entity.metadata.name
-    const namespace = (ann['adhar.io/namespace'] ?? '').trim() || deployment.primary?.spec.destination.namespace || undefined
+    // Argo CD's managed resources say where the workload really runs; the
+    // annotation and the destination are fallbacks (the destination is only a
+    // default, and scaffolded services pin their own namespace).
+    const namespace = deployment.namespace || (ann['adhar.io/namespace'] ?? '').trim() || deployment.primary?.spec.destination.namespace || undefined
     return name ? { name, namespace } : null
-  }, [entity, deployment.primary])
+  }, [entity, deployment.primary, deployment.namespace])
   const { url: monitorUrl, grafanaBase } = useGrafanaMonitorUrl(
     metricTarget ?? { name: entity.metadata.name },
     entityAnnotations(entity)['adhar.io/grafana-dashboard'],
   )
   // Where the thing actually IS. Asked for the same entities as the deployment
   // query: a Group or a Domain has no HTTP surface, so it never hits the API.
-  const routes = useEntityRoutes(entity, wantsDeploy)
+  const routes = useEntityRoutes(entity, wantsDeploy, deployment.namespace)
   const pub = usePublicUrl()
   // Routes come from HTTPRoutes and Ingresses — public hostnames as a rule,
   // but a fallback that names the Service is still rewritten to something a
@@ -3968,41 +3974,11 @@ function EntityDrawer({
               <h2 className="mt-1 text-[20px] font-semibold leading-tight tracking-tight text-content sm:truncate sm:text-[22px]">
                 {entity.metadata.title ?? entity.metadata.name}
               </h2>
-              <div className="mt-1 flex items-center gap-1.5">
-                <span className="truncate font-mono text-[11px] text-content-muted">{ref}</span>
-                {/* The ref is what goes into a template, an annotation or a
-                    ticket, so it should not have to be retyped from the screen. */}
-                <CopyButton text={ref} />
-              </div>
+              <div className="mt-1 truncate font-mono text-[11px] text-content-muted" title={ref}>{ref}</div>
               {entity.metadata.description ? (
                 <p className="mt-2 line-clamp-2 max-w-2xl text-[13px] leading-relaxed text-content-muted sm:line-clamp-none sm:text-sm">
                   {entity.metadata.description}
                 </p>
-              ) : null}
-              {/*
-                The things a person opens a drawer to DO, in the frame that
-                stays while the tabs change: open the running thing, go to its
-                source, its docs, its dashboard.
-              */}
-              {routeList.length || entity.metadata.links?.length || monitorUrl ? (
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <EntityRoutesBar routes={routeList} onSeeAll={() => setTab('deploy')} />
-                  {(entity.metadata.links ?? []).map((l) => (
-                    <a
-                      key={l.url}
-                      href={l.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300"
-                    >
-                      <LinkGlyph icon={l.icon} />
-                      {l.title}
-                    </a>
-                  ))}
-                  {monitorUrl && !(entity.metadata.links ?? []).some((l) => l.icon === 'monitor' || l.icon === 'dashboard') ? (
-                    <MonitorButton url={monitorUrl} />
-                  ) : null}
-                </div>
               ) : null}
             </div>
 
@@ -4092,6 +4068,31 @@ function EntityDrawer({
               </button>
             </div>
           </div>
+          {/*
+            The things a person opens a drawer to DO, in the frame that
+            stays while the tabs change: open the running thing, go to its
+            source, its docs, its dashboard.
+          */}
+          {routeList.length || entity.metadata.links?.length || monitorUrl ? (
+            <div className="mt-3 flex items-center gap-2 overflow-x-auto whitespace-nowrap pb-0.5 [scrollbar-width:none] [&>*]:shrink-0">
+              <EntityRoutesBar routes={routeList} onSeeAll={() => setTab('deploy')} />
+              {(entity.metadata.links ?? []).map((l) => (
+                <a
+                  key={l.url}
+                  href={l.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300"
+                >
+                  <LinkGlyph icon={l.icon} />
+                  {l.title}
+                </a>
+              ))}
+              {monitorUrl && !(entity.metadata.links ?? []).some((l) => l.icon === 'monitor' || l.icon === 'dashboard') ? (
+                <MonitorButton url={monitorUrl} />
+              ) : null}
+            </div>
+          ) : null}
         </header>
 
         {/*
@@ -5777,7 +5778,7 @@ function DeploymentTab({
       )}
       <EndpointsCard routes={routes} repoUrl={repoUrl} />
       <RepositoryCard entity={entity} repoUrl={repoUrl} primary={deployment.primary} />
-      <PipelinesCard entity={entity} repoUrl={repoUrl} />
+      <PipelinesCard entity={entity} repoUrl={repoUrl} runsIn={deployment.namespace} />
       <MonitoringCard entity={entity} monitorUrl={monitorUrl} onMetrics={onMetrics} />
     </div>
   )
@@ -5852,11 +5853,26 @@ function DeploymentSummary({ deployment, appUrl }: { deployment: EntityDeploymen
   const auto = p.spec.syncPolicy.automated
   const stages = useKargoStages()
   const kenvs = kargoEnvironments(stages.data, deployment)
-  const envs = kenvs.length ? kenvs.map((e) => ({ label: e.label })) : deployment.environments
+  // Kargo's stages are this service's environments only when it is deployed
+  // through them; otherwise they are the platform's, not its.
+  const inKargo = kenvs.filter((e) => e.app)
+  const envs = inKargo.length ? inKargo.map((e) => ({ label: e.label })) : deployment.environments
+  const tree = useResourceTree(p)
+  const bad = unhealthyNodes(tree.data ?? [])
+  const firstBad = bad[0]
   const dotFor = (k: StatusKind) =>
     k === 'healthy' ? 'bg-emerald-500' : k === 'degraded' || k === 'failed' ? 'bg-rose-500' : k === 'paused' ? 'bg-amber-500' : k === 'progressing' ? 'bg-sky-500 animate-pulse' : 'bg-slate-400'
   const tiles: Array<{ label: string; value: React.ReactNode; sub: string; dot?: string }> = [
-    { label: 'Health', value: h, dot: dotFor(argoHealthKind(h)), sub: p.status.health.message ? p.status.health.message.slice(0, 60) : `${deployment.apps.length} ${deployment.apps.length === 1 ? 'application' : 'applications'}` },
+    {
+      label: 'Health',
+      value: h,
+      dot: dotFor(argoHealthKind(h)),
+      sub: p.status.health.message
+        ? p.status.health.message.slice(0, 80)
+        : firstBad
+          ? `${firstBad.kind} ${firstBad.name}: ${firstBad.reason || firstBad.status}`
+          : `${deployment.apps.length} ${deployment.apps.length === 1 ? 'application' : 'applications'}`,
+    },
     { label: 'Sync', value: sy, dot: dotFor(argoSyncKind(sy)), sub: r.outOfSync ? `${r.outOfSync} of ${r.total} resources drifted` : r.total ? `${r.total} resources in sync` : 'no resources reported' },
     { label: 'Environments', value: String(envs.length), sub: envs.map((e) => e.label).slice(0, 3).join(', ') + (envs.length > 3 ? ` +${envs.length - 3}` : '') },
     { label: 'Last sync', value: op?.phase ?? 'none', dot: op ? (op.phase === 'Succeeded' ? 'bg-emerald-500' : op.phase === 'Running' ? 'bg-sky-500 animate-pulse' : 'bg-rose-500') : 'bg-slate-400', sub: op?.finishedAt ? `${relativeTime(op.finishedAt) || formatDate(op.finishedAt)}${op.initiatedBy ? ` · by ${op.initiatedBy}` : ''}` : 'no operation recorded' },
@@ -5876,6 +5892,23 @@ function DeploymentSummary({ deployment, appUrl }: { deployment: EntityDeploymen
           </div>
         ))}
       </div>
+      {bad.length ? (
+        <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 dark:border-rose-500/30 dark:bg-rose-500/10">
+          <div className="text-[12px] font-semibold text-rose-800 dark:text-rose-200">
+            Why it is {h.toLowerCase()} · {bad.length} unhealthy {bad.length === 1 ? 'resource' : 'resources'}
+          </div>
+          <ul className="mt-1.5 space-y-1">
+            {bad.slice(0, 5).map((n) => (
+              <li key={`${n.kind}/${n.namespace}/${n.name}`} className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-[11px] text-rose-800 dark:text-rose-200">
+                <span className="font-mono font-medium">{n.kind}/{n.name}</span>
+                <span className="text-rose-700/80 dark:text-rose-300/80">{n.status}</span>
+                {n.reason ? <span className="min-w-0 truncate" title={n.reason}>— {n.reason}</span> : null}
+              </li>
+            ))}
+            {bad.length > 5 ? <li className="text-[11px] text-rose-700/80 dark:text-rose-300/80">+{bad.length - 5} more in Argo CD</li> : null}
+          </ul>
+        </div>
+      ) : null}
       {appUrl ? (
         <div className="mt-2 flex justify-end">
           <a href={appUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">
@@ -5907,9 +5940,13 @@ function EnvironmentsGrid(props: {
   repoUrl?: string
 }) {
   const stages = useKargoStages()
-  const envs = kargoEnvironments(stages.data, props.deployment)
+  const all = kargoEnvironments(stages.data, props.deployment)
+  // The promotion chain is shown as this service's environments only when the
+  // service is deployed through it; otherwise it is a one-line note.
+  const envs = all.some((e) => e.app) ? all : []
   return (
     <>
+      {!envs.length && all.length ? <KargoStrip envs={all} name={props.deployment.primary?.metadata.name} /> : null}
       {envs.length ? (
         <DrawerSection
           title={`Environments · ${envs.length}`}
@@ -5932,6 +5969,30 @@ function EnvironmentsGrid(props: {
       ) : null}
       <AppsGrid {...props} titled={envs.length > 0} />
     </>
+  )
+}
+
+/** The platform's Kargo stages, for a service that is not promoted through them. */
+function KargoStrip({ envs, name }: { envs: KargoEnvironment[]; name?: string }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-edge-default bg-surface-raised px-4 py-3 shadow-sm">
+      <span className="text-[11px] font-semibold uppercase tracking-wider text-content-subtle">Platform environments</span>
+      <ol className="flex flex-wrap items-center gap-1.5">
+        {envs.map((env, i) => {
+          const kind = kargoHealthKind(env.stage.health, env.stage.phase)
+          return (
+            <li key={`${env.stage.project}/${env.stage.name}`} className="flex items-center gap-1.5">
+              <StatusBadge kind={kind} className="px-1.5 py-0 text-[10px]">{env.label}</StatusBadge>
+              {i < envs.length - 1 ? <span aria-hidden className="text-content-subtle">→</span> : null}
+            </li>
+          )
+        })}
+      </ol>
+      <span className="min-w-0 flex-1 text-[11px] text-content-muted">
+        {name ? <code className="font-mono">{name}</code> : 'This service'} is not promoted through Kargo yet; it deploys straight from its Argo CD application.
+      </span>
+      <PhaseLink href="/deliver?section=environments">Promotions →</PhaseLink>
+    </div>
   )
 }
 
@@ -6041,8 +6102,13 @@ function AppsGrid({
               <div className="flex items-start justify-between gap-2 px-3.5 pt-3">
                 <div className="min-w-0">
                   <div className="truncate text-[13px] font-semibold text-content">{env.label}</div>
-                  <div className="truncate font-mono text-[10px] text-content-subtle" title={`${app.metadata.name} → ${app.spec.destination.namespace}`}>
-                    {app.spec.destination.namespace}
+                  <div
+                    className="truncate font-mono text-[10px] text-content-subtle"
+                    title={workloadNamespace(app) === app.spec.destination.namespace
+                      ? `${app.metadata.name} → ${app.spec.destination.namespace}`
+                      : `${app.metadata.name} runs in ${workloadNamespace(app)} (Argo CD destination: ${app.spec.destination.namespace})`}
+                  >
+                    ns {workloadNamespace(app)}
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
@@ -6176,6 +6242,12 @@ function GitOpsDetailsCard({ app, appUrl, apps }: { app: ArgoApp; appUrl?: strin
       ),
     },
     { label: 'Destination', node: <span className="font-mono text-[11px] text-content">{app.spec.destination.name || app.spec.destination.server || 'in-cluster'} · {app.spec.destination.namespace}</span> },
+    ...(workloadNamespace(app) !== app.spec.destination.namespace
+      ? [{
+        label: 'Runs in',
+        node: <span className="text-[12px] text-content"><span className="font-mono">{workloadNamespace(app)}</span><span className="text-content-subtle"> · the manifests set their own namespace</span></span>,
+      }]
+      : []),
     { label: 'Sync policy', node: <span className="text-[12px] text-content">{auto ? `Automated${auto.prune ? ' · prune' : ''}${auto.selfHeal ? ' · self-heal' : ''}` : 'Manual'}{app.spec.syncPolicy.syncOptions.length ? <span className="text-content-subtle"> · {app.spec.syncPolicy.syncOptions.join(', ')}</span> : null}</span> },
     { label: 'Resources', node: <span className="text-[12px] text-content">{app.status.resources.total} managed{app.status.resources.outOfSync ? ` · ${app.status.resources.outOfSync} out of sync` : ''}{app.status.resources.unhealthy ? ` · ${app.status.resources.unhealthy} unhealthy` : ''}</span> },
     { label: 'Reconciled', node: <span className="text-[12px] text-content">{app.status.reconciledAt ? relativeTime(app.status.reconciledAt) || formatDate(app.status.reconciledAt) : '—'}</span> },
@@ -6233,7 +6305,7 @@ function EntityRoutesBar({ routes, onSeeAll }: { routes: EntityRoute[]; onSeeAll
   if (!routes.length) return null
   const [primary, ...rest] = routes
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex items-center gap-2">
       <a
         href={primary.url}
         target="_blank"
@@ -6507,10 +6579,10 @@ function fmtSecs(s?: number): string {
  * person reads it — outcome, when, how long, which commit — and the whole
  * card is the way into the CI view for logs and re-runs.
  */
-function PipelinesCard({ entity, repoUrl }: { entity: Entity; repoUrl?: string }) {
+function PipelinesCard({ entity, repoUrl, runsIn }: { entity: Entity; repoUrl?: string; runsIn?: string }) {
   const a = entityAnnotations(entity)
   const ci = a['adhar.io/ci'] ?? a['adhar.io/ci-pipeline']
-  const { runs, isLoading, isError, notInstalled } = usePipelineRuns(entity, repoUrl)
+  const { runs, isLoading, isError, notInstalled } = usePipelineRuns(entity, repoUrl, true, runsIn)
   const last = runs[0]
   const ok = runs.filter((r) => r.state === 'succeeded').length
   const finished = runs.filter((r) => r.state === 'succeeded' || r.state === 'failed').length
@@ -6546,7 +6618,7 @@ function PipelinesCard({ entity, repoUrl }: { entity: Entity; repoUrl?: string }
             description={
               ci || repoUrl ? (
                 <>
-                  Runs are matched by the <code>adhar.io/ci-pipeline</code> pipeline name, an <code>adhar.io/component</code> label, a <code>repo-url</code> parameter naming this repository, or a run named after <code>{entity.metadata.name}</code>.
+                  Nothing has run CI for <code>{entity.metadata.name}</code> yet. A push to its repository starts the platform's <code>app-ci</code> pipeline, and the run appears here.
                 </>
               ) : (
                 <>
@@ -7445,6 +7517,8 @@ function TechDocsTab({ url, entity, monitorUrl }: { url?: string; entity: Entity
   const base = current ? rawBase(source, current.path) : undefined
   const words = text ? text.split(/\s+/).length : 0
   const repoLabel = `${source.org}/${source.repo}${source.dir ? `/${source.dir}` : ''} @ ${source.ref}`
+  const showNav = pages.length > 1
+  const showSearch = pages.length > 8
 
   return (
     <div className="space-y-3">
@@ -7477,18 +7551,22 @@ function TechDocsTab({ url, entity, monitorUrl }: { url?: string; entity: Entity
           description={<>Add a <code>docs/</code> folder with Markdown pages (an <code>index.md</code> first), or a <code>README.md</code>, and it renders here. Point <code>backstage.io/techdocs-ref</code> at another folder if the docs live elsewhere.</>}
         />
       ) : (
-        <div className="grid items-start gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
+        <div className={cn('grid items-start gap-3', showNav && 'lg:grid-cols-[220px_minmax(0,1fr)]')}>
           {/* The drawer body is the scroll container; the nav and the TOC stick below its tab bar so the page can be as long as it is. */}
+          {/* A single page (usually just the README) needs no page list, and a short list needs no search. */}
+          {showNav ? (
           <nav className="rounded-xl border border-edge-default bg-surface-raised p-2 lg:sticky lg:top-14 lg:max-h-[calc(100vh-9rem)] lg:overflow-y-auto" aria-label="Documentation pages">
-            <div className="relative mb-2 flex items-center">
-              <span className="pointer-events-none absolute left-2.5 text-content-subtle"><DocSearchGlyph /></span>
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Find a page…"
-                className="h-8 w-full rounded-lg border border-edge-default bg-surface-app pl-8 pr-2 text-[12px] text-content placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
-              />
-            </div>
+            {showSearch ? (
+              <div className="relative mb-2 flex items-center">
+                <span className="pointer-events-none absolute left-2.5 text-content-subtle"><DocSearchGlyph /></span>
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Find a page…"
+                  className="h-8 w-full rounded-lg border border-edge-default bg-surface-app pl-8 pr-2 text-[12px] text-content placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+                />
+              </div>
+            ) : null}
             {sections.map(([section, list]) => (
               <div key={section || '~'} className="mb-1.5">
                 {section ? <div className="px-2 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{section.replace(/[-_]+/g, ' ')}</div> : null}
@@ -7517,6 +7595,7 @@ function TechDocsTab({ url, entity, monitorUrl }: { url?: string; entity: Entity
             ))}
             {sections.length === 0 ? <div className="px-2 py-2 text-[11px] text-content-subtle">No page matches.</div> : null}
           </nav>
+          ) : null}
 
           <div className="min-w-0">
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2 px-1">

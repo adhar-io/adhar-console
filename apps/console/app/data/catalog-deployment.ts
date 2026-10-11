@@ -42,6 +42,27 @@ const ENV_SUFFIXES = [
   'sandbox',
 ] as const
 
+const WORKLOAD_KINDS = new Set(['Deployment', 'Rollout', 'StatefulSet', 'DaemonSet', 'Job', 'CronJob', 'KService'])
+
+/**
+ * Where an application's workload actually runs.
+ *
+ * Argo CD's `destination.namespace` is only the DEFAULT for manifests that do
+ * not name one. Scaffolded services pin `metadata.namespace` in their own
+ * manifests (my-service: destination `default`, everything in `adhar-system`),
+ * so the destination sends routes, metrics and pipeline lookups to an empty
+ * namespace. The managed resources are the evidence: the workload's namespace,
+ * else the Service's, else the most common one, else the destination.
+ */
+export function workloadNamespace(app: argocd.Application): string {
+  const list = app.status.resourceList.filter((r) => r.namespace)
+  const pick = (kinds: (k?: string) => boolean) => list.find((r) => kinds(r.kind))?.namespace
+  const counts = new Map<string, number>()
+  for (const r of list) counts.set(r.namespace!, (counts.get(r.namespace!) ?? 0) + 1)
+  const common = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
+  return pick((k) => WORKLOAD_KINDS.has(k ?? '')) ?? pick((k) => k === 'Service') ?? common ?? app.spec.destination.namespace
+}
+
 /** Pretty label for a derived environment key. */
 export function envLabel(key: string): string {
   const k = key.toLowerCase()
@@ -87,6 +108,8 @@ export interface EntityDeployment {
   isError: boolean
   /** True when the query resolved but nothing matched this entity. */
   unmatched: boolean
+  /** Where the primary app's workload runs (see `workloadNamespace`). */
+  namespace: string | undefined
 }
 
 function matchName(appName: string, entityName: string): { hit: boolean; env: string | undefined } {
@@ -129,13 +152,14 @@ export function deriveDeployment(
     .map(({ app, env }) => {
       let key = env
       if (!key) {
-        const ns = app.spec.destination.namespace.toLowerCase()
+        const where = workloadNamespace(app)
+        const ns = where.toLowerCase()
         key =
           ENV_SUFFIXES.find((s) => ns === s || ns.endsWith(`-${s}`) || ns.startsWith(`${s}-`)) ??
           // Nothing in the name or namespace says which environment this is
-          // (the service's bootstrap app, say). Label it by where it deploys —
-          // "default" read as an environment called default.
-          (app.spec.destination.namespace || app.metadata.name)
+          // (the service's bootstrap app, say). Label it by where it actually
+          // runs — the destination ("default") is often not that place.
+          (where || app.metadata.name)
       }
       return { key, label: envLabel(key), app }
     })
@@ -152,7 +176,37 @@ export function deriveDeployment(
     isLoading: state.isLoading,
     isError: state.isError,
     unmatched: !state.isLoading && !state.isError && apps.length === 0,
+    namespace: primary ? workloadNamespace(primary) : undefined,
   }
+}
+
+/**
+ * The primary app's live resource tree — only fetched while the app is not
+ * Healthy, to say which resource is failing and why.
+ */
+export function useResourceTree(app: argocd.Application | undefined, enabled = true) {
+  const unhealthy = Boolean(app && app.status.health.status !== 'Healthy')
+  return useQuery({
+    queryKey: ['catalog', 'argocd', 'tree', app?.metadata.namespace, app?.metadata.name],
+    queryFn: () => argocdClient.getResourceTree(app!.metadata.name, app!.metadata.namespace),
+    enabled: enabled && unhealthy,
+    staleTime: REFRESH_MS,
+    refetchInterval: enabled && unhealthy ? REFRESH_MS : false,
+    retry: 1,
+  })
+}
+
+/** Unhealthy nodes, the cause before its symptoms: pods first, then their owners. */
+export function unhealthyNodes(nodes: readonly argocd.ResourceNode[]): Array<{ kind: string; name: string; namespace?: string; status: string; reason: string }> {
+  const bad = nodes.filter((n) => n.health?.status && !['Healthy', 'Progressing', 'Suspended'].includes(n.health.status))
+  const rank = (k: string) => (k === 'Pod' ? 0 : WORKLOAD_KINDS.has(k) ? 1 : k === 'ReplicaSet' ? 3 : 2)
+  return bad
+    .map((n) => {
+      const info = Object.fromEntries((n.info ?? []).map((i) => [i.name ?? '', i.value ?? '']))
+      const reason = n.health?.message || info['Status Reason'] || ''
+      return { kind: n.kind, name: n.name, namespace: n.namespace, status: n.health!.status!, reason }
+    })
+    .sort((a, b) => rank(a.kind) - rank(b.kind) || a.name.localeCompare(b.name))
 }
 
 /**

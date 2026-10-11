@@ -210,10 +210,28 @@ export function normalizeApplication(raw: RawApplication): Application {
 /** Back-compat alias for callers importing the schema. */
 export const ApplicationSchema = RawApplicationSchema
 
+/** One node of an application's live resource tree, as Argo CD reports it. */
+export interface ResourceNode {
+  group?: string
+  kind: string
+  name: string
+  namespace?: string
+  health?: { status?: string; message?: string }
+  /** Extra facts Argo CD shows for pods: Status Reason, Containers, Restart Count… */
+  info?: Array<{ name?: string; value?: string }>
+  parentRefs?: Array<{ kind?: string; name?: string; namespace?: string }>
+}
+
 export interface ArgoCDClient {
   listApplications(project?: string): Promise<Application[]>
   getApplication(name: string): Promise<Application>
   syncApplication(name: string): Promise<void>
+  /**
+   * The live resource tree, with per-resource health. Argo CD no longer stores
+   * resource health on the Application object, so this is the only place to
+   * learn WHICH resource makes an app Degraded and why.
+   */
+  getResourceTree(name: string, appNamespace?: string): Promise<ResourceNode[]>
 }
 
 function build(http: HttpClient): ArgoCDClient {
@@ -227,6 +245,11 @@ function build(http: HttpClient): ArgoCDClient {
     getApplication: async (name) => normalizeApplication(await http.get<RawApplication>(`/api/v1/applications/${encodeURIComponent(name)}`)),
     syncApplication: async (name) => {
       await http.post<void>(`/api/v1/applications/${name}/sync`, {})
+    },
+    getResourceTree: async (name, appNamespace) => {
+      const q = appNamespace ? `?appNamespace=${encodeURIComponent(appNamespace)}` : ''
+      const res = await http.get<{ nodes?: ResourceNode[] }>(`/api/v1/applications/${encodeURIComponent(name)}/resource-tree${q}`)
+      return res.nodes ?? []
     },
   }
 }
@@ -274,4 +297,5 @@ export const ArgoCDClient = defineClient<ArgoCDClient>(build, () => ({
     return a
   },
   syncApplication: async () => {},
+  getResourceTree: () => Promise.resolve([]),
 }))

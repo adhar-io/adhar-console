@@ -43,9 +43,11 @@ const REFRESH_MS = 60_000
  * endpoint searches cluster-wide, which is correct but slower and can match a
  * same-named Service in another namespace.
  */
-export function useEntityRoutes(entity: Entity, enabled = true): EntityRoutes {
+export function useEntityRoutes(entity: Entity, enabled = true, runsIn?: string): EntityRoutes {
   const name = entity.metadata.name
-  const namespace = (entity.metadata.annotations?.['adhar.io/namespace'] ?? '').trim()
+  // Where the workload is known to run (from Argo CD's managed resources)
+  // beats the annotation, which is often just the Argo CD destination.
+  const namespace = (runsIn ?? '').trim() || (entity.metadata.annotations?.['adhar.io/namespace'] ?? '').trim()
 
   const q = useQuery({
     queryKey: ['catalog', 'routes', name, namespace],

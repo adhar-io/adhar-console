@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { XR_FAMILIES, XR_SECTIONS } from './xr-sections.ts'
+import { XR_SECTIONS } from './xr-sections.ts'
 import { SETTINGS_CATEGORIES } from './settings-sections.ts'
 import type { StatusKind } from './status-badge.tsx'
 import {
@@ -453,16 +453,12 @@ export const DEFAULT_NAV: NavSection[] = [
             to: '/platform',
             search: 'catalog',
           },
-          // One group per family, one page per XRD — see xr-sections.ts.
-          ...XR_FAMILIES.map((fam): NavItem => ({
-            id: `platform.xr.${fam.id}`,
-            label: fam.label,
-            children: XR_SECTIONS.filter((x) => x.family === fam.id).map((x) => ({
-              id: `platform.${x.id}`,
-              label: x.label,
-              to: '/platform',
-              search: x.id,
-            })),
+          // One row per XRD, in one flat list — see xr-sections.ts.
+          ...XR_SECTIONS.map((x): NavItem => ({
+            id: `platform.${x.id}`,
+            label: x.label,
+            to: '/platform',
+            search: x.id,
           })),
         ],
       },

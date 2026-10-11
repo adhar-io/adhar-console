@@ -15,6 +15,7 @@ interface Props {
 export function EmptyState({ title, description, action, icon, compact = false, className }: Props) {
   return (
     <div
+      data-empty-state=""
       className={cn(
         'flex flex-col items-center justify-center rounded-xl border border-dashed border-edge-strong bg-surface-sunken/40 text-center',
         compact ? 'px-4 py-8' : 'px-6 py-14',

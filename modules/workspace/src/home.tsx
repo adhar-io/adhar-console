@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { PageHeader } from '@adhar/shell-ui'
+import { ErrorBoundary, PageHeader } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { Organization } from './views/organization.tsx'
 import { Members } from './views/members.tsx'
@@ -211,7 +211,10 @@ export default function WorkspaceHome({ section: urlSection }: { section?: strin
       <SettingsTabs groups={groups} active={activeItem?.id} onPick={go} />
 
       <div id="settings-panel" role="tabpanel" aria-label={activeItem?.label} className="min-w-0 space-y-6">
-        <SectionBody section={activeItem?.id ?? 'organization'} />
+        {/* One page failing must not blank the whole settings screen. */}
+        <ErrorBoundary key={activeItem?.id}>
+          <SectionBody section={activeItem?.id ?? 'organization'} />
+        </ErrorBoundary>
       </div>
     </div>
   )
@@ -237,13 +240,37 @@ function SettingsTabs({ groups, active, onPick }: { groups: Group[]; active?: Se
     onPick(flat[next].id)
     refs.current.get(flat[next].id)?.focus()
   }
+  const activeItem = flat.find((it) => it.id === active)
   return (
+    <>
+    {/* Phones: thirty tabs would fill the first screen, so a grouped picker
+        stands in for them below md. Same pages, same URL updates. */}
+    <label className="block md:hidden">
+      <span className="sr-only">Settings page</span>
+      <span className="relative block">
+        <span className="pointer-events-none absolute left-3 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center text-brand-600 dark:text-brand-300">
+          {activeItem?.icon}
+        </span>
+        <select
+          value={active}
+          onChange={(e) => onPick(e.target.value as Section)}
+          className="h-11 w-full appearance-none rounded-xl border border-edge-default bg-surface-raised pl-9 pr-9 text-[14px] font-medium text-content shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+        >
+          {groups.map((g) => (
+            <optgroup key={g.label} label={g.label}>
+              {g.items.map((it) => <option key={it.id} value={it.id}>{it.label}</option>)}
+            </optgroup>
+          ))}
+        </select>
+        <span aria-hidden className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-content-subtle">▾</span>
+      </span>
+    </label>
     <div
       role="tablist"
       aria-label="Settings pages"
       aria-orientation="horizontal"
       onKeyDown={onKey}
-      className="relative overflow-hidden rounded-2xl border border-edge-default bg-surface-raised p-3 shadow-sm"
+      className="relative hidden overflow-hidden rounded-2xl border border-edge-default bg-surface-raised p-3 shadow-sm md:block"
     >
       <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-brand-500 via-accent-500 to-brand-500 opacity-60" />
       <div className="flex flex-wrap gap-x-5 gap-y-3">
@@ -300,6 +327,7 @@ function SettingsTabs({ groups, active, onPick }: { groups: Group[]; active?: Se
         })}
       </div>
     </div>
+    </>
   )
 }
 

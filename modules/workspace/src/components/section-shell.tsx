@@ -105,7 +105,19 @@ export function SettingsCard({
           {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
         </header>
       ) : null}
-      <div className="p-5">{children}</div>
+      {/* A card is already the frame: an empty state or a table inside it
+          drops its own border (no box-in-a-box), and a table that is the
+          card's whole body runs edge to edge. */}
+      <div
+        className={cn(
+          'p-5',
+          '[&_[data-empty-state]]:rounded-none [&_[data-empty-state]]:border-0 [&_[data-empty-state]]:bg-transparent [&_[data-empty-state]]:py-10',
+          '[&_[data-table-frame]]:rounded-none [&_[data-table-frame]]:border-0 [&_[data-table-frame]]:shadow-none',
+          '[&>[data-table-frame]:only-child]:-m-5',
+        )}
+      >
+        {children}
+      </div>
     </section>
   )
 }

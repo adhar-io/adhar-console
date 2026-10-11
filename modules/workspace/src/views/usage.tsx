@@ -21,6 +21,11 @@ function pct(used: number, quota: number): number {
   return Math.min(100, Math.round((used / quota) * 100))
 }
 
+
+/** The card is the frame: an empty state inside it drops its own dashed box. */
+const FLAT_INNER =
+  '[&_[data-empty-state]]:rounded-none [&_[data-empty-state]]:border-0 [&_[data-empty-state]]:bg-transparent [&_[data-empty-state]]:py-10'
+
 export function UsageView() {
   const q = useUsage()
   const subQ = useSubscription()
@@ -42,9 +47,9 @@ export function UsageView() {
   }
   const u = q.data
   const plan = subQ.data?.plan
-  const seatsPurchased = subQ.data?.item.seatsPurchased ?? null
+  const seatsPurchased = subQ.data?.item?.seatsPurchased ?? null
 
-  const seatPct = u.seats !== null && seatsPurchased ? pct(u.seats, seatsPurchased) : null
+  const seatPct = u.seats != null && seatsPurchased ? pct(u.seats, seatsPurchased) : null
   const donutPct = seatPct ?? 0
   const donutColor =
     donutPct > 85 ? '#f43f5e' : donutPct > 60 ? '#f59e0b' : 'var(--color-brand-500)'
@@ -52,7 +57,7 @@ export function UsageView() {
   const liveTiles: { label: string; value: string; hint: string }[] = [
     {
       label: 'Namespaces',
-      value: u.namespaces !== null ? String(u.namespaces) : '—',
+      value: u.namespaces != null ? String(u.namespaces) : '—',
       hint:
         u.clusterSource === 'kubernetes'
           ? u.clusterScope === 'cluster'
@@ -62,12 +67,12 @@ export function UsageView() {
     },
     {
       label: 'Pods',
-      value: u.pods !== null ? u.pods.toLocaleString() : '—',
+      value: u.pods != null ? u.pods.toLocaleString() : '—',
       hint: u.clusterSource === 'kubernetes' ? 'running now' : 'cluster not reachable',
     },
     {
       label: 'Nodes',
-      value: u.nodes !== null ? String(u.nodes) : '—',
+      value: u.nodes != null ? String(u.nodes) : '—',
       hint: u.clusterSource === 'kubernetes' ? 'cluster capacity' : 'cluster not reachable',
     },
   ]
@@ -75,13 +80,13 @@ export function UsageView() {
   const quotaRows: { label: string; used: string; quota: string; pct: number | null }[] = [
     {
       label: 'Seats',
-      used: u.seats !== null ? String(u.seats) : 'n/a',
-      quota: seatsPurchased !== null ? String(seatsPurchased) : 'n/a',
+      used: u.seats != null ? String(u.seats) : 'n/a',
+      quota: seatsPurchased != null ? String(seatsPurchased) : 'n/a',
       pct: seatPct,
     },
     {
       label: 'Namespaces',
-      used: u.namespaces !== null ? String(u.namespaces) : 'n/a',
+      used: u.namespaces != null ? String(u.namespaces) : 'n/a',
       quota:
         plan?.limits.namespaces === null
           ? 'unlimited'
@@ -89,7 +94,7 @@ export function UsageView() {
             ? String(plan.limits.namespaces)
             : 'n/a',
       pct:
-        u.namespaces !== null && plan?.limits.namespaces != null
+        u.namespaces != null && plan?.limits.namespaces != null
           ? pct(u.namespaces, plan.limits.namespaces)
           : null,
     },
@@ -116,7 +121,7 @@ export function UsageView() {
               thickness={14}
               color={donutColor}
               label={
-                seatPct !== null ? (
+                seatPct != null ? (
                   <span>
                     {seatPct}
                     <span className="text-sm font-normal text-content-muted">%</span>
@@ -151,17 +156,17 @@ export function UsageView() {
         <CardHeader>
           <div className="text-sm font-semibold text-content">Metered cost — {u.period}</div>
         </CardHeader>
-        <CardBody>
+        <CardBody className={FLAT_INNER}>
           {u.costSource === 'opencost' ? (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <MeterStat label="Cost (period)" value={fmtMoney(u.cost ?? 0)} strong />
               <MeterStat
                 label="CPU core-hours"
-                value={u.cpuCoreHours !== null ? u.cpuCoreHours.toLocaleString() : '—'}
+                value={u.cpuCoreHours != null ? u.cpuCoreHours.toLocaleString() : '—'}
               />
               <MeterStat
                 label="Memory GB-hours"
-                value={u.memGbHours !== null ? u.memGbHours.toLocaleString() : '—'}
+                value={u.memGbHours != null ? u.memGbHours.toLocaleString() : '—'}
               />
             </div>
           ) : (
@@ -208,7 +213,7 @@ export function UsageView() {
                             : 'text-content-muted',
                     )}
                   >
-                    {r.pct !== null ? `${r.pct}%` : 'no data'}
+                    {r.pct != null ? `${r.pct}%` : 'no data'}
                   </div>
                 </div>
                 <div className="mt-1 text-[11px] text-content-subtle">
@@ -231,8 +236,8 @@ export function UsageView() {
         <CardHeader>
           <div className="text-sm font-semibold text-content">Breakdown by namespace</div>
         </CardHeader>
-        <CardBody>
-          {u.breakdownByNamespace.length === 0 ? (
+        <CardBody className={FLAT_INNER}>
+          {(u.breakdownByNamespace ?? []).length === 0 ? (
             <EmptyState
               compact
               title="No namespace data"
@@ -255,22 +260,22 @@ export function UsageView() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-edge-subtle">
-                  {u.breakdownByNamespace.map((b) => (
+                  {(u.breakdownByNamespace ?? []).map((b) => (
                     <tr key={b.namespace}>
                       <td className="px-3 py-2">
                         <code className="font-mono text-[12px] text-content">{b.namespace}</code>
                       </td>
                       <td className="px-3 py-2 text-right font-mono tabular-nums text-content">
-                        {b.pods !== null ? b.pods : '—'}
+                        {b.pods != null ? b.pods : '—'}
                       </td>
                       <td className="px-3 py-2 text-right font-mono tabular-nums text-content">
-                        {b.cpuCoreHours !== null ? b.cpuCoreHours.toLocaleString() : '—'}
+                        {b.cpuCoreHours != null ? b.cpuCoreHours.toLocaleString() : '—'}
                       </td>
                       <td className="px-3 py-2 text-right font-mono tabular-nums text-content">
-                        {b.memGbHours !== null ? b.memGbHours.toLocaleString() : '—'}
+                        {b.memGbHours != null ? b.memGbHours.toLocaleString() : '—'}
                       </td>
                       <td className="px-3 py-2 text-right font-mono tabular-nums text-content">
-                        {b.cost !== null ? fmtMoney(b.cost) : 'not connected'}
+                        {b.cost != null ? fmtMoney(b.cost) : 'not connected'}
                       </td>
                     </tr>
                   ))}

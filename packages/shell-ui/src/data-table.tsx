@@ -486,7 +486,7 @@ export function DataTable<T>({
   if (!loading && rows.length === 0 && empty) return <>{empty}</>
 
   return (
-    <div className={cn('overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm', className)}>
+    <div data-table-frame="" className={cn('overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm', className)}>
       {toolbar || chrome ? (
         <div className="flex flex-wrap items-center gap-2 border-b border-edge-subtle bg-surface-sunken/60 px-3 py-2">
           {toolbar}

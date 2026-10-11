@@ -125,16 +125,20 @@ export function Members() {
                     {lastSync.synced ? 'synced to Keycloak' : 'saved, console-only'}
                   </StatusBadge>
                 ) : null}
-                <TextField
-                  value={search}
-                  onChange={setSearch}
-                  placeholder="Search by name, email, team…"
-                />
-                <SelectField<typeof roleFilter>
-                  value={roleFilter}
-                  onChange={setRoleFilter}
-                  options={[{ value: 'all' as const, label: 'Any role' }, ...ROLE_OPTIONS]}
-                />
+                <div className="w-64 max-w-full">
+                  <TextField
+                    value={search}
+                    onChange={setSearch}
+                    placeholder="Search by name, email, team…"
+                  />
+                </div>
+                <div className="w-36">
+                  <SelectField<typeof roleFilter>
+                    value={roleFilter}
+                    onChange={setRoleFilter}
+                    options={[{ value: 'all' as const, label: 'Any role' }, ...ROLE_OPTIONS]}
+                  />
+                </div>
               </div>
             }
           >
@@ -147,7 +151,11 @@ export function Members() {
               loading={members.isLoading}
               rows={filtered}
               rowKey={(m) => m.userId}
-              empty={<EmptyState title="No members match" />}
+              empty={
+                (members.data?.length ?? 0) === 0
+                  ? <EmptyState title="No members yet" description="Invite people with the button above — they appear here once they accept." />
+                  : <EmptyState title="No members match" description="Clear the search or pick another role." />
+              }
               columns={[
                 {
                   key: 'name',

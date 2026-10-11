@@ -75,7 +75,7 @@ export function Teams() {
           </div>
 
           {all.length === 0 && !teams.isLoading ? (
-            <div className="rounded-2xl border border-dashed border-edge-default bg-surface-raised p-10">
+            <div>
               <EmptyState
                 title="No teams yet"
                 description="Create a team to group members and grant project-scoped access."

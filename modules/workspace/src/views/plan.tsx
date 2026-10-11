@@ -30,7 +30,7 @@ export function Plan() {
 
   const summary = subQ.data
   const sub = summary?.item
-  const limits = summary?.plan.limits
+  const limits = summary?.plan?.limits
 
   const shell = (children: ReactNode) => (
     <ViewShell
@@ -92,7 +92,7 @@ export function Plan() {
         <StatTile
           label="Monthly"
           value={summary ? fmtMoney(summary.priceMonthly, summary.currency) : '—'}
-          hint={summary?.plan.contactSales ? 'contractual pricing' : 'seat-based billing'}
+          hint={summary?.plan?.contactSales ? 'contractual pricing' : 'seat-based billing'}
         />
         <StatTile
           label="Renews"

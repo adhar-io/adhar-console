@@ -70,6 +70,11 @@ export interface LogConsoleProps {
   onTimestampsChange?(on: boolean): void
   /** Replaces the built-in "nothing here" copy. */
   emptyMessage?: ReactNode
+  /**
+   * Edge-to-edge: no rounded corners and no side borders, for a console that
+   * fills its card rather than sitting inside it as a box.
+   */
+  flush?: boolean
 }
 
 /**
@@ -96,6 +101,7 @@ export function LogConsole({
   timestamps: tsProp,
   onTimestampsChange,
   emptyMessage,
+  flush = false,
 }: LogConsoleProps) {
   const [followLocal, setFollowLocal] = useState(true)
   const [tsLocal, setTsLocal] = useState(false)
@@ -240,7 +246,7 @@ export function LogConsole({
     <div
       className={cn(
         'flex min-h-0 flex-col overflow-hidden bg-code',
-        fullscreen ? 'h-full rounded-xl shadow-2xl' : cn('rounded-xl border border-code-edge', height),
+        fullscreen ? 'h-full rounded-xl shadow-2xl' : cn(flush ? 'border-y border-code-edge' : 'rounded-xl border border-code-edge', height),
       )}
     >
       <div className='flex flex-wrap items-center gap-1.5 border-b border-code-edge bg-code-raised px-2 py-1.5'>

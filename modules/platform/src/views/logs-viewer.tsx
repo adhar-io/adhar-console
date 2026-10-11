@@ -462,10 +462,11 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
         </div>
       </CardHeader>
 
-      <CardBody>
+      {/* No padding: the console runs edge to edge inside the card. */}
+      <CardBody className="p-0">
         {activeSources.length === 0
           ? (
-            <div className="rounded-xl border border-edge-default p-6">
+            <div className="p-6">
               <EmptyState
                 compact
                 title={sourceMode === 'workload' ? 'No pods matched' : 'No container selected'}
@@ -489,6 +490,7 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
                 ? `${workloadKind}-${nameOf(workloadName) || 'workload'}`
                 : nameOf(podName) || 'pod'}
               height="h-[62vh]"
+              flush
               emptyMessage={previous
                 ? 'The previous instance produced no output.'
                 : follow

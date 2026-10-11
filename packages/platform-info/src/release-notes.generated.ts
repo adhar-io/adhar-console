@@ -4,6 +4,17 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.120",
+    "date": "2026-10-11",
+    "changes": [
+      {
+        "type": "fix",
+        "scope": "ci",
+        "text": "Move a misplaced import out of an import block in organizations.ts"
+      }
+    ]
+  },
+  {
     "version": "0.1.119",
     "date": "2026-10-11",
     "changes": [
@@ -988,27 +999,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "fix",
         "scope": "traces",
         "text": "Tempo omits zero values, and the client believed the type"
-      }
-    ]
-  },
-  {
-    "version": "0.1.80",
-    "date": "2026-09-19",
-    "changes": [
-      {
-        "type": "fix",
-        "scope": "templates",
-        "text": "No template ever registered — wrong repo, and a stale list"
-      },
-      {
-        "type": "fix",
-        "scope": "notifications",
-        "text": "Every notification link went to the 404 page"
-      },
-      {
-        "type": "feature",
-        "scope": "ai",
-        "text": "Open with both rails collapsed, conversation front and centre"
       }
     ]
   }

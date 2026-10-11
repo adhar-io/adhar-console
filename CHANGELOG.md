@@ -6,6 +6,12 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.120] - 2026-10-11
+
+### Fixed
+
+- **ci:** Move a misplaced import out of an import block in organizations.ts
+
 ## [0.1.119] - 2026-10-11
 
 ### Improved

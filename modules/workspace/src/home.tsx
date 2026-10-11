@@ -253,12 +253,13 @@ function CategoryTabs({ group, active, onPick }: { group: Group; active?: Sectio
   return (
     <div className="-mt-5">
       {group.caption ? <p className="mb-4 text-[13px] text-content-muted">{group.caption}</p> : null}
-      <div className="overflow-x-auto [scrollbar-width:none]">
+      {/* The bar sits on its own white surface, not the tinted page canvas. */}
+      <div className="overflow-x-auto rounded-xl border border-edge-default bg-surface-raised px-2 pt-1.5 shadow-sm [scrollbar-width:none]">
         <div
           role="tablist"
           aria-label={group.label}
           onKeyDown={onKey}
-          className="flex min-w-max items-end gap-1 border-b border-edge-default"
+          className="flex min-w-max items-end gap-1"
         >
           {items.map((it) => {
             const on = it.id === active
@@ -277,7 +278,7 @@ function CategoryTabs({ group, active, onPick }: { group: Group; active?: Sectio
                 title={it.description}
                 onClick={() => onPick(it.id)}
                 className={cn(
-                  'group relative -mb-px inline-flex items-center gap-2 whitespace-nowrap rounded-t-lg border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
+                  'group relative inline-flex items-center gap-2 whitespace-nowrap rounded-t-lg border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
                   on
                     ? danger
                       ? 'border-rose-600 bg-rose-50/60 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300'

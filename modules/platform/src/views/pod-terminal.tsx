@@ -603,7 +603,7 @@ export const PodTerminal = forwardRef<PodTerminalHandle, PodTerminalProps>(funct
         // descendant), sits on a deep shadow and carries a hairline highlight
         // on its top edge like a real terminal window does.
         alwaysDark || resolvedMode === 'dark'
-          ? 'dark border-white/10 shadow-2xl ring-1 ring-black/60 [box-shadow:inset_0_1px_0_0_rgb(255_255_255/0.06),0_24px_48px_-12px_rgb(0_0_0/0.6)]'
+          ? 'adhar-term-dark dark border-white/10 shadow-2xl ring-1 ring-black/60 [box-shadow:inset_0_1px_0_0_rgb(255_255_255/0.06),0_24px_48px_-12px_rgb(0_0_0/0.6)]'
           : 'border-edge-default shadow-sm',
         fullscreen ? 'fixed inset-0 z-50 rounded-none' : 'relative',
         fill && !fullscreen && 'h-full min-h-0',
@@ -756,7 +756,10 @@ export const PodTerminal = forwardRef<PodTerminalHandle, PodTerminalProps>(funct
           // xterm only focuses when the hit lands on its own element.
           if (!termRef.current?.hasSelection?.()) termRef.current?.focus()
         }}
-        style={{ background: resolvedMode === 'dark' ? DARK_THEME.background : LIGHT_THEME.background }}
+        // Same rule as the xterm theme: an always-dark terminal is dark even in a
+        // light console. Keyed on the mode alone, the padding around the canvas
+        // and the strip below the last row painted white.
+        style={{ background: alwaysDark || resolvedMode === 'dark' ? DARK_THEME.background : LIGHT_THEME.background }}
       >
         {/* Padding is 1 row / 2 columns: enough that glyphs do not touch the
             border, little enough that the shell keeps the surface. */}

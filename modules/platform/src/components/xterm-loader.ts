@@ -68,12 +68,26 @@ const CRITICAL_CSS = `.xterm{position:relative;-moz-user-select:none;user-select
 .xterm .xterm-viewport{overflow-y:scroll;position:absolute;inset:0}
 .xterm .xterm-rows{position:absolute;left:0;top:0}`
 
+/**
+ * Dark terminals: native widgets (the viewport's always-on scrollbar) follow
+ * the page's colour scheme, so in a light console the track painted white down
+ * the side of a black screen. Scope a dark scheme and a slim thumb to them.
+ */
+const TERMINAL_CSS = `
+.adhar-term-dark{color-scheme:dark}
+.adhar-term-dark .xterm-viewport{scrollbar-width:thin;scrollbar-color:rgb(255 255 255 / .18) transparent;background-color:transparent}
+.adhar-term-dark .xterm-viewport::-webkit-scrollbar{width:8px}
+.adhar-term-dark .xterm-viewport::-webkit-scrollbar-track{background:transparent}
+.adhar-term-dark .xterm-viewport::-webkit-scrollbar-thumb{background:rgb(255 255 255 / .16);border-radius:9999px;border:2px solid transparent;background-clip:content-box}
+.adhar-term-dark .xterm-viewport::-webkit-scrollbar-thumb:hover{background:rgb(255 255 255 / .3);border:2px solid transparent;background-clip:content-box}
+`
+
 function injectStyles(css: string): void {
   if (typeof document === 'undefined') return
   if (document.getElementById(STYLE_ID)) return
   const el = document.createElement('style')
   el.id = STYLE_ID
-  el.textContent = css.trim() ? css : CRITICAL_CSS
+  el.textContent = (css.trim() ? css : CRITICAL_CSS) + TERMINAL_CSS
   document.head.appendChild(el)
 }
 

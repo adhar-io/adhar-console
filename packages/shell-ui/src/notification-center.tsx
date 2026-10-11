@@ -182,7 +182,7 @@ export function NotificationCenter() {
       />
 
       {/* list */}
-      <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm">
+      <div className="overflow-hidden rounded-xl border border-edge-default bg-white shadow-sm dark:bg-surface-raised">
         {feed.isLoading && !items.length ? (
           <div className="divide-y divide-edge-subtle">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -196,7 +196,7 @@ export function NotificationCenter() {
         ) : (
           grouped.map(([day, list]) => (
             <section key={day}>
-              <div className="sticky top-0 z-10 border-b border-edge-subtle bg-surface-sunken/80 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle backdrop-blur">{day}</div>
+              <div className="sticky top-0 z-10 border-b border-edge-subtle bg-white/95 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle backdrop-blur dark:bg-surface-raised/95">{day}</div>
               <ul className="divide-y divide-edge-subtle">
                 {list.map((n) => (
                   <NotificationCard
@@ -214,7 +214,7 @@ export function NotificationCenter() {
           ))
         )}
         {total > PAGE_SIZE ? (
-          <div className="flex items-center justify-between gap-3 border-t border-edge-subtle bg-surface-sunken/50 px-4 py-2 text-[12px] text-content-muted">
+          <div className="flex items-center justify-between gap-3 border-t border-edge-subtle bg-white px-4 py-2 text-[12px] text-content-muted dark:bg-surface-raised">
             <span>Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total.toLocaleString()}</span>
             <div className="flex items-center gap-1">
               <Button size="sm" variant="secondary" onClick={() => setPage((p) => p - 1)} disabled={page === 0}>Previous</Button>
@@ -251,7 +251,8 @@ export function NotificationCard({
   const external = n.href?.startsWith('http')
   const target = n.href && !external ? routeTarget(n.href) : null
   return (
-    <li className={cn('group relative flex gap-3 px-4 transition-colors hover:bg-surface-sunken/60', compact ? 'py-2.5' : 'py-3', !n.read && 'bg-brand-50/30 dark:bg-brand-500/5')}>
+    <li className={cn('group relative flex gap-3 px-4 transition-colors hover:bg-surface-sunken/40', compact ? 'py-2.5' : 'py-3')}>
+      {!n.read ? <span aria-hidden className="absolute inset-y-2 left-0 w-0.5 rounded-r bg-brand-500" /> : null}
       {onSelect ? (
         <input type="checkbox" checked={!!selected} onChange={onSelect} aria-label="Select notification" className="mt-2 h-4 w-4 shrink-0 accent-brand-600" />
       ) : null}

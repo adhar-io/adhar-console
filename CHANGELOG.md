@@ -6,6 +6,15 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.124] - 2026-10-11
+
+### Changed
+
+- **logs:** Stay Live through gateway resets; stop following stopped containers
+- **cloud shell:** Real fullscreen that covers the console and sizes to the screen
+- **code editor:** Monaco styled in the console, JSON highlighted, right theme
+- **readme:** One live version badge instead of CI / Release / Image
+
 ## [0.1.123] - 2026-10-11
 
 ### Changed

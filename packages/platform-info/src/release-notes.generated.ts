@@ -4,6 +4,32 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.124",
+    "date": "2026-10-11",
+    "changes": [
+      {
+        "type": "change",
+        "scope": "logs",
+        "text": "Stay Live through gateway resets; stop following stopped containers"
+      },
+      {
+        "type": "change",
+        "scope": "cloud shell",
+        "text": "Real fullscreen that covers the console and sizes to the screen"
+      },
+      {
+        "type": "change",
+        "scope": "code editor",
+        "text": "Monaco styled in the console, JSON highlighted, right theme"
+      },
+      {
+        "type": "change",
+        "scope": "readme",
+        "text": "One live version badge instead of CI / Release / Image"
+      }
+    ]
+  },
+  {
     "version": "0.1.123",
     "date": "2026-10-11",
     "changes": [
@@ -1033,42 +1059,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "feature",
         "scope": "shell-ui",
         "text": "Shared FilterBar, and unclip the catalog's filter popover"
-      }
-    ]
-  },
-  {
-    "version": "0.1.84",
-    "date": "2026-09-20",
-    "changes": [
-      {
-        "type": "feature",
-        "scope": "login",
-        "text": "Float the hero, give the sign-in side a surface"
-      },
-      {
-        "type": "fix",
-        "scope": "apps",
-        "text": "List MLflow, and point the secrets tile at OpenBao"
-      },
-      {
-        "type": "feature",
-        "scope": "workflows",
-        "text": "A drag-and-drop Argo designer, with platform starters"
-      },
-      {
-        "type": "feature",
-        "scope": "chaos",
-        "text": "Game days — a scenario catalogue, run automatically, with hypotheses"
-      },
-      {
-        "type": "feature",
-        "scope": "perf",
-        "text": "Performance engineering — tests in git, and a report that explains them"
-      },
-      {
-        "type": "fix",
-        "scope": "charts",
-        "text": "Every series below 1 was drawn compressed and mislabelled"
       }
     ]
   }

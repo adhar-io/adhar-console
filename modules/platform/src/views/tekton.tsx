@@ -2441,6 +2441,8 @@ function StageConsole({
       live={running}
       filename={`${taskName}-${stepName}`}
       emptyMessage={running ? 'No log output yet.' : 'No log output.'}
+      // Square, edge-to-edge inside the stage panel — like the Logs page.
+      flush
     />
   );
 }

@@ -182,6 +182,17 @@ export function useLogStream(opts: UseLogStreamOptions): LogStream {
     // an accepted stream (kubelet / proxy recycling it) is resumed quietly
     // instead of flashing "Reconnecting".
     const opened = new Map<string, number>()
+    // Consecutive follow streams that were accepted and then closed at once —
+    // what a container that has stopped does. Two in a row end the follow.
+    const quickCloses = new Map<string, number>()
+    /** Resume from the last line, quietly — the stream was healthy and dropped. */
+    const resume = (s: LogSource) => {
+      const t = globalThis.setTimeout(() => {
+        timers.delete(t)
+        connect(s, 1)
+      }, 250) as unknown as number
+      timers.add(t)
+    }
 
     const connect = (s: LogSource, attempt: number) => {
       if (disposed) return
@@ -246,12 +257,20 @@ export function useLogStream(opts: UseLogStreamOptions): LogStream {
           // closes at once, which would otherwise loop every 250ms.
           const upFor = Date.now() - (opened.get(k) ?? Date.now())
           if (opened.has(k) && upFor > 5_000) {
-            const t = globalThis.setTimeout(() => {
-              timers.delete(t)
-              connect(s, 1)
-            }, 250) as unknown as number
-            timers.add(t)
+            quickCloses.set(k, 0)
+            resume(s)
             return
+          }
+          if (opened.has(k)) {
+            const n = (quickCloses.get(k) ?? 0) + 1
+            quickCloses.set(k, n)
+            if (n >= 2) {
+              // Accepted and closed immediately, twice: the container is not
+              // running, so there is nothing to follow. Stop, keep its output.
+              setReconnect(undefined)
+              setStatus((st) => (st === 'forbidden' || st === 'notfound' ? st : 'ended'))
+              return
+            }
           }
           schedule(s, attempt, undefined)
         })
@@ -266,6 +285,17 @@ export function useLogStream(opts: UseLogStreamOptions): LogStream {
           if (!follow) {
             setError(e instanceof Error ? e.message : String(e))
             setStatus('error')
+            return
+          }
+          // A stream that had been up for a while and then broke was cut in
+          // transit — a gateway's route timeout (Envoy resets responses at 15s
+          // unless told otherwise), an idle proxy, a node hop. That is the
+          // same as a clean close: resume from the last line and stay "Live".
+          // Only a stream that never got going is a real reconnect.
+          const upFor = Date.now() - (opened.get(k) ?? Date.now())
+          if (opened.has(k) && upFor > 5_000) {
+            quickCloses.set(k, 0)
+            resume(s)
             return
           }
           schedule(s, attempt, e)

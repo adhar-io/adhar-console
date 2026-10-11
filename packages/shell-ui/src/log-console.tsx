@@ -41,6 +41,8 @@ export type StreamStatus =
   | 'streaming'
   | 'reconnecting'
   | 'paused'
+  /** Following a container that is no longer running: its output so far is shown. */
+  | 'ended'
   | 'empty'
   | 'error'
   | 'forbidden'

@@ -531,6 +531,7 @@ const STATUS_TONE: Record<StreamStatus, { label: string; cls: string }> = {
   streaming: { label: 'Streaming', cls: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300' },
   reconnecting: { label: 'Reconnecting', cls: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300' },
   paused: { label: 'Paused', cls: 'border-edge-default bg-surface-sunken text-content-muted' },
+  ended: { label: 'Container stopped', cls: 'border-edge-default bg-surface-sunken text-content-muted' },
   empty: { label: 'No output', cls: 'border-edge-default bg-surface-sunken text-content-muted' },
   error: { label: 'Error', cls: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300' },
   forbidden: { label: 'Forbidden', cls: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300' },

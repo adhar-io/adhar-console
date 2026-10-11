@@ -4,6 +4,60 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.119",
+    "date": "2026-10-11",
+    "changes": [
+      {
+        "type": "improvement",
+        "text": "Enhancement for controlplane usage"
+      },
+      {
+        "type": "change",
+        "scope": "cloud shell",
+        "text": "Restore the prompt, and make the shell pleasant to use"
+      },
+      {
+        "type": "change",
+        "scope": "status",
+        "text": "Live platform status with real versions"
+      },
+      {
+        "type": "change",
+        "scope": "catalog",
+        "text": "Deploy tab shows Kargo environments, not 'default'"
+      },
+      {
+        "type": "change",
+        "scope": "help",
+        "text": "Accurate links, real shortcuts, troubleshooting, support"
+      },
+      {
+        "type": "change",
+        "text": "What's new: real version, real release notes, current capabilities"
+      },
+      {
+        "type": "change",
+        "scope": "platform logs",
+        "text": "Edge-to-edge console, no rounded frame or padding"
+      },
+      {
+        "type": "fix",
+        "scope": "platform logs",
+        "text": "Pin Container and Since right; fixed-width pod select"
+      },
+      {
+        "type": "change",
+        "scope": "release",
+        "text": "Generate release notes from git; backfill the CHANGELOG"
+      },
+      {
+        "type": "improvement",
+        "scope": "notifications",
+        "text": "Keep the list surface white"
+      }
+    ]
+  },
+  {
     "version": "0.1.118",
     "date": "2026-10-10",
     "changes": [
@@ -955,60 +1009,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "feature",
         "scope": "ai",
         "text": "Open with both rails collapsed, conversation front and centre"
-      }
-    ]
-  },
-  {
-    "version": "0.1.79",
-    "date": "2026-09-19",
-    "changes": [
-      {
-        "type": "feature",
-        "scope": "platform",
-        "text": "Knowledge Graph page — pick a thing, see what it connects to"
-      },
-      {
-        "type": "feature",
-        "scope": "graph",
-        "text": "A live knowledge graph of the platform, for Adhar AI to reason over"
-      },
-      {
-        "type": "docs",
-        "text": "Point the image badge at GHCR, drop the auth badge"
-      },
-      {
-        "type": "feature",
-        "scope": "ai",
-        "text": "Review and Design agents, with real source tools and route-aware defaults"
-      },
-      {
-        "type": "feature",
-        "scope": "platform",
-        "text": "Chaos Engineering — Chaos Mesh, with the blast radius on screen"
-      },
-      {
-        "type": "fix",
-        "scope": "theme",
-        "text": "Make `dark:` utilities follow the app's theme switch"
-      },
-      {
-        "type": "feature",
-        "scope": "develop",
-        "text": "Performance Center — k6 load tests, run to result"
-      },
-      {
-        "type": "feature",
-        "scope": "notifications",
-        "text": "Real platform events, watched from the apiserver"
-      },
-      {
-        "type": "feature",
-        "scope": "workspace",
-        "text": "Create, rename and delete teams from the organization switcher"
-      },
-      {
-        "type": "fix",
-        "text": "Register /ai, size the AI surface by its own width, stop fabricating data"
       }
     ]
   }

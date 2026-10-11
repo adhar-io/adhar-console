@@ -6,6 +6,27 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.119] - 2026-10-11
+
+### Improved
+
+- Enhancement for controlplane usage
+- **notifications:** Keep the list surface white
+
+### Fixed
+
+- **platform logs:** Pin Container and Since right; fixed-width pod select
+
+### Changed
+
+- **cloud shell:** Restore the prompt, and make the shell pleasant to use
+- **status:** Live platform status with real versions
+- **catalog:** Deploy tab shows Kargo environments, not 'default'
+- **help:** Accurate links, real shortcuts, troubleshooting, support
+- What's new: real version, real release notes, current capabilities
+- **platform logs:** Edge-to-edge console, no rounded frame or padding
+- **release:** Generate release notes from git; backfill the CHANGELOG
+
 ## [0.1.118] - 2026-10-10
 
 ### Improved

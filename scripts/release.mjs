@@ -17,10 +17,12 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { backfillChangelog, buildNotes, writeData } from './release-notes.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const PKG = join(ROOT, 'package.json')
 const CHANGELOG = join(ROOT, 'CHANGELOG.md')
+const NOTES = 'packages/platform-info/src/release-notes.generated.ts'
 
 const die = (msg) => {
   console.error(`\x1b[31m✗ ${msg}\x1b[0m`)
@@ -80,8 +82,8 @@ if (git(['ls-remote', '--tags', 'origin', tag], { quiet: true })) die(`tag ${tag
 const others = git(['status', '--porcelain'], { quiet: true })
   .split('\n')
   .map((l) => l.replace(/^..\s/, '').trim())
-  .filter((f) => f && f !== 'package.json' && f !== 'CHANGELOG.md')
-if (others.length) console.warn(`\x1b[33m! ${others.length} other uncommitted path(s) will NOT be part of the release commit (only package.json + CHANGELOG.md are)\x1b[0m`)
+  .filter((f) => f && f !== 'package.json' && f !== 'CHANGELOG.md' && f !== NOTES)
+if (others.length) console.warn(`\x1b[33m! ${others.length} other uncommitted path(s) will NOT be part of the release commit (only package.json, CHANGELOG.md and the release notes are)\x1b[0m`)
 
 console.log(`\n\x1b[1mRelease ${current} → ${next}\x1b[0m  (tag ${tag}, branch ${branch})${dry ? '  \x1b[33m[dry run]\x1b[0m' : ''}\n`)
 
@@ -102,10 +104,24 @@ if (changelog.includes('## [Unreleased]')) {
   console.warn('\x1b[33m! no "## [Unreleased]" heading in CHANGELOG.md — skipping promotion\x1b[0m')
 }
 
+// ── 2b. Release notes from git: fill the new section + refresh What's New ─────
+// The section promoted above is empty unless someone wrote it by hand; the
+// commits since the last tag are what actually shipped, so they fill it, and
+// the same notes feed the console's What's New page.
+{
+  const notes = buildNotes({ next, date })
+  const pending = notes[0]?.version === next ? notes[0].changes.length : 0
+  step(`release notes: ${pending} change(s) since the last tag → CHANGELOG + What's New`)
+  if (!dry) {
+    backfillChangelog(notes)
+    writeData(notes)
+  }
+}
+
 // ── 3. Commit · tag · push ────────────────────────────────────────────────────
 if (dry) {
   console.log('\n\x1b[33mDry run — would now:\x1b[0m')
-  console.log(`  git add package.json CHANGELOG.md`)
+  console.log(`  git add package.json CHANGELOG.md ${NOTES}`)
   console.log(`  git commit -m "chore(release): ${tag}"`)
   console.log(`  git tag -a ${tag} -m "adhar-console ${tag}"`)
   console.log(`  git push origin ${branch} && git push origin ${tag}`)
@@ -113,7 +129,7 @@ if (dry) {
 }
 
 step('commit')
-git(['add', 'package.json', 'CHANGELOG.md'])
+git(['add', 'package.json', 'CHANGELOG.md', NOTES])
 git(['commit', '-m', `chore(release): ${tag}`])
 step(`tag ${tag}`)
 git(['tag', '-a', tag, '-m', `adhar-console ${tag}`])

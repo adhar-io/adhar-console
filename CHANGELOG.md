@@ -8,111 +8,556 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [0.1.118] - 2026-10-10
 
+### Improved
+
+- **cloud shell:** Make the terminal look like a terminal
+- **platform logs:** Drop the namespace picker, two control rows, keep quiet follows alive
+- **catalog:** Make the Metrics tab render, and give it real charts
+- **marketplace:** Make the Healthy stat tile a selectable filter
+- **catalog:** Drop the All / Components kind chips under Browse
+- **launch:** Drop needless async on appendRecord (deno lint require-await)
+
+### Fixed
+
+- Fix log
+- **adhar resources:** Fix the Browse modal and add management tooling
+
+### Changed
+
+- **console:** White page canvas in light mode
+
 ## [0.1.117] - 2026-10-10
+
+### Fixed
+
+- Fix ci issue
 
 ## [0.1.116] - 2026-10-10
 
+### Added
+
+- Add launch app and enhance console style
+
 ## [0.1.115] - 2026-10-09
+
+### Improved
+
+- Adhar resources enhancement
 
 ## [0.1.114] - 2026-10-08
 
+### Fixed
+
+- Nv fix
+
 ## [0.1.113] - 2026-10-08
+
+### Added
+
+- **platform:** Show the YAML a claim will apply, and check it first
+- **shell:** A sharper active state for sidebar sub-items
+
+### Fixed
+
+- Fix app launcher
+- **assist:** Drop the RBAC line from under the composer
+- **assist:** Drop the blueprint grid behind the AI landing
 
 ## [0.1.112] - 2026-10-08
 
+### Added
+
+- **shell:** Lift the sidebar and the top bar off the page
+- **shell:** A sidebar that reads as one column, not fourteen cards
+
 ## [0.1.111] - 2026-10-07
+
+### Added
+
+- New xrds
 
 ## [0.1.110] - 2026-10-05
 
+### Fixed
+
+- **catalog:** Drop the result count, Views and Export from the browse header
+- **notifications:** Take Scan for insights off the page
+- **workspace:** Settings pages that work in dark mode
+
+### Changed
+
+- CompositSearch
+
 ## [0.1.109] - 2026-10-04
+
+### Added
+
+- **deliver:** Follow every commit through the pipeline, for custom apps
+
+### Fixed
+
+- Coder fix
+- **develop:** Cloud dev environments that are actually ready
+- **develop:** Render a README the way a README is meant to look
+- **deliver:** Show every Argo CD application, filtered by what it is
 
 ## [0.1.108] - 2026-10-04
 
+### Added
+
+- **deliver:** Complete the Rollouts page, and fix Kargo Stages' statuses
+- **deliver:** Releases, built from freight rather than from images
+- **deliver:** Vulnerability Scans on the registry's real Trivy results
+- **deliver:** Runtime Security on real Tetragon and Falco data
+- **deliver:** The delivery flow on a canvas, not a single row
+- Remove the rest of the Argo Workflows surface
+
+### Fixed
+
+- **deliver:** Make the Image Registry artifact table readable
+- **deliver:** Environments are the Kargo stages, not every namespace
+- **k8s:** Stop failing every apiserver response large enough to be gzipped
+- **deliver:** Make an Argo CD application card readable
+- **deliver:** The promotion pipeline in promotion order, with real status
+- **proxy:** Stop handing the browser a gzip header over plain bytes
+
 ## [0.1.107] - 2026-10-03
+
+### Added
+
+- **ai:** One dot by the composer instead of a panel of counters
+
+### Fixed
+
+- **dev:** The local console was signed out of its own API
+- **develop:** Render READMEs, and stop badges rendering as punctuation
+- **ai:** Import the hook the read-aloud rewrite started using
 
 ## [0.1.106] - 2026-10-03
 
+### Fixed
+
+- **ci:** Drop Monaco's worker bundling, which the pinned Deno cannot build
+
 ## [0.1.105] - 2026-10-03
+
+### Added
+
+- **develop:** A real editor in Repository Files, bundled not fetched
+- **develop:** Repositories read as owner/name, and section by owner
+
+### Fixed
+
+- Fix coder issue
 
 ## [0.1.104] - 2026-10-03
 
+### Added
+
+- Drop Argo Workflows from the platform surface
+- **catalog:** Own new services with your own organisation's teams
+- **ui:** Drop the explanatory sentence under every page title
+- **ai:** Give the landing a way out of itself
+- **ui:** A real elevation system, and text that clears AA
+
+### Fixed
+
+- UI fixes
+- **ui:** White text on solid links was being overridden to body colour
+- **ui:** Remove the page background that was never on screen
+- **ui:** Make the console usable with a thumb
+- **ai:** Choose the voice instead of letting the system choose
+- **ui:** Keyboard focus, half-pixel type, and a stray grey ramp
+- **ai:** One thinking indicator, not three
+- **ui:** Icons at one optical weight, not one nominal weight
+
 ## [0.1.103] - 2026-10-02
+
+### Added
+
+- **ui:** Repaint the console in the brand palette
+- **ai:** Drop the insight cards from the landing
 
 ## [0.1.102] - 2026-09-29
 
+### Added
+
+- **ui:** The colour-mode control switches instead of tabbing
+
+### Fixed
+
+- Fix catalog style
+- **nav:** The sliding rail follows rows that differ only by search
+- **nav:** A Workspace settings page always highlights a row
+
 ## [0.1.101] - 2026-09-28
+
+### Added
+
+- **ai:** Take the colour out of the landing
+- **ai:** Lift the landing, widen the field
+- **ai:** A landing with nothing around it
+
+### Fixed
+
+- Fix nav
+- **ai:** The landing's measurements, entrance and idle motion
+- **dev:** Only tunnel the tools the cluster actually runs
 
 ## [0.1.100] - 2026-09-27
 
+### Added
+
+- **ai:** Strip the landing to the one thing it is for
+
+### Improved
+
+- Enhance cloud shell
+
 ## [0.1.99] - 2026-09-27
+
+### Added
+
+- **ai:** A landing you can read at a glance
+- **develop:** Cloud Envs opens VS Code, IntelliJ and a terminal that work
+
+### Fixed
+
+- **platform:** Cloud Shell opens a terminal, and Logs actually stream
 
 ## [0.1.98] - 2026-09-24
 
+### Added
+
+- **perf:** The Scripts list says what happened, and Runs can be acted on
+- **apps:** Strapi in the launcher, and no tiles onto things you cannot open
+- **perf:** A run drawer you can watch, and runs that actually start
+- **ai:** The landing reads on a phone, and the composer stops claiming context it never sent
+
+### Fixed
+
+- Cloud dev environments fix
+- **mobile:** Controls you can actually hit with a thumb
+
 ## [0.1.97] - 2026-09-24
+
+### Added
+
+- **develop:** Cloud IDEs actually open
+
+### Fixed
+
+- **develop:** The IDE buttons say what is wrong instead of doing nothing
 
 ## [0.1.96] - 2026-09-24
 
+_Maintenance release — no user-facing changes._
+
 ## [0.1.95] - 2026-09-24
+
+### Added
+
+- **catalog:** The catalog and its drawer work at every width
 
 ## [0.1.94] - 2026-09-24
 
+### Added
+
+- **catalog:** Entity drawer works on a phone
+- **ai:** New Adhar AI mark and a cleaner landing
+- **develop:** Rebuild Repositories as a real browser
+
+### Fixed
+
+- Coder fix
+- **ui:** Popovers close when you click outside them
+- **dev:** Local development reaches the live cluster's update stream
+
 ## [0.1.93] - 2026-09-24
+
+### Added
+
+- **catalog:** Delete an entity from the platform, fixed card rows, no tinted buttons
+- **ai:** Redesign the Adhar AI landing as a hero band, roster and prompt cards
+
+### Changed
+
+- Icon updated
 
 ## [0.1.92] - 2026-09-23
 
+### Added
+
+- **catalog:** TechDocs tab reads the whole docs tree of a service
+- **catalog:** Public URLs once for all; live Pipeline runs and Observability widgets
+- **catalog:** Metrics tab — grouped panels, KPI strip, golden signals
+- **develop:** Workflow designer as a pipeline builder with schedules
+- **catalog:** Drawer tabs — scorecard as a plan, tech stack with versions, richer metrics
+- **catalog:** Entity drawer redesigned — linkable, navigable, answer-first
+- **catalog:** Kind rail, group-by, readiness sort, cards that act
+
+### Changed
+
+- UX polish
+
 ## [0.1.91] - 2026-09-23
+
+### Changed
+
+- Update local dev loop
 
 ## [0.1.90] - 2026-09-23
 
+### Added
+
+- **ai:** Orbital mark and an agent-first landing
+- **scorecards:** Grade distribution tile, category heading, FilterBar
+- **notifications:** Same page anatomy as the rest of the console
+- **catalog:** Taller cards with a readiness meter; drawer as one document
+- **login:** Greet by name, hold layout while config loads, hex tick marks
+- **onboarding:** Account step with sign-up, and a refreshed wizard
+- **login:** Fine-tune sign-in page
+- **nav,brand:** Highlight bleeds to the sidebar edge; parent keeps it
+- **brand:** Adhar AI mark — the brand hexagon, lit from inside
+- **brand,nav:** Adhar AI mark from the brand symbol; rail joins its row
+
+### Improved
+
+- **catalog:** Entity cards say what a thing is, once
+- **nav:** Amber-400 for the sub-item rail
+- **nav:** Flat orange-600 for the sub-item rail
+- **nav:** Sub-item rail is an amber→orange gradient
+
+### Fixed
+
+- **nav:** Sub-items keep all four corners; their rail is round and accent
+
 ## [0.1.89] - 2026-09-20
+
+### Improved
+
+- **catalog:** Stop painting entity kind with status colours
+- **ai,nav:** Chrome-free /ai page; rail marks top-level rows only
 
 ## [0.1.88] - 2026-09-20
 
+### Improved
+
+- **ai:** No header on the /ai page; fix the mark's render-time id
+
+### Fixed
+
+- **overview:** "object is not iterable" — the Argo CD normalizer drops what DORA reads
+
+### Changed
+
+- Lock file
+
 ## [0.1.87] - 2026-09-20
+
+### Changed
+
+- Update cloud shell
 
 ## [0.1.86] - 2026-09-20
 
+### Improved
+
+- **catalog:** The entity About panel shows facts, not placeholders
+- **design:** Strip build plumbing from the builder header
+
+### Fixed
+
+- Fix scaffolder
+- **apps:** LitmusChaos replaces Chaos Mesh; add LibreDB, drop dead MinIO
+- **nav:** Align the sidebar rail with its row; flush login hero
+
 ## [0.1.85] - 2026-09-20
+
+### Added
+
+- **overview:** Real data behind all four DORA tiles
+- **shell-ui:** Shared FilterBar, and unclip the catalog's filter popover
+
+### Improved
+
+- Scorecard enhancement
+- UX Enhancement
 
 ## [0.1.84] - 2026-09-20
 
+### Added
+
+- **login:** Float the hero, give the sign-in side a surface
+- **workflows:** A drag-and-drop Argo designer, with platform starters
+- **chaos:** Game days — a scenario catalogue, run automatically, with hypotheses
+- **perf:** Performance engineering — tests in git, and a report that explains them
+
+### Fixed
+
+- **apps:** List MLflow, and point the secrets tile at OpenBao
+- **charts:** Every series below 1 was drawn compressed and mislabelled
+
 ## [0.1.83] - 2026-09-20
+
+### Fixed
+
+- Fix sidebar navigation issue
 
 ## [0.1.82] - 2026-09-20
 
+### Fixed
+
+- Notifications fix
+
 ## [0.1.81] - 2026-09-19
+
+### Fixed
+
+- **discover:** Grafana boards embedded a hardcoded host that resolves nowhere
+- **traces:** Tempo omits zero values, and the client believed the type
 
 ## [0.1.80] - 2026-09-19
 
+### Added
+
+- **ai:** Open with both rails collapsed, conversation front and centre
+
+### Fixed
+
+- **templates:** No template ever registered — wrong repo, and a stale list
+- **notifications:** Every notification link went to the 404 page
+
 ## [0.1.79] - 2026-09-19
+
+### Added
+
+- **platform:** Knowledge Graph page — pick a thing, see what it connects to
+- **graph:** A live knowledge graph of the platform, for Adhar AI to reason over
+- **ai:** Review and Design agents, with real source tools and route-aware defaults
+- **platform:** Chaos Engineering — Chaos Mesh, with the blast radius on screen
+- **develop:** Performance Center — k6 load tests, run to result
+- **notifications:** Real platform events, watched from the apiserver
+- **workspace:** Create, rename and delete teams from the organization switcher
+
+### Fixed
+
+- **theme:** Make `dark:` utilities follow the app's theme switch
+- Register /ai, size the AI surface by its own width, stop fabricating data
+
+### Documentation
+
+- Point the image badge at GHCR, drop the auth badge
 
 ## [0.1.78] - 2026-09-16
 
+### Added
+
+- **shell:** First-class mobile — Adhar AI as a page, phone layouts, theme shared with Keycloak
+- **develop:** Argo Workflow runs get the PipelineRun treatment — stage graph, streaming console, run actions
+
 ## [0.1.77] - 2026-09-15
+
+### Fixed
+
+- Fix ui issues
 
 ## [0.1.76] - 2026-09-15
 
+### Changed
+
+- Golden path update
+
 ## [0.1.75] - 2026-09-15
+
+### Fixed
+
+- **shell:** One focus ring per field, a collapsed rail that stands on its own
 
 ## [0.1.74] - 2026-09-14
 
+### Added
+
+- **ai:** Rebuild the Adhar AI surface as a workspace — threads, transcript, inspector, composer
+
 ## [0.1.73] - 2026-09-13
+
+### Fixed
+
+- Fix golden path issue
 
 ## [0.1.72] - 2026-09-13
 
+### Added
+
+- **ci:** Add a release-only recovery path for a half-published version
+
+### Fixed
+
+- **ci:** Make a half-failed release recoverable and say why it failed
+
 ## [0.1.71] - 2026-09-13
+
+### Fixed
+
+- Fix issues related to golden path
 
 ## [0.1.70] - 2026-09-13
 
+### Added
+
+- **ai:** Surface operator findings, and teach agents when to render components
+- **ai:** Six new generative widgets, a canvas, autonomy control and run provenance
+- **provisioning:** Give a new organization Grafana and Harbor too
+
 ## [0.1.69] - 2026-09-13
+
+### Added
+
+- **ai:** Integrate the adhar-ai agentic runtime as an AG-UI agent
+
+### Fixed
+
+- **ai:** Read adhar-ai's real tool-call shape, not the OpenAI one
 
 ## [0.1.68] - 2026-09-13
 
+### Added
+
+- **teams:** Scope Projects and Apps by the active team — a lens, not a boundary
+- **teams:** Make the team a visible, switchable scope in the console
+
+### Fixed
+
+- **logs:** One log console everywhere, and a stream that actually resumes
+- **tekton:** Quieter pipeline canvas, icon actions, re-run keeps the drawer
+
+### Documentation
+
+- **readme:** Draw the architecture instead of spelling it in ASCII
+- **readme:** Replace the Overview render with a live capture
+- **readme:** Two screenshots — the console's own sign-in, and Overview
+- **readme:** All three screenshots in one section, drop the IDP theme prose
+- **readme:** Adhar branding, the IDP theme, and clearer getting-started
+
 ## [0.1.67] - 2026-09-12
+
+### Fixed
+
+- **provisioning:** Create the tenant's Gitea org (path was doubled)
 
 ## [0.1.66] - 2026-09-12
 
+### Fixed
+
+- **ui:** Stop overlays and code surfaces inverting in dark mode
+
 ## [0.1.65] - 2026-09-12
+
+### Fixed
+
+- **auth:** Re-probe self-registration instead of caching it forever
+- **k8s:** Exec channel failed because Deno's WebSocket negotiates HTTP/2
 
 ## [0.1.64] - 2026-09-12
 
@@ -159,7 +604,20 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [0.1.63] - 2026-09-12
 
+### Fixed
+
+- **auth:** Make sign-up produce an account, so onboarding can provision
+- **onboarding:** Sign-up could not provision, and said the opposite
+- **onboarding:** Write the provisioning copy for the person setting up
+- **onboarding:** Brand the flow, lock required capabilities, provision what was selected
+
 ## [0.1.62] - 2026-09-12
+
+### Documentation
+
+- **readme:** Keep sign-in and Overview, and render Overview in light mode
+- **readme:** Lead with sign-in, Overview, Kubernetes and Marketplace
+- **readme:** Show the product, and make getting started actually start
 
 ## [0.1.61] - 2026-09-12
 
@@ -387,6 +845,10 @@ All notable changes to Adhar Console are documented here. Format based on
   sharing a row).
 
 ## [0.1.59] - 2026-09-10
+
+### Changed
+
+- Source repo Gitea link by default
 
 ## [0.1.58] - 2026-09-11
 

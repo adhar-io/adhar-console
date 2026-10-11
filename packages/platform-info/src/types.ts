@@ -54,3 +54,19 @@ export interface FeatureHighlight {
   /** Highlight as newly shipped. */
   isNew?: boolean
 }
+
+/** One release, derived from git by scripts/release-notes.mjs. */
+export interface ReleaseNote {
+  version: string
+  /** YYYY-MM-DD the tag was cut. */
+  date: string
+  changes: ReleaseChange[]
+}
+
+export interface ReleaseChange {
+  type: 'feature' | 'improvement' | 'fix' | 'docs' | 'change'
+  /** Conventional-commit scope, e.g. `catalog`, `shell`. */
+  scope?: string
+  text: string
+  breaking?: boolean
+}

@@ -484,9 +484,37 @@ export const PodTerminal = forwardRef<PodTerminalHandle, PodTerminalProps>(funct
     return () => cancelAnimationFrame(id)
   }, [fullscreen, refit])
 
-  /* ── Esc exits fullscreen ── */
+  /*
+   * Fullscreen is the browser's (Fullscreen API), not a `fixed inset-0` frame:
+   * the terminal renders inside the shell's <main>, its own stacking context,
+   * so an overlay stayed under the console sidebar and top bar whatever its
+   * z-index. The top layer covers everything at the screen's exact size; the
+   * browser exits it on Esc and `fullscreenchange` keeps the state in step.
+   * Nested is fine: from a fullscreen Cloud Shell workbench, Esc returns to it.
+   */
   useEffect(() => {
-    if (!fullscreen) return
+    const sync = () => setFullscreen(Boolean(wrapRef.current) && document.fullscreenElement === wrapRef.current)
+    document.addEventListener('fullscreenchange', sync)
+    return () => document.removeEventListener('fullscreenchange', sync)
+  }, [])
+
+  const toggleFullscreen = () => {
+    const el = wrapRef.current
+    if (!el) return
+    if (document.fullscreenElement === el) {
+      void document.exitFullscreen()
+      return
+    }
+    if (typeof el.requestFullscreen === 'function') {
+      el.requestFullscreen().catch(() => setFullscreen((f) => !f))
+    } else {
+      setFullscreen((f) => !f)
+    }
+  }
+
+  /* ── Esc exits the fallback overlay (no Fullscreen API) ── */
+  useEffect(() => {
+    if (!fullscreen || document.fullscreenElement) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setFullscreen(false)
     }
@@ -605,7 +633,14 @@ export const PodTerminal = forwardRef<PodTerminalHandle, PodTerminalProps>(funct
         alwaysDark || resolvedMode === 'dark'
           ? 'adhar-term-dark dark border-white/10 shadow-2xl ring-1 ring-black/60 [box-shadow:inset_0_1px_0_0_rgb(255_255_255/0.06),0_24px_48px_-12px_rgb(0_0_0/0.6)]'
           : 'border-edge-default shadow-sm',
-        fullscreen ? 'fixed inset-0 z-50 rounded-none' : 'relative',
+        fullscreen
+          ? cn(
+            'h-screen w-screen rounded-none border-0',
+            // Only the fallback needs to position itself; in the browser's
+            // fullscreen this element already is the screen.
+            !(typeof document !== 'undefined' && document.fullscreenElement) && 'fixed inset-0 z-[70]',
+          )
+          : 'relative',
         fill && !fullscreen && 'h-full min-h-0',
       )}
     >
@@ -703,7 +738,7 @@ export const PodTerminal = forwardRef<PodTerminalHandle, PodTerminalProps>(funct
           <TermBtn
             label={fullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
             active={fullscreen}
-            onClick={() => setFullscreen((f) => !f)}
+            onClick={toggleFullscreen}
           >
             {fullscreen ? <IconCollapse /> : <IconExpand />}
           </TermBtn>

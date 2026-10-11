@@ -248,7 +248,12 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
    * on Esc; `fullscreenchange` keeps the state in step either way.
    */
   useEffect(() => {
-    const sync = () => setFullscreen(Boolean(rootRef.current) && document.fullscreenElement === rootRef.current)
+    // The workbench stays "fullscreen" while a terminal inside it is fullscreen
+    // too (a nested request), so its layout does not collapse underneath.
+    const sync = () => {
+      const fe = document.fullscreenElement
+      setFullscreen(Boolean(rootRef.current && fe && (fe === rootRef.current || rootRef.current.contains(fe))))
+    }
     document.addEventListener('fullscreenchange', sync)
     return () => document.removeEventListener('fullscreenchange', sync)
   }, [])
@@ -256,7 +261,7 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
   const toggleFullscreen = () => {
     const el = rootRef.current
     if (!el) return
-    if (document.fullscreenElement) {
+    if (document.fullscreenElement === el) {
       void document.exitFullscreen()
       return
     }

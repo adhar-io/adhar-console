@@ -301,7 +301,7 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
                 <Select
                   value={podName}
                   onChange={(e) => setPodName(e.target.value)}
-                  className="min-w-52 py-1.5 text-xs"
+                  className="w-56 min-w-0 truncate py-1.5 text-xs"
                   disabled={podNames.length === 0}
                 >
                   {podNames.length === 0 ? <option value="">No pods</option> : null}
@@ -326,7 +326,7 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
                   <Select
                     value={workloadName}
                     onChange={(e) => setWorkloadName(e.target.value)}
-                    className="min-w-52 py-1.5 text-xs"
+                    className="w-56 min-w-0 truncate py-1.5 text-xs"
                     disabled={workloadNames.length === 0}
                   >
                     {workloadNames.length === 0
@@ -338,31 +338,6 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
               </>
             )}
 
-          <FieldLabel text="Container">
-            <Select
-              value={containerSel}
-              onChange={(e) => setContainerSel(e.target.value)}
-              className="min-w-40 py-1.5 text-xs"
-              disabled={unionContainers.length === 0}
-            >
-              {sourceMode === 'workload' || unionContainers.length > 1
-                ? <option value={ALL_CONTAINERS}>All containers</option>
-                : null}
-              {unionContainers.length === 0 ? <option value="">—</option> : null}
-              {unionContainers.map((c) => <option key={c} value={c}>{c}</option>)}
-            </Select>
-          </FieldLabel>
-
-          <FieldLabel text="Since">
-            <Select
-              value={sinceLabel}
-              onChange={(e) => setSinceLabel(e.target.value as SinceLabel)}
-              className="min-w-20 py-1.5 text-xs"
-            >
-              {SINCE_OPTIONS.map((s) => <option key={s.label} value={s.label}>{s.label}</option>)}
-            </Select>
-          </FieldLabel>
-
           <FieldLabel text="Tail">
             <Select
               value={String(tailLines)}
@@ -372,6 +347,35 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
               {TAIL_OPTIONS.map((n) => <option key={n} value={n}>{n.toLocaleString()}</option>)}
             </Select>
           </FieldLabel>
+
+          {/* Container and window stay pinned to the right edge whatever the
+              pod name's length; the pod select no longer grows to push them. */}
+          <div className="ml-auto flex shrink-0 flex-wrap items-center gap-3">
+            <FieldLabel text="Container">
+              <Select
+                value={containerSel}
+                onChange={(e) => setContainerSel(e.target.value)}
+                className="min-w-40 py-1.5 text-xs"
+                disabled={unionContainers.length === 0}
+              >
+                {sourceMode === 'workload' || unionContainers.length > 1
+                  ? <option value={ALL_CONTAINERS}>All containers</option>
+                  : null}
+                {unionContainers.length === 0 ? <option value="">—</option> : null}
+                {unionContainers.map((c) => <option key={c} value={c}>{c}</option>)}
+              </Select>
+            </FieldLabel>
+
+            <FieldLabel text="Since">
+              <Select
+                value={sinceLabel}
+                onChange={(e) => setSinceLabel(e.target.value as SinceLabel)}
+                className="min-w-20 py-1.5 text-xs"
+              >
+                {SINCE_OPTIONS.map((s) => <option key={s.label} value={s.label}>{s.label}</option>)}
+              </Select>
+            </FieldLabel>
+          </div>
 
         </div>
 

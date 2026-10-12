@@ -6,6 +6,14 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.125] - 2026-10-12
+
+### Changed
+
+- **drawers:** Tinted canvas behind content everywhere, white headers
+- **catalog drawer:** Tinted canvas behind the content, white cards on it
+- **terminal:** Real fullscreen for the shell's own button too
+
 ## [0.1.124] - 2026-10-11
 
 ### Changed

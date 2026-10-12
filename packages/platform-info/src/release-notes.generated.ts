@@ -4,8 +4,29 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.125",
+    "date": "2026-10-12",
+    "changes": [
+      {
+        "type": "change",
+        "scope": "drawers",
+        "text": "Tinted canvas behind content everywhere, white headers"
+      },
+      {
+        "type": "change",
+        "scope": "catalog drawer",
+        "text": "Tinted canvas behind the content, white cards on it"
+      },
+      {
+        "type": "change",
+        "scope": "terminal",
+        "text": "Real fullscreen for the shell's own button too"
+      }
+    ]
+  },
+  {
     "version": "0.1.124",
-    "date": "2026-10-11",
+    "date": "2026-10-12",
     "changes": [
       {
         "type": "change",
@@ -1035,30 +1056,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "fix",
         "scope": "nav",
         "text": "Align the sidebar rail with its row; flush login hero"
-      }
-    ]
-  },
-  {
-    "version": "0.1.85",
-    "date": "2026-09-20",
-    "changes": [
-      {
-        "type": "improvement",
-        "text": "Scorecard enhancement"
-      },
-      {
-        "type": "improvement",
-        "text": "UX Enhancement"
-      },
-      {
-        "type": "feature",
-        "scope": "overview",
-        "text": "Real data behind all four DORA tiles"
-      },
-      {
-        "type": "feature",
-        "scope": "shell-ui",
-        "text": "Shared FilterBar, and unclip the catalog's filter popover"
       }
     ]
   }

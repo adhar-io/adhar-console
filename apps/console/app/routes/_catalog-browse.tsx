@@ -4102,7 +4102,7 @@ function EntityDrawer({
         */}
         <div
           ref={bodyRef}
-          className="flex-1 overflow-y-auto px-4 pb-24 sm:px-6 sm:pb-6 [&>div>div:first-child]:sticky [&>div>div:first-child]:top-0 [&>div>div:first-child]:z-10 [&>div>div:first-child]:-mx-4 sm:[&>div>div:first-child]:-mx-6 [&>div>div:first-child]:bg-surface-app [&>div>div:first-child]:px-4 sm:[&>div>div:first-child]:px-6 [&>div>div:first-child]:pt-3"
+          className="flex-1 overflow-y-auto bg-surface-canvas px-4 pb-24 sm:px-6 sm:pb-6 [&>div>div:first-child]:sticky [&>div>div:first-child]:top-0 [&>div>div:first-child]:z-10 [&>div>div:first-child]:-mx-4 sm:[&>div>div:first-child]:-mx-6 [&>div>div:first-child]:bg-surface-canvas [&>div>div:first-child]:px-4 sm:[&>div>div:first-child]:px-6 [&>div>div:first-child]:pt-3"
         >
           <Tabs<DrawerTab> tabs={tabs} value={effectiveTab} onChange={setTab} ariaLabel="Entity details">
             {(active) => (

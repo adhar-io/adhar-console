@@ -205,7 +205,7 @@ function PersonaDetail({
         className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
-      <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
+      <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="flex min-w-0 items-center gap-3">
             <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-linear-to-br from-brand-50 to-violet-50 text-2xl ring-1 ring-inset ring-edge-subtle">

@@ -3940,7 +3940,7 @@ function EntityDrawer({
         className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
-      <aside className="relative flex h-full w-full max-w-4xl flex-col overflow-hidden bg-surface-app shadow-2xl sm:border-l sm:border-edge-default">
+      <aside className="relative flex h-full w-full max-w-4xl flex-col overflow-hidden bg-surface-canvas shadow-2xl sm:border-l sm:border-edge-default">
         {/*
           The header is the drawer's anchor: it stays while the tabs change under
           it, so it carries a tint of its own. Flat and borderless, it read as

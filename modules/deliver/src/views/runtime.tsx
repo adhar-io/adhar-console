@@ -747,7 +747,7 @@ function EventDrawer({ event: e, onClose }: { event: RuntimeEvent; onClose(): vo
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
+      <aside className="relative flex h-full w-full max-w-xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
         <header className="border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
@@ -990,7 +990,7 @@ function PolicyDrawer({ policy: p, onClose }: { policy: PolicyView; onClose(): v
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-lg flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
+      <aside className="relative flex h-full w-full max-w-lg flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-content-subtle">

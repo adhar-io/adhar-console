@@ -85,8 +85,8 @@ export function PodDrawer({ namespace, name, onClose }: Props) {
         onClick={onClose}
         aria-hidden
       />
-      <aside className="relative flex h-full w-full max-w-4xl flex-col border-l border-edge-default bg-surface-raised shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b border-edge-default px-6 py-4">
+      <aside className="relative flex h-full w-full max-w-4xl flex-col border-l border-edge-default bg-surface-canvas shadow-2xl">
+        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">
               Pod · {namespace}

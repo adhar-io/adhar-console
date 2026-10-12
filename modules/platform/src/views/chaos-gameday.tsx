@@ -402,8 +402,8 @@ function GameDayDrawer({ namespace, name, onClose }: { namespace: string; name: 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/50" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-2xl flex-col border-l border-edge-default bg-surface-raised shadow-2xl">
-        <div className="flex shrink-0 items-start gap-3 border-b border-edge-default px-5 py-3">
+      <aside className="relative flex h-full w-full max-w-2xl flex-col border-l border-edge-default bg-surface-canvas shadow-2xl">
+        <div className="flex shrink-0 items-start gap-3 border-b border-edge-default bg-surface-raised px-5 py-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <StatusBadge kind={PHASE_KIND[phase]} pulse={phase === 'running'}>{PHASE_LABEL[phase]}</StatusBadge>

@@ -844,7 +844,7 @@ function AppDrawer({ app, onClose }: { app: MarketplaceApp; onClose(): void }) {
         ref={panelRef}
         tabIndex={-1}
         aria-label={`${chart?.title ?? app.name} details`}
-        className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl outline-none"
+        className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl outline-none"
       >
         <header className="border-b border-edge-default bg-surface-raised px-6 py-5">
           <div className="flex items-start justify-between gap-4">

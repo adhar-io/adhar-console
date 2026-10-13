@@ -11,6 +11,7 @@ import {
   trivy,
 } from '@adhar/api-clients'
 import { useArgocdProject, useGiteaOrg, usePlaneWorkspace } from '@adhar/shell-ui'
+import { promRange } from './prom-instant.ts'
 
 /**
  * Cross-module signal hooks for the Overview page.
@@ -87,6 +88,67 @@ export function useDevelopPRs() {
   })
 }
 
+/**
+ * Delivery flow from Gitea: pull requests closed and commits made across the
+ * org's repositories within `days`. Feeds PR throughput, engineering velocity
+ * and team activity — real merge times and authors, not estimates.
+ *
+ * Gitea has no org-wide PR or commit feed, so this is one request per repo
+ * (in parallel, capped) for the newest closed PRs and the newest commits on
+ * each default branch. Very busy repos may have older activity beyond that
+ * page; the panels describe a recent window, so that is the right trade.
+ */
+export interface GiteaFlow {
+  merged: Array<gitea.PullRequest & { repo: string }>
+  closedUnmerged: number
+  commits: Array<gitea.Commit & { repo: string }>
+  repos: number
+  windowStartMs: number
+}
+
+const FLOW_REPO_CAP = 40
+
+export function useGiteaFlow(days = 30) {
+  const ORG = useGiteaOrg()
+  const repos = useQuery({
+    queryKey: ['ov', 'gitea', 'repos', ORG],
+    queryFn: () => giteaClient.listRepos(ORG),
+    staleTime: REFRESH_MS,
+  })
+  return useQuery({
+    queryKey: ['ov', 'gitea', 'flow', ORG, days, repos.data?.length ?? 0],
+    queryFn: async (): Promise<GiteaFlow> => {
+      const windowStartMs = Date.now() - days * 86_400_000
+      const list = (repos.data ?? []).filter((r) => !r.archived && !r.empty).slice(0, FLOW_REPO_CAP)
+      const per = await Promise.all(
+        list.map(async (r) => {
+          const [prs, commits] = await Promise.all([
+            giteaClient.listPullRequests(ORG, r.name, 'closed').catch(() => [] as gitea.PullRequest[]),
+            giteaClient.listCommits(ORG, r.name, '', 50).catch(() => [] as gitea.Commit[]),
+          ])
+          return { repo: r.name, prs, commits }
+        }),
+      )
+      const inWindow = (iso?: string | null) => !!iso && Date.parse(iso) >= windowStartMs
+      return {
+        merged: per.flatMap((x) =>
+          x.prs.filter((p) => p.merged && inWindow(p.merged_at)).map((p) => ({ ...p, repo: x.repo })),
+        ),
+        closedUnmerged: per.reduce(
+          (n, x) => n + x.prs.filter((p) => !p.merged && inWindow(p.closed_at)).length,
+          0,
+        ),
+        commits: per.flatMap((x) => x.commits.filter((c) => inWindow(c.created)).map((c) => ({ ...c, repo: x.repo }))),
+        repos: list.length,
+        windowStartMs,
+      }
+    },
+    enabled: !!repos.data,
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+}
+
 export function useDevelopRepos() {
   const ORG = useGiteaOrg()
   return useQuery({
@@ -141,30 +203,43 @@ export function useDiscoverSlos() {
   })
 }
 
+/**
+ * Mesh-wide golden signals from Cilium Hubble's L7 metrics — the platform's
+ * service mesh is Cilium, so request rate, 5xx share and p95 come from the
+ * Envoy-observed HTTP flows Hubble exports to Prometheus.
+ *
+ * `rps` / `errors` / `p95` are cluster totals (one series each).
+ * `errorsByWorkload` breaks the 5xx share down by destination workload; Hubble
+ * only carries those labels when its `httpV2` metric is configured with
+ * `labelsContext=destination_namespace,destination_workload`, and without them
+ * that query returns a single unlabelled series.
+ */
+const HUBBLE_BY = 'destination_namespace, destination_workload'
+export const GOLDEN_QUERIES = {
+  rps: 'sum(rate(hubble_http_requests_total[5m]))',
+  errors:
+    '100 * sum(rate(hubble_http_responses_total{status=~"5.."}[5m])) / sum(rate(hubble_http_responses_total[5m]))',
+  p95: '1000 * histogram_quantile(0.95, sum by (le) (rate(hubble_http_request_duration_seconds_bucket[5m])))',
+  errorsByWorkload:
+    `100 * sum by (${HUBBLE_BY}) (rate(hubble_http_responses_total{status=~"5.."}[5m]))` +
+    ` / sum by (${HUBBLE_BY}) (rate(hubble_http_responses_total[5m]))`,
+} as const
+
 export function useGoldenSignals() {
+  const range = (q: string) => () => promRange(q, 3_600_000, 60)
   const queries = useQueries({
-    queries: [
-      {
-        queryKey: ['ov', 'lgtm', 'metric', 'rps'],
-        queryFn: () => lgtmClient.queryMetrics('http_requests_per_second', new Date(Date.now() - 3600_000), new Date(), '1m'),
-        refetchInterval: REFRESH_MS,
-      },
-      {
-        queryKey: ['ov', 'lgtm', 'metric', 'errors'],
-        queryFn: () => lgtmClient.queryMetrics('http_5xx_rate', new Date(Date.now() - 3600_000), new Date(), '1m'),
-        refetchInterval: REFRESH_MS,
-      },
-      {
-        queryKey: ['ov', 'lgtm', 'metric', 'p95'],
-        queryFn: () => lgtmClient.queryMetrics('http_request_duration_p95_ms', new Date(Date.now() - 3600_000), new Date(), '1m'),
-        refetchInterval: REFRESH_MS,
-      },
-    ],
+    queries: (['rps', 'errors', 'p95', 'errorsByWorkload'] as const).map((k) => ({
+      queryKey: ['ov', 'hubble', 'golden', k],
+      queryFn: range(GOLDEN_QUERIES[k]),
+      refetchInterval: REFRESH_MS,
+      retry: false,
+    })),
   })
   return {
     rps: queries[0],
     errors: queries[1],
     p95: queries[2],
+    errorsByWorkload: queries[3],
   }
 }
 

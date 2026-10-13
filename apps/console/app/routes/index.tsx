@@ -45,53 +45,56 @@ import {
   BiDashboardsPanel,
   BudgetBulletPanel,
   BusinessKpisPanel,
-  BuildRuntimePanel,
-  CachePerformancePanel,
   CertExpiryPanel,
-  CiliumNetworkFlowPanel,
   CnpgClustersPanel,
   CostTrendPanel,
-  DatabasePoolPanel,
   DefineIssuesPanel,
   DeliverAppsPanel,
   DeployHeatmapPanel,
   DevelopPRsPanel,
   DoraRadarPanel,
-  EngineeringVelocityPanel,
   GiteaRepoMetricsPanel,
   GitOpsSyncPanel,
-  GoldenSignalsPanel,
   IncidentTimelinePanel,
-  IngressTrafficPanel,
   IssueBacklogPanel,
   K8sEventsPanel,
   KafkaBrokersPanel,
-  LatencyDistributionPanel,
-  MtlsCoveragePanel,
   PipelinesPanel,
-  PipelineSuccessTrendPanel,
   PlatformHealthPanel,
   PodRestartsPanel,
-  PrThroughputPanel,
-  QueueDepthPanel,
   RegionSpreadPanel,
   ResourceUtilizationPanel,
-  RuntimePanel,
-  ServiceHealthGridPanel,
   ServiceTopologyPanel,
-  ServiceMeshTrafficPanel,
-  SloPanel,
   SprintProgressPanel,
   StorageTreemapPanel,
-  TeamActivityPanel,
   TenantOverviewPanel,
   TenantUsagePanel,
   ToolsHealthPanel,
+  VulnSummaryPanel,
+} from './_overview-panels.tsx'
+import {
+  BuildRuntimePanel,
+  CachePerformancePanel,
+  CiliumNetworkFlowPanel,
+  DatabasePoolPanel,
+  EngineeringVelocityPanel,
+  GatewayRoutesPanel,
+  GoldenSignalsPanel,
+  LatencyDistributionPanel,
+  MeshSecurityPanel,
+  PipelineSuccessTrendPanel,
+  PrThroughputPanel,
+  QueueDepthPanel,
+  RuntimePanel,
+  ServiceHealthGridPanel,
+  ServiceMeshTrafficPanel,
+  SloPanel,
+  TeamActivityPanel,
+  TetragonPanel,
   TopErrorSourcesPanel,
   TrafficStreamPanel,
-  VulnSummaryPanel,
   WorkflowTriggersPanel,
-} from './_overview-panels.tsx'
+} from './_overview-panels-live.tsx'
 
 export const Route = createFileRoute('/')({
   loader: () => getLayoutData(),
@@ -217,7 +220,7 @@ const PANELS: PanelDef[] = [
   {
     id: 'golden-signals',
     title: 'Golden signals',
-    description: 'RPS, error %, p95 latency across all services — last hour.',
+    description: 'Mesh-wide request rate, 5xx share and p95 latency from Cilium Hubble — last hour.',
     category: 'reliability',
     defaultSize: 'lg',
     render: () => <GoldenSignalsPanel />,
@@ -225,7 +228,7 @@ const PANELS: PanelDef[] = [
   {
     id: 'alerts',
     title: 'Alerts',
-    description: 'Firing + pending alerts from Alertmanager.',
+    description: 'Firing + pending alerts from Prometheus alerting rules.',
     category: 'reliability',
     defaultSize: 'lg',
     render: () => <AlertsPanel />,
@@ -233,7 +236,7 @@ const PANELS: PanelDef[] = [
   {
     id: 'slo-health',
     title: 'SLO health',
-    description: 'Service-level objectives with burn-rate and error-budget.',
+    description: 'Service-level objectives with error-budget remaining.',
     category: 'reliability',
     defaultSize: 'md',
     render: () => <SloPanel />,
@@ -248,8 +251,8 @@ const PANELS: PanelDef[] = [
   },
   {
     id: 'runtime',
-    title: 'Runtime security',
-    description: 'Falco events from the last 6 hours.',
+    title: 'Runtime threats',
+    description: 'Falco detections by priority and top rules — last 24 hours.',
     category: 'security',
     defaultSize: 'md',
     render: () => <RuntimePanel />,
@@ -314,7 +317,7 @@ const PANELS: PanelDef[] = [
   {
     id: 'latency-distribution',
     title: 'Latency distribution',
-    description: 'Request histogram with p50 / p95 / p99 markers.',
+    description: 'HTTP latency histogram with p50 / p95 / p99 from Hubble.',
     category: 'reliability',
     defaultSize: 'md',
     render: () => <LatencyDistributionPanel />,
@@ -330,7 +333,7 @@ const PANELS: PanelDef[] = [
   {
     id: 'team-activity',
     title: 'Team activity',
-    description: 'Day × hour commit heatmap across the org.',
+    description: 'Commits by author across the Gitea org — last 30 days.',
     category: 'lifecycle',
     defaultSize: 'lg',
     render: () => <TeamActivityPanel />,
@@ -354,7 +357,7 @@ const PANELS: PanelDef[] = [
   {
     id: 'traffic-stream',
     title: 'Traffic stream',
-    description: 'Stacked-area RPS by top service over the last hour.',
+    description: 'HTTP responses per second by status class over the last hour.',
     category: 'reliability',
     defaultSize: 'lg',
     render: () => <TrafficStreamPanel />,
@@ -370,7 +373,7 @@ const PANELS: PanelDef[] = [
   {
     id: 'service-health-grid',
     title: 'Service health grid',
-    description: 'Per-service p95 latency tiles with mini sparklines.',
+    description: 'Every Deployment as a tile — ready vs desired replicas.',
     category: 'reliability',
     defaultSize: 'lg',
     render: () => <ServiceHealthGridPanel />,
@@ -394,7 +397,7 @@ const PANELS: PanelDef[] = [
   {
     id: 'engineering-velocity',
     title: 'Engineering velocity',
-    description: 'Two-week flow metrics — PRs merged, deploys, lead time, incidents.',
+    description: 'PRs merged, median cycle time, commit cadence and contributors — 30 days.',
     category: 'lifecycle',
     defaultSize: 'lg',
     render: () => <EngineeringVelocityPanel />,
@@ -418,7 +421,7 @@ const PANELS: PanelDef[] = [
   {
     id: 'build-runtime',
     title: 'CI build duration',
-    description: 'Per-repo box plot of CI build durations over the last 7 days.',
+    description: 'Median Tekton PipelineRun duration per pipeline, with last-run status.',
     category: 'lifecycle',
     defaultSize: 'md',
     render: () => <BuildRuntimePanel />,
@@ -426,7 +429,7 @@ const PANELS: PanelDef[] = [
   {
     id: 'top-error-sources',
     title: 'Top error sources',
-    description: 'Services ranked by 5xx rate over the last hour.',
+    description: 'Workloads ranked by 5xx share of HTTP responses (Hubble).',
     category: 'reliability',
     defaultSize: 'md',
     render: () => <TopErrorSourcesPanel />,
@@ -434,15 +437,15 @@ const PANELS: PanelDef[] = [
   {
     id: 'cache-performance',
     title: 'Cache performance',
-    description: 'Hit ratio and miss/eviction stats across the platform cache fleet.',
+    description: 'Valkey / Redis ops, hit ratio, memory and evictions.',
     category: 'reliability',
     defaultSize: 'md',
     render: () => <CachePerformancePanel />,
   },
   {
     id: 'database-pool',
-    title: 'Database pool',
-    description: 'Per-database connection utilization and slow query counters.',
+    title: 'Database connections',
+    description: 'CloudNativePG backends vs max_connections, waiting sessions and replica lag.',
     category: 'reliability',
     defaultSize: 'md',
     render: () => <DatabasePoolPanel />,
@@ -450,7 +453,7 @@ const PANELS: PanelDef[] = [
   {
     id: 'queue-depth',
     title: 'Queue depth',
-    description: 'Kafka consumer-group lag for the busiest topics.',
+    description: 'Kafka clusters and topics; consumer lag once Kafka Exporter is enabled.',
     category: 'reliability',
     defaultSize: 'md',
     render: () => <QueueDepthPanel />,
@@ -466,7 +469,7 @@ const PANELS: PanelDef[] = [
   {
     id: 'pod-restarts',
     title: 'Pod restarts',
-    description: 'Pods with the highest restart counts in the last 24 hours.',
+    description: 'Pods with the highest container restart counts.',
     category: 'reliability',
     defaultSize: 'md',
     render: () => <PodRestartsPanel />,
@@ -514,7 +517,7 @@ const PANELS: PanelDef[] = [
   {
     id: 'pr-throughput',
     title: 'PR throughput',
-    description: 'Cycle-time histogram + reviewer load over the last 7 days.',
+    description: 'Pull requests merged per week with median cycle time — 8 weeks.',
     category: 'lifecycle',
     defaultSize: 'md',
     render: () => <PrThroughputPanel />,
@@ -578,7 +581,7 @@ const PANELS: PanelDef[] = [
   {
     id: 'pipeline-success',
     title: 'Pipeline success',
-    description: 'Daily pass/fail volume + flaky-rate trend across all workflows.',
+    description: 'Daily passed / failed Tekton PipelineRuns and success rate — 14 days.',
     category: 'lifecycle',
     defaultSize: 'md',
     render: () => <PipelineSuccessTrendPanel />,
@@ -586,7 +589,7 @@ const PANELS: PanelDef[] = [
   {
     id: 'workflow-triggers',
     title: 'Pipeline triggers',
-    description: 'Run distribution by trigger source + top WorkflowTemplates.',
+    description: 'Tekton EventListeners, their triggers and runs fired in the last 7 days.',
     category: 'lifecycle',
     defaultSize: 'md',
     render: () => <WorkflowTriggersPanel />,
@@ -594,7 +597,7 @@ const PANELS: PanelDef[] = [
   {
     id: 'cilium-flows',
     title: 'Cilium network flows',
-    description: 'Hubble top talkers, dropped packets, and network-policy posture.',
+    description: 'Hubble flow rate, drop reasons and CiliumNetworkPolicy counts.',
     category: 'reliability',
     defaultSize: 'md',
     render: () => <CiliumNetworkFlowPanel />,
@@ -602,26 +605,34 @@ const PANELS: PanelDef[] = [
   {
     id: 'mesh-traffic',
     title: 'Service mesh traffic',
-    description: 'Per-service request rate, p50/p95/p99 latency, error rate.',
+    description: 'Cilium L7 request rate, p50/p95/p99, status mix and methods.',
     category: 'reliability',
     defaultSize: 'md',
     render: () => <ServiceMeshTrafficPanel />,
   },
   {
     id: 'mtls-coverage',
-    title: 'mTLS coverage',
-    description: 'SPIFFE identity status, encryption posture, cert renewal urgency.',
+    title: 'Mesh security',
+    description: 'Cilium transparent encryption, SPIFFE mutual auth and policy-enforcement coverage.',
     category: 'security',
     defaultSize: 'md',
-    render: () => <MtlsCoveragePanel />,
+    render: () => <MeshSecurityPanel />,
+  },
+  {
+    id: 'tetragon-runtime',
+    title: 'Runtime enforcement',
+    description: 'Tetragon TracingPolicies, process events and policy hits by workload — 24 hours.',
+    category: 'security',
+    defaultSize: 'md',
+    render: () => <TetragonPanel />,
   },
   {
     id: 'ingress-traffic',
-    title: 'Ingress traffic',
-    description: 'Top edge routes by RPS, p95 latency, status-code mix.',
+    title: 'Gateway routes',
+    description: 'Gateway API HTTPRoutes and Gateways — accepted status per route.',
     category: 'reliability',
     defaultSize: 'md',
-    render: () => <IngressTrafficPanel />,
+    render: () => <GatewayRoutesPanel />,
   },
 ]
 
@@ -1813,7 +1824,9 @@ function CompliancePanel() {
         }
         description={
           s.nodes.total > 0
-            ? `${s.nodes.total - s.nodes.ready} unavailable · auto-scaler online`
+            ? s.nodes.total === s.nodes.ready
+              ? 'Every node is Ready.'
+              : `${s.nodes.total - s.nodes.ready} node${s.nodes.total - s.nodes.ready === 1 ? '' : 's'} not Ready`
             : 'No nodes reported by the apiserver yet.'
         }
       />

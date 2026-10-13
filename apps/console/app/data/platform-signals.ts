@@ -31,12 +31,21 @@ const GVR = {
   cnpgScheduledBackups: { group: 'postgresql.cnpg.io', version: 'v1', resource: 'scheduledbackups', namespaced: true },
   cnpgBackups: { group: 'postgresql.cnpg.io', version: 'v1', resource: 'backups', namespaced: true },
   veleroBackups: { group: 'velero.io', version: 'v1', resource: 'backups', namespaced: true },
-  kafkas: { group: 'kafka.strimzi.io', version: 'v1beta2', resource: 'kafkas', namespaced: true },
-  kafkaTopics: { group: 'kafka.strimzi.io', version: 'v1beta2', resource: 'kafkatopics', namespaced: true },
+  // Strimzi 1.0 serves only `v1`; older operators only `v1beta2`. The hooks
+  // try v1 first and fall back (see useGenericAnyVersion).
+  kafkas: { group: 'kafka.strimzi.io', version: 'v1', resource: 'kafkas', namespaced: true },
+  kafkaTopics: { group: 'kafka.strimzi.io', version: 'v1', resource: 'kafkatopics', namespaced: true },
   workflows: { group: 'argoproj.io', version: 'v1alpha1', resource: 'workflows', namespaced: true },
   ciliumPolicies: { group: 'cilium.io', version: 'v2', resource: 'ciliumnetworkpolicies', namespaced: true },
   ciliumClusterPolicies: { group: 'cilium.io', version: 'v2', resource: 'ciliumclusterwidenetworkpolicies', namespaced: false },
-  istioPeerAuth: { group: 'security.istio.io', version: 'v1beta1', resource: 'peerauthentications', namespaced: true },
+  // The platform mesh is Cilium: encryption state lives on CiliumNodes.
+  ciliumNodes: { group: 'cilium.io', version: 'v2', resource: 'ciliumnodes', namespaced: false },
+  kafkaNodePools: { group: 'kafka.strimzi.io', version: 'v1', resource: 'kafkanodepools', namespaced: true },
+  // CI is Tekton (pipelines + triggers); ingress is Gateway API on Cilium.
+  pipelineRuns: { group: 'tekton.dev', version: 'v1', resource: 'pipelineruns', namespaced: true },
+  eventListeners: { group: 'triggers.tekton.dev', version: 'v1beta1', resource: 'eventlisteners', namespaced: true },
+  httpRoutes: { group: 'gateway.networking.k8s.io', version: 'v1', resource: 'httproutes', namespaced: true },
+  gateways: { group: 'gateway.networking.k8s.io', version: 'v1', resource: 'gateways', namespaced: true },
   resourceQuotas: { group: '', version: 'v1', resource: 'resourcequotas', namespaced: true },
   endpoints: { group: '', version: 'v1', resource: 'endpoints', namespaced: true },
   certificates: { group: 'cert-manager.io', version: 'v1', resource: 'certificates', namespaced: true },
@@ -62,6 +71,31 @@ type Gvr = (typeof GVR)[keyof typeof GVR]
  * exception — it is a metrics API, not a watchable resource, so it keeps its
  * timer.
  */
+/**
+ * `useGeneric` for a CRD whose served version moved between operator releases:
+ * list at each version in turn and keep the first the API server answers.
+ * Only if every version fails is the panel's error the first one's.
+ */
+function useGenericAnyVersion(key: string, gvr: Gvr, versions: string[], refetch = REFRESH_MS) {
+  const queryKey = ['ov', 'k8s', key]
+  return useQuery({
+    queryKey,
+    queryFn: async () => {
+      let first: unknown
+      for (const version of versions) {
+        try {
+          return await client.listGeneric(undefined, { ...gvr, version })
+        } catch (e) {
+          first ??= e
+        }
+      }
+      throw first
+    },
+    refetchInterval: useLiveRefetch(gvr, [queryKey], refetch),
+    retry: false,
+  })
+}
+
 function useGeneric(key: string, gvr: Gvr, refetch = REFRESH_MS, watchable = true) {
   const queryKey = ['ov', 'k8s', key]
   return useQuery({
@@ -187,11 +221,11 @@ export function useCnpgBackups() {
 }
 
 export function useKafkas() {
-  return useGeneric('kafkas', GVR.kafkas)
+  return useGenericAnyVersion('kafkas', GVR.kafkas, ['v1', 'v1beta2'])
 }
 
 export function useKafkaTopics() {
-  return useGeneric('kafka-topics', GVR.kafkaTopics)
+  return useGenericAnyVersion('kafka-topics', GVR.kafkaTopics, ['v1', 'v1beta2'])
 }
 
 export function useWorkflows() {
@@ -206,11 +240,30 @@ export function useCiliumClusterPolicies() {
   return useGeneric('cilium-cluster-policies', GVR.ciliumClusterPolicies)
 }
 
-export function useIstioPeerAuth() {
-  return useGeneric('istio-peerauth', GVR.istioPeerAuth)
+export function useCiliumNodes() {
+  return useGeneric('cilium-nodes', GVR.ciliumNodes)
 }
 
-/** cert-manager Certificates — real TLS certs with `status.notAfter` expiry. */
+export function useKafkaNodePools() {
+  return useGenericAnyVersion('kafka-node-pools', GVR.kafkaNodePools, ['v1', 'v1beta2'])
+}
+
+export function usePipelineRuns() {
+  return useGeneric('tekton-pipelineruns', GVR.pipelineRuns)
+}
+
+export function useEventListeners() {
+  return useGeneric('tekton-eventlisteners', GVR.eventListeners)
+}
+
+export function useHttpRoutes() {
+  return useGeneric('gateway-httproutes', GVR.httpRoutes)
+}
+
+export function useGateways() {
+  return useGeneric('gateway-gateways', GVR.gateways)
+}
+
 export function useCertificates() {
   return useGeneric('certificates', GVR.certificates)
 }

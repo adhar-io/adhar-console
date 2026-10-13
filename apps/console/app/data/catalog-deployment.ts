@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { argocd, kargo } from '@adhar/api-clients'
 import type { Entity } from './catalog.ts'
 
@@ -41,6 +41,15 @@ const ENV_SUFFIXES = [
   'canary',
   'sandbox',
 ] as const
+
+/**
+ * The platform's canonical environments, in promotion order.
+ *
+ * These mirror `globals.PlatformEnvironmentsCSV` in the platform repo and the
+ * Kargo stages bootstrap creates in the `adhar-environments` project, which is
+ * what an environment IS here: dev is promoted to test, and test to prod.
+ */
+export const PLATFORM_ENVIRONMENTS = ['dev', 'test', 'prod'] as const
 
 const WORKLOAD_KINDS = new Set(['Deployment', 'Rollout', 'StatefulSet', 'DaemonSet', 'Job', 'CronJob', 'KService'])
 
@@ -90,6 +99,35 @@ function envRank(key: string): number {
   return 6
 }
 
+/**
+ * The environment an Application belongs to, or `undefined` when nothing says.
+ *
+ * Authority order — the platform's own declaration first, then convention:
+ *
+ *   1. `adhar.io/environment`, which the control-plane compositions stamp on
+ *      everything they compose. If it is present it is the answer.
+ *   2. The environment suffix on the app NAME (`my-service-dev`), already
+ *      matched by `matchName` and passed in as `nameSuffix`.
+ *   3. An environment segment in the namespace the workload actually runs in
+ *      (`shop-prod`, `prod-shop`, or exactly `prod`).
+ *
+ * It returns `undefined` rather than guessing, and that is the point. This
+ * used to fall back to the NAMESPACE itself, which answers a different
+ * question — "where does this run" written into a field that means "which
+ * environment is this". Because every platform package runs in `adhar-system`,
+ * a scaffolded service's bootstrap app reports `default`, and the org's home
+ * namespace is `adhar`, the Deployment tab listed `Adhar-system`, `Default`
+ * and `Adhar` beside the real dev/test/prod as though they were stages of a
+ * promotion pipeline. They are not environments at all.
+ */
+export function environmentOf(app: argocd.Application, nameSuffix?: string): string | undefined {
+  const declared = (app.metadata.labels?.['adhar.io/environment'] ?? '').trim().toLowerCase()
+  if (declared) return declared
+  if (nameSuffix) return nameSuffix
+  const ns = workloadNamespace(app).toLowerCase()
+  return ENV_SUFFIXES.find((s) => ns === s || ns.endsWith(`-${s}`) || ns.startsWith(`${s}-`))
+}
+
 export interface EntityEnvironment {
   /** Environment key derived from the app-name suffix or destination namespace. */
   key: string
@@ -102,6 +140,12 @@ export interface EntityDeployment {
   apps: argocd.Application[]
   /** Apps grouped into ordered environments (prod → dev). */
   environments: EntityEnvironment[]
+  /**
+   * Matched apps that belong to no environment — the platform's own singletons
+   * and a scaffolded service's bootstrap app. Reported separately so they are
+   * never drawn as if they were stages of a promotion pipeline.
+   */
+  unscoped: argocd.Application[]
   /** The primary app (prod if present, else the first match). */
   primary: argocd.Application | undefined
   isLoading: boolean
@@ -146,24 +190,18 @@ export function deriveDeployment(
     }
   }
 
-  // Derive an environment key per app: name suffix first, else destination
-  // namespace suffix, else "default".
-  const environments: EntityEnvironment[] = matched
-    .map(({ app, env }) => {
-      let key = env
-      if (!key) {
-        const where = workloadNamespace(app)
-        const ns = where.toLowerCase()
-        key =
-          ENV_SUFFIXES.find((s) => ns === s || ns.endsWith(`-${s}`) || ns.startsWith(`${s}-`)) ??
-          // Nothing in the name or namespace says which environment this is
-          // (the service's bootstrap app, say). Label it by where it actually
-          // runs — the destination ("default") is often not that place.
-          (where || app.metadata.name)
-      }
-      return { key, label: envLabel(key), app }
-    })
-    .sort((a, b) => envRank(a.key) - envRank(b.key) || a.label.localeCompare(b.label))
+  // Split the matched apps into the ones whose environment is KNOWN and the
+  // ones that simply do not have one. Nothing is guessed — see `environmentOf`.
+  const scoped: EntityEnvironment[] = []
+  const unscoped: argocd.Application[] = []
+  for (const { app, env } of matched) {
+    const key = environmentOf(app, env)
+    if (key) scoped.push({ key, label: envLabel(key), app })
+    else unscoped.push(app)
+  }
+  const environments = scoped.sort(
+    (a, b) => envRank(a.key) - envRank(b.key) || a.label.localeCompare(b.label),
+  )
 
   const apps = matched.map((m) => m.app)
   const primary =
@@ -172,6 +210,7 @@ export function deriveDeployment(
   return {
     apps,
     environments,
+    unscoped,
     primary,
     isLoading: state.isLoading,
     isError: state.isError,
@@ -309,4 +348,104 @@ export function kargoEnvironments(stages: readonly kargo.Stage[] | undefined, de
     })?.app
     return { stage, label: envLabel(stage.name), index, app }
   })
+}
+
+/* ─────────── Kargo freight + promotion actions ─────────── */
+
+/**
+ * Every freight in the project, newest first. Needed to offer a promotion:
+ * a Promotion names the freight it carries, so a UI that cannot list freight
+ * can only ever show history.
+ */
+export function useKargoFreight(project: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['catalog', 'kargo', 'freight', project ?? ''],
+    queryFn: () => kargoClient.listFreight(project ?? ''),
+    enabled: enabled && Boolean(project),
+    staleTime: REFRESH_MS,
+    refetchInterval: enabled && project ? REFRESH_MS : false,
+    retry: 1,
+  })
+}
+
+/** Promotions in the project, newest first — the chain's recent history. */
+export function useKargoPromotions(project: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['catalog', 'kargo', 'promotions', project ?? ''],
+    queryFn: () => kargoClient.listPromotions(project ?? ''),
+    enabled: enabled && Boolean(project),
+    staleTime: REFRESH_MS,
+    refetchInterval: enabled && project ? REFRESH_MS : false,
+    retry: 1,
+  })
+}
+
+/**
+ * The freight `stage` may be promoted to, newest first.
+ *
+ * Kargo's rule, not ours: a stage accepts freight its UPSTREAM has verified,
+ * or freight a human has explicitly approved for it (the manual override that
+ * exists for exactly the case where verification cannot run). An entry stage
+ * has no upstream and takes whatever its warehouse has discovered.
+ *
+ * Freight already current on the stage is excluded — promoting a stage to what
+ * it is already running is a no-op that reads as a broken button.
+ */
+export function promotableFreight(
+  stage: kargo.Stage,
+  freight: readonly kargo.Freight[] | undefined,
+): kargo.Freight[] {
+  if (!freight?.length) return []
+  const ups = stage.upstream ?? []
+  return freight.filter((f) => {
+    if (f.id === stage.currentFreight) return false
+    if ((f.approvedFor ?? []).includes(stage.name)) return true
+    if (!ups.length) return !stage.warehouse || f.warehouse === stage.warehouse
+    return ups.some((u) => (f.verifiedIn ?? []).includes(u))
+  })
+}
+
+/** Short, stable label for a freight: its alias if Kargo gave it one, else a short id. */
+export function freightLabel(f: kargo.Freight): string {
+  return f.alias ?? f.id.slice(0, 12)
+}
+
+/** The image tags a freight carries, for telling two candidates apart. */
+export function freightTags(f: kargo.Freight): string {
+  return f.images.map((i) => i.tag).filter(Boolean).join(', ')
+}
+
+/**
+ * The write half of the promotion chain: promote, abort, approve, refresh.
+ *
+ * Every mutation invalidates the Kargo queries it affects rather than patching
+ * the cache — Kargo's own controller is what moves a stage, so the authority is
+ * always the next read, never an optimistic guess about what it will decide.
+ */
+export function useKargoActions(project: string | undefined) {
+  const qc = useQueryClient()
+  const invalidate = () => {
+    for (const k of ['stages', 'freight', 'promotions']) {
+      void qc.invalidateQueries({ queryKey: ['catalog', 'kargo', k] })
+    }
+  }
+  const promote = useMutation({
+    mutationFn: ({ stage, freight }: { stage: string; freight: string }) =>
+      kargoClient.promote(project ?? '', stage, freight),
+    onSuccess: invalidate,
+  })
+  const abort = useMutation({
+    mutationFn: ({ promotion }: { promotion: string }) => kargoClient.abortPromotion(project ?? '', promotion),
+    onSuccess: invalidate,
+  })
+  const approve = useMutation({
+    mutationFn: ({ stage, freight }: { stage: string; freight: string }) =>
+      kargoClient.approveFreight(project ?? '', freight, stage),
+    onSuccess: invalidate,
+  })
+  const refresh = useMutation({
+    mutationFn: ({ stage }: { stage: string }) => kargoClient.refreshStage(project ?? '', stage),
+    onSuccess: invalidate,
+  })
+  return { promote, abort, approve, refresh }
 }

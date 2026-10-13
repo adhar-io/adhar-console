@@ -45,8 +45,13 @@ import { parseApiDefinition, type ParsedApi, type SourceStatus } from '~/data/ca
 import {
   deriveDeployment,
   type EntityDeployment,
+  freightLabel,
+  freightTags,
   kargoEnvironments,
   type KargoEnvironment,
+  promotableFreight,
+  useKargoActions,
+  useKargoFreight,
   useKargoStages,
   type EntityEnvironment,
   useDeploymentIndex,
@@ -58,7 +63,8 @@ import {
 import { type EntityRoute, routeLabel, useEntityRoutes } from '~/data/catalog-routes.ts'
 import { type PipelineRunSummary, usePipelineRuns } from '~/data/catalog-pipelines.ts'
 import { describeProgress } from '../data/pipeline-progress.ts'
-import { type DocPage, type DocsSource, editUrl, headingOf, rawBase, useDocPage, useDocsPages, useDocsSource } from '~/data/catalog-docs.ts'
+import { type DocPage, type DocsSource, editUrl, headingOf, rawBase, repoFileUrl, type RepoTechScan, useDocPage, useDocsPages, useDocsSource, useRepoTechStack } from '~/data/catalog-docs.ts'
+import type { DetectedTech } from '~/data/catalog-techstack.ts'
 import { useDiscoverAlerts } from '~/data/cross-module-signals.ts'
 import { DeleteEntityDialog } from '~/components/catalog-delete.tsx'
 import {
@@ -2671,14 +2677,20 @@ type TechTone =
   | 'slate'
 
 /** Where a technology sits in the stack — drives grouping on the detail tab. */
-type TechGroup = 'language' | 'framework' | 'datastore' | 'runtime' | 'platform'
+type TechGroup = 'language' | 'framework' | 'datastore' | 'runtime' | 'build' | 'platform'
 
 interface TechBadge {
   label: string
   tone: TechTone
   group: TechGroup
-  /** A version, when the tag or annotation carried one (`java-21` → "21"). */
+  /** A version, when the tag, annotation or a build file carried one (`java-21` → "21"). */
   version?: string
+  /** Repository path the version was read from (`pom.xml`), when the repo scan found it. */
+  file?: string
+  /** How the file says it — `<parent> spring-boot-starter-parent`, `engines.node >=20`. */
+  detail?: string
+  /** Other versions recorded elsewhere that disagree (a tag, the Dockerfile's base image). */
+  also?: Array<{ version: string; from: string; file?: boolean }>
 }
 
 /**
@@ -2726,15 +2738,17 @@ const TECH_GROUP_LABEL: Record<TechGroup, string> = {
   framework: 'Frameworks & libraries',
   datastore: 'Data & messaging',
   runtime: 'Runtime & packaging',
+  build: 'Build tooling',
   platform: 'Platform & delivery',
 }
-const TECH_GROUP_ORDER: TechGroup[] = ['language', 'framework', 'datastore', 'runtime', 'platform']
+const TECH_GROUP_ORDER: TechGroup[] = ['language', 'framework', 'datastore', 'runtime', 'build', 'platform']
 
 /**
  * Known language / framework tags → a recognisable, brand-ish badge. Keys are
  * the lowercased tag values `catalog-live.ts` derives from a repo's primary
- * language (`['java','repo']`, `['python','ml']`) or `adhar.io/tags`. Anything
- * not in here is treated as a generic tag — never guessed at.
+ * language (`['java','repo']`, `['python','ml']`) or `adhar.io/tags`, and the
+ * keys the repository scan (`catalog-techstack.ts`) reports. Anything not in
+ * here is treated as a generic tag — never guessed at.
  */
 const TECH_MAP: Record<string, TechBadge> = {
   // ── languages ──
@@ -2757,13 +2771,17 @@ const TECH_MAP: Record<string, TechBadge> = {
   elixir: { label: 'Elixir', tone: 'violet', group: 'language' },
   shell: { label: 'Shell', tone: 'slate', group: 'language' },
   bash: { label: 'Shell', tone: 'slate', group: 'language' },
+  // Language runtimes sit with their language: "Node.js 20" is what a reader
+  // means by "which JavaScript".
+  node: { label: 'Node.js', tone: 'green', group: 'language' },
+  nodejs: { label: 'Node.js', tone: 'green', group: 'language' },
+  'node.js': { label: 'Node.js', tone: 'green', group: 'language' },
+  deno: { label: 'Deno', tone: 'slate', group: 'language' },
   // ── frameworks & libraries ──
   spring: { label: 'Spring', tone: 'green', group: 'framework' },
   'spring-boot': { label: 'Spring Boot', tone: 'green', group: 'framework' },
   springboot: { label: 'Spring Boot', tone: 'green', group: 'framework' },
-  node: { label: 'Node.js', tone: 'green', group: 'framework' },
-  nodejs: { label: 'Node.js', tone: 'green', group: 'framework' },
-  'node.js': { label: 'Node.js', tone: 'green', group: 'framework' },
+  'spring-cloud': { label: 'Spring Cloud', tone: 'green', group: 'framework' },
   express: { label: 'Express', tone: 'slate', group: 'framework' },
   react: { label: 'React', tone: 'cyan', group: 'framework' },
   vue: { label: 'Vue', tone: 'emerald', group: 'framework' },
@@ -2782,6 +2800,18 @@ const TECH_MAP: Record<string, TechBadge> = {
   micronaut: { label: 'Micronaut', tone: 'cyan', group: 'framework' },
   grpc: { label: 'gRPC', tone: 'teal', group: 'framework' },
   graphql: { label: 'GraphQL', tone: 'rose', group: 'framework' },
+  angular: { label: 'Angular', tone: 'red', group: 'framework' },
+  nestjs: { label: 'NestJS', tone: 'rose', group: 'framework' },
+  fastify: { label: 'Fastify', tone: 'slate', group: 'framework' },
+  gin: { label: 'Gin', tone: 'cyan', group: 'framework' },
+  echo: { label: 'Echo', tone: 'cyan', group: 'framework' },
+  fiber: { label: 'Fiber', tone: 'cyan', group: 'framework' },
+  actix: { label: 'Actix Web', tone: 'orange', group: 'framework' },
+  axum: { label: 'Axum', tone: 'orange', group: 'framework' },
+  rocket: { label: 'Rocket', tone: 'orange', group: 'framework' },
+  laravel: { label: 'Laravel', tone: 'red', group: 'framework' },
+  symfony: { label: 'Symfony', tone: 'slate', group: 'framework' },
+  phoenix: { label: 'Phoenix', tone: 'orange', group: 'framework' },
   // ── data & messaging ──
   postgres: { label: 'PostgreSQL', tone: 'blue', group: 'datastore' },
   postgresql: { label: 'PostgreSQL', tone: 'blue', group: 'datastore' },
@@ -2806,6 +2836,12 @@ const TECH_MAP: Record<string, TechBadge> = {
   kustomize: { label: 'Kustomize', tone: 'indigo', group: 'runtime' },
   serverless: { label: 'Serverless', tone: 'violet', group: 'runtime' },
   knative: { label: 'Knative', tone: 'violet', group: 'runtime' },
+  // ── build tooling ──
+  maven: { label: 'Maven', tone: 'rose', group: 'build' },
+  gradle: { label: 'Gradle', tone: 'teal', group: 'build' },
+  npm: { label: 'npm', tone: 'red', group: 'build' },
+  pnpm: { label: 'pnpm', tone: 'amber', group: 'build' },
+  yarn: { label: 'Yarn', tone: 'sky', group: 'build' },
   // ── platform & delivery ──
   kubernetes: { label: 'Kubernetes', tone: 'blue', group: 'platform' },
   k8s: { label: 'Kubernetes', tone: 'blue', group: 'platform' },
@@ -2873,6 +2909,37 @@ function techStack(entity: Entity): TechBadge[] {
     else if (!cur.version && m.version) byLabel.set(hit.label, { ...hit, version: m.version })
   }
   return [...byLabel.values()]
+}
+
+/**
+ * Fold what the repository's build files say into the catalog's own stack.
+ * A build file is the ground truth for a version (it is what compiles), so
+ * its number replaces a tag's; a tag or annotation that disagrees is kept
+ * under `also` rather than silently dropped. Techs only the repository knows
+ * about (Maven, the Dockerfile's base image) are added.
+ */
+function withRepoTech(stack: TechBadge[], detected: DetectedTech[] | undefined): TechBadge[] {
+  if (!detected?.length) return stack
+  const out = [...stack]
+  for (const d of detected) {
+    const hit = TECH_MAP[d.key]
+    if (!hit) continue
+    const also = d.also.map((a) => ({ version: a.version, from: a.source, file: true }))
+    const i = out.findIndex((b) => b.label === hit.label)
+    if (i < 0) {
+      out.push({ ...hit, version: d.version, file: d.source, detail: d.detail, also })
+      continue
+    }
+    const cur = out[i]
+    if (!d.version) {
+      // The repo confirms the tech but not its version — keep the catalog's, note the file.
+      if (!cur.version) out[i] = { ...cur, file: d.source, detail: d.detail }
+      continue
+    }
+    const fromCatalog = cur.version && cur.version !== d.version && !cur.file ? [{ version: cur.version, from: 'catalog tag / annotation' }] : []
+    out[i] = { ...cur, version: d.version, file: d.source, detail: d.detail, also: [...fromCatalog, ...also] }
+  }
+  return out
 }
 
 function TechPill({ badge }: { badge: TechBadge }) {
@@ -3803,7 +3870,11 @@ function EntityDrawer({
       ? catalog.filter((e) => (e.spec.consumesApis ?? []).includes(selfRef))
       : []
 
-  const stack = techStack(entity)
+  // Tags and annotations, then whatever the repository's build files add —
+  // that is where the Java and Spring Boot versions actually live.
+  const giteaPublic = useToolPublicUrl('gitea')
+  const repoTech = useRepoTechStack(entity, giteaPublic)
+  const stack = useMemo(() => withRepoTech(techStack(entity), repoTech.data?.tech), [entity, repoTech.data])
   const generics = genericTags(entity)
   const version = entityVersion(entity)
   const health = entityHealth(entity, score)
@@ -3811,6 +3882,12 @@ function EntityDrawer({
   // Controlled so a link inside one panel can move the reader to another —
   // "Read here →" on the tech-stack panel opens the docs tab in place.
   const [tab, setTab] = useState<DrawerTab>(initialTab ?? 'overview')
+  // TechDocs can widen the drawer for reading; the choice is remembered.
+  const [docsWide, setDocsWide] = useState(() => readDocsLayout().wide ?? false)
+  const setWide = (next: boolean) => {
+    setDocsWide(next)
+    writeDocsLayout({ wide: next })
+  }
   // A menu action on another card while this drawer is open asks for a tab;
   // plain navigation between entities keeps the tab you were on.
   useEffect(() => {
@@ -3942,7 +4019,12 @@ function EntityDrawer({
         className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
-      <aside className="relative flex h-full w-full max-w-4xl flex-col overflow-hidden bg-surface-canvas shadow-2xl sm:border-l sm:border-edge-default">
+      <aside
+        className={cn(
+          'relative flex h-full w-full flex-col overflow-hidden bg-surface-canvas shadow-2xl transition-[max-width] duration-200 ease-out sm:border-l sm:border-edge-default',
+          effectiveTab === 'docs' && docsWide ? 'max-w-[min(100rem,calc(100vw-3rem))]' : 'max-w-4xl',
+        )}
+      >
         {/*
           The header is the drawer's anchor: it stays while the tabs change under
           it, so it carries a tint of its own. Flat and borderless, it read as
@@ -4244,13 +4326,14 @@ function EntityDrawer({
                     stack={stack}
                     version={version}
                     entity={entity}
+                    scan={{ source: repoTech.source, data: repoTech.data, isLoading: repoTech.isLoading, isError: repoTech.isError }}
                     docsUrl={docsUrl}
                     deployment={showDeploy ? deployment : undefined}
                     onOpenDocs={() => setTab('docs')}
                   />
                 ) : null}
 
-                {active === 'docs' ? <TechDocsTab url={docsUrl} entity={entity} monitorUrl={monitorUrl} /> : null}
+                {active === 'docs' ? <TechDocsTab url={docsUrl} entity={entity} monitorUrl={monitorUrl} wide={docsWide} onWide={setWide} /> : null}
                 {active === 'metrics' && metricTarget ? (
                   <EntityMetrics target={metricTarget} range={metricRange} onRange={setMetricRange} grafanaUrl={monitorUrl || grafanaBase} />
                 ) : null}
@@ -5876,13 +5959,25 @@ function DeploymentSummary({ deployment, appUrl }: { deployment: EntityDeploymen
           : `${deployment.apps.length} ${deployment.apps.length === 1 ? 'application' : 'applications'}`,
     },
     { label: 'Sync', value: sy, dot: dotFor(argoSyncKind(sy)), sub: r.outOfSync ? `${r.outOfSync} of ${r.total} resources drifted` : r.total ? `${r.total} resources in sync` : 'no resources reported' },
-    { label: 'Environments', value: String(envs.length), sub: envs.map((e) => e.label).slice(0, 3).join(', ') + (envs.length > 3 ? ` +${envs.length - 3}` : '') },
+    {
+      label: 'Environments',
+      value: envs.length ? String(envs.length) : '—',
+      // Zero is the honest answer for the platform's own apps and a scaffolded
+      // service's bootstrap app: they belong to no environment. Saying where
+      // they run instead of naming a namespace "Environment: Adhar-system" is
+      // the whole point of the fix in `environmentOf`.
+      sub: envs.length
+        ? envs.map((e) => e.label).slice(0, 3).join(', ') + (envs.length > 3 ? ` +${envs.length - 3}` : '')
+        : deployment.namespace
+          ? `not environment-scoped · runs in ${deployment.namespace}`
+          : 'not environment-scoped',
+    },
     { label: 'Last sync', value: op?.phase ?? 'none', dot: op ? (op.phase === 'Succeeded' ? 'bg-emerald-500' : op.phase === 'Running' ? 'bg-sky-500 animate-pulse' : 'bg-rose-500') : 'bg-slate-400', sub: op?.finishedAt ? `${relativeTime(op.finishedAt) || formatDate(op.finishedAt)}${op.initiatedBy ? ` · by ${op.initiatedBy}` : ''}` : 'no operation recorded' },
     { label: 'Auto-sync', value: auto ? 'On' : 'Manual', dot: auto ? 'bg-emerald-500' : 'bg-amber-500', sub: auto ? [auto.prune ? 'prune' : null, auto.selfHeal ? 'self-heal' : null].filter(Boolean).join(' · ') || 'no prune, no self-heal' : 'someone has to press Sync' },
   ]
   return (
     <div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-2">
         {tiles.map((t) => (
           <div key={t.label} className="min-w-0 rounded-xl border border-edge-default bg-surface-raised px-3.5 py-3 shadow-sm">
             <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-content-subtle">{t.label}</div>
@@ -5930,11 +6025,23 @@ function commitUrl(repoUrl: string | undefined, rev: string | undefined): string
 }
 
 /**
- * Environments are Kargo stages (dev → test → prod). The chain comes first,
- * each stage with its Kargo health, current freight and last promotion, and
- * the service's Argo CD app for that stage when one matches. The service's
- * Argo CD applications follow as their own section — they are how it is
- * deployed, not a list of environments.
+ * Environments ARE the Kargo promotion chain (dev → test → prod).
+ *
+ * This is the platform's environment model — `globals.PlatformEnvironmentsCSV`
+ * on the CLI side, the Kargo stages bootstrap creates in `adhar-environments`
+ * here — so the chain is always what this section draws, and each stage carries
+ * its Kargo health, current freight, last promotion and the service's Argo CD
+ * app for that stage when one matches.
+ *
+ * The chain is also WRITABLE from here: a stage can be promoted to any freight
+ * its upstream has verified, a running promotion can be aborted, freight can be
+ * approved manually, and a stage can be asked to reconcile. Those writes go
+ * through the k8s gateway as the SIGNED-IN USER, so a viewer simply gets a
+ * permission error instead of a button that silently does nothing.
+ *
+ * A promotion advances the ENVIRONMENT, not this one service — the stage is
+ * shared — and the section says so rather than implying otherwise from a
+ * service's drawer.
  */
 function EnvironmentsGrid(props: {
   deployment: EntityDeployment
@@ -5942,13 +6049,12 @@ function EnvironmentsGrid(props: {
   repoUrl?: string
 }) {
   const stages = useKargoStages()
-  const all = kargoEnvironments(stages.data, props.deployment)
-  // The promotion chain is shown as this service's environments only when the
-  // service is deployed through it; otherwise it is a one-line note.
-  const envs = all.some((e) => e.app) ? all : []
+  const envs = kargoEnvironments(stages.data, props.deployment)
+  const project = envs[0]?.stage.project
+  const promoted = envs.some((e) => e.app)
+  const [promoting, setPromoting] = useState<KargoEnvironment | null>(null)
   return (
     <>
-      {!envs.length && all.length ? <KargoStrip envs={all} name={props.deployment.primary?.metadata.name} /> : null}
       {envs.length ? (
         <DrawerSection
           title={`Environments · ${envs.length}`}
@@ -5957,44 +6063,39 @@ function EnvironmentsGrid(props: {
           <ol className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {envs.map((env, i) => (
               <li key={`${env.stage.project}/${env.stage.name}`} className="relative">
-                <KargoEnvCard env={env} appUrl={props.appUrl} />
+                <KargoEnvCard env={env} appUrl={props.appUrl} onPromote={() => setPromoting(env)} />
                 {i < envs.length - 1 ? (
-                  <span aria-hidden className="absolute -right-2.5 top-1/2 hidden -translate-y-1/2 text-content-subtle xl:block">→</span>
+                  <span
+                    aria-hidden
+                    className="absolute -right-3 top-1/2 hidden -translate-y-1/2 text-base leading-none text-content-subtle xl:block"
+                  >
+                    →
+                  </span>
                 ) : null}
               </li>
             ))}
           </ol>
-          <p className="mt-2 text-[11px] text-content-subtle">
-            Kargo project <span className="font-mono">{envs[0].stage.project}</span> · each stage promotes the freight its upstream has verified.
+          <p className="mt-2.5 text-[11px] leading-relaxed text-content-subtle">
+            Kargo project <span className="font-mono text-content-muted">{project}</span> · each stage
+            promotes the freight its upstream has verified. Promoting advances the whole environment, not
+            only{' '}
+            <code className="font-mono text-content-muted">
+              {props.deployment.primary?.metadata.name ?? 'this service'}
+            </code>
+            .
+            {promoted ? null : ' This service is not deployed through the chain yet — it syncs straight from its Argo CD application.'}
           </p>
         </DrawerSection>
       ) : null}
+      {promoting ? (
+        <PromoteDialog
+          env={promoting}
+          project={project}
+          onClose={() => setPromoting(null)}
+        />
+      ) : null}
       <AppsGrid {...props} titled={envs.length > 0} />
     </>
-  )
-}
-
-/** The platform's Kargo stages, for a service that is not promoted through them. */
-function KargoStrip({ envs, name }: { envs: KargoEnvironment[]; name?: string }) {
-  return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-edge-default bg-surface-raised px-4 py-3 shadow-sm">
-      <span className="text-[11px] font-semibold uppercase tracking-wider text-content-subtle">Platform environments</span>
-      <ol className="flex flex-wrap items-center gap-1.5">
-        {envs.map((env, i) => {
-          const kind = kargoHealthKind(env.stage.health, env.stage.phase)
-          return (
-            <li key={`${env.stage.project}/${env.stage.name}`} className="flex items-center gap-1.5">
-              <StatusBadge kind={kind} className="px-1.5 py-0 text-[10px]">{env.label}</StatusBadge>
-              {i < envs.length - 1 ? <span aria-hidden className="text-content-subtle">→</span> : null}
-            </li>
-          )
-        })}
-      </ol>
-      <span className="min-w-0 flex-1 text-[11px] text-content-muted">
-        {name ? <code className="font-mono">{name}</code> : 'This service'} is not promoted through Kargo yet; it deploys straight from its Argo CD application.
-      </span>
-      <PhaseLink href="/deliver?section=environments">Promotions →</PhaseLink>
-    </div>
   )
 }
 
@@ -6006,20 +6107,47 @@ function kargoHealthKind(h: KargoEnvironment['stage']['health'], phase: KargoEnv
   return 'unknown'
 }
 
-function KargoEnvCard({ env, appUrl }: { env: KargoEnvironment; appUrl(app: ArgoApp): string | undefined }) {
+function KargoEnvCard({
+  env,
+  appUrl,
+  onPromote,
+}: {
+  env: KargoEnvironment
+  appUrl(app: ArgoApp): string | undefined
+  onPromote(): void
+}) {
   const { stage, app } = env
   const kind = kargoHealthKind(stage.health, stage.phase)
   const url = app ? appUrl(app) : undefined
+  const toast = useToast()
+  const { abort, refresh } = useKargoActions(stage.project)
+  const running = Boolean(stage.currentPromotion)
+  const busy = abort.isPending || refresh.isPending
+  const act = async (what: string, run: () => Promise<unknown>) => {
+    try {
+      await run()
+      toast.success(`${what} ${stage.name}`)
+    } catch (e) {
+      toast.error(kargoActionError(what, stage.name, e))
+    }
+  }
   return (
-    <div className="flex h-full min-w-0 flex-col rounded-xl border border-edge-default bg-surface-raised shadow-sm">
+    <div className="flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm transition-shadow hover:shadow-md">
       <div className="flex items-start justify-between gap-2 px-3.5 pt-3">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
-            <span className="inline-flex size-4 items-center justify-center rounded-full bg-brand-600 text-[9px] font-bold text-white">{env.index + 1}</span>
+            <span className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-brand-600 text-[9px] font-bold text-white">
+              {env.index + 1}
+            </span>
             <span className="truncate text-[13px] font-semibold text-content">{env.label}</span>
           </div>
           <div className="mt-0.5 truncate font-mono text-[10px] text-content-subtle">
-            stage {stage.name}{stage.upstream?.length ? ` · from ${stage.upstream.join(', ')}` : stage.warehouse ? ` · from warehouse ${stage.warehouse}` : ''}
+            stage {stage.name}
+            {stage.upstream?.length
+              ? ` · from ${stage.upstream.join(', ')}`
+              : stage.warehouse
+                ? ` · from warehouse ${stage.warehouse}`
+                : ''}
           </div>
         </div>
         <StatusBadge kind={kind} className="shrink-0 px-1.5 py-0 text-[10px]" pulse={kind === 'progressing'}>
@@ -6027,47 +6155,209 @@ function KargoEnvCard({ env, appUrl }: { env: KargoEnvironment; appUrl(app: Argo
         </StatusBadge>
       </div>
       <dl className="mt-2.5 space-y-1.5 px-3.5 pb-3 text-[11px]">
-        <div className="flex items-center justify-between gap-2">
-          <dt className="text-content-subtle">Freight</dt>
+        <div className="flex items-baseline justify-between gap-2">
+          <dt className="shrink-0 text-content-subtle">Freight</dt>
           <dd className="min-w-0 truncate font-mono text-content" title={stage.currentFreight}>
             {stage.currentFreightAlias ?? (stage.currentFreight ? stage.currentFreight.slice(0, 12) : '—')}
           </dd>
         </div>
-        <div className="flex items-center justify-between gap-2">
-          <dt className="text-content-subtle">Last promotion</dt>
-          <dd className="truncate text-content">
+        <div className="flex items-baseline justify-between gap-2">
+          <dt className="shrink-0 text-content-subtle">Last promotion</dt>
+          <dd className="min-w-0 truncate text-right text-content">
             {stage.lastPromoted ? relativeTime(stage.lastPromoted) || formatDate(stage.lastPromoted) : '—'}
-            {stage.lastPromotionPhase ? <span className={cn(stage.lastPromotionPhase === 'Succeeded' ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300')}> · {stage.lastPromotionPhase.toLowerCase()}</span> : null}
+            {stage.lastPromotionPhase ? (
+              <span
+                className={cn(
+                  stage.lastPromotionPhase === 'Succeeded'
+                    ? 'text-emerald-700 dark:text-emerald-300'
+                    : 'text-rose-700 dark:text-rose-300',
+                )}
+              >
+                {' · '}
+                {stage.lastPromotionPhase.toLowerCase()}
+              </span>
+            ) : null}
           </dd>
         </div>
         {stage.verification ? (
-          <div className="flex items-center justify-between gap-2">
-            <dt className="text-content-subtle">Verification</dt>
-            <dd className="truncate text-content">{stage.verification.phase}</dd>
+          <div className="flex items-baseline justify-between gap-2">
+            <dt className="shrink-0 text-content-subtle">Verification</dt>
+            <dd className="min-w-0 truncate text-right text-content">{stage.verification.phase}</dd>
           </div>
         ) : null}
         {stage.currentPromotion ? (
-          <div className="flex items-center justify-between gap-2">
-            <dt className="text-content-subtle">Promoting</dt>
-            <dd className="truncate font-mono text-sky-700 dark:text-sky-300">{stage.currentPromotion}</dd>
+          <div className="flex items-baseline justify-between gap-2">
+            <dt className="shrink-0 text-content-subtle">Promoting</dt>
+            <dd className="min-w-0 truncate text-right font-mono text-sky-700 dark:text-sky-300">
+              {stage.currentPromotion}
+            </dd>
           </div>
         ) : null}
-        {stage.issues?.length ? <p className="truncate text-rose-700 dark:text-rose-300" title={stage.issues.join('\n')}>{stage.issues[0]}</p> : null}
+        {stage.issues?.length ? (
+          <p className="truncate text-rose-700 dark:text-rose-300" title={stage.issues.join('\n')}>
+            {stage.issues[0]}
+          </p>
+        ) : null}
       </dl>
       <div className="mt-auto flex items-center justify-between gap-2 border-t border-edge-subtle bg-surface-sunken/40 px-3.5 py-1.5 text-[10px]">
         {app ? (
-          <>
-            <span className="flex min-w-0 items-center gap-1.5">
-              <StatusBadge kind={argoHealthKind(app.status.health.status)} className="px-1 py-0 text-[9px]">{app.status.health.status}</StatusBadge>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <StatusBadge kind={argoHealthKind(app.status.health.status)} className="px-1 py-0 text-[9px]">
+              {app.status.health.status}
+            </StatusBadge>
+            {url ? (
+              <a
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                className="truncate font-mono text-content-subtle hover:text-brand-700 hover:underline dark:hover:text-brand-300"
+              >
+                {app.metadata.name}
+              </a>
+            ) : (
               <span className="truncate font-mono text-content-subtle">{app.metadata.name}</span>
-            </span>
-            {url ? <a href={url} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 font-medium text-brand-700 hover:underline dark:text-brand-300">Argo CD <IconArrowUpRight /></a> : null}
-          </>
+            )}
+          </span>
         ) : (
-          <span className="text-content-subtle">Deployed from the environments repo</span>
+          <span className="truncate text-content-subtle">Deployed from the environments repo</span>
         )}
+        <span className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => void act('Refreshed', () => refresh.mutateAsync({ stage: stage.name }))}
+            disabled={busy}
+            title="Make Kargo reconcile this stage now"
+            className="rounded px-1.5 py-0.5 font-medium text-content-subtle transition-colors hover:bg-surface-raised hover:text-content disabled:opacity-50"
+          >
+            Refresh
+          </button>
+          {running ? (
+            <button
+              type="button"
+              onClick={() =>
+                void act('Aborted the promotion on', () =>
+                  abort.mutateAsync({ promotion: stage.currentPromotion! }),
+                )
+              }
+              disabled={busy}
+              title="Abort the promotion currently running against this stage"
+              className="rounded px-1.5 py-0.5 font-semibold text-rose-700 transition-colors hover:bg-rose-50 disabled:opacity-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
+            >
+              Abort
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onPromote}
+              title={`Promote freight into ${stage.name}`}
+              className="rounded px-1.5 py-0.5 font-semibold text-brand-700 transition-colors hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-500/10"
+            >
+              Promote…
+            </button>
+          )}
+        </span>
       </div>
     </div>
+  )
+}
+
+/**
+ * A Kargo write refused by RBAC is the common case for a viewer, and
+ * "Failed to fetch" tells them nothing. Name the permission instead.
+ */
+function kargoActionError(what: string, stage: string, e: unknown): string {
+  const status = (e as { status?: number } | undefined)?.status
+  if (status === 403) {
+    return `Not allowed to ${what.toLowerCase().replace(/ed\b/, '')} ${stage} — promoting needs write access to Kargo in this project.`
+  }
+  const msg = e instanceof Error ? e.message : String(e)
+  return `${what} ${stage} failed: ${msg}`
+}
+
+/**
+ * Pick the freight to promote into a stage.
+ *
+ * The candidates are Kargo's, not ours (`promotableFreight`): what the stage's
+ * upstream has verified, or what somebody approved for it explicitly. An empty
+ * list is the honest and common answer for `prod` on a fresh platform — nothing
+ * has been verified in `test` yet — so it explains that rather than showing a
+ * dead dropdown.
+ */
+function PromoteDialog({
+  env,
+  project,
+  onClose,
+}: {
+  env: KargoEnvironment
+  project: string | undefined
+  onClose(): void
+}) {
+  const { stage } = env
+  const freight = useKargoFreight(project)
+  const candidates = useMemo(() => promotableFreight(stage, freight.data), [stage, freight.data])
+  const [choice, setChoice] = useState('')
+  const toast = useToast()
+  const { promote } = useKargoActions(project)
+  const selected = choice || candidates[0]?.id || ''
+  const go = async () => {
+    if (!selected) return
+    try {
+      await promote.mutateAsync({ stage: stage.name, freight: selected })
+      toast.success(`Promoting ${stage.name}`)
+      onClose()
+    } catch (e) {
+      toast.error(kargoActionError('Promoted', stage.name, e))
+    }
+  }
+  return (
+    <Modal open onClose={onClose} title={`Promote ${env.label}`}>
+      <div className="space-y-4">
+        <p className="text-xs leading-relaxed text-content-muted">
+          Creates a Kargo <code className="font-mono">Promotion</code> for stage{' '}
+          <span className="font-mono text-content">{stage.name}</span> in project{' '}
+          <span className="font-mono text-content">{project}</span>. This advances the whole
+          environment.
+        </p>
+        {freight.isLoading ? (
+          <div className="flex items-center gap-2 text-xs text-content-muted">
+            <Spinner /> Reading freight…
+          </div>
+        ) : candidates.length ? (
+          <FormField label="Freight" hint="What the upstream stage has verified, newest first.">
+            <Select value={selected} onChange={(e) => setChoice(e.currentTarget.value)}>
+              {candidates.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {freightLabel(f)}
+                  {freightTags(f) ? ` — ${freightTags(f)}` : ''}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+        ) : (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+            No freight is eligible for <span className="font-mono">{stage.name}</span> yet.
+            {stage.upstream?.length ? (
+              <>
+                {' '}
+                It accepts only what <span className="font-mono">{stage.upstream.join(', ')}</span> has
+                verified — promote and verify upstream first, or approve a freight for this stage in
+                Kargo.
+              </>
+            ) : (
+              <> Its warehouse has not discovered any artifacts yet.</>
+            )}
+          </div>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={() => void go()} disabled={!selected || promote.isPending}>
+            {promote.isPending ? 'Promoting…' : 'Promote'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 
@@ -6982,6 +7272,7 @@ function TechStackTab({
   stack,
   version,
   entity,
+  scan,
   docsUrl,
   deployment,
   onOpenDocs,
@@ -6989,6 +7280,8 @@ function TechStackTab({
   stack: TechBadge[]
   version?: string
   entity: Entity
+  /** The repository build-file scan behind the versions (`useRepoTechStack`). */
+  scan?: { source: DocsSource | null; data?: RepoTechScan; isLoading: boolean; isError: boolean }
   docsUrl?: string
   deployment?: EntityDeployment
   onOpenDocs?: () => void
@@ -7011,24 +7304,44 @@ function TechStackTab({
         : version
           ? 'version-shaped tag'
           : undefined
-  // Which tag or annotation each badge came from, so a wrong version can be
-  // traced to the line that set it.
-  const sourceOf = (b: TechBadge): string => {
+  const scanSrc = scan?.source ?? null
+  const scanAt = scanSrc && scan?.data ? { ...scanSrc, ref: scan.data.ref } : scanSrc
+  const fileLink = (path: string, className?: string) => {
+    const href = scanAt ? repoFileUrl(scanAt, path) : undefined
+    return href ? (
+      <a href={href} target="_blank" rel="noreferrer" className={cn('font-mono text-brand-700 hover:underline dark:text-brand-300', className)} title={`Open ${path}`}>{path}</a>
+    ) : (
+      <span className={cn('font-mono', className)}>{path}</span>
+    )
+  }
+  // Which file, tag or annotation each badge came from, so a wrong version
+  // can be traced to the line that set it.
+  const sourceOf = (b: TechBadge): React.ReactNode => {
+    if (b.file) return <>{fileLink(b.file)}{b.detail ? <span className="text-content-subtle"> · {b.detail}</span> : null}</>
     const tag = (entity.metadata.tags ?? []).find((t) => TECH_MAP[parseTechTag(t).key]?.label === b.label)
     if (tag && (!b.version || parseTechTag(tag).version)) return `tag ${tag}`
     const fromAnn = techFromAnnotations(entity).find((m) => TECH_MAP[m.key]?.label === b.label)
     if (fromAnn) return fromAnn.version ? 'adhar.io/tech-stack' : 'annotation'
     return tag ? `tag ${tag}` : 'catalog'
   }
+  const withVersion = (list: TechBadge[]) => list.map((b) => (b.version ? `${b.label} ${b.version}` : b.label)).join(', ')
+  // The tile's subline names the file the first versioned item came from — "from pom.xml" answers "says who?".
+  const tileSub = (list: TechBadge[], noun: string) => {
+    if (!list.length) return scan?.isLoading ? 'reading the repository…' : `no ${noun} found`
+    const n = list.filter((b) => b.version).length
+    const file = list.find((b) => b.version && b.file)?.file
+    return file ? `from ${file.split('/').pop()}${n < list.length ? ` · ${n}/${list.length} versioned` : ''}` : `${n}/${list.length} with a version`
+  }
   const envImages = (deployment?.environments ?? []).map((e) => ({ env: e.label, app: e.app.metadata.name, images: e.app.status.images }))
   const anyImages = envImages.some((e) => e.images.length)
 
   const tiles: Array<{ label: string; value: string; sub: string }> = [
-    { label: 'Languages', value: languages.length ? languages.map((b) => b.label).join(', ') : '—', sub: languages.length ? `${languages.filter((b) => b.version).length}/${languages.length} with a version` : 'none tagged' },
-    { label: 'Frameworks', value: frameworks.length ? frameworks.map((b) => b.label).join(', ') : '—', sub: frameworks.length ? `${frameworks.filter((b) => b.version).length}/${frameworks.length} with a version` : 'none tagged' },
-    { label: 'Data & messaging', value: datastores.length ? datastores.map((b) => b.label).join(', ') : '—', sub: datastores.length ? `${datastores.length} ${datastores.length === 1 ? 'store' : 'stores'}` : 'none tagged' },
+    { label: 'Languages & runtimes', value: languages.length ? withVersion(languages) : '—', sub: tileSub(languages, 'language') },
+    { label: 'Frameworks', value: frameworks.length ? withVersion(frameworks) : '—', sub: tileSub(frameworks, 'framework') },
+    { label: 'Data & messaging', value: datastores.length ? datastores.map((b) => b.label).join(', ') : '—', sub: datastores.length ? `${datastores.length} ${datastores.length === 1 ? 'store' : 'stores'}` : 'none found' },
     { label: 'App version', value: version ?? '—', sub: versionSource ?? 'not published' },
   ]
+  const scanned = scan?.data?.files ?? []
 
   return (
     <div className="space-y-5">
@@ -7037,18 +7350,23 @@ function TechStackTab({
           <div key={t.label} className="min-w-0 rounded-xl border border-edge-default bg-surface-raised px-3.5 py-3 shadow-sm">
             <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-content-subtle">{t.label}</div>
             <div className="mt-1.5 truncate text-[15px] font-semibold leading-tight text-content" title={t.value}>{t.value}</div>
-            <div className="mt-1 truncate text-[11px] text-content-muted">{t.sub}</div>
+            <div className="mt-1 truncate text-[11px] text-content-muted" title={t.sub}>{t.sub}</div>
           </div>
         ))}
       </div>
 
       {stack.length === 0 && !version ? (
         <DrawerSection title="Stack">
-          <p className="text-[12px] leading-relaxed text-content-muted">
-            Nothing recorded for <code className="font-mono text-content">{entity.metadata.name}</code>. Tag it with its stack and versions — for example{' '}
-            <code className="font-mono text-content">java-21</code>, <code className="font-mono text-content">spring-boot-3.3</code>, <code className="font-mono text-content">postgres-16</code> — or set{' '}
-            <code className="font-mono text-content">adhar.io/tech-stack: "java@21, spring-boot@3.3.2"</code>. Versions are what make this tab useful: "is this on a supported Java?" needs a number.
-          </p>
+          {scan?.isLoading ? (
+            <div className="flex items-center gap-2 text-[12px] text-content-muted"><Spinner size={12} /> Reading build files from the repository…</div>
+          ) : (
+            <p className="text-[12px] leading-relaxed text-content-muted">
+              Nothing recorded for <code className="font-mono text-content">{entity.metadata.name}</code>
+              {scanSrc ? ', and no build file in the repository names its stack' : ''}. Commit a build file (<code className="font-mono text-content">pom.xml</code>, <code className="font-mono text-content">build.gradle</code>, <code className="font-mono text-content">package.json</code>, <code className="font-mono text-content">go.mod</code>) or tag it with its stack and versions — for example{' '}
+              <code className="font-mono text-content">java-21</code>, <code className="font-mono text-content">spring-boot-3.3</code>, <code className="font-mono text-content">postgres-16</code> — or set{' '}
+              <code className="font-mono text-content">adhar.io/tech-stack: "java@21, spring-boot@3.3.2"</code>.
+            </p>
+          )}
         </DrawerSection>
       ) : (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
@@ -7060,18 +7378,28 @@ function TechStackTab({
             >
               <ul className="divide-y divide-edge-subtle">
                 {items.map((b) => (
-                  <li key={b.label} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
+                  <li key={b.label} className="flex items-start gap-3 py-2 first:pt-0 last:pb-0">
                     <span className={cn('inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold ring-1 ring-inset', TECH_PILL[b.tone])}>
                       {b.label.replace(/[^A-Za-z0-9#.+]/g, '').slice(0, 2).toUpperCase()}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13px] font-medium text-content">{b.label}</span>
                       <span className="block truncate text-[10px] text-content-subtle">from {sourceOf(b)}</span>
+                      {b.also?.length ? (
+                        <span className="mt-0.5 block truncate text-[10px] text-amber-700 dark:text-amber-300" title="Recorded differently elsewhere — worth reconciling">
+                          also {b.also.map((a, i) => (
+                            <span key={`${a.version}-${a.from}`}>
+                              {i ? ', ' : ''}
+                              <span className="font-mono font-semibold">{a.version}</span> in {a.file ? fileLink(a.from, 'text-amber-700 dark:text-amber-300') : a.from}
+                            </span>
+                          ))}
+                        </span>
+                      ) : null}
                     </span>
                     {b.version ? (
                       <span className="shrink-0 rounded-md bg-surface-sunken px-2 py-1 font-mono text-[12px] font-semibold text-content ring-1 ring-inset ring-edge-subtle">{b.version}</span>
                     ) : (
-                      <span className="shrink-0 rounded-md border border-dashed border-edge-default px-2 py-1 text-[10px] italic text-content-subtle" title={`Add the version to the tag, e.g. ${b.label.toLowerCase().replace(/\s+/g, '-')}-<version>`}>
+                      <span className="shrink-0 rounded-md border border-dashed border-edge-default px-2 py-1 text-[10px] italic text-content-subtle" title={b.file ? `${b.file} does not pin a version` : `Add the version to the tag, e.g. ${b.label.toLowerCase().replace(/\s+/g, '-')}-<version>`}>
                         no version
                       </span>
                     )}
@@ -7130,17 +7458,29 @@ function TechStackTab({
         <DrawerSection title="Where this comes from">
           <dl className="-my-1 divide-y divide-edge-subtle">
             {[
-              { label: 'Stack', node: stack.length ? `${stack.length} from catalog tags${techFromAnnotations(entity).length ? ' and adhar.io/tech-stack' : ''}` : 'no tags' },
-              { label: 'Versions', node: versioned.length ? `${versioned.length} of ${stack.length} recorded` : 'none recorded' },
+              {
+                label: 'Build files',
+                node: !scanSrc
+                  ? 'no readable repository linked'
+                  : scan?.isLoading
+                    ? <span className="inline-flex items-center gap-1.5 text-content-muted"><Spinner size={11} /> reading…</span>
+                    : scan?.isError
+                      ? `couldn't read ${scanSrc.org}/${scanSrc.repo}`
+                      : scanned.length
+                        ? <span className="break-words">{scanned.map((f, i) => <span key={f}>{i ? ', ' : ''}{fileLink(f)}</span>)}</span>
+                        : 'none at the repository root',
+              },
+              { label: 'Catalog', node: (entity.metadata.tags ?? []).some((t) => TECH_MAP[parseTechTag(t).key]) || techFromAnnotations(entity).length ? `tags${techFromAnnotations(entity).length ? ' and adhar.io/tech-stack' : ''}` : 'no tech tags' },
+              { label: 'Versions', node: versioned.length ? `${versioned.length} of ${stack.length} known` : 'none recorded' },
               { label: 'App version', node: versionSource ?? 'not published' },
-              { label: 'Repository', node: repoUrl ? <a href={repoUrl} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline dark:text-brand-300">{repoUrl.replace(/^https?:\/\//, '')}</a> : 'not linked' },
+              { label: 'Repository', node: repoUrl ? <a href={repoUrl} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline dark:text-brand-300">{repoUrl.replace(/^https?:\/\//, '')}{scan?.data ? ` @ ${scan.data.ref}` : ''}</a> : 'not linked' },
             ].map((r) => (
               // A host plus an org and a repo does not fit beside its own
               // label on a phone, and truncating it hid the part that
               // identifies the repository. It wraps under the label instead.
               <div key={r.label} className="flex flex-col gap-0.5 py-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                 <dt className="shrink-0 text-[11px] font-medium text-content-subtle">{r.label}</dt>
-                <dd className="min-w-0 break-words text-[12px] text-content sm:truncate sm:text-right">{r.node}</dd>
+                <dd className={cn('min-w-0 break-words text-[12px] text-content sm:text-right', r.label !== 'Build files' && 'sm:truncate')}>{r.node}</dd>
               </div>
             ))}
           </dl>
@@ -7217,7 +7557,7 @@ function inlineMd(text: string, base: string | undefined, keyer: () => number): 
             key={keyer()}
             src={src}
             alt={mm![1]}
-            className="my-2 max-h-80 rounded-lg border border-edge-subtle"
+            className="my-4 inline-block h-auto max-w-full rounded-lg border border-edge-subtle"
           />
         ) : (
           mm?.[1] ?? tok
@@ -7260,7 +7600,49 @@ function inlineMd(text: string, base: string | undefined, keyer: () => number): 
   return out
 }
 
-/** Block-level markdown → React. Supports headings, lists, quotes, fenced code, tables, hr. */
+/** GitHub-style alert blockquotes (`> [!WARNING]`) → a tinted callout. */
+const MD_ALERT: Record<string, { label: string; cls: string }> = {
+  NOTE: { label: 'Note', cls: 'border-sky-400 bg-sky-50/70 dark:bg-sky-500/10 [&>div:first-child]:text-sky-800 dark:[&>div:first-child]:text-sky-300' },
+  TIP: { label: 'Tip', cls: 'border-emerald-400 bg-emerald-50/70 dark:bg-emerald-500/10 [&>div:first-child]:text-emerald-800 dark:[&>div:first-child]:text-emerald-300' },
+  IMPORTANT: { label: 'Important', cls: 'border-violet-400 bg-violet-50/70 dark:bg-violet-500/10 [&>div:first-child]:text-violet-800 dark:[&>div:first-child]:text-violet-300' },
+  WARNING: { label: 'Warning', cls: 'border-amber-400 bg-amber-50/70 dark:bg-amber-500/10 [&>div:first-child]:text-amber-800 dark:[&>div:first-child]:text-amber-300' },
+  CAUTION: { label: 'Caution', cls: 'border-red-400 bg-red-50/70 dark:bg-red-500/10 [&>div:first-child]:text-red-800 dark:[&>div:first-child]:text-red-300' },
+}
+
+/** A fenced code block: language label and a copy button, scrolling sideways rather than wrapping. */
+function MdCodeBlock({ code, lang }: { code: string; lang: string }) {
+  const toast = useToast()
+  const copy = () => {
+    navigator.clipboard
+      ?.writeText(code)
+      .then(() => toast.success('Copied to clipboard'))
+      .catch(() => toast.error('Could not copy'))
+  }
+  return (
+    <div className="group/code relative my-5 overflow-hidden rounded-lg border border-edge-subtle bg-code">
+      <div className="flex items-center justify-between gap-2 border-b border-white/5 px-4 py-1.5">
+        <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-code-fg/60">{lang || 'text'}</span>
+        <button
+          type="button"
+          onClick={copy}
+          className="rounded px-1.5 py-0.5 text-[10px] font-medium text-code-fg/70 transition-opacity hover:bg-white/10 hover:text-code-fg sm:opacity-0 sm:group-hover/code:opacity-100 sm:focus-visible:opacity-100"
+        >
+          Copy
+        </button>
+      </div>
+      <pre className="overflow-x-auto px-4 py-3.5 font-mono text-[12.5px] leading-[1.7] text-code-fg">
+        <code>{code}</code>
+      </pre>
+    </div>
+  )
+}
+
+/**
+ * Block-level markdown → React. Supports headings, lists (nested by
+ * indent, task items), quotes and GitHub alerts, fenced code, tables (with
+ * column alignment) and hr. Typography is set for reading: a 15px body on a
+ * 1.75 line height, headings with room above them, code that scrolls.
+ */
 function Markdown({ source, base }: { source: string; base?: string }) {
   const nodes = useMemo(() => {
     let k = 0
@@ -7271,44 +7653,39 @@ function Markdown({ source, base }: { source: string; base?: string }) {
     let i = 0
 
     const HEAD_CLS = [
-      'mt-5 text-xl font-bold text-content',
-      'mt-5 text-lg font-bold text-content',
-      'mt-4 text-base font-semibold text-content',
-      'mt-3 text-sm font-semibold text-content',
-      'mt-3 text-sm font-semibold text-content-muted',
-      'mt-3 text-xs font-semibold uppercase tracking-wide text-content-muted',
+      'mt-10 mb-4 border-b border-edge-subtle pb-2 text-[1.75em] font-bold leading-tight tracking-tight text-content',
+      'mt-10 mb-3 border-b border-edge-subtle pb-1.5 text-[1.35em] font-semibold leading-snug tracking-tight text-content',
+      'mt-8 mb-2.5 text-[1.12em] font-semibold leading-snug text-content',
+      'mt-6 mb-2 text-[1em] font-semibold text-content',
+      'mt-5 mb-1.5 text-[0.92em] font-semibold text-content-muted',
+      'mt-5 mb-1.5 text-[0.8em] font-semibold uppercase tracking-wide text-content-muted',
     ]
+    const BLOCK_START = /^(#{1,6}\s|\s*(```|~~~)|>\s?|\s*([-*+]|\d+\.)\s+|(-{3,}|\*{3,}|_{3,})\s*$)/
 
     while (i < lines.length) {
       const line = lines[i]
 
       // fenced code
-      const fence = /^```(\w*)\s*$/.exec(line)
+      const fence = /^\s*(```|~~~)\s*([\w+#.-]*)/.exec(line)
       if (fence) {
+        const close = new RegExp(`^\\s*${fence[1]}\\s*$`)
         const buf: string[] = []
         i++
-        while (i < lines.length && !/^```\s*$/.test(lines[i])) buf.push(lines[i++])
+        while (i < lines.length && !close.test(lines[i])) buf.push(lines[i++])
         i++ // closing fence
-        blocks.push(
-          <pre
-            key={keyer()}
-            className="my-3 overflow-auto rounded-lg border border-edge-subtle bg-code p-3 font-mono text-[12px] leading-relaxed text-code-fg"
-          >
-            <code>{buf.join('\n')}</code>
-          </pre>,
-        )
+        blocks.push(<MdCodeBlock key={keyer()} code={buf.join('\n')} lang={fence[2]} />)
         continue
       }
 
       // heading
-      const h = /^(#{1,6})\s+(.*)$/.exec(line)
+      const h = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line)
       if (h) {
         const level = h[1].length
         const Tag = (`h${Math.min(level + 1, 6)}` as unknown) as keyof React.JSX.IntrinsicElements
         // Anchor ids let the TechDocs table of contents scroll to a section.
         const anchor = slugifyHeading(h[2].replace(/[*_`]/g, ''))
         blocks.push(
-          <Tag key={keyer()} id={anchor} className={cn(HEAD_CLS[level - 1], 'scroll-mt-4')}>
+          <Tag key={keyer()} id={anchor} className={cn(HEAD_CLS[level - 1], 'scroll-mt-20')}>
             {inline(h[2])}
           </Tag>,
         )
@@ -7318,7 +7695,7 @@ function Markdown({ source, base }: { source: string; base?: string }) {
 
       // horizontal rule
       if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
-        blocks.push(<hr key={keyer()} className="my-4 border-edge-subtle" />)
+        blocks.push(<hr key={keyer()} className="my-8 border-edge-subtle" />)
         i++
         continue
       }
@@ -7338,6 +7715,7 @@ function Markdown({ source, base }: { source: string; base?: string }) {
             .split('|')
             .map((c) => c.trim())
         const header = splitRow(line)
+        const align = splitRow(lines[i + 1]).map((c) => (/^:-+:$/.test(c) ? 'text-center' : /^-+:$/.test(c) ? 'text-right' : 'text-left'))
         i += 2
         const rows: string[][] = []
         while (i < lines.length && /\|/.test(lines[i]) && !/^\s*$/.test(lines[i])) {
@@ -7345,14 +7723,14 @@ function Markdown({ source, base }: { source: string; base?: string }) {
           i++
         }
         blocks.push(
-          <div key={keyer()} className="my-3 overflow-x-auto">
-            <table className="w-full border-collapse text-[12px]">
+          <div key={keyer()} className="my-5 overflow-x-auto rounded-lg border border-edge-default">
+            <table className="w-full border-collapse text-[0.9em] [&_tbody_tr:last-child>td]:border-b-0">
               <thead>
                 <tr>
                   {header.map((c, ci) => (
                     <th
                       key={ci}
-                      className="border-b border-edge-default px-2 py-1.5 text-left font-semibold text-content"
+                      className={cn('whitespace-nowrap border-b border-edge-default bg-surface-sunken px-3 py-2 font-semibold text-content', align[ci] ?? 'text-left')}
                     >
                       {inline(c)}
                     </th>
@@ -7361,9 +7739,9 @@ function Markdown({ source, base }: { source: string; base?: string }) {
               </thead>
               <tbody>
                 {rows.map((r, ri) => (
-                  <tr key={ri} className="odd:bg-surface-sunken/40">
+                  <tr key={ri} className="even:bg-surface-sunken/40">
                     {header.map((_, ci) => (
-                      <td key={ci} className="border-b border-edge-subtle px-2 py-1.5 text-content-muted">
+                      <td key={ci} className={cn('border-b border-edge-subtle px-3 py-2 align-top leading-relaxed text-content-muted', align[ci] ?? 'text-left')}>
                         {inline(r[ci] ?? '')}
                       </td>
                     ))}
@@ -7376,42 +7754,67 @@ function Markdown({ source, base }: { source: string; base?: string }) {
         continue
       }
 
-      // blockquote
+      // blockquote (and GitHub alerts)
       if (/^>\s?/.test(line)) {
         const buf: string[] = []
         while (i < lines.length && /^>\s?/.test(lines[i])) buf.push(lines[i++].replace(/^>\s?/, ''))
+        const alert = /^\[!(\w+)\]\s*$/.exec(buf[0] ?? '')
+        const kind = alert ? MD_ALERT[alert[1].toUpperCase()] : undefined
+        const body = (kind ? buf.slice(1) : buf).join('\n').split(/\n\s*\n/).map((p) => p.replace(/\n/g, ' ').trim()).filter(Boolean)
         blocks.push(
           <blockquote
             key={keyer()}
-            className="my-3 border-l-2 border-brand-300 bg-surface-sunken/50 px-3 py-2 text-content-muted"
+            className={cn('my-5 rounded-r-lg border-l-4 px-4 py-3 text-content-muted', kind ? kind.cls : 'border-brand-300 bg-surface-sunken/60 dark:border-brand-500/50')}
           >
-            {inline(buf.join(' '))}
+            {kind ? <div className="mb-1 text-[0.8em] font-semibold uppercase tracking-wider">{kind.label}</div> : null}
+            {body.map((p, pi) => <p key={pi} className="my-1.5 first:mt-0 last:mb-0">{inline(p)}</p>)}
           </blockquote>,
         )
         continue
       }
 
-      // lists (unordered / ordered)
+      // lists (unordered / ordered) — nesting follows indentation
       if (/^\s*([-*+]|\d+\.)\s+/.test(line)) {
         const ordered = /^\s*\d+\.\s+/.test(line)
-        const items: string[] = []
-        while (i < lines.length && /^\s*([-*+]|\d+\.)\s+/.test(lines[i])) {
-          items.push(lines[i].replace(/^\s*([-*+]|\d+\.)\s+/, ''))
-          i++
+        const baseIndent = /^\s*/.exec(line)![0].length
+        const items: Array<{ text: string; depth: number; task?: boolean; done?: boolean }> = []
+        while (i < lines.length) {
+          const l = lines[i]
+          const m = /^(\s*)([-*+]|\d+\.)\s+(.*)$/.exec(l)
+          if (m) {
+            const depth = Math.max(0, Math.floor((m[1].length - baseIndent) / 2))
+            const task = /^\[( |x|X)\]\s+(.*)$/.exec(m[3])
+            items.push(task ? { text: task[2], depth, task: true, done: task[1] !== ' ' } : { text: m[3], depth })
+            i++
+          } else if (/^\s{2,}\S/.test(l) && items.length) {
+            // A wrapped continuation line belongs to the item above it.
+            items[items.length - 1].text += ` ${l.trim()}`
+            i++
+          } else break
         }
-        const cls = 'my-2 space-y-1 pl-5 text-content-muted'
+        const cls = 'my-4 space-y-1.5 pl-6 text-content marker:text-content-subtle'
+        const renderItem = (it: (typeof items)[number], ii: number) => (
+          <li
+            key={ii}
+            className={cn('pl-1 leading-[1.7]', it.task && 'list-none -ml-5')}
+            style={it.depth ? { marginLeft: `${it.depth * 1.4}rem` } : undefined}
+          >
+            {it.task ? (
+              <span className="mr-2 inline-flex h-3.5 w-3.5 translate-y-0.5 items-center justify-center rounded border border-edge-strong text-[9px] text-brand-700 dark:text-brand-300" aria-hidden>
+                {it.done ? '✓' : ''}
+              </span>
+            ) : null}
+            {inline(it.text)}
+          </li>
+        )
         blocks.push(
           ordered ? (
             <ol key={keyer()} className={cn(cls, 'list-decimal')}>
-              {items.map((it, ii) => (
-                <li key={ii}>{inline(it)}</li>
-              ))}
+              {items.map(renderItem)}
             </ol>
           ) : (
             <ul key={keyer()} className={cn(cls, 'list-disc')}>
-              {items.map((it, ii) => (
-                <li key={ii}>{inline(it)}</li>
-              ))}
+              {items.map(renderItem)}
             </ul>
           ),
         )
@@ -7420,15 +7823,15 @@ function Markdown({ source, base }: { source: string; base?: string }) {
 
       // paragraph (gather until blank / block start)
       const para: string[] = []
-      while (
-        i < lines.length &&
-        !/^\s*$/.test(lines[i]) &&
-        !/^(#{1,6}\s|```|>\s?|\s*([-*+]|\d+\.)\s+|(-{3,}|\*{3,}|_{3,})\s*$)/.test(lines[i])
-      ) {
+      while (i < lines.length && !/^\s*$/.test(lines[i]) && !BLOCK_START.test(lines[i])) {
+        para.push(lines[i++])
+      }
+      if (!para.length) {
+        // A line that looks like a block start but did not parse as one — keep it as text.
         para.push(lines[i++])
       }
       blocks.push(
-        <p key={keyer()} className="my-2 leading-relaxed text-content-muted">
+        <p key={keyer()} className="my-4 leading-[1.75] text-content">
           {inline(para.join(' '))}
         </p>,
       )
@@ -7436,7 +7839,7 @@ function Markdown({ source, base }: { source: string; base?: string }) {
     return blocks
   }, [source, base])
 
-  return <div className="text-[13px]">{nodes}</div>
+  return <div className="text-[14px] text-content sm:text-[15px] [&>:first-child]:mt-0">{nodes}</div>
 }
 
 /* ─────────── techdocs card (drawer) — embedded markdown ─────────── */
@@ -7449,42 +7852,114 @@ function docCandidates(url: string): string[] {
   return [`${baseNoSlash}/index.md`, `${baseNoSlash}/README.md`, `${baseNoSlash}/docs/index.md`]
 }
 
-/**
- * TechDocs — a real documentation reader, not a link with a preview.
- *
- * Layout: a sticky action bar (Source · Docs · **Monitor**), a generated
- * table of contents from the document's own headings, the rendered Markdown
- * in a readable measure, and honest states when docs aren't registered,
- * can't be embedded (external origin / CORS) or fail to load. Reading
- * position and heading anchors work, so long runbooks are navigable.
- */
+/** Reader layout choices that should outlive the drawer: page sidebar open, drawer widened. */
+const DOCS_LAYOUT_KEY = 'adhar.catalog.techdocs.layout'
+
+function readDocsLayout(): { nav?: boolean; wide?: boolean } {
+  try {
+    const v = JSON.parse(globalThis.localStorage?.getItem(DOCS_LAYOUT_KEY) ?? '{}')
+    return v && typeof v === 'object' ? v : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeDocsLayout(patch: { nav?: boolean; wide?: boolean }) {
+  try {
+    globalThis.localStorage?.setItem(DOCS_LAYOUT_KEY, JSON.stringify({ ...readDocsLayout(), ...patch }))
+  } catch {
+    /* storage unavailable — the choice lasts for this session only */
+  }
+}
+
+/** A toolbar toggle in the TechDocs header — quiet, with a pressed state. */
+function DocToolButton({ onClick, pressed, label, title, className, children }: { onClick(): void; pressed?: boolean; label: string; title?: string; className?: string; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={pressed}
+      title={title ?? label}
+      className={cn(
+        'inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-medium transition-colors',
+        pressed
+          ? 'border-brand-300 bg-brand-50 text-brand-800 dark:border-brand-500/40 dark:bg-brand-500/10 dark:text-brand-200'
+          : 'border-edge-default bg-surface-raised text-content-muted hover:bg-surface-sunken hover:text-content',
+        className,
+      )}
+    >
+      {children}
+      <span>{label}</span>
+    </button>
+  )
+}
+
+function DocGlyph({ d }: { d: string }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d={d} />
+    </svg>
+  )
+}
+const GLYPH_SIDEBAR = 'M3 5h18v14H3zM9 5v14'
+const GLYPH_WIDE = 'M3 12h18M7 8l-4 4 4 4M17 8l4 4-4 4'
+const GLYPH_EXPAND = 'M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7'
+const GLYPH_COLLAPSE = 'M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7'
+
 /**
  * TechDocs as a site, not a file.
  *
  * When the docs live in a repository the console can read (the platform's
  * Gitea through the BFF, GitHub best-effort), every Markdown page under the
- * docs root becomes a page here: a nav on the left grouped by folder, the
- * page on the right with its own table of contents, search across page
- * titles, and "Edit this page" straight into the forge. A published docs
- * site is framed in place; a single Markdown file falls back to the
- * one-document reader; nothing at all says what to add.
+ * docs root becomes a page here. A published docs site is framed in place;
+ * a single Markdown file falls back to the one-document reader; nothing at
+ * all says what to add.
+ *
+ * Layout is sized to the reader, not the viewport — the drawer is narrower
+ * than the screen, so the breakpoints are container queries. The text sits
+ * in a ~78ch measure centred in the page; the page list is a compact,
+ * collapsible sidebar once there is room for one (a select otherwise, and
+ * on a phone), and "On this page" becomes a right rail only when the
+ * reader is wide enough to keep the measure beside it. "Wide view" widens
+ * the drawer itself; "Full screen" lifts the reader over the console.
  */
-function TechDocsTab({ url, entity, monitorUrl }: { url?: string; entity: Entity; monitorUrl?: string }) {
+function TechDocsTab({ url, entity, monitorUrl, wide, onWide }: { url?: string; entity: Entity; monitorUrl?: string; wide?: boolean; onWide?(next: boolean): void }) {
   const giteaBase = useToolPublicUrl('gitea')
   const source = useDocsSource(entity, giteaBase)
   const isRepo = source?.kind === 'gitea' || source?.kind === 'github'
   const pagesQ = useDocsPages(isRepo ? source : null)
-  const pages = pagesQ.data ?? []
+  const pages = useMemo(() => pagesQ.data ?? [], [pagesQ.data])
   const [slug, setSlug] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  const [navOpen, setNavOpen] = useState(() => readDocsLayout().nav ?? true)
+  const [fullscreen, setFullscreen] = useState(false)
   const current = useMemo(() => pages.find((p) => p.slug === slug) ?? pages[0], [pages, slug])
   const pageQ = useDocPage(isRepo ? source : null, current?.path)
   const text = pageQ.data ?? null
   const bodyRef = useRef<HTMLDivElement>(null)
+  const articleRef = useRef<HTMLElement>(null)
+  const lastPath = useRef<string | undefined>(undefined)
 
+  // A new page starts at its top; the first page opens where the tab is.
   useEffect(() => {
-    bodyRef.current?.scrollTo({ top: 0 })
+    if (lastPath.current && lastPath.current !== current?.path) articleRef.current?.scrollIntoView({ block: 'start' })
+    lastPath.current = current?.path
   }, [current?.path])
+
+  // Escape leaves full screen — and only that: the drawer's own Escape
+  // handler (close the drawer) must not also fire, so this one runs in the
+  // capture phase and stops the event there.
+  useEffect(() => {
+    if (!fullscreen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
+      setFullscreen(false)
+    }
+    globalThis.addEventListener('keydown', onKey, true)
+    return () => globalThis.removeEventListener('keydown', onKey, true)
+  }, [fullscreen])
 
   const sections = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -7493,13 +7968,18 @@ function TechDocsTab({ url, entity, monitorUrl }: { url?: string; entity: Entity
     for (const p of list) map.set(p.section, [...(map.get(p.section) ?? []), p])
     return [...map.entries()]
   }, [pages, query])
+  const allSections = useMemo(() => {
+    const map = new Map<string, DocPage[]>()
+    for (const p of pages) map.set(p.section, [...(map.get(p.section) ?? []), p])
+    return [...map.entries()]
+  }, [pages])
 
   const toc = useMemo(() => {
     if (!text) return [] as Array<{ level: number; title: string; id: string }>
     const out: Array<{ level: number; title: string; id: string }> = []
     let inFence = false
     for (const line of text.split('\n')) {
-      if (/^\s*```/.test(line)) inFence = !inFence
+      if (/^\s*(```|~~~)/.test(line)) inFence = !inFence
       if (inFence) continue
       const m = /^(#{2,3})\s+(.+?)\s*#*$/.exec(line)
       if (!m) continue
@@ -7521,123 +8001,231 @@ function TechDocsTab({ url, entity, monitorUrl }: { url?: string; entity: Entity
   const repoLabel = `${source.org}/${source.repo}${source.dir ? `/${source.dir}` : ''} @ ${source.ref}`
   const showNav = pages.length > 1
   const showSearch = pages.length > 8
+  const showToc = toc.length > 2
+  const index = current ? pages.findIndex((p) => p.slug === current.slug) : -1
+  const prev = index > 0 ? pages[index - 1] : undefined
+  const next = index >= 0 && index < pages.length - 1 ? pages[index + 1] : undefined
+  const toggleNav = () => {
+    setNavOpen((v) => {
+      writeDocsLayout({ nav: !v })
+      return !v
+    })
+  }
+  const goTo = (id: string) => bodyRef.current?.querySelector(`#${CSS.escape(id)}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  // Rails stick below whatever scrolls above them: the drawer's tab bar, or the full-screen toolbar.
+  const stickTop = fullscreen ? 'top-16' : 'top-14'
 
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-edge-default bg-surface-raised px-4 py-2.5 shadow-sm">
-        <div className="flex min-w-0 items-center gap-2">
-          <LinkGlyph icon="docs" />
-          <span className="text-[13px] font-semibold text-content">TechDocs</span>
-          <span className="truncate font-mono text-[11px] text-content-subtle" title={source.url}>{repoLabel}</span>
-          {pages.length ? <span className="rounded-full bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-content-muted">{pages.length} {pages.length === 1 ? 'page' : 'pages'}</span> : null}
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {edit ? <DocAction href={edit} icon="repo" label="Edit this page" /> : null}
-          <DocAction href={source.url} icon="docs" label={source.kind === 'gitea' ? 'Open in Gitea' : 'Open on GitHub'} primary />
-          {monitorUrl ? <MonitorButton url={monitorUrl} compact /> : null}
-        </div>
+  const toolbar = (
+    <div className={cn('flex flex-wrap items-center justify-between gap-2 border-edge-default bg-surface-raised px-4 py-2.5', fullscreen ? 'sticky top-0 z-10 border-b' : 'rounded-xl border shadow-sm')}>
+      <div className="flex min-w-0 items-center gap-2">
+        <LinkGlyph icon="docs" />
+        <span className="text-[13px] font-semibold text-content">TechDocs</span>
+        <span className="truncate font-mono text-[11px] text-content-subtle" title={source.url}>{repoLabel}</span>
+        {pages.length ? <span className="rounded-full bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-content-muted">{pages.length} {pages.length === 1 ? 'page' : 'pages'}</span> : null}
       </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {showNav ? (
+          <DocToolButton onClick={toggleNav} pressed={navOpen} label="Pages" title={navOpen ? 'Hide the page list' : 'Show the page list'} className="hidden @3xl:inline-flex">
+            <DocGlyph d={GLYPH_SIDEBAR} />
+          </DocToolButton>
+        ) : null}
+        {!fullscreen && onWide ? (
+          <DocToolButton onClick={() => onWide(!wide)} pressed={wide} label="Wide view" title={wide ? 'Back to the standard drawer width' : 'Widen the drawer for reading'} className="hidden lg:inline-flex">
+            <DocGlyph d={GLYPH_WIDE} />
+          </DocToolButton>
+        ) : null}
+        <DocToolButton onClick={() => setFullscreen((v) => !v)} pressed={fullscreen} label={fullscreen ? 'Exit full screen' : 'Full screen'} title={fullscreen ? 'Exit full screen (Esc)' : 'Read in full screen'}>
+          <DocGlyph d={fullscreen ? GLYPH_COLLAPSE : GLYPH_EXPAND} />
+        </DocToolButton>
+        {edit ? <DocAction href={edit} icon="repo" label="Edit this page" /> : null}
+        <DocAction href={source.url} icon="docs" label={source.kind === 'gitea' ? 'Open in Gitea' : 'Open on GitHub'} primary />
+        {monitorUrl ? <MonitorButton url={monitorUrl} compact /> : null}
+      </div>
+    </div>
+  )
 
-      {pagesQ.isLoading ? (
-        <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised px-4 py-6 text-xs text-content-muted"><Spinner /> Reading the docs tree…</div>
-      ) : pagesQ.isError ? (
-        <EmptyState
-          compact
-          title="Couldn't read the repository"
-          description={source.kind === 'github' ? 'GitHub did not answer (private repository, or the API rate limit). Open it on GitHub instead.' : `Gitea did not answer for ${repoLabel} — the repository may be private to another team, or the branch may not exist.`}
-        />
-      ) : pages.length === 0 ? (
-        <EmptyState
-          compact
-          title="No documentation in the repository"
-          description={<>Add a <code>docs/</code> folder with Markdown pages (an <code>index.md</code> first), or a <code>README.md</code>, and it renders here. Point <code>backstage.io/techdocs-ref</code> at another folder if the docs live elsewhere.</>}
-        />
-      ) : (
-        <div className={cn('grid items-start gap-3', showNav && 'lg:grid-cols-[220px_minmax(0,1fr)]')}>
-          {/* The drawer body is the scroll container; the nav and the TOC stick below its tab bar so the page can be as long as it is. */}
-          {/* A single page (usually just the README) needs no page list, and a short list needs no search. */}
-          {showNav ? (
-          <nav className="rounded-xl border border-edge-default bg-surface-raised p-2 lg:sticky lg:top-14 lg:max-h-[calc(100vh-9rem)] lg:overflow-y-auto" aria-label="Documentation pages">
-            {showSearch ? (
-              <div className="relative mb-2 flex items-center">
-                <span className="pointer-events-none absolute left-2.5 text-content-subtle"><DocSearchGlyph /></span>
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Find a page…"
-                  className="h-8 w-full rounded-lg border border-edge-default bg-surface-app pl-8 pr-2 text-[12px] text-content placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
-                />
-              </div>
-            ) : null}
-            {sections.map(([section, list]) => (
-              <div key={section || '~'} className="mb-1.5">
-                {section ? <div className="px-2 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{section.replace(/[-_]+/g, ' ')}</div> : null}
-                <ul>
-                  {list.map((p) => {
-                    const on = p.slug === current?.slug
-                    return (
-                      <li key={p.slug}>
-                        <button
-                          type="button"
-                          onClick={() => setSlug(p.slug)}
-                          aria-current={on ? 'page' : undefined}
-                          className={cn(
-                            'block w-full truncate rounded-md px-2 py-1 text-left text-[12px] transition-colors',
-                            on ? 'bg-brand-50 font-medium text-brand-800 dark:bg-brand-500/10 dark:text-brand-200' : 'text-content-muted hover:bg-surface-sunken hover:text-content',
-                          )}
-                          title={p.path}
-                        >
-                          {p.title}
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
-              </div>
-            ))}
-            {sections.length === 0 ? <div className="px-2 py-2 text-[11px] text-content-subtle">No page matches.</div> : null}
-          </nav>
-          ) : null}
+  const pageSelect = showNav ? (
+    <select
+      value={current?.slug ?? ''}
+      onChange={(e) => setSlug(e.target.value)}
+      aria-label="Documentation page"
+      className={cn(
+        'h-9 w-full min-w-0 rounded-lg border border-edge-default bg-surface-raised px-2.5 text-[13px] text-content focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 @lg:w-64',
+        navOpen && '@3xl:hidden',
+      )}
+    >
+      {allSections.map(([section, list]) =>
+        section ? (
+          <optgroup key={section} label={section.replace(/[-_]+/g, ' ')}>
+            {list.map((p) => <option key={p.slug} value={p.slug}>{p.title}</option>)}
+          </optgroup>
+        ) : (
+          list.map((p) => <option key={p.slug} value={p.slug}>{p.title}</option>)
+        ),
+      )}
+    </select>
+  ) : null
 
-          <div className="min-w-0">
-            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2 px-1">
-              <div className="min-w-0">
-                <h3 className="truncate text-[16px] font-semibold text-content">{title}</h3>
-                <div className="truncate font-mono text-[10px] text-content-subtle">{current?.path}{words ? ` · ${words.toLocaleString()} words · ~${Math.max(1, Math.round(words / 220))} min` : ''}</div>
-              </div>
+  const reader = pagesQ.isLoading ? (
+    <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised px-4 py-6 text-xs text-content-muted"><Spinner /> Reading the docs tree…</div>
+  ) : pagesQ.isError ? (
+    <EmptyState
+      compact
+      title="Couldn't read the repository"
+      description={source.kind === 'github' ? 'GitHub did not answer (private repository, or the API rate limit). Open it on GitHub instead.' : `Gitea did not answer for ${repoLabel} — the repository may be private to another team, or the branch may not exist.`}
+    />
+  ) : pages.length === 0 ? (
+    <EmptyState
+      compact
+      title="No documentation in the repository"
+      description={<>Add a <code>docs/</code> folder with Markdown pages (an <code>index.md</code> first), or a <code>README.md</code>, and it renders here. Point <code>backstage.io/techdocs-ref</code> at another folder if the docs live elsewhere.</>}
+    />
+  ) : (
+    <div className={cn('grid items-start gap-5', showNav && navOpen && '@3xl:grid-cols-[12.5rem_minmax(0,1fr)]')}>
+      {/* The page list: a compact sidebar once the reader has room for it beside the measure; a select (below) otherwise. */}
+      {showNav && navOpen ? (
+        <nav className={cn('hidden max-h-[calc(100vh-9rem)] overflow-y-auto rounded-xl border border-edge-default bg-surface-raised p-2 @3xl:sticky @3xl:block', stickTop)} aria-label="Documentation pages">
+          {showSearch ? (
+            <div className="relative mb-2 flex items-center">
+              <span className="pointer-events-none absolute left-2.5 text-content-subtle"><DocSearchGlyph /></span>
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Find a page…"
+                className="h-8 w-full rounded-lg border border-edge-default bg-surface-app pl-8 pr-2 text-[12px] text-content placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+              />
             </div>
-            <div className={cn('grid items-start gap-4', toc.length > 2 ? 'xl:grid-cols-[minmax(0,1fr)_170px]' : '')}>
-              <div ref={bodyRef} className="min-w-0 rounded-xl border border-edge-default bg-surface-raised px-6 py-5 [&_:is(h1,h2,h3,h4)]:scroll-mt-16">
-                {pageQ.isLoading ? (
-                  <div className="flex items-center gap-2 text-xs text-content-muted"><Spinner /> Loading page…</div>
-                ) : pageQ.isError ? (
-                  <div className="text-xs text-content-muted">Couldn&apos;t load {current?.path}.</div>
-                ) : text ? (
-                  <Markdown source={text} base={base} />
-                ) : null}
-              </div>
-              {toc.length > 2 ? (
-                <nav className="hidden xl:sticky xl:top-14 xl:block xl:max-h-[calc(100vh-9rem)] xl:overflow-y-auto">
-                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">On this page</div>
-                  <ul className="space-y-0.5 border-l border-edge-subtle">
-                    {toc.map((h, i) => (
-                      <li key={`${h.id}-${i}`}>
-                        <button
-                          type="button"
-                          onClick={() => bodyRef.current?.querySelector(`#${CSS.escape(h.id)}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                          className={cn('-ml-px block w-full border-l-2 border-transparent py-0.5 pl-2.5 text-left text-[11px] text-content-muted transition-colors hover:border-brand-400 hover:text-content', h.level === 3 && 'pl-5 text-[11px]')}
-                        >
-                          {h.title}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </nav>
+          ) : null}
+          {sections.map(([section, list]) => (
+            <div key={section || '~'} className="mb-1.5">
+              {section ? <div className="px-2 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{section.replace(/[-_]+/g, ' ')}</div> : null}
+              <ul>
+                {list.map((p) => {
+                  const on = p.slug === current?.slug
+                  return (
+                    <li key={p.slug}>
+                      <button
+                        type="button"
+                        onClick={() => setSlug(p.slug)}
+                        aria-current={on ? 'page' : undefined}
+                        className={cn(
+                          'block w-full truncate rounded-md px-2 py-1.5 text-left text-[12px] transition-colors',
+                          on ? 'bg-brand-50 font-medium text-brand-800 dark:bg-brand-500/10 dark:text-brand-200' : 'text-content-muted hover:bg-surface-sunken hover:text-content',
+                        )}
+                        title={p.path}
+                      >
+                        {p.title}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          ))}
+          {sections.length === 0 ? <div className="px-2 py-2 text-[11px] text-content-subtle">No page matches.</div> : null}
+        </nav>
+      ) : null}
+
+      <article ref={articleRef} className="min-w-0 scroll-mt-16">
+        <div className="mb-3 flex flex-col gap-2 px-1 @lg:flex-row @lg:items-end @lg:justify-between">
+          <div className="min-w-0">
+            <h3 className="truncate text-[17px] font-semibold text-content">{title}</h3>
+            <div className="truncate font-mono text-[10px] text-content-subtle">{current?.path}{words ? ` · ${words.toLocaleString()} words · ~${Math.max(1, Math.round(words / 220))} min read` : ''}</div>
+          </div>
+          {pageSelect}
+        </div>
+        <div className={cn('grid items-start gap-8', showToc && '@6xl:grid-cols-[minmax(0,1fr)_13rem]')}>
+          <div ref={bodyRef} className="min-w-0 rounded-xl border border-edge-default bg-surface-raised px-5 py-6 shadow-sm sm:px-8 sm:py-8 @5xl:px-12 @5xl:py-10">
+            {/* Until the right rail fits, the outline folds above the page instead of eating its width. */}
+            {showToc && text ? (
+              <details className="group/toc mx-auto mb-6 max-w-[78ch] rounded-lg border border-edge-subtle bg-surface-sunken/50 @6xl:hidden">
+                <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
+                  On this page <span className="text-[10px] normal-case tracking-normal transition-transform group-open/toc:rotate-180">▾</span>
+                </summary>
+                <ul className="space-y-0.5 px-3 pb-2.5">
+                  {toc.map((h, i) => (
+                    <li key={`${h.id}-${i}`}>
+                      <button type="button" onClick={() => goTo(h.id)} className={cn('block w-full truncate py-0.5 text-left text-[12px] text-content-muted hover:text-content', h.level === 3 && 'pl-3')}>
+                        {h.title}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
+            <div className="mx-auto max-w-[78ch]">
+              {pageQ.isLoading ? (
+                <div className="flex items-center gap-2 text-xs text-content-muted"><Spinner /> Loading page…</div>
+              ) : pageQ.isError ? (
+                <div className="text-xs text-content-muted">Couldn&apos;t load {current?.path}.</div>
+              ) : text ? (
+                <Markdown source={text} base={base} />
               ) : null}
             </div>
+            {prev || next ? (
+              <div className="mx-auto mt-10 grid max-w-[78ch] grid-cols-2 gap-3 border-t border-edge-subtle pt-5">
+                {prev ? (
+                  <button type="button" onClick={() => setSlug(prev.slug)} className="min-w-0 rounded-lg border border-edge-default px-3 py-2.5 text-left transition-colors hover:border-brand-300 hover:bg-surface-sunken">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">← Previous</div>
+                    <div className="truncate text-[13px] font-medium text-content">{prev.title}</div>
+                  </button>
+                ) : <span />}
+                {next ? (
+                  <button type="button" onClick={() => setSlug(next.slug)} className="col-start-2 min-w-0 rounded-lg border border-edge-default px-3 py-2.5 text-right transition-colors hover:border-brand-300 hover:bg-surface-sunken">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Next →</div>
+                    <div className="truncate text-[13px] font-medium text-content">{next.title}</div>
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
+          {showToc ? (
+            <nav className={cn('hidden max-h-[calc(100vh-9rem)] overflow-y-auto @6xl:sticky @6xl:block', stickTop)} aria-label="On this page">
+              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">On this page</div>
+              <ul className="space-y-0.5 border-l border-edge-subtle">
+                {toc.map((h, i) => (
+                  <li key={`${h.id}-${i}`}>
+                    <button
+                      type="button"
+                      onClick={() => goTo(h.id)}
+                      className={cn('-ml-px block w-full border-l-2 border-transparent py-1 pl-2.5 text-left text-[12px] leading-snug text-content-muted transition-colors hover:border-brand-400 hover:text-content', h.level === 3 && 'pl-5 text-[11px]')}
+                    >
+                      {h.title}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          ) : null}
         </div>
-      )}
+      </article>
+    </div>
+  )
+
+  if (fullscreen && typeof document !== 'undefined') {
+    return (
+      <>
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed border-edge-default bg-surface-raised px-4 py-3 text-[12px] text-content-muted">
+          <span>Reading <span className="font-medium text-content">{title}</span> in full screen.</span>
+          <DocToolButton onClick={() => setFullscreen(false)} label="Exit full screen"><DocGlyph d={GLYPH_COLLAPSE} /></DocToolButton>
+        </div>
+        {createPortal(
+          <div className="fixed inset-0 z-[60] overflow-y-auto bg-surface-canvas" role="dialog" aria-modal="true" aria-label={`Documentation for ${entity.metadata.title ?? entity.metadata.name}`}>
+            <div className="@container">
+              {toolbar}
+              <div className="mx-auto max-w-[96rem] px-4 pb-16 pt-5 sm:px-8">{reader}</div>
+            </div>
+          </div>,
+          document.body,
+        )}
+      </>
+    )
+  }
+
+  return (
+    <div className="@container space-y-3">
+      {toolbar}
+      {reader}
     </div>
   )
 }
@@ -7675,6 +8263,15 @@ function DocsSiteFrame({ url, entity, monitorUrl }: { url: string; entity: Entit
   )
 }
 
+/**
+ * TechDocs — a real documentation reader, not a link with a preview.
+ *
+ * Layout: a sticky action bar (Source · Docs · **Monitor**), a generated
+ * table of contents from the document's own headings, the rendered Markdown
+ * in a readable measure, and honest states when docs aren't registered,
+ * can't be embedded (external origin / CORS) or fail to load. Reading
+ * position and heading anchors work, so long runbooks are navigable.
+ */
 function TechDocsCard({ url, entity, monitorUrl }: { url?: string; entity?: Entity; monitorUrl?: string }) {
   const [text, setText] = useState<string | null>(null)
   const [resolvedUrl, setResolvedUrl] = useState<string | undefined>(url)

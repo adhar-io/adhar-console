@@ -974,13 +974,50 @@ const CLUSTER_NAME_TTL_MS = 5 * 60_000
 let clusterNameCache: { at: number; name: string } | null = null
 
 /**
+ * `clusterName` from the `adhar-cluster-spec` ConfigMap — what the provisioner
+ * recorded about the cluster it built. Absent on a cluster the platform did
+ * not provision (`clusterMode: provided`), so the caller falls through.
+ */
+async function clusterSpecName(sa: string): Promise<string> {
+  try {
+    const res = await apiServerFetch(sa, '/api/v1/namespaces/adhar-system/configmaps/adhar-cluster-spec')
+    if (!res.ok) {
+      await res.body?.cancel()
+      return ''
+    }
+    const body = (await res.json()) as { data?: { clusterName?: string } }
+    return body.data?.clusterName?.trim() ?? ''
+  } catch {
+    return ''
+  }
+}
+
+/**
  * The human name of the cluster the console runs in. Resolution order:
  *   1. `ADHAR_CLUSTER_NAME` — an explicit override.
- *   2. The AdharPlatform CR the installer created (`spec.clusterName`, else
+ *   2. `adhar-cluster-spec`, the ConfigMap the provisioner writes with the
+ *      cluster it actually built (`clusterName: adhar`). This is the only
+ *      source that names the CLUSTER; see the note below for why the CR is
+ *      not.
+ *   3. The AdharPlatform CR the installer created (`spec.clusterName`, else
  *      the CR's own name) — read with the console's ServiceAccount, so it is
  *      the same answer for every user and needs no RBAC on their side.
- *   3. The platform domain (`platform.adhar.io`), which every install has.
- *   4. `fallback` (the routing key) — never a made-up word like "Local".
+ *   4. The platform domain (`platform.adhar.io`), which every install has.
+ *   5. `fallback` (the routing key) — never a made-up word like "Local".
+ *
+ * The CR is a weak source for this and was displaying the wrong word. Its name
+ * and its `buildCustomization.clusterName` are both the ENVIRONMENT's name
+ * (`cmd/up/bootstrap.go`: `platformName = envConfig.Name`), so a platform whose
+ * one shared cluster is `adhar` reported itself as `prod` — the environment
+ * that happens to be the production-type one among dev/test/prod. The platform
+ * repo's own code says as much where it builds the progress title: "with the
+ * namespace default there is exactly one shared cluster and naming it after
+ * `prod` misdescribes the run."
+ *
+ * That field is NOT corrected upstream on purpose: it is also the fallback for
+ * the external-dns TXT owner id (`BuildCustomizationSpec.TXTOwnerID`), and
+ * changing an owner id orphans every record in the zone, because external-dns
+ * runs `--policy=upsert-only` and will not touch a record it does not own.
  */
 async function defaultClusterDisplayName(fallback = 'default'): Promise<string> {
   const explicit = env('ADHAR_CLUSTER_NAME')?.trim()
@@ -991,6 +1028,9 @@ async function defaultClusterDisplayName(fallback = 'default'): Promise<string> 
   let name = ''
   const sa = getK8sServiceToken()
   if (sa) {
+    name = await clusterSpecName(sa)
+  }
+  if (sa && !name) {
     try {
       const res = await apiServerFetch(sa, '/apis/platform.adhar.io/v1alpha1/adharplatforms', {
         search: '?limit=1',

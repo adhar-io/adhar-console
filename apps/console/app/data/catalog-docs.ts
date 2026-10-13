@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { gitea } from '@adhar/api-clients'
 import type { Entity } from './catalog.ts'
+import { type DetectedTech, detectTech, hasManifest, mergeDetections, wantedFiles } from './catalog-techstack.ts'
 
 /**
  * TechDocs for a catalog entity — where the docs live, and how to read them
@@ -157,6 +158,31 @@ export function resolveDocsSource(entity: Entity, giteaPublicUrl: string): DocsS
     if (src) return src
   }
   return null
+}
+
+/**
+ * The entity's source repository itself (root, default branch) — for
+ * reading build files rather than docs, so `techdocs-ref` and docs links
+ * are ignored. Null when there is no repository the console can read.
+ */
+export function resolveRepoSource(entity: Entity, giteaPublicUrl: string): DocsSource | null {
+  const ann = entity.metadata.annotations ?? {}
+  const annotatedRepo = (ann['adhar.io/source-repo'] ?? ann['adhar.io/git-repo'] ?? ann['backstage.io/source-location'] ?? '')
+    .replace(/^url:\s*/, '')
+    .trim()
+  const repoUrl = (entity.metadata.links ?? []).find((l) => l.icon === 'repo')?.url ?? (annotatedRepo || undefined)
+  if (!repoUrl) return null
+  const p = parseRepoUrl(repoUrl)
+  if (!p) return null
+  let giteaHost = ''
+  try {
+    giteaHost = giteaPublicUrl ? new URL(giteaPublicUrl).host.toLowerCase() : ''
+  } catch {
+    giteaHost = ''
+  }
+  const kind = kindForHost(p.host, giteaHost)
+  if (!kind) return null
+  return { kind, url: repoUrl, org: p.org, repo: p.repo, ref: p.ref ?? ann['adhar.io/branch'] ?? ann['adhar.io/default-branch'] ?? 'main', dir: '' }
 }
 
 /* ─────────── reading a repository ─────────── */
@@ -324,6 +350,85 @@ export function rawBase(src: DocsSource, path: string): string | undefined {
   if (src.kind === 'gitea') return `${new URL(src.url).origin}/${p.org}/${p.repo}/raw/branch/${encodeURIComponent(src.ref)}/${path}`
   if (src.kind === 'github') return `https://raw.githubusercontent.com/${p.org}/${p.repo}/${encodeURIComponent(src.ref)}/${path}`
   return undefined
+}
+
+/** A file in the forge's UI (view, not edit) — for "from pom.xml" links. */
+export function repoFileUrl(src: DocsSource, path: string): string | undefined {
+  const p = parseRepoUrl(src.url)
+  if (!p) return undefined
+  const origin = `${new URL(src.url).origin}/${p.org}/${p.repo}`
+  if (src.kind === 'gitea') return `${origin}/src/branch/${encodeURIComponent(src.ref)}/${path}`
+  if (src.kind === 'github') return `${origin}/blob/${encodeURIComponent(src.ref)}/${path}`
+  return undefined
+}
+
+/* ─────────── tech stack from the repository's build files ─────────── */
+
+export interface RepoTechScan {
+  /** The branch actually read (falls back to `master` when `main` is absent). */
+  ref: string
+  /** Files read, as repository paths. */
+  files: string[]
+  tech: DetectedTech[]
+}
+
+/** Subfolders a service often keeps its build in when the root has none. */
+const NESTED_DIRS = /^(backend|server|service|api|app|frontend|web)$/i
+const MAX_FILES = 24
+
+async function scanRepoTech(src: DocsSource): Promise<RepoTechScan> {
+  let ref = src.ref
+  let root: TreeEntry[]
+  try {
+    root = await listDir(src, '')
+  } catch (err) {
+    // Older repositories default to master; the catalog only knows "main".
+    if (ref !== 'main') throw err
+    ref = 'master'
+    root = await listDir({ ...src, ref }, '')
+  }
+  const at = { ...src, ref }
+  const blobs = root.filter((e) => e.type === 'blob').map((e) => e.path)
+  const dirs = root.filter((e) => e.type === 'tree').map((e) => e.path)
+  const listing = [...blobs]
+  let want = wantedFiles(blobs, dirs)
+  // No build file at the root: look one level into the usual service folders.
+  if (!hasManifest(blobs)) {
+    for (const d of dirs.filter((x) => NESTED_DIRS.test(x.split('/').pop() ?? '')).slice(0, 3)) {
+      try {
+        const sub = await listDir(at, d)
+        const sb = sub.filter((e) => e.type === 'blob').map((e) => e.path)
+        listing.push(...sb)
+        want = [...want, ...wantedFiles(sb, sub.filter((e) => e.type === 'tree').map((e) => e.path))]
+      } catch {
+        /* folder unreadable — skip */
+      }
+    }
+  }
+  want = want.slice(0, MAX_FILES)
+  const read = await Promise.allSettled(want.map((p) => readFile(at, p)))
+  const files: Record<string, string> = {}
+  read.forEach((r, i) => {
+    if (r.status === 'fulfilled') files[want[i]] = r.value
+  })
+  return { ref, files: Object.keys(files), tech: mergeDetections(detectTech(files, listing)) }
+}
+
+/**
+ * Languages, frameworks and their versions, read from the repository's build
+ * files (pom.xml, build.gradle, package.json, go.mod, Dockerfile, …). The
+ * scan is a handful of contents-API reads, cached like the docs tree.
+ */
+export function useRepoTechStack(entity: Entity, giteaPublicUrl: string) {
+  const src = useMemo(() => resolveRepoSource(entity, giteaPublicUrl), [entity, giteaPublicUrl])
+  const query = useQuery({
+    queryKey: ['catalog', 'tech', src?.kind, src?.org, src?.repo, src?.ref],
+    queryFn: () => scanRepoTech(src!),
+    enabled: Boolean(src),
+    staleTime: REFRESH_MS,
+    retry: 0,
+  })
+  return { source: src, ...query }
 }
 
 /** A stable hook wrapper so callers get a memoised source. */

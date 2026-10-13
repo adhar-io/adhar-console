@@ -2,7 +2,7 @@ import { assertEquals } from 'jsr:@std/assert@1'
 import type { argocd } from '@adhar/api-clients'
 import type { Entity } from './catalog.ts'
 import { matchRun } from './catalog-pipelines.ts'
-import { unhealthyNodes, workloadNamespace } from './catalog-deployment.ts'
+import { deriveDeployment, unhealthyNodes, workloadNamespace } from './catalog-deployment.ts'
 
 const entity = (name: string, annotations: Record<string, string> = {}): Entity =>
   ({ kind: 'Component', metadata: { name, annotations }, spec: {} }) as unknown as Entity
@@ -66,4 +66,65 @@ Deno.test('unhealthyNodes puts the crashing pod before its owners and keeps the 
     'Pod:CrashLoopBackOff',
     'Rollout:ProgressDeadlineExceeded: ReplicaSet "my-service-6f969b9759" has timed out progressing.',
   ])
+})
+
+/* ─────────── environments are environments, not namespaces ─────────── */
+
+const depApp = (
+  name: string,
+  resourceList: Array<{ kind: string; name: string; namespace?: string }>,
+  dest = 'default',
+  labels: Record<string, string> = {},
+): argocd.Application =>
+  ({
+    metadata: { name, namespace: 'adhar-system', labels },
+    spec: { destination: { namespace: dest } },
+    status: { resourceList, sync: {}, health: {} },
+  }) as unknown as argocd.Application
+
+const derive = (apps: argocd.Application[], name = 'my-service') =>
+  deriveDeployment(entity(name), apps, { isLoading: false, isError: false })
+
+// The bug this guards: the environment key fell back to the workload NAMESPACE,
+// so the Deployment tab drew `Adhar-system`, `Default` and `Adhar` as though
+// they were stages of a promotion pipeline beside the real dev/test/prod.
+// Every platform package runs in `adhar-system`, a scaffolded service's
+// bootstrap app reports `default`, and `adhar` is the org's home namespace.
+Deno.test('a namespace that is not an environment never becomes one', () => {
+  for (const ns of ['adhar-system', 'default', 'adhar']) {
+    const d = derive([depApp('my-service', [{ kind: 'Deployment', name: 'my-service', namespace: ns }], ns)])
+    assertEquals(d.environments.map((e) => e.label), [], `namespace ${ns} was published as an environment`)
+    assertEquals(d.unscoped.length, 1, `namespace ${ns} should leave the app unscoped`)
+    assertEquals(d.apps.length, 1)
+  }
+})
+
+Deno.test('the platform\'s own environment label is authoritative', () => {
+  const d = derive([
+    depApp('my-service', [{ kind: 'Deployment', name: 'my-service', namespace: 'adhar-system' }], 'adhar-system', {
+      'adhar.io/environment': 'dev',
+    }),
+  ])
+  assertEquals(d.environments.map((e) => e.key), ['dev'])
+  assertEquals(d.environments.map((e) => e.label), ['Development'])
+  assertEquals(d.unscoped.length, 0)
+})
+
+Deno.test('an environment in the app name or the namespace is still recognised', () => {
+  const byName = derive([depApp('my-service-prod', [{ kind: 'Deployment', name: 'x', namespace: 'adhar-system' }])])
+  assertEquals(byName.environments.map((e) => e.key), ['prod'])
+
+  const byNamespace = derive([depApp('my-service', [{ kind: 'Deployment', name: 'x', namespace: 'shop-test' }], 'shop-test')])
+  assertEquals(byNamespace.environments.map((e) => e.key), ['test'])
+})
+
+Deno.test('environments sort along the promotion chain, prod first', () => {
+  const d = derive([
+    depApp('my-service-dev', [{ kind: 'Deployment', name: 'x', namespace: 'adhar-system' }]),
+    depApp('my-service-prod', [{ kind: 'Deployment', name: 'x', namespace: 'adhar-system' }]),
+    depApp('my-service-test', [{ kind: 'Deployment', name: 'x', namespace: 'adhar-system' }]),
+  ])
+  assertEquals(d.environments.map((e) => e.key), ['prod', 'test', 'dev'])
+  // The primary is the production app, not whichever was listed first.
+  assertEquals(d.primary?.metadata.name, 'my-service-prod')
 })

@@ -4,6 +4,41 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.129",
+    "date": "2026-10-13",
+    "changes": [
+      {
+        "type": "change",
+        "text": "Catalog improvements"
+      },
+      {
+        "type": "change",
+        "scope": "overview widgets",
+        "text": "Real platform signals (Cilium/Hubble, Tekton, Gitea, Falco, Tetragon)"
+      },
+      {
+        "type": "change",
+        "scope": "overview hero",
+        "text": "Open Platform + Customize only; desktop polish"
+      },
+      {
+        "type": "fix",
+        "scope": "mobile style review",
+        "text": "Overflow, stacked layouts and dark-mode fixes"
+      },
+      {
+        "type": "change",
+        "scope": "mobile",
+        "text": "Search overlays don't raise the keyboard on open"
+      },
+      {
+        "type": "change",
+        "scope": "catalog coverage tiles",
+        "text": "Progress bar pinned to the bottom edge"
+      }
+    ]
+  },
+  {
     "version": "0.1.128",
     "date": "2026-10-13",
     "changes": [
@@ -1023,22 +1058,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "feature",
         "scope": "brand,nav",
         "text": "Adhar AI mark from the brand symbol; rail joins its row"
-      }
-    ]
-  },
-  {
-    "version": "0.1.89",
-    "date": "2026-09-20",
-    "changes": [
-      {
-        "type": "improvement",
-        "scope": "catalog",
-        "text": "Stop painting entity kind with status colours"
-      },
-      {
-        "type": "improvement",
-        "scope": "ai,nav",
-        "text": "Chrome-free /ai page; rail marks top-level rows only"
       }
     ]
   }

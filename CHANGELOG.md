@@ -6,6 +6,20 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.129] - 2026-10-13
+
+### Fixed
+
+- **mobile style review:** Overflow, stacked layouts and dark-mode fixes
+
+### Changed
+
+- Catalog improvements
+- **overview widgets:** Real platform signals (Cilium/Hubble, Tekton, Gitea, Falco, Tetragon)
+- **overview hero:** Open Platform + Customize only; desktop polish
+- **mobile:** Search overlays don't raise the keyboard on open
+- **catalog coverage tiles:** Progress bar pinned to the bottom edge
+
 ## [0.1.128] - 2026-10-13
 
 ### Changed

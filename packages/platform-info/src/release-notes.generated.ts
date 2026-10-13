@@ -4,6 +4,17 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.128",
+    "date": "2026-10-13",
+    "changes": [
+      {
+        "type": "change",
+        "scope": "overview hero",
+        "text": "Open Platform and Re-run onboarding share one row on phones"
+      }
+    ]
+  },
+  {
     "version": "0.1.127",
     "date": "2026-10-13",
     "changes": [
@@ -1028,26 +1039,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "improvement",
         "scope": "ai,nav",
         "text": "Chrome-free /ai page; rail marks top-level rows only"
-      }
-    ]
-  },
-  {
-    "version": "0.1.88",
-    "date": "2026-09-20",
-    "changes": [
-      {
-        "type": "change",
-        "text": "Lock file"
-      },
-      {
-        "type": "improvement",
-        "scope": "ai",
-        "text": "No header on the /ai page; fix the mark's render-time id"
-      },
-      {
-        "type": "fix",
-        "scope": "overview",
-        "text": "\"object is not iterable\" — the Argo CD normalizer drops what DORA reads"
       }
     ]
   }

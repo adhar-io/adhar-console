@@ -6,6 +6,12 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.128] - 2026-10-13
+
+### Changed
+
+- **overview hero:** Open Platform and Re-run onboarding share one row on phones
+
 ## [0.1.127] - 2026-10-13
 
 ### Changed

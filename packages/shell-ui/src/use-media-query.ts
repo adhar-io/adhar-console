@@ -30,3 +30,14 @@ export function useMediaQuery(query: string): boolean {
  * conversation 170px wide.
  */
 export const useIsWide = () => useMediaQuery('(min-width: 1024px)')
+
+/**
+ * Should opening a search or filter overlay move focus into its text field?
+ * Only with a mouse and keyboard. On a touch device a focused field brings up
+ * the on-screen keyboard, which covers half the list the user came to browse.
+ * Fields the user asked to type into (rename, create, find) still autofocus.
+ * Checked when the overlay opens, so it needs no subscription.
+ */
+export function autofocusSearch(): boolean {
+  return typeof globalThis.matchMedia === 'function' && globalThis.matchMedia('(hover: hover) and (pointer: fine)').matches
+}

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@adhar/utils'
 import { useOrganizations } from './use-organizations.ts'
+import { autofocusSearch } from './use-media-query.ts'
 import {
   LOCAL_CLUSTER,
   setActiveNamespace,
@@ -257,7 +258,7 @@ function NamespaceDropdown({ scope }: { scope: string }) {
 
   // Focus the filter when the menu opens (only shown when there are many).
   useEffect(() => {
-    if (open) searchRef.current?.focus()
+    if (open && autofocusSearch()) searchRef.current?.focus()
     else setQuery('')
   }, [open])
 

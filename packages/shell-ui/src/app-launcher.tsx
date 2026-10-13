@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { cn } from '@adhar/utils'
 import { useClickOutside } from './use-click-outside.ts'
+import { autofocusSearch } from './use-media-query.ts'
 import {
   AirbyteIcon,
   ArgoCDIcon,
@@ -860,9 +861,11 @@ export function AppLauncher({ apps = DEFAULT_APP_LINKS }: AppLauncherProps) {
   const [pins, setPins] = useStoredIds(PINS_KEY, 24)
   const [recents, setRecents] = useStoredIds(RECENTS_KEY, RECENTS_MAX)
 
-  // Autofocus the search when the panel opens.
+  // Autofocus the search when the panel opens — not on touch devices, where
+  // it would raise the keyboard over the app grid.
   useEffect(() => {
     if (open) {
+      if (!autofocusSearch()) return
       const t = setTimeout(() => inputRef.current?.focus(), 30)
       return () => clearTimeout(t)
     }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@adhar/utils'
+import { autofocusSearch } from '@adhar/shell-ui'
 import { useProjects } from '../data/plane.ts'
 import type { plane } from '@adhar/api-clients'
 
@@ -94,7 +95,7 @@ export function ProjectPicker({
                 <IconSearch />
               </span>
               <input
-                autoFocus
+                autoFocus={autofocusSearch()}
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
                 placeholder="Search projects…"

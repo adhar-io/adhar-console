@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@adhar/utils'
+import { autofocusSearch } from '@adhar/shell-ui'
 import type { gitea } from '@adhar/api-clients'
 import { useRepos } from '../data/git.ts'
 
@@ -86,7 +87,7 @@ export function RepoPicker({
                 <IconSearch />
               </span>
               <input
-                autoFocus
+                autoFocus={autofocusSearch()}
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
                 placeholder="Search repos…"

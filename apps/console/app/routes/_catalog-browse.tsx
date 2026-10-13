@@ -826,8 +826,10 @@ function CoverageTile({
   }
   const T = tones[tone]
   return (
-    <div className="overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm">
-      <div className="flex items-start justify-between gap-2 px-3 py-2.5 sm:px-4 sm:py-3">
+    // A column, with the body taking the slack: a tile whose sub-line is one
+    // line shorter than its row-mate's still pins its bar to the bottom edge.
+    <div className="flex flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm">
+      <div className="flex flex-1 items-start justify-between gap-2 px-3 py-2.5 sm:px-4 sm:py-3">
         <div className="min-w-0 flex-1">
           {/* Two tiles across a 390px screen leave ~85px beside a 32px icon,
               so every two-word label wrapped and the rows fell out of line.
@@ -854,7 +856,7 @@ function CoverageTile({
           {icon}
         </span>
       </div>
-      <div className="h-1 w-full bg-surface-sunken">
+      <div className="h-1 w-full shrink-0 bg-surface-sunken">
         <div
           className={cn('h-full transition-[width]', T.bar)}
           style={{ width: `${Math.max(0, Math.min(100, pct))}%` }}

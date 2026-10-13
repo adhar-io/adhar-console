@@ -252,18 +252,53 @@ function isRunning(run: TektonRun): boolean {
   const c = tektonCondition(run.status?.conditions);
   return !c || c.status === 'Unknown';
 }
-/** Numeric completed/total task counts for a run (best-effort from status). */
+/**
+ * Completed/total task counts for a run.
+ *
+ * Tekton v1 lists a run's TaskRuns only as `childReferences` — the embedded
+ * `status.taskRuns` map this used to count from is gone, so every run read
+ * "0/N". The controller writes the real tally into the `Succeeded` condition
+ * message, for a finished or a running run alike:
+ *
+ *   Tasks Completed: 5 (Failed: 0, Cancelled 0), Skipped: 0
+ *   Tasks Completed: 2 (Failed: 0, Cancelled 0), Incomplete: 3, Skipped: 0
+ *
+ * "Done" is tasks that reached a terminal state (failures included), plus
+ * skipped ones on a successful run; the total is the whole graph. The embedded map and the spec
+ * remain fallbacks for older controllers and runs too new to have a message.
+ */
 function runCounts(run: TektonRun): { done: number; total: number } {
+  const specTasks =
+    (run.status?.pipelineSpec?.tasks ?? run.spec?.pipelineSpec?.tasks ?? []).length +
+    (run.status?.pipelineSpec?.finally ?? run.spec?.pipelineSpec?.finally ?? []).length;
+  const message = tektonCondition(run.status?.conditions)?.message ?? '';
+  const count = (label: string) => {
+    const m = new RegExp(`${label}:?\\s*(\\d+)`).exec(message);
+    return m ? Number(m[1]) : undefined;
+  };
+  const completed = count('Tasks Completed');
+  if (typeof completed === 'number') {
+    const skipped = count('Skipped') ?? 0;
+    const incomplete = count('Incomplete');
+    const total = typeof incomplete === 'number'
+      ? completed + incomplete + skipped
+      : Math.max(specTasks, completed + skipped);
+    // Skipped tasks are "done" only on a successful run (a `when` guard that
+    // didn't apply); after a failure they never ran, so they stay outstanding.
+    const ok = tektonCondition(run.status?.conditions)?.status === 'True';
+    return { done: Math.min(completed + (ok ? skipped : 0), total), total };
+  }
   const refs = run.status?.childReferences ?? [];
   const trs = Object.values(run.status?.taskRuns ?? {});
-  const specTasks = (run.status?.pipelineSpec?.tasks ?? run.spec?.pipelineSpec?.tasks ?? []).length;
   const skipped = (run.status?.skippedTasks ?? []).length;
-  const total = refs.length || trs.length || specTasks;
+  const total = Math.max(specTasks, refs.length, trs.length);
   const done = trs.filter((tr) => {
     const c = (tr.status?.conditions ?? []).find((x) => x.type === 'Succeeded');
     return c ? c.status !== 'Unknown' : false;
   }).length + skipped;
-  return { done: Math.min(done, total), total };
+  // A finished run with no message: every task it started has finished.
+  const finished = !isRunning(run);
+  return { done: Math.min(finished && !trs.length ? refs.length + skipped : done, total), total };
 }
 function runProgress(run: TektonRun): string {
   const { done, total } = runCounts(run);

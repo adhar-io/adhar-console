@@ -964,9 +964,18 @@ export function AppLauncher({ apps = DEFAULT_APP_LINKS }: AppLauncherProps) {
             role="dialog"
             aria-label="Application launcher"
             onKeyDown={onPanelKeyDown}
-            className="absolute right-0 top-full z-50 mt-2 w-160 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-2xl ring-1 ring-edge-default"
+            className={cn(
+              'z-50 overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-2xl ring-1 ring-edge-default',
+              // Phones: the button is not the right-most icon, so a panel
+              // anchored to it ran off the left edge. Pin it under the top bar
+              // across the screen instead; from sm up it drops from the button.
+              // It is a column capped to the screen, so the app list scrolls
+              // inside it rather than running off the bottom.
+              'fixed inset-x-2 top-[calc(3.5rem+env(safe-area-inset-top,0px)+0.5rem)] flex max-h-[calc(100dvh-4.5rem-env(safe-area-inset-top,0px))] flex-col',
+              'sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:block sm:max-h-none sm:w-160 sm:max-w-[calc(100vw-2rem)]',
+            )}
           >
-            <div className="relative overflow-hidden border-b border-edge-subtle bg-linear-to-br from-brand-50/60 dark:from-brand-500/10 via-surface-raised to-surface-raised px-4 pb-3 pt-3.5">
+            <div className="relative shrink-0 overflow-hidden border-b border-edge-subtle bg-linear-to-br from-brand-50/60 dark:from-brand-500/10 via-surface-raised to-surface-raised px-4 pb-3 pt-3.5">
               <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-brand-100/40 dark:bg-brand-500/15 blur-3xl" aria-hidden />
               <div className="relative flex items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -1008,7 +1017,7 @@ export function AppLauncher({ apps = DEFAULT_APP_LINKS }: AppLauncherProps) {
               </div>
             </div>
 
-            <div className="max-h-[65vh] overflow-y-auto p-4">
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:max-h-[65vh] sm:flex-none">
               {loading ? (
                 <LauncherSkeleton />
               ) : results ? (
@@ -1068,7 +1077,7 @@ export function AppLauncher({ apps = DEFAULT_APP_LINKS }: AppLauncherProps) {
                 </>
               )}
             </div>
-            <div className="flex items-center justify-between gap-2 border-t border-edge-subtle bg-surface-sunken/60 px-4 py-2 text-[11px] text-content-muted">
+            <div className="flex shrink-0 items-center justify-between gap-2 border-t border-edge-subtle bg-surface-sunken/60 px-4 py-2 text-[11px] text-content-muted">
               <span>
                 {loading
                   ? 'Discovering apps…'

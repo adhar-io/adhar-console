@@ -6,6 +6,14 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.127] - 2026-10-13
+
+### Changed
+
+- **topbar menus:** Fit the screen on phones (notifications first)
+- **shell:** Size the console to the visible viewport (dvh)
+- **app launcher:** Sits on screen on phones
+
 ## [0.1.126] - 2026-10-13
 
 ### Changed

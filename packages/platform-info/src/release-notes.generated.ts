@@ -4,6 +4,27 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.127",
+    "date": "2026-10-13",
+    "changes": [
+      {
+        "type": "change",
+        "scope": "topbar menus",
+        "text": "Fit the screen on phones (notifications first)"
+      },
+      {
+        "type": "change",
+        "scope": "shell",
+        "text": "Size the console to the visible viewport (dvh)"
+      },
+      {
+        "type": "change",
+        "scope": "app launcher",
+        "text": "Sits on screen on phones"
+      }
+    ]
+  },
+  {
     "version": "0.1.126",
     "date": "2026-10-13",
     "changes": [
@@ -1027,16 +1048,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "fix",
         "scope": "overview",
         "text": "\"object is not iterable\" — the Argo CD normalizer drops what DORA reads"
-      }
-    ]
-  },
-  {
-    "version": "0.1.87",
-    "date": "2026-09-20",
-    "changes": [
-      {
-        "type": "change",
-        "text": "Update cloud shell"
       }
     ]
   }

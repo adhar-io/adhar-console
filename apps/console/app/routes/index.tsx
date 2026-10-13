@@ -866,7 +866,8 @@ function Hero({
           <HeroLink to="/platform" variant="primary" trailing={<HeroArrowGlyph />}>
             Open Platform
           </HeroLink>
-          <HeroLink onClick={onCustomize} variant="secondary" leading={<IconSliders />}>
+          {/* Arranging panels is a desktop task; on a phone the button is hidden. */}
+          <HeroLink onClick={onCustomize} variant="secondary" leading={<IconSliders />} className="hidden sm:inline-flex">
             Customize
           </HeroLink>
           <HeroLink to="/onboarding" variant="ghost" trailing={<HeroArrowGlyph />}>
@@ -885,6 +886,7 @@ function HeroLink({
   leading,
   trailing,
   children,
+  className: extra,
 }: {
   to?: string
   onClick?(): void
@@ -892,6 +894,8 @@ function HeroLink({
   leading?: ReactNode
   trailing?: ReactNode
   children: ReactNode
+  /** Extra classes, e.g. responsive visibility. */
+  className?: string
 }) {
   // Three CTAs share one chip skeleton so the Hero row reads as a single
   // strip rather than three differently-shaped controls. The primary
@@ -912,6 +916,7 @@ function HeroLink({
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50',
     labelColor,
     cls,
+    extra,
   )
   const inner = (
     <>

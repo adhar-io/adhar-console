@@ -1814,7 +1814,10 @@ export function PlatformHealthPanel() {
     <PanelCard>
       <PanelHead title="Platform health" subtitle="Reliability · delivery · security · perf" to="/decide" />
       <div className="grid flex-1 grid-cols-1 items-center gap-5 sm:grid-cols-[auto_1fr]">
-        <RadialScore value={overall} tone={tone} />
+        {/* Centred when the panel stacks on a phone; beside the sub-scores from sm up. */}
+        <div className="justify-self-center sm:justify-self-start">
+          <RadialScore value={overall} tone={tone} />
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <SubScore label="Reliability" value={reliability} icon={<IconShield />} />
           <SubScore label="Delivery" value={delivery} icon={<IconRocket />} />

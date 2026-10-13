@@ -237,7 +237,7 @@ function NotificationsMenu({ seed }: { seed: Notification[] }) {
       </IconButton>
       {open ? (
         <Dropdown onClose={() => setOpen(false)} anchorRef={ref} widthClass="w-[26rem]">
-          <div className="flex items-center justify-between gap-2 border-b border-edge-subtle px-3 py-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-edge-subtle px-3 py-2.5">
             <div>
               <div className="text-sm font-semibold text-content">Notifications</div>
               <div className="text-[11px] text-content-muted">
@@ -264,7 +264,7 @@ function NotificationsMenu({ seed }: { seed: Notification[] }) {
               ) : null}
             </div>
           ) : (
-            <ul className="max-h-[28rem] overflow-y-auto">
+            <ul className="min-h-0 !shrink overflow-y-auto max-sm:flex-1 sm:max-h-[28rem]">
               {visible.map((n) => (
                 <NotificationCard
                   key={n.id}
@@ -440,17 +440,22 @@ function Dropdown({
   align?: 'right' | 'left'
 }) {
   const panelRef = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState<{ top: number; left: number; right: number } | null>(null)
+  const [pos, setPos] = useState<{ top: number; left: number; right: number; narrow: boolean; maxH: number } | null>(null)
 
   useEffect(() => {
     const update = () => {
       const a = anchorRef.current
       if (!a) return
       const rect = a.getBoundingClientRect()
+      const top = rect.bottom + 8
       setPos({
-        top: rect.bottom + 8,
+        top,
         left: rect.left,
         right: window.innerWidth - rect.right,
+        // Phones: a 26rem panel hung off the trigger's right edge ran off the
+        // left of the screen (the trigger is not the right-most icon).
+        narrow: window.innerWidth < 640,
+        maxH: window.innerHeight - top - 8,
       })
     }
     update()
@@ -483,8 +488,13 @@ function Dropdown({
 
   if (typeof document === 'undefined' || !pos) return null
 
-  const style: React.CSSProperties =
-    align === 'right' ? { top: pos.top, right: pos.right } : { top: pos.top, left: pos.left }
+  // Narrow screens: span the screen 8px in from each side and cap the height
+  // to what is left below, as a column, so long content scrolls inside.
+  const style: React.CSSProperties = pos.narrow
+    ? { top: pos.top, left: 8, right: 8, maxHeight: pos.maxH }
+    : align === 'right'
+      ? { top: pos.top, right: pos.right }
+      : { top: pos.top, left: pos.left }
 
   return createPortal(
     <div
@@ -493,7 +503,7 @@ function Dropdown({
       style={style}
       className={cn(
         'fixed z-[60] overflow-hidden rounded-xl border border-edge-default bg-surface-raised py-1 shadow-xl ring-1 ring-edge-default',
-        widthClass,
+        pos.narrow ? 'flex flex-col [&>*]:shrink-0' : widthClass,
       )}
     >
       {children}

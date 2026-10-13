@@ -820,7 +820,7 @@ function Hero({
 }) {
   return (
     <section
-      className="rise-in relative overflow-hidden rounded-2xl border border-brand-900/40 px-5 py-7 text-white shadow-lg sm:px-8 sm:py-10"
+      className="rise-in relative overflow-hidden rounded-2xl border border-brand-900/40 px-4 py-7 text-white shadow-lg sm:px-8 sm:py-10"
       style={{
         backgroundImage:
           'radial-gradient(ellipse at top left, var(--color-brand-500), transparent 60%), linear-gradient(135deg, var(--color-brand-900), var(--color-brand-950))',
@@ -862,7 +862,9 @@ function Hero({
           observability, cost. Every capability is backed by an open-source tool; no black boxes, no
           lock-in.
         </p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
+        {/* On a phone the two remaining actions share one row (Customize is
+            hidden there); slightly tighter chips make them fit at 360px+. */}
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:gap-2">
           <HeroLink to="/platform" variant="primary" trailing={<HeroArrowGlyph />}>
             Open Platform
           </HeroLink>
@@ -912,7 +914,7 @@ function HeroLink({
       : 'text-white hover:bg-white/15'
   const labelColor = isPrimary ? 'text-content' : 'text-white'
   const className = cn(
-    'inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-semibold tracking-tight transition-all duration-150',
+    'inline-flex h-10 items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-[13px] font-semibold tracking-tight transition-all duration-150 sm:gap-2 sm:px-4 sm:text-sm',
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50',
     labelColor,
     cls,

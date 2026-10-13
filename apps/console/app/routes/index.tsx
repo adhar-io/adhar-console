@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
+import { createPortal } from 'react-dom'
 import {
   AppShell,
   DEFAULT_APP_LINKS,
@@ -862,18 +863,14 @@ function Hero({
           observability, cost. Every capability is backed by an open-source tool; no black boxes, no
           lock-in.
         </p>
-        {/* On a phone the two remaining actions share one row (Customize is
-            hidden there); slightly tighter chips make them fit at 360px+. */}
+        {/* Two actions, one row at every width: slightly tighter chips on a
+            phone keep them side by side from 320px. */}
         <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:gap-2">
           <HeroLink to="/platform" variant="primary" trailing={<HeroArrowGlyph />}>
             Open Platform
           </HeroLink>
-          {/* Arranging panels is a desktop task; on a phone the button is hidden. */}
-          <HeroLink onClick={onCustomize} variant="secondary" leading={<IconSliders />} className="hidden sm:inline-flex">
+          <HeroLink onClick={onCustomize} variant="secondary" leading={<IconSliders />}>
             Customize
-          </HeroLink>
-          <HeroLink to="/onboarding" variant="ghost" trailing={<HeroArrowGlyph />}>
-            Re-run onboarding
           </HeroLink>
         </div>
       </div>
@@ -888,19 +885,16 @@ function HeroLink({
   leading,
   trailing,
   children,
-  className: extra,
 }: {
   to?: string
   onClick?(): void
-  variant: 'primary' | 'secondary' | 'ghost'
+  variant: 'primary' | 'secondary'
   leading?: ReactNode
   trailing?: ReactNode
   children: ReactNode
-  /** Extra classes, e.g. responsive visibility. */
-  className?: string
 }) {
-  // Three CTAs share one chip skeleton so the Hero row reads as a single
-  // strip rather than three differently-shaped controls. The primary
+  // Both CTAs share one chip skeleton so the Hero row reads as a single
+  // strip rather than two differently-shaped controls. The primary
   // variant uses the project's own `text-content` token (a near-black
   // already used by every panel) instead of `text-content`, which can be
   // overridden by the parent <section>'s `text-white` in some browsers'
@@ -909,16 +903,13 @@ function HeroLink({
   const isPrimary = variant === 'primary'
   const cls = isPrimary
     ? 'bg-surface-raised shadow-sm ring-1 ring-inset ring-edge-default hover:bg-surface-sunken hover:shadow-md'
-    : variant === 'secondary'
-      ? 'border border-white/60 bg-white/15 text-white backdrop-blur-sm hover:border-white hover:bg-white/25'
-      : 'text-white hover:bg-white/15'
+    : 'border border-white/60 bg-white/15 text-white backdrop-blur-sm hover:border-white hover:bg-white/25'
   const labelColor = isPrimary ? 'text-content' : 'text-white'
   const className = cn(
     'inline-flex h-10 items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-[13px] font-semibold tracking-tight transition-all duration-150 sm:gap-2 sm:px-4 sm:text-sm',
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50',
     labelColor,
     cls,
-    extra,
   )
   const inner = (
     <>
@@ -2058,7 +2049,9 @@ function CustomizeSheet({
 
   useOverlayDismiss(true, onClose)
 
-  return (
+  // Portalled to <body>: the shell's <main> is `isolate`, so a fixed sheet
+  // inside it stacks under the top bar, which hid this header on a phone.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-end">
       <button
         type="button"
@@ -2223,7 +2216,8 @@ function CustomizeSheet({
           </button>
         </footer>
       </aside>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

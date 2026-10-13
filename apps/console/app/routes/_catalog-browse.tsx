@@ -1357,7 +1357,7 @@ function BrowseAll({
       />
 
       {loading ? (
-        <div className="rounded-xl border border-edge-default bg-surface-raised p-10 text-center text-sm text-content-muted shadow-sm">
+        <div className="flex items-center justify-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-10 text-sm text-content-muted shadow-sm">
           <Spinner /> Loading catalog…
         </div>
       ) : list.length === 0 ? (

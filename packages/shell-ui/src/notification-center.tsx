@@ -186,7 +186,7 @@ export function NotificationCenter() {
         {feed.isLoading && !items.length ? (
           <div className="divide-y divide-edge-subtle">
             {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="flex animate-pulse gap-3 px-4 py-3"><div className="h-8 w-8 rounded-lg bg-surface-sunken" /><div className="flex-1 space-y-1.5"><div className="h-3 w-1/2 rounded bg-surface-sunken" /><div className="h-2.5 w-3/4 rounded bg-surface-sunken" /></div></div>
+              <div key={i} className="flex gap-3 px-4 py-3"><div className="skeleton-shimmer h-8 w-8 rounded-lg" /><div className="flex-1 space-y-1.5"><div className="skeleton-shimmer h-3 w-1/2 rounded" /><div className="skeleton-shimmer h-2.5 w-3/4 rounded" /></div></div>
             ))}
           </div>
         ) : items.length === 0 ? (
@@ -252,7 +252,6 @@ export function NotificationCard({
   const target = n.href && !external ? routeTarget(n.href) : null
   return (
     <li className={cn('group relative flex gap-3 px-4 transition-colors hover:bg-surface-sunken/40', compact ? 'py-2.5' : 'py-3')}>
-      {!n.read ? <span aria-hidden className="absolute inset-y-2 left-0 w-0.5 rounded-r bg-brand-500" /> : null}
       {onSelect ? (
         <input type="checkbox" checked={!!selected} onChange={onSelect} aria-label="Select notification" className="mt-2 h-4 w-4 shrink-0 accent-brand-600" />
       ) : null}

@@ -150,7 +150,10 @@ export function AppShell({
   }, [mobileOpen])
 
   return (
-    <div className="flex h-screen bg-surface-app text-content">
+    // `h-dvh`, not `h-screen`: 100vh on a phone includes the strip behind the
+    // browser's address/tool bars, so a full-height page (Adhar AI) put its
+    // input box below the visible area. The dynamic viewport is what is shown.
+    <div className="flex h-dvh bg-surface-app text-content">
       {/* Permanent sidebar — shown at lg and above. The wrapper is given a
           stacking context (`relative z-30`) so the collapsed-state expand
           pull-tab (which half-protrudes past the sidebar's right edge)

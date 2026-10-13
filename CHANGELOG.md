@@ -6,6 +6,12 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.126] - 2026-10-13
+
+### Changed
+
+- **overview:** Phone tweaks — no Customize in the hero, centred health dial
+
 ## [0.1.125] - 2026-10-12
 
 ### Changed

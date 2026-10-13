@@ -4,6 +4,17 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.126",
+    "date": "2026-10-13",
+    "changes": [
+      {
+        "type": "change",
+        "scope": "overview",
+        "text": "Phone tweaks — no Customize in the hero, centred health dial"
+      }
+    ]
+  },
+  {
     "version": "0.1.125",
     "date": "2026-10-12",
     "changes": [
@@ -1026,36 +1037,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
       {
         "type": "change",
         "text": "Update cloud shell"
-      }
-    ]
-  },
-  {
-    "version": "0.1.86",
-    "date": "2026-09-20",
-    "changes": [
-      {
-        "type": "fix",
-        "text": "Fix scaffolder"
-      },
-      {
-        "type": "improvement",
-        "scope": "catalog",
-        "text": "The entity About panel shows facts, not placeholders"
-      },
-      {
-        "type": "improvement",
-        "scope": "design",
-        "text": "Strip build plumbing from the builder header"
-      },
-      {
-        "type": "fix",
-        "scope": "apps",
-        "text": "LitmusChaos replaces Chaos Mesh; add LibreDB, drop dead MinIO"
-      },
-      {
-        "type": "fix",
-        "scope": "nav",
-        "text": "Align the sidebar rail with its row; flush login hero"
       }
     ]
   }

@@ -824,7 +824,7 @@ function StepAccount({
     )
   } else {
     identity = (
-      <div className="grid gap-4 lg:grid-cols-[3fr_2fr] lg:items-start">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[3fr_2fr] lg:items-start">
         {/* The account card — the one thing this step is for. */}
         <div className="relative overflow-hidden rounded-2xl border border-edge-default bg-surface-raised p-5 shadow-sm sm:p-6">
           <span
@@ -1042,7 +1042,7 @@ function StepOrg({
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <label className="block">
           <span className="block text-xs font-semibold uppercase tracking-[0.06em] text-content-subtle">
             Contact name

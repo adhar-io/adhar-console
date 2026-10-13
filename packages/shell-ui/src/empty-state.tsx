@@ -36,7 +36,9 @@ export function EmptyState({ title, description, action, icon, compact = false, 
       {description ? (
         <p
           className={cn(
-            'max-w-md leading-relaxed text-content-muted',
+            // `anywhere` so an error message carrying a long URL wraps
+            // inside the card instead of widening the page on a phone.
+            'max-w-full leading-relaxed text-content-muted [overflow-wrap:anywhere] sm:max-w-md',
             compact ? 'mt-1 text-xs' : 'mt-1.5 text-sm',
           )}
         >

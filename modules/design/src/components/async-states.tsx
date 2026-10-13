@@ -17,16 +17,16 @@ export function LoadingBlock({ label = 'Loading…' }: { label?: string }) {
 
 export function ErrorBlock({ error, onRetry }: { error: Error; onRetry?: () => void }) {
   return (
-    <div className="rounded-xl border border-rose-200 bg-rose-50 p-6 shadow-sm">
-      <div className="text-sm font-semibold text-rose-800">
+    <div className="rounded-xl border border-rose-200 bg-rose-50 p-6 shadow-sm dark:border-rose-500/30 dark:bg-rose-500/10">
+      <div className="text-sm font-semibold text-rose-800 dark:text-rose-200">
         Couldn't reach the document store
       </div>
-      <p className="mt-1 text-xs leading-relaxed text-rose-700">{error.message}</p>
+      <p className="mt-1 text-xs leading-relaxed text-rose-700 [overflow-wrap:anywhere] dark:text-rose-300">{error.message}</p>
       {onRetry ? (
         <button
           type="button"
           onClick={onRetry}
-          className="mt-3 rounded-md border border-rose-300 bg-surface-raised px-3 py-1.5 text-xs font-semibold text-rose-700 shadow-sm hover:bg-rose-100"
+          className="mt-3 rounded-md border border-rose-300 bg-surface-raised px-3 py-1.5 text-xs font-semibold text-rose-700 shadow-sm hover:bg-rose-100 dark:border-rose-500/40 dark:text-rose-200 dark:hover:bg-rose-500/15"
         >
           Retry
         </button>

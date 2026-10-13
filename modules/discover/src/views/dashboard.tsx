@@ -340,8 +340,10 @@ function ServiceTable({
         const p95Latest = p95Series ? lastNum(p95Series) : 0
         const tone = errLatest > 1 ? 'rose' : errLatest > 0.3 ? 'amber' : 'emerald'
         return (
-          <li key={svc} className="grid grid-cols-[1fr_120px_120px_120px] items-center gap-3 px-5 py-3">
-            <div className="min-w-0">
+          // On a phone the name takes its own line and the three signals share
+          // the row below; four columns left the name column 0px wide.
+          <li key={svc} className="grid grid-cols-3 items-center gap-x-2 gap-y-1.5 px-4 py-3 sm:grid-cols-[1fr_120px_120px_120px] sm:gap-3 sm:px-5 [&_svg]:max-w-full">
+            <div className="col-span-3 min-w-0 sm:col-span-1">
               <div className="truncate text-sm font-semibold text-content">{svc}</div>
               <div className="text-[10px] text-content-subtle">
                 rate · 5xx · p95 last hour

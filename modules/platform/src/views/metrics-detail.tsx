@@ -149,7 +149,7 @@ export function CapacityDetail({
   const r = useMemo(() => sumResources((pods.data ?? []) as PodLike[]), [pods.data])
   return (
     <Section title="Capacity" hint="Used by containers, reserved by requests, capped by limits, against what the nodes can allocate">
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <CapacityBar label="CPU" fmt={(v) => `${formatCpu(v)} cores`} used={hasUsage ? cpuUsed : undefined} req={r.cpuReq} lim={r.cpuLim} alloc={cpuAlloc} />
         <CapacityBar label="Memory" fmt={(v) => formatBytes(v)} used={hasUsage ? memUsed : undefined} req={r.memReq} lim={r.memLim} alloc={memAlloc} />
       </div>
@@ -243,7 +243,7 @@ export function TrendsDetail() {
           Prometheus is not reachable from the console ({(cpuUsed.error as Error)?.message?.slice(0, 80)}). Live totals above still come from metrics-server.
         </div>
       ) : (
-        <div className="grid gap-5 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
           <div>
             <div className="mb-1 text-[12px] font-semibold text-content">CPU (cores)</div>
             {chart(
@@ -458,7 +458,7 @@ export function StorageDetail() {
       <DataTable columns={columns} rows={rows} rowKey={(r) => r.key} loading={pvcs.isLoading} />
       <div className="mt-4">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-content-subtle">Storage classes</div>
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
           {classes.map((c) => {
             const isDefault = c.metadata.annotations?.['storageclass.kubernetes.io/is-default-class'] === 'true'
             const claims = rows.filter((r) => r.storageClass === c.metadata.name)

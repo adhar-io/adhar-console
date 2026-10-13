@@ -335,6 +335,17 @@ body {
   animation: shimmer 1.6s linear infinite;
 }
 
+/* A 70% white sweep over a dark plate read as a bright grey slab; on dark
+   surfaces the highlight is a faint sheen instead. */
+.dark .skeleton-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in oklch, white 7%, transparent) 50%,
+    transparent 100%
+  );
+}
+
 /* Respect reduced-motion preference. */
 @media (prefers-reduced-motion: reduce) {
   .skeleton-shimmer {
@@ -854,16 +865,18 @@ body {
  * intact (they wrap in an anonymous table box) and gives the element its own
  * horizontal scrollbar; the console's tables are all `w-full`, so that one
  * selector reaches every raw <table> without touching thirty-five views.
- * DataTable has its own scroller and is excluded.
+ * DataTable has its own scroller and is excluded, and so is a table marked
+ * `data-wrap` — two columns of prose (key + sentence) that should wrap to the
+ * card rather than scroll a sentence out of view.
  */
 @media (max-width: 639px) {
-  table.w-full:not([data-datatable]) {
+  table.w-full:not([data-datatable], [data-wrap]) {
     display: block;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
-  table.w-full:not([data-datatable]) th,
-  table.w-full:not([data-datatable]) td {
+  table.w-full:not([data-datatable], [data-wrap]) th,
+  table.w-full:not([data-datatable], [data-wrap]) td {
     white-space: nowrap;
   }
 }

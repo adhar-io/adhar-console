@@ -256,7 +256,7 @@ function HelpPage() {
       ) : null}
 
       {shortcuts.length || trouble.length ? (
-        <div className="grid gap-8 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
           {shortcuts.length ? (
             <Section title="Keyboard shortcuts" subtitle="Everything below is bound in the console today.">
               <div className="space-y-3">
@@ -268,11 +268,11 @@ function HelpPage() {
                         <span className={cn('flex h-5 w-5 items-center justify-center rounded-md', t.chip)}><Glyph name="keyboard" small /></span>
                         <span className="text-[11px] font-semibold uppercase tracking-wide text-content-subtle">{g.group}</span>
                       </div>
-                      <table className="w-full text-[13px]">
+                      <table data-wrap className="w-full text-[13px]">
                         <tbody className="divide-y divide-edge-subtle">
                           {g.rows.map(([k, v]) => (
                             <tr key={k}>
-                              <td className="w-36 whitespace-nowrap px-4 py-2 align-top">
+                              <td className="w-px whitespace-nowrap py-2 pl-4 pr-2 align-top sm:w-36 sm:px-4">
                                 <span className="inline-flex gap-1">
                                   {k.split(' ').map((part, i) => (
                                     <kbd key={i} className="min-w-6 rounded-md border border-edge-default border-b-[3px] bg-surface-sunken px-1.5 py-0.5 text-center font-mono text-[11px] text-content">{part}</kbd>

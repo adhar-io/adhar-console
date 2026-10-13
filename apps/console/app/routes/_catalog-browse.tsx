@@ -4145,7 +4145,7 @@ function EntityDrawer({
                         it ships, and the last hour of its resources. Only the
                         ones that apply render; a Group has none. */}
                     {scoreable || (showDeploy && deployment) || metricTarget ? (
-                      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                         {scoreable ? <ReadinessByCategory score={score} onOpen={() => setTab('scorecard')} /> : null}
                         {showDeploy && deployment ? <DeploymentsChart deployment={deployment} onOpen={() => setTab('deploy')} /> : null}
                         {metricTarget ? (
@@ -4168,7 +4168,7 @@ function EntityDrawer({
                       what it is wired to, what happened). Right rail: who and
                       what (the team and its contacts, the stack with versions).
                     */}
-                    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_292px]">
+                    <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_292px]">
                       <div className="min-w-0 space-y-5">
                         {scoreable ? (
                           <FixNext failing={failing} total={score.checks.length} onAll={() => setTab('scorecard')} />
@@ -4738,7 +4738,7 @@ function ScorecardTab({ score, onAsk }: { score: Scorecard; onAsk(): void }) {
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
         <DrawerSection title="Production readiness">
           <div className="flex items-center gap-5">
             <DonutGauge
@@ -5769,7 +5769,7 @@ function DeploymentTab({
         <>
           <DeploymentSummary deployment={deployment} appUrl={appUrl(p)} />
           <EnvironmentsGrid deployment={deployment} appUrl={appUrl} repoUrl={repoUrl} />
-          <div className="grid gap-5 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <div className="min-w-0 space-y-5">
               <DeploymentsChart deployment={deployment} />
               <SyncHistoryCard deployment={deployment} repoUrl={repoUrl} />
@@ -5954,7 +5954,7 @@ function EnvironmentsGrid(props: {
           title={`Environments · ${envs.length}`}
           aside={<PhaseLink href="/deliver?section=environments">Promotions →</PhaseLink>}
         >
-          <ol className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <ol className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {envs.map((env, i) => (
               <li key={`${env.stage.project}/${env.stage.name}`} className="relative">
                 <KargoEnvCard env={env} appUrl={props.appUrl} />
@@ -6090,7 +6090,7 @@ function AppsGrid({
       title={titled ? `Argo CD applications · ${deployment.apps.length}` : `Environments · ${deployment.environments.length}`}
       aside={<PhaseLink href="/deliver?section=apps">GitOps view →</PhaseLink>}
     >
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {deployment.environments.map((env) => {
           const app = env.app
           const rev = app.status.sync.revision
@@ -7051,7 +7051,7 @@ function TechStackTab({
           </p>
         </DrawerSection>
       ) : (
-        <div className="grid gap-5 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
           {grouped.map(({ group, items }) => (
             <DrawerSection
               key={group}
@@ -7126,7 +7126,7 @@ function TechStackTab({
         </DrawerSection>
       ) : null}
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <DrawerSection title="Where this comes from">
           <dl className="-my-1 divide-y divide-edge-subtle">
             {[

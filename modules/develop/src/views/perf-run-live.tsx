@@ -217,7 +217,7 @@ export function LiveCharts({ lines, running }: { lines: readonly string[]; runni
   return (
     <div className="space-y-3">
       <ProgressTiles series={series} running={running} />
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <ChartCard
           title="Virtual users"
           hint="Concurrency k6 actually reached. A flat line under the target means the runners could not keep up."

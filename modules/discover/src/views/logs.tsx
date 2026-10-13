@@ -1314,7 +1314,7 @@ function LogRow({
 function Welcome({ onPick, onBrowse }: { onPick(q: string): void; onBrowse(): void }) {
   return (
     <div className="p-6">
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
         <div>
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-surface-sunken text-content-muted">
             <LokiIcon size={20} />
@@ -1334,13 +1334,13 @@ function Welcome({ onPick, onBrowse }: { onPick(q: string): void; onBrowse(): vo
             </span>
           </div>
         </div>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {STARTERS.map((s) => (
             <button
               key={s.label}
               type="button"
               onClick={() => onPick(s.query)}
-              className="group rounded-lg border border-edge-default bg-surface-app p-2.5 text-left transition-colors hover:border-brand-300 hover:bg-brand-50/40 dark:hover:border-brand-500/40 dark:hover:bg-brand-500/5"
+              className="group min-w-0 rounded-lg border border-edge-default bg-surface-app p-2.5 text-left transition-colors hover:border-brand-300 hover:bg-brand-50/40 dark:hover:border-brand-500/40 dark:hover:bg-brand-500/5"
             >
               <div className="text-[12px] font-medium text-content">{s.label}</div>
               <code className="mt-1 block truncate font-mono text-[10px] text-brand-700 dark:text-brand-300">{s.query}</code>

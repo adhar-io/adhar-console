@@ -268,7 +268,7 @@ export function PaymentMethods() {
             title="Billing contact"
             description="Invoices and payment-failure alerts route to the default invoicing method's address."
           >
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Pair label="Primary email" value={invoiceMethod?.email ?? 'Not configured'} />
               <Pair label="Default method" value={def?.label ?? 'None'} />
               <Pair label="Currency" value="USD" />

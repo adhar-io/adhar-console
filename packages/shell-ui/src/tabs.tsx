@@ -50,12 +50,14 @@ export function Tabs<T extends string>({
 
   if (orientation === 'vertical') {
     return (
-      <div className={cn('grid grid-cols-1 gap-6 lg:grid-cols-[220px_1fr]', className)}>
+      <div className={cn('grid grid-cols-1 gap-4 lg:grid-cols-[220px_1fr] lg:gap-6', className)}>
+        {/* Below lg the rail is one scrolling row of chips: stacked full-width
+            rows pushed the panel itself off the first screen of a phone. */}
         <aside
           role="tablist"
           aria-label={ariaLabel}
           aria-orientation="vertical"
-          className="space-y-0.5"
+          className="-mx-1 flex gap-1 overflow-x-auto px-1 [scrollbar-width:none] lg:mx-0 lg:block lg:space-y-0.5 lg:px-0 [&::-webkit-scrollbar]:hidden"
         >
           {visibleTabs.map((t) => {
             const isActive = t.id === active
@@ -69,7 +71,7 @@ export function Tabs<T extends string>({
                 disabled={t.disabled}
                 onClick={() => setActive(t.id)}
                 className={cn(
-                  'block w-full rounded-md px-3 py-2 text-left text-sm transition-colors',
+                  'block shrink-0 whitespace-nowrap rounded-md px-3 py-2 text-left text-sm transition-colors lg:w-full lg:whitespace-normal',
                   isActive
                     ? 'bg-surface-sunken font-medium text-content'
                     : 'text-content-muted hover:bg-surface-sunken hover:text-content',
@@ -78,7 +80,7 @@ export function Tabs<T extends string>({
               >
                 <div>{t.label}</div>
                 {t.description ? (
-                  <div className="text-[11px] text-content-subtle">{t.description}</div>
+                  <div className="hidden text-[11px] text-content-subtle lg:block">{t.description}</div>
                 ) : null}
               </button>
             )

@@ -447,7 +447,7 @@ export function KargoStages() {
         ) : warehouseList.length === 0 ? (
           <EmptyState compact title="No warehouses" description="A Warehouse subscribes to images, git repos or charts and produces Freight." />
         ) : (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {warehouseList.map((w) => (
               <Card key={w.name} className={cn(w.issues?.length && 'border-rose-200/70 dark:border-rose-500/30')}>
                 <CardHeader>

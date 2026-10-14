@@ -46,7 +46,25 @@ export interface Organization {
 interface Registry {
   orgs: Organization[]
   activeId: string
+  /**
+   * True when these organisations are the SEED below rather than anything a
+   * person created. A seeded registry is a placeholder for rendering and must
+   * never be promoted into the control plane — see the backfill call site.
+   */
+  seeded?: boolean
 }
+
+/**
+ * Namespaces an organisation may never be named after.
+ *
+ * The Organisation composition owns its home namespace through a
+ * provider-kubernetes Object with the default deletionPolicy, so an
+ * organisation called `default` ADOPTS the Kubernetes default namespace and
+ * deleting the organisation would delete it. The control plane refuses these
+ * too (compositions/organisation/local.yaml); refusing here as well keeps the
+ * console from generating a write it knows will be rejected.
+ */
+const RESERVED_ORG_SLUGS = new Set(['default', 'kube-system', 'kube-public', 'kube-node-lease', 'adhar-system'])
 
 const NAME_MAX = 60
 /** Truncated rather than rejected — a long description is not a failed create. */
@@ -103,6 +121,7 @@ async function readRegistry(userId: string, fallbackActive: string): Promise<Reg
   const seed: Registry = {
     orgs: [{ id: seedId, name: 'Default Organization', slug: seedId, createdAt: new Date().toISOString() }],
     activeId: seedId,
+    seeded: true,
   }
   return seed
 }
@@ -182,7 +201,22 @@ export async function handleOrganizations(req: Request, subpath: string): Promis
       // Every organisation the console knows is an Organisation XR — the ones
       // created before the control plane owned tenancy included. Applied in
       // the background, at most once per object per ten minutes.
-      backfillXrs(reg.orgs.map((o) => organisationManifest({ slug: o.slug, name: o.name, description: o.description })))
+      //
+      // NOT the seed, and never a reserved name. `readRegistry` invents a
+      // "Default Organization" with the bare slug `default` whenever this
+      // console has no registry yet, and on 2026-10-13 — with the console
+      // database freshly restored and empty — the backfill promoted that
+      // placeholder into a real Organisation XR. It adopted the Kubernetes
+      // `default` namespace, stamped `adhar.io/organisation: default` on it,
+      // and created a matching Gitea org and team. A tenant nobody asked for,
+      // holding a namespace the platform must never delete.
+      if (!reg.seeded) {
+        backfillXrs(
+          reg.orgs
+            .filter((o) => !RESERVED_ORG_SLUGS.has(o.slug))
+            .map((o) => organisationManifest({ slug: o.slug, name: o.name, description: o.description })),
+        )
+      }
       return attach(json({ organizations: reg.orgs, activeId: reg.activeId }))
     }
     // POST /api/organizations  → create + activate

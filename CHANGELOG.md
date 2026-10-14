@@ -6,6 +6,18 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.130] - 2026-10-14
+
+### Fixed
+
+- Fix organisation seeding
+
+### Changed
+
+- **cloud shell:** Landing page follows the theme; only live shells are dark
+- **overview:** Default layout in full-width rows
+- CI/CD runs: task progress from Tekton's own tally, not '0/N'
+
 ## [0.1.129] - 2026-10-13
 
 ### Fixed

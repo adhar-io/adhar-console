@@ -4,8 +4,32 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.130",
+    "date": "2026-10-14",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Fix organisation seeding"
+      },
+      {
+        "type": "change",
+        "scope": "cloud shell",
+        "text": "Landing page follows the theme; only live shells are dark"
+      },
+      {
+        "type": "change",
+        "scope": "overview",
+        "text": "Default layout in full-width rows"
+      },
+      {
+        "type": "change",
+        "text": "CI/CD runs: task progress from Tekton's own tally, not '0/N'"
+      }
+    ]
+  },
+  {
     "version": "0.1.129",
-    "date": "2026-10-13",
+    "date": "2026-10-14",
     "changes": [
       {
         "type": "change",
@@ -977,87 +1001,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
       {
         "type": "change",
         "text": "Update local dev loop"
-      }
-    ]
-  },
-  {
-    "version": "0.1.90",
-    "date": "2026-09-23",
-    "changes": [
-      {
-        "type": "feature",
-        "scope": "ai",
-        "text": "Orbital mark and an agent-first landing"
-      },
-      {
-        "type": "feature",
-        "scope": "scorecards",
-        "text": "Grade distribution tile, category heading, FilterBar"
-      },
-      {
-        "type": "feature",
-        "scope": "notifications",
-        "text": "Same page anatomy as the rest of the console"
-      },
-      {
-        "type": "feature",
-        "scope": "catalog",
-        "text": "Taller cards with a readiness meter; drawer as one document"
-      },
-      {
-        "type": "feature",
-        "scope": "login",
-        "text": "Greet by name, hold layout while config loads, hex tick marks"
-      },
-      {
-        "type": "feature",
-        "scope": "onboarding",
-        "text": "Account step with sign-up, and a refreshed wizard"
-      },
-      {
-        "type": "feature",
-        "scope": "login",
-        "text": "Fine-tune sign-in page"
-      },
-      {
-        "type": "improvement",
-        "scope": "catalog",
-        "text": "Entity cards say what a thing is, once"
-      },
-      {
-        "type": "improvement",
-        "scope": "nav",
-        "text": "Amber-400 for the sub-item rail"
-      },
-      {
-        "type": "improvement",
-        "scope": "nav",
-        "text": "Flat orange-600 for the sub-item rail"
-      },
-      {
-        "type": "improvement",
-        "scope": "nav",
-        "text": "Sub-item rail is an amber→orange gradient"
-      },
-      {
-        "type": "fix",
-        "scope": "nav",
-        "text": "Sub-items keep all four corners; their rail is round and accent"
-      },
-      {
-        "type": "feature",
-        "scope": "nav,brand",
-        "text": "Highlight bleeds to the sidebar edge; parent keeps it"
-      },
-      {
-        "type": "feature",
-        "scope": "brand",
-        "text": "Adhar AI mark — the brand hexagon, lit from inside"
-      },
-      {
-        "type": "feature",
-        "scope": "brand,nav",
-        "text": "Adhar AI mark from the brand symbol; rail joins its row"
       }
     ]
   }

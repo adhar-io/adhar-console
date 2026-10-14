@@ -195,7 +195,7 @@ const SECTIONS: Record<Section, SectionDef> = {
   explore: {
     id: 'explore',
     label: 'Explore',
-    description: 'Discovery-driven browser for every Kubernetes kind — live tables with an inline manifest editor.',
+    description: 'Discovery-driven browser for every Kubernetes kind — live tables with kubectl columns, a detail drawer and YAML editing.',
     kind: 'k8s',
   },
   graph: {

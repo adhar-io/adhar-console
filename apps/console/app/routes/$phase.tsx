@@ -38,9 +38,13 @@ const PHASE_WIDTH: Record<z.infer<typeof PhaseSchema>, 'standard' | 'wide' | 'fu
   platform: 'full',
 }
 
-const PhaseSearchSchema = z.object({
-  section: z.string().optional(),
-})
+// Passthrough: section views keep their own deep-link params next to
+// `section` (Explore's `?kind=&obj=`), which a strict object would strip.
+const PhaseSearchSchema = z
+  .object({
+    section: z.string().optional(),
+  })
+  .passthrough()
 
 export const Route = createFileRoute('/$phase')({
   parseParams: ({ phase }) => {

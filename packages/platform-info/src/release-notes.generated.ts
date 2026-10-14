@@ -4,6 +4,49 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.132",
+    "date": "2026-10-14",
+    "changes": [
+      {
+        "type": "improvement",
+        "text": "Database resource enhancement"
+      },
+      {
+        "type": "change",
+        "text": "Update template renderer"
+      },
+      {
+        "type": "improvement",
+        "text": "Template render enhancement"
+      },
+      {
+        "type": "change",
+        "scope": "platform",
+        "text": "Explore redesigned as a full resource browser"
+      },
+      {
+        "type": "change",
+        "scope": "platform",
+        "text": "Rename CI / CD to Builds"
+      },
+      {
+        "type": "change",
+        "scope": "platform",
+        "text": "Knowledge Graph — lenses, path tracing, health view, new overview"
+      },
+      {
+        "type": "change",
+        "scope": "platform",
+        "text": "Custom Resources redesigned with top tabs"
+      },
+      {
+        "type": "change",
+        "scope": "platform",
+        "text": "Quota & Limits page"
+      }
+    ]
+  },
+  {
     "version": "0.1.131",
     "date": "2026-10-14",
     "changes": [
@@ -961,51 +1004,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "feature",
         "scope": "ai",
         "text": "Redesign the Adhar AI landing as a hero band, roster and prompt cards"
-      }
-    ]
-  },
-  {
-    "version": "0.1.92",
-    "date": "2026-09-24",
-    "changes": [
-      {
-        "type": "change",
-        "text": "UX polish"
-      },
-      {
-        "type": "feature",
-        "scope": "catalog",
-        "text": "TechDocs tab reads the whole docs tree of a service"
-      },
-      {
-        "type": "feature",
-        "scope": "catalog",
-        "text": "Public URLs once for all; live Pipeline runs and Observability widgets"
-      },
-      {
-        "type": "feature",
-        "scope": "catalog",
-        "text": "Metrics tab — grouped panels, KPI strip, golden signals"
-      },
-      {
-        "type": "feature",
-        "scope": "develop",
-        "text": "Workflow designer as a pipeline builder with schedules"
-      },
-      {
-        "type": "feature",
-        "scope": "catalog",
-        "text": "Drawer tabs — scorecard as a plan, tech stack with versions, richer metrics"
-      },
-      {
-        "type": "feature",
-        "scope": "catalog",
-        "text": "Entity drawer redesigned — linkable, navigable, answer-first"
-      },
-      {
-        "type": "feature",
-        "scope": "catalog",
-        "text": "Kind rail, group-by, readiness sort, cards that act"
       }
     ]
   }

@@ -6,6 +6,22 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.132] - 2026-10-14
+
+### Improved
+
+- Database resource enhancement
+- Template render enhancement
+
+### Changed
+
+- Update template renderer
+- **platform:** Explore redesigned as a full resource browser
+- **platform:** Rename CI / CD to Builds
+- **platform:** Knowledge Graph — lenses, path tracing, health view, new overview
+- **platform:** Custom Resources redesigned with top tabs
+- **platform:** Quota & Limits page
+
 ## [0.1.131] - 2026-10-14
 
 ### Fixed

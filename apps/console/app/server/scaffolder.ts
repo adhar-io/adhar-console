@@ -661,12 +661,30 @@ function buildKpackImage(o: { name: string; cloneUrl: string; subPath?: string }
         ...(o.subPath ? { subPath: o.subPath } : {}),
       },
       // Build-time toolchain pins (Paketo). These only apply to the languages
-      // that consume them — Java gets JDK 25 + Maven 3.9.x; every other language
-      // ignores them and uses the buildpack's latest default. Overridable via env.
+      // that consume them — Java gets JDK 25; every other language ignores them
+      // and uses the buildpack's latest default. Overridable via env.
+      //
+      // The Maven PATCH is deliberately NOT pinned. It used to default to
+      // 3.9.9, and a buildpack bump deleted that patch from its dependency
+      // list, so every Java build failed in the `build` step with exit 51:
+      //
+      //   unable to install Maven / unable to find dependency
+      //   no valid dependencies for maven, 3.9.9, and io.buildpacks.stacks.jammy
+      //     in [(maven, 3.9.16, ...) (maven, 4.0.0, ...)]
+      //
+      // A buildpack only ships the patches it currently carries, so an exact
+      // pin is a time bomb that goes off on a buildpack update rather than on
+      // any change of ours. The buildpack's own default is always one it has.
+      // An operator who needs a specific Maven can still set BP_MAVEN_VERSION;
+      // we just do not invent one. BP_JVM_VERSION stays because a MAJOR Java
+      // version is a language decision, and majors are not dropped the way
+      // patches are.
       build: {
         env: [
           { name: 'BP_JVM_VERSION', value: env('BP_JVM_VERSION') ?? '25' },
-          { name: 'BP_MAVEN_VERSION', value: env('BP_MAVEN_VERSION') ?? '3.9.9' },
+          ...(env('BP_MAVEN_VERSION')
+            ? [{ name: 'BP_MAVEN_VERSION', value: env('BP_MAVEN_VERSION')! }]
+            : []),
         ],
       },
     },

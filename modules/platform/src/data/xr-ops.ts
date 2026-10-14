@@ -49,6 +49,35 @@ export interface XrLike {
   status?: { conditions?: Condition[]; [k: string]: unknown }
 }
 
+/* ───── composed resources ───── */
+
+export interface ComposedRef {
+  apiVersion?: string
+  kind?: string
+  name?: string
+  namespace?: string
+}
+
+/**
+ * The resources an XR composed, wherever its Crossplane recorded them.
+ *
+ * Crossplane v2 writes them at `spec.crossplane.resourceRefs`; v1 composites
+ * wrote `spec.resourceRefs` and claims surfaced `status.resourceRefs`. The
+ * drawer read only the last of those, so on a v2 cluster — every cluster this
+ * platform builds — the composed-resources card was empty and the delete
+ * confirmation promised "0 composed resources" for a Database that owned a
+ * running Postgres (2026-10-14).
+ */
+export function composedRefs(xr: XrLike): ComposedRef[] {
+  const cp = xr.spec?.crossplane as { resourceRefs?: unknown } | undefined
+  for (const candidate of [cp?.resourceRefs, xr.spec?.resourceRefs, xr.status?.resourceRefs]) {
+    if (Array.isArray(candidate) && candidate.length > 0) {
+      return candidate.filter((r): r is ComposedRef => typeof r === 'object' && r !== null && 'kind' in r)
+    }
+  }
+  return []
+}
+
 /* ───── ownership ───── */
 
 export const OWNERSHIP = [

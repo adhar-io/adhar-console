@@ -31,6 +31,7 @@ import {
   attentionItems,
   cloneManifest,
   cloneName,
+  composedRefs,
   compositionOf,
   facet,
   filterXrs,
@@ -43,6 +44,7 @@ import {
   xrState,
 } from '../data/xr-ops.ts'
 import { AttentionPanel, BulkBar, ChangeLog, downloadText, FilterSelect, GroupSelect, OperationsPanel, STATE_META } from './xr-ops-ui.tsx'
+import { DatabaseInsightSection } from './xr-database-panel.tsx'
 
 /**
  * Generic list + detail drawer + **self-service provisioning** for a
@@ -56,7 +58,7 @@ import { AttentionPanel, BulkBar, ChangeLog, downloadText, FilterSelect, GroupSe
  *   status.conditions[type=Synced]
  *   spec.compositionRef.name     (which Composition shaped this XR)
  *   spec.compositionSelector     (label-based selector variant)
- *   status.resourceRefs[]        (all composed resources)
+ *   spec.crossplane.resourceRefs[] (all composed resources; v1 kept them in status)
  *
  * This component leans on those conventions so we don't need bespoke views
  * per kind — a per-kind config map supplies kind-specific extra columns, the
@@ -2087,6 +2089,11 @@ function XrDrawer({
             </Card>
           ) : null}
 
+          {/* ─── Database: topology, replication, backups, traffic ─── */}
+          {claimKind(config) === 'Database' ? (
+            <DatabaseInsightSection xr={current} cluster={cp} />
+          ) : null}
+
           {/* ─── Connection details ─── */}
           {config.connectionSecret ? (
             <ConnectionSecretSection config={config} xr={current} cluster={cp} />
@@ -2198,8 +2205,8 @@ function XrDrawer({
                       <span className="font-semibold text-content">
                         tears down the real backing infrastructure
                       </span>{' '}
-                      it composed ({current.status?.resourceRefs?.length ?? 0} composed resource
-                      {(current.status?.resourceRefs?.length ?? 0) === 1 ? '' : 's'}). This cannot
+                      it composed ({composedRefs(current).length} composed resource
+                      {composedRefs(current).length === 1 ? '' : 's'}). This cannot
                       be undone.
                     </p>
                     {canMutate && isProtected(current) ? (
@@ -2473,7 +2480,7 @@ interface RefHealth {
 }
 
 function ComposedResourcesSection({ xr, cluster }: { xr: XR; cluster?: string }) {
-  const refs = xr.status?.resourceRefs ?? []
+  const refs = composedRefs(xr)
 
   // One cached discovery pass maps each ref's apiVersion+kind to its plural
   // resource so we can GET it. Best-effort only — never blocks the list.

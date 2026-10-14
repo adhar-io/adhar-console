@@ -14,6 +14,7 @@ import {
 import { client, LOCAL_CLUSTER } from '../data/client.ts'
 import { formatBytes, formatCpu, parseQuantity } from '../data/format.ts'
 import { GVRS } from '../data/gvr.ts'
+import { lastValue, promRange, toPoints, type PromMatrix } from '../data/prom.ts'
 
 /**
  * Depth metrics for a single pod, in two independent layers that degrade
@@ -34,7 +35,6 @@ import { GVRS } from '../data/gvr.ts'
  */
 
 const POLL_MS = 10_000
-const PROM_BASE = '/api/svc/prometheus'
 
 type RangeKey = '15m' | '1h' | '6h' | '24h'
 interface RangeCfg {
@@ -58,50 +58,7 @@ interface ContainerResources {
   }
 }
 
-/* ───── Prometheus client (BFF proxy) ───── */
-
-interface PromMatrix {
-  metric: Record<string, string>
-  values: Array<[number, string]>
-}
-interface PromResponse {
-  status: string
-  error?: string
-  data?: { resultType: string; result: PromMatrix[] }
-}
-
-async function promRange(query: string, cfg: RangeCfg): Promise<PromMatrix[]> {
-  const end = Math.floor(Date.now() / 1000)
-  const start = end - cfg.seconds
-  const params = new URLSearchParams({
-    query,
-    start: String(start),
-    end: String(end),
-    step: String(cfg.step),
-  })
-  const res = await fetch(`${PROM_BASE}/api/v1/query_range?${params.toString()}`, {
-    credentials: 'include',
-    headers: { accept: 'application/json' },
-  })
-  if (!res.ok) throw new Error(`Prometheus request failed (${res.status} ${res.statusText})`)
-  const json = (await res.json()) as PromResponse
-  if (json.status !== 'success' || !json.data) throw new Error(json.error ?? 'Prometheus query failed')
-  return json.data.result
-}
-
-/** A single matrix series → chart points (v in native units, t in ms). */
-function toPoints(series: PromMatrix | undefined): SeriesPoint[] {
-  if (!series) return []
-  return series.values.map(([t, v]) => ({ v: Number(v), t: t * 1000 }))
-}
-
-/** Last numeric value of a series (the "current" reading). */
-function lastValue(series: PromMatrix | undefined): number | undefined {
-  if (!series || series.values.length === 0) return undefined
-  const raw = series.values[series.values.length - 1][1]
-  const n = Number(raw)
-  return Number.isFinite(n) ? n : undefined
-}
+/* ───── Prometheus client: shared with the Adhar Resources drawer (data/prom.ts) ───── */
 
 function sel(namespace: string, podName: string): string {
   // container!="" excludes the pod-level cgroup roll-up; container!="POD"

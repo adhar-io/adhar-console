@@ -1,5 +1,6 @@
 import { assertEquals, assertStringIncludes } from 'jsr:@std/assert@1'
 import {
+  composedRefs,
   attentionItems, changeLog, cloneManifest, cloneName, filterXrs, groupXrs, ownership, ownershipPatch,
   pausePatch, protectPatch, toCsv, toYamlBundle, validLabelValue, type XrLike, xrState,
 } from './xr-ops.ts'
@@ -96,4 +97,29 @@ Deno.test('change log lists writers newest first and classifies them', () => {
     { manager: 'crossplane', operation: 'Update', time: '2026-10-11T01:00:00Z', subresource: 'status' },
   ] }))
   assertEquals(log.map((l) => `${l.manager}:${l.kindOfWriter}`), ['crossplane:controller', 'adhar-console:console', 'argocd-controller:gitops'])
+})
+
+Deno.test('composedRefs reads the Crossplane v2 location first', () => {
+  const xr = {
+    metadata: { name: 'console-db', namespace: 'adhar-system' },
+    spec: {
+      crossplane: {
+        resourceRefs: [
+          { apiVersion: 'postgresql.cnpg.io/v1', kind: 'Cluster', name: 'console-db' },
+          { apiVersion: 'postgresql.cnpg.io/v1', kind: 'ScheduledBackup', name: 'console-db-daily' },
+        ],
+      },
+    },
+    status: { conditions: [] },
+  }
+  assertEquals(composedRefs(xr).map((r) => r.kind), ['Cluster', 'ScheduledBackup'])
+})
+
+Deno.test('composedRefs still honours the v1 status location and is empty when nothing was composed', () => {
+  const v1 = {
+    metadata: { name: 'old' },
+    status: { resourceRefs: [{ apiVersion: 'v1', kind: 'ConfigMap', name: 'cm' }] },
+  }
+  assertEquals(composedRefs(v1).map((r) => r.name), ['cm'])
+  assertEquals(composedRefs({ metadata: { name: 'bare' } }), [])
 })

@@ -75,3 +75,40 @@ Deno.test('parseRepoUrl returns a bare host whatever form it is given', () => {
 Deno.test('parseRepoUrl still strips a .git suffix from the repo', () => {
   assertEquals(parseRepoUrl('gitea.x?owner=o&repo=r.git').repo, 'r')
 })
+
+/**
+ * `x or <default>` is Nunjucks's default-value idiom and every shipped
+ * template uses it for optional parameters. It used to fall through to a path
+ * lookup of the whole expression and render EMPTY — which is how the Spring
+ * Boot skeleton shipped `name:` with no topic and `app.kafka.topic=` with no
+ * value, the Messaging XR tried to compose `topic-<no value>`, and the service
+ * died at startup on "No resolvable bootstrap urls" with nothing pointing at
+ * the template.
+ */
+Deno.test('or takes the default when the parameter is missing or empty', () => {
+  const v = { parameters: {} }
+  assertEquals(renderContent("${{ parameters.kafkaTopic or 'events' }}", v), 'events')
+  assertEquals(renderContent("${{ parameters.kafkaPartitions or 3 }}", v), '3')
+  assertEquals(renderContent("${{ parameters.cacheTtl or '10m' }}", { parameters: { cacheTtl: '' } }), '10m')
+})
+
+Deno.test('or keeps the parameter when it is set', () => {
+  assertEquals(renderContent("${{ parameters.kafkaTopic or 'events' }}", { parameters: { kafkaTopic: 'orders' } }), 'orders')
+  assertEquals(renderContent("${{ parameters.kafkaPartitions or 3 }}", { parameters: { kafkaPartitions: 12 } }), '12')
+})
+
+Deno.test('or falls back to a path on the right-hand side too', () => {
+  assertEquals(renderContent('${{ values.alias or values.name }}', { values: { name: 'svc' } }), 'svc')
+})
+
+Deno.test('other unimplemented operators still fail loudly', () => {
+  assertThrows(() => renderContent("${{ parameters.a and 'b' }}", { parameters: {} }), Error, 'does not implement')
+})
+
+Deno.test('escape HTML-escapes, so a description cannot break out of a meta attribute', () => {
+  const out = renderContent('<meta content="${{ values.description | escape }}">', {
+    description: `Tom's "fast" <app> & more`,
+  })
+  assertEquals(out, '<meta content="Tom&#39;s &quot;fast&quot; &lt;app&gt; &amp; more">')
+  assert(!/[<>"]/.test(out.slice('<meta content="'.length, -2)))
+})

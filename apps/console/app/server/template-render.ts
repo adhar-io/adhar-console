@@ -75,8 +75,27 @@ function evalExpr(expr: string, ctx: Ctx): unknown {
     const parsed = parseRepoUrl(String(src ?? ''))
     return (parsed as Record<string, string>)[piped[2]] ?? ''
   }
-  // bare `X | lower` / `X | upper` / `X | dump`
-  const filt = e.match(/^(.+?)\s*\|\s*(lower|upper|dump)$/)
+  // `X or Y` — Nunjucks's default-value idiom, which every shipped template
+  // uses for optional parameters: `${{ parameters.kafkaTopic or 'events' }}`.
+  // Left-hand side is a path; right-hand side is a quoted string, a number,
+  // true/false, or another path. Falsy LHS (undefined, '', null, false, 0)
+  // takes the default, exactly as Nunjucks does.
+  //
+  // Live on 2026-10-14 this fell through to a path lookup of the whole
+  // expression and rendered EMPTY, so the Spring Boot skeleton shipped
+  // `name:` with no topic and `app.kafka.topic=` with no value. The Messaging
+  // XR then tried to compose `topic-<no value>` — an invalid name, which fails
+  // the WHOLE XR — so no Kafka cluster was ever created and the service died
+  // at startup on "No resolvable bootstrap urls". Nothing reported a template
+  // problem; it looked like a Kafka outage.
+  const orExpr = e.match(/^(.+?)\s+or\s+(.+)$/)
+  if (orExpr) {
+    const lhs = evalExpr(orExpr[1], ctx)
+    if (lhs !== undefined && lhs !== null && lhs !== '' && lhs !== false && lhs !== 0) return lhs
+    return evalLiteralOrPath(orExpr[2].trim(), ctx)
+  }
+  // bare `X | lower` / `X | upper` / `X | dump` / `X | escape`
+  const filt = e.match(/^(.+?)\s*\|\s*(lower|upper|dump|escape)$/)
   if (filt) {
     const src = getByPath(ctx, filt[1].trim())
     // `dump` is JSON encoding, and the skeletons depend on it for anything
@@ -85,6 +104,10 @@ function evalExpr(expr: string, ctx: Ctx): unknown {
     // problem — it is a syntax error in the generated file.
     if (filt[2] === 'dump') return JSON.stringify(src ?? null)
     const v = String(src ?? '')
+    // `escape` is HTML escaping: the SPA skeletons drop the description into
+    // `<meta content="${{ values.description | escape }}">`, where a quote ends
+    // the attribute and `<` opens a tag.
+    if (filt[2] === 'escape') return escapeHtml(v)
     return filt[2] === 'lower' ? v.toLowerCase() : v.toUpperCase()
   }
   // An expression carrying a filter we do not implement must NOT fall through
@@ -101,13 +124,24 @@ function evalExpr(expr: string, ctx: Ctx): unknown {
   //
   // which fails the build at `vite build` with `Unexpected "const"` — a
   // scaffolding fault that reads like a broken template or a bad dependency.
-  if (/[|()]/.test(e)) {
+  if (/[|()]|\s(and|if|else|not|in)\s|[~+]/.test(e)) {
     throw new Error(
-      `template expression ${JSON.stringify(e)} uses a filter this renderer does not implement; ` +
-        `supported: lower, upper, dump, (x | parseRepoUrl).field`,
+      `template expression ${JSON.stringify(e)} uses syntax this renderer does not implement; ` +
+        `supported: lower, upper, dump, escape, (x | parseRepoUrl).field, x or <default>`,
     )
   }
   return getByPath(ctx, e)
+}
+
+/** A quoted string, number, boolean, or a context path — the right side of `or`. */
+function evalLiteralOrPath(raw: string, ctx: Ctx): unknown {
+  const str = raw.match(/^'(.*)'$|^"(.*)"$/)
+  if (str) return str[1] ?? str[2] ?? ''
+  if (/^-?\d+(\.\d+)?$/.test(raw)) return Number(raw)
+  if (raw === 'true') return true
+  if (raw === 'false') return false
+  if (raw === 'null' || raw === 'none') return null
+  return evalExpr(raw, ctx)
 }
 
 function stringify(v: unknown): string {
@@ -236,4 +270,13 @@ export function renderContent(src: string, values: Record<string, unknown>): str
 export function renderPath(path: string, values: Record<string, unknown>): string {
   const ctx: Ctx = { values, ...values }
   return path.replace(/\$\{\{\s*([\s\S]+?)\s*\}\}/g, (_, ex: string) => stringify(evalExpr(ex, ctx)))
+}
+
+function escapeHtml(v: string): string {
+  return v
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }

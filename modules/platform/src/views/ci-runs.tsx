@@ -2,7 +2,7 @@ import { Tabs, type TabDef } from '@adhar/shell-ui'
 import { TektonPipelineRuns, TektonPipelines, TektonTasks, TektonTriggers } from './tekton.tsx'
 
 /**
- * CI / CD runs — the Tekton surface, behind one tab row.
+ * Builds — the Tekton surface, behind one tab row.
  *
  * PipelineRuns with a task DAG, per-step logs and re-run / cancel / delete
  * management, plus Pipelines, Tasks and Triggers. Each tab lives in
@@ -28,7 +28,7 @@ const SOURCE_TABS: readonly TabDef<Source>[] = [
 
 export function CiRunsView({ namespace }: { namespace?: string }) {
   return (
-    <Tabs<Source> tabs={SOURCE_TABS} defaultValue="runs" ariaLabel="CI / CD source">
+    <Tabs<Source> tabs={SOURCE_TABS} defaultValue="runs" ariaLabel="Build sources">
       {(active) => (
         <>
           {active === 'runs' && <TektonPipelineRuns namespace={namespace} />}

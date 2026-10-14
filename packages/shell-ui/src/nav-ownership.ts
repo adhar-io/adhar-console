@@ -1,7 +1,7 @@
 /**
  * Which sidebar row owns a destination.
  *
- * One URL must highlight exactly one row. "CI Pipelines" (Develop) and "CI / CD"
+ * One URL must highlight exactly one row. "CI Pipelines" (Develop) and "Builds"
  * (Platform) both pointed at /platform?section=ci, so both lit up and the sidebar's
  * auto-expansion followed whichever it found first: opening one flipped the other
  * group open under the click.

@@ -232,7 +232,7 @@ const SECTIONS: Record<Section, SectionDef> = {
   },
   ci: {
     id: 'ci',
-    label: 'CI / CD Runs',
+    label: 'Builds',
     description: 'Live Tekton PipelineRuns with a task DAG, step logs, and re-run / cancel / delete — plus Pipelines, Tasks and Triggers.',
     kind: 'k8s',
   },

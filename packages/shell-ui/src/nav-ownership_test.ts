@@ -7,7 +7,7 @@ import {
 } from './nav-ownership.ts'
 
 /**
- * The bug: "CI Pipelines" (Develop) and "CI / CD" (Platform) both pointed at
+ * The bug: "CI Pipelines" (Develop) and "Builds" (Platform) both pointed at
  * /platform?section=ci. Both rows highlighted, and the sidebar's auto-expansion
  * followed whichever it found first — so clicking the Develop shortcut highlighted
  * the Platform row and flipped that group open instead.

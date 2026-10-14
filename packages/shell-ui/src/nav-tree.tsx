@@ -65,7 +65,7 @@ export interface NavItem {
    *
    * Two rows pointing at the same route+section used to both light up, and the
    * sidebar's auto-expansion followed whichever it found first — so opening "CI
-   * Pipelines" under Develop highlighted "CI / CD" under Platform as well and
+   * Pipelines" under Develop highlighted "Builds" under Platform as well and
    * flipped the open group out from under the click. Ownership has to be stated;
    * it cannot be inferred from two identical destinations.
    *
@@ -412,7 +412,7 @@ export const DEFAULT_NAV: NavSection[] = [
           },
           { id: 'platform.logs', label: 'Logs', to: '/platform', search: 'logs' },
           { id: 'platform.metrics', label: 'Metrics', to: '/platform', search: 'metrics' },
-          { id: 'platform.ci', label: 'CI / CD', to: '/platform', search: 'ci' },
+          { id: 'platform.ci', label: 'Builds', to: '/platform', search: 'ci' },
           {
             id: 'platform.chaos',
             label: 'Chaos Engineering',

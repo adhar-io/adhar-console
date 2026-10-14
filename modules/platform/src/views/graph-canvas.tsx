@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Background,
   BackgroundVariant,
@@ -25,6 +25,8 @@ import {
 } from '@xyflow/react'
 import flowCss from '@xyflow/react/dist/style.css?inline'
 import { cn } from '@adhar/utils'
+import { useToast } from '@adhar/shell-ui'
+import { isProblem, pathEdgeKeys, reachable, shortestPath } from '../data/graph-lens.ts'
 import { EDGE_PHRASE, type EdgeKind, type GraphEdge, type GraphNode, KIND_COLOR, KIND_LABEL, type NodeKind } from '../data/graph.ts'
 
 /**
@@ -37,9 +39,13 @@ import { EDGE_PHRASE, type EdgeKind, type GraphEdge, type GraphNode, KIND_COLOR,
  *   - Layered: one column per hop, left to right, sorted by kind then name.
  *
  * Interaction: hover lights a node's relationships and dims the rest; click
- * inspects; double-click recentres the graph on that node. Kinds and relation
- * types can be hidden, nodes can be dragged, and the minimap and controls give
- * zoom, fit and full screen.
+ * inspects; double-click recentres the graph on that node; shift-click traces
+ * the shortest path from the centre to that node. Lenses re-light the canvas
+ * by question — what this impacts (upstream), what it depends on
+ * (downstream), what's unhealthy — and nodes can be coloured by kind or by
+ * health. Kinds and relation types can be hidden, nodes dragged, and the
+ * minimap and controls give zoom, fit and full screen (the browser's own, so
+ * the canvas covers the whole display rather than sitting under the shell).
  */
 
 /* React Flow ships its CSS separately; a federated remote does not carry its
@@ -174,22 +180,41 @@ function layoutRadial(root: GraphNode, nodes: GraphNode[], edges: GraphEdge[], h
 
 /* ─────────── node ─────────── */
 
-type EntityData = { node: GraphNode; hop: number; dim: boolean; focused: boolean; isRoot: boolean }
+type EntityData = { node: GraphNode; hop: number; dim: boolean; focused: boolean; isRoot: boolean; onPath: boolean; colorBy: ColorBy }
+
+export type ColorBy = 'kind' | 'health'
 
 const EntityNode = memo(function EntityNode({ data }: NodeProps<Node<EntityData>>) {
-  const { node, hop, dim, focused, isRoot } = data
+  const { node, hop, dim, focused, isRoot, onPath, colorBy } = data
   const status = node.status && node.status !== 'unknown' ? node.status : undefined
+  const problem = isProblem(node.status)
+  const stripe = colorBy === 'health' ? STATUS_HEX[status ?? ''] ?? '#94a3b8' : KIND_HEX[node.kind] ?? '#94a3b8'
   return (
-    <div
-      className={cn(
-        'relative flex w-[196px] items-stretch overflow-hidden rounded-xl border bg-surface-raised text-left shadow-sm transition-[opacity,box-shadow] duration-150',
-        isRoot ? 'border-brand-500 shadow-md ring-4 ring-brand-500/15' : focused ? 'border-brand-400 ring-2 ring-brand-400/30' : 'border-edge-default',
-        dim && 'opacity-25',
-      )}
-      title={`${KIND_LABEL[node.kind]} · ${node.namespace ? `${node.namespace}/` : ''}${node.name}`}
-    >
+    <div className={cn('relative transition-opacity duration-200', dim && 'opacity-20')}>
+      {/* An unhealthy node carries a soft pulsing halo so it is findable at any zoom. */}
+      {problem ? (
+        <span
+          aria-hidden
+          className={cn('absolute -inset-1.5 animate-pulse rounded-2xl', node.status === 'failed' ? 'bg-rose-500/25' : 'bg-amber-500/25')}
+        />
+      ) : null}
+      <div
+        className={cn(
+          'relative flex w-[196px] items-stretch overflow-hidden rounded-xl border bg-surface-raised text-left shadow-sm transition-[box-shadow] duration-150',
+          isRoot
+            ? 'border-brand-500 shadow-lg shadow-brand-500/20 ring-4 ring-brand-500/20'
+            : onPath
+              ? 'border-brand-500 ring-2 ring-brand-500/40'
+              : focused
+                ? 'border-brand-400 ring-2 ring-brand-400/30'
+                : problem
+                  ? node.status === 'failed' ? 'border-rose-400 dark:border-rose-500/60' : 'border-amber-400 dark:border-amber-500/60'
+                  : 'border-edge-default',
+        )}
+        title={`${KIND_LABEL[node.kind]} · ${node.namespace ? `${node.namespace}/` : ''}${node.name}${status ? ` · ${status}` : ''}`}
+      >
       <Handle type="target" position={Position.Left} className="opacity-0!" isConnectable={false} />
-      <span className="w-1.5 shrink-0" style={{ background: KIND_HEX[node.kind] ?? '#94a3b8' }} />
+      <span className="w-1.5 shrink-0" style={{ background: stripe }} />
       <div className="min-w-0 flex-1 px-2.5 py-1.5">
         <div className="flex items-center gap-1.5">
           <span className={cn('truncate text-[10px] font-semibold uppercase tracking-wide', KIND_COLOR[node.kind]?.text)}>{KIND_LABEL[node.kind]}</span>
@@ -200,6 +225,12 @@ const EntityNode = memo(function EntityNode({ data }: NodeProps<Node<EntityData>
         {node.namespace ? <div className="truncate font-mono text-[10px] text-content-subtle">{node.namespace}</div> : null}
       </div>
       <Handle type="source" position={Position.Right} className="opacity-0!" isConnectable={false} />
+      </div>
+      {isRoot ? (
+        <span className="absolute -top-2.5 left-3 rounded-full bg-brand-600 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wider text-white shadow-sm">
+          centre
+        </span>
+      ) : null}
     </div>
   )
 })
@@ -273,7 +304,19 @@ export interface GraphCanvasProps {
   focusedId: string | null
   onFocus(id: string): void
   onRecentre(id: string): void
+  /** Node the shortest path from the centre is traced to (shift-click / inspector). */
+  traceTo?: string | null
+  onTraceTo?(id: string | null): void
 }
+
+export type Lens = 'explore' | 'upstream' | 'downstream' | 'problems'
+
+const LENSES: Array<{ id: Lens; label: string; hint: string; key: string }> = [
+  { id: 'explore', label: 'Explore', hint: 'Everything in the neighbourhood', key: '1' },
+  { id: 'upstream', label: 'Impacted by', hint: 'What owns, selects, routes to or manages this — it notices if this breaks', key: '2' },
+  { id: 'downstream', label: 'Depends on', hint: 'What this owns, runs on, mounts or pulls — this notices if they break', key: '3' },
+  { id: 'problems', label: 'Problems', hint: 'Only degraded and failed nodes', key: '4' },
+]
 
 export function GraphCanvas(props: GraphCanvasProps) {
   ensureFlowCss()
@@ -284,13 +327,17 @@ export function GraphCanvas(props: GraphCanvasProps) {
   )
 }
 
-function Canvas({ root, nodes, edges, truncated, focusedId, onFocus, onRecentre }: GraphCanvasProps) {
+function Canvas({ root, nodes, edges, truncated, focusedId, onFocus, onRecentre, traceTo = null, onTraceTo }: GraphCanvasProps) {
   const [layoutKind, setLayoutKind] = useState<LayoutKind>('radial')
   const [hover, setHover] = useState<string | null>(null)
   const [hiddenKinds, setHiddenKinds] = useState<Set<NodeKind>>(new Set())
   const [hiddenRels, setHiddenRels] = useState<Set<EdgeKind>>(new Set())
   const [labels, setLabels] = useState(true)
   const [fullscreen, setFullscreen] = useState(false)
+  const [lens, setLens] = useState<Lens>('explore')
+  const [colorBy, setColorBy] = useState<ColorBy>('kind')
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  const toast = useToast()
   const [dragged, setDragged] = useState<Map<string, { x: number; y: number }>>(new Map())
   // Nodes are controlled, so React Flow's measurements only reach them (and
   // with them the minimap) through onNodesChange.
@@ -329,24 +376,57 @@ function Canvas({ root, nodes, edges, truncated, focusedId, onFocus, onRecentre 
     return s
   }, [hover, visibleEdges])
 
+  // Lens: which nodes answer the current question (null = all of them).
+  const lensSet = useMemo(() => {
+    if (lens === 'upstream' || lens === 'downstream') return reachable(root.id, visibleEdges, lens)
+    if (lens === 'problems') return new Set([root.id, ...visibleNodes.filter((n) => isProblem(n.status)).map((n) => n.id)])
+    return null
+  }, [lens, root.id, visibleEdges, visibleNodes])
+
+  const path = useMemo(
+    () => (traceTo && visibleIds.has(traceTo) ? shortestPath(root.id, traceTo, visibleEdges) : null),
+    [traceTo, root.id, visibleEdges, visibleIds],
+  )
+  const pathNodes = useMemo(() => new Set(path ?? []), [path])
+  const pathKeys = useMemo(() => pathEdgeKeys(path ?? []), [path])
+  const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes])
+
+  // New centre: a trace to a node of the old neighbourhood no longer means anything.
+  useEffect(() => {
+    onTraceTo?.(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [root.id])
+
   const rfNodes: Node<EntityData>[] = useMemo(
     () =>
       visibleNodes.map((n) => ({
         id: n.id,
         type: 'entity',
         position: dragged.get(n.id) ?? positions.get(n.id) ?? { x: 0, y: 0 },
-        data: { node: n, hop: hop.get(n.id) ?? 0, dim: neighbours ? !neighbours.has(n.id) : false, focused: n.id === focusedId, isRoot: n.id === root.id },
+        data: {
+          node: n,
+          hop: hop.get(n.id) ?? 0,
+          // Hover wins over a lens or path, so tracing by hand always works.
+          dim: neighbours ? !neighbours.has(n.id) : path ? !pathNodes.has(n.id) : lensSet ? !lensSet.has(n.id) : false,
+          focused: n.id === focusedId,
+          isRoot: n.id === root.id,
+          onPath: pathNodes.has(n.id) && n.id !== root.id,
+          colorBy,
+        },
         origin: [0.5, 0.5] as [number, number],
         measured: sizes.get(n.id),
       })),
-    [visibleNodes, positions, dragged, sizes, hop, neighbours, focusedId, root.id],
+    [visibleNodes, positions, dragged, sizes, hop, neighbours, focusedId, root.id, path, pathNodes, lensSet, colorBy],
   )
 
   const rfEdges: Edge<FloatData>[] = useMemo(
     () =>
       visibleEdges.map((e) => {
-        const lit = hover !== null && (e.from === hover || e.to === hover)
-        const faded = hover !== null && !lit
+        const onPath = !hover && pathKeys.has(`${e.from}|${e.to}`)
+        const inLens = !hover && !path && lensSet !== null && lensSet.has(e.from) && lensSet.has(e.to) && lens !== 'problems'
+        const lit = (hover !== null && (e.from === hover || e.to === hover)) || onPath || inLens
+        const faded = hover !== null ? !lit : path ? !onPath : lensSet ? !inLens : false
+        const color = onPath || hover !== null ? 'var(--color-brand-500)' : inLens ? (lens === 'upstream' ? 'var(--color-amber-500)' : 'var(--color-emerald-500)') : 'var(--color-edge-strong)'
         return {
           id: `${e.from}|${e.kind}|${e.to}`,
           source: e.from,
@@ -354,11 +434,11 @@ function Canvas({ root, nodes, edges, truncated, focusedId, onFocus, onRecentre 
           type: 'floating',
           animated: lit,
           data: { layered: layoutKind === 'layered', lit, text: labels || lit ? EDGE_PHRASE[e.kind]?.out ?? e.kind : undefined },
-          style: { stroke: lit ? 'var(--color-brand-500)' : 'var(--color-edge-strong)', strokeWidth: lit ? 2 : 1.25, opacity: faded ? 0.12 : 1 },
-          markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: lit ? 'var(--color-brand-500)' : 'var(--color-edge-strong)' },
+          style: { stroke: color, strokeWidth: onPath ? 2.75 : lit ? 2 : 1.25, opacity: faded ? 0.1 : 1 },
+          markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color },
         }
       }),
-    [visibleEdges, hover, labels, layoutKind],
+    [visibleEdges, hover, labels, layoutKind, pathKeys, path, lensSet, lens],
   )
 
   const kindsHere = useMemo(() => {
@@ -377,6 +457,58 @@ function Canvas({ root, nodes, edges, truncated, focusedId, onFocus, onRecentre 
     if (next.has(v)) next.delete(v)
     else next.add(v)
     return next
+  }
+
+  // Real full screen: the shell's <main> is `isolate`, so a fixed overlay
+  // inside it would stack under the sidebar and top bar.
+  useEffect(() => {
+    const sync = () => setFullscreen(document.fullscreenElement === wrapRef.current)
+    document.addEventListener('fullscreenchange', sync)
+    return () => document.removeEventListener('fullscreenchange', sync)
+  }, [])
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen()
+    else void wrapRef.current?.requestFullscreen?.().catch(() => toast.error('Full screen is not available here'))
+  }
+  useEffect(() => {
+    const t = setTimeout(() => flow.fitView({ padding: 0.15, duration: 300 }), 60)
+    return () => clearTimeout(t)
+  }, [fullscreen, flow])
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.target as HTMLElement).closest('input, textarea, select')) return
+    const l = LENSES.find((x) => x.key === e.key)
+    if (l) setLens(l.id)
+    else if (e.key === 'f') flow.fitView({ padding: 0.15, duration: 300 })
+    else if (e.key === 'l') setLayoutKind((k) => (k === 'radial' ? 'layered' : 'radial'))
+    else if (e.key === 'h') setColorBy((c) => (c === 'kind' ? 'health' : 'kind'))
+    else if (e.key === 'Escape' && (path || lens !== 'explore')) {
+      onTraceTo?.(null)
+      setLens('explore')
+    } else return
+    e.preventDefault()
+  }
+
+  const copyOutline = () => {
+    const name = (id: string) => {
+      const n = byId.get(id)
+      return n ? `${KIND_LABEL[n.kind]} ${n.namespace ? `${n.namespace}/` : ''}${n.name}` : id
+    }
+    const lines = [`# ${name(root.id)} — ${visibleNodes.length} nodes, ${visibleEdges.length} relationships`]
+    for (const e of visibleEdges) lines.push(`${name(e.from)} —${EDGE_PHRASE[e.kind]?.out ?? e.kind}→ ${name(e.to)}`)
+    navigator.clipboard?.writeText(lines.join('\n')).then(
+      () => toast.success('Neighbourhood copied as text'),
+      () => toast.error('Clipboard is not available here'),
+    )
+  }
+  const downloadJson = () => {
+    const blob = new Blob([JSON.stringify({ root, nodes: visibleNodes, edges: visibleEdges, truncated }, null, 2)], { type: 'application/json' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `graph-${root.name}.json`
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+    toast.success(`Saved graph-${root.name}.json`)
   }
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
@@ -399,7 +531,12 @@ function Canvas({ root, nodes, edges, truncated, focusedId, onFocus, onRecentre 
   }, [])
 
   return (
-    <div className={cn('adhar-graph flex flex-col bg-surface-raised', fullscreen ? 'fixed inset-0 z-50' : 'relative')}>
+    <div
+      ref={wrapRef}
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
+      className={cn('adhar-graph relative flex flex-col bg-surface-raised outline-none', fullscreen && 'h-full w-full')}
+    >
       {/* filters */}
       <div className="flex flex-wrap items-center gap-1.5 border-b border-edge-subtle px-3 py-2">
         <span className="mr-1 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Show</span>
@@ -443,7 +580,7 @@ function Canvas({ root, nodes, edges, truncated, focusedId, onFocus, onRecentre 
           edges={rfEdges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
-          onNodeClick={(_, n) => onFocus(n.id)}
+          onNodeClick={(e, n) => (e.shiftKey && n.id !== root.id && onTraceTo ? onTraceTo(n.id) : onFocus(n.id))}
           onNodeDoubleClick={(_, n) => onRecentre(n.id)}
           onNodeMouseEnter={(_, n) => setHover(n.id)}
           onNodeMouseLeave={() => setHover(null)}
@@ -456,6 +593,43 @@ function Canvas({ root, nodes, edges, truncated, focusedId, onFocus, onRecentre 
           proOptions={{ hideAttribution: true }}
         >
           <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} color="var(--color-edge-strong)" />
+          <Panel position="top-left">
+            <div className="flex flex-wrap items-center gap-1 rounded-lg border border-edge-default bg-surface-raised/95 p-1 shadow-sm backdrop-blur" role="group" aria-label="Lens">
+              {LENSES.map((l) => (
+                <button
+                  key={l.id}
+                  type="button"
+                  title={`${l.hint} (${l.key})`}
+                  onClick={() => setLens(l.id)}
+                  aria-pressed={lens === l.id}
+                  className={cn(
+                    'h-7 rounded-md px-2.5 text-[11px] font-medium',
+                    lens === l.id
+                      ? l.id === 'upstream'
+                        ? 'bg-amber-500 text-white'
+                        : l.id === 'downstream'
+                          ? 'bg-emerald-600 text-white'
+                          : l.id === 'problems'
+                            ? 'bg-rose-600 text-white'
+                            : 'bg-brand-600 text-white'
+                      : 'text-content-muted hover:bg-surface-sunken hover:text-content',
+                  )}
+                >
+                  {l.label}
+                  {l.id !== 'explore' && lens === l.id && lensSet ? <span className="ml-1 font-mono opacity-80">{lensSet.size - 1}</span> : null}
+                </button>
+              ))}
+              <span className="mx-0.5 h-4 w-px bg-edge-default" aria-hidden />
+              <button
+                type="button"
+                onClick={() => setColorBy((c) => (c === 'kind' ? 'health' : 'kind'))}
+                className="h-7 rounded-md px-2.5 text-[11px] font-medium text-content-muted hover:bg-surface-sunken hover:text-content"
+                title="Colour nodes by kind or by health (h)"
+              >
+                Colour: {colorBy === 'kind' ? 'kind' : 'health'}
+              </button>
+            </div>
+          </Panel>
           <Controls showInteractive={false} position="bottom-left" />
           <MiniMap
             position="bottom-right"
@@ -481,7 +655,13 @@ function Canvas({ root, nodes, edges, truncated, focusedId, onFocus, onRecentre 
               <button type="button" onClick={() => { setDragged(new Map()); flow.fitView({ padding: 0.15, duration: 300 }) }} className="h-7 rounded-md px-2.5 text-[11px] font-medium text-content-muted hover:bg-surface-sunken hover:text-content" title="Reset positions and fit">
                 Reset
               </button>
-              <button type="button" onClick={() => setFullscreen((v) => !v)} className="h-7 rounded-md px-2.5 text-[11px] font-medium text-content-muted hover:bg-surface-sunken hover:text-content">
+              <button type="button" onClick={copyOutline} className="h-7 rounded-md px-2.5 text-[11px] font-medium text-content-muted hover:bg-surface-sunken hover:text-content" title="Copy every relationship as text">
+                Copy
+              </button>
+              <button type="button" onClick={downloadJson} className="h-7 rounded-md px-2.5 text-[11px] font-medium text-content-muted hover:bg-surface-sunken hover:text-content" title="Download nodes and edges as JSON">
+                JSON
+              </button>
+              <button type="button" onClick={toggleFullscreen} className="h-7 rounded-md px-2.5 text-[11px] font-medium text-content-muted hover:bg-surface-sunken hover:text-content">
                 {fullscreen ? 'Exit full screen' : 'Full screen'}
               </button>
             </div>
@@ -489,10 +669,42 @@ function Canvas({ root, nodes, edges, truncated, focusedId, onFocus, onRecentre 
         </ReactFlow>
       </div>
 
+      {traceTo ? (
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-brand-200 bg-brand-50/70 px-3 py-1.5 text-[11px] dark:border-brand-500/25 dark:bg-brand-500/10">
+          <span className="font-semibold uppercase tracking-wider text-brand-700 dark:text-brand-300">Path</span>
+          {path ? (
+            path.map((id, i) => {
+              const n = byId.get(id)
+              return (
+                <span key={id} className="inline-flex items-center gap-1.5">
+                  {i > 0 ? <span className="text-content-subtle">→</span> : null}
+                  <button type="button" onClick={() => onFocus(id)} className="inline-flex items-center gap-1 rounded-md bg-surface-raised px-1.5 py-0.5 text-content ring-1 ring-edge-default hover:ring-brand-400">
+                    <span className="size-1.5 rounded-full" style={{ background: n ? KIND_HEX[n.kind] : '#94a3b8' }} />
+                    {n?.name ?? id}
+                  </button>
+                </span>
+              )
+            })
+          ) : (
+            <span className="text-content-muted">Not connected to the centre within this neighbourhood — try a deeper hop count.</span>
+          )}
+          <button type="button" onClick={() => onTraceTo?.(null)} className="ml-auto rounded-md px-1.5 py-0.5 font-medium text-brand-700 hover:bg-brand-100 dark:text-brand-300 dark:hover:bg-brand-500/15">
+            Clear
+          </button>
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-edge-subtle px-3 py-1.5 text-[11px] text-content-subtle">
         <span>{visibleNodes.length} of {nodes.length} nodes · {visibleEdges.length} relationships</span>
+        {lensSet && lens !== 'explore' ? (
+          <span className={cn(lens === 'upstream' ? 'text-amber-700 dark:text-amber-400' : lens === 'downstream' ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400')}>
+            {lens === 'problems'
+              ? `${lensSet.size - 1} unhealthy`
+              : `${lensSet.size - 1} ${lens === 'upstream' ? 'impacted if this breaks' : 'this depends on'}`}
+          </span>
+        ) : null}
         {truncated ? <span className="text-amber-700 dark:text-amber-400">capped — part of the neighbourhood, not all of it</span> : null}
-        <span className="ml-auto">hover to trace · click to inspect · double-click to recentre · drag to arrange</span>
+        <span className="ml-auto hidden md:inline">hover to trace · click to inspect · shift-click for a path · double-click to recentre · 1–4 lenses · h health · l layout · f fit</span>
       </div>
     </div>
   )

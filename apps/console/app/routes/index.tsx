@@ -140,12 +140,14 @@ const SIZE_LABEL: Record<PanelSize, string> = {
   xl: 'Full',
 }
 
-/** col-span values on a 12-col grid. xl panels always span the full row to
- *  avoid awkward leftover columns. Smaller sizes pack tighter at 2xl so the
- *  full-width content area doesn't leave panels stretched. */
+/** col-span values on a 12-col grid. Each size means the same fraction at
+ *  every desktop width — Quarter 3, Third 4, Half 6, Full 12 — so rows built
+ *  to sum to 12 (see overview-default-layout.ts) stay flush. They used to
+ *  shrink at 2xl (Quarter 2, Third 3), which left every Third row a quarter
+ *  short. Below lg, Quarters pair up and everything else is full width. */
 const SIZE_COLSPAN: Record<PanelSize, string> = {
-  sm: 'col-span-12 sm:col-span-6 lg:col-span-3 2xl:col-span-2',
-  md: 'col-span-12 sm:col-span-6 lg:col-span-4 2xl:col-span-3',
+  sm: 'col-span-12 sm:col-span-6 lg:col-span-3',
+  md: 'col-span-12 lg:col-span-4',
   lg: 'col-span-12 lg:col-span-6',
   xl: 'col-span-12',
 }

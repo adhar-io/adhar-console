@@ -1,3 +1,4 @@
+import { DEFAULT_ROWS, OPTIONAL_ROWS } from './overview-default-layout.ts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 /**
@@ -110,129 +111,21 @@ export interface OverviewLayout {
 }
 
 /**
- * Default panel order — the arrangement the platform owner curated on the
- * Overview page (exported from their saved layout, Sept 2026). Every panel is
- * listed so "custom" mode has a stable position for anything a user enables.
+ * Default panel order — the full-width rows in `overview-default-layout.ts`,
+ * then the optional (off-by-default) rows, so "custom" mode has a stable,
+ * flush position for anything a user turns on.
  */
-export const DEFAULT_ORDER: PanelId[] = [
-  'dora',
-  'cluster',
-  'platform-health',
-  'resource-utilization',
-  'tools-health',
-  'k8s-events',
-  'tenant-overview',
-  'tenant-usage',
-  'slo-health',
-  'region-spread',
-  'storage-treemap',
-  'golden-signals',
-  'alerts',
-  'engineering-velocity',
-  'service-topology',
-  'traffic-stream',
-  'service-health-grid',
-  'team-activity',
-  'latency-distribution',
-  'incident-timeline',
-  'top-error-sources',
-  'cache-performance',
-  'database-pool',
-  'queue-depth',
-  'pod-restarts',
-  'cnpg-clusters',
-  'kafka-brokers',
-  'backup-status',
-  'cilium-flows',
-  'mesh-traffic',
-  'ingress-traffic',
-  'define-issues',
-  'develop-prs',
-  'deliver-apps',
-  'deploy-heatmap',
-  'dora-radar',
-  'build-runtime',
-  'gitea-repos',
-  'pr-throughput',
-  'gitops-sync',
-  'sprint-progress',
-  'issue-backlog',
-  'pipeline-success',
-  'cost-trend',
-  'budget-bullet',
-  'vuln-summary',
-  'compliance',
-  'runtime',
-  'cert-expiry',
-  'audit-log',
-  'pinned-apps',
-  'notifications',
-  'analytics',
-  'mtls-coverage',
-  'tetragon-runtime',
-  'workflow-triggers',
-  'business-kpis',
-  'bi-dashboards',
-  'pipelines',
-]
+export const DEFAULT_ORDER: PanelId[] = [...DEFAULT_ROWS, ...OPTIONAL_ROWS].flat().map(([id]) => id as PanelId)
 
-/** Panels on by default, in the curated order. */
-export const DEFAULT_ENABLED: PanelId[] = [
-  'dora',
-  'cluster',
-  'platform-health',
-  'resource-utilization',
-  'tools-health',
-  'k8s-events',
-  'tenant-overview',
-  'tenant-usage',
-  'slo-health',
-  'region-spread',
-  'storage-treemap',
-  'golden-signals',
-  'alerts',
-  'engineering-velocity',
-  'service-topology',
-  'traffic-stream',
-  'service-health-grid',
-  'team-activity',
-  'latency-distribution',
-  'incident-timeline',
-  'top-error-sources',
-  'cache-performance',
-  'database-pool',
-  'queue-depth',
-  'pod-restarts',
-  'cnpg-clusters',
-  'kafka-brokers',
-  'backup-status',
-  'cilium-flows',
-  'mesh-traffic',
-  'ingress-traffic',
-  'define-issues',
-  'develop-prs',
-  'deliver-apps',
-  'deploy-heatmap',
-  'dora-radar',
-  'build-runtime',
-  'gitea-repos',
-  'pr-throughput',
-  'gitops-sync',
-  'sprint-progress',
-  'issue-backlog',
-  'pipeline-success',
-  'cost-trend',
-  'budget-bullet',
-  'vuln-summary',
-  'compliance',
-  'runtime',
-  'cert-expiry',
-  'audit-log',
-  'pinned-apps',
-  'notifications',
-  'analytics',
-  'mtls-coverage',
-]
+
+/** Panels on by default: every panel in the default rows, in row order. */
+export const DEFAULT_ENABLED: PanelId[] = DEFAULT_ROWS.flat().map(([id]) => id as PanelId)
+
+/** The size each panel has in its default row — what makes the rows flush. */
+export const DEFAULT_SIZES: Partial<Record<PanelId, PanelSize>> = Object.fromEntries(
+  [...DEFAULT_ROWS, ...OPTIONAL_ROWS].flat().map(([id, size]) => [id, size]),
+)
+
 
 export const DEFAULT_LAYOUT: OverviewLayout = {
   // "auto" IS the curated order above — the page renders DEFAULT_ORDER as-is
@@ -241,7 +134,7 @@ export const DEFAULT_LAYOUT: OverviewLayout = {
   // the user to "custom" with their own order; there is no reset control.
   mode: 'auto',
   enabled: DEFAULT_ENABLED,
-  sizes: {},
+  sizes: DEFAULT_SIZES,
   order: DEFAULT_ORDER,
 }
 
@@ -299,7 +192,8 @@ function sanitize(input: OverviewLayout): OverviewLayout {
   return {
     mode,
     enabled: enabled.length ? enabled : DEFAULT_ENABLED,
-    sizes: input.sizes ?? {},
+    // A size the user never changed follows the default row's size.
+    sizes: { ...DEFAULT_SIZES, ...(input.sizes ?? {}) },
     order: order.length ? order : enabled.length ? enabled : DEFAULT_ORDER,
     updatedAt: input.updatedAt,
   }

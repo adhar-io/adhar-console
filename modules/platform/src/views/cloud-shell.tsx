@@ -459,10 +459,17 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
           {/* panes — every session stays mounted so tabs keep their live shells */}
           {/* Pane padding is deliberately thin: the terminal is the content, and
               every pixel of frame here is a pixel of shell the user does not get. */}
-          {/* The pane area is part of the terminal, so it is dark in either mode:
-              `dark` flips the tokens for the split labels inside it, and the
-              gutters between panes match the terminal instead of the page. */}
-          <div className={cn('dark relative grid min-h-0 flex-1 gap-1.5 bg-[#070b16] p-1.5', split ? 'grid-cols-2' : 'grid-cols-1')}>
+          {/* With a shell open the pane area is part of the terminal, so it is
+              dark in either mode: `dark` flips the tokens for the split labels
+              inside it, and the gutters between panes match the terminal. The
+              landing page (no sessions yet) is ordinary UI and follows the theme. */}
+          <div
+            className={cn(
+              'relative grid min-h-0 flex-1 gap-1.5',
+              sessions.length ? 'dark bg-[#070b16] p-1.5' : 'bg-surface-app',
+              split ? 'grid-cols-2' : 'grid-cols-1',
+            )}
+          >
             {sessions.length === 0 ? (
               <WorkbenchEmpty
                 onLaunch={() => { setSidebarTab('launch'); setPrefs({ sidebar: true }) }}
@@ -505,7 +512,7 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
           </div>
 
           {/* status bar */}
-          <div className="dark flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-edge-default bg-surface-sunken px-3 py-1 font-mono text-[10px] text-content-subtle">
+          <div className={cn('flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-edge-default bg-surface-sunken px-3 py-1 font-mono text-[10px] text-content-subtle', sessions.length && 'dark')}>
             {active ? (
               <>
                 <span className="inline-flex items-center gap-1.5"><span className={cn('h-1.5 w-1.5 rounded-full', STATUS_DOT[active.status])} />{active.status}</span>

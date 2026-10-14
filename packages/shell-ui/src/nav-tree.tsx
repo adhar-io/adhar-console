@@ -371,6 +371,7 @@ export const DEFAULT_NAV: NavSection[] = [
           { id: 'platform.dashboard', label: 'Dashboard', to: '/platform', search: 'dashboard' },
           { id: 'platform.clusters', label: 'Clusters', to: '/platform', search: 'clusters' },
           { id: 'platform.namespaces', label: 'Namespaces', to: '/platform', search: 'namespaces' },
+          { id: 'platform.quotas', label: 'Quota & Limits', to: '/platform', search: 'quotas' },
           { id: 'platform.nodes', label: 'Nodes', to: '/platform', search: 'nodes' },
           { id: 'platform.workloads', label: 'Workloads', to: '/platform', search: 'workloads' },
           { id: 'platform.autoscaling', label: 'Autoscaling', to: '/platform', search: 'autoscaling' },

@@ -44,6 +44,7 @@ import {
 import { PlatformCatalog } from './views/catalog.tsx'
 import { NamespacesView } from './views/namespaces-list.tsx'
 import { AutoscalingView } from './views/autoscaling-list.tsx'
+import { QuotasView } from './views/quotas-view.tsx'
 import { ReleasesView } from './views/releases-list.tsx'
 import { ClusterProvider } from './components/cluster-picker.tsx'
 import { useActiveNamespace } from './data/client.ts'
@@ -56,6 +57,7 @@ type Section =
   | 'nodes'
   | 'workloads'
   | 'autoscaling'
+  | 'quotas'
   | 'releases'
   | 'pods'
   | 'networking'
@@ -128,6 +130,12 @@ const SECTIONS: Record<Section, SectionDef> = {
     id: 'workloads',
     label: 'Workloads',
     description: 'Deployments, StatefulSets, DaemonSets, Jobs, CronJobs.',
+    kind: 'k8s',
+  },
+  quotas: {
+    id: 'quotas',
+    label: 'Quota & Limits',
+    description: 'ResourceQuotas and LimitRanges — live usage, namespace coverage, create, edit, delete.',
     kind: 'k8s',
   },
   autoscaling: {
@@ -419,6 +427,8 @@ function SectionBody({
       return <WorkloadView namespace={namespace} />
     case 'autoscaling':
       return <AutoscalingView namespace={namespace} />
+    case 'quotas':
+      return <QuotasView namespace={namespace} />
     case 'releases':
       return <ReleasesView namespace={namespace} />
     case 'pods':

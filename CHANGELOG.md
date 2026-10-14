@@ -6,6 +6,16 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.131] - 2026-10-14
+
+### Fixed
+
+- Fix scaffolder
+
+### Changed
+
+- **overview:** Pack panels into full rows for any layout
+
 ## [0.1.130] - 2026-10-14
 
 ### Fixed

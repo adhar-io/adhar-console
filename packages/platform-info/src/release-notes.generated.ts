@@ -4,6 +4,21 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.131",
+    "date": "2026-10-14",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Fix scaffolder"
+      },
+      {
+        "type": "change",
+        "scope": "overview",
+        "text": "Pack panels into full rows for any layout"
+      }
+    ]
+  },
+  {
     "version": "0.1.130",
     "date": "2026-10-14",
     "changes": [
@@ -991,16 +1006,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "feature",
         "scope": "catalog",
         "text": "Kind rail, group-by, readiness sort, cards that act"
-      }
-    ]
-  },
-  {
-    "version": "0.1.91",
-    "date": "2026-09-23",
-    "changes": [
-      {
-        "type": "change",
-        "text": "Update local dev loop"
       }
     ]
   }

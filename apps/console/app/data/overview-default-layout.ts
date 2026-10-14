@@ -57,3 +57,35 @@ export const OPTIONAL_ROWS: ReadonlyArray<ReadonlyArray<readonly [string, Defaul
 
 export const rowSpan = (row: ReadonlyArray<readonly [string, DefaultSize]>): number =>
   row.reduce((n, [, size]) => n + SIZE_SPAN[size], 0)
+
+/**
+ * Fit a sequence of panel spans into full 12-column rows.
+ *
+ * Panels are placed in order; a panel that doesn't fit in the current row
+ * starts the next one. A row left short — a panel switched off, a size
+ * changed, a custom drag order — is closed by sharing the 12 columns evenly
+ * among its panels (one to four panels always divide 12), so no layout the
+ * user can produce leaves a hole. Rows that already fill exactly keep their
+ * sizes untouched.
+ */
+export function packRows(spans: readonly number[]): number[] {
+  const out: number[] = []
+  let row: number[] = []
+  let used = 0
+  const close = () => {
+    if (!row.length) return
+    if (used === 12) out.push(...row)
+    else if (12 % row.length === 0) out.push(...row.map(() => 12 / row.length))
+    else out.push(...row.slice(0, -1), row[row.length - 1] + (12 - used))
+    row = []
+    used = 0
+  }
+  for (const raw of spans) {
+    const s = Math.min(12, Math.max(1, Math.round(raw)))
+    if (used + s > 12) close()
+    row.push(s)
+    used += s
+  }
+  close()
+  return out
+}

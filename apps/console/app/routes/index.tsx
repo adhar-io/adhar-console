@@ -35,6 +35,7 @@ import {
   useOverviewLayout,
   useSaveOverviewLayout,
 } from '~/data/overview-prefs.ts'
+import { packRows } from '~/data/overview-default-layout.ts'
 import { DraggableGrid } from '~/components/draggable-grid.tsx'
 import { getLayoutData } from '~/server/session.ts'
 import {
@@ -140,16 +141,29 @@ const SIZE_LABEL: Record<PanelSize, string> = {
   xl: 'Full',
 }
 
-/** col-span values on a 12-col grid. Each size means the same fraction at
- *  every desktop width — Quarter 3, Third 4, Half 6, Full 12 — so rows built
- *  to sum to 12 (see overview-default-layout.ts) stay flush. They used to
- *  shrink at 2xl (Quarter 2, Third 3), which left every Third row a quarter
- *  short. Below lg, Quarters pair up and everything else is full width. */
-const SIZE_COLSPAN: Record<PanelSize, string> = {
-  sm: 'col-span-12 sm:col-span-6 lg:col-span-3',
-  md: 'col-span-12 lg:col-span-4',
-  lg: 'col-span-12 lg:col-span-6',
-  xl: 'col-span-12',
+/** Column span of each size on the 12-column desktop grid. */
+const SIZE_SPAN: Record<PanelSize, number> = { sm: 3, md: 4, lg: 6, xl: 12 }
+
+/**
+ * Desktop col-span classes, written out so Tailwind emits them. The span a
+ * panel gets is its size packed into full rows (`packRows`), so a short row —
+ * a panel switched off, a size changed, a custom drag order — widens its
+ * panels to the full width instead of leaving a gap. Below `lg` every panel is
+ * full width.
+ */
+const LG_SPAN: Record<number, string> = {
+  1: 'col-span-12 lg:col-span-1',
+  2: 'col-span-12 lg:col-span-2',
+  3: 'col-span-12 lg:col-span-3',
+  4: 'col-span-12 lg:col-span-4',
+  5: 'col-span-12 lg:col-span-5',
+  6: 'col-span-12 lg:col-span-6',
+  7: 'col-span-12 lg:col-span-7',
+  8: 'col-span-12 lg:col-span-8',
+  9: 'col-span-12 lg:col-span-9',
+  10: 'col-span-12 lg:col-span-10',
+  11: 'col-span-12 lg:col-span-11',
+  12: 'col-span-12',
 }
 
 const CATEGORY_LABEL: Record<PanelCategory, string> = {
@@ -692,6 +706,11 @@ function LandingPage() {
   }
 
   const visiblePanels = useMemo(() => resolveOrder(layout), [layout])
+  // Each panel's desktop span, packed so every row is exactly full width.
+  const packedSpans = useMemo(() => {
+    const spans = packRows(visiblePanels.map((p) => SIZE_SPAN[sizeFor(layout, p)]))
+    return new Map(visiblePanels.map((p, i) => [p.id, spans[i]] as const))
+  }, [visiblePanels, layout])
 
   /**
    * Drag commits implicitly switch the layout to "custom" mode and freeze
@@ -733,7 +752,7 @@ function LandingPage() {
             items={visiblePanels}
             onReorder={onReorder}
             disabled={false}
-            spanClassName={(p) => SIZE_COLSPAN[sizeFor(layout, p)]}
+            spanClassName={(p) => LG_SPAN[packedSpans.get(p.id) ?? SIZE_SPAN[sizeFor(layout, p)]]}
             render={(p) => p.render({ notifications })}
           />
         )}

@@ -427,17 +427,6 @@ export function ArgoApps() {
 
       {open ? <AppDetail app={open} onClose={() => setOpenName(null)} /> : null}
 
-      <style>
-        {`
-        /* The accent rail breathes while a sync is in flight, so a card that is
-           actively changing is distinguishable from one that is merely broken. */
-        @keyframes adhar-app-busy { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
-        .adhar-app-busy { animation: adhar-app-busy 1.4s ease-in-out infinite; }
-        @media (prefers-reduced-motion: reduce) {
-          .adhar-app-busy { animation: none !important; }
-        }
-      `}
-      </style>
     </div>
   )
 }
@@ -637,150 +626,131 @@ function AppCard({
   const op = a.status.operationState
   const running = op?.phase === 'Running'
   const failedOp = op?.phase === 'Failed' || op?.phase === 'Error'
-  const drift = sync === 'OutOfSync'
-  const bad = health === 'Degraded' || health === 'Missing' || failedOp
   const auto = a.spec.syncPolicy.automated
   const [menu, setMenu] = useState(false)
 
   return (
     <Card
       className={cn(
-        // A flex column so the action bar sits on the bottom edge. Cards in a
-        // row are stretched to the tallest, and without this the buttons
-        // floated wherever the content happened to end, with dead space below.
-        'relative flex h-full flex-col overflow-hidden border',
-        bad ? 'border-rose-200/70 dark:border-rose-500/30' : drift ? 'border-amber-200/70 dark:border-amber-500/30' : 'border-edge-default',
-        selected && 'bg-brand-50/40 ring-2 ring-brand-400/40 dark:bg-brand-500/5',
+        // A flex column so the action bar sits on the bottom edge of cards
+        // stretched to the tallest in their row. Status lives in the chips and
+        // the operation line — no coloured rail or tinted border, so a grid of
+        // forty apps reads as a calm list with the problems called out in words.
+        'relative flex h-full flex-col overflow-hidden border border-edge-default transition-shadow hover:shadow-md',
+        selected && 'ring-2 ring-brand-400/50',
       )}
       interactive
     >
-      {/* Status rail. Runtime health picks the colour, except while an operation
-          is in flight — a sync running on a degraded app is the more useful
-          signal, because it says the problem is already being acted on. */}
-      <span
-        aria-hidden
-        className={cn(
-          'absolute inset-y-0 left-0 w-1',
-          TONE_FILL[running ? 'busy' : (HEALTH_TONE[health] ?? 'idle')],
-          running ? 'adhar-app-busy' : '',
-        )}
-      />
-      <div className="flex flex-1 items-start gap-3 p-4 pl-5">
-        <Checkbox checked={selected} onChange={onSelect} aria-label={`Select ${a.metadata.name}`} />
-        <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 flex-col text-left">
-          <div className="flex w-full items-start justify-between gap-2.5">
-            <div className="min-w-0 flex-1">
-              {/* The name gets the whole line. The sync-policy badge used to
-                  share it, and on a card this width that truncated names like
-                  `adhar-supply-chain` to make room for a label that is the
-                  same on nearly every application. */}
-              <span className="block truncate text-[15px] font-semibold leading-tight text-content" title={a.metadata.name}>
-                {a.metadata.name}
-              </span>
-              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-content-subtle">
-                <span className="truncate">
-                  {a.spec.destination.namespace || '—'} · {a.spec.project}
-                  {a.spec.destination.server && !/kubernetes\.default|in-cluster/.test(a.spec.destination.server) ? ` · ${a.spec.destination.name ?? a.spec.destination.server}` : ''}
-                </span>
-                {auto ? (
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-surface-sunken px-1.5 py-px text-[10px] font-medium text-content-muted" title={`Auto-sync${auto.prune ? ' · prune' : ''}${auto.selfHeal ? ' · self-heal' : ''}`}>
-                    <IconBolt />auto{auto.selfHeal ? '·heal' : ''}{auto.prune ? '·prune' : ''}
-                  </span>
-                ) : (
-                  <span className="shrink-0 rounded-full bg-surface-sunken px-1.5 py-px text-[10px] font-medium text-content-subtle" title="Synced manually — no automated sync policy">manual</span>
-                )}
-              </div>
-            </div>
-            {/* Sync and health are independent — an app can be perfectly
-                healthy and still have drifted from git — so they get two
-                separate chips on a fixed palette rather than one blended
-                colour that hides whichever problem came second. */}
-            <div className="flex shrink-0 flex-col items-end gap-1.5">
-              <Chip tone={SYNC_TONE[sync] ?? 'idle'} label="Sync">
-                {sync === 'OutOfSync' ? 'Out of sync' : sync}
-              </Chip>
-              <Chip tone={running ? 'busy' : (HEALTH_TONE[health] ?? 'idle')} label="Health">
-                {running ? 'Syncing' : health}
-              </Chip>
-            </div>
-          </div>
-
-          {/* Managed-resource health, at a glance. A count of "42 res" says
-              nothing about whether they are fine; the proportions do. */}
-          <ResourceMeter
-            total={a.status.resources.total}
-            outOfSync={a.status.resources.outOfSync}
-            unhealthy={a.status.resources.unhealthy}
-          />
-
-          <div className="mt-3 w-full rounded-lg border border-edge-subtle bg-surface-sunken/50 px-2.5 py-2 text-[11px]">
-            <div className="flex items-center gap-1.5">
-              <IconSource />
-              <span className="truncate font-mono font-medium text-content-muted" title={a.spec.source.repoURL}>
-                {shortRepo(a.spec.source.repoURL)}
-              </span>
-            </div>
-            <div className="mt-0.5 truncate pl-[18px] text-content-subtle" title={sourceRef(a.spec.source)}>
-              {sourceRef(a.spec.source)}
-              {a.spec.sources.length > 1 ? ` · +${a.spec.sources.length - 1} more source${a.spec.sources.length > 2 ? 's' : ''}` : ''}
-            </div>
-          </div>
-
-          {/* Resource counts live under the meter, which states them as
-              proportions; repeating them here as `20 res · 2 drift` said the
-              same three numbers twice in one card. */}
-          <div className="mt-2 flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-content-subtle">
-            {a.status.sync.revision ? <span className="font-mono" title={a.status.sync.revision}>{a.status.sync.revision.slice(0, 8)}</span> : null}
-            {a.status.images.length ? <span title={a.status.images.join('\n')}>{a.status.images.length} image{a.status.images.length === 1 ? '' : 's'}</span> : null}
-            {a.status.deployments ? <span>{a.status.deployments} deploy{a.status.deployments === 1 ? '' : 's'}</span> : null}
-            {a.status.reconciledAt ? <span title={formatAbsolute(a.status.reconciledAt)}>reconciled {formatRelative(a.status.reconciledAt)}</span> : null}
-          </div>
-
-          {/* One line that stays one line. Each part was free to wrap before,
-              so a failed operation broke into a stack of ragged fragments —
-              `by` over `automation` over `· 2 hours` over `ago` — which is the
-              state a reader most needs to be able to read. */}
-          {op ? (
-            <div className={cn('mt-2 flex w-full items-center gap-1.5 overflow-hidden whitespace-nowrap text-[11px]', failedOp ? 'text-rose-700 dark:text-rose-300' : running ? 'text-indigo-700 dark:text-indigo-300' : 'text-content-muted')}>
-              {running ? <span className="shrink-0"><Spinner size={10} /></span> : null}
-              <span className="shrink-0 font-semibold">{op.phase}</span>
-              {op.dryRun ? <span className="shrink-0 rounded bg-surface-sunken px-1 text-[10px]">dry-run</span> : null}
-              {op.initiatedBy ? <span className="shrink-0">by {op.initiatedBy}</span> : null}
-              {(op.finishedAt ?? op.startedAt) ? <span className="shrink-0">· {formatRelative(op.finishedAt ?? op.startedAt!)}</span> : null}
-              {failedOp && op.message ? <span className="min-w-0 truncate" title={op.message}>— {op.message}</span> : null}
-            </div>
-          ) : null}
-          {a.status.conditions.length ? (
-            <div className={cn('mt-1 w-full truncate text-[11px]', conditionTone(a.status.conditions[0].type))} title={a.status.conditions.map((c) => `${c.type}: ${c.message ?? ''}`).join('\n')}>
-              {a.status.conditions[0].type}{a.status.conditions[0].message ? `: ${a.status.conditions[0].message}` : ''}{a.status.conditions.length > 1 ? ` (+${a.status.conditions.length - 1})` : ''}
-            </div>
-          ) : a.status.health.message ? (
-            <div className="mt-1 w-full truncate text-[11px] text-content-muted" title={a.status.health.message}>{a.status.health.message}</div>
-          ) : null}
-        </button>
-      </div>
-
-      <div className="mt-auto flex items-center gap-1.5 border-t border-edge-subtle bg-surface-sunken/40 px-3 py-2">
-        {running ? (
-          <Button size="sm" variant="secondary" onClick={onTerminate} leading={<IconStop />}>Terminate</Button>
-        ) : (
-          <Button size="sm" onClick={onSync} loading={busy} disabled={sync === 'Synced' && !failedOp} leading={<IconSync />}>Sync</Button>
-        )}
-        <Button size="sm" variant="secondary" onClick={() => onRefresh(false)} disabled={busy} leading={<IconRefresh />}>Refresh</Button>
-        <div className="relative ml-auto">
-          <button type="button" aria-label="More actions" onClick={() => setMenu((m) => !m)} className="flex h-7 w-7 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-raised hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40">
-            <IconMore />
+      <div className="flex flex-1 flex-col p-4">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5"><Checkbox checked={selected} onChange={onSelect} aria-label={`Select ${a.metadata.name}`} /></span>
+          <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
+            <span className="block truncate text-[15px] font-semibold leading-tight text-content hover:text-brand-700 dark:hover:text-brand-300" title={a.metadata.name}>
+              {a.metadata.name}
+            </span>
+            <span className="mt-1 block truncate text-[12px] text-content-subtle">
+              {a.spec.destination.namespace || '—'}
+              <span className="px-1 text-edge-strong">/</span>
+              {a.spec.project}
+              {a.spec.destination.server && !/kubernetes\.default|in-cluster/.test(a.spec.destination.server) ? <><span className="px-1 text-edge-strong">@</span>{a.spec.destination.name ?? a.spec.destination.server}</> : null}
+            </span>
           </button>
-          {menu ? (
+          <div className="relative -mr-1 -mt-1 shrink-0">
+            <button type="button" aria-label="More actions" onClick={() => setMenu((m) => !m)} className="flex h-7 w-7 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40">
+              <IconMore />
+            </button>
+            {menu ? (
+              <>
+                <div className="fixed inset-0 z-55" aria-hidden onClick={() => setMenu(false)} />
+                <div className="absolute right-0 top-full z-56 mt-1 w-44 rounded-xl border border-edge-default bg-surface-raised p-1 shadow-xl">
+                  <MenuItem onClick={() => { setMenu(false); onRefresh(true) }}>Hard refresh</MenuItem>
+                  <MenuItem onClick={() => { setMenu(false); onOpen() }}>Sync with options…</MenuItem>
+                  <MenuItem onClick={() => { setMenu(false); onOpen() }}>Resources & history</MenuItem>
+                </div>
+              </>
+            ) : null}
+          </div>
+        </div>
+
+        {/* Sync and health are independent — an app can be healthy and still
+            have drifted from git — so they are two chips, side by side. */}
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <Chip tone={running ? 'busy' : (HEALTH_TONE[health] ?? 'idle')} label="Health">
+            {running ? 'Syncing' : health}
+          </Chip>
+          <Chip tone={SYNC_TONE[sync] ?? 'idle'} label="Sync">
+            {sync === 'OutOfSync' ? 'Out of sync' : sync}
+          </Chip>
+          {auto ? (
+            <span className="inline-flex items-center gap-1 rounded-full border border-edge-default px-1.5 py-0.5 text-[10px] font-medium text-content-muted" title={`Auto-sync${auto.prune ? ' · prune' : ''}${auto.selfHeal ? ' · self-heal' : ''}`}>
+              <IconBolt />Auto{auto.selfHeal ? ' · heal' : ''}{auto.prune ? ' · prune' : ''}
+            </span>
+          ) : (
+            <span className="rounded-full border border-edge-default px-1.5 py-0.5 text-[10px] font-medium text-content-subtle" title="Synced manually — no automated sync policy">Manual</span>
+          )}
+        </div>
+
+        <ResourceMeter
+          total={a.status.resources.total}
+          outOfSync={a.status.resources.outOfSync}
+          unhealthy={a.status.resources.unhealthy}
+        />
+
+        <dl className="mt-3 grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-[11px]">
+          <dt className="text-content-subtle">Source</dt>
+          <dd className="flex min-w-0 items-center gap-1 text-content-muted">
+            <IconSource />
+            <span className="truncate font-mono" title={a.spec.source.repoURL}>{shortRepo(a.spec.source.repoURL)}</span>
+            {a.spec.sources.length > 1 ? <span className="shrink-0 text-content-subtle">+{a.spec.sources.length - 1}</span> : null}
+          </dd>
+          <dt className="text-content-subtle">Path</dt>
+          <dd className="truncate text-content-muted" title={sourceRef(a.spec.source)}>{sourceRef(a.spec.source)}</dd>
+          {a.status.sync.revision ? (
             <>
-              <div className="fixed inset-0 z-55" aria-hidden onClick={() => setMenu(false)} />
-              <div className="absolute right-0 top-full z-56 mt-1 w-44 rounded-xl border border-edge-default bg-surface-raised p-1 shadow-xl">
-                <MenuItem onClick={() => { setMenu(false); onRefresh(true) }}>Hard refresh</MenuItem>
-                <MenuItem onClick={() => { setMenu(false); onOpen() }}>Sync with options…</MenuItem>
-                <MenuItem onClick={() => { setMenu(false); onOpen() }}>Resources & history</MenuItem>
-              </div>
+              <dt className="text-content-subtle">Revision</dt>
+              <dd className="flex min-w-0 items-center gap-2 text-content-muted">
+                <span className="font-mono" title={a.status.sync.revision}>{a.status.sync.revision.slice(0, 8)}</span>
+                {a.status.reconciledAt ? <span className="truncate text-content-subtle" title={formatAbsolute(a.status.reconciledAt)}>· {formatRelative(a.status.reconciledAt)}</span> : null}
+              </dd>
             </>
           ) : null}
+        </dl>
+
+        {/* One line that stays one line — the state a reader most needs. */}
+        {op ? (
+          <div className={cn('mt-3 flex w-full items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-md px-2 py-1 text-[11px]', failedOp ? 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300' : running ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300' : 'bg-surface-sunken/60 text-content-muted')}>
+            {running ? <span className="shrink-0"><Spinner size={10} /></span> : null}
+            <span className="shrink-0 font-semibold">{op.phase}</span>
+            {op.dryRun ? <span className="shrink-0 rounded bg-surface-raised px-1 text-[10px]">dry-run</span> : null}
+            {op.initiatedBy ? <span className="shrink-0">by {op.initiatedBy}</span> : null}
+            {(op.finishedAt ?? op.startedAt) ? <span className="shrink-0">· {formatRelative(op.finishedAt ?? op.startedAt!)}</span> : null}
+            {failedOp && op.message ? <span className="min-w-0 truncate" title={op.message}>— {op.message}</span> : null}
+          </div>
+        ) : null}
+        {a.status.conditions.length ? (
+          <div className={cn('mt-1.5 w-full truncate text-[11px]', conditionTone(a.status.conditions[0].type))} title={a.status.conditions.map((c) => `${c.type}: ${c.message ?? ''}`).join('\n')}>
+            {a.status.conditions[0].type}{a.status.conditions[0].message ? `: ${a.status.conditions[0].message}` : ''}{a.status.conditions.length > 1 ? ` (+${a.status.conditions.length - 1})` : ''}
+          </div>
+        ) : a.status.health.message ? (
+          <div className="mt-1.5 w-full truncate text-[11px] text-content-muted" title={a.status.health.message}>{a.status.health.message}</div>
+        ) : null}
+      </div>
+
+      <div className="mt-auto flex items-center gap-2 border-t border-edge-subtle px-4 py-2.5">
+        {a.status.images.length || a.status.deployments ? (
+          <span className="min-w-0 truncate text-[11px] text-content-subtle" title={a.status.images.join('\n')}>
+            {a.status.deployments ? `${a.status.deployments} deploy${a.status.deployments === 1 ? '' : 's'}` : ''}
+            {a.status.deployments && a.status.images.length ? ' · ' : ''}
+            {a.status.images.length ? `${a.status.images.length} image${a.status.images.length === 1 ? '' : 's'}` : ''}
+          </span>
+        ) : null}
+        <div className="ml-auto flex items-center gap-1.5">
+          <Button size="xs" variant="ghost" onClick={() => onRefresh(false)} disabled={busy} leading={<IconRefresh />}>Refresh</Button>
+          {running ? (
+            <Button size="xs" variant="secondary" onClick={onTerminate} leading={<IconStop />}>Terminate</Button>
+          ) : (
+            <Button size="xs" variant={sync === 'Synced' && !failedOp ? 'secondary' : 'primary'} onClick={onSync} loading={busy} disabled={sync === 'Synced' && !failedOp} leading={<IconSync />}>Sync</Button>
+          )}
         </div>
       </div>
     </Card>

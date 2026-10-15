@@ -180,8 +180,10 @@ export interface IdeSession {
  * short-lived token for the workspace's owner and returns a URL carrying it;
  * Coder swaps it for a cookie on first load.
  */
+export type IdeKind = 'code-server' | 'vscode-desktop' | 'intellij'
+
 export async function ideSessionUrl(
-  input: { workspace: string; agent: string; app?: string; kind?: 'app' | 'terminal' },
+  input: { workspace: string; agent: string; app?: string; kind?: 'app' | 'terminal'; ide?: IdeKind; folder?: string },
 ): Promise<IdeSession> {
   const res = await fetch('/api/coder/ide-session', {
     method: 'POST',
@@ -336,6 +338,29 @@ export function editorOf(w: coder.Workspace, kind: 'vscode' | 'intellij'): { age
     for (const a of r.agents ?? []) {
       const app = a.apps?.find((x) => re.test(x.slug))
       if (app) return { agent: a.name, app }
+    }
+  }
+  return null
+}
+
+/** Where the template checks a repository out — `/home/coder/<name>`. */
+export function repoFolder(cloneUrl: string | undefined, repo: string): string {
+  const base = (cloneUrl ?? '').replace(/\/+$/, '').split('/').pop()?.replace(/\.git$/, '') || repo
+  return `/home/coder/${base}`
+}
+
+/** The first agent in the workspace, and whether it is connected. */
+export function mainAgent(w: coder.Workspace): { name: string; connected: boolean; ready: boolean } | null {
+  for (const r of w.latest_build.resources ?? []) {
+    const a = r.agents?.[0]
+    if (a) {
+      return {
+        name: a.name,
+        connected: a.status === 'connected',
+        // `ready` once start-up scripts (the clone) are done; older agents
+        // report no lifecycle, and then connected is the best signal there is.
+        ready: a.status === 'connected' && (!a.lifecycle_state || ['ready', 'start_error', 'start_timeout'].includes(a.lifecycle_state)),
+      }
     }
   }
   return null

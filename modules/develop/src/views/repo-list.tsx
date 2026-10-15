@@ -654,11 +654,8 @@ function RepoCard({ repo: r, prs, onOpen, onArchive, onDelete }: { repo: gitea.R
         </div>
       </div>
       <div className='mt-auto flex items-center justify-between gap-3 border-t border-edge-subtle bg-surface-sunken/40 px-4 py-2 pl-5 text-[11px] text-content-muted'>
-        <span title={r.updated_at}>Updated {formatRelative(r.updated_at)}</span>
-        <span className='flex items-center gap-3'>
-          <span className='font-mono text-[10px] text-content-subtle'>{r.size !== undefined ? fmtKb(r.size) : ''}</span>
-          <span className='translate-x-1 font-mono text-[10px] uppercase tracking-wider text-content-subtle opacity-0 transition-[opacity,transform] group-hover:translate-x-0 group-hover:opacity-100'>open →</span>
-        </span>
+        <span className='min-w-0 truncate' title={r.updated_at}>Updated {formatRelative(r.updated_at)}{r.size !== undefined ? ` · ${fmtKb(r.size)}` : ''}</span>
+        {r.empty || r.archived ? null : <CloudEnvLaunch repo={r.name} cloneUrl={r.clone_url ?? `${r.html_url}.git`} compact />}
       </div>
     </div>
   );
@@ -690,6 +687,7 @@ function RepoRow({ repo: r, prs, onOpen, onArchive, onDelete }: { repo: gitea.Re
         <span title='Stars'>★ {r.stars_count}</span>
         <span className='w-20 text-right text-content-subtle' title={r.updated_at}>{formatRelative(r.updated_at)}</span>
       </div>
+      {r.empty || r.archived ? null : <CloudEnvLaunch repo={r.name} cloneUrl={r.clone_url ?? `${r.html_url}.git`} compact />}
       <RepoMenu repo={r} onOpen={onOpen} onArchive={onArchive} onDelete={onDelete} />
     </div>
   );
@@ -766,9 +764,7 @@ function RepoTable({ rows, prCount, sort, dir, onSort, menuFor }: {
                 <td className='truncate px-3 py-2 text-content-muted' title={r.updated_at}>{formatRelative(r.updated_at)}</td>
                 <td className='px-2 py-2' onClick={(e) => e.stopPropagation()}>
                   <div className='flex items-center justify-end gap-0.5'>
-                    <span className='opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100'>
-                      <CloudEnvLaunch repo={r.name} cloneUrl={r.clone_url ?? `${r.html_url}.git`} compact />
-                    </span>
+                    {r.empty || r.archived ? null : <CloudEnvLaunch repo={r.name} cloneUrl={r.clone_url ?? `${r.html_url}.git`} compact />}
                     <RepoMenu repo={r} {...a} />
                   </div>
                 </td>

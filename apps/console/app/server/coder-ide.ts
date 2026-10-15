@@ -37,7 +37,19 @@ import { toPublicToolUrl, toolPublicUrl } from './domain.ts'
  */
 
 const KEY_LIFETIME_SECONDS = 120
+/**
+ * Desktop IDEs keep the token: the VS Code Coder extension and JetBrains
+ * Gateway use it for every reconnect, so a two-minute token dropped the
+ * session minutes after it opened. A week matches Coder's own "Open in VS
+ * Code" and is still a token minted for the person themselves.
+ */
+const DESKTOP_KEY_LIFETIME = '168h'
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/
+/** Only the home directory or one repository folder directly under it. */
+const FOLDER_RE = /^\/home\/coder(\/[A-Za-z0-9][A-Za-z0-9._-]{0,99})?$/
+
+export type IdeKind = 'code-server' | 'vscode-desktop' | 'intellij'
+const CODE_SERVER_RE = /^code-server$|vscode-web|^code$/i
 
 export interface CoderIdentity {
   /** Coder username whose workspaces this person drives. Empty when unresolved. */
@@ -280,8 +292,82 @@ interface Workspace {
   owner_name: string
   latest_build: {
     status: string
-    resources?: Array<{ agents?: Array<{ name: string; apps?: WorkspaceApp[] }> }>
+    resources?: Array<{ agents?: Array<{ id?: string; name: string; apps?: WorkspaceApp[] }> }>
   }
+}
+
+/**
+ * A deep link that opens the workspace in a desktop IDE, built here rather
+ * than taken from the template: workspaces built from an older template
+ * version have no desktop apps at all, and the link only needs facts this
+ * handler already has. Formats are the ones the Coder clients register:
+ *   • VS Code — the `coder.coder-remote` extension's `/open` URI;
+ *   • IntelliJ — JetBrains Gateway's Coder connector (`ide_product_code=IU`;
+ *     Gateway offers to download the backend on first connect).
+ */
+export function desktopDeepLink(
+  ide: 'vscode-desktop' | 'intellij',
+  p: { owner: string; workspace: string; agent: string; url: string; token: string; folder: string },
+): string {
+  const q = (o: Record<string, string>) => Object.entries(o).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
+  if (ide === 'vscode-desktop') {
+    return `vscode://coder.coder-remote/open?${q({ owner: p.owner, workspace: p.workspace, agent: p.agent, url: p.url, token: p.token, folder: p.folder })}`
+  }
+  return `jetbrains-gateway://connect#${q({
+    type: 'coder',
+    workspace: p.workspace,
+    owner: p.owner,
+    agent: p.agent,
+    // Newer Gateway plugin versions read `agent_name`; older ones `agent`.
+    agent_name: p.agent,
+    url: p.url,
+    token: p.token,
+    ide_product_code: 'IU',
+    folder: p.folder,
+  })}`
+}
+
+/**
+ * Make dark the default theme in the workspace's code-server.
+ *
+ * Runs one short command in the workspace through the agent's reconnecting
+ * PTY, as the workspace owner (with the token just minted for them). It
+ * only ADDS keys that are not there: a person who picked a theme keeps it.
+ * `workbench.startupEditor` is set alongside because the template's start
+ * script skips its own settings when the file already exists — without it
+ * this would bring the Welcome tab back. Best effort and bounded: the IDE
+ * opens either way.
+ */
+async function ensureDarkCodeServer(agentId: string, key: string): Promise<void> {
+  const internal = (getTool('coder')?.baseUrl ?? '').replace(/\/$/, '')
+  if (!internal || !agentId) return
+  const script = [
+    'F="$HOME/.local/share/code-server/User/settings.json"',
+    'mkdir -p "$(dirname "$F")"',
+    '[ -s "$F" ] || { printf "{\\n  \\"workbench.colorTheme\\": \\"Default Dark Modern\\",\\n  \\"workbench.startupEditor\\": \\"none\\"\\n}\\n" > "$F"; exit 0; }',
+    'grep -q "\\"workbench.colorTheme\\"" "$F" || sed -i "0,/{/s//{\\n  \\"workbench.colorTheme\\": \\"Default Dark Modern\\",/" "$F"',
+    'grep -q "\\"workbench.startupEditor\\"" "$F" || sed -i "0,/{/s//{\\n  \\"workbench.startupEditor\\": \\"none\\",/" "$F"',
+    'exit 0',
+  ].join('; ')
+  const wsUrl = internal.replace(/^http/, 'ws') +
+    `/api/v2/workspaceagents/${encodeURIComponent(agentId)}/pty?reconnect=${crypto.randomUUID()}` +
+    `&width=80&height=24&command=${encodeURIComponent(`sh -c '${script.replaceAll("'", "'\\''")}'`)}` +
+    `&coder_session_token=${encodeURIComponent(key)}`
+  await new Promise<void>((resolve) => {
+    let done = false
+    const finish = () => {
+      if (done) return
+      done = true
+      try {
+        sock.close()
+      } catch { /* already closed */ }
+      resolve()
+    }
+    const sock = new WebSocket(wsUrl)
+    sock.onclose = finish
+    sock.onerror = finish
+    setTimeout(finish, 5_000)
+  })
 }
 
 /**
@@ -296,7 +382,7 @@ export async function handleCoderIdeSession(req: Request): Promise<Response> {
   if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405 })
   const auth = await getRequestUser(req)
 
-  let body: { workspace?: string; agent?: string; app?: string; kind?: 'app' | 'terminal'; folder?: string }
+  let body: { workspace?: string; agent?: string; app?: string; kind?: 'app' | 'terminal'; folder?: string; ide?: IdeKind }
   try {
     body = (await req.json()) as typeof body
   } catch {
@@ -308,10 +394,18 @@ export async function handleCoderIdeSession(req: Request): Promise<Response> {
   // app. Without this the Terminal buttons opened Coder's sign-in page for
   // exactly the reason the IDE buttons used to.
   const kind = body.kind === 'terminal' ? 'terminal' : 'app'
+  // `ide` asks for an editor by what it is, not by the template's app slug,
+  // so the console can open a repository the same way on every template
+  // version. `folder` is the repository's checkout.
+  const ide = body.ide && ['code-server', 'vscode-desktop', 'intellij'].includes(body.ide) ? body.ide : undefined
+  const folder = body.folder && FOLDER_RE.test(body.folder) ? body.folder : undefined
+  if (body.folder && !folder) {
+    return withCookie(Response.json({ error: 'invalid_folder' }, { status: 400 }), auth?.refreshedCookie)
+  }
   if (!workspace || !agent || ![workspace, agent].every((v) => NAME_RE.test(v))) {
     return withCookie(Response.json({ error: 'invalid_request' }, { status: 400 }), auth?.refreshedCookie)
   }
-  if (kind === 'app' && (!app || !NAME_RE.test(app))) {
+  if (kind === 'app' && !ide && (!app || !NAME_RE.test(app))) {
     return withCookie(Response.json({ error: 'invalid_request' }, { status: 400 }), auth?.refreshedCookie)
   }
 
@@ -343,18 +437,32 @@ export async function handleCoderIdeSession(req: Request): Promise<Response> {
   if (!agentDef) {
     return withCookie(Response.json({ error: 'agent_not_found', detail: agent }, { status: 404 }), auth?.refreshedCookie)
   }
-  const appDef = kind === 'app' ? agentDef.apps?.find((a) => a.slug === app) : undefined
-  if (kind === 'app' && !appDef) {
-    return withCookie(Response.json({ error: 'app_not_found', detail: `${agent}/${app}` }, { status: 404 }), auth?.refreshedCookie)
+  const desktop = ide === 'vscode-desktop' || ide === 'intellij'
+  const appSlug = ide === 'code-server' ? agentDef.apps?.find((a) => CODE_SERVER_RE.test(a.slug))?.slug : app
+  const appDef = kind === 'app' && !desktop ? agentDef.apps?.find((a) => a.slug === appSlug) : undefined
+  if (kind === 'app' && !desktop && !appDef) {
+    return withCookie(
+      Response.json({ error: 'app_not_found', detail: ide === 'code-server' ? `${agent} has no code-server app` : `${agent}/${app}` }, { status: 404 }),
+      auth?.refreshedCookie,
+    )
   }
 
-  // A short-lived token, exchanged for a cookie by Coder on first load.
+  // Browser: a short-lived token, exchanged for a cookie by Coder on first
+  // load. Desktop: a longer one, because the client keeps using it.
+  const mint = (lifetime?: string) =>
+    coder<{ key: string }>(req, `/api/v2/users/${encodeURIComponent(identity.owner)}/keys`, {
+      method: 'POST',
+      body: lifetime ? { lifetime } : {},
+    })
   let key: string
   try {
-    const minted = await coder<{ key: string }>(req, `/api/v2/users/${encodeURIComponent(identity.owner)}/keys`, {
-      method: 'POST',
-      body: { lifetime: `${KEY_LIFETIME_SECONDS}s` },
-    })
+    let minted: { key: string }
+    if (desktop) {
+      // A deployment may cap token lifetime below a week; take its default then.
+      minted = await mint(DESKTOP_KEY_LIFETIME).catch(() => mint())
+    } else {
+      minted = await mint(`${KEY_LIFETIME_SECONDS}s`)
+    }
     key = minted.key
   } catch (e) {
     return withCookie(Response.json({ error: 'token_mint_failed', detail: e instanceof Error ? e.message : String(e) }, { status: 502 }), auth?.refreshedCookie)
@@ -363,6 +471,27 @@ export async function handleCoderIdeSession(req: Request): Promise<Response> {
 
   const base = coderPublicUrl()
   if (!base) return withCookie(Response.json({ error: 'coder_url_unknown' }, { status: 503 }), auth?.refreshedCookie)
+
+  if (desktop) {
+    const url = desktopDeepLink(ide, {
+      owner: identity.owner,
+      workspace: ws.name,
+      agent,
+      url: base,
+      token: key,
+      folder: folder ?? '/home/coder',
+    })
+    return withCookie(Response.json({ url, owner: identity.owner, external: true, matched: identity.matched }), auth?.refreshedCookie)
+  }
+
+  if (ide === 'code-server') {
+    await ensureDarkCodeServer(agentDef.id ?? '', key).catch(() => undefined)
+    const who = `${base}/@${encodeURIComponent(identity.owner)}/${encodeURIComponent(ws.name)}.${encodeURIComponent(agent)}`
+    // `folder` explicitly: the app's own `?folder=` only applies to links
+    // Coder's dashboard builds, not to a URL handed to the browser.
+    const url = `${who}/apps/${encodeURIComponent(appSlug!)}/?${folder ? `folder=${encodeURIComponent(folder)}&` : ''}coder_session_token=${encodeURIComponent(key)}`
+    return withCookie(Response.json({ url, owner: identity.owner, external: false, matched: identity.matched }), auth?.refreshedCookie)
+  }
 
   // A desktop app (JetBrains Gateway, VS Code Desktop) is a deep link the
   // template supplies; Coder's own UI fills a `$SESSION_TOKEN` placeholder in

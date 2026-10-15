@@ -251,10 +251,10 @@ export const DEFAULT_NAV: NavSection[] = [
           { id: 'develop.prs', label: 'Pull Requests', to: '/develop', search: 'prs' },
           { id: 'develop.issues', label: 'Issues', to: '/develop', search: 'issues' },
           { id: 'develop.environments', label: 'Cloud Envs', to: '/develop', search: 'environments' },
-          // Platform owns this page (modules/platform/src/views/tekton.tsx); this
-          // row is a shortcut for developers, so it must not steal the highlight.
-          { id: 'develop.ci', label: 'CI Pipelines', to: '/platform', search: 'ci', crossLink: true },
-          { id: 'develop.pipelines', label: 'Data Pipelines', to: '/develop', search: 'pipelines' },
+          // Tekton builds. The view's code is the Platform module's
+          // (modules/platform/src/builds.tsx); the host renders it here.
+          { id: 'develop.builds', label: 'Builds', to: '/develop', search: 'builds' },
+          { id: 'develop.pipelines', label: 'Pipelines', to: '/develop', search: 'pipelines' },
           { id: 'develop.performance', label: 'Performance', to: '/develop', search: 'performance' },
           { id: 'develop.content', label: 'Content', to: '/develop', search: 'content' },
           { id: 'develop.codebuilder', label: 'Code Builder', to: '/develop', search: 'codebuilder' },
@@ -412,7 +412,6 @@ export const DEFAULT_NAV: NavSection[] = [
           },
           { id: 'platform.logs', label: 'Logs', to: '/platform', search: 'logs' },
           { id: 'platform.metrics', label: 'Metrics', to: '/platform', search: 'metrics' },
-          { id: 'platform.ci', label: 'Builds', to: '/platform', search: 'ci' },
           {
             id: 'platform.chaos',
             label: 'Chaos Engineering',

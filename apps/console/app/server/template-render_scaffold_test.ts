@@ -112,3 +112,14 @@ Deno.test('escape HTML-escapes, so a description cannot break out of a meta attr
   assertEquals(out, '<meta content="Tom&#39;s &quot;fast&quot; &lt;app&gt; &amp; more">')
   assert(!/[<>"]/.test(out.slice('<meta content="'.length, -2)))
 })
+
+Deno.test('a grouped `or` piped to a filter renders inside-out, as the SPA skeletons need', () => {
+  const tpl = "const D = ${{ (values.description or 'A React single-page app, shipped through Adhar.') | dump }}"
+  assertEquals(renderContent(tpl, {}), 'const D = "A React single-page app, shipped through Adhar."')
+  assertEquals(renderContent(tpl, { description: 'Mine' }), 'const D = "Mine"')
+  assertEquals(
+    renderContent("content: ${{ (values.description or values.name) | dump }}", { name: 'ngapp' }),
+    'content: "ngapp"',
+  )
+  assertEquals(renderContent("<p>${{ (values.title or 'x<y') | escape }}</p>", {}), '<p>x&lt;y</p>')
+})

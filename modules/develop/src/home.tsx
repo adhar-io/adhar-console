@@ -54,7 +54,7 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
     description: 'Coder workspaces — code-server, terminal and previews on the cluster, from any template.',
   },
   pipelines: {
-    label: 'Data Pipelines',
+    label: 'Pipelines',
     description: 'Airbyte source × destination connections — sync schedules, jobs, throughput.',
   },
   performance: {
@@ -72,12 +72,15 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   },
 }
 
+/** Views that render their own PageHeader — they put a repo picker or actions in it. */
+const SELF_HEADED = new Set<Section>(['branches', 'commits', 'prs', 'issues', 'pipelines', 'performance'])
+
 export default function DevelopHome({ section }: { section?: string } = {}) {
   const active = (SECTIONS[section as Section] ? (section as Section) : 'dashboard') as Section
   const def = SECTIONS[active]
   return (
     <div className="space-y-6">
-      <PageHeader title={def.label} />
+      {SELF_HEADED.has(active) ? null : <PageHeader title={def.label} />}
       {active === 'dashboard' && <Dashboard />}
       {active === 'repos' && <RepoList />}
       {active === 'branches' && <Branches />}

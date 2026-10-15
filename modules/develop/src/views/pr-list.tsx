@@ -1,520 +1,400 @@
-import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
-import {
-  Card,
-  CardBody,
-  CardHeader,
-  EmptyState,
-  Spinner,
-  StatusBadge,
-  type StatusKind,
-  Tabs,
-} from '@adhar/shell-ui';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { Button, EmptyState, PageHeader } from '@adhar/shell-ui';
 import { formatRelative } from '@adhar/utils';
-import type { gitea } from '@adhar/api-clients';
-import { type DiffFile, useAllOpenPullRequests, useCommits, usePullDiff } from '../data/git.ts';
+import { type RepoPull, useOrgPullRequests, useRepos } from '../data/git.ts';
+import { itemRef, parseItemRef, useDevelopParams, useGoDevelop, useSetDevelopParams } from '../data/nav.ts';
+import { IconPlus, IconRefresh } from '../components/repo-bits.tsx';
+import {
+  AvatarStack,
+  Avatar,
+  Chip,
+  ChipGroup,
+  DiffBar,
+  DiffStat,
+  FilterSection,
+  IconComment,
+  IconFilter,
+  LabelPill,
+  LoadingBlock,
+  Popover,
+  prState,
+  type PrState,
+  PrStateIcon,
+  SearchField,
+  Segmented,
+  type SortDef,
+  SortMenu,
+  StatTile,
+  ToolbarBtn,
+} from '../components/list-kit.tsx';
+import { PrDrawer } from '../components/pr-drawer.tsx';
+import { CommitDrawer } from '../components/commit-drawer.tsx';
+import { NewPullModal } from '../components/tracker-modals.tsx';
+import { RepoFilter, tally, useSlashFocus } from '../components/repo-filter.tsx';
 
 /**
- * Org-wide open pull requests with a detail drawer.
+ * Pull requests across every repository in the org.
+ *
+ * Count tiles double as state filters; search, repo, author, label and size
+ * filters narrow the list; sort covers age, activity and size. A row opens
+ * the PR drawer (conversation, review, merge, commits, diff) and the open PR
+ * is kept in the URL (`?pr=repo/42`), so links from the dashboard, the repo
+ * drawer or a chat land on it directly.
  */
-export function PullRequestList() {
-  const q = useAllOpenPullRequests();
-  const [openId, setOpenId] = useState<number | null>(null);
-  const [search, setSearch] = useState('');
 
-  if (q.isLoading) {
-    return (
-      <div className='flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm'>
-        <Spinner size={14} /> Loading PRs…
-      </div>
-    );
-  }
-  if (q.isError) {
-    return (
-      <EmptyState
-        title="Couldn't reach Gitea"
-        description={q.error instanceof Error ? q.error.message : ''}
-      />
-    );
-  }
-  const all = q.data ?? [];
-  const f = search.trim().toLowerCase();
-  const list = f
-    ? all.filter(
-      (p) =>
-        p.title.toLowerCase().includes(f) ||
-        p.user.login.toLowerCase().includes(f) ||
-        (p.repo ?? '').toLowerCase().includes(f),
-    )
-    : all;
-  const open = all.find((p) => p.id === openId) ?? null;
+type View = 'open' | 'merged' | 'closed' | 'all';
+type SortKey = 'updated' | 'created' | 'comments' | 'size';
+type Size = 'any' | 'xs' | 's' | 'm' | 'l';
+
+const SORTS: ReadonlyArray<SortDef<SortKey>> = [
+  { key: 'updated', label: 'Recently updated', defaultDir: 'desc' },
+  { key: 'created', label: 'Newest', defaultDir: 'desc' },
+  { key: 'comments', label: 'Most discussed', defaultDir: 'desc' },
+  { key: 'size', label: 'Largest change', defaultDir: 'desc' },
+];
+
+const SIZE: Record<Exclude<Size, 'any'>, { label: string; max: number }> = {
+  xs: { label: 'XS · < 10 lines', max: 10 },
+  s: { label: 'S · < 100', max: 100 },
+  m: { label: 'M · < 500', max: 500 },
+  l: { label: 'L · 500+', max: Infinity },
+};
+function sizeOf(p: RepoPull): Exclude<Size, 'any'> {
+  const n = (p.additions ?? 0) + (p.deletions ?? 0);
+  return n < 10 ? 'xs' : n < 100 ? 's' : n < 500 ? 'm' : 'l';
+}
+
+export function PullRequestList() {
+  const params = useDevelopParams();
+  const setParams = useSetDevelopParams();
+  const go = useGoDevelop();
+  const repos = useRepos();
+  const view = (['open', 'merged', 'closed', 'all'].includes(params.state ?? '') ? params.state : 'open') as View;
+  const repo = params.repo && repos.data?.some((r) => r.name === params.repo) ? params.repo : undefined;
+
+  const openQ = useOrgPullRequests('open', repo);
+  // Closed history is only fetched when it is being looked at, or to count it.
+  const closedQ = useOrgPullRequests('closed', repo);
+
+  const [search, setSearch] = useState('');
+  const [author, setAuthor] = useState('all');
+  const [label, setLabel] = useState('all');
+  const [size, setSize] = useState<Size>('any');
+  const [onlyConflicts, setOnlyConflicts] = useState(false);
+  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'updated', dir: 'desc' });
+  const [creating, setCreating] = useState(false);
+  const [commit, setCommit] = useState<{ repo: string; sha: string } | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useSlashFocus(searchRef);
+
+  const all = useMemo(() => [...(openQ.data ?? []), ...(closedQ.data ?? [])], [openQ.data, closedQ.data]);
+  const counts = useMemo(() => {
+    const c = { open: 0, draft: 0, merged: 0, closed: 0, conflicts: 0 };
+    for (const p of all) {
+      const s = prState(p);
+      if (s === 'open' || s === 'draft') c.open++;
+      if (s === 'draft') c.draft++;
+      if (s === 'merged') c.merged++;
+      if (s === 'closed') c.closed++;
+      if (p.state === 'open' && p.mergeable === false) c.conflicts++;
+    }
+    return c;
+  }, [all]);
+
+  const inView = useMemo(() =>
+    all.filter((p) => {
+      const s = prState(p);
+      if (view === 'open') return s === 'open' || s === 'draft';
+      if (view === 'merged') return s === 'merged';
+      if (view === 'closed') return s === 'closed';
+      return true;
+    }), [all, view]);
+
+  const authors = useMemo(() => tally(inView.map((p) => p.user.login)), [inView]);
+  const labels = useMemo(() => {
+    const m = new Map<string, { color: string; n: number }>();
+    for (const p of inView) for (const l of p.labels ?? []) m.set(l.name, { color: l.color, n: (m.get(l.name)?.n ?? 0) + 1 });
+    return [...m.entries()].sort((a, b) => b[1].n - a[1].n);
+  }, [inView]);
+
+  const list = useMemo(() => {
+    const f = search.trim().toLowerCase();
+    const out = inView.filter((p) => {
+      if (author !== 'all' && p.user.login !== author) return false;
+      if (label !== 'all' && !(p.labels ?? []).some((l) => l.name === label)) return false;
+      if (size !== 'any' && sizeOf(p) !== size) return false;
+      if (onlyConflicts && !(p.state === 'open' && p.mergeable === false)) return false;
+      if (f) {
+        const hay = `${p.title} #${p.number} ${p.repo} ${p.user.login} ${p.head?.ref ?? ''} ${p.base?.ref ?? ''}`.toLowerCase();
+        if (!hay.includes(f)) return false;
+      }
+      return true;
+    });
+    const sign = sort.dir === 'asc' ? 1 : -1;
+    out.sort((a, b) => {
+      switch (sort.key) {
+        case 'created':
+          return sign * a.created_at.localeCompare(b.created_at);
+        case 'comments':
+          return sign * ((a.comments ?? 0) - (b.comments ?? 0));
+        case 'size':
+          return sign * ((a.additions ?? 0) + (a.deletions ?? 0) - (b.additions ?? 0) - (b.deletions ?? 0));
+        default:
+          return sign * (a.updated_at ?? a.created_at).localeCompare(b.updated_at ?? b.created_at);
+      }
+    });
+    return out;
+  }, [inView, search, author, label, size, onlyConflicts, sort]);
+
+  const ref = parseItemRef(params.pr);
+  const openPr = ref ? all.find((p) => p.repo === ref.repo && p.number === ref.index) : undefined;
+  const openRow = useCallback((p: RepoPull) => setParams({ pr: itemRef(p.repo, p.number) }), [setParams]);
+
+  const chips = [
+    author !== 'all' ? { k: 'author', label: `by ${author}`, clear: () => setAuthor('all') } : null,
+    label !== 'all' ? { k: 'label', label: label, clear: () => setLabel('all') } : null,
+    size !== 'any' ? { k: 'size', label: `size ${size.toUpperCase()}`, clear: () => setSize('any') } : null,
+    onlyConflicts ? { k: 'conf', label: 'has conflicts', clear: () => setOnlyConflicts(false) } : null,
+  ].filter(Boolean) as Array<{ k: string; label: string; clear(): void }>;
+  const clearAll = () => {
+    setSearch('');
+    setAuthor('all');
+    setLabel('all');
+    setSize('any');
+    setOnlyConflicts(false);
+  };
+
+  const loading = openQ.isLoading || (view !== 'open' && closedQ.isLoading);
+  const error = openQ.error ?? (view !== 'open' ? closedQ.error : null);
 
   return (
-    <div className='space-y-3'>
-      <div className='flex flex-wrap items-center gap-2'>
-        <div className='text-[11px] text-content-muted'>{all.length} open</div>
-        <div className='ml-auto'>
-          <SearchInput value={search} onChange={setSearch} placeholder='Search PRs…' />
+    <div className='space-y-4'>
+      <PageHeader
+        title='Pull Requests'
+        actions={
+          <>
+            <Button size='sm' variant='secondary' onClick={() => { openQ.refetch(); closedQ.refetch(); }} aria-label='Refresh' title='Refresh'>
+              <IconRefresh />
+            </Button>
+            <Button variant='primary' size='sm' onClick={() => setCreating(true)}><IconPlus /> New pull request</Button>
+          </>
+        }
+      />
+
+      <div className='grid grid-cols-2 gap-2 sm:grid-cols-5'>
+        <StatTile label='Open' value={openQ.isLoading ? '…' : counts.open} tone='emerald' hint={counts.draft ? `${counts.draft} draft` : 'ready for review'} on={view === 'open' && !onlyConflicts} onClick={() => { setOnlyConflicts(false); setParams({ state: 'open' }); }} />
+        <StatTile label='Conflicts' value={openQ.isLoading ? '…' : counts.conflicts} tone={counts.conflicts ? 'amber' : 'slate'} hint='need a rebase' on={onlyConflicts} onClick={() => { setParams({ state: 'open' }); setOnlyConflicts((x) => !x); }} />
+        <StatTile label='Merged' value={closedQ.isLoading ? '…' : counts.merged} tone='violet' hint='recent history' on={view === 'merged'} onClick={() => setParams({ state: 'merged' })} />
+        <StatTile label='Closed' value={closedQ.isLoading ? '…' : counts.closed} tone='slate' hint='without merging' on={view === 'closed'} onClick={() => setParams({ state: 'closed' })} />
+        <StatTile label='All' value={closedQ.isLoading || openQ.isLoading ? '…' : all.length} hint={repo ? repo : `${repos.data?.filter((r) => !r.archived).length ?? 0} repositories`} on={view === 'all'} onClick={() => setParams({ state: 'all' })} />
+      </div>
+
+      <div className='rounded-xl border border-edge-default bg-surface-raised p-2 shadow-sm'>
+        <div className='flex flex-wrap items-center gap-2'>
+          <SearchField ref={searchRef} value={search} onChange={setSearch} placeholder='Search title, number, branch, author…' slashHint />
+          <RepoFilter value={repo} onChange={(r) => setParams({ repo: r })} />
+          <FiltersPopover
+            count={chips.length}
+            authors={authors}
+            author={author}
+            onAuthor={setAuthor}
+            labels={labels}
+            label={label}
+            onLabel={setLabel}
+            size={size}
+            onSize={setSize}
+            onClear={clearAll}
+          />
+          <SortMenu sorts={SORTS} sort={sort.key} dir={sort.dir} onSort={(key, dir) => setSort({ key, dir })} />
+        </div>
+        <div className='mt-2 flex flex-wrap items-center gap-1.5 px-0.5 text-[11px] text-content-subtle'>
+          <span className='tabular-nums'>{list.length === inView.length ? `${inView.length} pull request${inView.length === 1 ? '' : 's'}` : `${list.length} of ${inView.length}`}</span>
+          {repo ? <Chip onClear={() => setParams({ repo: undefined })}>{repo}</Chip> : null}
+          {search ? <Chip onClear={() => setSearch('')}>“{search}”</Chip> : null}
+          {chips.map((c) => <Chip key={c.k} onClear={c.clear}>{c.label}</Chip>)}
+          {chips.length || search ? <button type='button' onClick={clearAll} className='ml-1 font-medium text-content-muted hover:text-content hover:underline'>Clear all</button> : null}
         </div>
       </div>
-      {list.length === 0
-        ? <EmptyState title='No open PRs' description='Nothing to review right now 🎉' />
+
+      {loading
+        ? <LoadingBlock label='Loading pull requests…' />
+        : error
+        ? <EmptyState title="Couldn't reach Gitea" description={error instanceof Error ? error.message : String(error)} action={<Button size='sm' variant='secondary' onClick={() => openQ.refetch()}>Retry</Button>} />
+        : list.length === 0
+        ? (
+          <EmptyState
+            title={inView.length ? 'No matches' : view === 'open' ? 'No open pull requests' : `No ${view} pull requests`}
+            description={inView.length ? 'Try a different search or clear the filters.' : view === 'open' ? 'Nothing waiting for review. Open one from a branch to start a review.' : 'Nothing here yet.'}
+            action={inView.length
+              ? <Button size='sm' variant='secondary' onClick={clearAll}>Clear filters</Button>
+              : <Button variant='primary' size='sm' onClick={() => setCreating(true)}><IconPlus /> New pull request</Button>}
+          />
+        )
         : (
-          <Card>
-            <CardBody className='p-0!'>
-              <ul className='divide-y divide-edge-subtle'>
-                {list.map((p) => <PrRow key={p.id} pr={p} onOpen={() => setOpenId(p.id)} />)}
-              </ul>
-            </CardBody>
-          </Card>
+          <ul className='divide-y divide-edge-subtle overflow-hidden rounded-xl border border-edge-default bg-surface-raised'>
+            {list.map((p) => (
+              <PrRow
+                key={`${p.repo}#${p.number}`}
+                pr={p}
+                showRepo={!repo}
+                onOpen={() => openRow(p)}
+                onRepo={() => go('repos', { repo: p.repo })}
+                onAuthor={() => setAuthor(p.user.login)}
+                onLabel={(l) => setLabel(l)}
+              />
+            ))}
+          </ul>
         )}
-      {open ? <PrDetail pr={open} onClose={() => setOpenId(null)} /> : null}
+
+      {ref
+        ? (
+          <PrDrawer
+            key={params.pr}
+            seed={openPr}
+            repo={ref.repo}
+            index={ref.index}
+            onClose={() => setParams({ pr: undefined })}
+            onOpenCommit={(sha) => setCommit({ repo: ref.repo, sha })}
+          />
+        )
+        : null}
+      {commit ? <CommitDrawer repo={commit.repo} sha={commit.sha} onClose={() => setCommit(null)} onOpenSha={(sha) => setCommit({ ...commit, sha })} /> : null}
+
+      <NewPullModal
+        open={creating}
+        onClose={() => setCreating(false)}
+        defaults={{ repo }}
+        onCreated={(pr) => {
+          setCreating(false);
+          setParams({ state: 'open', pr: itemRef(pr.repo, pr.number) });
+        }}
+      />
     </div>
   );
 }
 
-function PrRow({
-  pr,
-  onOpen,
-}: {
-  pr: gitea.PullRequest & { repo?: string };
+function PrRow({ pr, showRepo, onOpen, onRepo, onAuthor, onLabel }: {
+  pr: RepoPull;
+  showRepo: boolean;
   onOpen(): void;
+  onRepo(): void;
+  onAuthor(): void;
+  onLabel(name: string): void;
 }) {
+  const s: PrState = prState(pr);
+  const stop = (fn: () => void) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    fn();
+  };
   return (
-    <li>
-      <button
-        type='button'
-        onClick={onOpen}
-        className='flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-brand-50/40'
-      >
-        <img
-          src={pr.user.avatar_url}
-          alt=''
-          className='h-8 w-8 shrink-0 rounded-full ring-1 ring-edge-subtle'
-        />
-        <div className='min-w-0 flex-1'>
-          <div className='flex items-center gap-2'>
-            <code className='font-mono text-[10px] text-content-muted'>#{pr.number}</code>
-            {pr.repo
-              ? (
-                <span className='rounded-md bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-content-muted'>
-                  {pr.repo}
-                </span>
-              )
-              : null}
-            <span className='truncate text-sm font-medium text-content'>{pr.title}</span>
-            {pr.mergeable === false ? <StatusBadge kind='failed'>conflicts</StatusBadge> : null}
-          </div>
-          <div className='mt-0.5 flex items-center gap-2 text-[11px] text-content-muted'>
-            <span>{pr.user.login}</span>
-            <span>· opened {formatRelative(pr.created_at)}</span>
-            {pr.head ? <span>· {pr.head.ref} → {pr.base?.ref ?? 'main'}</span> : null}
-            {pr.comments != null ? <span>· 💬 {pr.comments}</span> : null}
-          </div>
+    <li
+      role='button'
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') onOpen();
+      }}
+      className='group flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors hover:bg-surface-sunken/50 focus-visible:bg-surface-sunken/50 focus-visible:outline-none'
+    >
+      <span className='mt-0.5'><PrStateIcon state={s} /></span>
+      <div className='min-w-0 flex-1'>
+        <div className='flex flex-wrap items-center gap-x-2 gap-y-1'>
+          {showRepo
+            ? <button type='button' onClick={stop(onRepo)} className='text-[12px] font-medium text-content-muted hover:text-brand-700 hover:underline'>{pr.repo}</button>
+            : null}
+          <span className='text-sm font-semibold text-content group-hover:text-brand-700 dark:group-hover:text-brand-300'>{pr.title}</span>
+          {s === 'draft' ? <span className='rounded-full border border-edge-default px-1.5 text-[10px] font-medium text-content-muted'>draft</span> : null}
+          {pr.state === 'open' && pr.mergeable === false ? <span className='rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300'>conflicts</span> : null}
+          {(pr.labels ?? []).map((l) => <span key={l.name} onClick={stop(() => onLabel(l.name))}><LabelPill name={l.name} color={l.color} /></span>)}
         </div>
-        {pr.changed_files != null
+        <div className='mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-content-muted'>
+          <span>#{pr.number}</span>
+          <span>
+            {s === 'merged' ? `merged ${formatRelative(pr.merged_at!)}` : s === 'closed' ? `closed ${pr.closed_at ? formatRelative(pr.closed_at) : ''}` : `opened ${formatRelative(pr.created_at)}`}
+            {' by '}
+            <button type='button' onClick={stop(onAuthor)} className='font-medium text-content hover:underline'>{pr.user.login}</button>
+          </span>
+          {pr.head
+            ? (
+              <span className='inline-flex items-center gap-1 font-mono text-[10.5px]'>
+                <span className='rounded bg-surface-sunken px-1'>{pr.head.ref}</span>→<span className='rounded bg-surface-sunken px-1'>{pr.base?.ref}</span>
+              </span>
+            )
+            : null}
+          {pr.updated_at && s !== 'merged' ? <span>· updated {formatRelative(pr.updated_at)}</span> : null}
+        </div>
+      </div>
+      <div className='hidden shrink-0 flex-col items-end gap-1 sm:flex'>
+        <div className='flex items-center gap-3'>
+          <AvatarStack people={pr.assignees ?? []} />
+          {pr.comments ? <span className='flex items-center gap-1 text-[11px] text-content-muted'><IconComment /> {pr.comments}</span> : null}
+          <Avatar login={pr.user.login} url={pr.user.avatar_url} size={22} />
+        </div>
+        {pr.additions != null
           ? (
-            <div className='hidden text-right text-[11px] sm:block'>
-              <div className='font-mono'>
-                <span className='text-emerald-700'>+{pr.additions ?? 0}</span>{' '}
-                <span className='text-rose-700'>-{pr.deletions ?? 0}</span>
-              </div>
-              <div className='text-[10px] text-content-subtle'>{pr.changed_files} files</div>
-            </div>
+            <span className='flex items-center gap-1.5'>
+              <DiffStat add={pr.additions} del={pr.deletions} />
+              <DiffBar add={pr.additions} del={pr.deletions} />
+            </span>
           )
           : null}
-      </button>
+      </div>
     </li>
   );
 }
 
-function PrDetail({
-  pr,
-  onClose,
-}: {
-  pr: gitea.PullRequest & { repo?: string };
-  onClose(): void;
-}) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+/* ─────────── filters ─────────── */
 
-  if (typeof document === 'undefined') return null;
-
-  return createPortal(
-    <div className='fixed inset-0 z-50 flex justify-end' role='dialog' aria-modal='true'>
-      <button
-        type='button'
-        aria-label='Close'
-        className='absolute inset-0 bg-scrim/40 backdrop-blur-[2px]'
-        onClick={onClose}
-      />
-      <aside className='relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl'>
-        <header className='flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4'>
-          <div className='min-w-0'>
-            <div className='flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-content-subtle'>
-              <code className='font-mono'>#{pr.number}</code>
-              {pr.repo ? <span>· {pr.repo}</span> : null}
-            </div>
-            <h2 className='mt-0.5 truncate text-lg font-semibold tracking-tight text-content'>
-              {pr.title}
-            </h2>
-            <div className='mt-1 flex items-center gap-2 text-[11px] text-content-muted'>
-              <img
-                src={pr.user.avatar_url}
-                alt=''
-                className='h-5 w-5 rounded-full ring-1 ring-edge-subtle'
-              />
-              <span>{pr.user.login}</span>
-              <span>· opened {formatRelative(pr.created_at)}</span>
-              {pr.head ? <span>· {pr.head.ref} → {pr.base?.ref ?? 'main'}</span> : null}
-            </div>
-          </div>
-          <div className='flex shrink-0 items-center gap-2'>
-            <a
-              href={pr.html_url}
-              target='_blank'
-              rel='noopener'
-              className='inline-flex h-8 items-center rounded-md border border-edge-default bg-surface-raised px-2 text-xs font-medium text-content hover:border-brand-400 hover:text-brand-700'
-            >
-              Open in Gitea
-            </a>
-            <button
-              type='button'
-              onClick={onClose}
-              aria-label='Close'
-              className='flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content'
-            >
-              <IconClose />
-            </button>
-          </div>
-        </header>
-
-        <div className='flex-1 overflow-y-auto px-6 py-5'>
-          <Tabs
-            ariaLabel='Pull request detail'
-            tabs={[
-              { id: 'overview', label: 'Overview' },
-              {
-                id: 'files',
-                label: 'Files changed',
-                badge: pr.changed_files != null
-                  ? { kind: 'info', value: pr.changed_files }
-                  : undefined,
-              },
-              { id: 'commits', label: 'Commits' },
-            ]}
-          >
-            {(active) =>
-              active === 'files'
-                ? <FilesChanged pr={pr} />
-                : active === 'commits'
-                ? <PrCommits pr={pr} />
-                : (
-                  <div className='space-y-5'>
-                    <Card>
-                      <CardBody className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
-                        <Tile label='State' value={pr.state} />
-                        <Tile
-                          label='Mergeable'
-                          value={pr.mergeable === undefined ? '—' : pr.mergeable ? 'yes' : 'no'}
-                        />
-                        <Tile label='+lines' value={pr.additions ?? 0} accent='emerald' />
-                        <Tile label='-lines' value={pr.deletions ?? 0} accent='rose' />
-                      </CardBody>
-                    </Card>
-
-                    {pr.body
-                      ? (
-                        <Card>
-                          <CardHeader>
-                            <div className='text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700'>
-                              Description
-                            </div>
-                          </CardHeader>
-                          <CardBody>
-                            <p className='whitespace-pre-wrap text-sm leading-relaxed text-content'>
-                              {pr.body}
-                            </p>
-                          </CardBody>
-                        </Card>
-                      )
-                      : null}
-
-                    <Card>
-                      <CardHeader>
-                        <div className='text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700'>
-                          Diff summary
-                        </div>
-                      </CardHeader>
-                      <CardBody>
-                        <div className='text-sm text-content'>
-                          {pr.changed_files ?? 0} file{pr.changed_files === 1 ? '' : 's'} changed
-                        </div>
-                        {pr.additions != null && pr.deletions != null
-                          ? (
-                            <div className='mt-2 flex h-2 w-full overflow-hidden rounded-full bg-surface-sunken'>
-                              <div
-                                className='bg-emerald-500'
-                                style={{
-                                  width: `${
-                                    (pr.additions / (pr.additions + pr.deletions || 1)) * 100
-                                  }%`,
-                                }}
-                              />
-                              <div
-                                className='bg-rose-500'
-                                style={{
-                                  width: `${
-                                    (pr.deletions / (pr.additions + pr.deletions || 1)) * 100
-                                  }%`,
-                                }}
-                              />
-                            </div>
-                          )
-                          : null}
-                      </CardBody>
-                    </Card>
-                  </div>
-                )}
-          </Tabs>
-        </div>
-      </aside>
-    </div>,
-    document.body,
-  );
-}
-
-function FilesChanged({ pr }: { pr: gitea.PullRequest & { repo?: string } }) {
-  const diff = usePullDiff(pr.repo, pr.number);
-
-  if (diff.isLoading) {
-    return (
-      <div className='flex items-center gap-2 text-sm text-content-muted'>
-        <Spinner size={12} /> Loading diff…
-      </div>
-    );
-  }
-  if (diff.isError || !diff.data?.length) {
-    return (
-      <EmptyState
-        compact
-        title='No file changes'
-        description='This pull request has no diff to show.'
-      />
-    );
-  }
-
-  return (
-    <div className='space-y-4'>
-      {diff.data.map((f) => <DiffFileView key={f.path} file={f} />)}
-    </div>
-  );
-}
-
-const STATUS_KIND: Record<DiffFile['status'], StatusKind> = {
-  added: 'healthy',
-  modified: 'info',
-  deleted: 'failed',
-  renamed: 'unknown',
-};
-
-function DiffFileView({ file }: { file: DiffFile }) {
-  return (
-    <Card>
-      <CardHeader>
-        <div className='flex items-center gap-2'>
-          <StatusBadge kind={STATUS_KIND[file.status]}>{file.status}</StatusBadge>
-          <code className='min-w-0 flex-1 truncate font-mono text-[12px] text-content'>
-            {file.oldPath && file.oldPath !== file.path
-              ? `${file.oldPath} → ${file.path}`
-              : file.path}
-          </code>
-          <span className='shrink-0 font-mono text-[11px]'>
-            <span className='text-emerald-700'>+{file.additions}</span>{' '}
-            <span className='text-rose-700'>-{file.deletions}</span>
-          </span>
-        </div>
-      </CardHeader>
-      <CardBody className='p-0!'>
-        <div className='overflow-x-auto'>
-          <table className='w-full border-collapse font-mono text-[12px] leading-[1.55]'>
-            <tbody>
-              {file.hunks.map((h, hi) => <HunkRows key={hi} hunk={h} />)}
-            </tbody>
-          </table>
-        </div>
-      </CardBody>
-    </Card>
-  );
-}
-
-function HunkRows({ hunk }: { hunk: DiffFile['hunks'][number] }) {
-  return (
-    <>
-      <tr className='bg-brand-50/60 text-brand-700'>
-        <td colSpan={2} className='select-none px-2 text-right text-content-subtle' />
-        <td className='whitespace-pre px-3 py-0.5 text-[11px]'>{hunk.header}</td>
-      </tr>
-      {hunk.lines.map((ln, i) => {
-        const tint = ln.kind === 'add' ? 'bg-emerald-50' : ln.kind === 'del' ? 'bg-rose-50' : '';
-        const marker = ln.kind === 'add' ? '+' : ln.kind === 'del' ? '-' : ' ';
-        const markerTone = ln.kind === 'add'
-          ? 'text-emerald-700'
-          : ln.kind === 'del'
-          ? 'text-rose-700'
-          : 'text-content-subtle';
-        return (
-          <tr key={i} className={`align-top ${tint}`}>
-            <td className='w-10 select-none whitespace-nowrap border-r border-edge-subtle px-1.5 text-right text-[11px] text-content-subtle tabular-nums'>
-              {ln.oldNo ?? ''}
-            </td>
-            <td className='w-10 select-none whitespace-nowrap border-r border-edge-subtle px-1.5 text-right text-[11px] text-content-subtle tabular-nums'>
-              {ln.newNo ?? ''}
-            </td>
-            <td className={`whitespace-pre px-3 text-content ${markerTone}`}>
-              <span className='select-none'>{marker}</span>
-              {ln.text || ' '}
-            </td>
-          </tr>
-        );
-      })}
-    </>
-  );
-}
-
-function PrCommits({ pr }: { pr: gitea.PullRequest & { repo?: string } }) {
-  const commits = useCommits(pr.repo, pr.head?.ref, 20);
-
-  if (commits.isLoading) {
-    return (
-      <div className='flex items-center gap-2 text-sm text-content-muted'>
-        <Spinner size={12} /> Loading commits…
-      </div>
-    );
-  }
-  if (!commits.data?.length) {
-    return <EmptyState compact title='No commits' />;
-  }
-
-  return (
-    <Card>
-      <CardBody>
-        <ul className='space-y-2'>
-          {commits.data.map((c) => (
-            <li key={c.sha} className='flex items-start gap-2 text-sm'>
-              <code className='rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-content-muted'>
-                {c.short_sha}
-              </code>
-              <div className='min-w-0 flex-1'>
-                <div className='truncate text-content'>{c.message}</div>
-                <div className='text-[11px] text-content-subtle'>
-                  {c.author.login} · {formatRelative(c.created)}
-                </div>
-              </div>
-              {c.stats
-                ? (
-                  <span className='font-mono text-[11px]'>
-                    <span className='text-emerald-700'>+{c.stats.additions}</span>{' '}
-                    <span className='text-rose-700'>-{c.stats.deletions}</span>
-                  </span>
-                )
-                : null}
-            </li>
-          ))}
-        </ul>
-      </CardBody>
-    </Card>
-  );
-}
-
-function Tile({
-  label,
-  value,
-  accent = 'slate',
-}: {
+function FiltersPopover(p: {
+  count: number;
+  authors: Array<[string, number]>;
+  author: string;
+  onAuthor(a: string): void;
+  labels: Array<[string, { color: string; n: number }]>;
   label: string;
-  value: string | number;
-  accent?: 'slate' | 'emerald' | 'rose';
+  onLabel(l: string): void;
+  size: Size;
+  onSize(s: Size): void;
+  onClear(): void;
 }) {
-  const tone = {
-    slate: 'text-content',
-    emerald: 'text-emerald-700',
-    rose: 'text-rose-700',
-  }[accent];
-  return (
-    <div className='rounded-lg border border-edge-subtle bg-surface-sunken/40 p-3'>
-      <div className={`text-base font-semibold tabular-nums ${tone}`}>{value}</div>
-      <div className='text-[10px] font-semibold uppercase tracking-wider text-content-subtle'>
-        {label}
-      </div>
-    </div>
-  );
-}
-
-function SearchInput({
-  value,
-  onChange,
-  placeholder,
-}: {
-  value: string;
-  onChange(v: string): void;
-  placeholder: string;
-}) {
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
   return (
     <div className='relative'>
-      <span className='pointer-events-none absolute inset-y-0 left-2 flex items-center text-content-subtle'>
-        <IconSearch />
-      </span>
-      <input
-        type='search'
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className='block h-9 w-44 rounded-lg border border-edge-default bg-surface-raised pl-7 pr-2 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-56'
-      />
+      <ToolbarBtn on={open} onClick={() => setOpen((o) => !o)} badge={p.count} title='Filters'>
+        <IconFilter /> Filters
+      </ToolbarBtn>
+      <Popover open={open} onClose={close} width='w-[22rem] max-w-[calc(100vw-2rem)]'>
+        <FilterSection title='Size'>
+          <Segmented<Size> value={p.size} onChange={p.onSize} options={[['any', 'Any'], ['xs', 'XS'], ['s', 'S'], ['m', 'M'], ['l', 'L']]} />
+          <div className='mt-1 px-1 text-[10px] text-content-subtle'>{p.size === 'any' ? 'Lines added + removed' : SIZE[p.size].label}</div>
+        </FilterSection>
+        {p.authors.length
+          ? (
+            <FilterSection title='Author'>
+              <ChipGroup value={p.author} onChange={p.onAuthor} options={[['all', 'Anyone'], ...p.authors.map(([a, n]) => [a, `${a} · ${n}`] as [string, string])]} />
+            </FilterSection>
+          )
+          : null}
+        {p.labels.length
+          ? (
+            <FilterSection title='Label'>
+              <ChipGroup
+                value={p.label}
+                onChange={p.onLabel}
+                options={[['all', 'Any'], ...p.labels.map(([l, v]) => [l, `${l} · ${v.n}`] as [string, string])]}
+                swatch={(v) => (v === 'all' ? undefined : `#${p.labels.find(([l]) => l === v)?.[1].color}`)}
+              />
+            </FilterSection>
+          )
+          : null}
+        <div className='mt-1 flex items-center justify-between border-t border-edge-subtle px-1 pt-2'>
+          <button type='button' onClick={p.onClear} className='text-[11px] font-medium text-content-muted hover:text-content'>Reset</button>
+          <button type='button' onClick={close} className='rounded-md bg-surface-sunken px-2.5 py-1 text-[11px] font-medium text-content hover:bg-edge-subtle'>Done</button>
+        </div>
+      </Popover>
     </div>
-  );
-}
-
-function IconSearch() {
-  return (
-    <svg
-      width='13'
-      height='13'
-      viewBox='0 0 24 24'
-      fill='none'
-      stroke='currentColor'
-      strokeWidth='2.25'
-      strokeLinecap='round'
-      strokeLinejoin='round'
-      aria-hidden
-    >
-      <circle cx='11' cy='11' r='7' />
-      <path d='m20 20-3.5-3.5' />
-    </svg>
-  );
-}
-function IconClose() {
-  return (
-    <svg
-      width='14'
-      height='14'
-      viewBox='0 0 24 24'
-      fill='none'
-      stroke='currentColor'
-      strokeWidth='2.25'
-      strokeLinecap='round'
-      strokeLinejoin='round'
-      aria-hidden
-    >
-      <path d='M18 6 6 18' />
-      <path d='m6 6 12 12' />
-    </svg>
   );
 }
 

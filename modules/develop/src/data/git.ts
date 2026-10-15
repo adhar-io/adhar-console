@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { gitea } from '@adhar/api-clients';
 import { toPublicUrl, useGiteaOrg, usePublicBaseDomain, useToolPublicUrl } from '@adhar/shell-ui';
 
@@ -121,33 +121,188 @@ export function usePullRequests(repo?: string, state: 'open' | 'closed' | 'all' 
   });
 }
 
-/** PRs across every repo in the org — flattened. Used by the dashboard. */
-export function useAllOpenPullRequests() {
-  const org = useGiteaOrg();
+export type RepoPull = gitea.PullRequest & { repo: string };
+export type RepoIssue = gitea.Issue & { repo: string };
+export type ListState = 'open' | 'closed' | 'all';
+
+/**
+ * Run `fn` for every repo in parallel and flatten, tagging each row with its
+ * repo. A repo whose tracker is disabled answers 404 — it contributes nothing
+ * rather than failing the whole org view.
+ */
+async function acrossRepos<T>(names: string[], fn: (repo: string) => Promise<T[]>): Promise<Array<T & { repo: string }>> {
+  const settled = await Promise.allSettled(names.map(async (repo) => (await fn(repo)).map((x) => ({ ...x, repo }))));
+  const ok = settled.filter((r): r is PromiseFulfilledResult<Array<T & { repo: string }>> => r.status === 'fulfilled');
+  if (names.length && !ok.length) {
+    const first = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+    throw first?.reason ?? new Error('Gitea unreachable');
+  }
+  return ok.flatMap((r) => r.value);
+}
+
+function useRepoNames(only?: string) {
   const repos = useRepos();
+  const names = only ? [only] : (repos.data ?? []).filter((r) => !r.archived).map((r) => r.name);
+  return { names, ready: !!only || !!repos.data, error: repos.error };
+}
+
+/** Pull requests across the org (or one repo when `repo` is set), tagged with their repo. */
+export function useOrgPullRequests(state: ListState = 'open', repo?: string) {
+  const org = useGiteaOrg();
+  const pub = usePublicGiteaUrl();
+  const { names, ready } = useRepoNames(repo);
   return useQuery({
-    queryKey: ['gitea', 'prs-flat', org, repos.data?.map((r) => r.name).join(',')],
-    queryFn: async () => {
-      if (!repos.data) return [];
-      const out: Array<gitea.PullRequest & { repo: string }> = [];
-      for (const r of repos.data) {
-        const list = await giteaClient.listPullRequests(org, r.name, 'open');
-        out.push(...list.map((p) => ({ ...p, repo: r.name })));
-      }
-      return out;
-    },
-    enabled: !!repos.data?.length,
+    queryKey: ['gitea', 'prs-flat', org, state, names.join(',')],
+    queryFn: () => acrossRepos(names, (r) => giteaClient.listPullRequests(org, r, state)),
+    select: useCallback((list: RepoPull[]) => list.map((p) => ({ ...p, html_url: pub(p.html_url)! })), [pub]),
+    enabled: ready,
     staleTime: REFRESH_MS,
   });
 }
 
-export function useIssues(repo?: string, state: 'open' | 'closed' | 'all' = 'open') {
+/** Open PRs across every repo in the org — flattened. Used by the dashboard. */
+export function useAllOpenPullRequests() {
+  return useOrgPullRequests('open');
+}
+
+/** Issues across the org (or one repo), tagged with their repo. */
+export function useOrgIssues(state: ListState = 'open', repo?: string) {
+  const org = useGiteaOrg();
+  const pub = usePublicGiteaUrl();
+  const { names, ready } = useRepoNames(repo);
+  return useQuery({
+    queryKey: ['gitea', 'issues-flat', org, state, names.join(',')],
+    queryFn: () => acrossRepos(names, (r) => giteaClient.listIssues(org, r, state)),
+    select: useCallback((list: RepoIssue[]) => list.map((i) => ({ ...i, html_url: pub(i.html_url) })), [pub]),
+    enabled: ready,
+    staleTime: REFRESH_MS,
+  });
+}
+
+export function useIssues(repo?: string, state: ListState = 'open') {
   const org = useGiteaOrg();
   return useQuery({
     queryKey: ['gitea', 'issues', org, repo, state],
     queryFn: () => giteaClient.listIssues(org, repo!, state),
     enabled: !!repo,
     staleTime: REFRESH_MS,
+  });
+}
+
+/** One PR — for deep links to a PR that is not in the loaded list. */
+export function usePullRequest(repo?: string, index?: number) {
+  const org = useGiteaOrg();
+  const pub = usePublicGiteaUrl();
+  return useQuery({
+    queryKey: ['gitea', 'pull', org, repo, index],
+    queryFn: async (): Promise<RepoPull> => ({ ...(await giteaClient.getPullRequest(org, repo!, index!)), repo: repo! }),
+    select: useCallback((p: RepoPull) => ({ ...p, html_url: pub(p.html_url)! }), [pub]),
+    enabled: !!repo && index != null,
+    staleTime: REFRESH_MS,
+  });
+}
+
+export function useIssue(repo?: string, index?: number) {
+  const org = useGiteaOrg();
+  const pub = usePublicGiteaUrl();
+  return useQuery({
+    queryKey: ['gitea', 'issue', org, repo, index],
+    queryFn: async (): Promise<RepoIssue> => ({ ...(await giteaClient.getIssue(org, repo!, index!)), repo: repo! }),
+    select: useCallback((i: RepoIssue) => ({ ...i, html_url: pub(i.html_url) }), [pub]),
+    enabled: !!repo && index != null,
+    staleTime: REFRESH_MS,
+  });
+}
+
+export function useComments(repo?: string, index?: number) {
+  const org = useGiteaOrg();
+  return useQuery({
+    queryKey: ['gitea', 'comments', org, repo, index],
+    queryFn: () => giteaClient.listComments(org, repo!, index!),
+    enabled: !!repo && index != null,
+    staleTime: REFRESH_MS,
+  });
+}
+
+export function usePullReviews(repo?: string, index?: number) {
+  const org = useGiteaOrg();
+  return useQuery({
+    queryKey: ['gitea', 'reviews', org, repo, index],
+    queryFn: () => giteaClient.listPullReviews(org, repo!, index!),
+    enabled: !!repo && index != null,
+    staleTime: REFRESH_MS,
+  });
+}
+
+export function usePullCommits(repo?: string, index?: number) {
+  const org = useGiteaOrg();
+  return useQuery({
+    queryKey: ['gitea', 'pull-commits', org, repo, index],
+    queryFn: () => giteaClient.listPullCommits(org, repo!, index!),
+    enabled: !!repo && index != null,
+    staleTime: REFRESH_MS,
+  });
+}
+
+const COMMIT_PAGE = 40;
+
+/** Commit history on `ref`, paged — `fetchNextPage` walks further back. */
+export function useCommitHistory(repo?: string, ref?: string, path?: string) {
+  const org = useGiteaOrg();
+  return useInfiniteQuery({
+    queryKey: ['gitea', 'commits', org, repo, 'history', ref, path ?? ''],
+    queryFn: ({ pageParam }) => giteaClient.listCommits(org, repo!, ref, COMMIT_PAGE, { page: pageParam, path }),
+    initialPageParam: 1,
+    getNextPageParam: (last, pages) => (last.length < COMMIT_PAGE ? undefined : pages.length + 1),
+    enabled: !!repo && !!ref,
+    staleTime: REFRESH_MS,
+  });
+}
+
+export function useCommit(repo?: string, sha?: string) {
+  const org = useGiteaOrg();
+  const pub = usePublicGiteaUrl();
+  return useQuery({
+    queryKey: ['gitea', 'commit', org, repo, sha],
+    queryFn: () => giteaClient.getCommit(org, repo!, sha!),
+    select: useCallback((c: gitea.CommitDetail) => ({ ...c, html_url: pub(c.html_url) }), [pub]),
+    enabled: !!repo && !!sha,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useCommitDiff(repo?: string, sha?: string) {
+  const org = useGiteaOrg();
+  return useQuery({
+    queryKey: ['gitea', 'commit-diff', org, repo, sha],
+    queryFn: async () => parseUnifiedDiff((await giteaClient.getCommitDiff(org, repo!, sha!)) ?? ''),
+    enabled: !!repo && !!sha,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/**
+ * Ahead/behind of `head` against `base`. Two compares; `null` when the
+ * Gitea is too old for the compare API, so the UI can simply leave it out.
+ */
+export function useAheadBehind(repo?: string, base?: string, head?: string, enabled = true) {
+  const org = useGiteaOrg();
+  return useQuery({
+    queryKey: ['gitea', 'ahead-behind', org, repo, base, head],
+    queryFn: async () => {
+      try {
+        const [ahead, behind] = await Promise.all([
+          giteaClient.compare(org, repo!, base!, head!),
+          giteaClient.compare(org, repo!, head!, base!),
+        ]);
+        return { ahead: ahead.total_commits, behind: behind.total_commits };
+      } catch {
+        return null;
+      }
+    },
+    enabled: enabled && !!repo && !!base && !!head && base !== head,
+    staleTime: 2 * 60_000,
+    retry: false,
   });
 }
 
@@ -518,6 +673,69 @@ export function useDeleteWebhook() {
 }
 export function useTestWebhook() {
   return useGiteaMutation((org, v: { repo: string; id: number }) => giteaClient.testWebhook(org, v.repo, v.id), () => []);
+}
+
+/* ─────────── pull requests + issues ─────────── */
+
+const PULL_KEYS = (repo: string): Array<[string, string?]> => [['prs', repo], ['prs-flat'], ['pull', repo], ['repos'], ['repo', repo]];
+const ISSUE_KEYS = (repo: string): Array<[string, string?]> => [['issues', repo], ['issues-flat'], ['issue', repo], ['repos'], ['repo', repo]];
+
+export function useCreatePull() {
+  return useGiteaMutation(
+    (org, v: { repo: string; body: gitea.CreatePullBody }) => giteaClient.createPullRequest(org, v.repo, v.body),
+    (v) => PULL_KEYS(v.repo),
+  );
+}
+export function useUpdatePull() {
+  return useGiteaMutation(
+    (org, v: { repo: string; index: number; body: gitea.UpdatePullBody }) => giteaClient.updatePullRequest(org, v.repo, v.index, v.body),
+    (v) => PULL_KEYS(v.repo),
+  );
+}
+export function useMergePull() {
+  return useGiteaMutation(
+    (org, v: { repo: string; index: number; style: gitea.MergeStyle; title?: string; message?: string; deleteBranch?: boolean }) =>
+      giteaClient.mergePullRequest(org, v.repo, v.index, v),
+    (v) => [...PULL_KEYS(v.repo), ['branches', v.repo], ['commits', v.repo]],
+  );
+}
+export function useCreateReview() {
+  return useGiteaMutation(
+    (org, v: { repo: string; index: number; event: 'APPROVED' | 'REQUEST_CHANGES' | 'COMMENT'; body?: string }) =>
+      giteaClient.createPullReview(org, v.repo, v.index, v),
+    (v) => [['reviews', v.repo]],
+  );
+}
+export function useCreateIssue() {
+  return useGiteaMutation(
+    (org, v: { repo: string; body: gitea.CreateIssueBody }) => giteaClient.createIssue(org, v.repo, v.body),
+    (v) => ISSUE_KEYS(v.repo),
+  );
+}
+export function useUpdateIssue() {
+  return useGiteaMutation(
+    (org, v: { repo: string; index: number; body: gitea.UpdateIssueBody }) => giteaClient.updateIssue(org, v.repo, v.index, v.body),
+    (v) => ISSUE_KEYS(v.repo),
+  );
+}
+/** Labels on an issue or a PR — both trackers are refreshed. */
+export function useSetLabels() {
+  return useGiteaMutation(
+    (org, v: { repo: string; index: number; labels: number[] }) => giteaClient.setIssueLabels(org, v.repo, v.index, v.labels),
+    (v) => [...ISSUE_KEYS(v.repo), ...PULL_KEYS(v.repo)],
+  );
+}
+export function useCreateComment() {
+  return useGiteaMutation(
+    (org, v: { repo: string; index: number; body: string }) => giteaClient.createComment(org, v.repo, v.index, v.body),
+    (v) => [['comments', v.repo], ['issues-flat'], ['prs-flat']],
+  );
+}
+export function useDeleteComment() {
+  return useGiteaMutation(
+    (org, v: { repo: string; id: number }) => giteaClient.deleteComment(org, v.repo, v.id),
+    (v) => [['comments', v.repo]],
+  );
 }
 
 export function useSaveFile() {

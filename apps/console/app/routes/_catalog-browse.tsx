@@ -6891,7 +6891,7 @@ function PipelinesCard({ entity, repoUrl, runsIn }: { entity: Entity; repoUrl?: 
               </span>
             ) : null}
           </div>
-          <a href="/platform?section=ci" className="inline-flex min-h-9 items-center text-xs font-medium text-brand-700 hover:underline dark:text-brand-300 sm:min-h-0">
+          <a href="/develop?section=builds" className="inline-flex min-h-9 items-center text-xs font-medium text-brand-700 hover:underline dark:text-brand-300 sm:min-h-0">
             Builds →
           </a>
         </div>

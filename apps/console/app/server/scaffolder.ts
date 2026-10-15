@@ -9,6 +9,7 @@ import { parseYaml } from './yaml-lite.ts'
 import { templatesLocation } from './templates.ts'
 import { computeValues, renderContent, renderPath, skeletonDir } from './template-render.ts'
 import { platformDomain, toolPublicUrl, toPublicToolUrl } from './domain.ts'
+import { platformRouteHost, routeHostnames, SCAFFOLD_ENVIRONMENT } from './scaffold-hosts.ts'
 
 /**
  * Component scaffolder — the real GitOps engine behind Catalog → Create.
@@ -385,12 +386,22 @@ async function scaffold(
       // pinned here rather than trusted from the picker. The port is stripped
       // because a Gateway API hostname must not carry one (a laptop install
       // publishes on :8443 and the route would never match).
+      //
+      // The ENVIRONMENT is part of the hostname — <name>.<env>.<base> — the
+      // same shape the CLI scaffolder produces (cmd/apps/scaffold.go), so a
+      // Console-scaffolded repo and a CLI-scaffolded one are identical. The
+      // template's `customHostnames` parameter adds any extra hostnames on
+      // top; the platform route always stays first (see scaffold-hosts.ts).
       const domain = platformDomain()
       if (domain?.host) {
         const bare = domain.host.replace(/:\d+$/, '')
         values.platformBaseDomain = bare
-        values.hostname = `${name}.${bare}`
+        values.environment = SCAFFOLD_ENVIRONMENT
+        values.hostname = platformRouteHost(name, SCAFFOLD_ENVIRONMENT, bare)
       }
+      // Every hostname the HTTPRoute serves, as JSON: the templates substitute
+      // it as a YAML flow sequence (`hostnames: ${{ values.hostnamesJson }}`).
+      values.hostnamesJson = JSON.stringify(routeHostnames(String(values.hostname ?? name), params.customHostnames))
 
       // Render everything first; a file that fails to render is reported and
       // the rest still land, in one commit.

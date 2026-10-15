@@ -1,27 +1,47 @@
-import {
-  Card,
-  CardBody,
-  CardHeader,
-  EmptyState,
-  Spinner,
-  StatusBadge,
-} from '@adhar/shell-ui'
-import { formatRelative } from '@adhar/utils'
+import { useMemo } from 'react'
+import { Card, CardBody, CardHeader, EmptyState, Spinner, StatusBadge } from '@adhar/shell-ui'
+import { cn, formatRelative } from '@adhar/utils'
 import type { coder, gitea } from '@adhar/api-clients'
-import { useAllOpenPullRequests, useRepos } from '../data/git.ts'
+import { type RepoIssue, type RepoPull, useOrgIssues, useOrgPullRequests, useRepos } from '../data/git.ts'
+import { type DevelopParams, type DevelopSection, itemRef, useGoDevelop } from '../data/nav.ts'
 import { useTemplates, useWorkspaces } from '../data/coder.ts'
 import { RepoMark } from '../components/repo-picker.tsx'
+import { langColor } from '../components/repo-bits.tsx'
+import { Avatar, DiffStat, IssueStateIcon, LabelPill, prState, PrStateIcon } from '../components/list-kit.tsx'
 
 /**
- * Develop dashboard. Aggregates Gitea (repos, open PRs, issues) and Coder
- * (workspaces, templates) into a single workspace-level pulse, mirroring
- * the Define and Design dashboards.
+ * Develop dashboard — the engineering pulse of the org: Gitea (repositories,
+ * pull requests, issues) and Coder (cloud environments) in one screen.
+ *
+ * Everything is a door: each tile opens its section, each repository opens
+ * its detail drawer on the Repositories page, and each pull request or issue
+ * opens in its own drawer — via `?repo=` / `?pr=` / `?issue=` deep links.
  */
 export function Dashboard() {
   const repos = useRepos()
-  const prs = useAllOpenPullRequests()
+  const prs = useOrgPullRequests('open')
+  const issues = useOrgIssues('open')
   const workspaces = useWorkspaces()
   const templates = useTemplates()
+  const go = useGoDevelop()
+
+  const repoList = useMemo(() => (repos.data ?? []).filter((r) => !r.archived), [repos.data])
+  const prList = prs.data ?? []
+  const issueList = issues.data ?? []
+  const wsList = workspaces.data ?? []
+  const tplList = templates.data ?? []
+
+  const prCount = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const p of prList) m.set(p.repo, (m.get(p.repo) ?? 0) + 1)
+    return m
+  }, [prList])
+
+  const languages = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const r of repoList) if (r.language) m.set(r.language, (m.get(r.language) ?? 0) + 1)
+    return [...m.entries()].sort((a, b) => b[1] - a[1])
+  }, [repoList])
 
   if (repos.isLoading) {
     return (
@@ -39,257 +59,338 @@ export function Dashboard() {
     )
   }
 
-  const repoList = repos.data ?? []
-  const prList = prs.data ?? []
-  const wsList = workspaces.data ?? []
-  const tplList = templates.data ?? []
-
-  const totalIssues = repoList.reduce((acc, r) => acc + (r.open_issues_count ?? 0), 0)
   const runningWs = wsList.filter((w) => w.latest_build.status === 'running').length
-  const startingWs = wsList.filter((w) => w.latest_build.status === 'starting').length
   const failedWs = wsList.filter((w) => w.latest_build.status === 'failed').length
+  const conflicts = prList.filter((p) => p.mergeable === false).length
+  const unassigned = issueList.filter((i) => !i.assignees?.length).length
+  const weekAgo = Date.now() - 7 * 86_400_000
+  const activeRepos = repoList.filter((r) => Date.parse(r.updated_at) > weekAgo).length
 
-  // Top by activity = recently updated repos.
   const topRepos = repoList
     .slice()
-    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
-    .slice(0, 5)
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+    .slice(0, 6)
+  const reviewQueue = prList
+    .slice()
+    .sort((a, b) => (b.updated_at ?? b.created_at).localeCompare(a.updated_at ?? a.created_at))
+    .slice(0, 6)
+  const recentIssues = issueList
+    .slice()
+    .sort((a, b) => (b.updated_at ?? b.created_at).localeCompare(a.updated_at ?? a.created_at))
+    .slice(0, 6)
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <HeroStat
-          label="Repositories"
-          value={repoList.length}
-          tone="brand"
-          icon={<IconBranch />}
-          hint={`${repoList.filter((r) => r.private).length} private`}
-        />
-        <HeroStat
-          label="Open PRs"
-          value={prList.length}
-          tone="amber"
-          icon={<IconPr />}
-          hint="awaiting review"
-        />
-        <HeroStat
-          label="Open issues"
-          value={totalIssues}
-          tone="rose"
-          icon={<IconBug />}
-          hint="across all repos"
-        />
-        <HeroStat
-          label="Cloud envs"
-          value={wsList.length}
-          tone="violet"
-          icon={<IconCloud />}
-          hint={`${runningWs} running${startingWs ? ` · ${startingWs} starting` : ''}${failedWs ? ` · ${failedWs} failed` : ''}`}
-        />
-        <HeroStat
-          label="Env templates"
-          value={tplList.length}
-          tone="sky"
-          icon={<IconStack />}
-          hint="reusable images"
-        />
-        <HeroStat
-          label="Languages"
-          value={new Set(repoList.map((r) => r.language).filter(Boolean)).size}
-          tone="emerald"
-          icon={<IconLang />}
-          hint="across the org"
-        />
+        <HeroStat label="Repositories" value={repoList.length} tone="brand" icon={<IconBranch />} hint={`${activeRepos} active this week`} onClick={() => go('repos')} />
+        <HeroStat label="Open PRs" value={prs.isLoading ? '…' : prList.length} tone="amber" icon={<IconPr />} hint={conflicts ? `${conflicts} with conflicts` : 'awaiting review'} onClick={() => go('prs', { state: 'open' })} />
+        <HeroStat label="Open issues" value={issues.isLoading ? '…' : issueList.length} tone="rose" icon={<IconBug />} hint={`${unassigned} unassigned`} onClick={() => go('issues', { state: 'open' })} />
+        <HeroStat label="Cloud envs" value={wsList.length} tone="violet" icon={<IconCloud />} hint={`${runningWs} running${failedWs ? ` · ${failedWs} failed` : ''}`} onClick={() => go('environments')} />
+        <HeroStat label="Env templates" value={tplList.length} tone="sky" icon={<IconStack />} hint="reusable images" onClick={() => go('environments')} />
+        <HeroStat label="Languages" value={languages.length} tone="emerald" icon={<IconLang />} hint={languages[0] ? `mostly ${languages[0][0]}` : 'across the org'} onClick={() => go('repos')} />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-semibold text-content">Top repositories</div>
-                <div className="text-[11px] text-content-subtle">Most recently active</div>
-              </div>
-              <StatusBadge kind="info">{topRepos.length}</StatusBadge>
-            </div>
-          </CardHeader>
-          <CardBody className="p-0!">
-            {topRepos.length === 0 ? (
-              <EmptyState compact title="No repos yet" />
-            ) : (
-              <ul className="divide-y divide-edge-subtle">
-                {topRepos.map((r) => (
-                  <RepoRow key={r.id} repo={r} />
-                ))}
-              </ul>
-            )}
-          </CardBody>
-        </Card>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <Panel
+          className="xl:col-span-2"
+          title="Recently active repositories"
+          subtitle="Open one for files, branches, PRs, releases and settings"
+          count={repoList.length}
+          onAll={() => go('repos')}
+          allLabel="All repositories"
+        >
+          {topRepos.length === 0 ? <EmptyState compact title="No repos yet" /> : (
+            <ul className="grid grid-cols-1 divide-y divide-edge-subtle sm:grid-cols-2 sm:divide-y-0">
+              {topRepos.map((r, i) => (
+                <RepoTile key={r.id} repo={r} prs={prCount.get(r.name) ?? 0} border={i >= 2} onOpen={(params) => go('repos', { repo: r.name, ...params })} />
+              ))}
+            </ul>
+          )}
+        </Panel>
 
-        <Card>
-          <CardHeader>
-            <div className="text-sm font-semibold text-content">Cloud environments</div>
-            <div className="text-[11px] text-content-subtle">Latest build status</div>
-          </CardHeader>
-          <CardBody className="p-0!">
-            {wsList.length === 0 ? (
-              <EmptyState compact title="No envs yet" />
-            ) : (
-              <ul className="divide-y divide-edge-subtle">
-                {wsList.slice(0, 5).map((w) => (
-                  <WorkspaceRow key={w.id} workspace={w} />
-                ))}
-              </ul>
-            )}
-          </CardBody>
-        </Card>
+        <Panel title="Languages" subtitle="Primary language per repository" onAll={() => go('repos')} allLabel="Browse">
+          <LanguageMix languages={languages} total={repoList.length} />
+        </Panel>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-semibold text-content">Open pull requests</div>
-                <div className="text-[11px] text-content-subtle">Across every repo in the org</div>
-              </div>
-              <StatusBadge kind="info">{prList.length}</StatusBadge>
-            </div>
-          </CardHeader>
-          <CardBody className="p-0!">
-            {prList.length === 0 ? (
-              <EmptyState compact title="Nothing to review 🎉" />
-            ) : (
-              <ul className="divide-y divide-edge-subtle">
-                {prList.slice(0, 8).map((p) => (
-                  <PullRow key={p.id} pr={p} />
-                ))}
-              </ul>
-            )}
-          </CardBody>
-        </Card>
+        <Panel
+          title="Review queue"
+          subtitle="Open pull requests across the org, most recently active first"
+          count={prList.length}
+          onAll={() => go('prs', { state: 'open' })}
+          allLabel="All pull requests"
+        >
+          {prs.isLoading ? <PanelLoading /> : reviewQueue.length === 0 ? <EmptyState compact title="Nothing to review" description="No open pull requests." /> : (
+            <ul className="divide-y divide-edge-subtle">
+              {reviewQueue.map((p) => <PullRow key={`${p.repo}#${p.number}`} pr={p} go={go} />)}
+            </ul>
+          )}
+        </Panel>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <QuickStartCard
-            title="Code"
-            description="Browse repos, spin up a cloud dev environment, manage branches and commits."
-            links={[
-              { label: 'Repositories', href: '?repos' },
-              { label: 'Cloud Envs', href: '?environments' },
-              { label: 'Branches', href: '?branches' },
-              { label: 'Commits', href: '?commits' },
-            ]}
-            tone="brand"
-          />
-          <QuickStartCard
-            title="Review"
-            description="Open PRs and issues across the org with author + diff stats."
-            links={[
-              { label: 'Pull requests', href: '?prs' },
-              { label: 'Issues', href: '?issues' },
-            ]}
-            tone="amber"
-          />
-          <QuickStartCard
-            title="Run"
-            description="Cloud development environments."
-            links={[
-              { label: 'Workflows', href: '?workflows' },
-              { label: 'Cloud Envs', href: '?environments' },
-            ]}
-            tone="violet"
-          />
-          <QuickStartCard
-            title="Generate"
-            description="Drag-and-drop code builder for components and services."
-            links={[{ label: 'Code Builder', href: '?codebuilder' }]}
-            tone="emerald"
-          />
+        <Panel
+          title="Recent issues"
+          subtitle="Open issues with the latest activity"
+          count={issueList.length}
+          onAll={() => go('issues', { state: 'open' })}
+          allLabel="All issues"
+        >
+          {issues.isLoading ? <PanelLoading /> : recentIssues.length === 0 ? <EmptyState compact title="No open issues" /> : (
+            <ul className="divide-y divide-edge-subtle">
+              {recentIssues.map((i) => <IssueRow key={`${i.repo}#${i.number}`} issue={i} go={go} />)}
+            </ul>
+          )}
+        </Panel>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <Panel title="Cloud environments" subtitle="Latest build status" count={wsList.length} onAll={() => go('environments')} allLabel="All environments">
+          {wsList.length === 0 ? <EmptyState compact title="No envs yet" /> : (
+            <ul className="divide-y divide-edge-subtle">
+              {wsList.slice(0, 5).map((w) => <WorkspaceRow key={w.id} workspace={w} onOpen={() => go('environments')} />)}
+            </ul>
+          )}
+        </Panel>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:col-span-2">
+          <QuickStartCard title="Code" description="Repositories, branches and history — and a cloud environment to work in." tone="brand" go={go} links={[['Repositories', 'repos'], ['Branches', 'branches'], ['Commits', 'commits'], ['Cloud Envs', 'environments']]} />
+          <QuickStartCard title="Review" description="Pull requests and issues across the org — review, merge and triage." tone="amber" go={go} links={[['Pull requests', 'prs'], ['Issues', 'issues']]} />
+          <QuickStartCard title="Run" description="Data pipelines and load tests on the cluster." tone="violet" go={go} links={[['Pipelines', 'pipelines'], ['Performance Center', 'performance']]} />
+          <QuickStartCard title="Generate" description="Content and drag-and-drop scaffolding for components and services." tone="emerald" go={go} links={[['Content', 'content'], ['Code Builder', 'codebuilder']]} />
         </div>
       </div>
     </div>
   )
 }
 
-function RepoRow({ repo }: { repo: gitea.Repo }) {
-  return (
-    <li className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-brand-50/40">
-      <RepoMark name={repo.name} />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-semibold text-content">{repo.name}</span>
-          <span className="rounded-md bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] font-semibold text-content-muted">
-            {repo.default_branch}
-          </span>
-          {repo.private ? <StatusBadge kind="unknown">private</StatusBadge> : null}
-        </div>
-        <div className="mt-0.5 truncate text-[11px] text-content-subtle">
-          {repo.description ?? '—'}
-        </div>
-        <div className="mt-1 flex items-center gap-3 text-[11px] text-content-muted">
-          <span>{repo.language ?? '—'}</span>
-          <span>· {repo.open_issues_count} open</span>
-          <span>· ★ {repo.stars_count}</span>
-          <span>· {formatRelative(repo.updated_at)}</span>
-        </div>
-      </div>
-    </li>
-  )
-}
+type Go = ReturnType<typeof useGoDevelop>
 
-function PullRow({ pr }: { pr: gitea.PullRequest & { repo?: string } }) {
+function Panel({ title, subtitle, count, onAll, allLabel, className, children }: {
+  title: string
+  subtitle?: string
+  count?: number
+  onAll?(): void
+  allLabel?: string
+  className?: string
+  children: React.ReactNode
+}) {
   return (
-    <li className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-brand-50/40">
-      <img
-        src={pr.user.avatar_url}
-        alt=""
-        className="h-7 w-7 shrink-0 rounded-full ring-1 ring-edge-subtle"
-      />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <code className="font-mono text-[10px] text-content-muted">#{pr.number}</code>
-          {pr.repo ? (
-            <span className="rounded-md bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-content-muted">
-              {pr.repo}
-            </span>
+    <Card className={className}>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm font-semibold text-content">
+              {title}
+              {count != null ? <StatusBadge kind="unknown">{count}</StatusBadge> : null}
+            </div>
+            {subtitle ? <div className="truncate text-[11px] text-content-subtle">{subtitle}</div> : null}
+          </div>
+          {onAll ? (
+            <button type="button" onClick={onAll} className="inline-flex shrink-0 items-center gap-1 text-[12px] font-medium text-brand-700 hover:underline dark:text-brand-300">
+              {allLabel ?? 'View all'} <IconArrow />
+            </button>
           ) : null}
-          <span className="truncate text-sm font-medium text-content">{pr.title}</span>
         </div>
-        <div className="mt-0.5 text-[11px] text-content-subtle">
-          {pr.user.login} opened {formatRelative(pr.created_at)}
-          {pr.head ? ` · ${pr.head.ref} → ${pr.base?.ref ?? 'main'}` : ''}
+      </CardHeader>
+      <CardBody className="p-0!">{children}</CardBody>
+    </Card>
+  )
+}
+
+function PanelLoading() {
+  return <div className="flex items-center gap-2 px-5 py-4 text-sm text-content-muted"><Spinner size={12} /> Loading…</div>
+}
+
+function RepoTile({ repo, prs, border, onOpen }: { repo: gitea.Repo; prs: number; border: boolean; onOpen(params?: DevelopParams): void }) {
+  return (
+    <li className={cn(border && 'sm:border-t sm:border-edge-subtle')}>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => onOpen()}
+        onKeyDown={(e) => { if (e.key === 'Enter') onOpen() }}
+        className="group flex h-full cursor-pointer items-start gap-3 px-5 py-3 transition-colors hover:bg-surface-sunken/50"
+      >
+        <RepoMark name={repo.name} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-sm font-semibold text-content group-hover:text-brand-700 dark:group-hover:text-brand-300">{repo.name}</span>
+            {repo.private ? <StatusBadge kind="unknown">private</StatusBadge> : null}
+          </div>
+          <div className="mt-0.5 truncate text-[11px] text-content-subtle">{repo.description || 'No description'}</div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-content-muted">
+            {repo.language ? <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: langColor(repo.language) }} />{repo.language}</span> : null}
+            <button type="button" onClick={(e) => { e.stopPropagation(); onOpen({ tab: 'pulls' }) }} className={cn('hover:underline', prs ? 'font-medium text-amber-700 dark:text-amber-300' : '')}>
+              {prs} PR{prs === 1 ? '' : 's'}
+            </button>
+            <button type="button" onClick={(e) => { e.stopPropagation(); onOpen({ tab: 'issues' }) }} className="hover:underline">
+              {repo.open_issues_count} issue{repo.open_issues_count === 1 ? '' : 's'}
+            </button>
+            <span title={repo.updated_at}>{formatRelative(repo.updated_at)}</span>
+          </div>
         </div>
+        <span className="mt-1 text-content-subtle opacity-0 transition-opacity group-hover:opacity-100"><IconArrow /></span>
       </div>
-      {pr.changed_files != null ? (
-        <div className="hidden text-right text-[11px] sm:block">
-          <span className="font-mono text-emerald-700">+{pr.additions ?? 0}</span>{' '}
-          <span className="font-mono text-rose-700">-{pr.deletions ?? 0}</span>
-        </div>
-      ) : null}
     </li>
   )
 }
 
-function WorkspaceRow({ workspace: w }: { workspace: coder.Workspace }) {
+function LanguageMix({ languages, total }: { languages: Array<[string, number]>; total: number }) {
+  if (!languages.length) return <EmptyState compact title="No languages detected" />
+  const top = languages.slice(0, 7)
+  const rest = languages.slice(7).reduce((s, [, n]) => s + n, 0)
+  const rows: Array<[string, number]> = rest ? [...top, ['Other', rest]] : top
+  return (
+    <div className="space-y-3 px-5 py-4">
+      <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-surface-sunken" role="img" aria-label="Language mix">
+        {rows.map(([l, n]) => <i key={l} className="h-full" style={{ width: `${(n / total) * 100}%`, background: l === 'Other' ? 'var(--color-edge-strong, #94a3b8)' : langColor(l) }} title={`${l}: ${n}`} />)}
+      </div>
+      <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+        {rows.map(([l, n]) => (
+          <li key={l} className="flex items-center gap-2 text-[12px]">
+            <i className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: l === 'Other' ? 'var(--color-edge-strong, #94a3b8)' : langColor(l) }} />
+            <span className="min-w-0 flex-1 truncate text-content">{l}</span>
+            <span className="tabular-nums text-content-muted">{n}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function PullRow({ pr, go }: { pr: RepoPull; go: Go }) {
+  const s = prState(pr)
+  return (
+    <li>
+      <button type="button" onClick={() => go('prs', { pr: itemRef(pr.repo, pr.number) })} className="group flex w-full items-start gap-3 px-5 py-3 text-left transition-colors hover:bg-surface-sunken/50">
+        <span className="mt-0.5"><PrStateIcon state={s} /></span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="shrink-0 text-[11px] font-medium text-content-muted">{pr.repo}</span>
+            <span className="truncate text-sm font-medium text-content group-hover:text-brand-700 dark:group-hover:text-brand-300">{pr.title}</span>
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-content-subtle">
+            <span>#{pr.number} by {pr.user.login}</span>
+            <span>· {formatRelative(pr.updated_at ?? pr.created_at)}</span>
+            {pr.mergeable === false ? <span className="font-semibold text-amber-700 dark:text-amber-300">· conflicts</span> : null}
+            {pr.comments ? <span>· {pr.comments} comments</span> : null}
+          </div>
+        </div>
+        {pr.additions != null ? <span className="hidden sm:block"><DiffStat add={pr.additions} del={pr.deletions} /></span> : null}
+        <Avatar login={pr.user.login} url={pr.user.avatar_url} size={22} />
+      </button>
+    </li>
+  )
+}
+
+function IssueRow({ issue: i, go }: { issue: RepoIssue; go: Go }) {
+  return (
+    <li>
+      <button type="button" onClick={() => go('issues', { issue: itemRef(i.repo, i.number) })} className="group flex w-full items-start gap-3 px-5 py-3 text-left transition-colors hover:bg-surface-sunken/50">
+        <span className="mt-0.5"><IssueStateIcon state={i.state} /></span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="shrink-0 text-[11px] font-medium text-content-muted">{i.repo}</span>
+            <span className="truncate text-sm font-medium text-content group-hover:text-brand-700 dark:group-hover:text-brand-300">{i.title}</span>
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-content-subtle">
+            <span>#{i.number} by {i.user.login} · {formatRelative(i.updated_at ?? i.created_at)}</span>
+            {i.labels.slice(0, 3).map((l) => <LabelPill key={l.name} name={l.name} color={l.color} />)}
+          </div>
+        </div>
+        {i.assignees?.length ? <Avatar login={i.assignees[0].login} url={i.assignees[0].avatar_url} size={22} /> : <span className="text-[10px] text-content-subtle">unassigned</span>}
+      </button>
+    </li>
+  )
+}
+
+function WorkspaceRow({ workspace: w, onOpen }: { workspace: coder.Workspace; onOpen(): void }) {
   const tone = STATUS_TONE[w.latest_build.status] ?? 'unknown'
   return (
-    <li className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-brand-50/40">
-      <span
-        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-bold text-white ${TPL_BG[w.template_name] ?? 'bg-violet-500'}`}
-      >
-        {w.template_name.slice(0, 2).toUpperCase()}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-medium text-content">{w.name}</span>
-          <StatusBadge kind={tone}>{w.latest_build.status}</StatusBadge>
+    <li>
+      <button type="button" onClick={onOpen} className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-sunken/50">
+        <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-bold text-white ${TPL_BG[w.template_name] ?? 'bg-violet-500'}`}>
+          {w.template_name.slice(0, 2).toUpperCase()}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-sm font-medium text-content">{w.name}</span>
+            <StatusBadge kind={tone}>{w.latest_build.status}</StatusBadge>
+          </div>
+          <div className="mt-0.5 text-[11px] text-content-subtle">
+            {w.template_name} · {w.owner_name}
+            {w.last_used_at ? ` · ${formatRelative(w.last_used_at)}` : ''}
+          </div>
         </div>
-        <div className="mt-0.5 text-[11px] text-content-subtle">
-          {w.template_name} · {w.owner_name}
-          {w.last_used_at ? ` · ${formatRelative(w.last_used_at)}` : ''}
-        </div>
-      </div>
+      </button>
     </li>
+  )
+}
+
+function HeroStat({ label, value, tone, icon, hint, onClick }: {
+  label: string
+  value: number | string
+  tone: 'brand' | 'amber' | 'rose' | 'violet' | 'sky' | 'emerald'
+  icon: React.ReactNode
+  hint?: string
+  onClick?(): void
+}) {
+  const cls = {
+    brand: 'from-brand-50 to-surface-raised text-brand-700 dark:from-brand-500/10 dark:text-brand-300',
+    amber: 'from-amber-50 to-surface-raised text-amber-700 dark:from-amber-500/10 dark:text-amber-300',
+    rose: 'from-rose-50 to-surface-raised text-rose-700 dark:from-rose-500/10 dark:text-rose-300',
+    violet: 'from-violet-50 to-surface-raised text-violet-700 dark:from-violet-500/10 dark:text-violet-300',
+    sky: 'from-sky-50 to-surface-raised text-sky-700 dark:from-sky-500/10 dark:text-sky-300',
+    emerald: 'from-emerald-50 to-surface-raised text-emerald-700 dark:from-emerald-500/10 dark:text-emerald-300',
+  }[tone]
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group relative overflow-hidden rounded-xl border border-edge-default bg-linear-to-br p-4 text-left shadow-sm transition-all hover:-translate-y-px hover:border-edge-strong hover:shadow-md ${cls}`}
+    >
+      <div className="flex items-center gap-2">
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-raised/80 shadow-sm">{icon}</span>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">{label}</span>
+        <span className="ml-auto text-content-subtle opacity-0 transition-opacity group-hover:opacity-100"><IconArrow /></span>
+      </div>
+      <div className="mt-1 text-3xl font-semibold tabular-nums tracking-tight text-content">{value}</div>
+      {hint ? <div className="truncate text-[11px] text-content-muted">{hint}</div> : null}
+    </button>
+  )
+}
+
+function QuickStartCard({ title, description, links, tone, go }: {
+  title: string
+  description: string
+  links: Array<[string, DevelopSection]>
+  tone: 'brand' | 'amber' | 'violet' | 'emerald'
+  go: Go
+}) {
+  const accent = {
+    brand: 'border-brand-200/60 bg-brand-50/30 dark:border-brand-500/20 dark:bg-brand-500/5',
+    amber: 'border-amber-200/60 bg-amber-50/30 dark:border-amber-500/20 dark:bg-amber-500/5',
+    violet: 'border-violet-200/60 bg-violet-50/30 dark:border-violet-500/20 dark:bg-violet-500/5',
+    emerald: 'border-emerald-200/60 bg-emerald-50/30 dark:border-emerald-500/20 dark:bg-emerald-500/5',
+  }[tone]
+  return (
+    <Card className={`${accent} border`}>
+      <CardBody className="space-y-3">
+        <div>
+          <div className="text-sm font-semibold text-content">{title}</div>
+          <p className="mt-1 text-xs leading-relaxed text-content-muted">{description}</p>
+        </div>
+        <ul className="flex flex-wrap gap-x-4 gap-y-1">
+          {links.map(([label, section]) => (
+            <li key={section + label}>
+              <button type="button" onClick={() => go(section)} className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-700 hover:text-brand-800 hover:underline dark:text-brand-300">
+                <IconArrow /> {label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </CardBody>
+    </Card>
   )
 }
 
@@ -311,88 +412,6 @@ const TPL_BG: Record<string, string> = {
   'go-dev': 'bg-sky-500',
   python: 'bg-amber-500',
   'fullstack-tilt': 'bg-violet-500',
-}
-
-function HeroStat({
-  label,
-  value,
-  tone,
-  icon,
-  hint,
-}: {
-  label: string
-  value: number
-  tone: 'brand' | 'amber' | 'rose' | 'violet' | 'sky' | 'emerald'
-  icon: React.ReactNode
-  hint?: string
-}) {
-  const cls = {
-    brand: 'from-brand-50 to-surface-raised text-brand-700',
-    amber: 'from-amber-50 to-surface-raised text-amber-700',
-    rose: 'from-rose-50 to-surface-raised text-rose-700',
-    violet: 'from-violet-50 to-surface-raised text-violet-700',
-    sky: 'from-sky-50 to-surface-raised text-sky-700',
-    emerald: 'from-emerald-50 to-surface-raised text-emerald-700',
-  }[tone]
-  return (
-    <Card className={`relative overflow-hidden bg-linear-to-br ${cls} ring-1 ring-inset ring-edge-subtle`}>
-      <CardBody className="space-y-1 p-4">
-        <div className="flex items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-raised/80 shadow-sm">
-            {icon}
-          </span>
-          <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">
-            {label}
-          </span>
-        </div>
-        <div className="text-3xl font-semibold tabular-nums tracking-tight text-content">
-          {value}
-        </div>
-        {hint ? <div className="text-[11px] text-content-muted">{hint}</div> : null}
-      </CardBody>
-    </Card>
-  )
-}
-
-function QuickStartCard({
-  title,
-  description,
-  links,
-  tone,
-}: {
-  title: string
-  description: string
-  links: { label: string; href: string }[]
-  tone: 'brand' | 'amber' | 'violet' | 'emerald'
-}) {
-  const accent = {
-    brand: 'border-brand-200/60 bg-brand-50/30',
-    amber: 'border-amber-200/60 bg-amber-50/30',
-    violet: 'border-violet-200/60 bg-violet-50/30',
-    emerald: 'border-emerald-200/60 bg-emerald-50/30',
-  }[tone]
-  return (
-    <Card className={`${accent} border`}>
-      <CardBody className="space-y-3">
-        <div>
-          <div className="text-sm font-semibold text-content">{title}</div>
-          <p className="mt-1 text-xs leading-relaxed text-content-muted">{description}</p>
-        </div>
-        <ul className="space-y-1">
-          {links.map((l) => (
-            <li key={l.href}>
-              <a
-                href={l.href}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-700 hover:text-brand-800 hover:underline"
-              >
-                <IconArrow /> {l.label}
-              </a>
-            </li>
-          ))}
-        </ul>
-      </CardBody>
-    </Card>
-  )
 }
 
 function IconBranch() {

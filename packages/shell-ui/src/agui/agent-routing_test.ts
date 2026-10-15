@@ -6,6 +6,7 @@ const ALL = ['sre', 'delivery', 'security', 'finops', 'platform', 'review', 'des
 Deno.test('each phase opens with the agent that reads its data', () => {
   assertEquals(agentForRoute({ path: '/design' }), 'design')
   assertEquals(agentForRoute({ path: '/develop', section: 'prs' }), 'review')
+  assertEquals(agentForRoute({ path: '/develop', section: 'builds' }), 'delivery')
   assertEquals(agentForRoute({ path: '/deliver', section: 'apps' }), 'delivery')
   assertEquals(agentForRoute({ path: '/discover', section: 'logs' }), 'sre')
   assertEquals(agentForRoute({ path: '/decide', section: 'spend' }), 'finops')

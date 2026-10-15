@@ -302,11 +302,8 @@ export function usePerfTestHistory(suite: SuiteRepo | undefined, name: string | 
   return useQuery({
     queryKey: ['perf', 'history', suite?.org, suite?.repo, name],
     queryFn: async () => {
-      const commits = await giteaClient.listCommits(suite!.org, suite!.repo, suite!.defaultBranch, 30)
-      // Gitea's commit list cannot be filtered by path through this client, so
-      // match on the message the console writes. A hand-made commit simply
-      // does not appear here; it still shows in Gitea.
-      return commits.filter((c) => (c.commit?.message ?? '').includes(name!))
+      // Every commit that touched the test's directory — hand-made ones too.
+      return await giteaClient.listCommits(suite!.org, suite!.repo, suite!.defaultBranch, 30, { path: `${TESTS_DIR}/${name}` })
     },
     enabled,
     retry: false,

@@ -64,6 +64,10 @@ function PhaseLayout() {
   const { phase } = Route.useParams()
   const { tenants, activeTenant, notifications } = Route.useLoaderData()
   const user = useOptionalSession()?.user ?? PENDING_USER
+  const { section } = Route.useSearch()
+  // Cluster + namespace pickers: every Platform page, and Develop's Builds
+  // (Tekton runs are cluster resources too).
+  const clusterScoped = phase === 'platform' || (phase === 'develop' && section === 'builds')
   return (
     <AppShell
       user={user}
@@ -76,7 +80,7 @@ function PhaseLayout() {
       ]}
       notifications={notifications}
       contentWidth={PHASE_WIDTH[phase as keyof typeof PHASE_WIDTH]}
-      headerControls={phase === 'platform' ? <PlatformSelectionControls /> : undefined}
+      headerControls={clusterScoped ? <PlatformSelectionControls /> : undefined}
     >
       <Outlet />
     </AppShell>

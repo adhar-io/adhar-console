@@ -217,7 +217,7 @@ export const SOURCES: Source[] = [
           severity: ok ? 'low' : 'high',
           title: ok ? `Pipeline ${name} succeeded` : `Pipeline ${name} failed`,
           description: cond.message ?? cond.reason,
-          href: `/platform?section=ci`,
+          href: `/develop?section=builds`,
           key: `tekton:${nsOf(obj)}/${name}:${cond.status}`,
           target: { type: 'pipelinerun', id: name, label: name },
           ...(ok ? {} : { prompt: `Tekton PipelineRun ${name} failed: ${cond.reason ?? 'unknown reason'}. Find the failing task and its logs, and explain the cause.` }),

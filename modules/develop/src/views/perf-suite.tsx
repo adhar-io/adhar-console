@@ -55,17 +55,33 @@ export function PerfSuite({
   onOpenRun,
   onOpenResults,
   onSchedule,
+  selected: selectedProp,
+  onSelect,
+  createToken,
 }: {
   onOpenRun?(namespace: string, name: string): void
   onOpenResults?(test: string): void
   onSchedule?(test: string): void
+  /** Controlled selection — the Performance page keeps it in `?suite=`. */
+  selected?: string
+  onSelect?(test: string): void
+  /** Bumping this opens the "New test" dialog (the page header's button). */
+  createToken?: number
 }) {
   const suiteQ = useSuiteRepo()
   const suite = suiteQ.data
   const testsQ = usePerfTests(suite)
   const runsQ = useTestRuns()
-  const [selected, setSelected] = useState<string | null>(null)
+  const [selectedState, setSelectedState] = useState<string | null>(selectedProp ?? null)
+  const selected = selectedProp ?? selectedState
+  const setSelected = (t: string | null) => {
+    setSelectedState(t)
+    if (t && t !== selectedProp) onSelect?.(t)
+  }
   const [creating, setCreating] = useState(false)
+  useEffect(() => {
+    if (createToken) setCreating(true)
+  }, [createToken])
   const canEdit = useCan('develop')
 
   const tests = testsQ.data ?? []
@@ -736,10 +752,10 @@ function History({ suite, name }: { suite: SuiteRepo; name: string }) {
         <li key={c.sha} className="flex items-start gap-3 px-4 py-2.5">
           <code className="shrink-0 font-mono text-[11px] text-content-muted">{c.sha?.slice(0, 7)}</code>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[12px] text-content">{c.commit?.message?.split('\n')[0]}</div>
+            <div className="truncate text-[12px] text-content">{c.message.split('\n')[0]}</div>
             <div className="text-[11px] text-content-subtle">
-              {c.commit?.author?.name}
-              {c.commit?.author?.date ? ` · ${formatRelative(c.commit.author.date)}` : ''}
+              {c.author.login}
+              {c.created ? ` · ${formatRelative(c.created)}` : ''}
             </div>
           </div>
         </li>

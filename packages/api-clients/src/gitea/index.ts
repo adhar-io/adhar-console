@@ -207,7 +207,12 @@ export const PullRequestSchema = z.object({
   state: z.enum(['open', 'closed']),
   user: z.object({ login: z.string(), avatar_url: z.string().url() }),
   head: z.object({ ref: z.string(), sha: z.string().optional() }).optional(),
-  base: z.object({ ref: z.string() }).optional(),
+  base: z.object({ ref: z.string(), sha: z.string().optional() }).optional(),
+  labels: z.array(z.object({ id: z.number().optional(), name: z.string(), color: z.string() })).nullable().optional(),
+  assignees: z.array(z.object({ login: z.string(), avatar_url: z.string().optional() })).nullable().optional(),
+  requested_reviewers: z.array(z.object({ login: z.string(), avatar_url: z.string().optional() })).nullable().optional(),
+  merged_by: z.object({ login: z.string(), avatar_url: z.string().optional() }).nullable().optional(),
+  draft: z.boolean().optional(),
   created_at: z.string(),
   updated_at: z.string().optional(),
   closed_at: z.string().nullable().optional(),
@@ -255,13 +260,85 @@ export const IssueSchema = z.object({
   body: z.string().optional(),
   state: z.enum(['open', 'closed']),
   user: z.object({ login: z.string(), avatar_url: z.string().url().optional() }),
-  labels: z.array(z.object({ name: z.string(), color: z.string() })),
-  assignees: z.array(z.object({ login: z.string() })).optional(),
+  labels: z.array(z.object({ id: z.number().optional(), name: z.string(), color: z.string() })),
+  assignees: z.array(z.object({ login: z.string(), avatar_url: z.string().optional() })).nullable().optional(),
+  milestone: z.object({ id: z.number(), title: z.string() }).nullable().optional(),
   comments: z.number().optional(),
   created_at: z.string(),
   updated_at: z.string().optional(),
+  closed_at: z.string().nullable().optional(),
+  html_url: z.string().optional(),
 })
 export type Issue = z.infer<typeof IssueSchema>
+
+/** A comment on an issue or pull request (Gitea shares the endpoint). */
+export const CommentSchema = z.object({
+  id: z.number(),
+  body: z.string(),
+  user: z.object({ login: z.string(), avatar_url: z.string().optional() }),
+  created_at: z.string(),
+  updated_at: z.string().optional(),
+})
+export type Comment = z.infer<typeof CommentSchema>
+
+export type ReviewState = 'APPROVED' | 'REQUEST_CHANGES' | 'COMMENT' | 'PENDING' | 'REQUEST_REVIEW'
+export const ReviewSchema = z.object({
+  id: z.number(),
+  user: z.object({ login: z.string(), avatar_url: z.string().optional() }).nullable(),
+  state: z.string(),
+  body: z.string().optional(),
+  submitted_at: z.string().optional(),
+  stale: z.boolean().optional(),
+  dismissed: z.boolean().optional(),
+})
+export type Review = z.infer<typeof ReviewSchema>
+
+/** One commit with its parents, totals and touched files. */
+export interface CommitDetail extends Commit {
+  author_name?: string
+  author_email?: string
+  committer_name?: string
+  parents: string[]
+  files: Array<{ filename: string; status: string }>
+  html_url?: string
+}
+
+/** `GET /compare/{base}...{head}` — what `head` has that `base` lacks. */
+export interface CompareResult {
+  total_commits: number
+  commits: Commit[]
+}
+
+export type MergeStyle = 'merge' | 'rebase' | 'rebase-merge' | 'squash' | 'fast-forward-only'
+
+export interface CreatePullBody {
+  head: string
+  base: string
+  title: string
+  body?: string
+  assignees?: string[]
+  labels?: number[]
+}
+export interface UpdatePullBody {
+  title?: string
+  body?: string
+  state?: 'open' | 'closed'
+  base?: string
+  assignees?: string[]
+  labels?: number[]
+}
+export interface CreateIssueBody {
+  title: string
+  body?: string
+  assignees?: string[]
+  labels?: number[]
+}
+export interface UpdateIssueBody {
+  title?: string
+  body?: string
+  state?: 'open' | 'closed'
+  assignees?: string[]
+}
 
 export const TreeEntrySchema = z.object({
   path: z.string(),
@@ -284,12 +361,46 @@ export interface GiteaClient {
   listRepos(org: string): Promise<Repo[]>
   getRepo(org: string, name: string): Promise<Repo>
   listBranches(org: string, repo: string): Promise<Branch[]>
-  listCommits(org: string, repo: string, ref?: string, limit?: number): Promise<Commit[]>
+  listCommits(org: string, repo: string, ref?: string, limit?: number, opts?: { page?: number; path?: string }): Promise<Commit[]>
   listPullRequests(org: string, repo: string, state?: 'open' | 'closed' | 'all'): Promise<PullRequest[]>
   getPullRequest(org: string, repo: string, number: number): Promise<PullRequest>
   /** Raw unified diff (`.diff`) text for a pull request. */
   getPullDiff(org: string, repo: string, index: number): Promise<string>
   listIssues(org: string, repo: string, state?: 'open' | 'closed' | 'all'): Promise<Issue[]>
+  getIssue(org: string, repo: string, index: number): Promise<Issue>
+  createIssue(org: string, repo: string, body: CreateIssueBody): Promise<Issue>
+  updateIssue(org: string, repo: string, index: number, body: UpdateIssueBody): Promise<Issue>
+  /** Replace the issue's (or PR's) labels with these label ids. */
+  setIssueLabels(org: string, repo: string, index: number, labels: number[]): Promise<void>
+  /** Comments on an issue or a pull request — Gitea serves both from one endpoint. */
+  listComments(org: string, repo: string, index: number): Promise<Comment[]>
+  createComment(org: string, repo: string, index: number, body: string): Promise<Comment>
+  deleteComment(org: string, repo: string, id: number): Promise<void>
+
+  /* ── pull request workflow ── */
+  createPullRequest(org: string, repo: string, body: CreatePullBody): Promise<PullRequest>
+  updatePullRequest(org: string, repo: string, index: number, body: UpdatePullBody): Promise<PullRequest>
+  mergePullRequest(
+    org: string,
+    repo: string,
+    index: number,
+    body: { style: MergeStyle; title?: string; message?: string; deleteBranch?: boolean },
+  ): Promise<void>
+  listPullCommits(org: string, repo: string, index: number): Promise<Commit[]>
+  listPullReviews(org: string, repo: string, index: number): Promise<Review[]>
+  createPullReview(
+    org: string,
+    repo: string,
+    index: number,
+    body: { event: 'APPROVED' | 'REQUEST_CHANGES' | 'COMMENT'; body?: string },
+  ): Promise<Review>
+
+  /* ── commits ── */
+  getCommit(org: string, repo: string, sha: string): Promise<CommitDetail>
+  /** Raw unified diff (`.diff`) of one commit against its first parent. */
+  getCommitDiff(org: string, repo: string, sha: string): Promise<string>
+  /** Commits `head` has that `base` does not (Gitea ≥ 1.22). */
+  compare(org: string, repo: string, base: string, head: string): Promise<CompareResult>
   /** List files at a path. Empty path = repo root. */
   listTree(org: string, repo: string, ref: string, path?: string): Promise<TreeEntry[]>
   getFile(org: string, repo: string, ref: string, path: string): Promise<FileContents>
@@ -410,17 +521,21 @@ function build(http: HttpClient): GiteaClient {
   return {
     listRepos: (org) => paginate<Repo>(http, `/api/v1/orgs/${org}/repos`),
     getRepo: (org, name) => http.get<Repo>(`/api/v1/repos/${org}/${name}`),
-    listBranches: (org, repo) => http.get<Branch[]>(`/api/v1/repos/${org}/${repo}/branches`),
+    listBranches: (org, repo) => paginate<Branch>(http, `/api/v1/repos/${org}/${repo}/branches`, 6),
     // Gitea nests the message under `commit` and leaves `author` null for
     // commits whose email isn't a Gitea user — flatten to the UI's Commit.
-    listCommits: async (org, repo, ref = '', limit = 50) => {
+    listCommits: async (org, repo, ref = '', limit = 50, opts = {}) => {
       const raw = await http.get<RawCommit[]>(
-        `/api/v1/repos/${org}/${repo}/commits?limit=${limit}&files=false&verification=false${ref ? `&sha=${encodeURIComponent(ref)}` : ''}`,
+        `/api/v1/repos/${org}/${repo}/commits?limit=${limit}&files=false&verification=false${ref ? `&sha=${enc(ref)}` : ''}${
+          opts.page ? `&page=${opts.page}` : ''
+        }${opts.path ? `&path=${enc(opts.path)}` : ''}`,
       )
       return raw.map(toCommit)
     },
+    // Open lists are walked to the end; closed history stops after a few
+    // pages — it only grows, and the views show the recent end of it.
     listPullRequests: (org, repo, state = 'open') =>
-      http.get<PullRequest[]>(`/api/v1/repos/${org}/${repo}/pulls?state=${state}`),
+      paginate<PullRequest>(http, `/api/v1/repos/${org}/${repo}/pulls?state=${state}&sort=recentupdate`, state === 'open' ? 10 : 2),
     getPullRequest: (org, repo, number) =>
       http.get<PullRequest>(`/api/v1/repos/${org}/${repo}/pulls/${number}`),
     getPullDiff: (org, repo, index) =>
@@ -429,7 +544,69 @@ function build(http: HttpClient): GiteaClient {
         headers: { accept: 'text/plain' },
       }),
     listIssues: (org, repo, state = 'open') =>
-      http.get<Issue[]>(`/api/v1/repos/${org}/${repo}/issues?type=issues&state=${state}`),
+      paginate<Issue>(http, `/api/v1/repos/${org}/${repo}/issues?type=issues&state=${state}`, state === 'open' ? 10 : 2),
+    getIssue: (org, repo, index) => http.get<Issue>(`/api/v1/repos/${org}/${repo}/issues/${index}`),
+    createIssue: (org, repo, body) => http.post<Issue>(`/api/v1/repos/${org}/${repo}/issues`, body),
+    updateIssue: (org, repo, index, body) => http.patch<Issue>(`/api/v1/repos/${org}/${repo}/issues/${index}`, body),
+    setIssueLabels: async (org, repo, index, labels) => {
+      await http.put(`/api/v1/repos/${org}/${repo}/issues/${index}/labels`, { labels }, { response: 'raw' })
+    },
+    listComments: (org, repo, index) => paginate<Comment>(http, `/api/v1/repos/${org}/${repo}/issues/${index}/comments`, 4),
+    createComment: (org, repo, index, body) =>
+      http.post<Comment>(`/api/v1/repos/${org}/${repo}/issues/${index}/comments`, { body }),
+    deleteComment: async (org, repo, id) => {
+      await http.delete(`/api/v1/repos/${org}/${repo}/issues/comments/${id}`, { response: 'raw' })
+    },
+
+    createPullRequest: (org, repo, body) => http.post<PullRequest>(`/api/v1/repos/${org}/${repo}/pulls`, body),
+    updatePullRequest: (org, repo, index, body) => http.patch<PullRequest>(`/api/v1/repos/${org}/${repo}/pulls/${index}`, body),
+    // Gitea's merge form keeps its Go field names (`Do`, `MergeTitleField`).
+    mergePullRequest: async (org, repo, index, body) => {
+      await http.post(
+        `/api/v1/repos/${org}/${repo}/pulls/${index}/merge`,
+        {
+          Do: body.style,
+          ...(body.title ? { MergeTitleField: body.title } : {}),
+          ...(body.message ? { MergeMessageField: body.message } : {}),
+          delete_branch_after_merge: !!body.deleteBranch,
+        },
+        { response: 'raw' },
+      )
+    },
+    listPullCommits: async (org, repo, index) => {
+      const raw = await paginate<RawCommit>(http, `/api/v1/repos/${org}/${repo}/pulls/${index}/commits?files=false&verification=false`, 4)
+      return raw.map(toCommit)
+    },
+    listPullReviews: (org, repo, index) => paginate<Review>(http, `/api/v1/repos/${org}/${repo}/pulls/${index}/reviews`, 2),
+    createPullReview: (org, repo, index, body) =>
+      http.post<Review>(`/api/v1/repos/${org}/${repo}/pulls/${index}/reviews`, { event: body.event, body: body.body ?? '' }),
+
+    getCommit: async (org, repo, sha) => {
+      const raw = await http.get<RawCommit & { parents?: Array<{ sha: string }>; files?: Array<{ filename: string; status: string }> }>(
+        `/api/v1/repos/${org}/${repo}/git/commits/${enc(sha)}?stat=true&verification=false`,
+      )
+      return {
+        ...toCommit(raw),
+        author_name: raw.commit?.author?.name,
+        author_email: raw.commit?.author?.email,
+        committer_name: raw.commit?.committer?.name,
+        parents: (raw.parents ?? []).map((p) => p.sha),
+        files: raw.files ?? [],
+        html_url: raw.html_url,
+      }
+    },
+    getCommitDiff: (org, repo, sha) =>
+      http.get<string>(`/api/v1/repos/${org}/${repo}/git/commits/${enc(sha)}.diff`, {
+        response: 'text',
+        headers: { accept: 'text/plain' },
+      }),
+    compare: async (org, repo, base, head) => {
+      const raw = await http.get<{ total_commits?: number; commits?: RawCommit[] }>(
+        `/api/v1/repos/${org}/${repo}/compare/${enc(base)}...${enc(head)}`,
+      )
+      const commits = (raw.commits ?? []).map(toCommit)
+      return { total_commits: raw.total_commits ?? commits.length, commits }
+    },
     // Gitea's contents API reports `file | dir | symlink | submodule`; the UI
     // speaks git's `blob | tree`, so normalise here (a bare `file` would render
     // every folder as a leaf).
@@ -651,6 +828,27 @@ const STUB_PRS: Record<string, PullRequest[]> = {
   ],
   'billing-service': [
     {
+      id: 202,
+      number: 15,
+      title: 'feat: proration on plan downgrade',
+      state: 'closed',
+      merged: true,
+      merged_at: '2026-04-18T16:20:00Z',
+      closed_at: '2026-04-18T16:20:00Z',
+      merged_by: { login: 'priya' },
+      user: { login: 'maya', avatar_url: 'https://i.pravatar.cc/64?u=maya' },
+      head: { ref: 'feat/proration' },
+      base: { ref: 'main' },
+      labels: [{ id: 2, name: 'enhancement', color: '10b981' }],
+      created_at: '2026-04-15T08:00:00Z',
+      updated_at: '2026-04-18T16:20:00Z',
+      comments: 3,
+      additions: 220,
+      deletions: 41,
+      changed_files: 6,
+      html_url: 'https://gitea.adhar.local/adhar/billing-service/pulls/15',
+    },
+    {
       id: 201,
       number: 17,
       title: 'fix: VAT rounding for EU customers',
@@ -800,8 +998,8 @@ const STUB_ISSUES: Record<string, Issue[]> = {
       state: 'open',
       user: { login: 'maya', avatar_url: 'https://i.pravatar.cc/64?u=maya' },
       labels: [
-        { name: 'bug', color: 'e11d48' },
-        { name: 'a11y', color: '8b5cf6' },
+        { id: 1, name: 'bug', color: 'e11d48' },
+        { id: 3, name: 'a11y', color: '8b5cf6' },
       ],
       comments: 2,
       created_at: '2026-04-21T15:08:00Z',
@@ -812,7 +1010,7 @@ const STUB_ISSUES: Record<string, Issue[]> = {
       title: 'Add SVG export to journey maps (parity with diagrams)',
       state: 'open',
       user: { login: 'tapas', avatar_url: 'https://i.pravatar.cc/64?u=tapas' },
-      labels: [{ name: 'enhancement', color: '10b981' }],
+      labels: [{ id: 2, name: 'enhancement', color: '10b981' }],
       comments: 0,
       created_at: '2026-04-22T11:00:00Z',
     },
@@ -822,9 +1020,21 @@ const STUB_ISSUES: Record<string, Issue[]> = {
       title: 'Roadmap "past due" group shows future quarter items by mistake',
       state: 'open',
       user: { login: 'priya', avatar_url: 'https://i.pravatar.cc/64?u=priya' },
-      labels: [{ name: 'bug', color: 'e11d48' }],
+      labels: [{ id: 1, name: 'bug', color: 'e11d48' }],
       comments: 4,
       created_at: '2026-04-19T07:42:00Z',
+    },
+    {
+      id: 5004,
+      number: 80,
+      title: 'Sidebar collapses on narrow tablets',
+      state: 'closed',
+      user: { login: 'maya', avatar_url: 'https://i.pravatar.cc/64?u=maya' },
+      labels: [{ id: 1, name: 'bug', color: 'e11d48' }],
+      assignees: [{ login: 'tapas', avatar_url: 'https://i.pravatar.cc/64?u=tapas' }],
+      comments: 1,
+      created_at: '2026-04-10T07:42:00Z',
+      closed_at: '2026-04-12T09:00:00Z',
     },
   ],
 }
@@ -958,8 +1168,10 @@ export const GiteaClient = defineClient<GiteaClient>(build, () => ({
     return r
   },
   listBranches: async (_, repo) => STUB_BRANCHES[repo] ?? [],
-  listCommits: async (_, repo) => STUB_COMMITS[repo] ?? STUB_COMMITS['adhar-console'].slice(0, 1),
-  listPullRequests: async (_, repo) => STUB_PRS[repo] ?? [],
+  listCommits: async (_, repo, _ref, _limit, opts) =>
+    (opts?.page ?? 1) > 1 ? [] : STUB_COMMITS[repo] ?? STUB_COMMITS['adhar-console'].slice(0, 1),
+  listPullRequests: async (_, repo, state = 'open') =>
+    (STUB_PRS[repo] ?? []).filter((p) => state === 'all' || p.state === state),
   getPullRequest: async (_, repo, number) => {
     const p = (STUB_PRS[repo] ?? []).find((x) => x.number === number)
     if (!p) throw new Error(`Stub: PR ${number} not found`)
@@ -977,7 +1189,153 @@ export const GiteaClient = defineClient<GiteaClient>(build, () => ({
 
  ## 1.0.0
 `,
-  listIssues: async (_, repo) => STUB_ISSUES[repo] ?? [],
+  listIssues: async (_, repo, state = 'open') =>
+    (STUB_ISSUES[repo] ?? []).filter((i) => state === 'all' || i.state === state),
+  getIssue: async (_, repo, index) => {
+    const i = (STUB_ISSUES[repo] ?? []).find((x) => x.number === index)
+    if (!i) throw new Error(`Stub: issue ${index} not found`)
+    return i
+  },
+  createIssue: async (_, repo, body) => {
+    const labels = await stubLabels()
+    const i: Issue = {
+      id: Date.now(),
+      number: stubNextIndex(repo),
+      title: body.title,
+      body: body.body,
+      state: 'open',
+      user: { login: 'tapas', avatar_url: 'https://i.pravatar.cc/64?u=tapas' },
+      labels: labels.filter((l) => body.labels?.includes(l.id)),
+      assignees: (body.assignees ?? []).map((login) => ({ login })),
+      comments: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+    STUB_ISSUES[repo] = [i, ...(STUB_ISSUES[repo] ?? [])]
+    return i
+  },
+  updateIssue: async (_, repo, index, body) => {
+    const i = (STUB_ISSUES[repo] ?? []).find((x) => x.number === index)
+    if (!i) throw new Error(`Stub: issue ${index} not found`)
+    const { assignees, ...rest } = body
+    Object.assign(i, rest, { updated_at: new Date().toISOString() })
+    if (assignees) i.assignees = assignees.map((login) => ({ login }))
+    if (body.state === 'closed') i.closed_at = new Date().toISOString()
+    return i
+  },
+  setIssueLabels: async (_, repo, index, ids) => {
+    const labels = await stubLabels()
+    const picked = labels.filter((l) => ids.includes(l.id))
+    const i = (STUB_ISSUES[repo] ?? []).find((x) => x.number === index)
+    if (i) i.labels = picked
+    const p = (STUB_PRS[repo] ?? []).find((x) => x.number === index)
+    if (p) p.labels = picked
+  },
+  listComments: async (_, repo, index) => STUB_COMMENTS[`${repo}#${index}`] ?? [],
+  createComment: async (_, repo, index, body) => {
+    const c: Comment = {
+      id: Date.now(),
+      body,
+      user: { login: 'tapas', avatar_url: 'https://i.pravatar.cc/64?u=tapas' },
+      created_at: new Date().toISOString(),
+    }
+    const key = `${repo}#${index}`
+    STUB_COMMENTS[key] = [...(STUB_COMMENTS[key] ?? []), c]
+    const target = [...(STUB_ISSUES[repo] ?? []), ...(STUB_PRS[repo] ?? [])].find((x) => x.number === index)
+    if (target) target.comments = (target.comments ?? 0) + 1
+    return c
+  },
+  deleteComment: async (_, repo, id) => {
+    for (const key of Object.keys(STUB_COMMENTS)) {
+      if (key.startsWith(`${repo}#`)) STUB_COMMENTS[key] = STUB_COMMENTS[key].filter((c) => c.id !== id)
+    }
+  },
+
+  createPullRequest: async (org, repo, body) => {
+    const labels = await stubLabels()
+    const number = stubNextIndex(repo)
+    const p: PullRequest = {
+      id: Date.now(),
+      number,
+      title: body.title,
+      body: body.body,
+      state: 'open',
+      user: { login: 'tapas', avatar_url: 'https://i.pravatar.cc/64?u=tapas' },
+      head: { ref: body.head },
+      base: { ref: body.base },
+      labels: labels.filter((l) => body.labels?.includes(l.id)),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      mergeable: true,
+      comments: 0,
+      additions: 0,
+      deletions: 0,
+      changed_files: 0,
+      html_url: `https://gitea.adhar.local/${org}/${repo}/pulls/${number}`,
+    }
+    STUB_PRS[repo] = [p, ...(STUB_PRS[repo] ?? [])]
+    return p
+  },
+  updatePullRequest: async (_, repo, index, body) => {
+    const p = (STUB_PRS[repo] ?? []).find((x) => x.number === index)
+    if (!p) throw new Error(`Stub: PR ${index} not found`)
+    const { assignees: _a, labels: _l, base, ...rest } = body
+    Object.assign(p, rest, { updated_at: new Date().toISOString() })
+    if (base) p.base = { ref: base }
+    if (body.state === 'closed') p.closed_at = new Date().toISOString()
+    if (body.state === 'open') p.closed_at = null
+    return p
+  },
+  mergePullRequest: async (_, repo, index) => {
+    const p = (STUB_PRS[repo] ?? []).find((x) => x.number === index)
+    if (!p) throw new Error(`Stub: PR ${index} not found`)
+    if (p.mergeable === false) throw new Error('Merge conflicts — rebase the branch first.')
+    const now = new Date().toISOString()
+    Object.assign(p, { state: 'closed', merged: true, merged_at: now, closed_at: now, merged_by: { login: 'tapas' } })
+  },
+  listPullCommits: async (_, repo) => (STUB_COMMITS[repo] ?? []).slice(0, 2),
+  listPullReviews: async (_, repo, index) => STUB_REVIEWS[`${repo}#${index}`] ?? [],
+  createPullReview: async (_, repo, index, body) => {
+    const r: Review = {
+      id: Date.now(),
+      user: { login: 'tapas', avatar_url: 'https://i.pravatar.cc/64?u=tapas' },
+      state: body.event,
+      body: body.body,
+      submitted_at: new Date().toISOString(),
+    }
+    const key = `${repo}#${index}`
+    STUB_REVIEWS[key] = [...(STUB_REVIEWS[key] ?? []), r]
+    return r
+  },
+
+  getCommit: async (org, repo, sha) => {
+    const all = Object.values(STUB_COMMITS).flat()
+    const c = all.find((x) => x.sha === sha || x.short_sha === sha) ?? all[0]
+    return {
+      ...c,
+      author_name: c.author.login,
+      author_email: `${c.author.login}@adhar.local`,
+      committer_name: c.author.login,
+      parents: [all[all.indexOf(c) + 1]?.sha ?? '0000000000000000'],
+      files: [{ filename: 'CHANGELOG.md', status: 'modified' }],
+      html_url: `https://gitea.adhar.local/${org}/${repo}/commit/${c.sha}`,
+    }
+  },
+  getCommitDiff: async (_, _repo, sha) =>
+    `diff --git a/CHANGELOG.md b/CHANGELOG.md
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,3 +1,4 @@
+ # Changelog
+
++- ${sha.slice(0, 7)}: stub diff (offline / test mode).
+ ## 1.0.0
+`,
+  compare: async (_, repo, base, head) => {
+    if (base === head) return { total_commits: 0, commits: [] }
+    const list = (STUB_COMMITS[repo] ?? []).slice(0, (head.length + base.length) % 3)
+    return { total_commits: list.length, commits: list }
+  },
   listTree: async (_, _repo, _ref, path = '') => STUB_TREE[path] ?? [],
   getFile: async (_, _repo, _ref, path) => {
     const content = STUB_FILES[path] ?? `// ${path}\n// File contents not yet seeded.\n`
@@ -1112,12 +1470,38 @@ export const GiteaClient = defineClient<GiteaClient>(build, () => ({
   },
   testWebhook: async () => {},
 
-  listLabels: async () => [
+  listLabels: () => stubLabels(),
+}))
+
+// deno-lint-ignore require-await
+async function stubLabels(): Promise<Label[]> {
+  return [
     { id: 1, name: 'bug', color: 'e11d48' },
     { id: 2, name: 'enhancement', color: '10b981' },
     { id: 3, name: 'a11y', color: '8b5cf6' },
+  ]
+}
+
+/** Issues and PRs share one index sequence per repo, as in Gitea. */
+function stubNextIndex(repo: string): number {
+  const used = [...(STUB_ISSUES[repo] ?? []), ...(STUB_PRS[repo] ?? [])].map((x) => x.number)
+  return (used.length ? Math.max(...used) : 0) + 1
+}
+
+const STUB_COMMENTS: Record<string, Comment[]> = {
+  'adhar-console#42': [
+    { id: 7001, body: 'Can we keep the discovery URL configurable per tenant?', user: { login: 'maya', avatar_url: 'https://i.pravatar.cc/64?u=maya' }, created_at: '2026-04-22T12:30:00Z' },
+    { id: 7002, body: 'Yes — it reads `OIDC_ISSUER` now. Pushed in the last commit.', user: { login: 'tapas', avatar_url: 'https://i.pravatar.cc/64?u=tapas' }, created_at: '2026-04-23T09:02:00Z' },
   ],
-}))
+  'adhar-console#87': [
+    { id: 7003, body: 'Reproduced on Chrome and Safari with the dark theme.', user: { login: 'priya', avatar_url: 'https://i.pravatar.cc/64?u=priya' }, created_at: '2026-04-21T16:10:00Z' },
+  ],
+}
+const STUB_REVIEWS: Record<string, Review[]> = {
+  'adhar-console#42': [
+    { id: 8001, user: { login: 'maya', avatar_url: 'https://i.pravatar.cc/64?u=maya' }, state: 'APPROVED', body: 'LGTM once CI is green.', submitted_at: '2026-04-23T10:00:00Z' },
+  ],
+}
 
 const STUB_TOPICS: Record<string, string[]> = {
   'adhar-console': ['platform', 'react', 'deno', 'module-federation'],

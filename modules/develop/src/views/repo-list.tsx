@@ -23,6 +23,8 @@ import {
   useUpdateRepo,
 } from '../data/git.ts';
 import { RepoMark } from '../components/repo-picker.tsx';
+import { useDevelopParams, useSetDevelopParams } from '../data/nav.ts';
+import { Chip, ChipGroup, FilterSection, I, IconFilter, IconRows, IconSort, LayoutBtn, MenuItem, Popover, Segmented, StatTile, ToolbarBtn } from '../components/list-kit.tsx';
 import { RepoDrawer } from '../components/repo-drawer.tsx';
 import { CloudEnvLaunch } from '../components/cloud-env-launch.tsx';
 import { copy, fmtKb, IconGrid, IconList, IconMore, IconPlus, IconRefresh, IconSearch, langColor, RepoBadges } from '../components/repo-bits.tsx';
@@ -96,7 +98,12 @@ export function RepoList() {
   const [topic, setTopic] = useState<string>('all');
   const [activity, setActivity] = useState<Activity>('any');
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
-  const [openName, setOpenName] = useState<string | null>(null);
+  const params = useDevelopParams();
+  const setParams = useSetDevelopParams();
+  // The open repository (and its drawer tab) live in the URL, so the dashboard
+  // and the other Develop pages can link straight to a repository's details.
+  const openName = params.repo ?? null;
+  const setOpenName = useCallback((name: string | null) => setParams({ repo: name ?? undefined, tab: undefined }), [setParams]);
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<gitea.Repo | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -398,7 +405,7 @@ export function RepoList() {
           <RepoTable rows={list} prCount={prCount} sort={prefs.sort} dir={prefs.dir} onSort={setSort} menuFor={menuFor} />
         )}
 
-      {open ? <RepoDrawer repo={open} onClose={() => setOpenName(null)} onDeleted={() => setOpenName(null)} /> : null}
+      {open ? <RepoDrawer repo={open} tab={params.tab} onTab={(t) => setParams({ tab: t === 'overview' ? undefined : t })} onClose={() => setOpenName(null)} onDeleted={() => setOpenName(null)} /> : null}
 
       <CreateRepoModal open={creating} onClose={() => setCreating(false)} onCreated={(r) => { setCreating(false); setOpenName(r.name); }} />
 
@@ -447,37 +454,6 @@ function DeleteHint({ repo }: { repo: gitea.Repo | null }) {
 
 /* ─────────── toolbar menus ─────────── */
 
-/** A small popover anchored under its trigger; outside click and Escape close it. */
-function Popover({ open, onClose, align = 'left', width = 'w-72', children }: { open: boolean; onClose(): void; align?: 'left' | 'right'; width?: string; children: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useClickOutside(ref, onClose, open);
-  if (!open) return null;
-  return (
-    <div ref={ref} className={cn('pop-in absolute top-full z-56 mt-1.5 rounded-xl border border-edge-default bg-surface-raised p-2 shadow-xl ring-1 ring-black/5 dark:ring-white/10', align === 'right' ? 'right-0' : 'left-0', width)}>
-      {children}
-    </div>
-  );
-}
-
-function ToolbarBtn({ on, onClick, children, badge, title }: { on?: boolean; onClick(): void; children: ReactNode; badge?: number; title?: string }) {
-  return (
-    <button
-      type='button'
-      onClick={onClick}
-      title={title}
-      aria-expanded={on}
-      aria-haspopup='dialog'
-      className={cn(
-        'inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium transition-colors',
-        on ? 'border-edge-strong bg-surface-sunken text-content' : 'border-edge-default bg-surface-app text-content-muted hover:border-edge-strong hover:text-content',
-      )}
-    >
-      {children}
-      {badge ? <span className='rounded-full bg-content px-1.5 py-px text-[10px] font-semibold tabular-nums text-surface-raised'>{badge}</span> : null}
-    </button>
-  );
-}
-
 function FiltersMenu(p: {
   count: number;
   visibility: Visibility; onVisibility(v: Visibility): void;
@@ -497,24 +473,24 @@ function FiltersMenu(p: {
       {/* The popover is wrapped so the trigger counts as "inside": a click on
           it toggles instead of closing and reopening. */}
       <Popover open={open} onClose={close} width='w-[22rem] max-w-[calc(100vw-2rem)]'>
-        <Section title='Visibility'>
+        <FilterSection title='Visibility'>
           <Segmented value={p.visibility} onChange={p.onVisibility} options={[['all', 'Any'], ['public', 'Public'], ['private', 'Private']]} />
-        </Section>
-        <Section title='State'>
+        </FilterSection>
+        <FilterSection title='State'>
           <ChipGroup value={p.state} onChange={p.onState} options={(Object.keys(STATE_LABEL) as State[]).map((k) => [k, STATE_LABEL[k]])} />
-        </Section>
-        <Section title='Activity'>
+        </FilterSection>
+        <FilterSection title='Activity'>
           <ChipGroup value={p.activity} onChange={p.onActivity} options={(Object.keys(ACTIVITY_LABEL) as Activity[]).map((k) => [k, ACTIVITY_LABEL[k]])} />
-        </Section>
+        </FilterSection>
         {p.languages.length ? (
-          <Section title='Language'>
+          <FilterSection title='Language'>
             <ChipGroup value={p.language} onChange={p.onLanguage} options={[['all', 'Any'], ...p.languages.map(([l, n]) => [l, `${l} · ${n}`] as [string, string])]} swatch={(v) => (v === 'all' ? undefined : langColor(v))} />
-          </Section>
+          </FilterSection>
         ) : null}
         {p.topics.length ? (
-          <Section title='Topic'>
+          <FilterSection title='Topic'>
             <ChipGroup value={p.topic} onChange={p.onTopic} options={[['all', 'Any'], ...p.topics.map(([t, n]) => [t, `${t} · ${n}`] as [string, string])]} />
-          </Section>
+          </FilterSection>
         ) : null}
         <div className='mt-1 flex items-center justify-between border-t border-edge-subtle px-1 pt-2'>
           <button type='button' onClick={p.onClear} className='text-[11px] font-medium text-content-muted hover:text-content'>Reset</button>
@@ -552,69 +528,6 @@ function SortMenu({ sort, dir, onSort, onDir, label }: { sort: SortKey; dir: Dir
         </div>
       </Popover>
     </div>
-  );
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className='mb-2 last:mb-0'>
-      <div className='px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-content-subtle'>{title}</div>
-      {children}
-    </div>
-  );
-}
-
-function Segmented<T extends string>({ value, onChange, options }: { value: T; onChange(v: T): void; options: Array<[T, string]> }) {
-  return (
-    <div className='grid gap-0.5 rounded-lg bg-surface-sunken p-0.5' style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }} role='radiogroup'>
-      {options.map(([v, label]) => (
-        <button
-          key={v}
-          type='button'
-          role='radio'
-          aria-checked={v === value}
-          onClick={() => onChange(v)}
-          className={cn('h-7 rounded-md text-[12px] font-medium transition-colors', v === value ? 'bg-surface-raised text-content shadow-sm' : 'text-content-muted hover:text-content')}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function ChipGroup<T extends string>({ value, onChange, options, swatch }: { value: T; onChange(v: T): void; options: Array<[T, string]>; swatch?(v: T): string | undefined }) {
-  return (
-    <div className='flex flex-wrap gap-1'>
-      {options.map(([v, label]) => {
-        const on = v === value;
-        const color = swatch?.(v);
-        return (
-          <button
-            key={v}
-            type='button'
-            aria-pressed={on}
-            onClick={() => onChange(v)}
-            className={cn(
-              'inline-flex h-6.5 items-center gap-1.5 rounded-full border px-2 text-[11px] transition-colors',
-              on ? 'border-content bg-content text-surface-raised' : 'border-edge-default bg-surface-app text-content-muted hover:border-edge-strong hover:text-content',
-            )}
-          >
-            {color ? <i className='h-2 w-2 rounded-full' style={{ background: color }} /> : null}
-            {label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function Chip({ children, onClear }: { children: ReactNode; onClear(): void }) {
-  return (
-    <span className='inline-flex items-center gap-1 rounded-full border border-edge-default bg-surface-app py-0.5 pl-2 pr-1 text-[11px] font-medium text-content'>
-      {children}
-      <button type='button' onClick={onClear} aria-label='Remove filter' className='flex h-4 w-4 items-center justify-center rounded-full text-content-subtle hover:bg-surface-sunken hover:text-content'>×</button>
-    </span>
   );
 }
 
@@ -972,43 +885,6 @@ function CreateRepoModal({ open, onClose, onCreated }: { open: boolean; onClose(
 
 /* ─────────── bits ─────────── */
 
-type Tone = 'slate' | 'brand' | 'amber' | 'emerald' | 'info' | 'violet';
-
-function StatTile({ label, value, hint, tone = 'slate', on = false, onClick }: {
-  label: string;
-  value: number | string;
-  hint?: string;
-  tone?: Tone;
-  on?: boolean;
-  onClick?(): void;
-}) {
-  const color = {
-    slate: 'text-content',
-    brand: 'text-brand-700 dark:text-brand-300',
-    amber: 'text-amber-700 dark:text-amber-300',
-    emerald: 'text-emerald-700 dark:text-emerald-300',
-    info: 'text-sky-700 dark:text-sky-300',
-    violet: 'text-violet-700 dark:text-violet-300',
-  }[tone];
-  const Tag = onClick ? 'button' : 'div';
-  return (
-    <Tag
-      type={onClick ? 'button' : undefined}
-      onClick={onClick}
-      aria-pressed={onClick ? on : undefined}
-      className={cn(
-        'flex flex-col gap-0.5 rounded-xl border px-3 py-2 text-left transition-colors',
-        on ? 'border-content bg-surface-sunken ring-1 ring-content/10' : 'border-edge-default bg-surface-raised',
-        onClick && 'hover:border-edge-strong',
-      )}
-    >
-      <span className='text-[10px] font-semibold uppercase tracking-wider text-content-subtle'>{label}</span>
-      <span className={cn('truncate text-lg font-semibold leading-none tracking-tight tabular-nums', color)}>{value}</span>
-      {hint ? <span className='truncate text-[10px] text-content-subtle'>{hint}</span> : <span className='text-[10px]'>&nbsp;</span>}
-    </Tag>
-  );
-}
-
 function Stat({ label, value, accent = 'slate' }: { label: string; value: number; accent?: 'slate' | 'brand' | 'amber' | 'emerald' }) {
   const tone = {
     slate: 'text-content',
@@ -1023,28 +899,5 @@ function Stat({ label, value, accent = 'slate' }: { label: string; value: number
     </div>
   );
 }
-
-function LayoutBtn({ on, onClick, title, children }: { on: boolean; onClick(): void; title: string; children: ReactNode }) {
-  return (
-    <button type='button' title={title} aria-label={title} role='radio' aria-checked={on} onClick={onClick} className={cn('flex h-8 w-8 items-center justify-center rounded-md transition-colors', on ? 'bg-surface-raised text-content shadow-sm ring-1 ring-edge-default' : 'text-content-subtle hover:text-content')}>
-      {children}
-    </button>
-  );
-}
-
-function MenuItem({ onClick, children, danger = false }: { onClick(): void; children: ReactNode; danger?: boolean }) {
-  return (
-    <button type='button' role='menuitem' onClick={onClick} className={cn('flex w-full items-center rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors', danger ? 'text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10' : 'text-content-muted hover:bg-surface-sunken hover:text-content')}>
-      {children}
-    </button>
-  );
-}
-
-const I = ({ children, size = 13 }: { children: ReactNode; size?: number }) => (
-  <svg width={size} height={size} viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round' aria-hidden>{children}</svg>
-);
-const IconFilter = () => <I><path d='M3 5h18l-7 8v6l-4 2v-8z' /></I>;
-const IconSort = () => <I><path d='M4 7h10M4 12h7M4 17h4M17 6v12m0 0 3-3m-3 3-3-3' /></I>;
-const IconRows = () => <I size={14}><rect x='3' y='4' width='18' height='4' rx='1' /><rect x='3' y='10' width='18' height='4' rx='1' /><rect x='3' y='16' width='18' height='4' rx='1' /></I>;
 
 export default RepoList;

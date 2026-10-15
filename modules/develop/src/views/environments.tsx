@@ -472,6 +472,7 @@ function WorkspaceCard({ workspace: w, dashboard, myOwner, onOpen, actions, pend
 }
 
 function WorkspaceTable({ rows, dashboard, onOpen, actions }: { rows: coder.Workspace[]; dashboard: string; onOpen(w: coder.Workspace): void; actions(w: coder.Workspace): Actions }) {
+  const openIn = useOpenInWorkspace()
   return (
     <div className="overflow-x-auto rounded-xl border border-edge-default bg-surface-raised">
       <table className="w-full text-left text-xs">

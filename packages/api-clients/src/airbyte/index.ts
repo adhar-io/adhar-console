@@ -76,8 +76,28 @@ export const ConnectionSchema = z.object({
   last_sync_bytes: z.number().optional(),
   last_sync_duration_s: z.number().optional(),
   next_sync_at: z.string().optional(),
+  /** Selected streams, when the API returned the catalog. */
+  streams: z.array(z.object({
+    name: z.string(),
+    namespace: z.string().optional(),
+    sync_mode: z.string().optional(),
+    destination_sync_mode: z.string().optional(),
+    selected: z.boolean().optional(),
+  })).optional(),
+  namespace_definition: z.string().optional(),
+  prefix: z.string().optional(),
 })
 export type Connection = z.infer<typeof ConnectionSchema>
+
+export type ScheduleInput =
+  | { type: 'manual' }
+  | { type: 'basic'; units: number; time_unit: 'minutes' | 'hours' | 'days' | 'weeks' | 'months' }
+  | { type: 'cron'; cron_expression: string; timezone?: string }
+
+export interface CheckResult {
+  status: 'succeeded' | 'failed'
+  message?: string
+}
 
 export const JobSchema = z.object({
   job_id: z.string(),
@@ -92,6 +112,7 @@ export const JobSchema = z.object({
   records_emitted: z.number().optional(),
   bytes_emitted: z.number().optional(),
   failure_message: z.string().optional(),
+  attempts: z.number().optional(),
 })
 export type Job = z.infer<typeof JobSchema>
 
@@ -101,42 +122,231 @@ export interface AirbyteClient {
   listConnections(): Promise<Connection[]>
   getConnection(id: string): Promise<Connection>
   listJobs(filter?: { connectionId?: string; status?: JobStatus; limit?: number }): Promise<Job[]>
+  /** Log lines of a job's latest attempt. */
+  getJobLogs(jobId: string): Promise<string[]>
   triggerSync(connectionId: string): Promise<void>
+  cancelJob(jobId: string): Promise<void>
+  /** Clear the destination's data for this connection and re-sync from scratch. */
+  resetConnection(connectionId: string): Promise<void>
   toggleConnection(connectionId: string, active: boolean): Promise<void>
+  updateSchedule(connectionId: string, schedule: ScheduleInput): Promise<void>
+  renameConnection(connectionId: string, name: string): Promise<void>
+  deleteConnection(connectionId: string): Promise<void>
+  checkSource(sourceId: string): Promise<CheckResult>
+  checkDestination(destinationId: string): Promise<CheckResult>
+}
+
+/* ─────────── live: Airbyte config API (v1) ───────────
+ *
+ * The config API is POST-only, camelCase, and workspace-scoped. Every list
+ * call needs a `workspaceId`, discovered once from `workspaces/list`. The
+ * responses are normalised here into the snake_case shapes the console has
+ * always rendered, so a view never sees Airbyte's wire format.
+ */
+
+// deno-lint-ignore no-explicit-any
+type Raw = any
+
+type TimeUnit = 'minutes' | 'hours' | 'days' | 'weeks' | 'months'
+const TIME_UNIT: Record<string, TimeUnit> = {
+  minutes: 'minutes',
+  hours: 'hours',
+  days: 'days',
+  weeks: 'weeks',
+  months: 'months',
+}
+
+const toIso = (v: unknown): string | undefined => {
+  if (v == null || v === '') return undefined
+  if (typeof v === 'number') return new Date(v < 1e12 ? v * 1000 : v).toISOString()
+  return String(v)
+}
+
+function jobStatus(v: unknown): JobStatus {
+  const s = String(v ?? '').toLowerCase()
+  return (JobStatusSchema.options as string[]).includes(s) ? (s as JobStatus) : s === 'cancelled' || s === 'canceled' ? 'cancelled' : 'pending'
+}
+
+function normJob(r: Raw, names: Map<string, string>): Job {
+  const job = r.job ?? r
+  const attempts: Raw[] = r.attempts ?? []
+  const last = attempts[attempts.length - 1]?.attempt ?? attempts[attempts.length - 1] ?? {}
+  const records = attempts.reduce((s: number, a: Raw) => s + Number((a.attempt ?? a).recordsSynced ?? 0), 0)
+  const bytes = attempts.reduce((s: number, a: Raw) => s + Number((a.attempt ?? a).bytesSynced ?? 0), 0)
+  const created = toIso(job.createdAt) ?? new Date(0).toISOString()
+  const ended = ['succeeded', 'failed', 'cancelled', 'incomplete'].includes(jobStatus(job.status)) ? toIso(last.endedAt ?? job.updatedAt) : undefined
+  const failure = last.failureSummary?.failures?.[0]
+  return {
+    job_id: String(job.id ?? job.jobId),
+    connection_id: String(job.configId ?? job.connectionId ?? ''),
+    connection_name: names.get(String(job.configId ?? job.connectionId)) ?? String(job.configId ?? ''),
+    job_type: String(job.configType ?? 'sync').toLowerCase().includes('reset') ? 'reset_connection' : 'sync',
+    status: jobStatus(job.status),
+    created_at: created,
+    started_at: toIso(attempts[0]?.attempt?.createdAt ?? attempts[0]?.createdAt) ?? created,
+    ended_at: ended,
+    duration_s: ended ? Math.max(0, Math.round((Date.parse(ended) - Date.parse(created)) / 1000)) : undefined,
+    records_emitted: records || undefined,
+    bytes_emitted: bytes || undefined,
+    failure_message: failure ? failure.externalMessage ?? failure.internalMessage : undefined,
+    attempts: attempts.length || undefined,
+  }
+}
+
+function normConnection(r: Raw, src: Map<string, Source>, dst: Map<string, Destination>): Connection {
+  // Already in console shape (older BFFs, tests).
+  if (r.connection_id) return r as Connection
+  const s = r.source ? { name: r.source.name, type: r.source.sourceName } : { name: src.get(r.sourceId)?.name, type: src.get(r.sourceId)?.source_type }
+  const d = r.destination ? { name: r.destination.name, type: r.destination.destinationName } : { name: dst.get(r.destinationId)?.name, type: dst.get(r.destinationId)?.destination_type }
+  const basic = r.scheduleData?.basicSchedule ?? r.schedule
+  const cron = r.scheduleData?.cron
+  const scheduleType = (r.scheduleType ?? (basic ? 'basic' : 'manual')) as 'manual' | 'basic' | 'cron'
+  const streams = (r.syncCatalog?.streams ?? []).map((x: Raw) => ({
+    name: x.stream?.name ?? x.name,
+    namespace: x.stream?.namespace ?? undefined,
+    sync_mode: x.config?.syncMode,
+    destination_sync_mode: x.config?.destinationSyncMode,
+    selected: x.config?.selected ?? true,
+  }))
+  const selected = streams.filter((x: { selected?: boolean }) => x.selected !== false)
+  const modes: string[] = [...new Set<string>(selected.map((x: { sync_mode?: string; destination_sync_mode?: string }) => `${x.sync_mode ?? '?'} | ${x.destination_sync_mode ?? '?'}`))]
+  return {
+    connection_id: r.connectionId,
+    name: r.name ?? `${s.name} → ${d.name}`,
+    source_id: r.sourceId ?? r.source?.sourceId,
+    source_name: s.name ?? r.sourceId,
+    source_type: s.type ?? '',
+    destination_id: r.destinationId ?? r.destination?.destinationId,
+    destination_name: d.name ?? r.destinationId,
+    destination_type: d.type ?? '',
+    status: r.status === 'active' ? 'active' : r.status === 'deprecated' ? 'deprecated' : 'inactive',
+    schedule_type: scheduleType,
+    schedule: scheduleType === 'cron'
+      ? { cron_expression: cron?.cronExpression }
+      : basic
+      ? { units: basic.units, time_unit: TIME_UNIT[String(basic.timeUnit).toLowerCase()] }
+      : undefined,
+    sync_mode: modes.length === 1 ? modes[0].replace(/_/g, ' ') : modes.length ? 'mixed' : undefined,
+    streams_count: selected.length,
+    streams: streams.length ? streams : undefined,
+    last_sync_status: r.latestSyncJobStatus ? jobStatus(r.latestSyncJobStatus) : r.isSyncing ? 'running' : undefined,
+    last_sync_started_at: toIso(r.latestSyncJobCreatedAt),
+    namespace_definition: r.namespaceDefinition,
+    prefix: r.prefix,
+  }
 }
 
 function build(http: HttpClient): AirbyteClient {
+  let workspace: Promise<string> | null = null
+  const workspaceId = () => {
+    workspace ??= http.post<Raw>(`/api/v1/workspaces/list`, {}).then((r) => {
+      const id = r.workspaces?.[0]?.workspaceId
+      if (!id) throw new Error('Airbyte has no workspace yet — open Airbyte once to finish its setup.')
+      return id as string
+    }).catch((e) => {
+      workspace = null
+      throw e
+    })
+    return workspace
+  }
+
+  const listSources = async (): Promise<Source[]> => {
+    const r = await http.post<Raw>(`/api/v1/sources/list`, { workspaceId: await workspaceId() })
+    return (r.sources ?? []).map((x: Raw): Source =>
+      x.source_id ? x : { source_id: x.sourceId, name: x.name, source_type: x.sourceName, workspace_id: x.workspaceId, icon: x.icon }
+    )
+  }
+  const listDestinations = async (): Promise<Destination[]> => {
+    const r = await http.post<Raw>(`/api/v1/destinations/list`, { workspaceId: await workspaceId() })
+    return (r.destinations ?? []).map((x: Raw): Destination =>
+      x.destination_id ? x : { destination_id: x.destinationId, name: x.name, destination_type: x.destinationName, workspace_id: x.workspaceId, icon: x.icon }
+    )
+  }
+  const maps = async () => {
+    const [s, d] = await Promise.all([listSources().catch(() => []), listDestinations().catch(() => [])])
+    return { src: new Map(s.map((x) => [x.source_id, x])), dst: new Map(d.map((x) => [x.destination_id, x])) }
+  }
+  const listConnections = async (): Promise<Connection[]> => {
+    const [r, m] = await Promise.all([http.post<Raw>(`/api/v1/connections/list`, { workspaceId: await workspaceId() }), maps()])
+    const conns: Connection[] = (r.connections ?? []).map((c: Raw) => normConnection(c, m.src, m.dst))
+    // Fill the last-sync columns from the newest job of each connection.
+    const jobs = await listJobsRaw({ limit: 100 }, new Map(conns.map((c) => [c.connection_id, c.name]))).catch(() => [])
+    for (const c of conns) {
+      const last = jobs.find((j) => j.connection_id === c.connection_id && j.job_type === 'sync')
+      if (!last) continue
+      c.last_sync_status = last.status
+      c.last_sync_started_at = last.started_at
+      c.last_sync_finished_at = last.ended_at
+      c.last_sync_records = last.records_emitted
+      c.last_sync_bytes = last.bytes_emitted
+      c.last_sync_duration_s = last.duration_s
+    }
+    return conns
+  }
+  const listJobsRaw = async (filter: { connectionId?: string; status?: JobStatus; limit?: number } | undefined, names: Map<string, string>): Promise<Job[]> => {
+    const body: Raw = {
+      configTypes: ['sync', 'reset_connection'],
+      pagination: { rowOffset: 0, pageSize: filter?.limit ?? 50 },
+      ...(filter?.connectionId ? { configId: filter.connectionId } : { workspaceIds: [await workspaceId()] }),
+      ...(filter?.status ? { statuses: [filter.status] } : {}),
+    }
+    const r = await http.post<Raw>(`/api/v1/jobs/list`, body)
+    return (r.jobs ?? []).map((j: Raw) => (j.job_id ? (j as Job) : normJob(j, names)))
+  }
+  const update = async (connectionId: string, patch: Raw) => {
+    await http.post(`/api/v1/connections/update`, { connectionId, ...patch }, { response: 'raw' })
+  }
+
   return {
-    listSources: async () => {
-      const res = await http.post<{ sources: Source[] }>(`/api/v1/sources/list`, {})
-      return res.sources
+    listSources,
+    listDestinations,
+    listConnections,
+    getConnection: async (id) => {
+      const [r, m] = await Promise.all([http.post<Raw>(`/api/v1/connections/get`, { connectionId: id }), maps()])
+      return normConnection(r, m.src, m.dst)
     },
-    listDestinations: async () => {
-      const res = await http.post<{ destinations: Destination[] }>(`/api/v1/destinations/list`, {})
-      return res.destinations
-    },
-    listConnections: async () => {
-      const res = await http.post<{ connections: Connection[] }>(`/api/v1/connections/list`, {})
-      return res.connections
-    },
-    getConnection: async (id) =>
-      http.post<Connection>(`/api/v1/connections/get`, { connectionId: id }),
     listJobs: async (filter) => {
-      const res = await http.post<{ jobs: Job[] }>(`/api/v1/jobs/list`, {
-        configId: filter?.connectionId,
-        configTypes: ['sync'],
-        pagination: { rowOffset: 0, pageSize: filter?.limit ?? 50 },
-      })
-      return res.jobs
+      const conns = await http.post<Raw>(`/api/v1/connections/list`, { workspaceId: await workspaceId() }).catch(() => ({ connections: [] }))
+      const names = new Map<string, string>((conns.connections ?? []).map((c: Raw) => [c.connectionId ?? c.connection_id, c.name]))
+      return listJobsRaw(filter, names)
+    },
+    getJobLogs: async (jobId) => {
+      const r = await http.post<Raw>(`/api/v1/jobs/get`, { id: Number(jobId) })
+      const attempts: Raw[] = r.attempts ?? []
+      const last = attempts[attempts.length - 1]
+      const lines: string[] = last?.logs?.logLines ?? last?.logs?.events?.map((e: Raw) => `${e.timestamp ?? ''} ${e.level ?? ''} ${e.message ?? ''}`) ?? []
+      return lines
     },
     triggerSync: async (connectionId) => {
-      await http.post<void>(`/api/v1/connections/sync`, { connectionId })
+      await http.post(`/api/v1/connections/sync`, { connectionId }, { response: 'raw' })
     },
-    toggleConnection: async (connectionId, active) => {
-      await http.post<void>(`/api/v1/connections/update`, {
+    cancelJob: async (jobId) => {
+      await http.post(`/api/v1/jobs/cancel`, { id: Number(jobId) }, { response: 'raw' })
+    },
+    resetConnection: async (connectionId) => {
+      await http.post(`/api/v1/connections/reset`, { connectionId }, { response: 'raw' })
+    },
+    toggleConnection: (connectionId, active) => update(connectionId, { status: active ? 'active' : 'inactive' }),
+    updateSchedule: (connectionId, sch) =>
+      update(
         connectionId,
-        status: active ? 'active' : 'inactive',
-      })
+        sch.type === 'manual'
+          ? { scheduleType: 'manual' }
+          : sch.type === 'basic'
+          ? { scheduleType: 'basic', scheduleData: { basicSchedule: { timeUnit: sch.time_unit, units: sch.units } } }
+          : { scheduleType: 'cron', scheduleData: { cron: { cronExpression: sch.cron_expression, cronTimeZone: sch.timezone ?? 'UTC' } } },
+      ),
+    renameConnection: (connectionId, name) => update(connectionId, { name }),
+    deleteConnection: async (connectionId) => {
+      await http.post(`/api/v1/connections/delete`, { connectionId }, { response: 'raw' })
+    },
+    checkSource: async (sourceId) => {
+      const r = await http.post<Raw>(`/api/v1/sources/check_connection`, { sourceId })
+      return { status: r.status === 'succeeded' ? 'succeeded' : 'failed', message: r.message }
+    },
+    checkDestination: async (destinationId) => {
+      const r = await http.post<Raw>(`/api/v1/destinations/check_connection`, { destinationId })
+      return { status: r.status === 'succeeded' ? 'succeeded' : 'failed', message: r.message }
     },
   }
 }
@@ -249,6 +459,7 @@ const STUB_CONNECTIONS: Connection[] = [
     schedule: { units: 1, time_unit: 'hours' },
     sync_mode: 'incremental | append + dedup',
     streams_count: 14,
+    streams: ['invoices', 'invoice_lines', 'customers', 'subscriptions', 'plans', 'payments', 'refunds', 'credits', 'taxes', 'coupons', 'discounts', 'events', 'usage_records', 'accounts'].map((name) => ({ name, namespace: 'public', sync_mode: 'incremental', destination_sync_mode: 'append_dedup', selected: true })),
     last_sync_started_at: minutesAgo(38),
     last_sync_finished_at: minutesAgo(35),
     last_sync_status: 'succeeded',
@@ -439,11 +650,67 @@ export const AirbyteClient = defineClient<AirbyteClient>(build, () => {
       if (c) {
         c.last_sync_status = 'running'
         c.last_sync_started_at = new Date().toISOString()
+        STUB_JOBS.unshift({
+          job_id: `job-${Date.now().toString(36)}`,
+          connection_id: c.connection_id,
+          connection_name: c.name,
+          job_type: 'sync',
+          status: 'running',
+          created_at: c.last_sync_started_at,
+          started_at: c.last_sync_started_at,
+        })
       }
     },
     toggleConnection: async (connectionId, active) => {
       const c = conns.find((x) => x.connection_id === connectionId)
       if (c) c.status = active ? 'active' : 'inactive'
     },
+    getJobLogs: async (jobId) => {
+      const j = STUB_JOBS.find((x) => x.job_id === jobId)
+      const t = j?.created_at ?? new Date().toISOString()
+      return [
+        `${t} INFO  Starting sync for ${j?.connection_name ?? 'connection'}`,
+        `${t} INFO  Source: discovered 14 streams, 12 selected`,
+        `${t} INFO  Replication: read ${j?.records_emitted ?? 0} records`,
+        j?.status === 'failed' ? `${t} ERROR ${j.failure_message}` : `${t} INFO  Destination: committed ${j?.bytes_emitted ?? 0} bytes`,
+        `${t} INFO  Sync ${j?.status ?? 'finished'}`,
+      ]
+    },
+    cancelJob: async (jobId) => {
+      const j = STUB_JOBS.find((x) => x.job_id === jobId)
+      if (j) {
+        j.status = 'cancelled'
+        j.ended_at = new Date().toISOString()
+      }
+    },
+    resetConnection: async (connectionId) => {
+      const c = conns.find((x) => x.connection_id === connectionId)
+      if (c) {
+        c.last_sync_status = 'running'
+        c.last_sync_started_at = new Date().toISOString()
+      }
+    },
+    updateSchedule: async (connectionId, sch) => {
+      const c = conns.find((x) => x.connection_id === connectionId)
+      if (!c) return
+      c.schedule_type = sch.type
+      c.schedule = sch.type === 'basic' ? { units: sch.units, time_unit: sch.time_unit } : sch.type === 'cron' ? { cron_expression: sch.cron_expression } : undefined
+      if (sch.type === 'manual') c.next_sync_at = undefined
+    },
+    renameConnection: async (connectionId, name) => {
+      const c = conns.find((x) => x.connection_id === connectionId)
+      if (c) c.name = name
+    },
+    deleteConnection: async (connectionId) => {
+      const i = conns.findIndex((x) => x.connection_id === connectionId)
+      if (i >= 0) conns.splice(i, 1)
+    },
+    checkSource: async (sourceId) => {
+      const s = STUB_SOURCES.find((x) => x.source_id === sourceId)
+      return s?.connection_status === 'failed'
+        ? { status: 'failed', message: 'Authentication failed: invalid_grant (refresh token expired).' }
+        : { status: 'succeeded' }
+    },
+    checkDestination: async () => ({ status: 'succeeded' }),
   }
 })

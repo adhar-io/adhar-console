@@ -13,6 +13,7 @@ import {
   Input,
   LogConsole,
   Modal,
+  PageHeader,
   Select,
   Spinner,
   StatusBadge,
@@ -29,6 +30,9 @@ import { PerfSuite } from './perf-suite.tsx'
 import { PerfReport } from './perf-report.tsx'
 import { LiveCharts, StageRail } from './perf-run-live.tsx'
 import { PerfOverview } from './perf-overview.tsx'
+import { PerfDashboard } from './perf-dashboard.tsx'
+import { QuickTestModal } from './perf-quick.tsx'
+import { useDevelopParams, useSetDevelopParams } from '../data/nav.ts'
 import { ResultsView } from './perf-results.tsx'
 import { SchedulesView } from './perf-schedules.tsx'
 import { harvestedRuns, useHarvester, usePerfInsights } from '../data/perf-automation.ts'
@@ -74,9 +78,10 @@ import {
  * it out of the logs. When there is no summary yet the page says so rather
  * than rendering empty tables that look like a test with no results.
  */
-type PerfTab = 'tests' | 'runs' | 'results' | 'schedules'
+type PerfTab = 'overview' | 'tests' | 'runs' | 'results' | 'schedules'
 
 const PERF_TABS: Array<[PerfTab, string]> = [
+  ['overview', 'Overview'],
   ['tests', 'Tests'],
   ['runs', 'Runs'],
   ['results', 'Results'],
@@ -85,17 +90,28 @@ const PERF_TABS: Array<[PerfTab, string]> = [
 
 export function Performance() {
   /*
-   * "Tests" is the authoring side — scripts, configuration and gates, in
-   * git. "Runs" is what is happening on the cluster right now. "Results" is
-   * the kept history every trend, baseline and verdict is computed from, and
-   * "Schedules" is what runs unattended. The overview above them reads all
-   * four, so the state of performance is visible before any click.
+   * "Overview" is the health of every test at a glance. "Tests" is the
+   * authoring side — scripts, configuration and gates, in git. "Runs" is
+   * what is happening on the cluster right now. "Results" is the kept
+   * history every trend, baseline and verdict is computed from, and
+   * "Schedules" is what runs unattended. The tab, the open test (`?suite=`)
+   * and the open run (`?run=ns/name`) are in the URL, so every one of them
+   * can be linked to.
    */
-  const [tab, setTab] = useState<PerfTab>('tests')
+  const params = useDevelopParams()
+  const setParams = useSetDevelopParams()
+  const tab = (PERF_TABS.some(([id]) => id === params.view) ? params.view : 'overview') as PerfTab
+  const setTab = (t: PerfTab) => setParams({ view: t === 'overview' ? undefined : t })
   const runs = useTestRuns()
   const insights = usePerfInsights()
-  const [selected, setSelected] = useState<{ namespace: string; name: string } | null>(null)
+  const selected = useMemo(() => {
+    const i = params.run?.indexOf('/') ?? -1
+    return params.run && i > 0 ? { namespace: params.run.slice(0, i), name: params.run.slice(i + 1) } : null
+  }, [params.run])
+  const openRun = (namespace: string, name: string) => setParams({ view: 'runs', run: `${namespace}/${name}` })
   const [creating, setCreating] = useState(false)
+  const [quick, setQuick] = useState(false)
+  const [newTestToken, setNewTestToken] = useState(0)
   const [resultsFor, setResultsFor] = useState<string | undefined>(undefined)
   const [scheduleFor, setScheduleFor] = useState<string | undefined>(undefined)
   const canCreate = useCan('develop')
@@ -105,25 +121,29 @@ export function Performance() {
   useHarvester(!crdMissing)
 
   const items = runs.data ?? []
+  const inFlight = items.filter(isRunning).length
 
   const tabs = (
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="flex gap-1">
+    <div className="flex flex-wrap items-center gap-2 border-b border-edge-default">
+      <div className="-mb-px flex gap-1" role="tablist" aria-label="Performance Center">
         {PERF_TABS.map(([id, label]) => (
           <button
             key={id}
             type="button"
+            role="tab"
+            aria-selected={tab === id}
             onClick={() => {
               setTab(id)
               if (id !== 'results') setResultsFor(undefined)
               if (id !== 'schedules') setScheduleFor(undefined)
             }}
             className={cn(
-              'rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors',
-              tab === id ? 'bg-brand-600 text-white' : 'text-content-muted hover:bg-surface-sunken hover:text-content',
+              'border-b-2 px-3 py-2 text-[13px] font-medium transition-colors',
+              tab === id ? 'border-brand-600 text-content' : 'border-transparent text-content-muted hover:text-content',
             )}
           >
             {label}
+            {id === 'runs' && inFlight ? <span className="ml-1.5 rounded-full bg-brand-600 px-1.5 text-[10px] tabular-nums text-white">{inFlight}</span> : null}
             {id === 'schedules' && insights.schedules.length
               ? <span className="ml-1.5 tabular-nums opacity-70">{insights.schedules.length}</span>
               : null}
@@ -132,9 +152,9 @@ export function Performance() {
       </div>
       {tab === 'runs' && canCreate && !crdMissing
         ? (
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="ml-auto flex items-center gap-1.5 pb-1">
             <ClearFinished runs={items} />
-            <Button size="sm" onClick={() => setCreating(true)}>New test run</Button>
+            <Button size="sm" variant="secondary" onClick={() => setCreating(true)}>Run a ConfigMap script</Button>
           </div>
         )
         : null}
@@ -142,21 +162,45 @@ export function Performance() {
   )
 
   const drawer = selected
-    ? <RunDrawer namespace={selected.namespace} name={selected.name} onClose={() => setSelected(null)} />
+    ? <RunDrawer namespace={selected.namespace} name={selected.name} onClose={() => setParams({ run: undefined })} />
     : null
 
   return (
     <div className="space-y-4">
+      <PageHeader
+        title="Performance Center"
+        actions={
+          <>
+            <Button size="sm" variant="secondary" onClick={() => { runs.refetch() }} aria-label="Refresh" title="Refresh">↻</Button>
+            {canCreate ? <Button size="sm" variant="secondary" onClick={() => { setTab('tests'); setNewTestToken((n) => n + 1) }}>New test</Button> : null}
+            {canCreate ? <Button variant="primary" size="sm" onClick={() => setQuick(true)}>Quick test</Button> : null}
+          </>
+        }
+      />
       <PerfOverview insights={insights} runs={items} />
       {tabs}
 
-      {tab === 'tests'
+      {tab === 'overview'
+        ? (
+          <PerfDashboard
+            insights={insights}
+            runs={items}
+            onOpenTest={(t) => setParams({ view: 'tests', suite: t })}
+            onOpenRun={openRun}
+            onOpenResults={(t) => {
+              setResultsFor(t)
+              setTab('results')
+            }}
+            onQuickTest={() => setQuick(true)}
+          />
+        )
+        : tab === 'tests'
         ? (
           <PerfSuite
-            onOpenRun={(namespace, name) => {
-              setSelected({ namespace, name })
-              setTab('runs')
-            }}
+            selected={params.suite}
+            onSelect={(t) => setParams({ suite: t })}
+            createToken={newTestToken}
+            onOpenRun={openRun}
             onOpenResults={(test) => {
               setResultsFor(test)
               setTab('results')
@@ -189,12 +233,24 @@ export function Performance() {
               Every k6 TestRun on the cluster. Click one for stages, runner pods and the end-of-test summary. Finished runs
               started from the console are kept under Results automatically.
             </div>
-            <RunTable runs={items} loading={runs.isLoading} onSelect={setSelected} />
+            <RunTable runs={items} loading={runs.isLoading} onSelect={(r) => openRun(r.namespace, r.name)} />
           </div>
         )}
 
       {drawer}
       {creating ? <NewRunDialog onClose={() => setCreating(false)} /> : null}
+      <QuickTestModal
+        open={quick}
+        onClose={() => setQuick(false)}
+        onSaved={(t) => {
+          setQuick(false)
+          setParams({ view: 'tests', suite: t })
+        }}
+        onStarted={(ns, run, t) => {
+          setQuick(false)
+          setParams({ view: 'runs', run: `${ns}/${run}`, suite: t })
+        }}
+      />
     </div>
   )
 }

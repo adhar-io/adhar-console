@@ -65,3 +65,30 @@ export function useToggleConnection() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['airbyte', 'connections'] }),
   })
 }
+
+export function useJobLogs(jobId?: string) {
+  return useQuery({
+    queryKey: ['airbyte', 'job-logs', jobId],
+    queryFn: () => airbyteClient.getJobLogs(jobId!),
+    enabled: !!jobId,
+  })
+}
+
+/** Generic Airbyte mutation — every one refreshes the whole Airbyte cache. */
+function useAirbyteMutation<V, R = void>(fn: (v: V) => Promise<R>) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['airbyte'] }),
+  })
+}
+
+export const useCancelJob = () => useAirbyteMutation((jobId: string) => airbyteClient.cancelJob(jobId))
+export const useResetConnection = () => useAirbyteMutation((id: string) => airbyteClient.resetConnection(id))
+export const useUpdateSchedule = () =>
+  useAirbyteMutation((v: { id: string; schedule: airbyte.ScheduleInput }) => airbyteClient.updateSchedule(v.id, v.schedule))
+export const useRenameConnection = () =>
+  useAirbyteMutation((v: { id: string; name: string }) => airbyteClient.renameConnection(v.id, v.name))
+export const useDeleteConnection = () => useAirbyteMutation((id: string) => airbyteClient.deleteConnection(id))
+export const useCheckSource = () => useMutation({ mutationFn: (id: string) => airbyteClient.checkSource(id) })
+export const useCheckDestination = () => useMutation({ mutationFn: (id: string) => airbyteClient.checkDestination(id) })

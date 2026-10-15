@@ -26,7 +26,7 @@ export interface RouteHint {
 
 /**
  * Sections that are about code rather than about the phase they live in.
- * Develop is mostly a git surface, but "Cloud Envs" and "Data Pipelines" are
+ * Develop is mostly a git surface, but "Cloud Envs", "Builds" and "Pipelines" are
  * not, so the mapping is per-section rather than per-phase.
  */
 const REVIEW_SECTIONS = new Set(['prs', 'commits', 'branches', 'repos', 'issues'])
@@ -49,6 +49,8 @@ export function agentForRoute(hint: RouteHint): string | null {
   if (path.startsWith('/develop')) {
     if (REVIEW_SECTIONS.has(section)) return 'review'
     if (section === 'performance') return 'sre'
+    // Builds moved here from Platform; a failing build is a delivery question.
+    if (section === 'builds') return 'delivery'
     return 'review'
   }
 

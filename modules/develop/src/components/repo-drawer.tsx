@@ -57,16 +57,31 @@ import {
 import { RepoMark } from './repo-picker.tsx';
 import { FileBrowser } from './file-browser.tsx';
 import { CloudEnvLaunch } from './cloud-env-launch.tsx'
+import { NewIssueModal, NewPullModal } from './tracker-modals.tsx';
+import { itemRef, useGoDevelop } from '../data/nav.ts';
 import { copy, fmtKb, IconBranch, IconClose, IconCopy, IconExternal, IconPlus, IconShield, IconTag, IconTrash, IconUsers, IconWebhook, langColor, RepoBadges } from './repo-bits.tsx';
 
-type TabId = 'overview' | 'files' | 'branches' | 'commits' | 'pulls' | 'issues' | 'releases' | 'people' | 'hooks' | 'settings';
+export type TabId = 'overview' | 'files' | 'branches' | 'commits' | 'pulls' | 'issues' | 'releases' | 'people' | 'hooks' | 'settings';
+const TAB_IDS: TabId[] = ['overview', 'files', 'branches', 'commits', 'pulls', 'issues', 'releases', 'people', 'hooks', 'settings'];
 
 /**
  * Right-hand repository drawer — every Gitea management surface for one repo
  * behind tabs. Mutations toast; nothing is rendered inline as status text.
  */
-export function RepoDrawer({ repo: r, onClose, onDeleted }: { repo: gitea.Repo; onClose(): void; onDeleted(): void }) {
-  const [tab, setTab] = useState<TabId>('overview');
+export function RepoDrawer({ repo: r, onClose, onDeleted, tab: tabProp, onTab }: {
+  repo: gitea.Repo;
+  onClose(): void;
+  onDeleted(): void;
+  /** Controlled tab — the Repositories page keeps it in `?tab=`. */
+  tab?: string;
+  onTab?(t: TabId): void;
+}) {
+  const [tabState, setTabState] = useState<TabId>('overview');
+  const tab = (tabProp && TAB_IDS.includes(tabProp as TabId) ? tabProp : tabState) as TabId;
+  const setTab = (t: TabId) => {
+    setTabState(t);
+    onTab?.(t);
+  };
   const branches = useBranches(r.name);
   const prs = usePullRequests(r.name, 'open');
   const issues = useIssues(r.name, 'open');
@@ -180,6 +195,14 @@ function useAct() {
       toast.error(label, { description: e instanceof Error ? e.message : String(e) });
     }
   };
+}
+
+function FullView({ onClick, label = 'Open full view' }: { onClick(): void; label?: string }) {
+  return (
+    <button type='button' onClick={onClick} className='inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-brand-700 hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-500/10'>
+      {label} →
+    </button>
+  );
 }
 
 function Section({ title, count, loading, actions, children }: { title: string; count?: number; loading?: boolean; actions?: React.ReactNode; children: React.ReactNode }) {
@@ -360,6 +383,7 @@ function BranchesTab({ repo: r }: { repo: gitea.Repo }) {
   const [protecting, setProtecting] = useState<string | null>(null);
   const [approvals, setApprovals] = useState(1);
   const [blockPush, setBlockPush] = useState(true);
+  const go = useGoDevelop();
 
   const rules = protections.data ?? [];
   const ruleFor = (name: string) => rules.find((p) => (p.rule_name ?? p.branch_name) === name);
@@ -385,7 +409,7 @@ function BranchesTab({ repo: r }: { repo: gitea.Repo }) {
         </div>
       </Section>
 
-      <Section title='Branches' count={list.length} loading={branches.isLoading || protections.isLoading}>
+      <Section title='Branches' count={list.length} loading={branches.isLoading || protections.isLoading} actions={<FullView onClick={() => go('branches', { repo: r.name })} />}>
         {list.length
           ? (
             <ul className='divide-y divide-edge-subtle'>
@@ -480,15 +504,19 @@ function CommitsTab({ repo: r }: { repo: gitea.Repo }) {
   const [limit, setLimit] = useState(30);
   const commits = useCommits(r.name, ref, limit);
   const toast = useToast();
+  const go = useGoDevelop();
   return (
     <Section
       title='Commits'
       count={commits.data?.length}
       loading={commits.isLoading}
       actions={
-        <select value={ref} onChange={(e) => setRef(e.target.value)} aria-label='Branch' className='h-7 rounded-md border border-edge-default bg-surface-raised px-2 font-mono text-[11px] text-content focus:outline-none'>
-          {(branches.data ?? [{ name: r.default_branch }]).map((b) => <option key={b.name} value={b.name}>{b.name}</option>)}
-        </select>
+        <div className='flex items-center gap-1'>
+          <select value={ref} onChange={(e) => setRef(e.target.value)} aria-label='Branch' className='h-7 rounded-md border border-edge-default bg-surface-raised px-2 font-mono text-[11px] text-content focus:outline-none'>
+            {(branches.data ?? [{ name: r.default_branch }]).map((b) => <option key={b.name} value={b.name}>{b.name}</option>)}
+          </select>
+          <FullView onClick={() => go('commits', { repo: r.name, branch: ref })} />
+        </div>
       }
     >
       {commits.data?.length
@@ -499,7 +527,7 @@ function CommitsTab({ repo: r }: { repo: gitea.Repo }) {
                 <li key={c.sha} className='flex items-start gap-2 py-2 text-sm'>
                   <button type='button' onClick={() => copy(c.sha, toast)} title='Copy full SHA' className='rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-content-muted hover:text-content'>{c.short_sha}</button>
                   <div className='min-w-0 flex-1'>
-                    <div className='truncate text-content'>{c.message.split('\n')[0]}</div>
+                    <button type='button' onClick={() => go('commits', { repo: r.name, branch: ref, sha: c.sha })} className='block w-full truncate text-left text-content hover:text-brand-700 hover:underline dark:hover:text-brand-300'>{c.message.split('\n')[0]}</button>
                     <div className='text-[11px] text-content-subtle'>{c.author.login} · {formatRelative(c.created)}</div>
                   </div>
                   {c.stats
@@ -527,15 +555,34 @@ function CommitsTab({ repo: r }: { repo: gitea.Repo }) {
 function PullsTab({ repo: r }: { repo: gitea.Repo }) {
   const [state, setState] = useState<'open' | 'closed' | 'all'>('open');
   const prs = usePullRequests(r.name, state);
+  const go = useGoDevelop();
+  const [creating, setCreating] = useState(false);
   return (
-    <Section title='Pull requests' count={prs.data?.length} loading={prs.isLoading} actions={<StateSwitch value={state} onChange={setState} />}>
+    <Section
+      title='Pull requests'
+      count={prs.data?.length}
+      loading={prs.isLoading}
+      actions={
+        <div className='flex items-center gap-1.5'>
+          <StateSwitch value={state} onChange={setState} />
+          <Button size='xs' variant='secondary' onClick={() => setCreating(true)}><IconPlus size={12} /> New</Button>
+          <FullView onClick={() => go('prs', { repo: r.name, state })} />
+        </div>
+      }
+    >
+      <NewPullModal
+        open={creating}
+        onClose={() => setCreating(false)}
+        defaults={{ repo: r.name }}
+        onCreated={(pr) => go('prs', { repo: r.name, pr: itemRef(r.name, pr.number) })}
+      />
       {prs.data?.length
         ? (
           <ul className='divide-y divide-edge-subtle'>
             {prs.data.map((p) => (
               <li key={p.id} className='flex items-center gap-2 py-2 text-sm'>
                 <code className='font-mono text-[10px] text-content-muted'>#{p.number}</code>
-                <a href={p.html_url} target='_blank' rel='noopener' className='min-w-0 flex-1 truncate text-content hover:text-brand-700 hover:underline dark:hover:text-brand-300'>{p.title}</a>
+                <button type='button' onClick={() => go('prs', { repo: r.name, state, pr: itemRef(r.name, p.number) })} className='min-w-0 flex-1 truncate text-left text-content hover:text-brand-700 hover:underline dark:hover:text-brand-300'>{p.title}</button>
                 {p.merged ? <StatusBadge kind='healthy'>merged</StatusBadge> : p.state === 'closed' ? <StatusBadge kind='unknown'>closed</StatusBadge> : p.mergeable === false ? <StatusBadge kind='degraded'>conflicts</StatusBadge> : null}
                 {p.head ? <span className='hidden font-mono text-[10px] text-content-subtle sm:inline'>{p.head.ref} → {p.base?.ref ?? r.default_branch}</span> : null}
                 <span className='text-[11px] text-content-subtle'>{formatRelative(p.updated_at ?? p.created_at)}</span>
@@ -552,6 +599,8 @@ function PullsTab({ repo: r }: { repo: gitea.Repo }) {
 function IssuesTab({ repo: r }: { repo: gitea.Repo }) {
   const [state, setState] = useState<'open' | 'closed' | 'all'>('open');
   const issues = useIssues(r.name, state);
+  const go = useGoDevelop();
+  const [creating, setCreating] = useState(false);
   return (
     <Section
       title='Issues'
@@ -560,19 +609,24 @@ function IssuesTab({ repo: r }: { repo: gitea.Repo }) {
       actions={
         <div className='flex items-center gap-1.5'>
           <StateSwitch value={state} onChange={setState} />
-          <a href={`${r.html_url}/issues/new`} target='_blank' rel='noopener' className='inline-flex h-7 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-[11px] font-medium text-content hover:border-brand-400'>
-            <IconPlus size={12} /> New
-          </a>
+          <Button size='xs' variant='secondary' onClick={() => setCreating(true)}><IconPlus size={12} /> New</Button>
+          <FullView onClick={() => go('issues', { repo: r.name, state })} />
         </div>
       }
     >
+      <NewIssueModal
+        open={creating}
+        onClose={() => setCreating(false)}
+        defaultRepo={r.name}
+        onCreated={(i) => go('issues', { repo: r.name, issue: itemRef(r.name, i.number) })}
+      />
       {issues.data?.length
         ? (
           <ul className='divide-y divide-edge-subtle'>
             {issues.data.map((it) => (
               <li key={it.id} className='flex items-center gap-2 py-2 text-sm'>
                 <code className='font-mono text-[10px] text-content-muted'>#{it.number}</code>
-                <a href={`${r.html_url}/issues/${it.number}`} target='_blank' rel='noopener' className='min-w-0 flex-1 truncate text-content hover:text-brand-700 hover:underline dark:hover:text-brand-300'>{it.title}</a>
+                <button type='button' onClick={() => go('issues', { repo: r.name, state, issue: itemRef(r.name, it.number) })} className='min-w-0 flex-1 truncate text-left text-content hover:text-brand-700 hover:underline dark:hover:text-brand-300'>{it.title}</button>
                 <div className='flex flex-wrap gap-1'>
                   {it.labels.map((l) => (
                     <span key={l.name} className='rounded-full px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset' style={{ color: `#${l.color}`, borderColor: `#${l.color}66` }}>{l.name}</span>

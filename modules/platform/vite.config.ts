@@ -9,5 +9,7 @@ export default defineRemoteConfig({
     // PodsView, PodDrawer, etc.) are bundled as part of Home's chunk since
     // the host never imports them directly.
     './Home': './src/home.tsx',
+    // Builds renders under Develop (/develop?section=builds); see src/builds.tsx.
+    './Builds': './src/builds.tsx',
   },
 })

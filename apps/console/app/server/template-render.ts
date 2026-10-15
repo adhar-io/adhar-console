@@ -88,6 +88,19 @@ function evalExpr(expr: string, ctx: Ctx): unknown {
   // the WHOLE XR — so no Kafka cluster was ever created and the service died
   // at startup on "No resolvable bootstrap urls". Nothing reported a template
   // problem; it looked like a Kafka outage.
+  // `( … ) | filter` — a grouped expression piped to a filter, which Nunjucks
+  // needs because a filter binds tighter than `or`:
+  //
+  //    ${{ (values.description or 'A React single-page app…') | dump }}
+  //
+  // Checked BEFORE `or`, and evaluated inside-out. Live on 2026-10-15 the
+  // `or` branch matched first, took `(values.description` as its left-hand
+  // side and threw — so the scaffolder dropped App.jsx and app.component.ts
+  // from every new SPA (a file that fails to render is skipped) and the build
+  // died on `Could not resolve "./app/app.component"`, which reads like a
+  // broken template rather than a renderer that cannot parse one line of it.
+  const grouped = e.match(/^\(\s*(.+)\s*\)\s*\|\s*(lower|upper|dump|escape)$/)
+  if (grouped) return applyFilter(grouped[2], evalExpr(grouped[1], ctx))
   const orExpr = e.match(/^(.+?)\s+or\s+(.+)$/)
   if (orExpr) {
     const lhs = evalExpr(orExpr[1], ctx)
@@ -96,20 +109,7 @@ function evalExpr(expr: string, ctx: Ctx): unknown {
   }
   // bare `X | lower` / `X | upper` / `X | dump` / `X | escape`
   const filt = e.match(/^(.+?)\s*\|\s*(lower|upper|dump|escape)$/)
-  if (filt) {
-    const src = getByPath(ctx, filt[1].trim())
-    // `dump` is JSON encoding, and the skeletons depend on it for anything
-    // dropped into source code: `const APP_NAME = ${{ values.name | dump }}`
-    // needs the QUOTES, so an unquoted or empty substitution is not a cosmetic
-    // problem — it is a syntax error in the generated file.
-    if (filt[2] === 'dump') return JSON.stringify(src ?? null)
-    const v = String(src ?? '')
-    // `escape` is HTML escaping: the SPA skeletons drop the description into
-    // `<meta content="${{ values.description | escape }}">`, where a quote ends
-    // the attribute and `<` opens a tag.
-    if (filt[2] === 'escape') return escapeHtml(v)
-    return filt[2] === 'lower' ? v.toLowerCase() : v.toUpperCase()
-  }
+  if (filt) return applyFilter(filt[2], getByPath(ctx, filt[1].trim()))
   // An expression carrying a filter we do not implement must NOT fall through
   // to a path lookup. `getByPath(ctx, "values.name | dump")` matches nothing,
   // returns undefined and stringifies to "", so the renderer silently emits
@@ -279,4 +279,19 @@ function escapeHtml(v: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
+}
+
+/** The four filters the subset implements, applied to an already-evaluated value. */
+function applyFilter(name: string, src: unknown): unknown {
+  // `dump` is JSON encoding, and the skeletons depend on it for anything
+  // dropped into source code: `const APP_NAME = ${{ values.name | dump }}`
+  // needs the QUOTES, so an unquoted or empty substitution is not a cosmetic
+  // problem — it is a syntax error in the generated file.
+  if (name === 'dump') return JSON.stringify(src ?? null)
+  const v = String(src ?? '')
+  // `escape` is HTML escaping: the SPA skeletons drop the description into
+  // `<meta content="${{ values.description | escape }}">`, where a quote ends
+  // the attribute and `<` opens a tag.
+  if (name === 'escape') return escapeHtml(v)
+  return name === 'lower' ? v.toLowerCase() : v.toUpperCase()
 }

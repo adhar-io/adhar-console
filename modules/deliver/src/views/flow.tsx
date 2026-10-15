@@ -623,7 +623,7 @@ function buildStage(a: BuildArgs): StageModel {
     detail,
     state,
     positive,
-    link: { label: 'CI runs (Platform)', href: '/platform?section=ci' },
+    link: { label: 'Builds (Develop)', href: '/develop?section=builds' },
     render: () => (
       <div className="space-y-4">
         {state === 'notConfigured' ? (

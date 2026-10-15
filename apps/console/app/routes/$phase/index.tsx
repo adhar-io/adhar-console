@@ -1,4 +1,4 @@
-import { createFileRoute, useSearch } from '@tanstack/react-router'
+import { createFileRoute, Navigate, useSearch } from '@tanstack/react-router'
 import { RemoteModule } from '@adhar/mf-utils'
 import type { Phase } from '@adhar/shell-ui'
 
@@ -19,6 +19,16 @@ const PHASE_LABEL: Record<Phase, string> = {
 function PhaseLanding() {
   const { phase } = Route.useParams() as { phase: Phase }
   const search = useSearch({ from: '/$phase' }) as { section?: string }
+  // Builds moved from Platform to Develop. Old links (bookmarks, notification
+  // hrefs) still say /platform?section=ci — send them to the new home.
+  if (phase === 'platform' && search.section === 'ci') {
+    return <Navigate to="/develop" search={{ section: 'builds' } as never} replace />
+  }
+  // The Builds page is owned by the Platform module (it is built on its
+  // cluster data layer) but lives in the Develop sidebar.
+  if (phase === 'develop' && search.section === 'builds') {
+    return <RemoteModule key="builds" loader={loadBuilds} label="Builds" />
+  }
   return (
     <RemoteModule
       loader={() => loaderFor(phase)}
@@ -26,6 +36,10 @@ function PhaseLanding() {
       componentProps={{ section: search.section }}
     />
   )
+}
+
+function loadBuilds(): Promise<{ default: React.ComponentType }> {
+  return import('platform/Builds') as Promise<{ default: React.ComponentType }>
 }
 
 /**

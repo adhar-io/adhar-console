@@ -4,8 +4,22 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.133",
+    "date": "2026-10-15",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Fix ux issues"
+      },
+      {
+        "type": "change",
+        "text": "Develop redesign"
+      }
+    ]
+  },
+  {
     "version": "0.1.132",
-    "date": "2026-10-14",
+    "date": "2026-10-15",
     "changes": [
       {
         "type": "improvement",
@@ -984,26 +998,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "fix",
         "scope": "dev",
         "text": "Local development reaches the live cluster's update stream"
-      }
-    ]
-  },
-  {
-    "version": "0.1.93",
-    "date": "2026-09-24",
-    "changes": [
-      {
-        "type": "change",
-        "text": "Icon updated"
-      },
-      {
-        "type": "feature",
-        "scope": "catalog",
-        "text": "Delete an entity from the platform, fixed card rows, no tinted buttons"
-      },
-      {
-        "type": "feature",
-        "scope": "ai",
-        "text": "Redesign the Adhar AI landing as a hero band, roster and prompt cards"
       }
     ]
   }

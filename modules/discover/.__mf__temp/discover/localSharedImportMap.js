@@ -9,6 +9,11 @@
             return pkg;
         }
       ,
+        "@tanstack/react-router": async () => {
+          let pkg = await import("__mf__virtual/__mfe_internal__discover__prebuild___mf_0_tanstack_mf_1_react_mf_2_router__prebuild__.js");
+            return pkg;
+        }
+      ,
         "react": async () => {
           let pkg = await import("__mf__virtual/__mfe_internal__discover__prebuild__react__prebuild__.js");
             return pkg;
@@ -50,6 +55,38 @@
             shareConfig: {
               singleton: true,
               requiredVersion: "^5.99.1",
+              
+            }
+          }
+        ,
+          "@tanstack/react-router": {
+            name: "@tanstack/react-router",
+            version: "1.168.23",
+            scope: ["default"],
+            loaded: false,
+            from: "__mfe_internal__discover",
+            async get () {
+              if (false) {
+                throw new Error(`[Module Federation] Shared module '${"@tanstack/react-router"}' must be provided by host`);
+              }
+              usedShared["@tanstack/react-router"].loaded = true
+              const {"@tanstack/react-router": pkgDynamicImport} = importMap
+              const res = await pkgDynamicImport()
+              const exportModule = false && "@tanstack/react-router" === "react"
+                ? (res?.default ?? res)
+                : {...res}
+              // All npm packages pre-built by vite will be converted to esm
+              Object.defineProperty(exportModule, "__esModule", {
+                value: true,
+                enumerable: false
+              })
+              return function () {
+                return exportModule
+              }
+            },
+            shareConfig: {
+              singleton: true,
+              requiredVersion: "^1.168.23",
               
             }
           }

@@ -11,5 +11,7 @@ export default defineRemoteConfig({
     './Home': './src/home.tsx',
     // Builds renders under Develop (/develop?section=builds); see src/builds.tsx.
     './Builds': './src/builds.tsx',
+    // Chaos Engineering renders under Deliver (/deliver?section=chaos); see src/chaos-entry.tsx.
+    './Chaos': './src/chaos-entry.tsx',
   },
 })

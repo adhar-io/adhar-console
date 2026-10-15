@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { useNavigate } from '@tanstack/react-router'
+import { useRouter } from '@tanstack/react-router'
 import { ErrorBoundary, PageHeader, SETTINGS_CATEGORIES } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { Organization } from './views/organization.tsx'
@@ -182,7 +182,9 @@ export default function WorkspaceHome({ section: urlSection }: { section?: strin
   const [section, setSection] = useState<Section>(() => coerce(urlSection))
   const roles = useCurrentRoles()
   const me = useWorkspaceMe()
-  const navigate = useNavigate()
+  // useRouter({ warn: false }) is null when this remote does not share the
+  // host's router; fall back to a plain URL change the host router hears.
+  const router = useRouter({ warn: false })
 
   useEffect(() => {
     setSection(coerce(urlSection))
@@ -205,7 +207,12 @@ export default function WorkspaceHome({ section: urlSection }: { section?: strin
   /** Change page AND the URL, so the console sidebar, Back and shared links agree. */
   const go = (id: Section) => {
     setSection(id)
-    navigate({ to: '/settings', search: { section: id } as never })
+    if (router) {
+      void router.navigate({ to: '/settings', search: { section: id } as never })
+    } else {
+      history.pushState(history.state, '', `/settings?section=${encodeURIComponent(id)}`)
+      globalThis.dispatchEvent(new PopStateEvent('popstate', { state: history.state }))
+    }
   }
 
   return (

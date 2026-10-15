@@ -144,25 +144,42 @@ export interface MetabaseClient {
   runQuery(databaseId: number, sql: string): Promise<QueryResult>
 }
 
+/**
+ * A Metabase list response as an array. Metabase is not consistent across
+ * endpoints or versions: `/api/database` has answered `{ data: [...], total }`
+ * since 0.42 while `/api/card` and `/api/dashboard` are bare arrays. Reading
+ * the envelope as an array crashed the SQL editor with
+ * "(o.data ?? []).map is not a function".
+ */
+export function unwrapList<T>(raw: unknown): T[] {
+  if (Array.isArray(raw)) return raw as T[]
+  if (raw && typeof raw === 'object' && Array.isArray((raw as { data?: unknown }).data)) {
+    return (raw as { data: T[] }).data
+  }
+  return []
+}
+
 function build(http: HttpClient): MetabaseClient {
+  const list = async <T>(path: string) => unwrapList<T>(await http.get<unknown>(path))
   return {
-    listDatabases: () => http.get<Database[]>(`/api/database`),
-    listCollections: () => http.get<Collection[]>(`/api/collection`),
-    listQuestions: async (filter) => {
+    listDatabases: () => list<Database>(`/api/database`),
+    listCollections: () => list<Collection>(`/api/collection`),
+    listQuestions: (filter) => {
       const qs = filter?.collectionId ? `?collection=${filter.collectionId}` : ''
-      const res = await http.get<Question[]>(`/api/card${qs}`)
-      return res
+      return list<Question>(`/api/card${qs}`)
     },
     getQuestion: (id) => http.get<Question>(`/api/card/${id}`),
-    listDashboards: () => http.get<Dashboard[]>(`/api/dashboard`),
+    listDashboards: () => list<Dashboard>(`/api/dashboard`),
     getDashboard: async (id) => {
-      const dashboard = await http.get<Dashboard>(`/api/dashboard/${id}`)
+      const dashboard = await http.get<Dashboard & { dashcards?: Dashboard['cards'] }>(`/api/dashboard/${id}`)
+      // Metabase 0.47 renamed a dashboard's `cards` to `dashcards`.
+      const dashcards = dashboard.dashcards ?? dashboard.cards ?? []
       const cards = await Promise.all(
-        (dashboard.cards ?? []).map((dc) => http.get<Question>(`/api/card/${dc.card_id}`)),
+        dashcards.filter((dc) => dc.card_id != null).map((dc) => http.get<Question>(`/api/card/${dc.card_id}`)),
       )
-      return { dashboard, cards }
+      return { dashboard: { ...dashboard, cards: dashcards }, cards }
     },
-    listPulses: () => http.get<Pulse[]>(`/api/pulse`),
+    listPulses: () => list<Pulse>(`/api/pulse`),
     togglePulse: async (id, active) => {
       await http.put<void>(`/api/pulse/${id}`, { active })
     },

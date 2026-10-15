@@ -1,5 +1,6 @@
 import { assertEquals } from 'jsr:@std/assert'
-import { isPlatformRepo, isSystemNamespace, PLATFORM_REPOS } from './catalog-live.ts'
+import { isSystemNamespace } from './catalog-live.ts'
+import { isPlatformRepo, PLATFORM_REPOS } from './catalog-platform-repos.ts'
 
 /**
  * Every repo in the Gitea org used to become a catalog Component, and the
@@ -99,4 +100,14 @@ Deno.test('previously filtered namespaces are unaffected', () => {
   for (const ns of ['kube-system', 'adhar-system', 'cnpg-system', 'cert-manager', 'argocd']) {
     assertEquals(isSystemNamespace(ns), true, ns)
   }
+})
+
+Deno.test('the platform source mirror is not a service, by name and as a mirror', () => {
+  // `adhar` is github.com/adhar-io/adhar mirrored for the AI knowledge base;
+  // it showed in the catalog as a Component on 2026-10-15.
+  assertEquals(isPlatformRepo('adhar'), true)
+  // Any pull mirror is upstream code the platform fetched, whatever it is called.
+  assertEquals(isPlatformRepo('some-upstream-lib', { mirror: true }), true)
+  // A team repo is still a service, and a non-mirror flag changes nothing.
+  assertEquals(isPlatformRepo('my-service', { mirror: false }), false)
 })

@@ -1826,6 +1826,8 @@ export function ResourceUtilizationPanel() {
       used: string
       total: string
       hint?: string
+      /** Tooltip with the breakdown behind the number. */
+      detail?: string
       icon: React.ReactNode
     }> = []
 
@@ -1857,29 +1859,60 @@ export function ResourceUtilizationPanel() {
         icon: <IconMemory />,
       })
     }
-    // Storage — bytes actually written vs volume capacity, from kubelet's
-    // volume stats in Prometheus. Only volumes whose CSI driver reports usage
-    // count, so the hint says how many; with none reporting, the gauge is
-    // left out rather than comparing PVC sizes against node disk.
-    const volUsed = volQ.data?.used?.[0]?.value ?? 0
-    const volCap = volQ.data?.capacity?.[0]?.value ?? 0
-    const reporting = volQ.data?.reporting?.[0]?.value ?? 0
-    if (volCap > 0) {
-      const bound = pvcs.filter((p) => p.status?.phase === 'Bound').length
+    // Storage — bytes actually written where volumes live, never omitted.
+    //
+    //   measured: node root disks (node-local/hostPath volumes write there) +
+    //             CSI volumes that report kubelet stats, against their size;
+    //   fallback: with no Prometheus, what PVCs are provisioned at against
+    //             node disk capacity — labelled as allocation, not usage.
+    const bound = pvcs.filter((p) => p.status?.phase === 'Bound')
+    const vol = (k: 'used' | 'capacity' | 'reporting' | 'nodeDiskUsed' | 'nodeDiskSize' | 'provisioned') => volQ.data?.[k]?.[0]?.value ?? 0
+    const csiUsed = vol('used')
+    const csiCap = vol('capacity')
+    const csiReporting = vol('reporting')
+    const diskUsed = vol('nodeDiskUsed')
+    const diskSize = vol('nodeDiskSize')
+    const provisioned = vol('provisioned') ||
+      bound.reduce((s, p) => s + parseBytes(p.status?.capacity?.storage ?? p.spec?.resources?.requests?.storage), 0)
+    const volumes = `${bound.length} volume${bound.length === 1 ? '' : 's'}`
+    if (diskSize > 0 || csiCap > 0) {
+      const used = diskUsed + csiUsed
+      const total = diskSize + csiCap
       out.push({
         key: 'storage',
         label: 'Storage',
-        value: pct(volUsed, volCap),
-        used: formatStorage(volUsed),
-        total: formatStorage(volCap),
-        hint: `${reporting} of ${bound} PVC${bound === 1 ? '' : 's'} reporting usage`,
+        value: pct(used, total),
+        used: formatStorage(used),
+        total: formatStorage(total),
+        hint: provisioned > 0 ? `${volumes} · ${formatStorage(provisioned)} provisioned` : volumes,
+        detail: [
+          diskSize > 0 ? `Node disks ${formatStorage(diskUsed)} of ${formatStorage(diskSize)}` : null,
+          csiCap > 0 ? `Block volumes ${formatStorage(csiUsed)} of ${formatStorage(csiCap)} (${csiReporting} reporting)` : null,
+        ].filter(Boolean).join('\n'),
+        icon: <IconStorage />,
+      })
+    } else if (bound.length > 0) {
+      const nodeDisk = nodes.reduce(
+        (s, n) => s + parseBytes(n.status?.capacity?.['ephemeral-storage'] ?? n.status?.allocatable?.['ephemeral-storage']),
+        0,
+      )
+      out.push({
+        key: 'storage',
+        label: 'Storage',
+        value: nodeDisk > 0 ? pct(provisioned, nodeDisk) : 0,
+        used: formatStorage(provisioned),
+        total: nodeDisk > 0 ? formatStorage(nodeDisk) : '—',
+        hint: `${volumes} · allocated, not measured`,
+        detail: 'Prometheus volume metrics are unavailable, so this shows how much is provisioned, not how much is written.',
         icon: <IconStorage />,
       })
     }
     return out
   }, [nodesQ.data, metricsQ.data, pvcsQ.data, volQ.data])
 
-  const loading = nodesQ.isLoading || metricsQ.isLoading || pvcsQ.isLoading
+  // Volume metrics are waited for too: Storage is always part of the row now,
+  // and popping in after CPU/Memory reflowed the gauges.
+  const loading = nodesQ.isLoading || metricsQ.isLoading || pvcsQ.isLoading || volQ.isLoading
   // Keep the multi-up gauge row balanced whatever the available signal count.
   const gridCols =
     gauges.length >= 3 ? 'sm:grid-cols-3' : gauges.length === 2 ? 'sm:grid-cols-2' : 'grid-cols-1'
@@ -1891,7 +1924,7 @@ export function ResourceUtilizationPanel() {
       ) : nodesQ.isError && pvcsQ.isError ? (
         <PanelError message="Could not reach the cluster" />
       ) : gauges.length === 0 ? (
-        <PanelEmpty message="Requires metrics-server (metrics.k8s.io) or kubelet volume stats in Prometheus" />
+        <PanelEmpty message="Requires metrics-server (metrics.k8s.io) or Prometheus node and volume metrics" />
       ) : (
         <div className={cn('grid flex-1 grid-cols-1 gap-4', gridCols)}>
           {gauges.map((g) => (
@@ -1902,6 +1935,7 @@ export function ResourceUtilizationPanel() {
               used={g.used}
               total={g.total}
               hint={g.hint}
+              detail={g.detail}
               icon={g.icon}
             />
           ))}
@@ -1926,6 +1960,7 @@ function ResourceGauge({
   used,
   total,
   hint,
+  detail,
   icon,
 }: {
   label: string
@@ -1933,6 +1968,7 @@ function ResourceGauge({
   used: string
   total: string
   hint?: string
+  detail?: string
   icon: React.ReactNode
 }) {
   const tone = value >= 85 ? 'rose' : value >= 70 ? 'amber' : 'emerald'
@@ -1951,7 +1987,7 @@ function ResourceGauge({
   const c = 2 * Math.PI * r
   const offset = c - (Math.max(0, Math.min(100, value)) / 100) * c
   return (
-    <div className="flex flex-col items-center rounded-xl border border-edge-subtle bg-surface-sunken/30 p-3">
+    <div title={detail} className="flex flex-col items-center rounded-xl border border-edge-subtle bg-surface-sunken/30 p-3">
       <div className="relative h-28 w-28">
         <svg width="112" height="112" viewBox="0 0 112 112" className="-rotate-90">
           <circle cx="56" cy="56" r={r} fill="none" strokeWidth={stroke} className="stroke-edge-default" />
@@ -1987,7 +2023,12 @@ function ResourceGauge({
         <span className="font-medium text-content">{used}</span>
         <span className="text-content-subtle"> / {total}</span>
       </div>
-      {hint ? <div className="mt-0.5 text-[10px] text-content-subtle">{hint}</div> : null}
+      {hint ? <div className="mt-0.5 text-center text-[10px] text-content-subtle">{hint}</div> : null}
+      {detail ? (
+        <div className="mt-1 space-y-0.5 text-center text-[10px] leading-snug text-content-subtle">
+          {detail.split('\n').map((line) => <div key={line}>{line}</div>)}
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -67,7 +67,8 @@ function PhaseLayout() {
   const { section } = Route.useSearch()
   // Cluster + namespace pickers: every Platform page, and Develop's Builds
   // (Tekton runs are cluster resources too).
-  const clusterScoped = phase === 'platform' || (phase === 'develop' && section === 'builds')
+  const clusterScoped = phase === 'platform' || (phase === 'develop' && section === 'builds') ||
+    (phase === 'deliver' && section === 'chaos')
   return (
     <AppShell
       user={user}

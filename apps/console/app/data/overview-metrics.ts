@@ -135,10 +135,24 @@ export const cnpgCluster = (labels: Record<string, string>): string =>
 
 /* ─────────── storage ─────────── */
 
+/**
+ * Where persistent data is written, measured.
+ *
+ * Two kinds of volume need two sources. CSI block volumes (DigitalOcean, EBS,
+ * PD…) report their own usage through kubelet (`kubelet_volume_stats_*`).
+ * Node-local volumes — the platform's default `local-path` class is hostPath —
+ * report nothing per volume: their bytes land on the node's root disk, so that
+ * disk's usage (node-exporter, deduplicated per node) is the honest measure.
+ * `provisioned` is what PVs have been sized at, from kube-state-metrics.
+ */
+const ROOT_FS = 'mountpoint="/",fstype!~"tmpfs|overlay|squashfs|ramfs"'
 export const VOLUME_QUERIES = {
   used: 'sum(kubelet_volume_stats_used_bytes)',
   capacity: 'sum(kubelet_volume_stats_capacity_bytes)',
   reporting: 'count(kubelet_volume_stats_capacity_bytes)',
+  nodeDiskUsed: `sum(max by (instance) (node_filesystem_size_bytes{${ROOT_FS}} - node_filesystem_avail_bytes{${ROOT_FS}}))`,
+  nodeDiskSize: `sum(max by (instance) (node_filesystem_size_bytes{${ROOT_FS}}))`,
+  provisioned: 'sum(kube_persistentvolume_capacity_bytes)',
 } as const
 
 export function useVolumeUsage() {

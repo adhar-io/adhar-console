@@ -31,13 +31,13 @@ Deno.test('every pattern file parses', async () => {
 
 // Sections the console actually serves, per route — keep in step with the modules.
 const SECTIONS: Record<string, string[]> = {
-  '/deliver': ['dashboard', 'flow', 'apps', 'environments', 'stages', 'rollouts', 'releases', 'registry', 'scans', 'runtime', 'policy'],
+  '/deliver': ['dashboard', 'flow', 'apps', 'environments', 'stages', 'rollouts', 'releases', 'registry', 'scans', 'runtime', 'policy', 'chaos'],
   '/discover': ['dashboard', 'metrics', 'logs', 'traces', 'servicemap', 'alerts', 'slos', 'dashboards', 'analytics'],
   '/decide': ['dashboard', 'dashboards', 'questions', 'sql', 'databases', 'pulses', 'dora', 'spend'],
   '/develop': ['dashboard', 'repos', 'branches', 'commits', 'prs', 'issues', 'environments', 'builds', 'pipelines', 'performance', 'content', 'codebuilder'],
   '/settings': ['organization'],
   '/platform': [
-    'catalog', 'chaos', 'scaling', 'caches', 'queues', 'topics', 'databases', 'tables', 'buckets', 'backup-policies', 'restores',
+    'catalog', 'scaling', 'caches', 'queues', 'topics', 'databases', 'tables', 'buckets', 'backup-policies', 'restores',
     'secret-stores', 'secret-rotations', 'compliance-policies', 'teams', 'projects', 'environments', 'cost-trackers', 'xr-clusters',
   ],
 }

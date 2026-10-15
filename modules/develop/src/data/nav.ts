@@ -1,15 +1,23 @@
-import { useCallback } from 'react';
-import { useNavigate, useSearch } from '@tanstack/react-router';
+import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from '@tanstack/react-router';
 
 /**
  * Deep links inside the Develop module.
  *
  * The host route owns `?section=`; each view keeps its own selection next to
  * it (`?section=prs&pr=billing-service/17`), so a dashboard row, a toast or a
- * pasted URL lands on the exact repo, PR, issue or commit. Everything goes
- * through the router — never a hand-built href — because TanStack Router
- * JSON-encodes search values and a short sha like `12e4567` would otherwise
- * come back as a number.
+ * pasted URL lands on the exact repo, PR, issue or commit.
+ *
+ * This module is a federated remote. When the host's router is shared it is
+ * used directly; when it is not (an older host, a standalone remote in dev),
+ * the hooks fall back to `location` + the History API and announce changes
+ * with `popstate`, which the host router listens to — so a missing router
+ * context degrades to plain URLs instead of crashing the page with
+ * "Cannot read properties of null (reading 'stores')".
+ *
+ * Values are encoded the way TanStack Router does: a string that would parse
+ * as JSON (a short sha like `12e4567`, a number) is written quoted, and read
+ * back as the string it was.
  */
 
 export type DevelopSection =
@@ -57,35 +65,102 @@ function clean(o: Record<string, unknown>): Record<string, string> {
   return out;
 }
 
-/** The Develop deep-link params on the current URL. */
-export function useDevelopParams(): DevelopParams {
-  const s = useSearch({ strict: false }) as Record<string, unknown>;
+/** Decode one search value as TanStack Router wrote it. */
+function decode(raw: string): string {
+  if (raw.startsWith('"')) {
+    try {
+      const v = JSON.parse(raw);
+      if (typeof v === 'string') return v;
+    } catch { /* not JSON — keep raw */ }
+  }
+  return raw;
+}
+
+/** Encode one value as TanStack Router would, so either side can read it. */
+function encode(v: string): string {
+  try {
+    JSON.parse(v);
+    return JSON.stringify(v); // would otherwise read back as a number/bool/null
+  } catch {
+    return v;
+  }
+}
+
+function readSearch(): Record<string, string> {
+  if (typeof location === 'undefined') return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of new URLSearchParams(location.search)) out[k] = decode(v);
+  return out;
+}
+
+function pick(s: Record<string, unknown>): DevelopParams {
   const out: DevelopParams = {};
   for (const k of KEYS) if (s[k] != null && s[k] !== '') out[k] = String(s[k]);
   return out;
 }
 
+/** Write `search` to the URL without a router, and let listeners know. */
+function writeUrl(path: string, search: Record<string, string>, replace: boolean) {
+  const qs = new URLSearchParams(Object.entries(search).map(([k, v]) => [k, encode(v)])).toString();
+  const url = `${path}${qs ? `?${qs}` : ''}`;
+  if (replace) history.replaceState(history.state, '', url);
+  else history.pushState(history.state, '', url);
+  // The host router listens for popstate; so do the hooks below.
+  globalThis.dispatchEvent(new PopStateEvent('popstate', { state: history.state }));
+}
+
+/** The Develop deep-link params on the current URL. */
+export function useDevelopParams(): DevelopParams {
+  const router = useRouter({ warn: false });
+  const [params, setParams] = useState<DevelopParams>(() => pick(readSearch()));
+  useEffect(() => {
+    const sync = () => setParams((cur) => {
+      const next = pick(readSearch());
+      return JSON.stringify(cur) === JSON.stringify(next) ? cur : next;
+    });
+    sync();
+    globalThis.addEventListener('popstate', sync);
+    const unsubscribe = router?.history?.subscribe?.(sync);
+    return () => {
+      globalThis.removeEventListener('popstate', sync);
+      unsubscribe?.();
+    };
+  }, [router]);
+  return params;
+}
+
 /** Patch the params of the current page in place (no new history entry). */
 export function useSetDevelopParams() {
-  const navigate = useNavigate();
+  const router = useRouter({ warn: false });
   return useCallback(
-    (patch: DevelopParams) =>
-      navigate({
-        to: '/develop',
-        search: ((prev: Record<string, unknown>) => clean({ ...prev, ...patch })) as never,
-        replace: true,
-      }),
-    [navigate],
+    (patch: DevelopParams) => {
+      if (router) {
+        void router.navigate({
+          to: '/develop',
+          search: ((prev: Record<string, unknown>) => clean({ ...prev, ...patch })) as never,
+          replace: true,
+        });
+        return;
+      }
+      writeUrl('/develop', clean({ ...readSearch(), ...patch }), true);
+    },
+    [router],
   );
 }
 
 /** Go to another Develop section, optionally straight to one item. */
 export function useGoDevelop() {
-  const navigate = useNavigate();
+  const router = useRouter({ warn: false });
   return useCallback(
-    (section: DevelopSection, params: DevelopParams = {}) =>
-      navigate({ to: '/develop', search: clean({ section, ...params }) as never }),
-    [navigate],
+    (section: DevelopSection, params: DevelopParams = {}) => {
+      const search = clean({ section, ...params });
+      if (router) {
+        void router.navigate({ to: '/develop', search: search as never });
+        return;
+      }
+      writeUrl('/develop', search, false);
+    },
+    [router],
   );
 }
 

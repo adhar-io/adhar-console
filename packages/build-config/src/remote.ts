@@ -95,6 +95,10 @@ export function defineRemoteConfig(opts: RemoteOpts) {
           shared: {
             react: { singleton: true, eager: true, requiredVersion: '^19.2.0' },
             'react-dom': { singleton: true, eager: true, requiredVersion: '^19.2.0' },
+            // The host's router must be THE router: a remote with its own copy
+            // gets an empty router context, so useNavigate / useSearch crash
+            // with "Cannot read properties of null (reading 'stores')".
+            '@tanstack/react-router': { singleton: true, eager: true },
             '@tanstack/react-query': { singleton: true, eager: true },
           },
         }),

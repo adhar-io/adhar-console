@@ -304,6 +304,15 @@ export const DEFAULT_NAV: NavSection[] = [
             badge: { kind: 'progressing', value: 'eBPF' },
           },
           { id: 'deliver.policy', label: 'Policy', to: '/deliver', search: 'policy' },
+          {
+            id: 'deliver.chaos',
+            label: 'Chaos Engineering',
+            to: '/deliver',
+            search: 'chaos',
+            // Injecting faults into running workloads is an operator action —
+            // the view itself is the Platform module's (platform/Chaos).
+            roles: PLATFORM_OPS_ROLES,
+          },
         ],
       },
       {
@@ -413,15 +422,6 @@ export const DEFAULT_NAV: NavSection[] = [
           },
           { id: 'platform.logs', label: 'Logs', to: '/platform', search: 'logs' },
           { id: 'platform.metrics', label: 'Metrics', to: '/platform', search: 'metrics' },
-          {
-            id: 'platform.chaos',
-            label: 'Chaos Engineering',
-            to: '/platform',
-            search: 'chaos',
-            // Injecting faults into running workloads is a platform operation,
-            // not a read — it sits with shell and RBAC, not with the browsers.
-            roles: PLATFORM_OPS_ROLES,
-          },
           {
             id: 'platform.policy',
             label: 'Policy',

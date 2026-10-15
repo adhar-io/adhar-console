@@ -1,6 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
-import { useNavigate } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { cn } from '@adhar/utils'
 import { useToast } from '@adhar/shell-ui'
@@ -16,6 +15,7 @@ import {
   useCoderInfo,
   useRepoWorkspace,
 } from '../data/coder.ts'
+import { useGoDevelop } from '../data/nav.ts'
 
 /**
  * Open a repository in an IDE — VS Code Desktop, IntelliJ IDEA (desktop, via
@@ -102,7 +102,7 @@ function savePref(v: IdeKind) {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 export function CloudEnvLaunch({ repo, cloneUrl, compact = false, className }: CloudEnvLaunchProps) {
-  const navigate = useNavigate()
+  const go = useGoDevelop()
   const toast = useToast()
   const qc = useQueryClient()
   const info = useCoderInfo()
@@ -216,7 +216,7 @@ export function CloudEnvLaunch({ repo, cloneUrl, compact = false, className }: C
         toast.error(`${w.name} did not start (${w.latest_build.status})`, {
           id: tid,
           description: 'Its build log is on the Cloud Envs page.',
-          action: { label: 'Open Cloud Envs', onClick: () => navigate({ to: '/develop', search: { section: 'environments' } as never }) },
+          action: { label: 'Open Cloud Envs', onClick: () => go('environments') },
         })
         return
       }
@@ -356,7 +356,7 @@ export function CloudEnvLaunch({ repo, cloneUrl, compact = false, className }: C
               type='button'
               onClick={() => {
                 setMenu(false)
-                navigate({ to: '/develop', search: { section: 'environments' } as never })
+                go('environments')
               }}
               className='font-medium text-brand-700 hover:underline dark:text-brand-300'
             >

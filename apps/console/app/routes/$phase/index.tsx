@@ -24,6 +24,14 @@ function PhaseLanding() {
   if (phase === 'platform' && search.section === 'ci') {
     return <Navigate to="/develop" search={{ section: 'builds' } as never} replace />
   }
+  // Chaos Engineering moved from Platform to Deliver.
+  if (phase === 'platform' && search.section === 'chaos') {
+    return <Navigate to="/deliver" search={{ section: 'chaos' } as never} replace />
+  }
+  // Owned by the Platform module (Litmus CRDs, cluster picker), shown under Deliver.
+  if (phase === 'deliver' && search.section === 'chaos') {
+    return <RemoteModule key="chaos" loader={loadChaos} label="Chaos Engineering" />
+  }
   // The Builds page is owned by the Platform module (it is built on its
   // cluster data layer) but lives in the Develop sidebar.
   if (phase === 'develop' && search.section === 'builds') {
@@ -40,6 +48,10 @@ function PhaseLanding() {
 
 function loadBuilds(): Promise<{ default: React.ComponentType }> {
   return import('platform/Builds') as Promise<{ default: React.ComponentType }>
+}
+
+function loadChaos(): Promise<{ default: React.ComponentType }> {
+  return import('platform/Chaos') as Promise<{ default: React.ComponentType }>
 }
 
 /**

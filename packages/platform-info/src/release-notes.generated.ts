@@ -4,6 +4,16 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.134",
+    "date": "2026-10-15",
+    "changes": [
+      {
+        "type": "improvement",
+        "text": "Enhance Help & Support page"
+      }
+    ]
+  },
+  {
     "version": "0.1.133",
     "date": "2026-10-15",
     "changes": [
@@ -963,41 +973,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "feature",
         "scope": "catalog",
         "text": "The catalog and its drawer work at every width"
-      }
-    ]
-  },
-  {
-    "version": "0.1.94",
-    "date": "2026-09-25",
-    "changes": [
-      {
-        "type": "fix",
-        "text": "Coder fix"
-      },
-      {
-        "type": "feature",
-        "scope": "catalog",
-        "text": "Entity drawer works on a phone"
-      },
-      {
-        "type": "feature",
-        "scope": "ai",
-        "text": "New Adhar AI mark and a cleaner landing"
-      },
-      {
-        "type": "feature",
-        "scope": "develop",
-        "text": "Rebuild Repositories as a real browser"
-      },
-      {
-        "type": "fix",
-        "scope": "ui",
-        "text": "Popovers close when you click outside them"
-      },
-      {
-        "type": "fix",
-        "scope": "dev",
-        "text": "Local development reaches the live cluster's update stream"
       }
     ]
   }

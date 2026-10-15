@@ -10,6 +10,7 @@ import {
 } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
+import { IssueSearch } from './issue-search.tsx'
 import {
   memberDisplayName,
   memberInitials,
@@ -19,7 +20,13 @@ import {
   useComments,
   useCreateComment,
   useCreateIssue,
+  useCreateLink,
+  useCreateRelation,
   useCycles,
+  useDeleteLink,
+  useIssues,
+  useLinks,
+  useRelations,
   useDeleteIssue,
   useIssue,
   useLabels,
@@ -185,6 +192,9 @@ export function IssueDrawer({ projectId, issueId, onClose, onPick }: Props) {
               onPick={onPick}
               stateMap={stateMap}
             />
+
+            <RelationsBlock projectId={projectId} issueId={issueId} stateMap={stateMap} onPick={onPick} />
+            <LinksBlock projectId={projectId} issueId={issueId} />
 
             <CommentsBlock projectId={projectId} issueId={issueId} memberMap={memberMap} />
             <ActivityBlock projectId={projectId} issueId={issueId} memberMap={memberMap} />
@@ -387,6 +397,186 @@ function SubIssuesBlock({
           )
         })}
       </ul>
+    </Section>
+  )
+}
+
+
+/* ───── relations ───── */
+
+const RELATION_GROUPS: Array<{ key: plane.RelationType; label: string; tone: string }> = [
+  { key: 'blocked_by', label: 'Blocked by', tone: 'text-rose-700 dark:text-rose-300' },
+  { key: 'blocking', label: 'Blocking', tone: 'text-amber-700 dark:text-amber-300' },
+  { key: 'relates_to', label: 'Relates to', tone: 'text-content-muted' },
+  { key: 'duplicate', label: 'Duplicate of', tone: 'text-content-muted' },
+  { key: 'start_before', label: 'Starts before', tone: 'text-content-muted' },
+  { key: 'start_after', label: 'Starts after', tone: 'text-content-muted' },
+  { key: 'finish_before', label: 'Finishes before', tone: 'text-content-muted' },
+  { key: 'finish_after', label: 'Finishes after', tone: 'text-content-muted' },
+]
+const ADDABLE: Array<[plane.RelationType, string]> = [
+  ['blocked_by', 'Blocked by'],
+  ['blocking', 'Blocking'],
+  ['relates_to', 'Relates to'],
+  ['duplicate', 'Duplicate of'],
+]
+
+/**
+ * Dependencies between work items. Titles come from the project's issue list
+ * (already cached by the board), so this costs one request, not one per row.
+ * Plane's public API can add relations but not remove them — removal is a
+ * link to Plane.
+ */
+function RelationsBlock({ projectId, issueId, stateMap, onPick }: { projectId: string; issueId: string; stateMap: Map<string, plane.State>; onPick(id: string): void }) {
+  const rel = useRelations(projectId, issueId)
+  const issues = useIssues(projectId)
+  const create = useCreateRelation(projectId, issueId)
+  const toast = useToast()
+  const [adding, setAdding] = useState<plane.RelationType | null>(null)
+  const byId = useMemo(() => new Map((issues.data ?? []).map((i) => [i.id, i])), [issues.data])
+  if (rel.isError) return null
+  const groups = RELATION_GROUPS.map((g) => ({ ...g, items: rel.data?.[g.key] ?? [] })).filter((g) => g.items.length)
+  const total = groups.reduce((n, g) => n + g.items.length, 0)
+  const blocked = (rel.data?.blocked_by ?? []).some((r) => {
+    const st = stateMap.get(byId.get(r.issue_id)?.state ?? '')
+    return !st || (st.group !== 'completed' && st.group !== 'cancelled')
+  })
+  return (
+    <Section
+      title={`Relations${total ? ` · ${total}` : ''}`}
+    >
+      {blocked ? (
+        <div className="rounded-md bg-rose-50 px-2.5 py-1.5 text-[12px] text-rose-800 dark:bg-rose-500/10 dark:text-rose-200">
+          Blocked — at least one blocking issue is still open.
+        </div>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="mr-1 text-[11px] text-content-subtle">Add</span>
+        {ADDABLE.map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            aria-pressed={adding === k}
+            onClick={() => setAdding(adding === k ? null : k)}
+            className={cn('whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors', adding === k ? 'border-content bg-content text-surface-raised' : 'border-edge-default text-content-muted hover:border-edge-strong hover:text-content')}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {adding ? (
+        <IssueSearch
+          autoFocus
+          exclude={[issueId]}
+          placeholder={`${ADDABLE.find(([k]) => k === adding)?.[1]} — search title or KEY-123…`}
+          onPick={(h) =>
+            create.mutate({ type: adding, issues: [h.id] }, {
+              onSuccess: () => {
+                toast.success(`Linked ${h.project__identifier}-${h.sequence_id}`)
+                setAdding(null)
+              },
+              onError: (e) => toast.error(planeError(e, "Couldn't add the relation.")),
+            })}
+        />
+      ) : null}
+      {rel.isLoading ? (
+        <div className="flex items-center gap-2 text-[12px] text-content-muted"><Spinner size={11} /> Loading…</div>
+      ) : !groups.length ? (
+        adding ? null : <p className="text-[12px] text-content-subtle">No dependencies yet.</p>
+      ) : (
+        <div className="space-y-2.5">
+          {groups.map((g) => (
+            <div key={g.key}>
+              <div className={cn('mb-1 text-[11px] font-semibold uppercase tracking-wider', g.tone)}>{g.label}</div>
+              <ul className="divide-y divide-edge-subtle rounded-lg border border-edge-default bg-surface-raised">
+                {g.items.map((r) => {
+                  const it = r.project_id === projectId ? byId.get(r.issue_id) : undefined
+                  const st = it ? stateMap.get(it.state) : undefined
+                  return (
+                    <li key={`${g.key}-${r.issue_id}`}>
+                      <button
+                        type="button"
+                        disabled={!it}
+                        onClick={() => it && onPick(it.id)}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] hover:bg-brand-50/40 disabled:cursor-default"
+                      >
+                        {st ? <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: st.color }} title={st.name} /> : null}
+                        <span className="font-mono text-[10px] text-content-subtle">{it ? `#${it.sequence_id}` : r.issue_id.slice(0, 8)}</span>
+                        <span className="min-w-0 flex-1 truncate text-content">{it?.name ?? 'Issue in another project'}</span>
+                        {st ? <span className="text-[11px] text-content-subtle">{st.name}</span> : null}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+    </Section>
+  )
+}
+
+/* ───── links ───── */
+
+function LinksBlock({ projectId, issueId }: { projectId: string; issueId: string }) {
+  const links = useLinks(projectId, issueId)
+  const create = useCreateLink(projectId, issueId)
+  const remove = useDeleteLink(projectId, issueId)
+  const toast = useToast()
+  const [adding, setAdding] = useState(false)
+  const [url, setUrl] = useState('')
+  const [title, setTitle] = useState('')
+  const valid = /^https?:\/\/\S+$/i.test(url.trim())
+  const submit = () => {
+    if (!valid) return
+    create.mutate({ url: url.trim(), title: title.trim() || undefined }, {
+      onSuccess: () => {
+        setUrl('')
+        setTitle('')
+        setAdding(false)
+      },
+      onError: (e) => toast.error(planeError(e, "Couldn't add the link.")),
+    })
+  }
+  const list = links.data ?? []
+  return (
+    <Section
+      title={`Links${list.length ? ` · ${list.length}` : ''}`}
+      action={<button type="button" onClick={() => setAdding((a) => !a)} className="rounded-md px-1.5 py-0.5 text-[11px] font-medium text-content-muted hover:bg-surface-sunken hover:text-content">{adding ? 'Cancel' : '+ Add link'}</button>}
+    >
+      {adding ? (
+        <form className="grid grid-cols-1 gap-2 sm:grid-cols-[1.4fr_1fr_auto]" onSubmit={(e) => { e.preventDefault(); submit() }}>
+          <input autoFocus value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" aria-label="URL" className="h-8 rounded-md border border-edge-default bg-surface-app px-2 text-[13px] text-content focus:border-brand-400 focus:outline-none" />
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title (optional)" aria-label="Title" className="h-8 rounded-md border border-edge-default bg-surface-app px-2 text-[13px] text-content focus:border-brand-400 focus:outline-none" />
+          <Button variant="primary" size="sm" type="submit" disabled={!valid} loading={create.isPending}>Add</Button>
+        </form>
+      ) : null}
+      {links.isLoading ? null : list.length ? (
+        <ul className="divide-y divide-edge-subtle rounded-lg border border-edge-default bg-surface-raised">
+          {list.map((l) => {
+            let host = l.url
+            try {
+              host = new URL(l.url).host
+            } catch { /* keep raw */ }
+            return (
+              <li key={l.id} className="group flex items-center gap-2 px-3 py-1.5 text-[13px]">
+                <span className="shrink-0 text-content-subtle"><IconLink /></span>
+                <a href={l.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-brand-700 hover:underline dark:text-brand-300">{l.title || l.url}</a>
+                <span className="hidden truncate text-[11px] text-content-subtle sm:inline">{host}</span>
+                <button
+                  type="button"
+                  aria-label="Remove link"
+                  onClick={() => remove.mutate(l.id, { onError: (e) => toast.error(planeError(e, "Couldn't remove the link.")) })}
+                  className="rounded px-1 text-content-subtle opacity-0 hover:text-rose-600 group-hover:opacity-100 focus:opacity-100"
+                >
+                  ✕
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      ) : adding ? null : <p className="text-[12px] text-content-subtle">Designs, docs, dashboards, the PR — anything this issue points at.</p>}
     </Section>
   )
 }

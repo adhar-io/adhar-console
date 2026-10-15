@@ -3,6 +3,7 @@ import { EmptyState, PageHeader, Spinner, StatusBadge, useIntegration } from '@a
 import { Dashboard } from './views/dashboard.tsx'
 import { Projects } from './views/projects.tsx'
 import { Issues } from './views/issues.tsx'
+import { Intake } from './views/intake.tsx'
 import { Cycles } from './views/cycles.tsx'
 import { Okrs } from './views/okrs.tsx'
 import { Modules } from './views/modules.tsx'
@@ -24,6 +25,7 @@ type Section =
   | 'dashboard'
   | 'projects'
   | 'issues'
+  | 'intake'
   | 'cycles'
   | 'modules'
   | 'pages'
@@ -44,6 +46,10 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   issues: {
     label: 'Issues',
     description: 'Kanban + list view with priority and label filters. Backed by Plane.so.',
+  },
+  intake: {
+    label: 'Intake',
+    description: 'Triage queue — accept, decline, snooze or merge incoming requests before they reach the backlog.',
   },
   cycles: {
     label: 'Cycles',
@@ -77,6 +83,7 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
 
 const PROJECT_SCOPED: Set<Section> = new Set([
   'issues',
+  'intake',
   'cycles',
   'modules',
   'pages',
@@ -180,6 +187,7 @@ export default function DefineHome({ section }: { section?: string } = {}) {
       {active === 'issues' && (
         <Issues projectId={activeProjectId} appliedQuery={appliedIssueQuery} />
       )}
+      {active === 'intake' && <Intake projectId={activeProjectId} />}
       {active === 'cycles' && <Cycles projectId={activeProjectId} />}
       {active === 'modules' && <Modules projectId={activeProjectId} />}
       {active === 'pages' && <Pages projectId={activeProjectId} />}

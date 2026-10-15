@@ -10,14 +10,18 @@ import {
   Spinner,
   StatusBadge,
   type StatusKind,
+  useToast,
 } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
 import {
   memberDisplayName,
   memberInitials,
+  planeError,
   priorityKind,
+  useArchivedModules,
   useDeleteModule,
+  useModuleLifecycle,
   useIssues,
   useLabels,
   useMembers,
@@ -25,6 +29,7 @@ import {
   useStates,
 } from '../data/plane.ts'
 import { IssueDrawer } from '../components/issue-drawer.tsx'
+import { ArchivedSection } from '../components/archived-section.tsx'
 import { CreateModuleModal } from '../components/create-forms.tsx'
 import { ListToolbar } from '../components/list-toolbar.tsx'
 
@@ -48,6 +53,9 @@ export function Modules({ projectId }: { projectId?: string }) {
   const [openModule, setOpenModule] = useState<plane.Module | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
+  const archived = useArchivedModules(projectId, showArchived)
+  const life = useModuleLifecycle(projectId)
   if (!projectId) return <EmptyState title="Pick a project" />
   if (q.isLoading) {
     return (
@@ -107,6 +115,15 @@ export function Modules({ projectId }: { projectId?: string }) {
           ))}
         </div>
       )}
+      <ArchivedSection
+        noun="module"
+        open={showArchived}
+        onToggle={() => setShowArchived((v) => !v)}
+        loading={archived.isLoading}
+        items={(archived.data ?? []).map((m) => ({ id: m.id, name: m.name, archived_at: m.archived_at, meta: m.status }))}
+        onRestore={(id) => life.unarchive.mutateAsync(id)}
+        restoring={life.unarchive.isPending}
+      />
       {openModule ? (
         <ModuleDetail
           projectId={projectId}
@@ -294,6 +311,8 @@ function ModuleDetail({
   const labels = useLabels(projectId)
   const members = useMembers()
   const remove = useDeleteModule(projectId)
+  const life = useModuleLifecycle(projectId)
+  const toast = useToast()
   const [openIssue, setOpenIssue] = useState<string | null>(null)
 
   useEffect(() => {
@@ -345,6 +364,21 @@ function ModuleDetail({
             ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <Button
+              size="sm"
+              loading={life.archive.isPending}
+              title="Hide this module from the list; its issues and history are kept"
+              onClick={() =>
+                life.archive.mutate(m.id, {
+                  onSuccess: () => {
+                    toast.success(`Archived ${m.name}`)
+                    onClose()
+                  },
+                  onError: (e) => toast.error(planeError(e, "Couldn't archive the module.")),
+                })}
+            >
+              Archive
+            </Button>
             <Button
               size="sm"
               variant="danger"

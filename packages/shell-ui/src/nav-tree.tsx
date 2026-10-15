@@ -201,6 +201,7 @@ export const DEFAULT_NAV: NavSection[] = [
           { id: 'define.dashboard', label: 'Dashboard', to: '/define', search: 'dashboard' },
           { id: 'define.projects', label: 'Projects', to: '/define', search: 'projects' },
           { id: 'define.issues', label: 'Issues', to: '/define', search: 'issues' },
+          { id: 'define.intake', label: 'Intake', to: '/define', search: 'intake' },
           { id: 'define.cycles', label: 'Cycles', to: '/define', search: 'cycles' },
           { id: 'define.modules', label: 'Modules', to: '/define', search: 'modules' },
           { id: 'define.okrs', label: 'OKRs', to: '/define', search: 'okrs' },

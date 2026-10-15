@@ -518,3 +518,206 @@ export function planeError(e: unknown, fallback = 'Plane request failed.'): stri
   if (status === 404) return 'Plane has no such item, or it was deleted.'
   return e instanceof Error && e.message ? e.message : fallback
 }
+
+/* ───── triage, links, relations, search, workflow, lifecycle, stickies ───── */
+
+/**
+ * A Plane mutation bound to the workspace slug that refreshes the listed
+ * query-key prefixes (`['plane', part, slug, ...rest]`) when it succeeds.
+ */
+function usePlaneMutation<V, R = unknown>(
+  fn: (slug: string, v: V) => Promise<R>,
+  keys: (v: V) => Array<unknown[]>,
+) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: V) => fn(WORKSPACE_SLUG, v),
+    onSuccess: (_r, v) => {
+      for (const [part, ...rest] of keys(v)) qc.invalidateQueries({ queryKey: ['plane', part, WORKSPACE_SLUG, ...rest] })
+    },
+  })
+}
+
+export function useIntake(projectId?: string, status?: plane.IntakeStatus) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
+  return useQuery({
+    queryKey: ['plane', 'intake', WORKSPACE_SLUG, projectId, status ?? 'all'],
+    queryFn: () => planeClient.listIntake(WORKSPACE_SLUG, projectId!, status),
+    enabled: !!projectId,
+    staleTime: REFRESH_MS,
+  })
+}
+export function useCreateIntake(projectId?: string) {
+  return usePlaneMutation(
+    (slug, issue: { name: string; description_html?: string; priority?: plane.Priority }) => planeClient.createIntake(slug, projectId!, issue),
+    () => [['intake', projectId], ['summary', projectId]],
+  )
+}
+export function useUpdateIntake(projectId?: string) {
+  return usePlaneMutation(
+    (slug, v: { issue: string; patch: Parameters<plane.PlaneClient['updateIntake']>[3] }) => planeClient.updateIntake(slug, projectId!, v.issue, v.patch),
+    () => [['intake', projectId], ['issues', projectId], ['summary', projectId]],
+  )
+}
+export function useDeleteIntake(projectId?: string) {
+  return usePlaneMutation((slug, issue: string) => planeClient.deleteIntake(slug, projectId!, issue), () => [['intake', projectId], ['summary', projectId]])
+}
+
+export function useLinks(projectId?: string, issueId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
+  return useQuery({
+    queryKey: ['plane', 'links', WORKSPACE_SLUG, projectId, issueId],
+    queryFn: () => planeClient.listLinks(WORKSPACE_SLUG, projectId!, issueId!),
+    enabled: !!projectId && !!issueId,
+    staleTime: REFRESH_MS,
+  })
+}
+export function useCreateLink(projectId?: string, issueId?: string) {
+  return usePlaneMutation(
+    (slug, body: { url: string; title?: string }) => planeClient.createLink(slug, projectId!, issueId!, body),
+    () => [['links', projectId, issueId], ['activities', projectId, issueId]],
+  )
+}
+export function useDeleteLink(projectId?: string, issueId?: string) {
+  return usePlaneMutation((slug, link: string) => planeClient.deleteLink(slug, projectId!, issueId!, link), () => [['links', projectId, issueId]])
+}
+
+export function useRelations(projectId?: string, issueId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
+  return useQuery({
+    queryKey: ['plane', 'relations', WORKSPACE_SLUG, projectId, issueId],
+    queryFn: () => planeClient.listRelations(WORKSPACE_SLUG, projectId!, issueId!),
+    enabled: !!projectId && !!issueId,
+    staleTime: REFRESH_MS,
+    retry: false,
+  })
+}
+export function useCreateRelation(projectId?: string, issueId?: string) {
+  return usePlaneMutation(
+    (slug, v: { type: plane.RelationType; issues: string[] }) => planeClient.createRelation(slug, projectId!, issueId!, v.type, v.issues),
+    // Relations show on both issues, so refresh every relation view.
+    () => [['relations'], ['activities', projectId, issueId]],
+  )
+}
+
+/** Workspace search by title, number or `KEY-123`; empty until two characters. */
+export function useIssueSearch(query: string, opts?: { project?: string; limit?: number }) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
+  const q = query.trim()
+  return useQuery({
+    queryKey: ['plane', 'search', WORKSPACE_SLUG, q, opts?.project ?? '*', opts?.limit ?? 10],
+    queryFn: () => planeClient.searchIssues(WORKSPACE_SLUG, q, opts),
+    enabled: q.length >= 2,
+    staleTime: 15_000,
+    placeholderData: (prev) => prev,
+  })
+}
+
+export function useProjectSummary(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
+  return useQuery({
+    queryKey: ['plane', 'summary', WORKSPACE_SLUG, projectId],
+    queryFn: () => planeClient.getProjectSummary(WORKSPACE_SLUG, projectId!),
+    enabled: !!projectId,
+    staleTime: REFRESH_MS,
+    retry: false,
+  })
+}
+export function useArchiveProject() {
+  return usePlaneMutation(
+    (slug, v: { id: string; archive: boolean }) =>
+      v.archive ? planeClient.archiveProject(slug, v.id) : planeClient.unarchiveProject(slug, v.id),
+    (v) => [['projects'], ['project', v.id]],
+  )
+}
+export function useProjectMembers(projectId?: string) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
+  return useQuery({
+    queryKey: ['plane', 'project-members', WORKSPACE_SLUG, projectId],
+    queryFn: () => planeClient.listProjectMembers(WORKSPACE_SLUG, projectId!),
+    enabled: !!projectId,
+    staleTime: REFRESH_MS,
+  })
+}
+export function useAddProjectMember(projectId?: string) {
+  return usePlaneMutation(
+    (slug, v: { member: string; role: number }) => planeClient.addProjectMember(slug, projectId!, v.member, v.role),
+    () => [['project-members', projectId], ['summary', projectId]],
+  )
+}
+
+export function useStateMutations(projectId?: string) {
+  const keys = () => [['states', projectId], ['summary', projectId]]
+  return {
+    create: usePlaneMutation((slug, body: Parameters<plane.PlaneClient['createState']>[2]) => planeClient.createState(slug, projectId!, body), keys),
+    update: usePlaneMutation(
+      (slug, v: { id: string; patch: Parameters<plane.PlaneClient['updateState']>[3] }) => planeClient.updateState(slug, projectId!, v.id, v.patch),
+      keys,
+    ),
+    remove: usePlaneMutation((slug, id: string) => planeClient.deleteState(slug, projectId!, id), keys),
+  }
+}
+export function useLabelMutations(projectId?: string) {
+  const keys = () => [['labels', projectId], ['summary', projectId]]
+  return {
+    create: usePlaneMutation((slug, body: Parameters<plane.PlaneClient['createLabel']>[2]) => planeClient.createLabel(slug, projectId!, body), keys),
+    update: usePlaneMutation(
+      (slug, v: { id: string; patch: Parameters<plane.PlaneClient['updateLabel']>[3] }) => planeClient.updateLabel(slug, projectId!, v.id, v.patch),
+      keys,
+    ),
+    remove: usePlaneMutation((slug, id: string) => planeClient.deleteLabel(slug, projectId!, id), keys),
+  }
+}
+
+export function useArchivedCycles(projectId?: string, enabled = true) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
+  return useQuery({
+    queryKey: ['plane', 'archived-cycles', WORKSPACE_SLUG, projectId],
+    queryFn: () => planeClient.listArchivedCycles(WORKSPACE_SLUG, projectId!),
+    enabled: !!projectId && enabled,
+    staleTime: REFRESH_MS,
+  })
+}
+export function useCycleLifecycle(projectId?: string) {
+  const keys = () => [['cycles', projectId], ['archived-cycles', projectId], ['issues', projectId]]
+  return {
+    transfer: usePlaneMutation((slug, v: { from: string; to: string }) => planeClient.transferCycleIssues(slug, projectId!, v.from, v.to), keys),
+    archive: usePlaneMutation((slug, id: string) => planeClient.archiveCycle(slug, projectId!, id), keys),
+    unarchive: usePlaneMutation((slug, id: string) => planeClient.unarchiveCycle(slug, projectId!, id), keys),
+  }
+}
+export function useArchivedModules(projectId?: string, enabled = true) {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
+  return useQuery({
+    queryKey: ['plane', 'archived-modules', WORKSPACE_SLUG, projectId],
+    queryFn: () => planeClient.listArchivedModules(WORKSPACE_SLUG, projectId!),
+    enabled: !!projectId && enabled,
+    staleTime: REFRESH_MS,
+  })
+}
+export function useModuleLifecycle(projectId?: string) {
+  const keys = () => [['modules', projectId], ['archived-modules', projectId]]
+  return {
+    archive: usePlaneMutation((slug, id: string) => planeClient.archiveModule(slug, projectId!, id), keys),
+    unarchive: usePlaneMutation((slug, id: string) => planeClient.unarchiveModule(slug, projectId!, id), keys),
+  }
+}
+
+export function useStickies() {
+  const WORKSPACE_SLUG = usePlaneWorkspace()
+  return useQuery({
+    queryKey: ['plane', 'stickies', WORKSPACE_SLUG],
+    queryFn: () => planeClient.listStickies(WORKSPACE_SLUG),
+    staleTime: REFRESH_MS,
+    retry: false,
+  })
+}
+export function useStickyMutations() {
+  const keys = () => [['stickies']]
+  return {
+    create: usePlaneMutation((slug, body: Partial<plane.Sticky>) => planeClient.createSticky(slug, body), keys),
+    update: usePlaneMutation((slug, v: { id: string; patch: Partial<plane.Sticky> }) => planeClient.updateSticky(slug, v.id, v.patch), keys),
+    remove: usePlaneMutation((slug, id: string) => planeClient.deleteSticky(slug, id), keys),
+  }
+}

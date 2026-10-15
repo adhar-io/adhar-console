@@ -10,7 +10,8 @@ import {
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
-import { useCycles } from '../data/plane.ts'
+import { useArchivedCycles, useCycleLifecycle, useCycles } from '../data/plane.ts'
+import { ArchivedSection } from '../components/archived-section.tsx'
 import { CycleDetail } from '../components/cycle-detail.tsx'
 import { CreateCycleModal } from '../components/create-forms.tsx'
 import { ListToolbar } from '../components/list-toolbar.tsx'
@@ -33,6 +34,9 @@ export function Cycles({ projectId }: { projectId?: string }) {
   const [open, setOpen] = useState<plane.Cycle | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
+  const archived = useArchivedCycles(projectId, showArchived)
+  const life = useCycleLifecycle(projectId)
   if (!projectId) return <EmptyState title="Pick a project" />
   if (q.isLoading) {
     return (
@@ -95,6 +99,15 @@ export function Cycles({ projectId }: { projectId?: string }) {
           {draft.length ? <CycleSection title="Draft" cycles={draft} onOpen={setOpen} /> : null}
         </>
       )}
+      <ArchivedSection
+        noun="cycle"
+        open={showArchived}
+        onToggle={() => setShowArchived((v) => !v)}
+        loading={archived.isLoading}
+        items={(archived.data ?? []).map((c) => ({ id: c.id, name: c.name, archived_at: c.archived_at, meta: fmtRange(c.start_date, c.end_date) }))}
+        onRestore={(id) => life.unarchive.mutateAsync(id)}
+        restoring={life.unarchive.isPending}
+      />
       {open ? (
         <CycleDetail projectId={projectId} cycle={open} onClose={() => setOpen(null)} />
       ) : null}

@@ -10,6 +10,7 @@ import {
   EmptyState,
   Spinner,
   StatusBadge,
+  useToast,
 } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
@@ -17,7 +18,10 @@ import {
   memberDisplayName,
   memberInitials,
   priorityKind,
+  useCycleLifecycle,
+  useCycles,
   useDeleteCycle,
+  planeError,
   useIssues,
   useLabels,
   useMembers,
@@ -45,7 +49,18 @@ export function CycleDetail({
   const labels = useLabels(projectId)
   const members = useMembers()
   const remove = useDeleteCycle(projectId)
+  const life = useCycleLifecycle(projectId)
+  const cycles = useCycles(projectId)
+  const toast = useToast()
   const [openIssue, setOpenIssue] = useState<string | null>(null)
+  const [transferring, setTransferring] = useState(false)
+  // Plane archives only cycles that have ended, and transfers only out of them.
+  const ended = !!cycle.end_date && new Date(cycle.end_date).getTime() < Date.now()
+  const openCount = (issues.data ?? []).filter((i) => {
+    const g = stateGroupOf(i.state)
+    return g !== 'completed' && g !== 'cancelled'
+  }).length
+  const targets = (cycles.data ?? []).filter((c) => c.id !== cycle.id && (c.status === 'current' || c.status === 'upcoming'))
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -59,6 +74,9 @@ export function CycleDetail({
     () => new Map((states.data ?? []).map((s) => [s.id, s])),
     [states.data],
   )
+  function stateGroupOf(id: string) {
+    return (states.data ?? []).find((st) => st.id === id)?.group
+  }
   const labelMap = useMemo(
     () => new Map((labels.data ?? []).map((l) => [l.id, l])),
     [labels.data],
@@ -109,7 +127,52 @@ export function CycleDetail({
               {cycle.description ? <span className="ml-2">· {cycle.description}</span> : null}
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="relative flex shrink-0 items-center gap-2">
+            {ended && openCount > 0 ? (
+              <Button size="sm" onClick={() => setTransferring((t) => !t)} title="Move this cycle's unfinished issues into another cycle">
+                Move {openCount} open →
+              </Button>
+            ) : null}
+            {ended ? (
+              <Button
+                size="sm"
+                loading={life.archive.isPending}
+                onClick={() =>
+                  life.archive.mutate(cycle.id, {
+                    onSuccess: () => {
+                      toast.success(`Archived ${cycle.name}`)
+                      onClose()
+                    },
+                    onError: (e) => toast.error(planeError(e, "Couldn't archive the cycle.")),
+                  })}
+              >
+                Archive
+              </Button>
+            ) : null}
+            {transferring ? (
+              <div className="absolute right-0 top-full z-60 mt-2 w-72 rounded-xl border border-edge-default bg-surface-raised p-2 shadow-xl">
+                <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-content-subtle">Move {openCount} open issue{openCount === 1 ? '' : 's'} to</div>
+                {targets.length ? targets.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    disabled={life.transfer.isPending}
+                    onClick={() =>
+                      life.transfer.mutate({ from: cycle.id, to: t.id }, {
+                        onSuccess: () => {
+                          toast.success(`Moved open issues to ${t.name}`)
+                          setTransferring(false)
+                        },
+                        onError: (e) => toast.error(planeError(e, "Couldn't move the issues.")),
+                      })}
+                    className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-[13px] text-content hover:bg-surface-sunken"
+                  >
+                    <span className="truncate">{t.name}</span>
+                    <span className="text-[11px] text-content-subtle">{t.status === 'current' ? 'active' : 'upcoming'}</span>
+                  </button>
+                )) : <p className="px-2 py-1.5 text-[12px] text-content-muted">No active or upcoming cycle to move them into — create one first.</p>}
+              </div>
+            ) : null}
             <Button
               size="sm"
               variant="danger"

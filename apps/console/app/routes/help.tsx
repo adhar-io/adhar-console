@@ -4,6 +4,7 @@ import { AppShell, PageHeader, useAppConfig, useDocsUrl } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { PENDING_USER, useOptionalSession } from '@adhar/auth'
 import { getLayoutData } from '~/server/session.ts'
+import { ArchitecturePatterns, usePatternsMatching } from '~/components/help-patterns.tsx'
 
 /**
  * Help.
@@ -14,6 +15,9 @@ import { getLayoutData } from '~/server/session.ts'
  * diagnostics endpoint reports. When one of those changes, change it here.
  */
 export const Route = createFileRoute('/help')({
+  // `?pattern=<slug>` opens an architecture pattern; anything else is dropped.
+  validateSearch: (s: Record<string, unknown>): { pattern?: string } =>
+    typeof s.pattern === 'string' && /^[a-z0-9-]+$/.test(s.pattern) ? { pattern: s.pattern } : {},
   loader: () => getLayoutData(),
   head: () => ({ meta: [{ title: 'Help · Adhar Console' }] }),
   component: HelpPage,
@@ -157,7 +161,11 @@ function HelpPage() {
     [needle],
   )
   const trouble = TROUBLE.filter((t) => has(t.q, t.a))
-  const nothing = needle && !start.length && !areas.length && !shortcuts.length && !trouble.length
+  const patterns = usePatternsMatching(needle)
+  const { pattern } = Route.useSearch()
+  const navigate = Route.useNavigate()
+  const openPattern = (slug: string | undefined) => navigate({ search: slug ? { pattern: slug } : {}, replace: true, resetScroll: false })
+  const nothing = needle && !start.length && !areas.length && !shortcuts.length && !trouble.length && !patterns.length
 
   return (
     <AppShell
@@ -178,7 +186,7 @@ function HelpPage() {
         <div className="relative max-w-2xl">
           <h2 className="text-[26px] font-bold leading-tight tracking-tight sm:text-[30px]">How can we help?</h2>
           <p className="mt-1.5 text-[14px] text-white/80">
-            Search guides, product areas, shortcuts and fixes — or press <kbd className="rounded-md bg-white/20 px-1.5 py-0.5 font-mono text-[12px] ring-1 ring-inset ring-white/30">{MOD} K</kbd> and ask Adhar Assist.
+            Search guides, architecture patterns, shortcuts and fixes — or press <kbd className="rounded-md bg-white/20 px-1.5 py-0.5 font-mono text-[12px] ring-1 ring-inset ring-white/30">{MOD} K</kbd> and ask Adhar Assist.
           </p>
           <div className="relative mt-5">
             <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-content-subtle"><Glyph name="search" /></span>
@@ -186,7 +194,7 @@ function HelpPage() {
               type="search"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search help — try “logs”, “401” or “shortcut”…"
+              placeholder="Search help — try “logs”, “401”, “canary” or “sharding”…"
               aria-label="Search help"
               className="h-12 w-full rounded-xl border-0 bg-white pl-11 pr-4 text-[14px] text-slate-900 shadow-xl ring-1 ring-white/40 placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-white/40"
             />
@@ -252,6 +260,12 @@ function HelpPage() {
               )
             })}
           </div>
+        </Section>
+      ) : null}
+
+      {patterns.length || pattern ? (
+        <Section title="Architecture patterns" subtitle="Byte-sized guides to the patterns Adhar is built on — scale, resilience, delivery, data, security, tenancy and operations — and how to use them here.">
+          <ArchitecturePatterns needle={needle} openSlug={pattern} onOpen={openPattern} />
         </Section>
       ) : null}
 

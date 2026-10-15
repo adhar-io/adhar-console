@@ -22,6 +22,7 @@ import {
   useUpdateIssue,
 } from '../data/plane.ts'
 import { IssueDrawer } from '../components/issue-drawer.tsx'
+import { IssueSearch } from '../components/issue-search.tsx'
 import { NewIssueModal } from '../components/new-issue-modal.tsx'
 import { CreateViewModal } from '../components/create-forms.tsx'
 import type { SavedIssueQuery } from '../data/view-query.ts'
@@ -59,6 +60,8 @@ export function Issues({ projectId, appliedQuery }: Props) {
     appliedQuery?.assignee ?? 'all',
   )
   const [openId, setOpenId] = useState<string | null>(null)
+  // A search hit can live in another project; the drawer opens it there.
+  const [openProject, setOpenProject] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [saveOpen, setSaveOpen] = useState(false)
 
@@ -227,6 +230,15 @@ export function Issues({ projectId, appliedQuery }: Props) {
           </button>
         ) : null}
 
+        <IssueSearch
+          className="w-full sm:w-64"
+          placeholder="Go to issue — title or KEY-123"
+          onPick={(h) => {
+            setOpenProject(h.project_id === projectId ? null : h.project_id)
+            setOpenId(h.id)
+          }}
+        />
+
         <span className="ml-auto flex items-center gap-2 text-[11px] text-content-subtle">
           {issues.isFetching ? <Spinner size={10} /> : null}
           {filtered.length} of {all.length}
@@ -239,7 +251,7 @@ export function Issues({ projectId, appliedQuery }: Props) {
         >
           Save view
         </Button>
-        <Button size="sm" onClick={() => setCreateOpen(true)} leading={<IconPlus />}>
+        <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)} leading={<IconPlus />}>
           New issue
         </Button>
       </div>
@@ -255,7 +267,7 @@ export function Issues({ projectId, appliedQuery }: Props) {
           stateMap={stateMap}
           labelMap={labelMap}
           memberMap={memberMap}
-          onOpen={setOpenId}
+          onOpen={(id) => { setOpenProject(null); setOpenId(id) }}
           onDropIssue={(issueId, key) => {
             const patch: Partial<plane.Issue> = {}
             switch (groupBy) {
@@ -307,7 +319,7 @@ export function Issues({ projectId, appliedQuery }: Props) {
         <CalendarView
           issues={filtered}
           stateMap={stateMap}
-          onOpen={setOpenId}
+          onOpen={(id) => { setOpenProject(null); setOpenId(id) }}
           loading={issues.isLoading}
         />
       ) : (
@@ -316,7 +328,7 @@ export function Issues({ projectId, appliedQuery }: Props) {
           stateMap={stateMap}
           labelMap={labelMap}
           memberMap={memberMap}
-          onOpen={setOpenId}
+          onOpen={(id) => { setOpenProject(null); setOpenId(id) }}
           loading={issues.isLoading || states.isLoading}
         />
       )}
@@ -340,9 +352,13 @@ export function Issues({ projectId, appliedQuery }: Props) {
 
       {openId ? (
         <IssueDrawer
-          projectId={projectId}
+          key={`${openProject ?? projectId}:${openId}`}
+          projectId={openProject ?? projectId}
           issueId={openId}
-          onClose={() => setOpenId(null)}
+          onClose={() => {
+            setOpenId(null)
+            setOpenProject(null)
+          }}
           onPick={setOpenId}
         />
       ) : null}

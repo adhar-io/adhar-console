@@ -7,6 +7,7 @@ import {
   StatusBadge,
 } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
+import { plane } from '@adhar/api-clients'
 import {
   memberDisplayName,
   memberInitials,
@@ -14,6 +15,7 @@ import {
   useProjects,
 } from '../data/plane.ts'
 import { ProjectMark } from '../components/project-picker.tsx'
+import { StickyNotes } from '../components/sticky-notes.tsx'
 
 /**
  * Workspace-level Define dashboard. Aggregates the cheap-to-fetch lists
@@ -54,7 +56,7 @@ export function Dashboard({
   const totalCycles = projects.reduce((acc, p) => acc + (p.total_cycles ?? 0), 0)
   const totalModules = projects.reduce((acc, p) => acc + (p.total_modules ?? 0), 0)
   const totalProjectMembers = projects.reduce((acc, p) => acc + (p.total_members ?? 0), 0)
-  const admins = members.filter((m) => m.role === 5).length
+  const admins = members.filter((m) => m.role === plane.PLANE_ROLE.ADMIN).length
 
   // Top by raw activity = sum of cycles + modules; recency drives "recent".
   const top = projects
@@ -200,6 +202,8 @@ export function Dashboard({
         </Card>
       </div>
 
+      <StickyNotes />
+
       {/* admins / leads strip */}
       {members.length > 0 ? (
         <Card>
@@ -208,7 +212,7 @@ export function Dashboard({
               <div>
                 <div className="text-sm font-semibold text-content">Workspace admins</div>
                 <div className="text-[11px] text-content-subtle">
-                  Role 5 · can manage every project
+                  Can manage every project
                 </div>
               </div>
               <StatusBadge kind="info">{admins}</StatusBadge>
@@ -217,7 +221,7 @@ export function Dashboard({
           <CardBody>
             <div className="flex flex-wrap gap-3">
               {members
-                .filter((m) => m.role === 5)
+                .filter((m) => m.role === plane.PLANE_ROLE.ADMIN)
                 .map((m) => (
                   <span
                     key={m.id}

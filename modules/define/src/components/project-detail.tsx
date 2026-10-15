@@ -8,6 +8,7 @@ import {
   EmptyState,
   Spinner,
   StatusBadge,
+  Tabs,
 } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
@@ -20,8 +21,10 @@ import {
   useMembers,
   useModules,
   useProject,
+  useProjectSummary,
   useStates,
 } from '../data/plane.ts'
+import { ProjectMembersTab, ProjectSettingsTab, WorkflowTab } from './project-admin.tsx'
 import { ProjectMark } from './project-picker.tsx'
 import { IssueDrawer } from './issue-drawer.tsx'
 
@@ -49,6 +52,8 @@ export function ProjectDetail({
   const states = useStates(projectId)
   const members = useMembers()
   const [openIssue, setOpenIssue] = useState<string | null>(null)
+  const [tab, setTab] = useState<'overview' | 'members' | 'workflow' | 'settings'>('overview')
+  const summary = useProjectSummary(projectId)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -108,6 +113,7 @@ export function ProjectDetail({
                     {p.identifier}
                   </span>
                 ) : null}
+                {p?.archived_at ? <StatusBadge kind="paused">archived</StatusBadge> : null}
               </div>
               <h2 className="mt-0.5 truncate text-lg font-semibold tracking-tight text-content">
                 {p?.name ?? 'Project'}
@@ -145,7 +151,29 @@ export function ProjectDetail({
               }
             />
           ) : (
-            <>
+            <Tabs
+              ariaLabel="Project"
+              value={tab}
+              onChange={(t) => setTab(t as typeof tab)}
+              tabs={[
+                { id: 'overview', label: 'Overview' },
+                { id: 'members', label: 'Members', badge: summary.data?.counts.members ? { kind: 'unknown', value: summary.data.counts.members } : undefined },
+                { id: 'workflow', label: 'States & labels' },
+                { id: 'settings', label: 'Settings' },
+              ]}
+            >
+              {(active) => active === 'members' ? <div className="pt-4"><ProjectMembersTab projectId={projectId} /></div>
+                : active === 'workflow' ? <div className="pt-4"><WorkflowTab projectId={projectId} /></div>
+                : active === 'settings' && p ? <div className="pt-4"><ProjectSettingsTab project={p} onArchived={onClose} /></div>
+                : (
+            <div className="space-y-6 pt-4">
+              {summary.data ? (
+                <div className="flex flex-wrap gap-x-5 gap-y-1 rounded-lg border border-edge-subtle bg-surface-raised px-4 py-2 text-[12px] text-content-muted">
+                  {([['issues', 'issues'], ['cycles', 'cycles'], ['modules', 'modules'], ['members', 'members'], ['states', 'states'], ['labels', 'labels'], ['intake', 'in intake']] as const).map(([k, label]) =>
+                    summary.data!.counts[k] !== undefined ? <span key={k}><b className="font-semibold tabular-nums text-content">{summary.data!.counts[k]}</b> {label}</span> : null
+                  )}
+                </div>
+              ) : null}
               {/* hero stats */}
               <Card>
                 <CardBody className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -311,7 +339,9 @@ export function ProjectDetail({
                   )}
                 </CardBody>
               </Card>
-            </>
+            </div>
+                )}
+            </Tabs>
           )}
         </div>
 

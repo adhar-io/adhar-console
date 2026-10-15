@@ -14,3 +14,6 @@ coverage/
 .dev/
 # Vite drops these next to vite.config.ts when a config load is interrupted.
 *.timestamp-*.mjs
+
+# Throwaway UI screenshot harness (see memory: reference_ui_harness_recipe)
+.tmp-harness/

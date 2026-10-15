@@ -66,6 +66,9 @@ export const ProjectSchema = z.object({
   issue_views_view: z.boolean().optional(),
   page_view: z.boolean().optional(),
   inbox_view: z.boolean().optional(),
+  /** Plane ≥ 0.23 name for the triage queue toggle (was `inbox_view`). */
+  intake_view: z.boolean().optional(),
+  archived_at: z.string().nullable().optional(),
   archive_in: z.number().optional(),
   close_in: z.number().optional(),
   default_assignee: z.string().nullable().optional(),
@@ -148,6 +151,7 @@ export const CycleSchema = z.object({
   start_date: z.string().nullable().optional(),
   end_date: z.string().nullable().optional(),
   owned_by: z.string().optional(),
+  archived_at: z.string().nullable().optional(),
   status: z.enum(['current', 'upcoming', 'completed', 'draft']),
   project: z.string(),
   workspace: z.string(),
@@ -179,6 +183,7 @@ export const ModuleSchema = z.object({
   backlog_issues: z.number().optional(),
   project: z.string(),
   workspace: z.string(),
+  archived_at: z.string().nullable().optional(),
 })
 export type Module = z.infer<typeof ModuleSchema>
 
@@ -272,7 +277,7 @@ export const MemberSchema = z.object({
   email: z.string().optional(),
   display_name: z.string().optional(),
   avatar: z.string().nullable().optional(),
-  /** 5=Admin, 15=Member, 20=Guest, 25=Viewer (Plane RBAC enum). */
+  /** Plane RBAC: 20 Admin, 15 Member, 5 Guest. */
   role: z.number(),
   workspace: z.string(),
 })
@@ -307,6 +312,77 @@ export const InvitationSchema = z.object({
   updated_at: z.string().optional(),
 })
 export type Invitation = z.infer<typeof InvitationSchema>
+
+
+/* ───── triage, links, relations, search, stickies (Plane public API v1) ───── */
+
+/** Intake (triage) status: -2 pending, -1 declined, 0 snoozed, 1 accepted, 2 duplicate. */
+export type IntakeStatus = -2 | -1 | 0 | 1 | 2
+export interface IntakeItem {
+  id: string
+  /** The underlying work item's id — the key every intake call uses. */
+  issue: string
+  status: IntakeStatus
+  snoozed_till?: string | null
+  duplicate_to?: string | null
+  source?: string | null
+  created_at: string
+  created_by?: string | null
+  issue_detail?: Partial<Issue> & { id: string; name: string; sequence_id?: number; priority?: Priority; description_html?: string; created_by?: string }
+}
+
+export interface IssueLink {
+  id: string
+  url: string
+  title?: string | null
+  metadata?: Record<string, unknown>
+  created_at: string
+  created_by?: string | null
+}
+
+export type RelationType = 'blocking' | 'blocked_by' | 'duplicate' | 'relates_to' | 'start_before' | 'start_after' | 'finish_before' | 'finish_after'
+/** Relations of one issue, grouped by type; each entry names the other issue. */
+export type IssueRelations = Record<RelationType, Array<{ project_id: string; issue_id: string }>>
+
+export interface SearchHit {
+  id: string
+  name: string
+  sequence_id: number
+  project_id: string
+  project__identifier: string
+}
+
+export interface ProjectMemberLite {
+  /** The USER id (Plane's lite serializer flattens the member). */
+  id: string
+  display_name?: string
+  first_name?: string
+  last_name?: string
+  email?: string
+  avatar_url?: string | null
+  role: number
+  is_active?: boolean
+  is_bot?: boolean
+}
+
+export interface ProjectSummary {
+  id: string
+  name: string
+  identifier: string
+  counts: Partial<Record<'members' | 'states' | 'labels' | 'cycles' | 'modules' | 'issues' | 'intake' | 'pages', number>>
+}
+
+export interface Sticky {
+  id: string
+  name?: string | null
+  description_html?: string
+  description_stripped?: string | null
+  color?: string | null
+  background_color?: string | null
+  sort_order?: number
+  created_at?: string
+  updated_at?: string
+}
 
 export interface PlaneClient {
   /* Workspace members + invitations */
@@ -362,6 +438,60 @@ export interface PlaneClient {
   createModule(slug: string, project: string, body: Partial<Module>): Promise<Module>
   updateModule(slug: string, project: string, module: string, patch: Partial<Module>): Promise<Module>
   deleteModule(slug: string, project: string, module: string): Promise<void>
+
+  /* triage */
+  listIntake(slug: string, project: string, status?: IntakeStatus): Promise<IntakeItem[]>
+  createIntake(slug: string, project: string, issue: { name: string; description_html?: string; priority?: Priority }): Promise<IntakeItem>
+  /** Accept (1), decline (-1), snooze (0 + snoozed_till), duplicate (2 + duplicate_to), or edit the item. */
+  updateIntake(
+    slug: string,
+    project: string,
+    issue: string,
+    patch: { status?: IntakeStatus; snoozed_till?: string | null; duplicate_to?: string | null; issue?: { name?: string; description_html?: string; priority?: Priority } },
+  ): Promise<IntakeItem>
+  deleteIntake(slug: string, project: string, issue: string): Promise<void>
+
+  /* links + relations */
+  listLinks(slug: string, project: string, issue: string): Promise<IssueLink[]>
+  createLink(slug: string, project: string, issue: string, body: { url: string; title?: string }): Promise<IssueLink>
+  deleteLink(slug: string, project: string, issue: string, link: string): Promise<void>
+  listRelations(slug: string, project: string, issue: string): Promise<IssueRelations>
+  /** Plane's public API can add relations but not remove them. */
+  createRelation(slug: string, project: string, issue: string, type: RelationType, issues: string[]): Promise<void>
+
+  /** Name / number / `KEY-123` search across the workspace (or one project). */
+  searchIssues(slug: string, query: string, opts?: { project?: string; limit?: number }): Promise<SearchHit[]>
+
+  /* projects */
+  archiveProject(slug: string, project: string): Promise<void>
+  unarchiveProject(slug: string, project: string): Promise<void>
+  getProjectSummary(slug: string, project: string): Promise<ProjectSummary>
+  listProjectMembers(slug: string, project: string): Promise<ProjectMemberLite[]>
+  addProjectMember(slug: string, project: string, member: string, role: number): Promise<void>
+
+  /* workflow */
+  createState(slug: string, project: string, body: { name: string; color: string; group: StateGroup; description?: string }): Promise<State>
+  updateState(slug: string, project: string, state: string, patch: Partial<Pick<State, 'name' | 'color' | 'group' | 'description' | 'default'>>): Promise<State>
+  deleteState(slug: string, project: string, state: string): Promise<void>
+  createLabel(slug: string, project: string, body: { name: string; color: string; parent?: string | null }): Promise<Label>
+  updateLabel(slug: string, project: string, label: string, patch: Partial<Pick<Label, 'name' | 'color' | 'parent'>>): Promise<Label>
+  deleteLabel(slug: string, project: string, label: string): Promise<void>
+
+  /* cycles + modules lifecycle */
+  /** Move a completed cycle's unfinished issues into another cycle. */
+  transferCycleIssues(slug: string, project: string, cycle: string, toCycle: string): Promise<void>
+  archiveCycle(slug: string, project: string, cycle: string): Promise<void>
+  unarchiveCycle(slug: string, project: string, cycle: string): Promise<void>
+  listArchivedCycles(slug: string, project: string): Promise<Cycle[]>
+  archiveModule(slug: string, project: string, module: string): Promise<void>
+  unarchiveModule(slug: string, project: string, module: string): Promise<void>
+  listArchivedModules(slug: string, project: string): Promise<Module[]>
+
+  /* workspace stickies (the API key owner's notes) */
+  listStickies(slug: string): Promise<Sticky[]>
+  createSticky(slug: string, body: Partial<Sticky>): Promise<Sticky>
+  updateSticky(slug: string, sticky: string, patch: Partial<Sticky>): Promise<Sticky>
+  deleteSticky(slug: string, sticky: string): Promise<void>
 }
 
 export interface IssueListParams {
@@ -606,8 +736,103 @@ function build(http: HttpClient): PlaneClient {
     deleteModule: async (slug, p, id) => {
       await http.delete<void>(`${proj(slug, p)}/modules/${id}/`)
     },
+
+    listIntake: (slug, p, status) =>
+      list<IntakeItem>(`${proj(slug, p)}/intake-issues/`, { status: status === undefined ? undefined : String(status) }),
+    createIntake: (slug, p, issue) =>
+      http.post<IntakeItem>(`${proj(slug, p)}/intake-issues/`, { issue: { priority: 'none', ...issue } }),
+    updateIntake: (slug, p, issue, patch) => http.patch<IntakeItem>(`${proj(slug, p)}/intake-issues/${issue}/`, patch),
+    deleteIntake: async (slug, p, issue) => {
+      await http.delete<void>(`${proj(slug, p)}/intake-issues/${issue}/`)
+    },
+
+    listLinks: (slug, p, issue) => list<IssueLink>(`${proj(slug, p)}/issues/${issue}/links/`),
+    createLink: (slug, p, issue, body) => http.post<IssueLink>(`${proj(slug, p)}/issues/${issue}/links/`, body),
+    deleteLink: async (slug, p, issue, link) => {
+      await http.delete<void>(`${proj(slug, p)}/issues/${issue}/links/${link}/`)
+    },
+    listRelations: async (slug, p, issue) => {
+      const raw = await http.get<Partial<IssueRelations>>(`${proj(slug, p)}/work-items/${issue}/relations/`)
+      return { ...EMPTY_RELATIONS(), ...raw }
+    },
+    createRelation: async (slug, p, issue, type, issues) => {
+      await http.post<unknown>(`${proj(slug, p)}/work-items/${issue}/relations/`, { relation_type: type, issues })
+    },
+
+    searchIssues: async (slug, query, opts = {}) => {
+      const r = await http.get<{ issues?: SearchHit[] }>(
+        `${ws(slug)}/issues/search/${qs({
+          search: query,
+          limit: String(opts.limit ?? 10),
+          workspace_search: opts.project ? 'false' : 'true',
+          project_id: opts.project,
+        })}`,
+      )
+      return r.issues ?? []
+    },
+
+    archiveProject: async (slug, p) => {
+      await http.post<unknown>(`${proj(slug, p)}/archive/`, {})
+    },
+    unarchiveProject: async (slug, p) => {
+      await http.delete<void>(`${proj(slug, p)}/archive/`)
+    },
+    getProjectSummary: (slug, p) =>
+      http.get<ProjectSummary>(`${proj(slug, p)}/summary/${qs({ fields: 'members,states,labels,cycles,modules,issues,intake' })}`),
+    listProjectMembers: async (slug, p) =>
+      (await list<ProjectMemberLite>(`${proj(slug, p)}/project-members-lite/`)).filter((m) => m.is_active !== false),
+    addProjectMember: async (slug, p, member, role) => {
+      await http.post<unknown>(`${proj(slug, p)}/project-members/`, { member, role })
+    },
+
+    createState: (slug, p, body) => http.post<State>(`${proj(slug, p)}/states/`, body),
+    updateState: (slug, p, id, patch) => http.patch<State>(`${proj(slug, p)}/states/${id}/`, patch),
+    deleteState: async (slug, p, id) => {
+      await http.delete<void>(`${proj(slug, p)}/states/${id}/`)
+    },
+    createLabel: (slug, p, body) => http.post<Label>(`${proj(slug, p)}/labels/`, body),
+    updateLabel: (slug, p, id, patch) => http.patch<Label>(`${proj(slug, p)}/labels/${id}/`, patch),
+    deleteLabel: async (slug, p, id) => {
+      await http.delete<void>(`${proj(slug, p)}/labels/${id}/`)
+    },
+
+    transferCycleIssues: async (slug, p, cycle, toCycle) => {
+      await http.post<unknown>(`${proj(slug, p)}/cycles/${cycle}/transfer-issues/`, { new_cycle_id: toCycle })
+    },
+    archiveCycle: async (slug, p, cycle) => {
+      await http.post<unknown>(`${proj(slug, p)}/cycles/${cycle}/archive/`, {})
+    },
+    unarchiveCycle: async (slug, p, cycle) => {
+      await http.delete<void>(`${proj(slug, p)}/archived-cycles/${cycle}/unarchive/`)
+    },
+    listArchivedCycles: async (slug, p) => (await list<Cycle>(`${proj(slug, p)}/archived-cycles/`)).map(shapeCycle),
+    archiveModule: async (slug, p, m) => {
+      await http.post<unknown>(`${proj(slug, p)}/modules/${m}/archive/`, {})
+    },
+    unarchiveModule: async (slug, p, m) => {
+      await http.delete<void>(`${proj(slug, p)}/archived-modules/${m}/unarchive/`)
+    },
+    listArchivedModules: async (slug, p) => (await list<Module>(`${proj(slug, p)}/archived-modules/`)).map(shapeModule),
+
+    listStickies: (slug) => list<Sticky>(`${ws(slug)}/stickies/`),
+    createSticky: (slug, body) => http.post<Sticky>(`${ws(slug)}/stickies/`, body),
+    updateSticky: (slug, id, patch) => http.patch<Sticky>(`${ws(slug)}/stickies/${id}/`, patch),
+    deleteSticky: async (slug, id) => {
+      await http.delete<void>(`${ws(slug)}/stickies/${id}/`)
+    },
   }
 }
+
+const EMPTY_RELATIONS = (): IssueRelations => ({
+  blocking: [],
+  blocked_by: [],
+  duplicate: [],
+  relates_to: [],
+  start_before: [],
+  start_after: [],
+  finish_before: [],
+  finish_after: [],
+})
 
 /* ───────────────────────────── Stubs ───────────────────────────── */
 
@@ -639,6 +864,7 @@ const STUB_PROJECTS: Project[] = [
     module_view: true,
     cycle_view: true,
     issue_views_view: true,
+    intake_view: true,
     page_view: true,
     total_members: 8,
     total_cycles: 6,
@@ -1297,7 +1523,154 @@ export const PlaneClient = defineClient<PlaneClient>(build, () => ({
     return { ...(cur as Module), ...patch, id, project: p }
   },
   deleteModule: async () => undefined,
+
+  listIntake: async (_slug, p, status) => STUB_INTAKE.filter((x) => x.issue_detail?.project === p || p === 'proj-con').filter((x) => status === undefined || x.status === status),
+  createIntake: async (_slug, p, issue) => {
+    const id = `iss-intake-${Date.now().toString(36)}`
+    const item: IntakeItem = {
+      id: `int-${Date.now().toString(36)}`,
+      issue: id,
+      status: -2,
+      created_at: new Date().toISOString(),
+      source: 'in_app',
+      issue_detail: { id, name: issue.name, description_html: issue.description_html, priority: issue.priority ?? 'none', project: p, sequence_id: 900 + STUB_INTAKE.length },
+    }
+    STUB_INTAKE.unshift(item)
+    return item
+  },
+  updateIntake: async (_slug, _p, issue, patch) => {
+    const item = STUB_INTAKE.find((x) => x.issue === issue)
+    if (!item) throw new Error('stub: intake item not found')
+    if (patch.status !== undefined) item.status = patch.status
+    if (patch.snoozed_till !== undefined) item.snoozed_till = patch.snoozed_till
+    if (patch.duplicate_to !== undefined) item.duplicate_to = patch.duplicate_to
+    if (patch.issue && item.issue_detail) Object.assign(item.issue_detail, patch.issue)
+    return item
+  },
+  deleteIntake: async (_slug, _p, issue) => {
+    const i = STUB_INTAKE.findIndex((x) => x.issue === issue)
+    if (i >= 0) STUB_INTAKE.splice(i, 1)
+  },
+
+  listLinks: async (_slug, _p, issue) => STUB_LINKS[issue] ?? [],
+  createLink: async (_slug, _p, issue, body) => {
+    const l: IssueLink = { id: `lnk-${Date.now().toString(36)}`, url: body.url, title: body.title ?? null, created_at: new Date().toISOString() }
+    STUB_LINKS[issue] = [...(STUB_LINKS[issue] ?? []), l]
+    return l
+  },
+  deleteLink: async (_slug, _p, issue, link) => {
+    STUB_LINKS[issue] = (STUB_LINKS[issue] ?? []).filter((l) => l.id !== link)
+  },
+  listRelations: async (_slug, _p, issue) => ({ ...EMPTY_RELATIONS(), ...(STUB_RELATIONS[issue] ?? {}) }),
+  createRelation: async (_slug, p, issue, type, issues) => {
+    const cur = { ...EMPTY_RELATIONS(), ...(STUB_RELATIONS[issue] ?? {}) }
+    cur[type] = [...cur[type], ...issues.map((issue_id) => ({ project_id: p, issue_id }))]
+    STUB_RELATIONS[issue] = cur
+  },
+  searchIssues: async (_slug, query, opts = {}) => {
+    const q = query.toLowerCase()
+    const all = STUB_PROJECTS.flatMap((pr) => issuesFor(pr.id).map((i) => ({ i, pr })))
+    return all
+      .filter(({ i, pr }) => (!opts.project || pr.id === opts.project) && (i.name.toLowerCase().includes(q) || `${pr.identifier}-${i.sequence_id}`.toLowerCase() === q || String(i.sequence_id) === q.replace(/^\w+-/, '')))
+      .slice(0, opts.limit ?? 10)
+      .map(({ i, pr }) => ({ id: i.id, name: i.name, sequence_id: i.sequence_id ?? 0, project_id: pr.id, project__identifier: pr.identifier }))
+  },
+  archiveProject: async (_slug, p) => {
+    const cur = STUB_PROJECTS.find((x) => x.id === p)
+    if (cur) cur.archived_at = new Date().toISOString()
+  },
+  unarchiveProject: async (_slug, p) => {
+    const cur = STUB_PROJECTS.find((x) => x.id === p)
+    if (cur) cur.archived_at = null
+  },
+  getProjectSummary: async (_slug, p) => {
+    const pr = STUB_PROJECTS.find((x) => x.id === p) ?? STUB_PROJECTS[0]
+    return {
+      id: pr.id,
+      name: pr.name,
+      identifier: pr.identifier,
+      counts: { members: STUB_MEMBERS.length, states: statesFor(p).length, labels: labelsFor(p).length, cycles: STUB_CYCLES_CON.length, modules: STUB_MODULES_CON.length, issues: issuesFor(p).length, intake: STUB_INTAKE.filter((x) => x.status === -2).length },
+    }
+  },
+  listProjectMembers: async () =>
+    STUB_MEMBERS.map((m) => ({ id: m.member?.id ?? m.id, display_name: m.member?.display_name, email: m.member?.email, first_name: m.member?.first_name, last_name: m.member?.last_name, role: m.role, is_active: true })),
+  addProjectMember: async () => undefined,
+  createState: async (_slug, p, body) => ({ id: `st-new-${Date.now().toString(36)}`, workspace: STUB_WS.id, project: p, ...body }),
+  updateState: async (_slug, p, id, patch) => ({ ...(statesFor(p).find((s) => s.id === id) as State), ...patch }),
+  deleteState: async () => undefined,
+  createLabel: async (_slug, p, body) => ({ id: `lbl-new-${Date.now().toString(36)}`, project: p, ...body }),
+  updateLabel: async (_slug, p, id, patch) => ({ ...(labelsFor(p).find((l) => l.id === id) as Label), ...patch }),
+  deleteLabel: async () => undefined,
+  transferCycleIssues: async () => undefined,
+  archiveCycle: async () => undefined,
+  unarchiveCycle: async () => undefined,
+  listArchivedCycles: async () => [],
+  archiveModule: async () => undefined,
+  unarchiveModule: async () => undefined,
+  listArchivedModules: async () => [],
+  listStickies: async () => STUB_STICKIES,
+  createSticky: async (_slug, body) => {
+    const st: Sticky = { id: `stk-${Date.now().toString(36)}`, name: body.name ?? '', description_html: body.description_html ?? '<p></p>', background_color: body.background_color ?? 'yellow', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+    STUB_STICKIES.unshift(st)
+    return st
+  },
+  updateSticky: async (_slug, id, patch) => {
+    const st = STUB_STICKIES.find((x) => x.id === id)
+    if (!st) throw new Error('stub: sticky not found')
+    Object.assign(st, patch, { updated_at: new Date().toISOString() })
+    return st
+  },
+  deleteSticky: async (_slug, id) => {
+    const i = STUB_STICKIES.findIndex((x) => x.id === id)
+    if (i >= 0) STUB_STICKIES.splice(i, 1)
+  },
 }))
+
+const STUB_INTAKE: IntakeItem[] = [
+  {
+    id: 'int-1',
+    issue: 'iss-int-1',
+    status: -2,
+    source: 'in_app',
+    created_at: days(-1),
+    issue_detail: { id: 'iss-int-1', name: 'Export audit log as CSV', description_html: '<p>Compliance asks for a monthly CSV export of the audit log.</p>', priority: 'medium', project: 'proj-con', sequence_id: 141 },
+  },
+  {
+    id: 'int-2',
+    issue: 'iss-int-2',
+    status: -2,
+    source: 'in_app',
+    created_at: days(-2),
+    issue_detail: { id: 'iss-int-2', name: 'Login page flashes unstyled on slow networks', description_html: '<p>Seen on 3G throttling in Chrome.</p>', priority: 'high', project: 'proj-con', sequence_id: 142 },
+  },
+  {
+    id: 'int-3',
+    issue: 'iss-int-3',
+    status: 0,
+    snoozed_till: days(5),
+    source: 'in_app',
+    created_at: days(-6),
+    issue_detail: { id: 'iss-int-3', name: 'Dark mode for email notifications', priority: 'low', project: 'proj-con', sequence_id: 137 },
+  },
+  {
+    id: 'int-4',
+    issue: 'iss-int-4',
+    status: -1,
+    source: 'in_app',
+    created_at: days(-9),
+    issue_detail: { id: 'iss-int-4', name: 'Support IE11', priority: 'none', project: 'proj-con', sequence_id: 131 },
+  },
+]
+const STUB_LINKS: Record<string, IssueLink[]> = {
+  'iss-1': [{ id: 'lnk-1', url: 'https://www.figma.com/file/console-cards', title: 'Card redesign (Figma)', created_at: days(-2) }],
+}
+const STUB_RELATIONS: Record<string, Partial<IssueRelations>> = {
+  'iss-1': { blocked_by: [{ project_id: 'proj-con', issue_id: 'iss-2' }], relates_to: [{ project_id: 'proj-con', issue_id: 'iss-3' }] },
+}
+const STUB_STICKIES: Sticky[] = [
+  { id: 'stk-1', name: 'Release checklist', description_html: '<p>Tag, changelog, smoke test on DO, announce in #releases.</p>', background_color: 'yellow', created_at: days(-3), updated_at: days(-1) },
+  { id: 'stk-2', name: 'Q3 focus', description_html: '<p>Tenancy, Assist, Develop stage polish.</p>', background_color: 'blue', created_at: days(-10), updated_at: days(-4) },
+]
 
 /* Helpful re-exports for views that don't want to import from /base. */
 export { Paginated as PaginatedSchema }

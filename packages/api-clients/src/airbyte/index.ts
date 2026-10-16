@@ -236,14 +236,33 @@ function normConnection(r: Raw, src: Map<string, Source>, dst: Map<string, Desti
   }
 }
 
+/**
+ * Find the workspace every other call is scoped to.
+ *
+ * Airbyte 2.x authorises `POST /api/v1/workspaces/list` (every workspace on
+ * the instance) for INSTANCE_ADMIN only — a role the instance-admin
+ * APPLICATION token the console authenticates with does not carry, so that
+ * call answered 403 to a perfectly valid token (2026-10-16). The public API's
+ * `GET /api/public/v1/workspaces` lists the workspaces the caller can see and
+ * is what an application token is meant to use; the legacy call stays as the
+ * fallback for an older server without the public API.
+ */
+export async function discoverWorkspaceId(http: Pick<HttpClient, 'get' | 'post'>): Promise<string> {
+  const fromPublic = await http.get<Raw>(`/api/public/v1/workspaces`).then(
+    (r) => (r.data?.[0]?.workspaceId as string | undefined) ?? null,
+    () => null,
+  )
+  if (fromPublic) return fromPublic
+  const r = await http.post<Raw>(`/api/v1/workspaces/list`, {})
+  const id = r.workspaces?.[0]?.workspaceId
+  if (!id) throw new Error('Airbyte has no workspace yet — open Airbyte once to finish its setup.')
+  return id as string
+}
+
 function build(http: HttpClient): AirbyteClient {
   let workspace: Promise<string> | null = null
   const workspaceId = () => {
-    workspace ??= http.post<Raw>(`/api/v1/workspaces/list`, {}).then((r) => {
-      const id = r.workspaces?.[0]?.workspaceId
-      if (!id) throw new Error('Airbyte has no workspace yet — open Airbyte once to finish its setup.')
-      return id as string
-    }).catch((e) => {
+    workspace ??= discoverWorkspaceId(http).catch((e) => {
       workspace = null
       throw e
     })

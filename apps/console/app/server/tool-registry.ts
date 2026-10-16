@@ -259,16 +259,29 @@ export function getToolRegistry(): Record<string, ToolDef> {
       authMode: env('OPENCOST_TOKEN') ? 'service' : 'none',
       serviceToken: env('OPENCOST_TOKEN'),
     },
+    // Airbyte 2.x (API_AUTHORIZATION_ENABLED) accepts only a Bearer minted from
+    // an APPLICATION's client credentials: `POST /api/v1/applications/token`
+    // → `access_token`, a 15-minute JWT. The airbyte package provisions the
+    // instance-admin application (data/airbyte manifests/auth.yaml) and the
+    // console Deployment carries its id/secret as AIRBYTE_CLIENT_ID/SECRET, so
+    // `login` mode mints and re-mints it here. Basic auth is NOT an option:
+    // the server answers 401 to it. With only a URL the console got 401 on
+    // every call (2026-10-16). A static AIRBYTE_TOKEN still wins when set.
     airbyte: {
       baseUrl: toolUrl('airbyte', 'AIRBYTE_URL'),
       authMode: env('AIRBYTE_TOKEN')
         ? 'service'
-        : env('AIRBYTE_PASSWORD')
-          ? 'basic'
+        : env('AIRBYTE_CLIENT_ID') && env('AIRBYTE_CLIENT_SECRET')
+          ? 'login'
           : 'none',
       serviceToken: env('AIRBYTE_TOKEN'),
-      username: env('AIRBYTE_USERNAME') ?? 'airbyte',
-      password: env('AIRBYTE_PASSWORD'),
+      username: env('AIRBYTE_CLIENT_ID'),
+      password: env('AIRBYTE_CLIENT_SECRET'),
+      login: {
+        path: '/api/v1/applications/token',
+        body: (clientId: string, clientSecret: string) => ({ client_id: clientId, client_secret: clientSecret }),
+        tokenField: 'access_token',
+      },
     },
     // LGTM (Discover): Grafana fronts Loki/Mimir/Tempo via its datasource proxy.
     lgtm: {

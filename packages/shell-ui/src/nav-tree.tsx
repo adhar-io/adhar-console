@@ -256,7 +256,6 @@ export const DEFAULT_NAV: NavSection[] = [
           // (modules/platform/src/builds.tsx); the host renders it here.
           { id: 'develop.builds', label: 'Builds', to: '/develop', search: 'builds' },
           { id: 'develop.pipelines', label: 'Pipelines', to: '/develop', search: 'pipelines' },
-          { id: 'develop.performance', label: 'Performance', to: '/develop', search: 'performance' },
           { id: 'develop.content', label: 'Content', to: '/develop', search: 'content' },
           { id: 'develop.codebuilder', label: 'Code Builder', to: '/develop', search: 'codebuilder' },
         ],
@@ -304,6 +303,8 @@ export const DEFAULT_NAV: NavSection[] = [
             badge: { kind: 'progressing', value: 'eBPF' },
           },
           { id: 'deliver.policy', label: 'Policy', to: '/deliver', search: 'policy' },
+          // The view is the Develop module's (develop/Performance); the host renders it here.
+          { id: 'deliver.performance', label: 'Performance Center', to: '/deliver', search: 'performance' },
           {
             id: 'deliver.chaos',
             label: 'Chaos Engineering',

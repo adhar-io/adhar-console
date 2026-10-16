@@ -83,7 +83,7 @@ export class NetworkError extends Error {
   constructor(
     public url: string,
     public method: string,
-    public cause: unknown,
+    public override cause: unknown,
   ) {
     super(
       `Network error: ${method} ${url}${cause instanceof Error ? ` — ${cause.message}` : ''}`,

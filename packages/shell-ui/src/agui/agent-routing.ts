@@ -56,7 +56,7 @@ export function agentForRoute(hint: RouteHint): string | null {
 
   // Every Deliver section that is not a security one is a delivery question.
   // Chaos experiments are reliability work wherever they are shown.
-  if (path.startsWith('/deliver') && section === 'chaos') return 'sre'
+  if (path.startsWith('/deliver') && (section === 'chaos' || section === 'performance')) return 'sre'
   if (path.startsWith('/deliver')) return 'delivery'
 
   // Discover is metrics, logs, traces, alerts — triage, which is the

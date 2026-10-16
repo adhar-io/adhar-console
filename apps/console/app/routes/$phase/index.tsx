@@ -24,6 +24,14 @@ function PhaseLanding() {
   if (phase === 'platform' && search.section === 'ci') {
     return <Navigate to="/develop" search={{ section: 'builds' } as never} replace />
   }
+  // The Performance Center moved from Develop to Deliver.
+  if (phase === 'develop' && search.section === 'performance') {
+    return <Navigate to="/deliver" search={{ ...(search as Record<string, unknown>), section: 'performance' } as never} replace />
+  }
+  // Owned by the Develop module (k6 runner, test suite), shown under Deliver.
+  if (phase === 'deliver' && search.section === 'performance') {
+    return <RemoteModule key="performance" loader={loadPerformance} label="Performance Center" />
+  }
   // Chaos Engineering moved from Platform to Deliver.
   if (phase === 'platform' && search.section === 'chaos') {
     return <Navigate to="/deliver" search={{ section: 'chaos' } as never} replace />
@@ -48,6 +56,10 @@ function PhaseLanding() {
 
 function loadBuilds(): Promise<{ default: React.ComponentType }> {
   return import('platform/Builds') as Promise<{ default: React.ComponentType }>
+}
+
+function loadPerformance(): Promise<{ default: React.ComponentType }> {
+  return import('develop/Performance') as Promise<{ default: React.ComponentType }>
 }
 
 function loadChaos(): Promise<{ default: React.ComponentType }> {

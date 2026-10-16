@@ -129,6 +129,15 @@ export function useDevelopParams(): DevelopParams {
   return params;
 }
 
+/**
+ * The page these views are mounted on. Develop views also render inside other
+ * phases (the Performance Center lives under /deliver), so in-place param
+ * updates must stay on the current path rather than jump to /develop.
+ */
+function currentPath(): string {
+  return typeof location !== 'undefined' && location.pathname !== '/' ? location.pathname : '/develop';
+}
+
 /** Patch the params of the current page in place (no new history entry). */
 export function useSetDevelopParams() {
   const router = useRouter({ warn: false });
@@ -136,17 +145,20 @@ export function useSetDevelopParams() {
     (patch: DevelopParams) => {
       if (router) {
         void router.navigate({
-          to: '/develop',
+          to: currentPath(),
           search: ((prev: Record<string, unknown>) => clean({ ...prev, ...patch })) as never,
           replace: true,
         });
         return;
       }
-      writeUrl('/develop', clean({ ...readSearch(), ...patch }), true);
+      writeUrl(currentPath(), clean({ ...readSearch(), ...patch }), true);
     },
     [router],
   );
 }
+
+/** Sections of the Develop module that the console shows under another phase. */
+const HOSTED_ELSEWHERE: Partial<Record<DevelopSection, string>> = { performance: '/deliver' };
 
 /** Go to another Develop section, optionally straight to one item. */
 export function useGoDevelop() {
@@ -154,11 +166,12 @@ export function useGoDevelop() {
   return useCallback(
     (section: DevelopSection, params: DevelopParams = {}) => {
       const search = clean({ section, ...params });
+      const to = HOSTED_ELSEWHERE[section] ?? '/develop';
       if (router) {
-        void router.navigate({ to: '/develop', search: search as never });
+        void router.navigate({ to, search: search as never });
         return;
       }
-      writeUrl('/develop', search, false);
+      writeUrl(to, search, false);
     },
     [router],
   );

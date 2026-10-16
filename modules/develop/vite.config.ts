@@ -8,5 +8,7 @@ export default defineRemoteConfig({
     './Home': './src/home.tsx',
     './RepoList': './src/views/repo-list.tsx',
     './PullRequestList': './src/views/pr-list.tsx',
+    // Rendered under Deliver (/deliver?section=performance); see src/performance-entry.tsx.
+    './Performance': './src/performance-entry.tsx',
   },
 })

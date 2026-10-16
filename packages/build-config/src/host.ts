@@ -55,35 +55,6 @@ export function defineHostConfig(opts: HostOpts) {
         ]),
       )
 
-    /*
-     * External `builder` remote — the Adhar Builder app powers every canvas
-     * surface (Code, Visual/Design, Workflow, Theme) from a single
-     * federated component. The console's pages just mount that component
-     * with different `mode` props.
-     *
-     * The remote URL is configured at build/dev time via
-     * `VITE_ADHAR_BUILDER_URL`. Default `http://localhost:5174` matches the
-     * convention for running the builder locally (`pnpm dev` on its repo
-     * binds to that port). Override with:
-     *
-     *     VITE_ADHAR_BUILDER_URL=https://builder.example.com pnpm dev
-     *
-     * The external app must:
-     *   1. Expose `./BuilderApp` via @module-federation/vite as `name: 'builder'`.
-     *      The exposed component accepts `{ mode, docId?, docName?, onSave? }`.
-     *   2. Use the same shared deps with matching versions:
-     *      react@^19, react-dom@^19, @tanstack/react-router, @tanstack/react-query.
-     *   3. Serve `/mf/remoteEntry.js` with permissive CORS for the console origin.
-     */
-    const builderHost = (
-      process.env.VITE_ADHAR_BUILDER_URL ?? 'http://localhost:5174'
-    ).replace(/\/$/, '')
-    remotes.builder = {
-      type: 'module',
-      name: 'builder',
-      entry: `${builderHost}/mf/remoteEntry.js`,
-    }
-
     const alias = {
       ...consoleAliases(workspaceRoot),
       '~': resolve(opts.appDir, 'app'),

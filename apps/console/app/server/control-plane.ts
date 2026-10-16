@@ -101,6 +101,38 @@ export interface ApplyOutcome {
 }
 
 /** The REST path of an XR: `/apis/<group>/<version>/namespaces/<ns>/<plural>/<name>`. */
+/** The project every scaffold lands in unless the template asks otherwise — the platform's own. */
+export const DEFAULT_PROJECT = 'adhar'
+
+/**
+ * A deployable inside a project (ADR-0026). The control plane composes its
+ * Argo CD Applications, Kargo Warehouse and Stages from this one object; the
+ * console never writes those itself.
+ */
+export function applicationManifest(app: { name: string; project: string; repoUrl: string; path?: string }): XrManifest {
+  return {
+    apiVersion: PLATFORM_API_VERSION,
+    kind: 'Application',
+    metadata: {
+      name: app.name,
+      namespace: TENANCY_NAMESPACE,
+      labels: {
+        [MANAGED_BY_LABEL]: 'adhar-console',
+        'adhar.io/project': app.project,
+        'adhar.io/application': app.name,
+        'adhar.io/scaffolded': 'true',
+      },
+    },
+    spec: {
+      parameters: {
+        project: app.project,
+        displayName: app.name,
+        source: { repoURL: app.repoUrl, path: app.path ?? 'deploy', targetRevision: 'main' },
+      },
+    },
+  }
+}
+
 export function xrPath(m: XrManifest): string {
   return `${xrCollectionPath(m)}/${m.metadata.name}`
 }

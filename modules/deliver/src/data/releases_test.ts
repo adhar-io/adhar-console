@@ -179,3 +179,23 @@ Deno.test('one stage is both the start and the end of the chain', () => {
   const [r] = buildReleases([freight({ id: 'f1' })], [stage('only', [], 'f1')])
   assert(r.atEnd)
 })
+
+Deno.test('a release follows its own application chain, not every stage on the cluster', () => {
+  const stageOf = (name: string, project: string, warehouse: string, upstream: string[] = []): kargo.Stage => ({
+    ...stage(name, upstream),
+    project,
+    warehouse,
+  })
+  const stages = [
+    stageOf('kiran-svc-dev', 'adhar', 'kiran-svc'),
+    stageOf('kiran-svc-test', 'adhar', 'kiran-svc', ['kiran-svc-dev']),
+    stageOf('kiran-svc-prod', 'adhar', 'kiran-svc', ['kiran-svc-test']),
+    stageOf('dev', 'adhar-environments', 'environments'),
+    stageOf('test', 'adhar-environments', 'environments', ['dev']),
+    stageOf('prod', 'adhar-environments', 'environments', ['test']),
+  ]
+  const [kiran] = buildReleases([freight({ id: 'f1', project: 'adhar', warehouse: 'kiran-svc' })], stages)
+  assertEquals(kiran.stages.map((s) => s.name), ['kiran-svc-dev', 'kiran-svc-test', 'kiran-svc-prod'])
+  const [platform] = buildReleases([freight({ id: 'f2', project: 'adhar-environments', warehouse: 'environments' })], stages)
+  assertEquals(platform.stages.map((s) => s.name), ['dev', 'test', 'prod'])
+})

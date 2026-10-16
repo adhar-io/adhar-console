@@ -9,6 +9,7 @@ import {
   useCollaborators,
   useCreateIssue,
   useCreatePull,
+  pullRequestsBlocked,
   useOrgPullRequests,
   useRepoLabels,
   useRepos,
@@ -22,9 +23,11 @@ import { useAct } from './tracker-bits.tsx';
  * open it straight away.
  */
 
-function RepoSelect({ value, onChange }: { value: string; onChange(v: string): void }) {
+function RepoSelect({ value, onChange, prs = false }: { value: string; onChange(v: string): void; prs?: boolean }) {
   const repos = useRepos();
-  const opts = (repos.data ?? []).filter((r) => !r.archived).map((r) => ({ value: r.name, label: r.full_name }));
+  const opts = (repos.data ?? [])
+    .filter((r) => r.name === value || (!r.archived && (!prs || !pullRequestsBlocked(r))))
+    .map((r) => ({ value: r.name, label: r.full_name }));
   return <Select value={value} onChange={(e) => onChange(e.target.value)} options={opts} aria-label='Repository' />;
 }
 
@@ -102,7 +105,7 @@ export function NewPullModal({ open, onClose, defaults, onCreated }: {
   // (Re)seed whenever the modal opens.
   useEffect(() => {
     if (!open) return;
-    setRepo(defaults?.repo ?? repos.data?.find((r) => !r.archived)?.name ?? '');
+    setRepo(defaults?.repo ?? repos.data?.find((r) => !pullRequestsBlocked(r))?.name ?? '');
     setBase(defaults?.base ?? '');
     setHead(defaults?.head ?? '');
     setTitle('');
@@ -138,7 +141,8 @@ export function NewPullModal({ open, onClose, defaults, onCreated }: {
   const branchOpts = (branches.data ?? []).map((b) => ({ value: b.name, label: b.name }));
   const same = !!head && head === base;
   const nothing = ab.data != null && ab.data.ahead === 0;
-  const canCreate = !!repo && !!head && !!base && !same && !!title.trim() && !existing && !create.isPending;
+  const blocked = pullRequestsBlocked(repoObj);
+  const canCreate = !blocked && !!repo && !!head && !!base && !same && !!title.trim() && !existing && !create.isPending;
 
   const submit = async () => {
     if (!canCreate) return;
@@ -169,7 +173,7 @@ export function NewPullModal({ open, onClose, defaults, onCreated }: {
     >
       <div className='space-y-4'>
         <Field label='Repository'>
-          <RepoSelect value={repo} onChange={(v) => { setRepo(v); setBase(''); setHead(''); clearLabels(); clearAssignees(); }} />
+          <RepoSelect prs value={repo} onChange={(v) => { setRepo(v); setBase(''); setHead(''); clearLabels(); clearAssignees(); }} />
         </Field>
         <div className='grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_auto_1fr]'>
           <Field label='Base (merge into)'>
@@ -181,7 +185,9 @@ export function NewPullModal({ open, onClose, defaults, onCreated }: {
           </Field>
         </div>
         <div className='-mt-2 min-h-5 text-[12px]'>
-          {branches.data && branches.data.length < 2
+          {blocked
+            ? <span className='text-amber-700 dark:text-amber-300'>{repoObj?.full_name}: {blocked}</span>
+            : branches.data && branches.data.length < 2
             ? <span className='text-amber-700 dark:text-amber-300'>This repository has a single branch — push or create another branch first.</span>
             : same
             ? <span className='text-amber-700 dark:text-amber-300'>Pick two different branches.</span>

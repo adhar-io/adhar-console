@@ -24,6 +24,10 @@ function PhaseLanding() {
   if (phase === 'platform' && search.section === 'ci') {
     return <Navigate to="/develop" search={{ section: 'builds' } as never} replace />
   }
+  // Code Builder was retired; the Visual Designer in Design replaces it.
+  if (phase === 'develop' && search.section === 'codebuilder') {
+    return <Navigate to="/design" search={{ section: 'builder' } as never} replace />
+  }
   // The Performance Center moved from Develop to Deliver.
   if (phase === 'develop' && search.section === 'performance') {
     return <Navigate to="/deliver" search={{ ...(search as Record<string, unknown>), section: 'performance' } as never} replace />

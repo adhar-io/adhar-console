@@ -215,7 +215,7 @@ export function strapiError(e: unknown, fallback = 'Strapi request failed.'): st
   const err = e as { status?: number; body?: unknown; message?: string } | undefined
   const b = err?.body as { error?: { message?: string; details?: { errors?: Array<{ path?: string[]; message?: string }> } } } | undefined
   if (err?.status === 401 || err?.status === 403) {
-    return 'Strapi rejected the console\'s API token. It needs full access (Settings → API Tokens).'
+    return 'Strapi rejected the console\'s API token. If Strapi has just started, it registers the platform token within a minute; otherwise the token needs full access (Settings → API Tokens).'
   }
   const details = b?.error?.details?.errors
   if (details?.length) return details.map((d) => `${(d.path ?? []).join('.')}: ${d.message}`).join(' · ')

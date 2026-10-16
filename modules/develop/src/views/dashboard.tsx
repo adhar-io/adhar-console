@@ -156,7 +156,7 @@ export function Dashboard() {
           <QuickStartCard title="Code" description="Repositories, branches and history — and a cloud environment to work in." tone="brand" go={go} links={[['Repositories', 'repos'], ['Branches', 'branches'], ['Commits', 'commits'], ['Cloud Envs', 'environments']]} />
           <QuickStartCard title="Review" description="Pull requests and issues across the org — review, merge and triage." tone="amber" go={go} links={[['Pull requests', 'prs'], ['Issues', 'issues']]} />
           <QuickStartCard title="Run" description="Data pipelines and load tests on the cluster." tone="violet" go={go} links={[['Pipelines', 'pipelines'], ['Performance Center', 'performance']]} />
-          <QuickStartCard title="Generate" description="Content and drag-and-drop scaffolding for components and services." tone="emerald" go={go} links={[['Content', 'content'], ['Code Builder', 'codebuilder']]} />
+          <QuickStartCard title="Content" description="Strapi content types, entries, drafts and media for your apps." tone="emerald" go={go} links={[['Content', 'content']]} />
         </div>
       </div>
     </div>

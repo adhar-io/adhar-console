@@ -8,6 +8,7 @@ import {
   useBranchProtections,
   useCreateBranch,
   useDeleteBranch,
+  pullRequestsBlocked,
   useOrgPullRequests,
   useProtectBranch,
   useRepos,
@@ -62,6 +63,7 @@ export function Branches() {
   const [creating, setCreating] = useState<string | null>(null);
   const [newPr, setNewPr] = useState<string | null>(null);
   const go = useGoDevelop();
+  const prBlocked = pullRequestsBlocked(repos.data?.find((r) => r.name === repo));
 
   if (repos.isLoading) return <><PageHeader title='Branches' /><LoadingBlock label='Loading repositories…' /></>;
   if (!repos.data?.length || !repo) return <><PageHeader title='Branches' /><EmptyState title='No repositories' description='Create a repository first.' /></>;
@@ -73,12 +75,17 @@ export function Branches() {
         badge={<RepoPicker value={repo} onChange={setRepo} />}
         actions={
           <>
-            <Button size='sm' variant='secondary' onClick={() => setNewPr('')}>New pull request</Button>
+            {prBlocked ? null : <Button size='sm' variant='secondary' onClick={() => setNewPr('')}>New pull request</Button>}
             <Button variant='primary' size='sm' onClick={() => setCreating('')}><IconPlus /> New branch</Button>
           </>
         }
       />
-      <BranchBrowser key={repo} repo={repo} onNewBranch={(from) => setCreating(from)} onNewPr={(head) => setNewPr(head)} />
+      {prBlocked ? (
+        <div className='rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200'>
+          {prBlocked}
+        </div>
+      ) : null}
+      <BranchBrowser key={repo} repo={repo} onNewBranch={(from) => setCreating(from)} onNewPr={prBlocked ? undefined : (head) => setNewPr(head)} />
       <NewBranchModal repo={repo} from={creating} onClose={() => setCreating(null)} />
       <NewPullModal
         open={newPr !== null}
@@ -93,7 +100,7 @@ export function Branches() {
   );
 }
 
-function BranchBrowser({ repo, onNewBranch, onNewPr }: { repo: string; onNewBranch(from: string): void; onNewPr(head: string): void }) {
+function BranchBrowser({ repo, onNewBranch, onNewPr }: { repo: string; onNewBranch(from: string): void; onNewPr?(head: string): void }) {
   const repos = useRepos();
   const r = repos.data?.find((x) => x.name === repo);
   const q = useBranches(repo);
@@ -174,7 +181,7 @@ function BranchBrowser({ repo, onNewBranch, onNewPr }: { repo: string; onNewBran
       {(close) => (
         <>
           <MenuItem onClick={() => { close(); go('commits', { repo, branch: b.name }); }}>View commits</MenuItem>
-          {!isDefault ? <MenuItem onClick={() => { close(); onNewPr(b.name); }}>Open pull request…</MenuItem> : null}
+          {!isDefault && onNewPr ? <MenuItem onClick={() => { close(); onNewPr(b.name); }}>Open pull request…</MenuItem> : null}
           <MenuItem onClick={() => { close(); onNewBranch(b.name); }}>New branch from here…</MenuItem>
           <MenuItem onClick={() => { close(); copy(b.name, toast); }}>Copy name</MenuItem>
           <MenuItem onClick={() => { close(); copy(`git fetch origin && git switch ${b.name}`, toast); }}>Copy checkout command</MenuItem>
@@ -242,7 +249,7 @@ function BranchBrowser({ repo, onNewBranch, onNewPr }: { repo: string; onNewBran
                     compare={i < COMPARE_LIMIT}
                     pr={prByBranch.get(b.name)}
                     onPr={(p) => go('prs', { repo, pr: itemRef(repo, p.number), state: 'all' })}
-                    onNewPr={() => onNewPr(b.name)}
+                    onNewPr={onNewPr ? () => onNewPr(b.name) : undefined}
                     onCommit={setCommit}
                     menu={menu(b)}
                     highlight={params.branch === b.name}
@@ -336,11 +343,11 @@ function BranchRow({ repo, branch: b, base, isDefault = false, compare = false, 
                 <span className='truncate capitalize text-content-muted'>{prState(pr)}</span>
               </button>
             )
-            : (
+            : onNewPr ? (
               <button type='button' onClick={onNewPr} className='text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300'>
                 Open pull request
               </button>
-            )}
+            ) : null}
         </div>
       )}
       {menu}

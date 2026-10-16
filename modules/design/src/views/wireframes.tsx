@@ -14,6 +14,7 @@ import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import type { Wireframe, WireframeBlock } from '../data/types.ts'
 import { FrameCanvas } from '../components/frame-canvas.tsx'
 import { BuilderEmbed } from './builder.tsx'
+import { useUrlParam } from '../data/builder-nav.ts'
 
 const FLOW_LABEL: Record<string, string> = {
   onboarding: 'Onboarding flow',
@@ -24,10 +25,9 @@ const FLOW_LABEL: Record<string, string> = {
  * Wireframes — flow-grouped low-fi screens.
  *
  *   Library mode: cards grouped by flow, with an SVG thumbnail per frame.
- *   Editor mode:  hands the frame to the embedded Visual Builder via
- *                 postMessage. The builder owns the editing experience;
- *                 this module just keeps the index, the create modal, and
- *                 a read-only fallback for when the builder isn't running.
+ *   Editor mode:  opens the frame in the Visual Designer (`@adhar/builder`).
+ *                 Saving stores the builder project on the wireframe and
+ *                 re-derives its blocks, so the library thumbnail follows.
  */
 export function Wireframes() {
   const { items: list, isLoading, error, refetch } = useCollection<Wireframe>(KIND.wireframe)
@@ -36,8 +36,18 @@ export function Wireframes() {
   const removeWf = useRemove(KIND.wireframe)
   const seed = useSeedExamples<Wireframe>(KIND.wireframe)
 
-  const [editingId, setEditingId] = useState<string | null>(null)
+  // `?doc=<id>` deep-links an open frame, so refresh / shared links land in the editor.
+  const [docParam, setDocParam] = useUrlParam('doc')
+  const editingId = docParam ?? null
+  const setEditingId = (id: string | null) => setDocParam(id ?? undefined, { replace: id === null })
   const [createOpen, setCreateOpen] = useState(false)
+  // `?new=1` (from the Design dashboard's "New" menu) opens the create flow once.
+  const [newParam, setNewParam] = useUrlParam('new')
+  useEffect(() => {
+    if (newParam !== '1') return
+    setCreateOpen(true)
+    setNewParam(undefined, { replace: true })
+  }, [newParam, setNewParam])
 
   const editing = useMemo(
     () => list.find((f) => f.id === editingId) ?? null,
@@ -55,15 +65,10 @@ export function Wireframes() {
   if (editing) {
     return (
       <BuilderEmbed
-        embedded
-        title={editing.name}
-        eyebrow={`Wireframe · ${FLOW_LABEL[editing.flow] ?? editing.flow} · step ${editing.order}`}
+        title={`${editing.name} · ${FLOW_LABEL[editing.flow] ?? editing.flow} · step ${editing.order}`}
         doc={editing}
         onBack={() => setEditingId(null)}
-        onSave={(saved) => {
-          const blocks = (saved.blocks as WireframeBlock[] | undefined) ?? editing.blocks
-          updateWf.mutate({ ...editing, name: saved.name || editing.name, blocks })
-        }}
+        onSave={(next) => updateWf.mutateAsync(next)}
       />
     )
   }
@@ -76,7 +81,7 @@ export function Wireframes() {
       <div className="flex flex-wrap items-center gap-2">
         <div className="text-[11px] text-content-muted">
           {list.length} screen{list.length === 1 ? '' : 's'} across {flowKeys.length} flow
-          {flowKeys.length === 1 ? '' : 's'} · editing handled in the Visual Builder
+          {flowKeys.length === 1 ? '' : 's'} · editing handled in the Visual Designer
         </div>
         <div className="ml-auto">
           <Button size="sm" onClick={() => setCreateOpen(true)} leading={<IconPlus />}>
@@ -88,7 +93,7 @@ export function Wireframes() {
       {list.length === 0 ? (
         <EmptyState
           title="No wireframes yet"
-          description="Sketch a screen — pick a template or start blank. Editing opens in the Visual Builder."
+          description="Sketch a screen — pick a template or start blank. Editing opens in the Visual Designer."
           action={
             <Button
               size="sm"
@@ -462,7 +467,7 @@ function CreateFrameModal({
       open={open}
       onClose={onClose}
       title="New frame"
-      description="Pick a template to seed the canvas, or start blank — opens directly in the Visual Builder."
+      description="Pick a template to seed the canvas, or start blank — opens directly in the Visual Designer."
       branded
       width="lg"
       footer={

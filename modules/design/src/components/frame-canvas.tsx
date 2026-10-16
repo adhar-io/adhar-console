@@ -3,13 +3,10 @@ import type { WireframeBlock, WireframeBlockType } from '../data/types.ts'
 /**
  * Read-only renderer for a single wireframe frame.
  *
- * Used in two places:
- *   1. Library cards on the Wireframes page — every card shows a thumbnail
- *      of its frame.
- *   2. Builder fallback — when the Visual Builder iframe isn't reachable,
- *      we still render the frame here so the team can at least see it.
+ * Used for the library cards on the Wireframes page — every card shows a
+ * thumbnail of its frame.
  *
- * Editing happens in the embedded Visual Builder; this file is purely
+ * Editing happens in the Visual Builder; this file is purely
  * presentational so it can stay tiny and dependency-free.
  */
 

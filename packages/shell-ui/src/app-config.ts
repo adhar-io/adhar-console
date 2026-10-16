@@ -18,7 +18,6 @@ export interface AppConfig {
    * that leads to an identity-provider error.
    */
   selfRegistration: boolean
-  builderUrl: string
   tools: Record<string, { configured: boolean; url: string }>
   version: string
   /** Gitea org that owns the platform's repos (single-tenant per install). */
@@ -50,7 +49,6 @@ export interface AppConfig {
 export const APP_CONFIG_DEFAULTS: AppConfig = {
   authConfigured: false,
   selfRegistration: false,
-  builderUrl: '',
   tools: {},
   version: '',
   giteaOrg: 'adhar',

@@ -1,665 +1,1342 @@
-import { useEffect, useMemo, useState } from 'react'
-import {
-  Button,
-  Card,
-  CardBody,
-  CardHeader,
-  EmptyState,
-  Modal,
-  StatusBadge,
-} from '@adhar/shell-ui'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { Button, EmptyState, Markdown, Modal, StatusBadge, useOptionalUser, useToast } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
-import { KIND, newId, useCollection, useCreate, useRemove, useSeedExamples, useUpdate } from '../data/store.ts'
+import { KIND, type Listed, newId, useCollection, useCreate, useRemove, useSeedExamples, useUpdate } from '../data/store.ts'
 import { SEED_API_SPECS } from '../data/seed.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import type { ApiSpec } from '../data/types.ts'
 import {
-  extractEndpoints,
-  extractSchemas,
+  componentSchemas,
+  detectKind,
+  diffSpecs,
+  exampleFor,
+  extractOperations,
+  groupByTag,
+  type Issue,
+  KIND_LABEL,
+  type OpenApiDoc,
+  type Operation,
   parseSpec,
-  type Endpoint,
+  type RawSchema,
+  refName,
+  resolvePointer,
+  serversOf,
+  type SnippetLang,
+  snippetFor,
+  SPEC_STARTERS,
+  type SpecKind,
+  specVersionLabel,
+  toYaml,
+  typeLabel,
+  validateInstance,
+  validateSpec,
 } from '../data/openapi.ts'
+import { designLink, useDesignParams, useNewFlag, useSetDesignParams } from '../data/deep-link.ts'
+import { SourceEditor } from '../components/source-editor.tsx'
+import { CommitToRepoModal, ImportFromRepoModal } from '../components/git-dialogs.tsx'
+import { copyText, downloadText, pickTextFile } from '../components/export.ts'
+import { useAutosave } from '../components/use-autosave.ts'
+import { Icon, Menu, SaveDot, SearchBox, Segmented, useConfirm } from '../components/ui-bits.tsx'
+import { slugify } from '../data/mermaid-util.ts'
 
 /**
- * API / Schema design surface. Manage a library of API specs, then open one to
- * paste/edit its OpenAPI document (JSON or best-effort YAML) and read it back
- * as grouped endpoints + component schemas. Persistence is the tenant document
- * store (kind `design.api-spec`), mirroring the ADR / Diagram views.
+ * API & Schemas — design OpenAPI 3.x / Swagger 2.0, AsyncAPI and JSON Schema
+ * documents.
+ *
+ *   • Library with validity, endpoint / schema counts; import from URL, a
+ *     Gitea repo file, a local file, or start from a starter.
+ *   • Editor (`?spec=<id>&tab=…&op=…`): Monaco (YAML / JSON) with inline
+ *     validation markers; an interactive endpoint browser grouped by tag with
+ *     parameters, request / response schemas, generated examples (mock
+ *     payloads) and cURL / fetch / Python snippets; component-schema trees;
+ *     JSON Schema instance tester; problems list; named versions with a
+ *     semantic diff that flags breaking changes; format / convert JSON ⇄ YAML;
+ *     download or commit to Gitea.
+ *
+ * Persisted in the tenant document store (kind `design.api-spec`).
  */
+
+interface SpecVersion {
+  id: string
+  version: string
+  note?: string
+  document: string
+  at: string
+  by: string
+}
+
+type SpecDoc = ApiSpec & {
+  kind?: SpecKind
+  versions?: SpecVersion[]
+  source?: string
+  git?: { repo: string; branch: string; path: string; sha?: string; at: string }
+  updated_by?: string
+}
+
+type Tab = 'explorer' | 'schemas' | 'problems' | 'changes'
+type Layout = 'code' | 'split' | 'docs'
+
+const METHOD_TONE: Record<string, string> = {
+  GET: 'bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300',
+  POST: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300',
+  PUT: 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300',
+  PATCH: 'bg-violet-100 text-violet-800 dark:bg-violet-500/15 dark:text-violet-300',
+  DELETE: 'bg-rose-100 text-rose-800 dark:bg-rose-500/15 dark:text-rose-300',
+  PUB: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300',
+  SEND: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300',
+  SUB: 'bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300',
+  RECEIVE: 'bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300',
+}
+
+const INPUT =
+  'block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm text-content placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20'
+
+function MethodPill({ m }: { m: string }) {
+  return (
+    <span className={`inline-flex w-16 shrink-0 justify-center rounded-md px-1.5 py-0.5 font-mono text-[10.5px] font-bold ${METHOD_TONE[m] ?? 'bg-surface-sunken text-content-muted'}`}>
+      {m}
+    </span>
+  )
+}
+
+function analyse(text: string) {
+  const parsed = parseSpec(text)
+  const issues: Issue[] = parsed.error
+    ? [{ severity: 'error', message: parsed.error, path: [], line: parsed.errorLine }]
+    : validateSpec(parsed.doc, text)
+  return { parsed, issues, kind: detectKind(parsed.doc) }
+}
+
+/* ─────────────────────────── page ─────────────────────────── */
+
 export function ApiSchemas() {
-  const { items: list, isLoading, error, refetch } = useCollection<ApiSpec>(KIND.apiSpec)
-  const createSpec = useCreate<ApiSpec>(KIND.apiSpec)
-  const updateSpec = useUpdate<ApiSpec>(KIND.apiSpec)
+  const { items: list, isLoading, error, refetch } = useCollection<SpecDoc>(KIND.apiSpec)
+  const createSpec = useCreate<SpecDoc>(KIND.apiSpec)
   const removeSpec = useRemove(KIND.apiSpec)
-  const seed = useSeedExamples<ApiSpec>(KIND.apiSpec)
+  const seed = useSeedExamples<SpecDoc>(KIND.apiSpec)
+  const params = useDesignParams()
+  const setParams = useSetDesignParams()
+  const toast = useToast()
+  const user = useOptionalUser()
+  const [ask, confirmDialog] = useConfirm()
 
-  const [openId, setOpenId] = useState<string | null>(null)
-  const [createOpen, setCreateOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const [kindFilter, setKindFilter] = useState<'all' | SpecKind>('all')
+  const [newOpen, setNewOpen] = useState(false)
+  const [urlOpen, setUrlOpen] = useState(false)
+  const [repoOpen, setRepoOpen] = useState(false)
+  useNewFlag(() => setNewOpen(true), !isLoading)
 
-  const editing = useMemo(() => list.find((s) => s.id === openId) ?? null, [list, openId])
+  const open = (id: string | undefined) => setParams({ spec: id, op: undefined, tab: undefined }, { push: true })
+
+  const createFrom = (document: string, meta: { name?: string; version?: string; description?: string; source?: string } = {}) => {
+    const { doc } = parseSpec(document)
+    const info = (doc?.info ?? {}) as { title?: string; version?: string; description?: string }
+    const now = new Date().toISOString()
+    const spec: SpecDoc = {
+      id: newId('api'),
+      name: meta.name || info.title || (doc && typeof doc.title === 'string' ? doc.title : '') || 'Untitled API',
+      version: meta.version || (info.version !== undefined ? String(info.version) : '0.1.0'),
+      description: meta.description ?? info.description?.split('\n')[0] ?? '',
+      document,
+      kind: detectKind(doc),
+      source: meta.source,
+      created_at: now,
+      updated_at: now,
+      updated_by: user?.name,
+    }
+    createSpec.mutate(spec, {
+      onSuccess: (created) => {
+        toast.success(meta.source ? 'Spec imported' : 'Spec created', { description: created.name })
+        open(created.id)
+      },
+      onError: (e) => toast.error('Could not create spec', { description: e.message }),
+    })
+  }
+
+  const summaries = useMemo(() => {
+    const m = new Map<string, { kind: SpecKind; ops: number; schemas: number; errors: number; warnings: number; label: string }>()
+    for (const s of list) {
+      const a = analyse(s.document)
+      m.set(s.id, {
+        kind: a.kind,
+        ops: extractOperations(a.parsed.doc).length,
+        schemas: Object.keys(componentSchemas(a.parsed.doc)).length,
+        errors: a.issues.filter((i) => i.severity === 'error').length,
+        warnings: a.issues.filter((i) => i.severity === 'warning').length,
+        label: specVersionLabel(a.parsed.doc),
+      })
+    }
+    return m
+  }, [list])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return list
-      .filter(
-        (s) =>
-          !q ||
-          s.name.toLowerCase().includes(q) ||
-          s.description.toLowerCase().includes(q) ||
-          s.version.toLowerCase().includes(q),
-      )
-      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
-  }, [list, search])
-
-  if (editing) {
-    return (
-      <SpecEditor
-        spec={editing}
-        onBack={() => setOpenId(null)}
-        onSave={(patch) => {
-          updateSpec.mutate({ ...editing, ...patch, updated_at: new Date().toISOString() })
-        }}
-        onDelete={() => {
-          if (!confirm(`Delete "${editing.name}"?`)) return
-          removeSpec.mutate(editing.id)
-          setOpenId(null)
-        }}
-      />
-    )
-  }
+      .filter((s) => kindFilter === 'all' || summaries.get(s.id)?.kind === kindFilter)
+      .filter((s) => !q || [s.name, s.description, s.version].join(' ').toLowerCase().includes(q))
+      .sort((a, b) => (b._updatedAt ?? b.updated_at ?? '').localeCompare(a._updatedAt ?? a.updated_at ?? ''))
+  }, [list, search, kindFilter, summaries])
 
   if (error) return <ErrorBlock error={error} onRetry={refetch} />
   if (isLoading) return <LoadingBlock label="Loading API specs…" />
 
+  if (params.spec) {
+    const spec = list.find((s) => s.id === params.spec)
+    if (!spec) {
+      return (
+        <EmptyState
+          title="Spec not found"
+          description="It may have been deleted, or the link is from another workspace."
+          action={<Button size="sm" onClick={() => open(undefined)}>Back to API specs</Button>}
+        />
+      )
+    }
+    return (
+      <>
+        <SpecEditor
+          key={spec.id}
+          spec={spec}
+          onBack={() => open(undefined)}
+          onDuplicate={(document) => createFrom(document, { name: `${spec.name} (copy)`, version: spec.version, description: spec.description })}
+          onDelete={() =>
+            ask({
+              title: `Delete “${spec.name}”?`,
+              description: 'The document and its saved versions are removed for everyone.',
+              onConfirm: () =>
+                removeSpec.mutate(spec.id, {
+                  onSuccess: () => {
+                    toast.success('Spec deleted')
+                    open(undefined)
+                  },
+                  onError: (e) => toast.error('Could not delete', { description: e.message }),
+                }),
+            })}
+        />
+        {confirmDialog}
+      </>
+    )
+  }
+
+  const kinds = (['openapi', 'swagger', 'asyncapi', 'jsonschema'] as SpecKind[]).filter((k) => [...summaries.values()].some((s) => s.kind === k))
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="text-[11px] text-content-muted">
-          {list.length} {list.length === 1 ? 'spec' : 'specs'} · OpenAPI 3.x
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <SearchInput value={search} onChange={setSearch} />
-          <Button size="sm" onClick={() => setCreateOpen(true)} leading={<IconPlus />}>
-            New spec
-          </Button>
-        </div>
-      </div>
-
-      {filtered.length === 0 ? (
-        <EmptyState
-          title={list.length === 0 ? 'No API specs yet' : 'No matches'}
-          description={
-            list.length === 0
-              ? 'Create a spec, then paste an OpenAPI document to see endpoints and schemas.'
-              : 'Try a different search term.'
-          }
-          action={
-            list.length === 0 ? (
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => seed.mutate(SEED_API_SPECS)}
-                disabled={seed.isPending}
-              >
-                {seed.isPending ? 'Loading…' : 'Load examples'}
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((s) => (
-            <SpecCard key={s.id} spec={s} onOpen={() => setOpenId(s.id)} />
+        <div className="flex flex-wrap gap-1">
+          {(['all', ...kinds] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              aria-pressed={kindFilter === k}
+              onClick={() => setKindFilter(k)}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] transition ${
+                kindFilter === k
+                  ? 'border-brand-300 bg-brand-50 font-semibold text-brand-700 dark:border-brand-500/40 dark:bg-brand-500/10 dark:text-brand-300'
+                  : 'border-edge-default bg-surface-raised text-content-muted hover:border-edge-strong hover:text-content'
+              }`}
+            >
+              {k === 'all' ? 'All' : KIND_LABEL[k]}
+              <span className="font-mono text-[10px] opacity-60">
+                {k === 'all' ? list.length : [...summaries.values()].filter((s) => s.kind === k).length}
+              </span>
+            </button>
           ))}
         </div>
-      )}
-
-      <CreateSpecModal
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        onCreate={(input) => {
-          const now = new Date().toISOString()
-          const next: ApiSpec = {
-            id: newId('api'),
-            created_at: now,
-            updated_at: now,
-            ...input,
-          }
-          createSpec.mutate(next, { onSuccess: (created) => setOpenId(created.id) })
-        }}
-      />
-    </div>
-  )
-}
-
-/* ─────────── Library ─────────── */
-
-function SpecCard({ spec, onOpen }: { spec: ApiSpec; onOpen(): void }) {
-  const summary = useMemo(() => {
-    const { doc, error } = parseSpec(spec.document)
-    if (error || !doc) return { endpoints: 0, schemas: 0, ok: false }
-    const groups = extractEndpoints(doc)
-    const endpoints = Object.values(groups).reduce((n, g) => n + g.length, 0)
-    return { endpoints, schemas: extractSchemas(doc).length, ok: true }
-  }, [spec.document])
-
-  return (
-    <Card interactive className="group">
-      <button type="button" onClick={onOpen} className="block w-full p-5 text-left">
-        <CardHeader className="!p-0">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 font-mono text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
-                <span className="rounded-md bg-surface-sunken px-1.5 py-0.5">API</span>
-                <span>v{spec.version}</span>
-              </div>
-              <h3 className="mt-1 truncate text-sm font-semibold text-content">{spec.name}</h3>
-            </div>
-            <StatusBadge kind={summary.ok ? 'healthy' : 'degraded'}>
-              {summary.ok ? 'valid' : 'check'}
-            </StatusBadge>
-          </div>
-        </CardHeader>
-        <CardBody className="!px-0 !pt-3">
-          <p className="line-clamp-2 text-xs leading-relaxed text-content-muted">
-            {spec.description || '—'}
-          </p>
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-content-muted">
-            <span className="font-medium text-content">{summary.endpoints} endpoints</span>
-            <span className="text-content-subtle">·</span>
-            <span>{summary.schemas} schemas</span>
-            <span className="ml-auto">{formatRelative(spec.updated_at)}</span>
-          </div>
-        </CardBody>
-      </button>
-    </Card>
-  )
-}
-
-/* ─────────── Editor ─────────── */
-
-const METHOD_TONE: Record<string, string> = {
-  GET: 'bg-sky-50 text-sky-700 ring-sky-200',
-  POST: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-  PUT: 'bg-amber-50 text-amber-700 ring-amber-200',
-  PATCH: 'bg-violet-50 text-violet-700 ring-violet-200',
-  DELETE: 'bg-rose-50 text-rose-700 ring-rose-200',
-}
-
-function SpecEditor({
-  spec,
-  onBack,
-  onSave,
-  onDelete,
-}: {
-  spec: ApiSpec
-  onBack(): void
-  onSave(patch: Partial<ApiSpec>): void
-  onDelete(): void
-}) {
-  const [name, setName] = useState(spec.name)
-  const [version, setVersion] = useState(spec.version)
-  const [description, setDescription] = useState(spec.description)
-  const [document, setDocument] = useState(spec.document)
-  const [dirty, setDirty] = useState(false)
-  const [savedAt, setSavedAt] = useState<number | null>(null)
-
-  useEffect(() => {
-    setName(spec.name)
-    setVersion(spec.version)
-    setDescription(spec.description)
-    setDocument(spec.document)
-    setDirty(false)
-  }, [spec.id])
-
-  // Auto-save 1.2s after the last edit.
-  useEffect(() => {
-    if (!dirty) return
-    const t = setTimeout(() => {
-      onSave({ name, version, description, document })
-      setDirty(false)
-      setSavedAt(Date.now())
-    }, 1200)
-    return () => clearTimeout(t)
-  }, [dirty, name, version, description, document, onSave])
-
-  const parsed = useMemo(() => parseSpec(document), [document])
-  const groups = useMemo(() => extractEndpoints(parsed.doc), [parsed.doc])
-  const schemas = useMemo(() => extractSchemas(parsed.doc), [parsed.doc])
-  const endpointCount = Object.values(groups).reduce((n, g) => n + g.length, 0)
-
-  const touch = <T,>(setter: (v: T) => void) => (v: T) => {
-    setter(v)
-    setDirty(true)
-  }
-
-  return (
-    <div className="space-y-3">
-      <header className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-surface-raised p-2 shadow-sm">
-        <Button size="sm" variant="ghost" onClick={onBack} leading={<IconBack />}>
-          Library
-        </Button>
-        <input
-          value={name}
-          onChange={(e) => touch(setName)(e.target.value)}
-          className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 text-base font-semibold tracking-tight text-content focus:border-edge-default focus:outline-none focus:ring-2 focus:ring-brand-400/20"
-        />
-        <div className="flex items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 py-1">
-          <span className="font-mono text-[10px] text-content-subtle">v</span>
-          <input
-            value={version}
-            onChange={(e) => touch(setVersion)(e.target.value)}
-            className="w-16 bg-transparent text-xs focus:outline-none"
-            aria-label="Version"
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <SearchBox value={search} onChange={setSearch} placeholder="Search specs…" className="w-56" />
+          <Menu
+            label="Import"
+            icon={<Icon name="upload" />}
+            items={[
+              { label: 'From URL…', onSelect: () => setUrlOpen(true) },
+              { label: 'From a Gitea repository…', onSelect: () => setRepoOpen(true) },
+              {
+                label: 'Upload a file…',
+                onSelect: async () => {
+                  const f = await pickTextFile('.yaml,.yml,.json')
+                  if (f) createFrom(f.text, { source: `file:${f.name}` })
+                },
+              },
+            ]}
           />
+          <Button size="sm" variant="primary" leading={<Icon name="plus" />} onClick={() => setNewOpen(true)}>New spec</Button>
         </div>
-        {parsed.format ? (
-          <StatusBadge kind="info">{parsed.format.toUpperCase()}</StatusBadge>
-        ) : (
-          <StatusBadge kind="degraded">unparsed</StatusBadge>
-        )}
-        <SaveIndicator dirty={dirty} savedAt={savedAt} />
-        <div className="ml-auto flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => navigator.clipboard?.writeText(document)}
-            leading={<IconClipboard />}
-          >
-            Copy
-          </Button>
-          <Button size="sm" variant="danger" onClick={onDelete}>
-            Delete
-          </Button>
-        </div>
-      </header>
-
-      <Card>
-        <CardBody>
-          <label className="block">
-            <span className="block text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">
-              Description
-            </span>
-            <input
-              value={description}
-              onChange={(e) => touch(setDescription)(e.target.value)}
-              placeholder="What does this API do?"
-              className="mt-1.5 block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
-            />
-          </label>
-        </CardBody>
-      </Card>
-
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <div className="text-sm font-semibold text-content">OpenAPI document</div>
-                <div className="text-[11px] text-content-subtle">
-                  Paste JSON (YAML best-effort). Renders live as you type.
-                </div>
-              </div>
-              {parsed.error ? (
-                <StatusBadge kind="failed">error</StatusBadge>
-              ) : (
-                <StatusBadge kind="healthy">{endpointCount} ops</StatusBadge>
-              )}
-            </div>
-          </CardHeader>
-          <CardBody className="!p-0">
-            <textarea
-              value={document}
-              onChange={(e) => touch(setDocument)(e.target.value)}
-              spellCheck={false}
-              placeholder='{ "openapi": "3.0.3", "info": { … }, "paths": { … } }'
-              className="block h-[62vh] w-full resize-none rounded-b-xl border-0 bg-code p-4 font-mono text-[12px] leading-relaxed text-code-fg focus:outline-none"
-            />
-          </CardBody>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <div className="text-sm font-semibold text-content">Rendered view</div>
-                <div className="text-[11px] text-content-subtle">
-                  Endpoints grouped by tag · component schemas
-                </div>
-              </div>
-              {parsed.doc?.info?.title ? (
-                <StatusBadge kind="info">{parsed.doc.info.title}</StatusBadge>
-              ) : null}
-            </div>
-          </CardHeader>
-          <CardBody className="!p-3">
-            <div className="h-[62vh] space-y-5 overflow-y-auto pr-1">
-              {parsed.error ? (
-                <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-xs leading-relaxed text-rose-800">
-                  {parsed.error}
-                </div>
-              ) : (
-                <>
-                  <EndpointGroups groups={groups} />
-                  <SchemaList schemas={schemas} />
-                </>
-              )}
-            </div>
-          </CardBody>
-        </Card>
       </div>
-    </div>
-  )
-}
 
-function EndpointGroups({ groups }: { groups: Record<string, Endpoint[]> }) {
-  const tags = Object.keys(groups).sort()
-  if (!tags.length) {
-    return (
-      <div className="rounded-lg border border-edge-subtle bg-surface-sunken/40 p-4 text-xs text-content-muted">
-        No paths found in this document.
-      </div>
-    )
-  }
-  return (
-    <div className="space-y-4">
-      <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700">
-        Endpoints
-      </div>
-      {tags.map((tag) => (
-        <div key={tag}>
-          <div className="mb-1.5 flex items-center gap-2">
-            <span className="text-xs font-semibold text-content">{tag}</span>
-            <span className="font-mono text-[10px] text-content-subtle">
-              {groups[tag].length}
-            </span>
-          </div>
-          <div className="overflow-hidden rounded-lg border border-edge-subtle">
-            {groups[tag].map((ep, idx) => (
-              <div
-                key={`${ep.method}-${ep.path}-${idx}`}
-                className="flex items-center gap-2 border-b border-edge-subtle bg-surface-raised px-2.5 py-2 last:border-0"
-              >
-                <span
-                  className={`inline-flex w-16 shrink-0 justify-center rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ring-inset ${
-                    METHOD_TONE[ep.method] ?? 'bg-surface-sunken text-content-muted ring-edge-subtle'
-                  }`}
+      {list.length === 0
+        ? (
+          <EmptyState
+            title="Design APIs contract-first"
+            description="Write OpenAPI, AsyncAPI or JSON Schema with live validation, browse endpoints with generated examples and request snippets, and track breaking changes between versions."
+            action={
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button size="sm" variant="primary" leading={<Icon name="plus" />} onClick={() => setNewOpen(true)}>New spec</Button>
+                <Button
+                  size="sm"
+                  loading={seed.isPending}
+                  onClick={() =>
+                    seed.mutate(SEED_API_SPECS as SpecDoc[], {
+                      onSuccess: () => toast.success('Example specs added'),
+                      onError: (e) => toast.error('Could not load examples', { description: e.message }),
+                    })}
                 >
-                  {ep.method}
-                </span>
-                <span className="shrink-0 font-mono text-[11px] text-content">{ep.path}</span>
-                {ep.summary ? (
-                  <span className="ml-auto truncate text-[11px] text-content-muted">
-                    {ep.summary}
-                  </span>
-                ) : null}
+                  Load examples
+                </Button>
               </div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function SchemaList({
-  schemas,
-}: {
-  schemas: ReturnType<typeof extractSchemas>
-}) {
-  if (!schemas.length) return null
-  return (
-    <div className="space-y-3">
-      <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700">
-        Schemas
-      </div>
-      <div className="grid grid-cols-1 gap-2">
-        {schemas.map((s) => (
-          <div key={s.name} className="overflow-hidden rounded-lg border border-edge-subtle">
-            <div className="flex items-center justify-between gap-2 border-b border-edge-subtle bg-surface-sunken/50 px-3 py-1.5">
-              <span className="font-mono text-xs font-semibold text-content">{s.name}</span>
-              <span className="font-mono text-[10px] text-content-subtle">{s.type}</span>
-            </div>
-            {s.fields.length ? (
-              <div className="bg-surface-raised">
-                {s.fields.map((f) => (
-                  <div
-                    key={f.name}
-                    className="flex items-center gap-2 border-b border-edge-subtle px-3 py-1.5 last:border-0"
-                  >
-                    <span className="font-mono text-[11px] text-content">{f.name}</span>
-                    {f.required ? (
-                      <span className="font-mono text-[9px] font-bold uppercase text-rose-600">
-                        req
-                      </span>
-                    ) : null}
-                    <span className="ml-auto font-mono text-[11px] text-brand-700">{f.type}</span>
+            }
+          />
+        )
+        : filtered.length === 0
+        ? <EmptyState compact title="No matches" description="Try a different search or kind." />
+        : (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {filtered.map((s) => {
+              const sum = summaries.get(s.id)!
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => open(s.id)}
+                  className="group rounded-xl border border-edge-default bg-surface-raised p-4 text-left shadow-sm transition hover:border-edge-strong hover:shadow-md"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 text-[10.5px] font-semibold uppercase tracking-wider text-content-subtle">
+                        <span>{sum.label}</span>
+                        <span className="font-mono normal-case">v{s.version}</span>
+                      </div>
+                      <h3 className="mt-1 truncate text-sm font-semibold text-content">{s.name}</h3>
+                    </div>
+                    <StatusBadge kind={sum.errors ? 'failed' : sum.warnings ? 'degraded' : 'healthy'}>
+                      {sum.errors ? `${sum.errors} error${sum.errors === 1 ? '' : 's'}` : sum.warnings ? `${sum.warnings} warning${sum.warnings === 1 ? '' : 's'}` : 'valid'}
+                    </StatusBadge>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="bg-surface-raised px-3 py-2 text-[11px] text-content-subtle">No fields.</div>
-            )}
+                  <p className="mt-1.5 line-clamp-2 min-h-8 text-[12px] leading-relaxed text-content-muted">{s.description || '—'}</p>
+                  <div className="mt-3 flex items-center gap-3 text-[11px] text-content-muted">
+                    {sum.kind !== 'jsonschema'
+                      ? <span><span className="font-semibold text-content">{sum.ops}</span> {sum.kind === 'asyncapi' ? 'operation' : 'endpoint'}{sum.ops === 1 ? '' : 's'}</span>
+                      : null}
+                    <span><span className="font-semibold text-content">{sum.schemas}</span> {sum.kind === 'jsonschema' ? 'definition' : 'schema'}{sum.schemas === 1 ? '' : 's'}</span>
+                    {s.versions?.length ? <span>{s.versions.length} versions</span> : null}
+                    <span className="ml-auto text-content-subtle">{formatRelative(s._updatedAt ?? s.updated_at)}</span>
+                  </div>
+                </button>
+              )
+            })}
           </div>
-        ))}
-      </div>
+        )}
+
+      <NewSpecModal open={newOpen} onClose={() => setNewOpen(false)} busy={createSpec.isPending} onCreate={(doc, meta) => {
+        setNewOpen(false)
+        createFrom(doc, meta)
+      }} />
+      <UrlImportModal open={urlOpen} onClose={() => setUrlOpen(false)} onLoaded={(text, url) => createFrom(text, { source: url })} />
+      <ImportFromRepoModal
+        open={repoOpen}
+        onClose={() => setRepoOpen(false)}
+        title="Import a spec from Gitea"
+        accept={/\.(ya?ml|json)$/i}
+        onImport={(f) => createFrom(f.text, { source: `gitea:${f.repo}/${f.path}` })}
+      />
+      {confirmDialog}
     </div>
   )
 }
 
-function SaveIndicator({ dirty, savedAt }: { dirty: boolean; savedAt: number | null }) {
-  const [tick, setTick] = useState(0)
-  useEffect(() => {
-    if (!savedAt) return
-    const id = setInterval(() => setTick((t) => t + 1), 5000)
-    return () => clearInterval(id)
-  }, [savedAt])
+/* ─────────────────────────── create / import ─────────────────────────── */
 
-  if (dirty) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
-        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
-        Saving…
-      </span>
-    )
-  }
-  if (savedAt) {
-    const ago = Math.max(0, Date.now() - savedAt)
-    const label =
-      ago < 5_000
-        ? 'just now'
-        : ago < 60_000
-          ? `${Math.round(ago / 1000)}s ago`
-          : `${Math.round(ago / 60_000)}m ago`
-    return (
-      <span
-        className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800"
-        data-tick={tick}
-      >
-        <IconCheck /> Saved {label}
-      </span>
-    )
-  }
-  return null
-}
-
-/* ─────────── Create ─────────── */
-
-const STARTER_SPEC = `{
-  "openapi": "3.0.3",
-  "info": {
-    "title": "My API",
-    "version": "0.1.0",
-    "description": "Describe what this API does."
-  },
-  "paths": {
-    "/things": {
-      "get": { "tags": ["Things"], "summary": "List things" },
-      "post": { "tags": ["Things"], "summary": "Create a thing" }
-    }
-  },
-  "components": {
-    "schemas": {
-      "Thing": {
-        "type": "object",
-        "properties": {
-          "id": { "type": "string" },
-          "name": { "type": "string" }
-        },
-        "required": ["id"]
-      }
-    }
-  }
-}`
-
-function CreateSpecModal({
+function NewSpecModal({
   open,
   onClose,
+  busy,
   onCreate,
 }: {
   open: boolean
   onClose(): void
-  onCreate(input: Pick<ApiSpec, 'name' | 'version' | 'description' | 'document'>): void
+  busy: boolean
+  onCreate(document: string, meta: { name?: string; version?: string; description?: string }): void
 }) {
+  const [starter, setStarter] = useState(SPEC_STARTERS[0].id)
   const [name, setName] = useState('')
-  const [version, setVersion] = useState('0.1.0')
-  const [description, setDescription] = useState('')
-
-  const reset = () => {
-    setName('')
-    setVersion('0.1.0')
-    setDescription('')
-  }
-
+  const [paste, setPaste] = useState('')
+  useEffect(() => {
+    if (open) {
+      setStarter(SPEC_STARTERS[0].id)
+      setName('')
+      setPaste('')
+    }
+  }, [open])
+  const pasted = starter === 'paste'
+  const check = useMemo(() => (pasted && paste.trim() ? parseSpec(paste) : null), [pasted, paste])
   const submit = () => {
-    const n = name.trim()
-    if (!n) return
-    onCreate({
-      name: n,
-      version: version.trim() || '0.1.0',
-      description: description.trim(),
-      document: STARTER_SPEC,
-    })
-    reset()
-    onClose()
+    const doc = pasted ? paste : SPEC_STARTERS.find((s) => s.id === starter)!.document
+    onCreate(doc, { name: name.trim() || undefined })
   }
-
   return (
     <Modal
       open={open}
       onClose={onClose}
       title="New API spec"
-      description="Start from a minimal OpenAPI skeleton — paste your document once it's created."
+      description="Start from a starter or paste an existing document."
       branded
       width="lg"
       footer={
         <>
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={submit} disabled={!name.trim()}>
-            Create spec
-          </Button>
+          <Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button size="sm" variant="primary" onClick={submit} loading={busy} disabled={busy || (pasted && !paste.trim())}>Create spec</Button>
         </>
       }
     >
       <div className="space-y-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <label className="block sm:col-span-2">
-            <span className="block text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">
-              Name
-            </span>
-            <input
-              autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Payments API"
-              className="mt-1.5 block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
-            />
-          </label>
-          <label className="block">
-            <span className="block text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">
-              Version
-            </span>
-            <input
-              value={version}
-              onChange={(e) => setVersion(e.target.value)}
-              placeholder="0.1.0"
-              className="mt-1.5 block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
-            />
-          </label>
-        </div>
         <label className="block">
-          <span className="block text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">
-            Description
-          </span>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={2}
-            placeholder="What does this API do?"
-            className="mt-1.5 block w-full resize-y rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+          <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">Name (optional — defaults to info.title)</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} className={`mt-1.5 ${INPUT}`} placeholder="Orders API" />
+        </label>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {[...SPEC_STARTERS, { id: 'paste', label: 'Paste a document', description: 'JSON or YAML — OpenAPI, AsyncAPI or JSON Schema.' }].map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => setStarter(s.id)}
+              className={`rounded-lg border p-3 text-left transition ${
+                starter === s.id ? 'border-brand-400 bg-brand-50 ring-2 ring-brand-400/20 dark:bg-brand-500/10' : 'border-edge-default bg-surface-raised hover:border-edge-strong'
+              }`}
+            >
+              <div className="text-[13px] font-semibold text-content">{s.label}</div>
+              <div className="mt-0.5 text-[11.5px] text-content-muted">{s.description}</div>
+            </button>
+          ))}
+        </div>
+        {pasted
+          ? (
+            <div>
+              <textarea value={paste} onChange={(e) => setPaste(e.target.value)} rows={10} className={`${INPUT} font-mono text-[12px]`} placeholder="openapi: 3.1.0…" autoFocus />
+              {check
+                ? (
+                  <div className={`mt-1 text-[12px] ${check.error ? 'text-rose-600 dark:text-rose-400' : 'text-content-muted'}`}>
+                    {check.error ? check.error : `Detected ${specVersionLabel(check.doc)} · ${extractOperations(check.doc).length} operations`}
+                  </div>
+                )
+                : null}
+            </div>
+          )
+          : null}
+      </div>
+    </Modal>
+  )
+}
+
+function UrlImportModal({ open, onClose, onLoaded }: { open: boolean; onClose(): void; onLoaded(text: string, url: string): void }) {
+  const toast = useToast()
+  const [url, setUrl] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (open) setUrl('')
+  }, [open])
+  const load = async () => {
+    setBusy(true)
+    try {
+      const res = await fetch(url, { headers: { Accept: 'application/json, application/yaml, text/yaml, */*' } })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const text = await res.text()
+      const p = parseSpec(text)
+      if (p.error) throw new Error(p.error)
+      onLoaded(text, url)
+      onClose()
+    } catch (e) {
+      toast.error('Could not load the URL', {
+        description: `${(e as Error).message}. The server must allow cross-origin requests — otherwise download the file and use Upload.`,
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Import from URL"
+      description="Fetched directly by your browser; nothing is proxied."
+      width="md"
+      footer={
+        <>
+          <Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button size="sm" variant="primary" onClick={load} loading={busy} disabled={!/^https?:\/\//.test(url) || busy}>Import</Button>
+        </>
+      }
+    >
+      <input
+        autoFocus
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && /^https?:\/\//.test(url) && load()}
+        placeholder="https://petstore3.swagger.io/api/v3/openapi.json"
+        className={`${INPUT} font-mono text-[12.5px]`}
+      />
+    </Modal>
+  )
+}
+
+/* ─────────────────────────── editor ─────────────────────────── */
+
+interface Draft {
+  name: string
+  version: string
+  description: string
+  document: string
+  versions: SpecVersion[]
+}
+
+function SpecEditor({
+  spec,
+  onBack,
+  onDuplicate,
+  onDelete,
+}: {
+  spec: Listed<SpecDoc>
+  onBack(): void
+  onDuplicate(document: string): void
+  onDelete(): void
+}) {
+  const update = useUpdate<SpecDoc>(KIND.apiSpec)
+  const toast = useToast()
+  const user = useOptionalUser()
+  const params = useDesignParams()
+  const setParams = useSetDesignParams()
+  const [draft, setDraft] = useState<Draft>({
+    name: spec.name,
+    version: spec.version,
+    description: spec.description ?? '',
+    document: spec.document,
+    versions: spec.versions ?? [],
+  })
+  const [layout, setLayout] = useState<Layout>('split')
+  const [reveal, setReveal] = useState<{ line: number; nonce: number } | null>(null)
+  const [commitOpen, setCommitOpen] = useState(false)
+  const [snapOpen, setSnapOpen] = useState(false)
+  const [urlOpen, setUrlOpen] = useState(false)
+  const [repoOpen, setRepoOpen] = useState(false)
+  const [ask, confirmDialog] = useConfirm()
+  const tab = (['explorer', 'schemas', 'problems', 'changes'].includes(params.tab ?? '') ? params.tab : 'explorer') as Tab
+  const setTab = (t: Tab) => setParams({ tab: t === 'explorer' ? undefined : t })
+
+  const latest = useRef(spec)
+  latest.current = spec
+  const save = useCallback(
+    (d: Draft) =>
+      update.mutateAsync({
+        ...latest.current,
+        ...d,
+        kind: detectKind(parseSpec(d.document).doc),
+        updated_at: new Date().toISOString(),
+        updated_by: user?.name,
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user?.name],
+  )
+  const autosave = useAutosave(draft, save, { key: spec.id, delay: 1000, onError: (e) => toast.error('Autosave failed', { description: e.message }) })
+
+  const deferred = useDeferredValue(draft.document)
+  const { parsed, issues, kind } = useMemo(() => analyse(deferred), [deferred])
+  const doc = parsed.doc
+  const ops = useMemo(() => extractOperations(doc), [doc])
+  const markers = useMemo(
+    () => issues.filter((i) => i.line).map((i) => ({ line: i.line!, message: i.message, severity: i.severity })),
+    [issues],
+  )
+  const errors = issues.filter((i) => i.severity === 'error').length
+  const isJson = (parsed.format ?? (draft.document.trim().startsWith('{') ? 'json' : 'yaml')) === 'json'
+  const base = slugify(draft.name, 'api')
+
+  const setDocument = (document: string) => setDraft((d) => ({ ...d, document }))
+  const convert = (to: 'json' | 'yaml') => {
+    if (!doc) return toast.error('Fix the parse error first', { description: parsed.error ?? undefined })
+    setDocument(to === 'json' ? JSON.stringify(doc, null, 2) + '\n' : toYaml(doc) + '\n')
+    toast.success(to === 'json' ? 'Converted to JSON' : 'Converted to YAML', { description: to === 'yaml' ? 'Comments are not preserved. Undo with ⌘Z.' : 'Undo with ⌘Z.' })
+  }
+  const replaceFrom = (text: string, source: string) => {
+    ask({
+      title: 'Replace the document?',
+      description: `The editor content is replaced with ${source}. Save a version first if you want to compare.`,
+      confirmLabel: 'Replace',
+      danger: false,
+      onConfirm: () => {
+        setDocument(text)
+        toast.success('Document replaced', { description: source })
+      },
+    })
+  }
+
+  const selectOp = (key: string | undefined) => setParams({ op: key })
+  const goLine = (line: number) => {
+    if (layout === 'docs') setLayout('split')
+    setReveal({ line, nonce: Date.now() })
+  }
+
+  return (
+    <div className="flex h-[calc(100dvh-11rem)] min-h-[560px] flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="ghost" onClick={onBack} leading={<Icon name="back" />}>API specs</Button>
+        <input
+          value={draft.name}
+          onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+          aria-label="Spec name"
+          className="min-w-40 flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 text-base font-semibold tracking-tight text-content hover:border-edge-default focus:border-edge-default focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+        />
+        <input
+          value={draft.version}
+          onChange={(e) => setDraft((d) => ({ ...d, version: e.target.value }))}
+          aria-label="Version"
+          className="w-24 rounded-md border border-edge-default bg-surface-raised px-2 py-1 font-mono text-[12px] text-content"
+        />
+        <span className="rounded-full bg-surface-sunken px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wider text-content-muted">{specVersionLabel(doc)}</span>
+        <SaveDot state={autosave.state} />
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <Segmented<Layout>
+            value={layout}
+            onChange={setLayout}
+            options={[
+              { id: 'code', label: <Icon name="code" />, title: 'Source only' },
+              { id: 'split', label: <Icon name="split" />, title: 'Split' },
+              { id: 'docs', label: <Icon name="eye" />, title: 'Explorer only' },
+            ]}
           />
+          <Button size="sm" leading={<Icon name="history" />} onClick={() => setSnapOpen(true)}>Save version</Button>
+          <Menu
+            label="Export"
+            icon={<Icon name="download" />}
+            items={[
+              { label: isJson ? 'Download JSON' : 'Download YAML', onSelect: () => downloadText(draft.document, `${base}.${isJson ? 'json' : 'yaml'}`) },
+              { label: 'Commit to Gitea…', onSelect: () => setCommitOpen(true) },
+              'separator',
+              { label: 'Convert to YAML', onSelect: () => convert('yaml'), disabled: !isJson },
+              { label: 'Convert to JSON', onSelect: () => convert('json'), disabled: isJson },
+              { label: 'Format document', onSelect: () => convert(isJson ? 'json' : 'yaml') },
+              'separator',
+              {
+                label: 'Copy link',
+                onSelect: async () => ((await copyText(designLink({ spec: spec.id }))) ? toast.success('Link copied') : toast.error('Clipboard unavailable')),
+              },
+            ]}
+          />
+          <Menu
+            ariaLabel="More actions"
+            icon={<Icon name="more" />}
+            items={[
+              { label: 'Replace from URL…', onSelect: () => setUrlOpen(true) },
+              { label: 'Replace from Gitea…', onSelect: () => setRepoOpen(true) },
+              {
+                label: 'Replace from file…',
+                onSelect: async () => {
+                  const f = await pickTextFile('.yaml,.yml,.json')
+                  if (f) replaceFrom(f.text, f.name)
+                },
+              },
+              'separator',
+              { label: 'Duplicate', onSelect: () => onDuplicate(draft.document) },
+              { label: 'Delete spec', onSelect: onDelete, danger: true },
+            ]}
+          />
+        </div>
+      </div>
+
+      <div className={`grid min-h-0 flex-1 gap-3 ${layout === 'split' ? 'grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]' : 'grid-cols-1'}`}>
+        {layout !== 'docs'
+          ? (
+            <div className="flex min-h-[300px] flex-col overflow-hidden rounded-xl border border-edge-default bg-surface-raised">
+              <SourceEditor
+                value={draft.document}
+                onChange={setDocument}
+                language={isJson ? 'json' : 'yaml'}
+                markers={markers}
+                reveal={reveal}
+                onSave={() => void autosave.flush().then(() => toast.success('Saved'))}
+                className="min-h-0 flex-1"
+                ariaLabel="Spec source"
+              />
+              <button
+                type="button"
+                onClick={() => setTab('problems')}
+                className={`flex items-center gap-3 border-t px-3 py-1.5 text-left text-[11.5px] ${
+                  errors ? 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300' : 'border-edge-subtle text-content-subtle'
+                }`}
+              >
+                <span>{errors ? `${errors} error${errors === 1 ? '' : 's'}` : 'No errors'}</span>
+                <span>{issues.filter((i) => i.severity === 'warning').length} warnings</span>
+                <span>{issues.filter((i) => i.severity === 'info').length} hints</span>
+                <span className="ml-auto">{isJson ? 'JSON' : 'YAML'} · {draft.document.split('\n').length} lines · ⌘S saves</span>
+              </button>
+            </div>
+          )
+          : null}
+        {layout !== 'code'
+          ? (
+            <div className="flex min-h-[300px] flex-col overflow-hidden rounded-xl border border-edge-default bg-surface-raised">
+              <div className="flex items-center gap-1 border-b border-edge-subtle px-2 pt-1.5">
+                {([
+                  ['explorer', kind === 'jsonschema' ? 'Schema' : kind === 'asyncapi' ? 'Operations' : 'Endpoints', kind === 'jsonschema' ? null : ops.length],
+                  ['schemas', kind === 'jsonschema' ? 'Definitions & test' : 'Schemas', Object.keys(componentSchemas(doc)).length],
+                  ['problems', 'Problems', issues.length],
+                  ['changes', 'Changes', draft.versions.length],
+                ] as [Tab, string, number | null][]).map(([id, label, n]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setTab(id)}
+                    className={`-mb-px border-b-2 px-2.5 py-1.5 text-[12.5px] ${tab === id ? 'border-brand-500 font-semibold text-content' : 'border-transparent text-content-muted hover:text-content'}`}
+                  >
+                    {label}
+                    {n !== null ? <span className={`ml-1.5 rounded-full px-1.5 font-mono text-[10px] ${id === 'problems' && errors ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300' : 'bg-surface-sunken text-content-subtle'}`}>{n}</span> : null}
+                  </button>
+                ))}
+              </div>
+              <div className="min-h-0 flex-1 overflow-auto p-3">
+                {!doc && tab !== 'problems' && tab !== 'changes'
+                  ? (
+                    <EmptyState
+                      compact
+                      title="Can't read the document"
+                      description={parsed.error ?? 'Empty document.'}
+                      action={parsed.errorLine ? <Button size="sm" onClick={() => goLine(parsed.errorLine!)}>Go to line {parsed.errorLine}</Button> : undefined}
+                    />
+                  )
+                  : tab === 'explorer'
+                  ? kind === 'jsonschema'
+                    ? <JsonSchemaPanel doc={doc!} />
+                    : <Explorer doc={doc!} ops={ops} selected={params.op} onSelect={selectOp} />
+                  : tab === 'schemas'
+                  ? kind === 'jsonschema' ? <JsonSchemaPanel doc={doc!} defsOnly /> : <SchemasPanel doc={doc!} />
+                  : tab === 'problems'
+                  ? <Problems issues={issues} onReveal={goLine} />
+                  : (
+                    <Changes
+                      versions={draft.versions}
+                      current={doc}
+                      onRestore={(v) =>
+                        ask({
+                          title: `Restore version ${v.version}?`,
+                          description: 'The editor content is replaced with this version (undo with ⌘Z in the editor).',
+                          confirmLabel: 'Restore',
+                          danger: false,
+                          onConfirm: () => {
+                            setDraft((d) => ({ ...d, document: v.document }))
+                            toast.success(`Restored ${v.version}`)
+                          },
+                        })}
+                      onDeleteVersion={(v) => setDraft((d) => ({ ...d, versions: d.versions.filter((x) => x.id !== v.id) }))}
+                    />
+                  )}
+              </div>
+            </div>
+          )
+          : null}
+      </div>
+
+      <SnapshotModal
+        open={snapOpen}
+        onClose={() => setSnapOpen(false)}
+        version={draft.version}
+        onSave={(version, note) => {
+          const v: SpecVersion = { id: newId('ver'), version, note, document: draft.document, at: new Date().toISOString(), by: user?.name ?? 'someone' }
+          setDraft((d) => ({ ...d, version, versions: [v, ...d.versions].slice(0, 20) }))
+          setSnapOpen(false)
+          toast.success(`Version ${version} saved`, { description: 'Compare against it in the Changes tab.' })
+        }}
+      />
+      <CommitToRepoModal
+        open={commitOpen}
+        onClose={() => setCommitOpen(false)}
+        title="Commit spec to Gitea"
+        initial={spec.git ? { repo: spec.git.repo, branch: spec.git.branch, folder: spec.git.path.split('/').slice(0, -1).join('/') } : undefined}
+        defaultFolder="api"
+        defaultMessage={`docs(api): ${draft.name} ${draft.version}`}
+        buildFiles={() => [{ path: spec.git?.path.split('/').pop() ?? `${base}.${isJson ? 'json' : 'yaml'}`, content: draft.document }]}
+        onCommitted={(t) =>
+          void update.mutateAsync({ ...latest.current, ...draft, git: { repo: t.repo, branch: t.branch, path: t.paths[0], sha: t.sha, at: new Date().toISOString() }, updated_at: new Date().toISOString() })}
+      />
+      <UrlImportModal open={urlOpen} onClose={() => setUrlOpen(false)} onLoaded={(text, url) => replaceFrom(text, url)} />
+      <ImportFromRepoModal
+        open={repoOpen}
+        onClose={() => setRepoOpen(false)}
+        title="Replace from a Gitea file"
+        accept={/\.(ya?ml|json)$/i}
+        onImport={(f) => replaceFrom(f.text, `${f.repo}/${f.path}`)}
+      />
+      {confirmDialog}
+    </div>
+  )
+}
+
+function SnapshotModal({ open, onClose, version, onSave }: { open: boolean; onClose(): void; version: string; onSave(version: string, note?: string): void }) {
+  const [v, setV] = useState(version)
+  const [note, setNote] = useState('')
+  useEffect(() => {
+    if (open) {
+      setV(version)
+      setNote('')
+    }
+  }, [open, version])
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Save a version"
+      description="Snapshots the current document so later edits can be diffed against it."
+      width="sm"
+      footer={
+        <>
+          <Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button size="sm" variant="primary" disabled={!v.trim()} onClick={() => onSave(v.trim(), note.trim() || undefined)}>Save version</Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <label className="block">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">Version</span>
+          <input value={v} onChange={(e) => setV(e.target.value)} className={`mt-1.5 font-mono ${INPUT}`} autoFocus />
+        </label>
+        <label className="block">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">Note</span>
+          <input value={note} onChange={(e) => setNote(e.target.value)} className={`mt-1.5 ${INPUT}`} placeholder="Released to staging" />
         </label>
       </div>
     </Modal>
   )
 }
 
-/* ─────────── shared atoms ─────────── */
+/* ─────────────────────────── explorer ─────────────────────────── */
 
-function SearchInput({ value, onChange }: { value: string; onChange(v: string): void }) {
+function Explorer({ doc, ops, selected, onSelect }: { doc: OpenApiDoc; ops: Operation[]; selected?: string; onSelect(key: string | undefined): void }) {
+  const [q, setQ] = useState('')
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const servers = serversOf(doc)
+  const [server, setServer] = useState(servers[0] ?? 'https://api.example.com')
+  const info = (doc.info ?? {}) as { title?: string; description?: string; version?: string }
+  const groups = useMemo(() => {
+    const t = q.trim().toLowerCase()
+    return groupByTag(ops.filter((o) => !t || `${o.method} ${o.path} ${o.summary} ${o.operationId ?? ''}`.toLowerCase().includes(t)))
+  }, [ops, q])
+  const selRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    selRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [selected])
+
   return (
-    <div className="relative">
-      <span className="pointer-events-none absolute inset-y-0 left-2 flex items-center text-content-subtle">
-        <IconSearch />
-      </span>
-      <input
-        type="search"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Search specs…"
-        className="block h-9 w-44 rounded-lg border border-edge-default bg-surface-raised pl-7 pr-2 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-56"
-      />
+    <div className="space-y-3">
+      <div>
+        <div className="text-[15px] font-semibold text-content">{info.title ?? 'Untitled'} <span className="font-mono text-[11px] text-content-subtle">v{String(info.version ?? '')}</span></div>
+        {info.description ? <Markdown text={info.description} className="mt-1 text-[12.5px] text-content-muted" /> : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <SearchBox value={q} onChange={setQ} placeholder="Filter operations…" className="min-w-40 flex-1" />
+        {detectKind(doc) !== 'asyncapi'
+          ? (
+            <select value={server} onChange={(e) => setServer(e.target.value)} aria-label="Server" className="h-8 max-w-60 rounded-lg border border-edge-default bg-surface-raised px-2 font-mono text-[11.5px] text-content">
+              {(servers.length ? servers : ['https://api.example.com']).map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          )
+          : null}
+      </div>
+      {ops.length === 0
+        ? <EmptyState compact title="No operations yet" description="Add paths (OpenAPI) or channels (AsyncAPI) in the editor." />
+        : groups.map(([tag, list]) => (
+          <section key={tag}>
+            <button
+              type="button"
+              onClick={() => setCollapsed((s) => {
+                const n = new Set(s)
+                n.has(tag) ? n.delete(tag) : n.add(tag)
+                return n
+              })}
+              className="flex w-full items-center gap-2 py-1 text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle hover:text-content"
+            >
+              <span className={`transition ${collapsed.has(tag) ? '-rotate-90' : ''}`}>▾</span>
+              {tag}
+              <span className="font-mono font-normal">{list.length}</span>
+            </button>
+            {collapsed.has(tag)
+              ? null
+              : (
+                <div className="divide-y divide-edge-subtle overflow-hidden rounded-lg border border-edge-default">
+                  {list.map((op) => {
+                    const on = selected === op.key
+                    return (
+                      <div key={op.key} ref={on ? selRef : undefined}>
+                        <button
+                          type="button"
+                          onClick={() => onSelect(on ? undefined : op.key)}
+                          aria-expanded={on}
+                          className={`flex w-full items-center gap-2 px-2.5 py-2 text-left ${on ? 'bg-surface-sunken/70' : 'hover:bg-surface-sunken/50'}`}
+                        >
+                          <MethodPill m={op.method} />
+                          <span className={`truncate font-mono text-[12.5px] ${op.deprecated ? 'text-content-subtle line-through' : 'text-content'}`}>{op.path}</span>
+                          <span className="ml-auto truncate pl-2 text-[12px] text-content-muted">{op.summary}</span>
+                        </button>
+                        {on ? <OperationDetail op={op} doc={doc} server={server} /> : null}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+          </section>
+        ))}
     </div>
   )
 }
 
-function IconPlus() {
+function OperationDetail({ op, doc, server }: { op: Operation; doc: OpenApiDoc; server: string }) {
+  const [lang, setLang] = useState<SnippetLang>('curl')
+  const isAsync = !!op.message || op.method === 'PUB' || op.method === 'SUB'
+  const snippet = useMemo(() => (isAsync ? '' : snippetFor(lang, op, server, doc)), [lang, op, server, doc, isAsync])
   return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" aria-hidden>
-      <path d="M12 5v14M5 12h14" />
-    </svg>
+    <div className="space-y-4 border-t border-edge-subtle bg-surface-canvas/40 px-3 py-3 text-[12.5px]">
+      {op.description ? <Markdown text={op.description} className="text-content-muted" /> : null}
+      <div className="flex flex-wrap gap-2 text-[11px] text-content-subtle">
+        {op.operationId ? <span className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono">{op.operationId}</span> : null}
+        {op.security?.length ? <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">auth: {op.security.join(', ')}</span> : null}
+        {op.deprecated ? <span className="rounded bg-rose-50 px-1.5 py-0.5 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">deprecated</span> : null}
+      </div>
+
+      {op.parameters.length
+        ? (
+          <Block title="Parameters">
+            <table className="w-full text-left text-[12px]">
+              <thead className="text-[10.5px] uppercase tracking-wider text-content-subtle">
+                <tr>
+                  <th className="py-1 pr-2 font-semibold">Name</th>
+                  <th className="py-1 pr-2 font-semibold">In</th>
+                  <th className="py-1 pr-2 font-semibold">Type</th>
+                  <th className="py-1 font-semibold">Description</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-edge-subtle">
+                {op.parameters.map((p) => (
+                  <tr key={`${p.in}:${p.name}`} className="align-top">
+                    <td className="py-1.5 pr-2 font-mono text-content">
+                      {p.name}
+                      {p.required ? <span className="ml-0.5 text-rose-600">*</span> : null}
+                    </td>
+                    <td className="py-1.5 pr-2 text-content-muted">{p.in}</td>
+                    <td className="py-1.5 pr-2 font-mono text-[11.5px] text-violet-700 dark:text-violet-300">{typeLabel(p.schema)}</td>
+                    <td className="py-1.5 text-content-muted">
+                      {p.description}
+                      {p.schema?.enum ? <div className="font-mono text-[11px] text-content-subtle">{p.schema.enum.map(String).join(' | ')}</div> : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Block>
+        )
+        : null}
+
+      {op.requestBody
+        ? (
+          <Block title={`Request body · ${op.requestBody.contentType}${op.requestBody.required ? ' · required' : ''}`}>
+            <SchemaWithExample schema={op.requestBody.schema} example={op.requestBody.example} doc={doc} />
+          </Block>
+        )
+        : null}
+
+      {op.message
+        ? (
+          <Block title={`Message · ${op.message.contentType}`}>
+            {op.message.description ? <p className="mb-2 text-content-muted">{op.message.description}</p> : null}
+            <SchemaWithExample schema={op.message.schema} example={op.message.example} doc={doc} />
+          </Block>
+        )
+        : null}
+
+      {op.responses.length
+        ? (
+          <Block title="Responses">
+            <div className="space-y-2">
+              {op.responses.map((r) => <ResponseRow key={r.status} r={r} doc={doc} />)}
+            </div>
+          </Block>
+        )
+        : null}
+
+      {!isAsync
+        ? (
+          <Block
+            title="Try it"
+            actions={
+              <Segmented<SnippetLang>
+                size="xs"
+                value={lang}
+                onChange={setLang}
+                options={[{ id: 'curl', label: 'cURL' }, { id: 'fetch', label: 'fetch' }, { id: 'python', label: 'Python' }]}
+              />
+            }
+          >
+            <CodeBlock text={snippet} />
+          </Block>
+        )
+        : null}
+    </div>
   )
 }
-function IconSearch() {
+
+function ResponseRow({ r, doc }: { r: Operation['responses'][number]; doc: OpenApiDoc }) {
+  const ok = r.status.startsWith('2')
+  const [open, setOpen] = useState(ok)
+  const tone = ok ? 'text-emerald-700 dark:text-emerald-300' : r.status.startsWith('4') || r.status.startsWith('5') ? 'text-rose-700 dark:text-rose-300' : 'text-content-muted'
   return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <circle cx="11" cy="11" r="7" />
-      <path d="m20 20-3.5-3.5" />
-    </svg>
+    <div className="rounded-lg border border-edge-subtle">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left">
+        <span className={`font-mono text-[12px] font-bold ${tone}`}>{r.status}</span>
+        <span className="truncate text-content-muted">{r.description}</span>
+        {r.schema ? <span className="ml-auto font-mono text-[11px] text-violet-700 dark:text-violet-300">{typeLabel(r.schema)}</span> : null}
+      </button>
+      {open && (r.schema || r.example !== undefined)
+        ? <div className="border-t border-edge-subtle p-2.5"><SchemaWithExample schema={r.schema} example={r.example} doc={doc} mock /></div>
+        : null}
+    </div>
   )
 }
-function IconBack() {
+
+function SchemaWithExample({ schema, example, doc, mock }: { schema?: RawSchema; example?: unknown; doc: OpenApiDoc; mock?: boolean }) {
+  const [view, setView] = useState<'schema' | 'example'>('schema')
+  const ex = useMemo(() => (example !== undefined ? example : exampleFor(schema, doc)), [example, schema, doc])
   return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="m15 18-6-6 6-6" />
-    </svg>
+    <div>
+      <div className="mb-2 flex items-center gap-2">
+        <Segmented<'schema' | 'example'>
+          size="xs"
+          value={view}
+          onChange={setView}
+          options={[{ id: 'schema', label: 'Schema' }, { id: 'example', label: mock ? 'Mock response' : 'Example' }]}
+        />
+        {example === undefined && view === 'example' ? <span className="text-[11px] text-content-subtle">generated from the schema</span> : null}
+      </div>
+      {view === 'schema' ? (schema ? <SchemaTree schema={schema} doc={doc} /> : <span className="text-content-subtle">No schema.</span>) : <CodeBlock text={JSON.stringify(ex, null, 2)} />}
+    </div>
   )
 }
-function IconClipboard() {
+
+function Block({ title, actions, children }: { title: string; actions?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <rect x="9" y="2" width="6" height="4" rx="1" />
-      <path d="M9 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-3" />
-    </svg>
+    <div>
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-content-subtle">{title}</span>
+        {actions}
+      </div>
+      {children}
+    </div>
   )
 }
-function IconCheck() {
+
+function CodeBlock({ text }: { text: string }) {
+  const toast = useToast()
   return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M20 6 9 17l-5-5" />
-    </svg>
+    <div className="group relative">
+      <pre className="max-h-80 overflow-auto rounded-lg bg-code p-3 font-mono text-[11.5px] leading-relaxed text-code-fg">{text}</pre>
+      <button
+        type="button"
+        onClick={async () => ((await copyText(text)) ? toast.success('Copied') : toast.error('Clipboard unavailable'))}
+        className="absolute right-2 top-2 rounded-md bg-code-raised px-2 py-0.5 text-[10.5px] text-code-fg/80 opacity-0 transition hover:text-white group-hover:opacity-100"
+      >
+        Copy
+      </button>
+    </div>
+  )
+}
+
+/* Recursive schema tree. */
+function SchemaTree({ schema, doc, depth = 0, seen = [] }: { schema: RawSchema; doc: unknown; depth?: number; seen?: string[] }) {
+  if (depth > 10) return <span className="text-content-subtle">…</span>
+  let s = schema
+  let refLabel: string | undefined
+  if (s.$ref) {
+    refLabel = refName(s.$ref)
+    if (seen.includes(s.$ref)) return <span className="font-mono text-[11.5px] text-violet-700 dark:text-violet-300">{refLabel} (recursive)</span>
+    const r = resolvePointer(doc, s.$ref) as RawSchema | undefined
+    if (!r) return <span className="font-mono text-[11.5px] text-rose-600">unresolved {s.$ref}</span>
+    seen = [...seen, s.$ref]
+    s = r
+  }
+  const combos = s.allOf ?? s.oneOf ?? s.anyOf
+  const props: [string, RawSchema][] = []
+  const required = new Set(s.required ?? [])
+  if (s.allOf) {
+    for (const part of s.allOf) {
+      const p = part.$ref ? (resolvePointer(doc, part.$ref) as RawSchema | undefined) : part
+      for (const [k, v] of Object.entries(p?.properties ?? {})) props.push([k, v])
+      for (const r of p?.required ?? []) required.add(r)
+    }
+  }
+  for (const [k, v] of Object.entries(s.properties ?? {})) props.push([k, v])
+  const items = s.type === 'array' || (Array.isArray(s.type) && s.type.includes('array')) ? s.items : undefined
+
+  return (
+    <div className={depth ? 'border-l border-edge-subtle pl-3' : ''}>
+      {refLabel && depth === 0 ? <div className="mb-1 font-mono text-[11px] text-violet-700 dark:text-violet-300">{refLabel}</div> : null}
+      {s.description && depth === 0 ? <p className="mb-1 text-[12px] text-content-muted">{s.description}</p> : null}
+      {(s.oneOf || s.anyOf) && !props.length
+        ? (
+          <div className="space-y-1">
+            <span className="text-[11px] text-content-subtle">{s.oneOf ? 'one of' : 'any of'}</span>
+            {combos!.map((c, i) => <SchemaTree key={i} schema={c} doc={doc} depth={depth + 1} seen={seen} />)}
+          </div>
+        )
+        : null}
+      {props.length
+        ? (
+          <ul className="space-y-1">
+            {props.map(([k, v]) => <PropRow key={k} name={k} schema={v} required={required.has(k)} doc={doc} depth={depth} seen={seen} />)}
+          </ul>
+        )
+        : null}
+      {items
+        ? (
+          <div>
+            <span className="text-[11px] text-content-subtle">items: </span>
+            <SchemaTree schema={items} doc={doc} depth={depth + 1} seen={seen} />
+          </div>
+        )
+        : null}
+      {!props.length && !items && !combos
+        ? <span className="font-mono text-[11.5px] text-violet-700 dark:text-violet-300">{typeLabel(s)}</span>
+        : null}
+    </div>
+  )
+}
+
+function PropRow({ name, schema, required, doc, depth, seen }: { name: string; schema: RawSchema; required: boolean; doc: unknown; depth: number; seen: string[] }) {
+  const resolved = schema.$ref ? (resolvePointer(doc, schema.$ref) as RawSchema | undefined) : schema
+  const nested = !!resolved && (!!resolved.properties || !!resolved.allOf || !!resolved.oneOf || !!resolved.anyOf ||
+    (resolved.type === 'array' && !!resolved.items && (!!resolved.items.$ref || !!resolved.items.properties)))
+  const [open, setOpen] = useState(depth < 1 && !schema.$ref)
+  const constraints = [
+    resolved?.minimum !== undefined ? `≥ ${resolved.minimum}` : '',
+    resolved?.maximum !== undefined ? `≤ ${resolved.maximum}` : '',
+    resolved?.minLength !== undefined ? `min ${resolved.minLength}` : '',
+    resolved?.maxLength !== undefined ? `max ${resolved.maxLength}` : '',
+    resolved?.pattern ? `/${resolved.pattern}/` : '',
+    resolved?.default !== undefined ? `default ${JSON.stringify(resolved.default)}` : '',
+  ].filter(Boolean)
+  return (
+    <li>
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        {nested
+          ? <button type="button" onClick={() => setOpen((o) => !o)} className="w-3 text-content-subtle" aria-label={open ? 'Collapse' : 'Expand'}>{open ? '▾' : '▸'}</button>
+          : <span className="w-3" />}
+        <span className="font-mono text-[12px] text-content">{name}</span>
+        {required ? <span className="text-[10px] font-semibold text-rose-600 dark:text-rose-400">required</span> : null}
+        <span className="font-mono text-[11.5px] text-violet-700 dark:text-violet-300">{typeLabel(schema)}</span>
+        {resolved?.deprecated ? <span className="text-[10px] text-amber-600">deprecated</span> : null}
+        {constraints.length ? <span className="font-mono text-[10.5px] text-content-subtle">{constraints.join(' · ')}</span> : null}
+      </div>
+      {resolved?.description ? <div className="ml-5 text-[11.5px] text-content-muted">{resolved.description}</div> : null}
+      {resolved?.enum ? <div className="ml-5 font-mono text-[11px] text-content-subtle">{resolved.enum.map((e) => JSON.stringify(e)).join(' | ')}</div> : null}
+      {nested && open ? <div className="ml-1.5 mt-1"><SchemaTree schema={schema} doc={doc} depth={depth + 1} seen={seen} /></div> : null}
+    </li>
+  )
+}
+
+function SchemasPanel({ doc }: { doc: OpenApiDoc }) {
+  const schemas = componentSchemas(doc)
+  const [q, setQ] = useState('')
+  const names = Object.keys(schemas).filter((n) => n.toLowerCase().includes(q.trim().toLowerCase())).sort()
+  if (!Object.keys(schemas).length) return <EmptyState compact title="No component schemas" description="Define reusable models under components.schemas and reference them with $ref." />
+  return (
+    <div className="space-y-2">
+      <SearchBox value={q} onChange={setQ} placeholder="Filter schemas…" />
+      {names.map((n) => <SchemaCard key={n} name={n} schema={schemas[n]} doc={doc} />)}
+    </div>
+  )
+}
+
+function SchemaCard({ name, schema, doc }: { name: string; schema: RawSchema; doc: OpenApiDoc }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="rounded-lg border border-edge-default">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2 px-3 py-2 text-left">
+        <span className="text-content-subtle">{open ? '▾' : '▸'}</span>
+        <span className="font-mono text-[12.5px] font-semibold text-content">{name}</span>
+        <span className="font-mono text-[11px] text-violet-700 dark:text-violet-300">{typeLabel(schema)}</span>
+        <span className="ml-auto text-[11px] text-content-subtle">{Object.keys(schema.properties ?? {}).length || ''}</span>
+      </button>
+      {open ? <div className="border-t border-edge-subtle p-3"><SchemaWithExample schema={schema} doc={doc} /></div> : null}
+    </div>
+  )
+}
+
+function JsonSchemaPanel({ doc, defsOnly }: { doc: OpenApiDoc; defsOnly?: boolean }) {
+  const root = doc as unknown as RawSchema
+  const [instance, setInstance] = useState(() => JSON.stringify(exampleFor(root, doc), null, 2))
+  const result = useMemo(() => {
+    try {
+      return { errors: validateInstance(root, JSON.parse(instance), doc), parseError: null as string | null }
+    } catch (e) {
+      return { errors: [], parseError: (e as Error).message }
+    }
+  }, [instance, root, doc])
+  if (defsOnly) return <SchemasPanel doc={doc} />
+  return (
+    <div className="space-y-4">
+      <Block title={String(doc.title ?? 'Root schema')}>
+        <SchemaWithExample schema={root} doc={doc} />
+      </Block>
+      <Block
+        title="Test an instance"
+        actions={<Button size="xs" onClick={() => setInstance(JSON.stringify(exampleFor(root, doc), null, 2))}>Reset to example</Button>}
+      >
+        <textarea value={instance} onChange={(e) => setInstance(e.target.value)} rows={8} spellCheck={false} className={`${INPUT} font-mono text-[12px]`} aria-label="Instance JSON" />
+        <div className="mt-2 text-[12px]">
+          {result.parseError
+            ? <span className="text-rose-600 dark:text-rose-400">Invalid JSON — {result.parseError}</span>
+            : result.errors.length
+            ? (
+              <ul className="space-y-0.5">
+                {result.errors.map((e, i) => (
+                  <li key={i} className="text-rose-700 dark:text-rose-300"><span className="font-mono">{e.path}</span> {e.message}</li>
+                ))}
+              </ul>
+            )
+            : <span className="text-emerald-700 dark:text-emerald-300">✓ The instance is valid against the schema.</span>}
+        </div>
+      </Block>
+    </div>
+  )
+}
+
+/* ─────────────────────────── problems & changes ─────────────────────────── */
+
+function Problems({ issues, onReveal }: { issues: Issue[]; onReveal(line: number): void }) {
+  if (!issues.length) return <EmptyState compact title="No problems" description="The document parses and passes structural checks." />
+  const order = { error: 0, warning: 1, info: 2 }
+  const tone = {
+    error: 'bg-rose-600 text-white',
+    warning: 'bg-amber-500 text-white',
+    info: 'bg-sky-500 text-white',
+  }
+  return (
+    <ul className="divide-y divide-edge-subtle rounded-lg border border-edge-default">
+      {[...issues].sort((a, b) => order[a.severity] - order[b.severity] || (a.line ?? 0) - (b.line ?? 0)).map((i, k) => (
+        <li key={k}>
+          <button
+            type="button"
+            disabled={!i.line}
+            onClick={() => i.line && onReveal(i.line)}
+            className="flex w-full items-start gap-2 px-3 py-2 text-left text-[12.5px] hover:bg-surface-sunken/60 disabled:cursor-default"
+          >
+            <span className={`mt-0.5 rounded px-1.5 text-[10px] font-semibold uppercase ${tone[i.severity]}`}>{i.severity}</span>
+            <span className="flex-1 text-content">{i.message}</span>
+            {i.line ? <span className="font-mono text-[11px] text-content-subtle">L{i.line}</span> : null}
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function Changes({
+  versions,
+  current,
+  onRestore,
+  onDeleteVersion,
+}: {
+  versions: SpecVersion[]
+  current: OpenApiDoc | null
+  onRestore(v: SpecVersion): void
+  onDeleteVersion(v: SpecVersion): void
+}) {
+  const [sel, setSel] = useState(versions[0]?.id ?? '')
+  useEffect(() => {
+    if (!versions.some((v) => v.id === sel)) setSel(versions[0]?.id ?? '')
+  }, [versions, sel])
+  const base = versions.find((v) => v.id === sel)
+  const diff = useMemo(() => (base ? diffSpecs(parseSpec(base.document).doc, current) : null), [base, current])
+  if (!versions.length) {
+    return <EmptyState compact title="No saved versions" description="Use “Save version” to snapshot this document; then every edit is compared against it here, with breaking changes called out." />
+  }
+  const nothing = diff && !diff.added.length && !diff.removed.length && !diff.changed.length && !diff.schemasAdded.length && !diff.schemasRemoved.length && !diff.schemasChanged.length
+  return (
+    <div className="space-y-4 text-[12.5px]">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-content-muted">Compare current draft with</span>
+        <select value={sel} onChange={(e) => setSel(e.target.value)} className="h-8 rounded-lg border border-edge-default bg-surface-raised px-2 text-[12px] text-content">
+          {versions.map((v) => <option key={v.id} value={v.id}>{v.version}{v.note ? ` — ${v.note}` : ''} ({formatRelative(v.at)})</option>)}
+        </select>
+        {base
+          ? (
+            <div className="ml-auto flex gap-1">
+              <Button size="xs" onClick={() => onRestore(base)}>Restore</Button>
+              <Button size="xs" variant="ghost" onClick={() => onDeleteVersion(base)}>Delete version</Button>
+            </div>
+          )
+          : null}
+      </div>
+      {base ? <div className="text-[11px] text-content-subtle">Saved by {base.by} · {formatRelative(base.at)}</div> : null}
+      {!current ? <div className="text-rose-600">The current draft does not parse — fix it to see changes.</div> : null}
+      {diff && current
+        ? nothing
+          ? <EmptyState compact title="No API changes" description="Endpoints and schemas match this version." />
+          : (
+            <>
+              {diff.breaking.length
+                ? (
+                  <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 dark:border-rose-500/30 dark:bg-rose-500/10">
+                    <div className="mb-1 font-semibold text-rose-800 dark:text-rose-300">{diff.breaking.length} breaking change{diff.breaking.length === 1 ? '' : 's'}</div>
+                    <ul className="list-disc space-y-0.5 pl-5 text-rose-800 dark:text-rose-300">
+                      {diff.breaking.map((b, i) => <li key={i}>{b}</li>)}
+                    </ul>
+                  </div>
+                )
+                : (
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+                    No breaking changes detected — this looks backwards compatible.
+                  </div>
+                )}
+              <DiffList title="Added operations" items={diff.added} tone="text-emerald-700 dark:text-emerald-300" sign="+" />
+              <DiffList title="Removed operations" items={diff.removed} tone="text-rose-700 dark:text-rose-300" sign="−" />
+              {diff.changed.length
+                ? (
+                  <Block title="Changed operations">
+                    <ul className="space-y-2">
+                      {diff.changed.map((c) => (
+                        <li key={c.key}>
+                          <div className="font-mono text-content">{c.key}</div>
+                          <ul className="ml-4 list-disc text-content-muted">{c.changes.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                        </li>
+                      ))}
+                    </ul>
+                  </Block>
+                )
+                : null}
+              <DiffList title="Added schemas" items={diff.schemasAdded} tone="text-emerald-700 dark:text-emerald-300" sign="+" />
+              <DiffList title="Removed schemas" items={diff.schemasRemoved} tone="text-rose-700 dark:text-rose-300" sign="−" />
+              {diff.schemasChanged.length
+                ? (
+                  <Block title="Changed schemas">
+                    <ul className="space-y-2">
+                      {diff.schemasChanged.map((c) => (
+                        <li key={c.key}>
+                          <div className="font-mono text-content">{c.key}</div>
+                          <ul className="ml-4 list-disc text-content-muted">{c.changes.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                        </li>
+                      ))}
+                    </ul>
+                  </Block>
+                )
+                : null}
+            </>
+          )
+        : null}
+    </div>
+  )
+}
+
+function DiffList({ title, items, tone, sign }: { title: string; items: string[]; tone: string; sign: string }) {
+  if (!items.length) return null
+  return (
+    <Block title={title}>
+      <ul className="space-y-0.5 font-mono">
+        {items.map((x) => <li key={x} className={tone}>{sign} {x}</li>)}
+      </ul>
+    </Block>
   )
 }

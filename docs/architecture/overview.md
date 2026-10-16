@@ -20,7 +20,7 @@ Each phase has a primary OSS backer:
 | Phase    | Primary tool(s)                                                        |
 | -------- | ---------------------------------------------------------------------- |
 | Define   | Plane.so                                                               |
-| Design   | adhar-ui builder (Yjs + Monaco + Mermaid + xyflow)                     |
+| Design   | `@adhar/builder` (Monaco + Mermaid + xyflow), Adhar AI                 |
 | Develop  | Gitea, Argo Workflows                                                  |
 | Deliver  | Argo CD, Kargo, Argo Rollouts, Harbor, Kyverno                         |
 | Discover | Grafana + Loki + Mimir + Tempo + Prometheus + OpenTelemetry + Beyla    |

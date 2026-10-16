@@ -140,9 +140,26 @@ async function acrossRepos<T>(names: string[], fn: (repo: string) => Promise<T[]
   return ok.flatMap((r) => r.value);
 }
 
-function useRepoNames(only?: string) {
+/**
+ * Whether Gitea will accept pull requests on this repository. A pull mirror
+ * (its content is overwritten from upstream), an archived or empty repository,
+ * or one with the Pull Requests unit switched off answers every PR call with
+ * 404 — e.g. `POST /repos/adhar/adhar/pulls` on the platform's mirrored repo.
+ */
+export function pullRequestsBlocked(r?: Pick<gitea.Repo, 'mirror' | 'archived' | 'empty' | 'has_pull_requests'>): string | null {
+  if (!r) return null;
+  if (r.mirror) return 'This repository is a pull mirror — its content is overwritten from upstream, so pull requests belong in the upstream repository.';
+  if (r.archived) return 'This repository is archived and read-only.';
+  if (r.empty) return 'This repository has no commits yet.';
+  if (r.has_pull_requests === false) return 'Pull requests are turned off for this repository (Settings → Pull requests).';
+  return null;
+}
+
+function useRepoNames(only?: string, prs = false) {
   const repos = useRepos();
-  const names = only ? [only] : (repos.data ?? []).filter((r) => !r.archived).map((r) => r.name);
+  const names = only
+    ? [only]
+    : (repos.data ?? []).filter((r) => !r.archived && (!prs || !pullRequestsBlocked(r))).map((r) => r.name);
   return { names, ready: !!only || !!repos.data, error: repos.error };
 }
 
@@ -150,7 +167,7 @@ function useRepoNames(only?: string) {
 export function useOrgPullRequests(state: ListState = 'open', repo?: string) {
   const org = useGiteaOrg();
   const pub = usePublicGiteaUrl();
-  const { names, ready } = useRepoNames(repo);
+  const { names, ready } = useRepoNames(repo, true);
   return useQuery({
     queryKey: ['gitea', 'prs-flat', org, state, names.join(',')],
     queryFn: () => acrossRepos(names, (r) => giteaClient.listPullRequests(org, r, state)),

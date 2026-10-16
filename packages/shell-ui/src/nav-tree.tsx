@@ -234,7 +234,7 @@ export const DEFAULT_NAV: NavSection[] = [
           { id: 'design.tokens', label: 'Design Tokens', to: '/design', search: 'tokens' },
           { id: 'design.apischemas', label: 'API & Schemas', to: '/design', search: 'api-schemas' },
           { id: 'design.catalog', label: 'Component Catalog', to: '/design', search: 'catalog' },
-          { id: 'design.builder', label: 'Visual Builder', to: '/design', search: 'builder' },
+          { id: 'design.builder', label: 'Visual Designer', to: '/design', search: 'builder' },
         ],
       },
       {
@@ -257,7 +257,6 @@ export const DEFAULT_NAV: NavSection[] = [
           { id: 'develop.builds', label: 'Builds', to: '/develop', search: 'builds' },
           { id: 'develop.pipelines', label: 'Pipelines', to: '/develop', search: 'pipelines' },
           { id: 'develop.content', label: 'Content', to: '/develop', search: 'content' },
-          { id: 'develop.codebuilder', label: 'Code Builder', to: '/develop', search: 'codebuilder' },
         ],
       },
       {

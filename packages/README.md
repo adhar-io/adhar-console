@@ -13,6 +13,7 @@ lives here.
 | [`tenancy/`](./tenancy)                             | Tenant context, namespace derivation, scoping helpers             |
 | [`shell-ui/`](./shell-ui)                           | AppShell, Sidebar, Topbar, DataTable, StatusBadge, EmptyState, …  |
 | [`mf-utils/`](./mf-utils)                           | `RemoteModule` loader + registry of remote entries                |
+| [`builder/`](./builder)                             | Adhar Builder — visual/code/workflow builder (`BuilderApp`)       |
 | [`platform-info/`](./platform-info)                 | Platform version, backing-tool registry, changelog, roadmap       |
 | [`api-clients/`](./api-clients)                     | Typed clients for every backing tool (subpath exports)            |
 

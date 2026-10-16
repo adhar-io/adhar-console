@@ -101,7 +101,6 @@ export async function buildPublicConfig(): Promise<Record<string, unknown>> {
     // front lets the sign-in page explain that an administrator must create the
     // account, instead of redirecting into a Keycloak error page.
     selfRegistration: await selfRegistrationAllowed(),
-    builderUrl: env('ADHAR_BUILDER_URL') ?? env('VITE_ADHAR_BUILDER_URL') ?? '',
     tools,
     // Baked into the image at build time from the release tag (Dockerfile
     // ARG → ENV); an explicit env override still wins. 'dev' = local run.

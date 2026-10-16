@@ -105,8 +105,12 @@ export function buildReleases(
   stages: kargo.Stage[],
   promotions: kargo.Promotion[] = [],
 ): Release[] {
-  const ordered = orderStages(stages)
-  const position = new Map(ordered.map((s, i) => [s.name, i]))
+  // A release moves through ITS application's chain: the stages fed (directly
+  // or through an upstream stage) by the freight's warehouse, in the freight's
+  // project. Ordering every stage on the cluster together made one chain out of
+  // every application's — and the platform's own environments — at once.
+  const chainFor = (f: kargo.Freight) =>
+    orderStages(stages.filter((s) => s.project === f.project && (!f.warehouse || !s.warehouse || s.warehouse === f.warehouse)))
 
   // The most recent successful promotion of each (freight, stage) pair, which
   // is when that stage actually took it.
@@ -120,6 +124,8 @@ export function buildReleases(
   }
 
   const releases = freight.map((f) => {
+    const ordered = chainFor(f)
+    const position = new Map(ordered.map((s, i) => [s.name, i]))
     const stageRows: ReleaseStage[] = ordered.map((s, index) => ({
       name: s.name,
       index,

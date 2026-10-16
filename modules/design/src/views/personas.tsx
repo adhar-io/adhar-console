@@ -1,285 +1,705 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Button,
   Card,
-  CardBody,
-  CardHeader,
   EmptyState,
   Modal,
+  SearchInput,
+  Select,
+  useOverlayDismiss,
+  useToast,
 } from '@adhar/shell-ui'
-import { KIND, newId, useCollection, useCreate, useRemove, useSeedExamples, useUpdate } from '../data/store.ts'
-import { SEED_PERSONAS } from '../data/seed.ts'
+import { cn, formatRelative } from '@adhar/utils'
+import {
+  KIND,
+  type Listed,
+  useCollection,
+  useCreate,
+  useRemove,
+  useSeedExamples,
+  useUpdate,
+} from '../data/store.ts'
+import { PERSONA_TEMPLATES, SEED_PERSONAS } from '../data/seed.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
-import type { Persona } from '../data/types.ts'
+import type { Journey, Persona } from '../data/types.ts'
+import { designHref, useDesignParams, useGoDesign, useSetDesignParams } from '../data/nav.ts'
+import {
+  personaCompleteness,
+  personaMatches,
+  personasToMarkdown,
+  personaToMarkdown,
+  shortPersonaName,
+} from '../data/ux-lib.ts'
+import {
+  AVATAR_COLORS,
+  AVATAR_SWATCH,
+  avatarColor,
+  Chip,
+  copyText,
+  downloadText,
+  fileSlug,
+  IconArrowRight,
+  IconColumns,
+  IconCopy,
+  IconDownload,
+  IconDuplicate,
+  IconGridView,
+  IconLink,
+  IconPlus,
+  IconTrash,
+  IconX,
+  InlineText,
+  ListEditor,
+  PersonaAvatar,
+  Segmented,
+  useDraft,
+} from '../components/ux-kit.tsx'
 
-const AVATAR_OPTIONS = ['👩🏽‍💻', '🧑🏽‍💼', '🎨', '👨🏿‍🔬', '🧑🏼‍🎤', '👩🏻‍🚀', '🧑🏽‍🚒', '👨🏽‍🏫', '🦊', '🐙']
+const EMOJI_OPTIONS = ['', '👩🏽‍💻', '🧑🏽‍💼', '🎨', '👨🏿‍🔬', '🧑🏼‍🎤', '👩🏻‍🚀', '🧑🏽‍🚒', '👨🏽‍🏫', '🦊', '🐙', '🧑🏾‍🔧']
+
+type Sort = 'name' | 'updated' | 'complete'
+const MAX_COMPARE = 4
 
 /**
- * Persona cards — the team's shared view of who they're building for.
- * Persisted in the tenant document store (kind `design.persona`); each card
- * opens a detail drawer with goals,
- * frustrations, behaviors, and tech context. New personas are created via a
- * modal with comma-separated list inputs (lightweight, fast to fill).
+ * Personas — the team's shared, living profiles of who they build for.
+ *
+ * Every persona is a document in the tenant document store (kind
+ * `design.persona`). Profiles are edited in place in the detail drawer and
+ * autosave; new ones start from a template. The open persona and the compare
+ * set live in the URL (`?persona=…`, `?compare=a,b`) so either can be shared.
  */
 export function Personas() {
-  const { items: list, isLoading, error, refetch } = useCollection<Persona>(KIND.persona)
-  const createPersona = useCreate<Persona>(KIND.persona)
-  const updatePersona = useUpdate<Persona>(KIND.persona)
-  const removePersona = useRemove(KIND.persona)
-  const seed = useSeedExamples<Persona>(KIND.persona)
+  const { items, isLoading, error, refetch } = useCollection<Persona>(KIND.persona)
+  const { items: journeys } = useCollection<Journey>(KIND.journey)
+  const create = useCreate<Persona>(KIND.persona)
+  const remove = useRemove(KIND.persona)
+  const restore = useSeedExamples<Persona>(KIND.persona)
+  const toast = useToast()
+  const params = useDesignParams()
+  const setParams = useSetDesignParams()
 
-  const [openId, setOpenId] = useState<string | null>(null)
-  const [createOpen, setCreateOpen] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const [q, setQ] = useState(params.q ?? '')
+  const [tag, setTag] = useState<string | null>(null)
+  const [sort, setSort] = useState<Sort>('name')
+  const [templatesOpen, setTemplatesOpen] = useState(false)
 
-  const open = list.find((p) => p.id === openId) ?? null
-  const editing = list.find((p) => p.id === editingId) ?? null
+  const compareIds = useMemo(() => (params.compare ? params.compare.split(',').filter(Boolean) : []), [params.compare])
+  const view: 'grid' | 'compare' = params.tab === 'compare' ? 'compare' : 'grid'
+
+  useEffect(() => {
+    if (params.new === '1') {
+      setTemplatesOpen(true)
+      setParams({ new: undefined })
+    }
+  }, [params.new, setParams])
+
+  const tags = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const p of items) for (const t of p.tags ?? []) counts.set(t, (counts.get(t) ?? 0) + 1)
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([t]) => t)
+  }, [items])
+
+  const journeyCount = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const j of journeys) m.set(j.persona, (m.get(j.persona) ?? 0) + 1)
+    return m
+  }, [journeys])
+
+  const visible = useMemo(() => {
+    const list = items.filter((p) => personaMatches(p, q) && (!tag || (p.tags ?? []).includes(tag)))
+    return list.sort((a, b) => {
+      if (sort === 'updated') return (b._updatedAt ?? '').localeCompare(a._updatedAt ?? '')
+      if (sort === 'complete') return personaCompleteness(b) - personaCompleteness(a)
+      return a.name.localeCompare(b.name)
+    })
+  }, [items, q, tag, sort])
+
+  const open = items.find((p) => p.id === params.persona) ?? null
+
+  const toggleCompare = (id: string) => {
+    const has = compareIds.includes(id)
+    if (!has && compareIds.length >= MAX_COMPARE) {
+      toast.info(`Compare up to ${MAX_COMPARE} personas at a time`)
+      return
+    }
+    const next = has ? compareIds.filter((x) => x !== id) : [...compareIds, id]
+    setParams({ compare: next.join(',') || undefined })
+  }
+
+  const createFrom = async (base: Omit<Persona, 'id'>) => {
+    setTemplatesOpen(false)
+    try {
+      const created = await create.mutateAsync({ id: '', ...base } as Persona)
+      setParams({ persona: created.id })
+      toast.success('Persona created', { description: 'Fill in the profile — changes save automatically.' })
+    } catch (e) {
+      toast.error('Could not create persona', { description: (e as Error).message })
+    }
+  }
+
+  const duplicate = async (p: Persona) => {
+    const { id: _id, ...rest } = stripMeta(p)
+    await createFrom({ ...rest, name: `${p.name} (copy)` })
+  }
+
+  const del = async (p: Listed<Persona>) => {
+    try {
+      await remove.mutateAsync(p.id)
+      if (params.persona === p.id) setParams({ persona: undefined })
+      if (compareIds.includes(p.id)) setParams({ compare: compareIds.filter((x) => x !== p.id).join(',') || undefined })
+      toast.success(`Deleted “${shortPersonaName(p.name)}”`, {
+        action: {
+          label: 'Undo',
+          onClick: () =>
+            restore.mutate([stripMeta(p)], {
+              onSuccess: () => toast.success('Persona restored'),
+              onError: (e) => toast.error('Could not restore', { description: e.message }),
+            }),
+        },
+      })
+    } catch (e) {
+      toast.error('Could not delete persona', { description: (e as Error).message })
+    }
+  }
+
+  const exportAll = () => {
+    const list = visible.length ? visible : items
+    downloadText('personas.md', personasToMarkdown(list, journeys), 'text/markdown')
+    toast.success(`Exported ${list.length} persona${list.length === 1 ? '' : 's'}`)
+  }
 
   if (error) return <ErrorBlock error={error} onRetry={refetch} />
   if (isLoading) return <LoadingBlock label="Loading personas…" />
 
+  const compared = compareIds.map((id) => items.find((p) => p.id === id)).filter(Boolean) as Listed<Persona>[]
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="text-[11px] text-content-muted">
-          {list.length} persona{list.length === 1 ? '' : 's'}
-        </div>
-        <div className="ml-auto">
-          <Button size="sm" onClick={() => setCreateOpen(true)} leading={<IconPlus />}>
+        <SearchInput value={q} onChange={setQ} placeholder="Search personas, goals, pains…" className="w-full sm:w-72" />
+        <Select
+          aria-label="Sort personas"
+          value={sort}
+          onChange={(e) => setSort(e.target.value as Sort)}
+          className="h-8 py-1 text-xs"
+          options={[
+            { value: 'name', label: 'Sort: Name' },
+            { value: 'updated', label: 'Sort: Recently edited' },
+            { value: 'complete', label: 'Sort: Most complete' },
+          ]}
+        />
+        <Segmented<'grid' | 'compare'>
+          ariaLabel="View"
+          value={view}
+          onChange={(v) => setParams({ tab: v === 'compare' ? 'compare' : undefined })}
+          options={[
+            { value: 'grid', label: <><IconGridView size={12} /> Cards</> },
+            {
+              value: 'compare',
+              label: (
+                <>
+                  <IconColumns size={12} /> Compare{compareIds.length ? ` (${compareIds.length})` : ''}
+                </>
+              ),
+            },
+          ]}
+        />
+        <div className="ml-auto flex items-center gap-2">
+          {items.length ? (
+            <Button size="sm" variant="ghost" onClick={exportAll} leading={<IconDownload size={12} />}>
+              Export
+            </Button>
+          ) : null}
+          <Button size="sm" variant="primary" onClick={() => setTemplatesOpen(true)} leading={<IconPlus size={12} />}>
             New persona
           </Button>
         </div>
       </div>
 
-      {list.length === 0 ? (
+      {tags.length ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] font-medium text-content-subtle">Segments</span>
+          <Chip active={!tag} onClick={() => setTag(null)}>All</Chip>
+          {tags.map((t) => (
+            <Chip key={t} active={tag === t} onClick={() => setTag(tag === t ? null : t)}>
+              {t}
+            </Chip>
+          ))}
+        </div>
+      ) : null}
+
+      {items.length === 0 ? (
         <EmptyState
           title="No personas yet"
-          description="Define who you're designing for — goals, frustrations, behaviors."
+          description="Personas keep the whole team designing for real people. Start from a template, or load three worked examples to see what a complete profile looks like."
           action={
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => seed.mutate(SEED_PERSONAS)}
-              disabled={seed.isPending}
-            >
-              {seed.isPending ? 'Loading…' : 'Load examples'}
+            <div className="flex flex-wrap justify-center gap-2">
+              <Button size="sm" variant="primary" onClick={() => setTemplatesOpen(true)} leading={<IconPlus size={12} />}>
+                New persona
+              </Button>
+              <Button
+                size="sm"
+                loading={restore.isPending}
+                onClick={() =>
+                  restore.mutate(SEED_PERSONAS, {
+                    onSuccess: () => toast.success('Loaded 3 example personas'),
+                    onError: (e) => toast.error('Could not load examples', { description: e.message }),
+                  })}
+              >
+                Load examples
+              </Button>
+            </div>
+          }
+        />
+      ) : view === 'compare' ? (
+        <CompareView
+          personas={compared}
+          all={items}
+          journeyCount={journeyCount}
+          onToggle={toggleCompare}
+          onOpen={(id) => setParams({ persona: id })}
+        />
+      ) : visible.length === 0 ? (
+        <EmptyState
+          compact
+          title="No personas match"
+          description="Try a different search or segment."
+          action={
+            <Button size="sm" onClick={() => { setQ(''); setTag(null) }}>
+              Clear filters
             </Button>
           }
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {list.map((p) => (
-            <PersonaCard key={p.id} p={p} onOpen={() => setOpenId(p.id)} />
+          {visible.map((p) => (
+            <PersonaCard
+              key={p.id}
+              p={p}
+              journeys={journeyCount.get(p.id) ?? 0}
+              comparing={compareIds.includes(p.id)}
+              onToggleCompare={() => toggleCompare(p.id)}
+              onOpen={() => setParams({ persona: p.id })}
+            />
           ))}
         </div>
       )}
 
-      <PersonaEditorModal
-        open={createOpen || !!editing}
-        onClose={() => {
-          setCreateOpen(false)
-          setEditingId(null)
-        }}
-        initial={editing ?? undefined}
-        onSubmit={(input) => {
-          if (editing) {
-            updatePersona.mutate({ ...editing, ...input })
-            setEditingId(null)
-          } else {
-            const next: Persona = { id: newId('persona'), ...input }
-            createPersona.mutate(next, { onSuccess: (created) => setOpenId(created.id) })
-          }
-        }}
-      />
+      <TemplatePicker open={templatesOpen} onClose={() => setTemplatesOpen(false)} onPick={createFrom} busy={create.isPending} />
 
       {open ? (
-        <PersonaDetail
+        <PersonaDrawer
+          key={open.id}
           persona={open}
-          onClose={() => setOpenId(null)}
-          onEdit={() => {
-            setEditingId(open.id)
-            setOpenId(null)
-          }}
-          onDelete={() => {
-            if (!confirm(`Delete persona "${open.name}"?`)) return
-            removePersona.mutate(open.id)
-            setOpenId(null)
-          }}
+          journeys={journeys}
+          onClose={() => setParams({ persona: undefined })}
+          onDuplicate={() => duplicate(open)}
+          onDelete={() => del(open)}
         />
       ) : null}
     </div>
   )
 }
 
-function PersonaCard({ p, onOpen }: { p: Persona; onOpen(): void }) {
+function stripMeta<T extends object>(p: T): T {
+  const { _createdAt: _a, _updatedAt: _b, _updatedBy: _c, ...rest } = p as T & {
+    _createdAt?: string
+    _updatedAt?: string
+    _updatedBy?: string | null
+  }
+  return rest as T
+}
+
+/* ───────────────────────────── card ───────────────────────────── */
+
+function PersonaCard({
+  p,
+  journeys,
+  comparing,
+  onToggleCompare,
+  onOpen,
+}: {
+  p: Listed<Persona>
+  journeys: number
+  comparing: boolean
+  onToggleCompare(): void
+  onOpen(): void
+}) {
+  const complete = personaCompleteness(p)
   return (
-    <Card interactive>
-      <button type="button" onClick={onOpen} className="block w-full p-5 text-left">
-        <div className="flex items-start gap-3">
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br from-brand-50 to-violet-50 text-2xl ring-1 ring-inset ring-edge-subtle">
-            {p.avatar}
-          </span>
+    <Card interactive className={cn('group relative flex flex-col', comparing && 'ring-2 ring-brand-400/60')}>
+      <label
+        className={cn(
+          'absolute right-3 top-3 z-10 inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-content-muted transition-opacity hover:bg-surface-sunken',
+          comparing ? 'opacity-100' : 'opacity-0 focus-within:opacity-100 group-hover:opacity-100',
+        )}
+      >
+        <input type="checkbox" checked={comparing} onChange={onToggleCompare} className="h-3.5 w-3.5 accent-brand-600" />
+        Compare
+      </label>
+      <button type="button" onClick={onOpen} className="flex flex-1 flex-col p-5 text-left">
+        <div className="flex items-start gap-3 pr-16">
+          <PersonaAvatar name={p.name} avatar={p.avatar} color={p.color} size={48} />
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-semibold text-content">{p.name}</div>
-            <div className="mt-0.5 text-[11px] uppercase tracking-wider text-content-subtle">
+            <div className="mt-0.5 truncate text-xs text-content-muted">
               {p.role}
+              {p.location ? ` · ${p.location}` : ''}
             </div>
-            <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-content-muted">{p.bio}</p>
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap gap-1">
-          {p.tech.slice(0, 4).map((t) => (
-            <span
-              key={t}
-              className="inline-flex items-center rounded-full bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium text-content-muted"
-            >
-              {t}
-            </span>
-          ))}
-          {p.tech.length > 4 ? (
-            <span className="inline-flex items-center rounded-full bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium text-content-muted">
-              +{p.tech.length - 4}
-            </span>
-          ) : null}
-        </div>
-        <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
-          <Mini label="Goals" value={p.goals.length} accent="emerald" />
-          <Mini label="Pains" value={p.frustrations.length} accent="rose" />
-          <Mini label="Behaviors" value={p.behaviors.length} accent="brand" />
+        {p.quote ? (
+          <p className="mt-3 line-clamp-2 border-l-2 border-edge-strong pl-3 text-xs italic leading-relaxed text-content-muted">
+            “{p.quote}”
+          </p>
+        ) : p.bio ? (
+          <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-content-muted">{p.bio}</p>
+        ) : null}
+        {p.tags?.length ? (
+          <div className="mt-3 flex flex-wrap gap-1">
+            {p.tags.slice(0, 4).map((t) => <Chip key={t}>{t}</Chip>)}
+          </div>
+        ) : null}
+        <div className="mt-auto pt-4">
+          <dl className="grid grid-cols-4 gap-2 text-center">
+            <Stat label="Jobs" value={p.jobs?.length ?? 0} />
+            <Stat label="Goals" value={p.goals.length} />
+            <Stat label="Pains" value={p.frustrations.length} />
+            <Stat label="Journeys" value={journeys} />
+          </dl>
+          <div className="mt-3 flex items-center gap-2" title={`Profile ${Math.round(complete * 100)}% complete`}>
+            <div className="h-1 flex-1 overflow-hidden rounded-full bg-surface-sunken">
+              <div className="h-full rounded-full bg-brand-500" style={{ width: `${complete * 100}%` }} />
+            </div>
+            <span className="text-[10px] tabular-nums text-content-subtle">{Math.round(complete * 100)}%</span>
+          </div>
         </div>
       </button>
     </Card>
   )
 }
 
-function Mini({
-  label,
-  value,
-  accent,
-}: {
-  label: string
-  value: number
-  accent: 'emerald' | 'rose' | 'brand'
-}) {
-  const tone = {
-    emerald: 'text-emerald-700',
-    rose: 'text-rose-700',
-    brand: 'text-brand-700',
-  }[accent]
+function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-md border border-edge-subtle bg-surface-sunken/40 p-1.5">
-      <div className={`text-base font-semibold tabular-nums ${tone}`}>{value}</div>
-      <div className="text-[9px] font-semibold uppercase tracking-wider text-content-subtle">
-        {label}
-      </div>
+    <div className="rounded-md bg-surface-sunken/60 py-1.5">
+      <dd className="text-sm font-semibold tabular-nums text-content">{value}</dd>
+      <dt className="text-[10px] text-content-subtle">{label}</dt>
     </div>
   )
 }
 
-function PersonaDetail({
-  persona: p,
+/* ───────────────────────────── templates ───────────────────────────── */
+
+function TemplatePicker({
+  open,
   onClose,
-  onEdit,
+  onPick,
+  busy,
+}: {
+  open: boolean
+  onClose(): void
+  onPick(p: Omit<Persona, 'id'>): void
+  busy: boolean
+}) {
+  const blank: Omit<Persona, 'id'> = {
+    name: 'New persona',
+    avatar: '',
+    role: 'Role',
+    bio: '',
+    goals: [],
+    frustrations: [],
+    behaviors: [],
+    needs: [],
+    tech: [],
+    jobs: [],
+    tags: [],
+  }
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="New persona"
+      description="Start blank or from a template — everything is editable afterwards."
+      width="lg"
+    >
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <TemplateTile
+          title="Blank persona"
+          description="An empty profile."
+          avatar={<PersonaAvatar name="New persona" color="slate" size={36} />}
+          onClick={() => onPick(blank)}
+          disabled={busy}
+        />
+        {PERSONA_TEMPLATES.map((t) => (
+          <TemplateTile
+            key={t.id}
+            title={t.label}
+            description={t.description}
+            avatar={<PersonaAvatar name={t.label} color={t.persona.color} size={36} />}
+            onClick={() => onPick(t.persona)}
+            disabled={busy}
+          />
+        ))}
+      </div>
+    </Modal>
+  )
+}
+
+function TemplateTile({
+  title,
+  description,
+  avatar,
+  onClick,
+  disabled,
+}: {
+  title: string
+  description: string
+  avatar: ReactNode
+  onClick(): void
+  disabled?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="flex items-start gap-3 rounded-lg border border-edge-default bg-surface-raised p-3 text-left transition-colors hover:border-brand-400 hover:bg-brand-50/40 disabled:opacity-60 dark:hover:bg-brand-500/10"
+    >
+      {avatar}
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-content">{title}</span>
+        <span className="mt-0.5 block text-xs text-content-muted">{description}</span>
+      </span>
+    </button>
+  )
+}
+
+/* ───────────────────────────── drawer ───────────────────────────── */
+
+function PersonaDrawer({
+  persona,
+  journeys,
+  onClose,
+  onDuplicate,
   onDelete,
 }: {
-  persona: Persona
+  persona: Listed<Persona>
+  journeys: Journey[]
   onClose(): void
-  onEdit(): void
+  onDuplicate(): void
   onDelete(): void
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  const update = useUpdate<Persona>(KIND.persona)
+  const toast = useToast()
+  const go = useGoDesign()
+  useOverlayDismiss(true, onClose)
 
-  if (typeof document === 'undefined') return null
+  const { draft, update: edit, flush } = useDraft<Persona>(persona, (next) =>
+    update.mutateAsync(next).catch((e: Error) => toast.error('Could not save persona', { description: e.message })))
+  const [avatarOpen, setAvatarOpen] = useState(false)
+
+  if (!draft || typeof document === 'undefined') return null
+  const p = draft
+  const set = (patch: Partial<Persona>) => edit((d) => ({ ...d, ...patch }))
+  const linked = journeys.filter((j) => j.persona === p.id)
+
+  const close = () => {
+    flush()
+    onClose()
+  }
+
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
-      <button
-        type="button"
-        aria-label="Close"
-        className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
-        onClick={onClose}
-      />
-      <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-linear-to-br from-brand-50 to-violet-50 text-2xl ring-1 ring-inset ring-edge-subtle">
-              {p.avatar}
-            </span>
-            <div className="min-w-0">
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
-                Persona · {p.role}
-              </div>
-              <h2 className="mt-0.5 text-lg font-semibold tracking-tight text-content">
-                {p.name}
-              </h2>
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Button size="sm" variant="secondary" onClick={onEdit} leading={<IconEdit />}>
-              Edit
-            </Button>
-            <Button size="sm" variant="danger" onClick={onDelete}>
-              Delete
-            </Button>
+    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={p.name}>
+      <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={close} />
+      <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
+        <header className="flex items-start gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
+          <div className="relative">
             <button
               type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+              onClick={() => setAvatarOpen((o) => !o)}
+              className="rounded-full focus-visible:ring-2 focus-visible:ring-brand-500/40"
+              aria-label="Change avatar"
+              title="Change avatar"
             >
-              <IconClose />
+              <PersonaAvatar name={p.name} avatar={p.avatar} color={p.color} size={56} />
             </button>
+            {avatarOpen ? (
+              <AvatarPicker
+                persona={p}
+                onChange={(patch) => set(patch)}
+                onClose={() => setAvatarOpen(false)}
+              />
+            ) : null}
+          </div>
+          <div className="min-w-0 flex-1 space-y-0.5">
+            <InlineText
+              value={p.name}
+              onCommit={(v) => set({ name: v.trim() || p.name })}
+              ariaLabel="Name"
+              className="text-lg font-semibold tracking-tight"
+            />
+            <div className="flex flex-wrap gap-1 sm:flex-nowrap">
+              <InlineText value={p.role} onCommit={(v) => set({ role: v })} placeholder="Role" className="text-sm text-content-muted" />
+              <InlineText
+                value={p.location ?? ''}
+                onCommit={(v) => set({ location: v || undefined })}
+                placeholder="Location / context"
+                className="text-sm text-content-muted"
+              />
+            </div>
+            <div className="px-1.5 text-[11px] text-content-subtle">
+              {persona._updatedAt ? `Edited ${formatRelative(persona._updatedAt)}` : null}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <IconBtn
+              label="Copy link"
+              onClick={() =>
+                copyText(`${location.origin}${designHref('personas', { persona: p.id })}`).then(
+                  () => toast.success('Link copied'),
+                  () => toast.error('Could not copy link'),
+                )}
+            >
+              <IconLink />
+            </IconBtn>
+            <IconBtn
+              label="Export as Markdown"
+              onClick={() => {
+                downloadText(`${fileSlug(p.name)}.md`, personaToMarkdown(p, journeys), 'text/markdown')
+                toast.success('Persona exported')
+              }}
+            >
+              <IconDownload />
+            </IconBtn>
+            <IconBtn
+              label="Copy as Markdown"
+              onClick={() =>
+                copyText(personaToMarkdown(p, journeys)).then(
+                  () => toast.success('Markdown copied'),
+                  () => toast.error('Could not copy'),
+                )}
+            >
+              <IconCopy />
+            </IconBtn>
+            <IconBtn label="Duplicate" onClick={() => { flush(); onDuplicate() }}>
+              <IconDuplicate />
+            </IconBtn>
+            <IconBtn label="Delete" onClick={onDelete} danger>
+              <IconTrash />
+            </IconBtn>
+            <IconBtn label="Close" onClick={close}>
+              <IconX />
+            </IconBtn>
           </div>
         </header>
 
-        <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
-          <Card>
-            <CardHeader>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700">
-                Bio
-              </div>
-            </CardHeader>
-            <CardBody>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-content">{p.bio}</p>
-            </CardBody>
-          </Card>
+        <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
+          <section className="rounded-xl border border-edge-default bg-surface-raised p-4">
+            <Label>Quote</Label>
+            <div className="mt-1 flex gap-2">
+              <span className="font-serif text-2xl leading-none text-content-subtle">“</span>
+              <InlineText
+                multiline
+                value={p.quote ?? ''}
+                onCommit={(v) => set({ quote: v.trim() || undefined })}
+                placeholder="Something this person would actually say…"
+                className="text-base italic"
+              />
+            </div>
+            <Label className="mt-4">Bio</Label>
+            <InlineText
+              multiline
+              value={p.bio}
+              onCommit={(v) => set({ bio: v })}
+              placeholder="Background, context, responsibilities…"
+              className="mt-1 text-sm"
+            />
+            <Label className="mt-4">Segments</Label>
+            <TagEditor tags={p.tags ?? []} onChange={(tags) => set({ tags })} placeholder="Add segment" />
+          </section>
 
-          <EmpathyMap p={p} />
+          <section>
+            <Label>Jobs to be done</Label>
+            <p className="mb-1.5 text-[11px] text-content-subtle">“When …, I want to …, so I can …”</p>
+            <ListEditor items={p.jobs ?? []} onChange={(jobs) => set({ jobs })} placeholder="Add a job…" dotClass="bg-brand-500" />
+          </section>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <ListBlock title="Goals" items={p.goals} tone="emerald" />
-            <ListBlock title="Frustrations" items={p.frustrations} tone="rose" />
-            <ListBlock title="Behaviors" items={p.behaviors} tone="brand" />
-            <ListBlock title="Needs" items={p.needs} tone="violet" />
+          <div className="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
+            <section>
+              <Label>Goals</Label>
+              <ListEditor items={p.goals} onChange={(goals) => set({ goals })} placeholder="Add a goal…" dotClass="bg-emerald-500" />
+            </section>
+            <section>
+              <Label>Frustrations</Label>
+              <ListEditor items={p.frustrations} onChange={(frustrations) => set({ frustrations })} placeholder="Add a frustration…" dotClass="bg-rose-500" />
+            </section>
+            <section>
+              <Label>Behaviours</Label>
+              <ListEditor items={p.behaviors} onChange={(behaviors) => set({ behaviors })} placeholder="Add a behaviour…" dotClass="bg-sky-500" />
+            </section>
+            <section>
+              <Label>Needs</Label>
+              <ListEditor items={p.needs} onChange={(needs) => set({ needs })} placeholder="Add a need…" dotClass="bg-violet-500" />
+            </section>
           </div>
 
-          {p.tech.length ? (
-            <Card>
-              <CardHeader>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700">
-                  Tech context
-                </div>
-              </CardHeader>
-              <CardBody>
-                <div className="flex flex-wrap gap-1.5">
-                  {p.tech.map((t) => (
-                    <span
-                      key={t}
-                      className="inline-flex items-center rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] font-medium text-content-muted"
+          <section>
+            <Label>Tools &amp; tech</Label>
+            <TagEditor tags={p.tech} onChange={(tech) => set({ tech })} placeholder="Add a tool" />
+          </section>
+
+          <section>
+            <Label>Empathy map</Label>
+            <div className="mt-2 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-edge-default bg-edge-default">
+              <Quadrant label="Says" items={p.quote ? [p.quote] : []} />
+              <Quadrant label="Thinks" items={p.goals} />
+              <Quadrant label="Does" items={p.behaviors} />
+              <Quadrant label="Feels" items={p.frustrations} />
+            </div>
+            <p className="mt-1.5 text-[11px] text-content-subtle">Derived from the quote, goals, behaviours and frustrations above.</p>
+          </section>
+
+          <section>
+            <div className="flex items-center justify-between">
+              <Label>Journey maps</Label>
+              <Button
+                size="xs"
+                variant="ghost"
+                leading={<IconPlus size={11} />}
+                onClick={() => {
+                  flush()
+                  go('journeys', { new: '1', persona: p.id })
+                }}
+              >
+                New journey
+              </Button>
+            </div>
+            {linked.length ? (
+              <ul className="mt-2 divide-y divide-edge-subtle overflow-hidden rounded-xl border border-edge-default bg-surface-raised">
+                {linked.map((j) => (
+                  <li key={j.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        flush()
+                        go('journeys', { journey: j.id })
+                      }}
+                      className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-surface-sunken"
                     >
-                      {t}
-                    </span>
-                  ))}
-                </div>
-              </CardBody>
-            </Card>
-          ) : null}
+                      <span className="min-w-0 flex-1 truncate text-content">{j.name}</span>
+                      <span className="text-[11px] text-content-subtle">{j.stages.length} stages</span>
+                      <IconArrowRight size={12} className="text-content-subtle" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 rounded-xl border border-dashed border-edge-strong px-4 py-3 text-xs text-content-muted">
+                No journey maps for this persona yet. Map how they move through the product to find the pain points worth fixing.
+              </p>
+            )}
+          </section>
         </div>
       </aside>
     </div>,
@@ -287,299 +707,237 @@ function PersonaDetail({
   )
 }
 
-function ListBlock({
-  title,
-  items,
-  tone,
-}: {
-  title: string
-  items: string[]
-  tone: 'emerald' | 'rose' | 'brand' | 'violet'
-}) {
-  const dot = {
-    emerald: 'bg-emerald-500',
-    rose: 'bg-rose-500',
-    brand: 'bg-brand-500',
-    violet: 'bg-violet-500',
-  }[tone]
-  return (
-    <Card>
-      <CardHeader>
-        <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700">
-          {title}
-        </div>
-      </CardHeader>
-      <CardBody>
-        {items.length === 0 ? (
-          <div className="text-xs text-content-subtle">—</div>
-        ) : (
-          <ul className="space-y-2">
-            {items.map((it, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-content">
-                <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
-                <span className="leading-relaxed">{it}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </CardBody>
-    </Card>
-  )
-}
-
-function PersonaEditorModal({
-  open,
-  onClose,
-  initial,
-  onSubmit,
-}: {
-  open: boolean
-  onClose(): void
-  initial?: Persona
-  onSubmit(input: Omit<Persona, 'id'>): void
-}) {
-  const [name, setName] = useState('')
-  const [role, setRole] = useState('')
-  const [avatar, setAvatar] = useState(AVATAR_OPTIONS[0])
-  const [bio, setBio] = useState('')
-  const [goals, setGoals] = useState('')
-  const [frustrations, setFrustrations] = useState('')
-  const [behaviors, setBehaviors] = useState('')
-  const [needs, setNeeds] = useState('')
-  const [tech, setTech] = useState('')
-
-  // Reset form when opening the modal — prefilled from `initial` for edit mode.
-  useEffect(() => {
-    if (!open) return
-    setName(initial?.name ?? '')
-    setRole(initial?.role ?? '')
-    setAvatar(initial?.avatar ?? AVATAR_OPTIONS[0])
-    setBio(initial?.bio ?? '')
-    setGoals((initial?.goals ?? []).join('\n'))
-    setFrustrations((initial?.frustrations ?? []).join('\n'))
-    setBehaviors((initial?.behaviors ?? []).join('\n'))
-    setNeeds((initial?.needs ?? []).join('\n'))
-    setTech((initial?.tech ?? []).join(', '))
-  }, [open, initial])
-
-  const split = (s: string) =>
-    s
-      .split(/\n|,(?![^()]*\))/)
-      .map((x) => x.trim())
-      .filter(Boolean)
-
-  const submit = () => {
-    if (!name.trim() || !role.trim()) return
-    onSubmit({
-      name: name.trim(),
-      role: role.trim(),
-      avatar,
-      bio: bio.trim(),
-      goals: split(goals),
-      frustrations: split(frustrations),
-      behaviors: split(behaviors),
-      needs: split(needs),
-      tech: split(tech),
-    })
-    onClose()
-  }
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={initial ? 'Edit persona' : 'New persona'}
-      description="Capture the person — what they want, what blocks them, how they work."
-      branded
-      width="lg"
-      footer={
-        <>
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={submit} disabled={!name.trim() || !role.trim()}>
-            {initial ? 'Save changes' : 'Create persona'}
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_120px]">
-          <Field label="Name">
-            <input
-              autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Priya — Platform Engineer"
-              className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
-            />
-          </Field>
-          <Field label="Avatar">
-            <div className="flex flex-wrap gap-1">
-              {AVATAR_OPTIONS.map((a) => (
-                <button
-                  key={a}
-                  type="button"
-                  onClick={() => setAvatar(a)}
-                  className={
-                    avatar === a
-                      ? 'flex h-9 w-9 items-center justify-center rounded-md border border-brand-400 bg-brand-50 text-lg ring-2 ring-brand-400/20'
-                      : 'flex h-9 w-9 items-center justify-center rounded-md border border-edge-default text-lg hover:border-edge-strong'
-                  }
-                >
-                  {a}
-                </button>
-              ))}
-            </div>
-          </Field>
-        </div>
-        <Field label="Role">
-          <input
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            placeholder="Platform engineer"
-            className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
-          />
-        </Field>
-        <Field label="Bio">
-          <textarea
-            value={bio}
-            onChange={(e) => setBio(e.target.value)}
-            rows={2}
-            placeholder="Owns the dev platform for a 200-person fintech."
-            className="block w-full resize-y rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
-          />
-        </Field>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <ListField label="Goals" value={goals} onChange={setGoals} />
-          <ListField label="Frustrations" value={frustrations} onChange={setFrustrations} />
-          <ListField label="Behaviors" value={behaviors} onChange={setBehaviors} />
-          <ListField label="Needs" value={needs} onChange={setNeeds} />
-        </div>
-        <Field label="Tech (comma-separated)">
-          <input
-            value={tech}
-            onChange={(e) => setTech(e.target.value)}
-            placeholder="Kubernetes, Terraform, Go"
-            className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
-          />
-        </Field>
-      </div>
-    </Modal>
-  )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="block text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">
-        {label}
-      </span>
-      <div className="mt-1.5">{children}</div>
-    </label>
-  )
-}
-
-function ListField({
-  label,
-  value,
+function AvatarPicker({
+  persona,
   onChange,
+  onClose,
 }: {
-  label: string
-  value: string
-  onChange(v: string): void
+  persona: Persona
+  onChange(patch: Partial<Persona>): void
+  onClose(): void
 }) {
   return (
-    <Field label={`${label} (one per line)`}>
-      <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        rows={3}
-        className="block w-full resize-y rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+    <div className="absolute left-0 top-full z-20 mt-2 w-64 rounded-xl border border-edge-default bg-surface-raised p-3 shadow-xl">
+      <Label>Colour</Label>
+      <div className="mt-1.5 flex flex-wrap gap-1.5">
+        {AVATAR_COLORS.map((c) => (
+          <button
+            key={c}
+            type="button"
+            aria-label={c}
+            onClick={() => onChange({ color: c })}
+            className={cn(
+              'h-6 w-6 rounded-full ring-offset-2 ring-offset-surface-raised',
+              AVATAR_SWATCH[c],
+              avatarColor(persona.color, persona.name) === c && 'ring-2 ring-content',
+            )}
+          />
+        ))}
+      </div>
+      <Label className="mt-3">Avatar</Label>
+      <div className="mt-1.5 grid grid-cols-6 gap-1">
+        {EMOJI_OPTIONS.map((e) => (
+          <button
+            key={e || 'initials'}
+            type="button"
+            onClick={() => onChange({ avatar: e })}
+            title={e ? undefined : 'Initials'}
+            className={cn(
+              'flex h-8 items-center justify-center rounded-md border text-base',
+              (persona.avatar ?? '') === e ? 'border-brand-400 bg-brand-50 dark:bg-brand-500/15' : 'border-edge-default hover:border-edge-strong',
+            )}
+          >
+            {e || <span className="text-[10px] font-semibold text-content-muted">Aa</span>}
+          </button>
+        ))}
+      </div>
+      <div className="mt-3 text-right">
+        <Button size="xs" onClick={onClose}>Done</Button>
+      </div>
+    </div>
+  )
+}
+
+function TagEditor({ tags, onChange, placeholder }: { tags: string[]; onChange(t: string[]): void; placeholder: string }) {
+  const [v, setV] = useState('')
+  const add = () => {
+    const parts = v.split(',').map((x) => x.trim()).filter(Boolean).filter((x) => !tags.includes(x))
+    if (parts.length) onChange([...tags, ...parts])
+    setV('')
+  }
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+      {tags.map((t) => (
+        <Chip key={t} onRemove={() => onChange(tags.filter((x) => x !== t))}>
+          {t}
+        </Chip>
+      ))}
+      <input
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ',') {
+            e.preventDefault()
+            add()
+          }
+          if (e.key === 'Backspace' && !v && tags.length) onChange(tags.slice(0, -1))
+        }}
+        onBlur={add}
+        placeholder={`${placeholder}…`}
+        aria-label={placeholder}
+        className="min-w-[8rem] flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-xs text-content outline-none placeholder:text-content-subtle hover:border-edge-default focus:border-brand-400"
       />
-    </Field>
+    </div>
   )
 }
 
-function EmpathyMap({ p }: { p: Persona }) {
-  return (
-    <Card>
-      <CardHeader>
-        <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700">
-          Empathy map
-        </div>
-        <div className="text-[11px] text-content-subtle">Says · Thinks · Does · Feels</div>
-      </CardHeader>
-      <CardBody>
-        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg bg-edge-subtle">
-          <Quadrant label="Says" tone="brand" items={p.behaviors.filter((b) => /say|say|tell|ask/i.test(b)).concat(p.goals.slice(0, 2))} />
-          <Quadrant label="Thinks" tone="violet" items={p.needs} fallback={p.goals.slice(0, 2)} />
-          <Quadrant label="Does" tone="emerald" items={p.behaviors} />
-          <Quadrant label="Feels" tone="rose" items={p.frustrations} />
-        </div>
-      </CardBody>
-    </Card>
-  )
-}
-
-function Quadrant({
-  label,
-  items,
-  fallback,
-  tone,
-}: {
-  label: string
-  items: string[]
-  fallback?: string[]
-  tone: 'brand' | 'violet' | 'emerald' | 'rose'
-}) {
-  const list = items.length ? items : fallback ?? []
-  const accent = {
-    brand: 'text-brand-700',
-    violet: 'text-violet-700',
-    emerald: 'text-emerald-700',
-    rose: 'text-rose-700',
-  }[tone]
+function Quadrant({ label, items }: { label: string; items: string[] }) {
   return (
     <div className="bg-surface-raised p-3">
-      <div className={`text-[11px] font-semibold uppercase tracking-[0.06em] ${accent}`}>
-        {label}
-      </div>
-      {list.length === 0 ? (
-        <div className="mt-1 text-xs text-content-subtle">—</div>
-      ) : (
-        <ul className="mt-1.5 space-y-1 text-xs text-content">
-          {list.slice(0, 4).map((it, i) => (
-            <li key={i} className="leading-relaxed">
-              · {it}
-            </li>
-          ))}
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-content-subtle">{label}</div>
+      {items.length ? (
+        <ul className="mt-1 space-y-1 text-xs leading-relaxed text-content">
+          {items.slice(0, 4).map((it, i) => <li key={i}>{it}</li>)}
         </ul>
+      ) : (
+        <div className="mt-1 text-xs text-content-subtle">—</div>
       )}
     </div>
   )
 }
 
-function IconPlus() {
+function Label({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={cn('text-[11px] font-semibold uppercase tracking-wide text-content-subtle', className)}>{children}</div>
+}
+
+function IconBtn({
+  label,
+  onClick,
+  children,
+  danger,
+}: {
+  label: string
+  onClick(): void
+  children: ReactNode
+  danger?: boolean
+}) {
   return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" aria-hidden>
-      <path d="M12 5v14M5 12h14" />
-    </svg>
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        'flex h-8 w-8 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-sunken',
+        danger ? 'hover:text-rose-600' : 'hover:text-content',
+      )}
+    >
+      {children}
+    </button>
   )
 }
-function IconEdit() {
+
+/* ───────────────────────────── compare ───────────────────────────── */
+
+function CompareView({
+  personas,
+  all,
+  journeyCount,
+  onToggle,
+  onOpen,
+}: {
+  personas: Listed<Persona>[]
+  all: Listed<Persona>[]
+  journeyCount: Map<string, number>
+  onToggle(id: string): void
+  onOpen(id: string): void
+}) {
+  const available = all.filter((p) => !personas.some((x) => x.id === p.id))
+  const rows: Array<{ label: string; render(p: Persona): ReactNode }> = [
+    { label: 'Role', render: (p) => p.role },
+    { label: 'Context', render: (p) => p.location || '—' },
+    { label: 'Quote', render: (p) => (p.quote ? <span className="italic">“{p.quote}”</span> : '—') },
+    { label: 'Jobs to be done', render: (p) => <Bullets items={p.jobs ?? []} /> },
+    { label: 'Goals', render: (p) => <Bullets items={p.goals} /> },
+    { label: 'Frustrations', render: (p) => <Bullets items={p.frustrations} /> },
+    { label: 'Behaviours', render: (p) => <Bullets items={p.behaviors} /> },
+    { label: 'Needs', render: (p) => <Bullets items={p.needs} /> },
+    { label: 'Tools', render: (p) => (p.tech.length ? p.tech.join(', ') : '—') },
+    { label: 'Journey maps', render: (p) => journeyCount.get(p.id) ?? 0 },
+  ]
   return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-    </svg>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[11px] font-medium text-content-subtle">Add to comparison</span>
+        {available.length === 0 ? <span className="text-[11px] text-content-subtle">— all personas added</span> : null}
+        {available.map((p) => (
+          <Chip key={p.id} onClick={() => onToggle(p.id)}>
+            <IconPlus size={10} /> {shortPersonaName(p.name)}
+          </Chip>
+        ))}
+      </div>
+      {personas.length < 2 ? (
+        <EmptyState
+          compact
+          title={personas.length ? 'Add one more persona' : 'Pick personas to compare'}
+          description="Tick “Compare” on persona cards, or add them above. Up to four side by side."
+        />
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-edge-default bg-surface-raised">
+          <table className="w-full min-w-[640px] table-fixed text-sm">
+            <colgroup>
+              <col className="w-36" />
+              {personas.map((p) => <col key={p.id} />)}
+            </colgroup>
+            <thead>
+              <tr className="border-b border-edge-default">
+                <th className="sticky left-0 bg-surface-raised" />
+                {personas.map((p) => (
+                  <th key={p.id} className="px-4 py-3 text-left align-top font-normal">
+                    <div className="flex items-start gap-2">
+                      <button type="button" onClick={() => onOpen(p.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                        <PersonaAvatar name={p.name} avatar={p.avatar} color={p.color} size={32} />
+                        <span className="min-w-0 truncate text-sm font-semibold text-content hover:underline">{shortPersonaName(p.name)}</span>
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${p.name} from comparison`}
+                        onClick={() => onToggle(p.id)}
+                        className="rounded p-1 text-content-subtle hover:bg-surface-sunken hover:text-content"
+                      >
+                        <IconX size={12} />
+                      </button>
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-edge-subtle">
+              {rows.map((r) => (
+                <tr key={r.label}>
+                  <th className="sticky left-0 bg-surface-raised px-4 py-3 text-left align-top text-[11px] font-semibold uppercase tracking-wide text-content-subtle">
+                    {r.label}
+                  </th>
+                  {personas.map((p) => (
+                    <td key={p.id} className="px-4 py-3 align-top text-xs leading-relaxed text-content">
+                      {r.render(p)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   )
 }
-function IconClose() {
+
+function Bullets({ items }: { items: string[] }) {
+  if (!items.length) return <span className="text-content-subtle">—</span>
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M18 6 6 18" />
-      <path d="m6 6 12 12" />
-    </svg>
+    <ul className="list-disc space-y-1 pl-4">
+      {items.map((it, i) => <li key={i}>{it}</li>)}
+    </ul>
   )
 }

@@ -5,16 +5,21 @@ import type { TokenSet } from './types.ts'
  * token-set document exists (tenant document store, kind `design.token-set`);
  * the first edit persists the working copy and "Reset to defaults" writes this
  * baseline back. This constant stays the immutable baseline.
+ *
+ * Colours carry an optional `dark` value (absent = same in both modes). The
+ * stored shape is otherwise unchanged, so older readers keep working.
  */
 export const DEFAULT_TOKENS: TokenSet = {
   color: [
-    { name: '--adhar-color-primary', value: '#0f172a', role: 'Primary surface' },
-    { name: '--adhar-color-accent', value: '#4f46e5', role: 'Accent / link' },
-    { name: '--adhar-color-success', value: '#059669', role: 'Success' },
-    { name: '--adhar-color-warning', value: '#d97706', role: 'Warning' },
-    { name: '--adhar-color-danger', value: '#e11d48', role: 'Danger' },
-    { name: '--adhar-color-muted', value: '#f1f5f9', role: 'Muted surface' },
-    { name: '--adhar-color-border', value: '#e2e8f0', role: 'Border' },
+    { name: '--adhar-color-primary', value: '#0f172a', role: 'Primary', dark: '#f8fafc' },
+    { name: '--adhar-color-accent', value: '#4f46e5', role: 'Accent / link', dark: '#818cf8' },
+    { name: '--adhar-color-success', value: '#059669', role: 'Success', dark: '#34d399' },
+    { name: '--adhar-color-warning', value: '#b45309', role: 'Warning', dark: '#fbbf24' },
+    { name: '--adhar-color-danger', value: '#e11d48', role: 'Danger', dark: '#fb7185' },
+    { name: '--adhar-color-surface', value: '#ffffff', role: 'Page surface', dark: '#0b1120' },
+    { name: '--adhar-color-text', value: '#0f172a', role: 'Body text', dark: '#e2e8f0' },
+    { name: '--adhar-color-muted', value: '#f1f5f9', role: 'Muted surface', dark: '#1e293b' },
+    { name: '--adhar-color-border', value: '#e2e8f0', role: 'Border', dark: '#334155' },
   ],
   spacing: [
     { name: '--adhar-space-1', value: '4px' },

@@ -1,5 +1,5 @@
 import { assertEquals, assertThrows } from 'jsr:@std/assert@^1.0.0'
-import { applyXr, organisationManifest, teamManifest, xrPath } from './control-plane.ts'
+import { applyXr, organisationManifest, teamManifest, xrPath, applicationManifest } from './control-plane.ts'
 
 // What the switcher's "New organization" sends to the control plane: the XR
 // the platform's own example (examples/organisation.yaml) describes, named by
@@ -137,4 +137,17 @@ Deno.test('a lookup the console may not make still applies its own name', async 
   } finally {
     restore()
   }
+})
+
+Deno.test('a scaffolded deployable is an Application XR in its project, never a raw Argo CD app', () => {
+  const m = applicationManifest({ name: 'kiran-svc', project: 'adhar', repoUrl: 'https://gitea.example/adhar/kiran-svc.git' })
+  assertEquals(m.apiVersion, 'platform.adhar.io/v1alpha1')
+  assertEquals(m.kind, 'Application')
+  assertEquals(m.metadata.namespace, 'adhar-system')
+  assertEquals(m.metadata.labels?.['adhar.io/project'], 'adhar')
+  const p = (m.spec as { parameters: Record<string, unknown> }).parameters
+  assertEquals(p.project, 'adhar')
+  assertEquals(p.source, { repoURL: 'https://gitea.example/adhar/kiran-svc.git', path: 'deploy', targetRevision: 'main' })
+  // No destination: the composition places each environment in the project's namespaces.
+  assertEquals('destination' in p, false)
 })

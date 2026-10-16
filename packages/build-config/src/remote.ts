@@ -46,20 +46,6 @@ export function defineRemoteConfig(opts: RemoteOpts) {
       '@adhar-ui/a11y': resolve(adharUiPath, 'packages/a11y/src/index.ts'),
     }
 
-    /*
-     * External `builder` remote — same definition as in host.ts so any
-     * module that imports `builder/BuilderApp` (e.g. Design's Visual Builder,
-     * Develop's Code Builder) can resolve it at build time. Without this
-     * the module's @module-federation/vite plugin doesn't know `builder`
-     * is a thing and the import-analysis stage fails with
-     *   "Failed to resolve import 'builder/BuilderApp'".
-     *
-     * URL is read from VITE_ADHAR_BUILDER_URL with a localhost dev default.
-     */
-    const builderHost = (
-      process.env.VITE_ADHAR_BUILDER_URL ?? 'http://localhost:5174'
-    ).replace(/\/$/, '')
-
     const config: UserConfig = {
       // Dev: served at /mf/ on the remote's own port.
       // Build: served at /mf/<name>/ on the host's origin.
@@ -76,20 +62,13 @@ export function defineRemoteConfig(opts: RemoteOpts) {
         // `@module-federation/vite` returns an array of plugins; the spread
         // is required (the host config does the same — see host.ts). Without
         // the spread, the inner plugins get nested into a single entry which
-        // Vite silently treats as a no-op, and `import('builder/...')` fails
-        // import-analysis because the federation resolver never registers.
+        // Vite silently treats as a no-op and the federation resolver never
+        // registers.
         ...federation({
           name: opts.name,
           filename: 'remoteEntry.js',
           target: 'web',
           exposes: opts.exposes,
-          remotes: {
-            builder: {
-              type: 'module',
-              name: 'builder',
-              entry: `${builderHost}/mf/remoteEntry.js`,
-            },
-          },
           dts: false,
           // `eager: true` matches the host's config — see the comment in host.ts.
           shared: {

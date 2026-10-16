@@ -62,12 +62,12 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
     description: 'OpenAPI-driven API design — endpoints grouped by tag and component schemas.',
   },
   catalog: {
-    label: 'Artifact Catalog',
-    description: 'A live index of every design artifact — counts, recent activity, and search across all types.',
+    label: 'Component Catalog',
+    description: 'Live reference for @adhar/shell-ui — examples, props and usage snippets.',
   },
   builder: {
-    label: 'Visual Builder',
-    description: 'Embedded adhar-ui builder — Monaco + Yjs + Mermaid + xyflow.',
+    label: 'Visual Designer',
+    description: 'Drag-and-drop app builder — pages, components, data, prototype, React export.',
   },
 }
 
@@ -76,7 +76,7 @@ export default function DesignHome({ section }: { section?: string } = {}) {
   const def = SECTIONS[active]
   return (
     <div className="space-y-6">
-      <PageHeader title={def.label} />
+      {active === 'builder' ? null : <PageHeader title={def.label} />}
       {active === 'dashboard' && <Dashboard />}
       {active === 'adrs' && <Adrs />}
       {active === 'diagrams' && <Diagrams />}

@@ -10,6 +10,7 @@ import { templatesLocation } from './templates.ts'
 import { computeValues, renderContent, renderPath, skeletonDir } from './template-render.ts'
 import { platformDomain, toolPublicUrl, toPublicToolUrl } from './domain.ts'
 import { platformRouteHost, routeHostnames, SCAFFOLD_ENVIRONMENT } from './scaffold-hosts.ts'
+import { applicationManifest, applyXr, DEFAULT_PROJECT } from './control-plane.ts'
 
 /**
  * Component scaffolder — the real GitOps engine behind Catalog → Create.
@@ -21,13 +22,13 @@ import { platformRouteHost, routeHostnames, SCAFFOLD_ENVIRONMENT } from './scaff
  *      commit every rendered file (the skeleton ships its own catalog-info.yaml
  *      + deploy/); golden-path / plain templates fall back to the generated
  *      starter set,
- *   3. create the kpack `Image` (Cloud Native Buildpacks build → Harbor), and
- *   4. create the Argo CD `Application` so GitOps takes over.
+ *   3. report the build — `app-ci` (Tekton) runs from the push webhook — and
+ *   4. create the `Application` XR so the control plane wires GitOps + Kargo.
  *
  * Nothing is simulated: each step hits a real backend and its outcome is
  * reported back so the wizard can show true progress + links. Gitea calls use
  * the fixed durable auth (Basic `GITEA_USERNAME`/`GITEA_PASSWORD`, else a PAT —
- * see gitea-auth.ts); the kpack Image + Argo CD Application are created with the
+ * see gitea-auth.ts); the Application XR is created with the
  * USER's cluster token (their RBAC), consistent with the impersonation model.
  *
  * See docs/guides/authoring-templates.md + component-registration.md.
@@ -115,7 +116,7 @@ type OnStep = (s: StepResult) => void
  *
  * The stream exists because the work is genuinely sequential and genuinely
  * takes time: create the repository, render and commit a skeleton file by file,
- * create the kpack Image, create the Argo CD Application. Buffering all of that
+ * create the Application XR. Buffering all of that
  * into one response meant the wizard sat at zero and then jumped to done, which
  * read as "nothing happened" for the several seconds it was working hardest.
  * Nothing here is simulated — an event is emitted when a real backend call has
@@ -302,7 +303,8 @@ async function scaffold(
   // come back as `http://gitea-http.<ns>.svc.cluster.local:3000/...`, which no
   // developer can clone and no browser can open. Everything below this line is
   // consumed outside the cluster (the response, the catalog annotation, the
-  // Argo CD `repoURL`, the kpack source), so it all uses the public origin.
+  // Argo CD `repoURL`), so it all uses the public origin; the Application
+  // composition addresses the platform's Gitea in-cluster from it.
   //
   // Verified reachable from inside the cluster with valid TLS, so the GitOps
   // and build references stay correct too.
@@ -399,9 +401,17 @@ async function scaffold(
         values.environment = SCAFFOLD_ENVIRONMENT
         values.hostname = platformRouteHost(name, SCAFFOLD_ENVIRONMENT, bare)
       }
-      // Every hostname the HTTPRoute serves, as JSON: the templates substitute
-      // it as a YAML flow sequence (`hostnames: ${{ values.hostnamesJson }}`).
-      values.hostnamesJson = JSON.stringify(routeHostnames(String(values.hostname ?? name), params.customHostnames))
+      // Every hostname the HTTPRoute serves, as JSON — one list per environment,
+      // substituted by the dev/test/prod overlays as YAML flow sequences. The
+      // platform route is <name>.<env>.<domain>; custom hostnames are a
+      // production concern and are appended to prod only.
+      const bareDomain = domain?.host ? domain.host.replace(/:\d+$/, '') : undefined
+      const hostFor = (envName: string) =>
+        bareDomain ? platformRouteHost(name, envName, bareDomain) : String(values.hostname ?? name).replace(/^([^.]+)\.dev\./, `$1.${envName}.`)
+      values.hostnamesJson = JSON.stringify(routeHostnames(hostFor('dev'), undefined))
+      values.devHostnamesJson = values.hostnamesJson
+      values.testHostnamesJson = JSON.stringify(routeHostnames(hostFor('test'), undefined))
+      values.prodHostnamesJson = JSON.stringify(routeHostnames(hostFor('prod'), params.customHostnames))
 
       // Render everything first; a file that fails to render is reported and
       // the rest still land, in one commit.
@@ -473,7 +483,7 @@ async function scaffold(
       owner: body.owner,
       port: Number(p.port) || undefined,
       language: typeof p.language === 'string' ? p.language : undefined,
-      // Derived from the SAME env the kpack Image below uses, so the manifest
+      // Derived from the SAME registry env app-ci publishes to, so the manifest
       // and the build target cannot drift. They did: the generator hard-coded
       // registry.adhar.local (which exists nowhere) with a `:latest` tag, and the
       // platform's supply-chain policies denied the Deployment at admission —
@@ -502,37 +512,20 @@ async function scaffold(
     }
   }
 
-  /* ── 2d. Build: kpack Image (Cloud Native Buildpacks → Harbor) ── */
-  // Adhar builds with kpack/buildpacks — no Dockerfile. Create a kpack Image
-  // that builds the repo with the `adhar-builder` ClusterBuilder, pushes the OCI
-  // image to Harbor, and auto-rebuilds on every commit. This is the CI build;
-  // nothing is simulated.
-  {
-    const id = await resolveIdentity(req)
-    if (!id) {
-      step({ name: 'build-image', ok: false, detail: 'no cluster identity to create the kpack Image' })
-    } else {
-      const buildNs = env('KPACK_NAMESPACE') ?? 'adhar-system'
-      const subPath = typeof body.params?.subpath === 'string' ? (body.params.subpath as string) : undefined
-      const image = buildKpackImage({ name, cloneUrl, subPath })
-      try {
-        const r = await apiServerFetch(
-          id,
-          `/apis/kpack.io/v1alpha2/namespaces/${encodeURIComponent(buildNs)}/images`,
-          { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(image) },
-        )
-        step({
-          name: 'build-image',
-          ok: r.ok,
-          detail: r.ok
-            ? `kpack Image ${buildNs}/${name} — buildpacks build → Harbor (rebuilds on push)`
-            : `apiserver ${r.status}: ${(await r.text().catch(() => '')).slice(0, 140)}`,
-        })
-      } catch (e) {
-        step({ name: 'build-image', ok: false, detail: e instanceof Error ? e.message : '' })
-      }
-    }
-  }
+  /* ── 2d. Build: the paved-road CI, triggered by the push ── */
+  // The build is `app-ci` (Tekton, adhar-supply-chain): the Gitea push webhook
+  // starts it for the commit above, and it builds with buildpacks, scans, signs
+  // and publishes to Harbor. Nothing is created here on purpose. This step used
+  // to ALSO create a kpack `Image` watching the repo, which was a second build
+  // of every commit — unsigned, so Kyverno flagged every pod it produced — and,
+  // once Kargo promoted by digest, an endless loop: the promotion commit
+  // rebuilt, the rebuild was new freight, the freight was promoted (2026-10-17).
+  // `[skip ci]` stops Tekton; nothing stops a kpack Image.
+  step({
+    name: 'build-image',
+    ok: true,
+    detail: 'app-ci builds, scans and signs the image on push (Tekton, adhar-supply-chain)',
+  })
 
   /* ── 3. GitOps: deploy starter + Argo CD Application (as the user) ── */
   let appName: string | undefined
@@ -558,34 +551,25 @@ async function scaffold(
         /* non-fatal */
       }
     }
-    const id = await resolveIdentity(req)
-    if (!id) {
-      step({ name: 'gitops-app', ok: false, detail: 'no cluster identity' })
-    } else {
-      const argoNs = env('ARGOCD_NAMESPACE') ?? 'argocd'
-      const app = buildArgoApplication({
-        name,
-        repoUrl: cloneUrl,
-        path: manifestPath,
-        project: env('ARGOCD_PROJECT') ?? 'default',
-        destNamespace: env('SCAFFOLD_DEST_NAMESPACE') ?? 'default',
-      })
-      try {
-        const r = await apiServerFetch(
-          id,
-          `/apis/argoproj.io/v1alpha1/namespaces/${encodeURIComponent(argoNs)}/applications`,
-          { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(app) },
-        )
-        appName = r.ok ? name : undefined
-        step({
-          name: 'gitops-app',
-          ok: r.ok,
-          detail: r.ok ? `${argoNs}/${name}` : `apiserver ${r.status}: ${(await r.text().catch(() => '')).slice(0, 140)}`,
-        })
-      } catch (e) {
-        step({ name: 'gitops-app', ok: false, detail: e instanceof Error ? e.message : '' })
-      }
-    }
+    // Register the deployable with the control plane. An `Application` XR in
+    // the project composes everything the paved road needs — one Argo CD
+    // Application per environment (deploy/envs/<env> into the project's
+    // dev/test/prod namespaces), a Kargo Warehouse on the image repository and
+    // the chained Stages with Prometheus verification (dev and test promote on
+    // their own, prod waits for a Release). Until 2026-10-16 this step POSTed a
+    // raw Argo CD Application with destination `default` whose manifests named
+    // `adhar-system`, so every team's service landed in the platform namespace
+    // with no promotion chain at all.
+    const project = typeof params.project === 'string' && params.project.trim() ? params.project.trim() : DEFAULT_PROJECT
+    const outcome = await applyXr(applicationManifest({ name, project, repoUrl: cloneUrl, path: manifestPath }))
+    appName = outcome.ok ? name : undefined
+    step({
+      name: 'gitops-app',
+      ok: outcome.ok,
+      detail: outcome.ok
+        ? `Application ${name} in project ${project}: dev → test promote automatically, prod on release`
+        : `Application ${name}: ${outcome.detail ?? 'control plane refused the write'}`,
+    })
   }
 
   return withCookie(
@@ -646,61 +630,6 @@ export function resolveTemplateSource(o: {
 
 /* ─────────────── descriptor builders ─────────────── */
 
-/**
- * kpack `Image` — builds the repo with Cloud Native Buildpacks (no Dockerfile)
- * via the platform's `adhar-builder` ClusterBuilder, pushing the OCI image to
- * Harbor. kpack polls the git source and rebuilds on every commit. Mirrors the
- * platform supply-chain convention (see supply-chain/50-service-template.yaml).
- */
-function buildKpackImage(o: { name: string; cloneUrl: string; subPath?: string }) {
-  const registry = env('KPACK_REGISTRY') ?? 'harbor-core.adhar-system.svc.cluster.local/library'
-  return {
-    apiVersion: 'kpack.io/v1alpha2',
-    kind: 'Image',
-    metadata: {
-      name: o.name,
-      namespace: env('KPACK_NAMESPACE') ?? 'adhar-system',
-      labels: { 'adhar.io/supply-chain': 'true', 'adhar.io/scaffolded': 'true' },
-    },
-    spec: {
-      tag: `${registry.replace(/\/$/, '')}/${o.name}`,
-      serviceAccountName: env('KPACK_SERVICE_ACCOUNT') ?? 'adhar-pipeline',
-      builder: { name: env('KPACK_BUILDER') ?? 'adhar-builder', kind: 'ClusterBuilder' },
-      cache: { volume: { size: '1Gi' } },
-      source: {
-        git: { url: o.cloneUrl, revision: 'main' },
-        ...(o.subPath ? { subPath: o.subPath } : {}),
-      },
-      // Build-time toolchain pins (Paketo). These only apply to the languages
-      // that consume them — Java gets JDK 25; every other language ignores them
-      // and uses the buildpack's latest default. Overridable via env.
-      //
-      // The Maven PATCH is deliberately NOT pinned. It used to default to
-      // 3.9.9, and a buildpack bump deleted that patch from its dependency
-      // list, so every Java build failed in the `build` step with exit 51:
-      //
-      //   unable to install Maven / unable to find dependency
-      //   no valid dependencies for maven, 3.9.9, and io.buildpacks.stacks.jammy
-      //     in [(maven, 3.9.16, ...) (maven, 4.0.0, ...)]
-      //
-      // A buildpack only ships the patches it currently carries, so an exact
-      // pin is a time bomb that goes off on a buildpack update rather than on
-      // any change of ours. The buildpack's own default is always one it has.
-      // An operator who needs a specific Maven can still set BP_MAVEN_VERSION;
-      // we just do not invent one. BP_JVM_VERSION stays because a MAJOR Java
-      // version is a language decision, and majors are not dropped the way
-      // patches are.
-      build: {
-        env: [
-          { name: 'BP_JVM_VERSION', value: env('BP_JVM_VERSION') ?? '25' },
-          ...(env('BP_MAVEN_VERSION')
-            ? [{ name: 'BP_MAVEN_VERSION', value: env('BP_MAVEN_VERSION')! }]
-            : []),
-        ],
-      },
-    },
-  }
-}
 
 function yamlList(items: string[]): string {
   return items.length ? `[${items.map((t) => JSON.stringify(t)).join(', ')}]` : '[]'
@@ -734,28 +663,3 @@ function buildCatalogInfo(
   return lines.join('\n') + '\n'
 }
 
-function buildArgoApplication(opts: {
-  name: string
-  repoUrl: string
-  path: string
-  project: string
-  destNamespace: string
-}): Record<string, unknown> {
-  return {
-    apiVersion: 'argoproj.io/v1alpha1',
-    kind: 'Application',
-    metadata: {
-      name: opts.name,
-      labels: { 'app.kubernetes.io/managed-by': 'adhar-console', 'adhar.io/scaffolded': 'true' },
-    },
-    spec: {
-      project: opts.project,
-      source: { repoURL: opts.repoUrl, path: opts.path, targetRevision: 'main' },
-      destination: { server: 'https://kubernetes.default.svc', namespace: opts.destNamespace },
-      syncPolicy: {
-        automated: { prune: true, selfHeal: true },
-        syncOptions: ['CreateNamespace=true'],
-      },
-    },
-  }
-}

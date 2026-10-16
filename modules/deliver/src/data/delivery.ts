@@ -171,8 +171,17 @@ export function useRollbackApplication() {
 
 /* ─────────── Kargo ─────────── */
 
+// Kargo lists are cluster-wide here, deliberately. Every application's
+// promotion chain lives in ITS project's Kargo namespace (`<app>-dev` …
+// `<app>-prod` in project `adhar`), while the platform's own environments
+// chain lives in `adhar-environments`. Listing only the configured project
+// showed the platform's `environments` freight as the sole "release" — the
+// "dummy app" — and never a team's build (2026-10-16). Views group by
+// warehouse, which is the application.
+const ALL_PROJECTS = ''
+
 export function useStages() {
-  const project = useArgocdProject()
+  const project = ALL_PROJECTS
   useLiveInvalidate('k8s', { group: KARGO, version: 'v1alpha1', resource: 'stages' }, [['kargo', 'stages']])
   return useQuery({
     queryKey: ['kargo', 'stages', project],
@@ -182,7 +191,7 @@ export function useStages() {
 }
 
 export function useFreight() {
-  const project = useArgocdProject()
+  const project = ALL_PROJECTS
   useLiveInvalidate('k8s', { group: KARGO, version: 'v1alpha1', resource: 'freights' }, [['kargo', 'freight']])
   return useQuery({
     queryKey: ['kargo', 'freight', project],
@@ -212,7 +221,7 @@ export function usePromote() {
 }
 
 export function usePromotions() {
-  const project = useArgocdProject()
+  const project = ALL_PROJECTS
   useLiveInvalidate('k8s', { group: KARGO, version: 'v1alpha1', resource: 'promotions' }, [['kargo', 'promotions'], ['kargo', 'stages']])
   return useQuery({
     queryKey: ['kargo', 'promotions', project],

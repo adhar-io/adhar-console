@@ -108,6 +108,14 @@ export const SEED_PERSONAS: Persona[] = [
     ],
     needs: ['Single pane of glass with deep links back to source tools', 'Strong audit / event log'],
     tech: ['Kubernetes', 'Terraform', 'Go', 'Python', 'GitHub Actions'],
+    quote: 'If it is not in Git, it did not happen.',
+    jobs: [
+      'When an app team asks for a new environment, I want to hand them a template, so I can stay out of the loop',
+      'When something drifts, I want to see what changed and who changed it, so I can fix it fast',
+    ],
+    color: 'brand',
+    tags: ['Internal', 'Power user'],
+    location: 'Bengaluru · hybrid',
   },
   {
     id: 'persona-rahul',
@@ -131,6 +139,13 @@ export const SEED_PERSONAS: Persona[] = [
     ],
     needs: ['At-a-glance delivery confidence', 'Drill-down only when something looks off'],
     tech: ['Plane', 'Slack', 'Linear (legacy)', 'Notion'],
+    quote: 'Tell me what is at risk before my director asks.',
+    jobs: [
+      'When I plan the next cycle, I want a realistic view of capacity, so I can commit to dates I can keep',
+    ],
+    color: 'amber',
+    tags: ['Internal', 'Decision maker'],
+    location: 'Pune · in office',
   },
   {
     id: 'persona-anika',
@@ -151,6 +166,13 @@ export const SEED_PERSONAS: Persona[] = [
     behaviors: ['Heavy Figma user', 'Documents in Notion', 'Co-designs in workshops weekly'],
     needs: ['Living design artifacts that engineering can browse', 'Token catalog tied to code'],
     tech: ['Figma', 'FigJam', 'Notion', 'Loom'],
+    quote: 'A design system only works if the code ships it.',
+    jobs: [
+      'When I finish a flow, I want engineers to find the specs and tokens on their own, so I can move on to discovery',
+    ],
+    color: 'violet',
+    tags: ['Internal', 'Design'],
+    location: 'Remote',
   },
 ]
 
@@ -169,6 +191,7 @@ export const SEED_JOURNEYS: Journey[] = [
         name: 'Discover',
         emotion: 'curious',
         actions: ['Lands on adhar.dev', 'Reads value prop', 'Clicks Get started'],
+        touchpoints: ['Marketing site', 'Docs'],
         thoughts: ['Looks promising — does it actually replace ArgoCD UI?'],
         pains: ['Lots of marketing copy, hard to find a demo'],
         opportunities: ['Auto-spin demo workspace seeded with realistic data'],
@@ -178,6 +201,7 @@ export const SEED_JOURNEYS: Journey[] = [
         name: 'Sign up',
         emotion: 'cautious',
         actions: ['Enters work email', 'Verifies via magic link', 'Picks workspace name'],
+        touchpoints: ['Sign-up form', 'Email'],
         thoughts: ['Will this require SSO setup before I can poke around?'],
         pains: ['Required tenant slug feels jargon-heavy'],
         opportunities: ['Suggest tenant slug from email domain'],
@@ -187,6 +211,7 @@ export const SEED_JOURNEYS: Journey[] = [
         name: 'Connect cluster',
         emotion: 'focused',
         actions: ['Pastes kubeconfig', 'Names the cluster', 'Approves agent install'],
+        touchpoints: ['Console', 'Terminal'],
         thoughts: ['This is the moment of truth — does it pick up my real workloads?'],
         pains: ['kubeconfig copy/paste is fiddly'],
         opportunities: ['One-click GKE/EKS/AKS OAuth flow'],
@@ -196,6 +221,7 @@ export const SEED_JOURNEYS: Journey[] = [
         name: 'First workload',
         emotion: 'excited',
         actions: ['Picks Hello World template', 'Clicks Deploy', 'Watches rollout'],
+        touchpoints: ['Templates', 'Argo CD'],
         thoughts: ['I want to see logs streaming in.'],
         pains: ['Empty state if rollout takes more than 30s'],
         opportunities: ['Streaming progress hub with deep-link to ArgoCD'],
@@ -205,6 +231,7 @@ export const SEED_JOURNEYS: Journey[] = [
         name: 'Invite teammate',
         emotion: 'satisfied',
         actions: ['Copies invite link', 'Pastes in Slack'],
+        touchpoints: ['Console', 'Slack'],
         thoughts: ['Want to share this with the team — does it support Google SSO?'],
         pains: ['No SSO setup yet'],
         opportunities: ['Trigger SSO setup wizard right after first workload'],
@@ -223,6 +250,7 @@ export const SEED_JOURNEYS: Journey[] = [
         name: 'Page',
         emotion: 'stressed',
         actions: ['Phone goes off', 'Opens PagerDuty link'],
+        touchpoints: ['PagerDuty', 'Phone'],
         thoughts: ['What service? What changed in the last hour?'],
         pains: ['No quick "what changed" view'],
         opportunities: ['Adhar deep link from PagerDuty with last-hour change list'],
@@ -232,6 +260,7 @@ export const SEED_JOURNEYS: Journey[] = [
         name: 'Diagnose',
         emotion: 'focused',
         actions: ['Looks at Grafana panel', 'Checks ArgoCD diff'],
+        touchpoints: ['Grafana', 'Argo CD'],
         thoughts: ['Was this the deploy 40 minutes ago?'],
         pains: ['Switching tabs constantly'],
         opportunities: ['Inline metrics + diff in Adhar incident view'],
@@ -241,6 +270,7 @@ export const SEED_JOURNEYS: Journey[] = [
         name: 'Mitigate',
         emotion: 'urgent',
         actions: ['Triggers rollback in ArgoCD', 'Annotates incident'],
+        touchpoints: ['Argo CD', 'Console'],
         thoughts: ['I need this rollback approved fast.'],
         pains: ['Approval workflow is in a different tool'],
         opportunities: ['Inline approval w/ audit log in Adhar'],
@@ -250,11 +280,137 @@ export const SEED_JOURNEYS: Journey[] = [
         name: 'Postmortem',
         emotion: 'reflective',
         actions: ['Drafts incident report', 'Creates ADR draft for fix'],
+        touchpoints: ['Console', 'ADRs'],
         thoughts: ['Need to capture lessons before I forget.'],
         pains: ['Templates live in a wiki, not where the data is'],
         opportunities: ['Auto-draft postmortem from incident timeline'],
       },
     ],
+  },
+]
+
+/* ───── Persona templates (prefill the "New persona" dialog) ───── */
+
+export const PERSONA_TEMPLATES: Array<{ id: string; label: string; description: string; persona: Omit<Persona, 'id'> }> = [
+  {
+    id: 'developer',
+    label: 'Application developer',
+    description: 'Builds product features; wants a fast inner loop.',
+    persona: {
+      name: 'New developer persona',
+      avatar: '',
+      color: 'sky',
+      role: 'Application developer',
+      bio: '',
+      quote: 'Let me ship without filing a ticket.',
+      jobs: ['When I start a new service, I want a working pipeline and environment, so I can focus on the feature'],
+      goals: ['Go from idea to running code quickly', 'Debug production issues without escalation'],
+      frustrations: ['Waiting on other teams for infrastructure', 'Unclear ownership of shared services'],
+      behaviors: ['Works in the IDE and terminal', 'Searches docs before asking'],
+      needs: ['Golden-path templates', 'Self-serve environments'],
+      tech: ['Git', 'Docker', 'TypeScript'],
+      tags: ['Internal'],
+    },
+  },
+  {
+    id: 'sre',
+    label: 'SRE / on-call',
+    description: 'Keeps production healthy; lives on dashboards and alerts.',
+    persona: {
+      name: 'New SRE persona',
+      avatar: '',
+      color: 'rose',
+      role: 'Site reliability engineer',
+      bio: '',
+      quote: 'What changed in the last hour?',
+      jobs: ['When I am paged, I want the blast radius and recent changes in one place, so I can mitigate fast'],
+      goals: ['Reduce time to mitigate', 'Fewer noisy alerts'],
+      frustrations: ['Context scattered across tools', 'Alerts without runbooks'],
+      behaviors: ['Keeps runbooks up to date', 'Reviews postmortems weekly'],
+      needs: ['Change timeline', 'Correlated metrics, logs and traces'],
+      tech: ['Prometheus', 'Grafana', 'Kubernetes'],
+      tags: ['Internal', 'On-call'],
+    },
+  },
+  {
+    id: 'product-manager',
+    label: 'Product manager',
+    description: 'Owns outcomes; balances scope, time and quality.',
+    persona: {
+      name: 'New product manager persona',
+      avatar: '',
+      color: 'amber',
+      role: 'Product manager',
+      bio: '',
+      quote: 'Are we building the right thing?',
+      jobs: ['When I prioritise the roadmap, I want evidence from users, so I can defend trade-offs'],
+      goals: ['Ship outcomes, not output', 'Keep stakeholders aligned'],
+      frustrations: ['Research scattered across docs', 'Late surprises in delivery'],
+      behaviors: ['Runs weekly customer calls', 'Writes one-pagers'],
+      needs: ['Shared personas and journeys', 'Delivery confidence at a glance'],
+      tech: ['Plane', 'Docs', 'Analytics'],
+      tags: ['Internal', 'Decision maker'],
+    },
+  },
+  {
+    id: 'designer',
+    label: 'Product designer',
+    description: 'Shapes the experience from research to hand-off.',
+    persona: {
+      name: 'New designer persona',
+      avatar: '',
+      color: 'violet',
+      role: 'Product designer',
+      bio: '',
+      quote: 'Show me where users get stuck.',
+      jobs: ['When I hand off a flow, I want specs and tokens next to the code, so I can avoid rework'],
+      goals: ['Consistent UI across products', 'Faster validation of ideas'],
+      frustrations: ['Design drift in production', 'Artifacts nobody can find'],
+      behaviors: ['Prototypes before building', 'Runs usability tests'],
+      needs: ['Living design system', 'Journey maps the team can edit'],
+      tech: ['Figma', 'Design tokens'],
+      tags: ['Internal', 'Design'],
+    },
+  },
+  {
+    id: 'buyer',
+    label: 'Economic buyer',
+    description: 'Signs the contract; cares about risk and ROI.',
+    persona: {
+      name: 'New buyer persona',
+      avatar: '',
+      color: 'emerald',
+      role: 'VP Engineering',
+      bio: '',
+      quote: 'What will this save us, and what could go wrong?',
+      jobs: ['When I evaluate a platform, I want proof of ROI and security posture, so I can approve with confidence'],
+      goals: ['Lower cost of delivery', 'Reduce operational risk'],
+      frustrations: ['Tool sprawl and overlapping licences', 'Vendor lock-in'],
+      behaviors: ['Delegates evaluation', 'Reads analyst reports'],
+      needs: ['Clear pricing', 'Compliance evidence'],
+      tech: ['Spreadsheets', 'Slides'],
+      tags: ['External', 'Decision maker'],
+    },
+  },
+  {
+    id: 'end-customer',
+    label: 'End customer',
+    description: 'Uses your product to get something done.',
+    persona: {
+      name: 'New customer persona',
+      avatar: '',
+      color: 'teal',
+      role: 'Customer',
+      bio: '',
+      quote: '',
+      jobs: ['When I …, I want to …, so I can …'],
+      goals: [],
+      frustrations: [],
+      behaviors: [],
+      needs: [],
+      tech: [],
+      tags: ['External'],
+    },
   },
 ]
 
@@ -501,13 +657,44 @@ const INCIDENTS_OPENAPI = `{
   }
 }`
 
+/**
+ * OpenAPI requires `responses` on every operation. The seed documents are kept
+ * terse, so give each operation without one a conventional success response
+ * (201 for POST, 204 for DELETE, 200 otherwise) and declare the path
+ * parameters they use — the specs then validate.
+ */
+function withResponses(doc: string): string {
+  type Param = { name: string; in: string }
+  const spec = JSON.parse(doc) as { paths?: Record<string, Record<string, { responses?: unknown; parameters?: Param[] }>> }
+  for (const [path, item] of Object.entries(spec.paths ?? {})) {
+    // Declare every `{param}` in the path, once, at path level.
+    const declared = new Set(((item.parameters ?? []) as unknown as Param[]).filter((p) => p.in === 'path').map((p) => p.name))
+    const missing = [...path.matchAll(/\{([^}]+)\}/g)].map((m) => m[1]).filter((n) => !declared.has(n))
+    if (missing.length) {
+      ;(item as Record<string, unknown>).parameters = [
+        ...((item.parameters ?? []) as unknown as Param[]),
+        ...missing.map((name) => ({ name, in: 'path', required: true, schema: { type: 'string' } })),
+      ]
+    }
+    for (const [method, op] of Object.entries(item)) {
+      if (!['get', 'post', 'put', 'patch', 'delete'].includes(method) || op.responses) continue
+      op.responses = method === 'post'
+        ? { '201': { description: 'Created' } }
+        : method === 'delete'
+        ? { '204': { description: 'Deleted' } }
+        : { '200': { description: 'OK' } }
+    }
+  }
+  return JSON.stringify(spec, null, 2)
+}
+
 export const SEED_API_SPECS: ApiSpec[] = [
   {
     id: 'api-workspaces',
     name: 'Workspaces API',
     version: '1.4.0',
     description: 'Provision and manage self-serve developer workspaces and their clusters.',
-    document: WORKSPACES_OPENAPI,
+    document: withResponses(WORKSPACES_OPENAPI),
     created_at: '2026-05-02T10:00:00Z',
     updated_at: '2026-06-18T10:00:00Z',
   },
@@ -516,7 +703,7 @@ export const SEED_API_SPECS: ApiSpec[] = [
     name: 'Incidents API',
     version: '0.9.0',
     description: 'Triage, annotate, and resolve incidents with a full audit trail.',
-    document: INCIDENTS_OPENAPI,
+    document: withResponses(INCIDENTS_OPENAPI),
     created_at: '2026-05-20T10:00:00Z',
     updated_at: '2026-06-30T10:00:00Z',
   },

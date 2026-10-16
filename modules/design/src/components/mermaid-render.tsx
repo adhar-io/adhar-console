@@ -1,234 +1,215 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { type MermaidIssue, parseMermaidError, withDirective } from '../data/mermaid-util.ts'
 
 /**
- * Lazy Mermaid renderer.
+ * Mermaid, bundled and lazy — no network at runtime.
  *
- * Mermaid is loaded via a `<script>` tag (UMD bundle from jsDelivr) so the
- * browser-native loader handles it — no Vite transform, no esm.sh wrapper,
- * no MF runtime interference. The script sets `window.mermaid` once and we
- * cache the api on `window.__adharMermaid` so every preview reuses it.
+ * Mermaid is an npm dependency that Vite splits into its own chunk; the
+ * dynamic `import()` keeps it out of the initial payload and it is fetched
+ * from this origin the first time a diagram is drawn. The api is cached on
+ * `globalThis.__adharMermaid` so every preview reuses one instance.
  *
- * Mermaid is heavy (~600 KB), so first mount pays the load cost; everything
- * after is instant.
+ * `securityLevel: 'strict'` — diagram sources are shared tenant documents, so
+ * click handlers and raw HTML in labels are sanitised rather than executed.
+ *
+ * The preview renders into React state (an SVG string) rather than poking a
+ * ref, so the result can never be lost to a spinner unmounting the host node.
  */
 
 interface MermaidApi {
   initialize(config: Record<string, unknown>): void
   render(id: string, source: string): Promise<{ svg: string }>
-  parse?(s: string): boolean
+  parse(source: string, opts?: { suppressErrors?: boolean }): Promise<unknown>
 }
 
 declare global {
-  interface Window {
-    mermaid?: MermaidApi
-    __adharMermaid?: Promise<MermaidApi>
-  }
+  // eslint-disable-next-line no-var
+  var __adharMermaid: Promise<MermaidApi> | undefined
 }
 
-/**
- * Mermaid, bundled — no network at runtime.
- *
- * This injected a `<script>` from jsDelivr, which cannot work on an
- * air-gapped install: the diagram simply never rendered, and the only clue
- * was a blocked request. Mermaid is an ordinary npm package, so it is a
- * dependency now and Vite bundles it. The dynamic `import()` keeps it out of
- * the initial payload — it is large, and most sessions never open a diagram —
- * so it arrives as its own chunk, from this origin, the first time one is
- * drawn.
- */
+const CONFIG = {
+  startOnLoad: false,
+  securityLevel: 'strict',
+  theme: 'base',
+  themeVariables: {
+    primaryColor: '#eef2ff',
+    primaryBorderColor: '#6366f1',
+    primaryTextColor: '#0f172a',
+    lineColor: '#94a3b8',
+    fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+    fontSize: '13px',
+    background: '#ffffff',
+    mainBkg: '#eef2ff',
+    secondaryColor: '#fef3c7',
+    tertiaryColor: '#dcfce7',
+    clusterBkg: '#f8fafc',
+    clusterBorder: '#cbd5e1',
+    edgeLabelBackground: '#ffffff',
+    actorBkg: '#eef2ff',
+    actorBorder: '#6366f1',
+    actorTextColor: '#0f172a',
+    signalColor: '#475569',
+    signalTextColor: '#0f172a',
+    noteBkgColor: '#fef3c7',
+    noteBorderColor: '#f59e0b',
+  },
+  flowchart: { curve: 'basis', htmlLabels: true, useMaxWidth: false, padding: 12 },
+  sequence: { useMaxWidth: false, mirrorActors: false, boxMargin: 8 },
+  gantt: { useMaxWidth: false, fontSize: 12, gridLineStartPadding: 24 },
+  er: { useMaxWidth: false },
+  c4: { useMaxWidth: false },
+  journey: { useMaxWidth: false },
+  class: { useMaxWidth: false },
+  state: { useMaxWidth: false },
+  themeCSS: `
+    .node rect, .node polygon, .node circle, .node ellipse { stroke-width: 1.25px; }
+    .edgeLabel { background-color: #ffffff !important; padding: 2px 4px; }
+    .cluster rect { fill: #f8fafc !important; stroke: #cbd5e1 !important; rx: 8; }
+    .messageText { font-weight: 500; }
+  `,
+}
 
-let initialized = false
-
-function loadMermaid(): Promise<MermaidApi> {
-  if (typeof window === 'undefined') {
+export function loadMermaid(): Promise<MermaidApi> {
+  if (typeof document === 'undefined') {
     return Promise.reject(new Error('Mermaid requires a browser environment'))
   }
-  if (window.__adharMermaid) return window.__adharMermaid
-
-  window.__adharMermaid = import('mermaid')
-    .then((m) => ((m as { default?: MermaidApi }).default ?? m) as MermaidApi)
+  if (globalThis.__adharMermaid) return globalThis.__adharMermaid
+  globalThis.__adharMermaid = import('mermaid')
+    .then((mod) => {
+      const m = ((mod as { default?: MermaidApi }).default ?? mod) as MermaidApi
+      m.initialize(CONFIG)
+      return m
+    })
     .catch((err) => {
-      // Do not cache the failure — let the next diagram try again.
-      window.__adharMermaid = undefined
+      globalThis.__adharMermaid = undefined
       throw err instanceof Error ? err : new Error(String(err))
     })
-    .then((m) => {
-
-    if (!initialized) {
-      m.initialize({
-        startOnLoad: false,
-        securityLevel: 'loose',
-        theme: 'base',
-        themeVariables: {
-          // Pulled from the brand token palette — keep diagrams visually
-          // consistent with the rest of the console.
-          primaryColor: '#eef2ff',
-          primaryBorderColor: '#6366f1',
-          primaryTextColor: '#0f172a',
-          lineColor: '#94a3b8',
-          fontFamily:
-            'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-          fontSize: '13px',
-          background: '#ffffff',
-          mainBkg: '#eef2ff',
-          secondaryColor: '#fef3c7',
-          tertiaryColor: '#dcfce7',
-          clusterBkg: '#f8fafc',
-          clusterBorder: '#cbd5e1',
-          edgeLabelBackground: '#ffffff',
-          actorBkg: '#eef2ff',
-          actorBorder: '#6366f1',
-          actorTextColor: '#0f172a',
-          signalColor: '#475569',
-          signalTextColor: '#0f172a',
-          noteBkgColor: '#fef3c7',
-          noteBorderColor: '#f59e0b',
-        },
-        flowchart: { curve: 'basis', htmlLabels: true, useMaxWidth: true, padding: 12 },
-        sequence: { useMaxWidth: true, mirrorActors: false, boxMargin: 8 },
-        gantt: { useMaxWidth: true, fontSize: 12, gridLineStartPadding: 24 },
-        er: { useMaxWidth: true },
-        c4: { useMaxWidth: true },
-        themeCSS: `
-          .node rect, .node polygon, .node circle, .node ellipse {
-            stroke-width: 1.25px;
-          }
-          .edgeLabel { background-color: #ffffff !important; padding: 2px 4px; }
-          .cluster rect { fill: #f8fafc !important; stroke: #cbd5e1 !important; rx: 8; }
-          .messageText { font-weight: 500; }
-        `,
-      })
-      initialized = true
-    }
-    return m
-  })
-
-  return window.__adharMermaid
+  return globalThis.__adharMermaid
 }
 
 let renderCounter = 0
 
-export function MermaidPreview({
-  source,
-  className,
-  fallback,
-  fit = true,
-}: {
-  source: string
-  className?: string
-  fallback?: React.ReactNode
-  /** When true, the rendered SVG is force-fitted to its container width. */
-  fit?: boolean
-}) {
-  const id = useId().replace(/:/g, '_')
-  const ref = useRef<HTMLDivElement>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+/** Mermaid leaves its scratch nodes on <body> when a render throws. */
+function cleanupStrays() {
+  if (typeof document === 'undefined') return
+  document
+    .querySelectorAll('body > [id^="dmmd-"], body > [id^="mmd-"], body > [id^="dmermaid"]')
+    .forEach((n) => n.remove())
+}
 
+/** Render a Mermaid source to an SVG string, or throw a MermaidIssue-able error. */
+/**
+ * Mermaid keeps global render state (config, scratch DOM), so concurrent
+ * renders — a grid of thumbnails mounting at once — clobber each other and
+ * surface as bogus syntax errors. Every render goes through one queue.
+ */
+let queue: Promise<unknown> = Promise.resolve()
+function renderSvg(source: string, prefix = 'mmd'): Promise<string> {
+  const run = queue.then(() => renderNow(source, prefix))
+  queue = run.catch(() => undefined)
+  return run
+}
+
+async function renderNow(source: string, prefix: string): Promise<string> {
+  const m = await loadMermaid()
+  const uid = `${prefix}-${Date.now().toString(36)}-${++renderCounter}`
+  try {
+    const { svg } = await m.render(uid, source)
+    return svg
+  } finally {
+    cleanupStrays()
+  }
+}
+
+export interface MermaidRenderState {
+  svg: string | null
+  issue: MermaidIssue | null
+  loading: boolean
+}
+
+/** Debounced render of `source`; keeps the last good SVG while the user types. */
+export function useMermaidSvg(source: string, delay = 200): MermaidRenderState {
+  const [state, setState] = useState<MermaidRenderState>({ svg: null, issue: null, loading: true })
   useEffect(() => {
     let alive = true
-    setLoading(true)
-    setError(null)
     if (!source.trim()) {
-      setLoading(false)
-      if (ref.current) ref.current.innerHTML = ''
+      setState({ svg: null, issue: null, loading: false })
       return
     }
-    // Debounce: cards on the library page mount in bulk; render serially is
-    // fine, but we coalesce rapid source changes from the editor.
+    setState((s) => ({ ...s, loading: true }))
     const t = setTimeout(() => {
-      ;(async () => {
-        try {
-          const m = await loadMermaid()
-          if (!alive) return
-          // Mermaid requires globally-unique ids — collisions across instances
-          // produce stale cached output.
-          const uid = `mmd-${id}-${++renderCounter}`
-          const { svg } = await m.render(uid, source)
-          if (!alive) return
-          if (ref.current) {
-            ref.current.innerHTML = svg
-            if (fit) makeSvgResponsive(ref.current)
-          }
-          setLoading(false)
-        } catch (e) {
-          if (!alive) return
-          // Mermaid sometimes leaves a stray error <div> on document.body.
-          document
-            .querySelectorAll('[id^="dmermaid"], [id^="mmd-"]')
-            .forEach((n) => n.parentElement === document.body && n.remove())
-          setError(extractError(e))
-          setLoading(false)
-        }
-      })()
-    }, 150)
+      renderSvg(source)
+        .then((svg) => alive && setState({ svg, issue: null, loading: false }))
+        .catch((e) => alive && setState((s) => ({ svg: s.svg, issue: parseMermaidError(e, source), loading: false })))
+    }, delay)
     return () => {
       alive = false
       clearTimeout(t)
     }
-  }, [source, id, fit])
-
-  if (error) {
-    return (
-      <div className="space-y-1 rounded-lg border border-rose-200 bg-rose-50/60 p-3 text-xs text-rose-800">
-        <div className="flex items-center gap-1.5 font-semibold">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="8" x2="12" y2="12" />
-            <line x1="12" y1="16" x2="12.01" y2="16" />
-          </svg>
-          Couldn't render diagram
-        </div>
-        <div className="whitespace-pre-wrap font-mono leading-relaxed">{error}</div>
-      </div>
-    )
-  }
-
-  return (
-    <div className={className ?? 'flex w-full justify-center'}>
-      {loading ? (
-        <div className="flex h-32 items-center gap-2 text-xs text-content-subtle">
-          <span className="h-3 w-3 animate-spin rounded-full border-2 border-brand-300 border-t-transparent" />
-          {fallback ?? 'Rendering diagram…'}
-        </div>
-      ) : (
-        <div ref={ref} className="mermaid-host max-w-full" />
-      )}
-    </div>
-  )
+  }, [source, delay])
+  return state
 }
 
 /**
- * Mermaid renders SVGs with explicit pixel `width` + `height` attributes.
- * That makes the diagrams overflow tight containers (cards, drawers). Strip
- * the dimensions so the viewBox alone drives scaling, then constrain via CSS.
+ * Thumbnail / inline preview. Shows the last good render; on error shows the
+ * message unless `quietErrors` (library cards).
  */
-function makeSvgResponsive(host: HTMLElement) {
-  const svg = host.querySelector('svg')
-  if (!svg) return
-  // Some renderers wrap with explicit width/height in the style attribute too.
-  svg.removeAttribute('width')
-  svg.removeAttribute('height')
-  svg.style.maxWidth = '100%'
-  svg.style.height = 'auto'
-  svg.style.display = 'block'
-}
-
-function extractError(e: unknown): string {
-  if (!e) return 'Unknown error'
-  if (e instanceof Error) return e.message
-  if (typeof e === 'string') return e
-  try {
-    return JSON.stringify(e)
-  } catch {
-    return String(e)
+export function MermaidPreview({
+  source,
+  className,
+  fallback,
+  quietErrors = false,
+}: {
+  source: string
+  className?: string
+  fallback?: React.ReactNode
+  quietErrors?: boolean
+}) {
+  const { svg, issue, loading } = useMermaidSvg(source, 120)
+  if (issue && !svg) {
+    return quietErrors
+      ? (
+        <div className="flex h-full w-full items-center justify-center text-[11px] text-rose-600">
+          Syntax error on line {issue.line}
+        </div>
+      )
+      : (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 font-mono text-xs text-rose-800">
+          Line {issue.line}: {issue.message}
+        </div>
+      )
   }
+  if (!svg) {
+    return (
+      <div className={className ?? 'flex w-full justify-center'}>
+        {loading
+          ? (
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-indigo-300 border-t-transparent" />
+              {fallback ?? 'Rendering diagram…'}
+            </div>
+          )
+          : null}
+      </div>
+    )
+  }
+  return (
+    <div
+      className={`${className ?? 'flex w-full justify-center'} [&_svg]:h-auto [&_svg]:max-h-full [&_svg]:max-w-full`}
+      // Mermaid output, rendered with securityLevel 'strict' (DOMPurify-sanitised).
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  )
 }
 
 /** Render a Mermaid source string to standalone SVG (for download). */
-export async function renderToSvg(source: string): Promise<string> {
-  const m = await loadMermaid()
-  const id = `mmd-export-${Math.random().toString(36).slice(2, 8)}`
-  const { svg } = await m.render(id, source)
+export async function renderToSvg(source: string, opts: { raster?: boolean } = {}): Promise<string> {
+  const src = opts.raster
+    ? withDirective(source, { htmlLabels: false, flowchart: { htmlLabels: false } })
+    : source
+  let svg = await renderSvg(src, 'mmd-export')
+  if (!/xmlns="http:\/\/www\.w3\.org\/2000\/svg"/.test(svg)) {
+    svg = svg.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"')
+  }
   return svg
 }

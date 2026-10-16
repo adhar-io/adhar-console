@@ -41,6 +41,8 @@ importers:
 
   packages/build-config: {}
 
+  packages/builder: {}
+
   packages/db:
     dependencies:
       drizzle-orm:

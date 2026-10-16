@@ -336,3 +336,279 @@ export const SEED_DIAGRAMS: Diagram[] = [
     updated_at: ts,
   },
 ]
+
+/* ───────────── Template gallery ─────────────
+ * Ready-made Adhar architecture diagrams for the "New diagram" gallery. Each
+ * is valid Mermaid (v11) and maps onto a stored `DiagramType`; `category`
+ * groups them in the picker.
+ */
+
+export type GalleryCategory = 'Architecture' | 'Delivery' | 'Security' | 'Data' | 'Process' | 'Planning'
+
+export interface GalleryTemplate {
+  id: string
+  title: string
+  description: string
+  category: GalleryCategory
+  type: DiagramType
+  tags: string[]
+  source: string
+}
+
+export const GALLERY: GalleryTemplate[] = [
+  {
+    id: 'g-c4-container',
+    title: 'Console — C4 container view',
+    description: 'Host, BFF, doc store and the platform tools it fronts.',
+    category: 'Architecture',
+    type: 'C4Context',
+    tags: ['c4', 'architecture'],
+    source: `C4Container
+  title Container view — Adhar Console
+  Person(dev, "Developer", "Builds and ships apps")
+  System_Boundary(console, "Adhar Console") {
+    Container(host, "Console host", "React, TanStack Start", "Shell, routing, module federation")
+    Container(bff, "BFF", "Deno", "Auth, tool proxy, document store")
+    ContainerDb(pg, "Postgres", "PostgreSQL", "Tenant documents")
+  }
+  System_Ext(kc, "Keycloak", "OIDC identity provider")
+  System_Ext(gitea, "Gitea", "Git hosting")
+  System_Ext(argo, "Argo CD", "GitOps delivery")
+  Rel(dev, host, "Uses", "HTTPS")
+  Rel(host, bff, "Calls", "JSON")
+  Rel(bff, pg, "Reads and writes")
+  Rel(bff, kc, "Validates tokens", "OIDC")
+  Rel(bff, gitea, "Proxies", "REST")
+  Rel(bff, argo, "Proxies", "REST")`,
+  },
+  {
+    id: 'g-c4-context',
+    title: 'Platform — C4 system context',
+    description: 'Who uses Adhar and which systems it depends on.',
+    category: 'Architecture',
+    type: 'C4Context',
+    tags: ['c4', 'context'],
+    source: `C4Context
+  title System context — Adhar platform
+  Person(dev, "Developer")
+  Person(ops, "Platform engineer")
+  System(adhar, "Adhar platform", "Internal developer platform on Kubernetes")
+  System_Ext(idp, "Corporate IdP", "SAML / OIDC upstream")
+  System_Ext(cloud, "Cloud provider", "Compute, storage, DNS")
+  Rel(dev, adhar, "Builds, deploys, observes")
+  Rel(ops, adhar, "Operates, governs")
+  Rel(adhar, idp, "Federates login")
+  Rel(adhar, cloud, "Provisions via Crossplane")`,
+  },
+  {
+    id: 'g-gitops',
+    title: 'GitOps delivery pipeline',
+    description: 'Gitea → Tekton → Harbor → Kargo → Argo CD → cluster.',
+    category: 'Delivery',
+    type: 'flowchart',
+    tags: ['gitops', 'ci', 'cd'],
+    source: `flowchart LR
+  subgraph CI["CI — Tekton"]
+    PR[Pull request merged] --> PL[PipelineRun]
+    PL --> T[Test + scan]
+    T --> IMG[Build image]
+  end
+  subgraph REG["Registry"]
+    H[(Harbor)]
+  end
+  subgraph CD["CD — Argo CD + Kargo"]
+    W[Kargo warehouse] --> D[stage: dev]
+    D -->|promote| S[stage: staging]
+    S -->|promote| P[stage: prod]
+  end
+  IMG --> H --> W
+  P --> R[Argo Rollout canary] --> OK([Healthy])`,
+  },
+  {
+    id: 'g-oidc',
+    title: 'OIDC login via Keycloak',
+    description: 'Browser, console BFF and Keycloak authorization-code flow.',
+    category: 'Security',
+    type: 'sequence',
+    tags: ['auth', 'keycloak'],
+    source: `sequenceDiagram
+  autonumber
+  actor U as User
+  participant C as Console
+  participant B as BFF
+  participant K as Keycloak
+  U->>C: Open console
+  C->>B: GET /api/session
+  B-->>C: 401 — no session
+  C->>K: Redirect /auth (PKCE)
+  U->>K: Sign in
+  K-->>C: Redirect with code
+  C->>B: /callback?code=…
+  B->>K: Exchange code for tokens
+  K-->>B: id_token + access_token
+  B-->>C: Set session cookie
+  C->>B: API calls with cookie`,
+  },
+  {
+    id: 'g-tenancy',
+    title: 'Tenancy hierarchy',
+    description: 'Org → Teams → Projects → Apps with environments.',
+    category: 'Data',
+    type: 'erDiagram',
+    tags: ['tenancy', 'domain'],
+    source: `erDiagram
+  ORGANIZATION ||--o{ TEAM : has
+  TEAM ||--o{ PROJECT : owns
+  PROJECT ||--o{ APPLICATION : contains
+  APPLICATION ||--o{ ENVIRONMENT : "deploys to"
+  TEAM }o--o{ USER : members
+  ORGANIZATION {
+    string id PK
+    string name
+  }
+  TEAM {
+    string id PK
+    string orgId FK
+    string name
+  }
+  PROJECT {
+    string id PK
+    string teamId FK
+    string namespace
+  }
+  APPLICATION {
+    string id PK
+    string projectId FK
+    string repo
+  }`,
+  },
+  {
+    id: 'g-observability',
+    title: 'Observability pipeline (LGTM)',
+    description: 'OpenTelemetry into Mimir, Loki and Tempo, read by Grafana.',
+    category: 'Architecture',
+    type: 'flowchart',
+    tags: ['observability', 'lgtm'],
+    source: `flowchart LR
+  APP[Workloads] -->|OTLP| COL[OTel collector]
+  COL -->|metrics| M[(Mimir)]
+  COL -->|logs| L[(Loki)]
+  COL -->|traces| T[(Tempo)]
+  M --> G[Grafana]
+  L --> G
+  T --> G
+  G --> A[Alerting / OnCall]`,
+  },
+  {
+    id: 'g-crossplane',
+    title: 'Crossplane composition',
+    description: 'Claim → composite resource → managed cloud resources.',
+    category: 'Architecture',
+    type: 'flowchart',
+    tags: ['crossplane', 'infra'],
+    source: `flowchart TD
+  C[PostgresClaim<br/>team namespace] --> XR[XPostgres<br/>composite]
+  XR --> COMP{{Composition}}
+  COMP --> DB[RDS instance]
+  COMP --> SG[Security group]
+  COMP --> SEC[Connection secret]
+  SEC -.->|mounted by| APP[Application]`,
+  },
+  {
+    id: 'g-workflow',
+    title: 'Argo Workflows DAG',
+    description: 'Fan-out / fan-in data processing workflow.',
+    category: 'Process',
+    type: 'flowchart',
+    tags: ['workflows', 'argo'],
+    source: `flowchart TD
+  S([Start]) --> E[extract]
+  E --> T1[transform: users]
+  E --> T2[transform: orders]
+  E --> T3[transform: events]
+  T1 --> L[load warehouse]
+  T2 --> L
+  T3 --> L
+  L --> V{validate}
+  V -->|ok| N([Notify])
+  V -->|fail| R[retry / alert]`,
+  },
+  {
+    id: 'g-incident',
+    title: 'Incident lifecycle',
+    description: 'States of an incident from detection to post-mortem.',
+    category: 'Process',
+    type: 'stateDiagram',
+    tags: ['sre', 'incident'],
+    source: `stateDiagram-v2
+  [*] --> Detected
+  Detected --> Triaged: on-call acks
+  Triaged --> Mitigating
+  Mitigating --> Monitoring: fix deployed
+  Monitoring --> Mitigating: regression
+  Monitoring --> Resolved
+  Resolved --> PostMortem
+  PostMortem --> [*]`,
+  },
+  {
+    id: 'g-branching',
+    title: 'Trunk-based branching',
+    description: 'Short-lived feature branches and a release tag.',
+    category: 'Delivery',
+    type: 'flowchart',
+    tags: ['git'],
+    source: `gitGraph
+  commit id: "init"
+  branch feature/login
+  commit id: "oidc"
+  commit id: "tests"
+  checkout main
+  merge feature/login
+  commit id: "v0.2.0" tag: "v0.2.0"
+  branch fix/session
+  commit id: "fix"
+  checkout main
+  merge fix/session`,
+  },
+  {
+    id: 'g-roadmap',
+    title: 'Platform roadmap',
+    description: 'Quarter-by-quarter capability timeline.',
+    category: 'Planning',
+    type: 'gantt',
+    tags: ['roadmap'],
+    source: `timeline
+  title Adhar platform roadmap
+  Q1 : Console shell : Keycloak SSO
+  Q2 : GitOps delivery : Harbor + Trivy
+  Q3 : Design phase tools : Observability
+  Q4 : AI assist : Cost insights`,
+  },
+  {
+    id: 'g-capabilities',
+    title: 'Platform capability map',
+    description: 'Mind map of the platform phases and their tools.',
+    category: 'Planning',
+    type: 'mindmap',
+    tags: ['capabilities'],
+    source: `mindmap
+  root((Adhar))
+    Define
+      Plane
+      Personas
+    Design
+      ADRs
+      Diagrams
+      API specs
+    Develop
+      Gitea
+      Workspaces
+    Deliver
+      Tekton
+      Argo CD
+      Kargo
+    Discover
+      Grafana
+      Loki`,
+  },
+]

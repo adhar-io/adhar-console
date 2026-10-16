@@ -422,6 +422,19 @@ export interface GiteaClient {
     path: string,
     body: { message: string; sha: string },
   ): Promise<void>
+  /**
+   * Write several files in ONE commit (Gitea ≥ 1.20, `POST /contents`).
+   * `content` is base64. `update` / `delete` need the current blob `sha`.
+   */
+  changeFiles(
+    org: string,
+    repo: string,
+    ref: string,
+    body: {
+      message: string
+      files: Array<{ operation: 'create' | 'update' | 'delete'; path: string; content?: string; sha?: string }>
+    },
+  ): Promise<{ commit: { sha: string; html_url?: string } }>
 
   /* ── repository management ── */
   createRepo(org: string, body: CreateRepoBody): Promise<Repo>
@@ -636,6 +649,11 @@ function build(http: HttpClient): GiteaClient {
         response: 'raw',
       })
     },
+    changeFiles: (org, repo, ref, body) =>
+      http.post<{ commit: { sha: string; html_url?: string } }>(
+        `/api/v1/repos/${org}/${repo}/contents`,
+        { ...body, branch: ref },
+      ),
 
     createRepo: (org, body) => http.post<Repo>(`/api/v1/orgs/${org}/repos`, body),
     updateRepo: (org, repo, body) => http.patch<Repo>(`/api/v1/repos/${org}/${repo}`, body),
@@ -1353,6 +1371,13 @@ export const GiteaClient = defineClient<GiteaClient>(build, () => ({
   },
   deleteFile: async (_, _repo, _ref, path) => {
     delete STUB_FILES[path]
+  },
+  changeFiles: (_, _repo, _ref, body) => {
+    for (const f of body.files) {
+      if (f.operation === 'delete') delete STUB_FILES[f.path]
+      else STUB_FILES[f.path] = f.content ?? ''
+    }
+    return Promise.resolve({ commit: { sha: 'stub-' + Date.now().toString(36) } })
   },
 
   createRepo: async (org, body) => {

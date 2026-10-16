@@ -30,6 +30,8 @@ export const KIND = {
   wireframe: 'design.wireframe',
   tokenSet: 'design.token-set',
   apiSpec: 'design.api-spec',
+  /** Saved versions of the design-token set (Design Tokens → History). */
+  tokenSnapshot: 'design.token-snapshot',
 } as const
 
 /** Well-known id for the single, workspace-wide design-token document. */

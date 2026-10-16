@@ -31,6 +31,16 @@ export interface Persona {
   behaviors: string[]
   needs: string[]
   tech: string[]
+  /** A representative quote, in the persona's own words. */
+  quote?: string
+  /** Jobs-to-be-done ("When …, I want to …, so I can …"). */
+  jobs?: string[]
+  /** Avatar colour key (see the Personas view palette) for initials avatars. */
+  color?: string
+  /** Free-form segment / tag labels used for filtering. */
+  tags?: string[]
+  /** Location / context line (e.g. "Bengaluru · hybrid"). */
+  location?: string
 }
 
 export type JourneyEmotion =
@@ -52,6 +62,10 @@ export interface JourneyStage {
   thoughts: string[]
   pains: string[]
   opportunities: string[]
+  /** Channels / surfaces the user touches in this stage. */
+  touchpoints?: string[]
+  /** Fine-grained emotion score, -2 (very negative) … +2 (very positive). */
+  score?: number
 }
 
 export interface Journey {
@@ -60,6 +74,9 @@ export interface Journey {
   persona: string
   summary: string
   stages: JourneyStage[]
+  /** What the persona is trying to achieve across the journey. */
+  goal?: string
+  tags?: string[]
 }
 
 export type StickyColor = 'amber' | 'rose' | 'sky' | 'violet' | 'emerald' | 'slate'
@@ -120,6 +137,8 @@ export interface Wireframe {
   order: number
   notes?: string
   blocks: WireframeBlock[]
+  /** The full Visual Builder project, once the frame has been edited there. */
+  builder?: unknown
 }
 
 export type DiagramType =
@@ -162,6 +181,8 @@ export interface ColorToken {
   name: string
   value: string
   role: string
+  /** Dark-mode value; absent means the light value is used in both modes. */
+  dark?: string
 }
 export interface ValueToken {
   name: string
@@ -200,4 +221,14 @@ export interface WhiteboardBoard {
   connections: NoteConnection[]
   created_at: string
   updated_at: string
+}
+
+/** A saved, restorable copy of the workspace token set (kind `design.token-snapshot`). */
+export interface TokenSnapshot {
+  id: string
+  label: string
+  created_at: string
+  /** Number of tokens in the snapshot (for the history list). */
+  count: number
+  tokens: TokenSet
 }

@@ -38,6 +38,7 @@ import {
   useDeleteTag,
   useDeleteWebhook,
   useIssues,
+  pullRequestsBlocked,
   useProtectBranch,
   usePullRequests,
   useReadme,
@@ -565,7 +566,7 @@ function PullsTab({ repo: r }: { repo: gitea.Repo }) {
       actions={
         <div className='flex items-center gap-1.5'>
           <StateSwitch value={state} onChange={setState} />
-          <Button size='xs' variant='secondary' onClick={() => setCreating(true)}><IconPlus size={12} /> New</Button>
+          {pullRequestsBlocked(r) ? null : <Button size='xs' variant='secondary' onClick={() => setCreating(true)}><IconPlus size={12} /> New</Button>}
           <FullView onClick={() => go('prs', { repo: r.name, state })} />
         </div>
       }
@@ -576,6 +577,7 @@ function PullsTab({ repo: r }: { repo: gitea.Repo }) {
         defaults={{ repo: r.name }}
         onCreated={(pr) => go('prs', { repo: r.name, pr: itemRef(r.name, pr.number) })}
       />
+      {pullRequestsBlocked(r) ? <p className='mb-2 rounded-md bg-amber-50 px-2.5 py-1.5 text-[12px] text-amber-900 dark:bg-amber-500/10 dark:text-amber-200'>{pullRequestsBlocked(r)}</p> : null}
       {prs.data?.length
         ? (
           <ul className='divide-y divide-edge-subtle'>

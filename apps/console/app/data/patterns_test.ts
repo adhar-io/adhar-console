@@ -34,7 +34,7 @@ const SECTIONS: Record<string, string[]> = {
   '/deliver': ['dashboard', 'flow', 'apps', 'environments', 'stages', 'rollouts', 'releases', 'registry', 'scans', 'runtime', 'policy', 'chaos', 'performance'],
   '/discover': ['dashboard', 'metrics', 'logs', 'traces', 'servicemap', 'alerts', 'slos', 'dashboards', 'analytics'],
   '/decide': ['dashboard', 'dashboards', 'questions', 'sql', 'databases', 'pulses', 'dora', 'spend'],
-  '/develop': ['dashboard', 'repos', 'branches', 'commits', 'prs', 'issues', 'environments', 'builds', 'pipelines', 'content', 'codebuilder'],
+  '/develop': ['dashboard', 'repos', 'branches', 'commits', 'prs', 'issues', 'environments', 'builds', 'pipelines', 'content'],
   '/settings': ['organization'],
   '/platform': [
     'catalog', 'scaling', 'caches', 'queues', 'topics', 'databases', 'tables', 'buckets', 'backup-policies', 'restores',

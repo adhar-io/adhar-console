@@ -153,16 +153,19 @@ function NotConnected({ adminUrl }: { adminUrl: string }) {
     <div className="rounded-xl border border-dashed border-edge-strong bg-surface-sunken/40 px-6 py-8">
       <div className="text-base font-medium text-content">Strapi isn't connected to this console</div>
       <p className="mt-1 max-w-2xl text-[13px] text-content-muted">
-        The console reads and writes content through Strapi's Content API, which needs an API token. Until one is set,
-        use Strapi directly.
+        The console reads and writes content through Strapi's Content API, which needs an API token. The Strapi package
+        generates one for the console (the <code className="rounded bg-surface-sunken px-1 font-mono text-[12px]">strapi-api-token</code> Secret),
+        registers it in Strapi once Strapi has started, and restarts the console to pick it up.
       </p>
       <ol className="mt-4 max-w-2xl list-decimal space-y-1.5 pl-5 text-[13px] text-content-muted">
-        <li>In Strapi admin, open Settings → API Tokens and create a token with Full access and an unlimited duration.</li>
         <li>
-          Store it for the console as <code className="rounded bg-surface-sunken px-1 font-mono text-[12px]">STRAPI_TOKEN</code>,
-          for example in a <code className="rounded bg-surface-sunken px-1 font-mono text-[12px]">strapi-api-token</code> Secret the console loads.
+          If Strapi was installed before the platform did this, upgrade the platform
+          (<code className="rounded bg-surface-sunken px-1 font-mono text-[12px]">adhar upgrade</code>). Strapi's first start takes a few minutes.
         </li>
-        <li>Restart the console. This page then lists your content types.</li>
+        <li>
+          Or set one by hand: in Strapi admin open Settings → API Tokens, create a Full access token with an unlimited
+          duration, and give it to the console as <code className="rounded bg-surface-sunken px-1 font-mono text-[12px]">STRAPI_TOKEN</code>.
+        </li>
       </ol>
       {adminUrl ? (
         <a

@@ -32,7 +32,7 @@ tenant-aware experience that follows the **6D** lifecycle model:
 | Phase        | What happens here                              | Backed by                                                                  |
 | ------------ | ---------------------------------------------- | -------------------------------------------------------------------------- |
 | **Define**   | Requirements, epics, agile issues, OKRs        | Plane.so                                                                   |
-| **Design**   | ADRs, design tokens, diagrams, visual builder  | adhar-ui builder, Mermaid, Storybook                                       |
+| **Design**   | ADRs, design tokens, diagrams, visual builder  | `@adhar/builder`, Mermaid, Storybook                                       |
 | **Develop**  | Source control, PRs, CI                        | Gitea, Argo Workflows                                                      |
 | **Deliver**  | GitOps, promotion, rollouts, registry, policy  | Argo CD, Kargo, Argo Rollouts, Harbor, Kyverno                             |
 | **Discover** | Observability (logs, metrics, traces)          | Grafana, Loki, Mimir, Tempo, Prometheus, OpenTelemetry, Beyla              |

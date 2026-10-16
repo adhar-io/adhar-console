@@ -4,8 +4,22 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.136",
+    "date": "2026-10-16",
+    "changes": [
+      {
+        "type": "change",
+        "text": "Implement vidual builder"
+      },
+      {
+        "type": "improvement",
+        "text": "Move performance center under delivery"
+      }
+    ]
+  },
+  {
     "version": "0.1.135",
-    "date": "2026-10-15",
+    "date": "2026-10-16",
     "changes": [
       {
         "type": "fix",
@@ -969,10 +983,5 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "text": "The IDE buttons say what is wrong instead of doing nothing"
       }
     ]
-  },
-  {
-    "version": "0.1.96",
-    "date": "2026-09-25",
-    "changes": []
   }
 ]

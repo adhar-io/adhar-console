@@ -6,6 +6,16 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.136] - 2026-10-16
+
+### Improved
+
+- Move performance center under delivery
+
+### Changed
+
+- Implement vidual builder
+
 ## [0.1.135] - 2026-10-15
 
 ### Fixed

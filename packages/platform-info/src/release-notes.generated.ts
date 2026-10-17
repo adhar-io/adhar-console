@@ -4,8 +4,18 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.137",
+    "date": "2026-10-17",
+    "changes": [
+      {
+        "type": "improvement",
+        "text": "Service catalog enhancement"
+      }
+    ]
+  },
+  {
     "version": "0.1.136",
-    "date": "2026-10-16",
+    "date": "2026-10-17",
     "changes": [
       {
         "type": "change",
@@ -965,22 +975,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "feature",
         "scope": "ai",
         "text": "The landing reads on a phone, and the composer stops claiming context it never sent"
-      }
-    ]
-  },
-  {
-    "version": "0.1.97",
-    "date": "2026-09-25",
-    "changes": [
-      {
-        "type": "feature",
-        "scope": "develop",
-        "text": "Cloud IDEs actually open"
-      },
-      {
-        "type": "fix",
-        "scope": "develop",
-        "text": "The IDE buttons say what is wrong instead of doing nothing"
       }
     ]
   }

@@ -4,14 +4,12 @@
  * root entry so they don't pull the UI graph in.
  */
 export {
-  BUILDER_MANIFEST,
   type BuilderController,
   type BuilderMode,
   type BuilderProject,
   type BuilderSaveEvent,
   type BuilderSettings,
   type CanvasNode,
-  type GeneratedFile,
   type ProjectFile,
 } from './types.ts'
 export { defaultProjectFor, normalizeProject } from './lib/project.ts'

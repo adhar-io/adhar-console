@@ -3,7 +3,6 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { gitea, k8s } from '@adhar/api-clients'
 import { toPublicUrl, useGiteaOrg, usePublicBaseDomain, useToolPublicUrl } from '@adhar/shell-ui'
 import {
-  type ApiType,
   type ComponentType,
   type Entity,
   type EntityMetadata,
@@ -11,7 +10,6 @@ import {
   type EntitySpec,
   type Lifecycle,
   type Link,
-  type ResourceType,
 } from './catalog.ts'
 
 /**
@@ -180,87 +178,7 @@ function workloadToComponent(obj: k8s.Deployment | k8s.Generic, kindLabel: strin
 
 /* ─────────── Service → Resource ─────────── */
 
-function serviceToResource(svc: k8s.Service): Entity {
-  const meta = svc.metadata
-  const svcType = svc.spec?.type ?? 'ClusterIP'
-  const ports = (svc.spec?.ports ?? []).map((p) => p.port).join(', ')
-  const resType = (ann(meta, 'adhar.io/resource-type') as ResourceType | undefined) ?? 'cluster'
-  const md = baseMeta(
-    meta,
-    `Kubernetes ${svcType} Service${ports ? ` exposing port(s) ${ports}` : ''}.`,
-  )
-  md.tags = tagsFrom(meta, ['service', svcType.toLowerCase()])
-  md.links = linksFrom(meta)
-  return live({
-    apiVersion: 'backstage.io/v1alpha1',
-    kind: 'Resource',
-    metadata: md,
-    spec: {
-      type: resType,
-      provider: `kubernetes/${svcType}`,
-      ...baseSpec(meta),
-    },
-  })
-}
-
 /* ─────────── Ingress → API (with synthesised OpenAPI) ─────────── */
-
-function ingressToOpenApi(ing: k8s.Ingress): string {
-  const rules = ing.spec?.rules ?? []
-  const paths: Record<string, unknown> = {}
-  const servers: Array<{ url: string }> = []
-  for (const rule of rules) {
-    if (rule.host) servers.push({ url: `https://${rule.host}` })
-    for (const p of rule.http?.paths ?? []) {
-      const backend = p.backend?.service
-      const port = backend?.port?.number ?? backend?.port?.name ?? ''
-      paths[p.path || '/'] = {
-        get: {
-          summary: backend?.name
-            ? `Routes to ${backend.name}${port ? `:${port}` : ''}`
-            : 'Ingress route',
-          responses: { '200': { description: 'OK' } },
-        },
-      }
-    }
-  }
-  const doc = {
-    openapi: '3.0.0',
-    info: {
-      title: ing.metadata?.name ?? 'ingress',
-      version: 'live',
-      description: 'Synthesised from live Ingress rules.',
-    },
-    servers,
-    paths,
-  }
-  return JSON.stringify(doc, null, 2)
-}
-
-function ingressToApi(ing: k8s.Ingress): Entity {
-  const meta = ing.metadata
-  const apiType = (ann(meta, 'adhar.io/api-type', 'backstage.io/api-type') ?? 'openapi') as ApiType
-  const hosts = (ing.spec?.rules ?? []).map((r) => r.host).filter(Boolean) as string[]
-  const md = baseMeta(
-    meta,
-    hosts.length ? `HTTP API exposed at ${hosts.join(', ')}.` : 'Cluster-exposed HTTP API.',
-  )
-  md.tags = tagsFrom(meta, ['ingress', ing.spec?.ingressClassName])
-  md.links = [
-    ...hosts.map((h) => ({ url: `https://${h}`, title: h, icon: 'dashboard' as const })),
-    ...linksFrom(meta),
-  ]
-  return live({
-    apiVersion: 'backstage.io/v1alpha1',
-    kind: 'API',
-    metadata: md,
-    spec: {
-      type: apiType,
-      definition: ingressToOpenApi(ing),
-      ...baseSpec(meta),
-    },
-  })
-}
 
 /* ─────────── Gitea repo → Component ─────────── */
 
@@ -434,6 +352,8 @@ function inUserNamespace(obj: { metadata?: { namespace?: string } }): boolean {
 }
 
 export { isPlatformRepo, PLATFORM_REPOS } from './catalog-platform-repos.ts'
+import { APPLICATION_GVR, applicationEntities, CONTROL_PLANE_NAMESPACE, customAppNames, isCustomWorkload } from './catalog-custom-apps.ts'
+export { APPLICATION_GVR, applicationEntities, CONTROL_PLANE_NAMESPACE, customAppNames, isCustomWorkload }
 import { isPlatformRepo } from './catalog-platform-repos.ts'
 
 export function useLiveCatalog(): LiveCatalog {
@@ -452,45 +372,43 @@ export function useLiveCatalog(): LiveCatalog {
     queryFn: () => kubeClient.listStatefulSets(),
     ...LIVE_QUERY,
   })
-  const services = useQuery({
-    queryKey: ['catalog', 'live', 'services'],
-    queryFn: () => kubeClient.listServices(),
-    ...LIVE_QUERY,
-  })
-  const ingresses = useQuery({
-    queryKey: ['catalog', 'live', 'ingresses'],
-    queryFn: () => kubeClient.listIngresses(),
-    ...LIVE_QUERY,
-  })
   const repos = useQuery({
     queryKey: ['catalog', 'live', 'gitea-repos', giteaOrgName],
     queryFn: () => giteaClient.listRepos(giteaOrgName),
     ...LIVE_QUERY,
   })
+  // The control plane's own record of every custom application: one
+  // Application XR per app, wherever its repository lives.
+  const applications = useQuery({
+    queryKey: ['catalog', 'live', 'applications'],
+    queryFn: () => kubeClient.listGeneric(undefined, APPLICATION_GVR, CONTROL_PLANE_NAMESPACE),
+    ...LIVE_QUERY,
+  })
 
   return useMemo(() => {
-    // Only surface workloads in user namespaces — hide platform/system pods
-    // (adhar-system, kube-system, cert-manager, …) so the catalog shows apps.
-    const deps = (deployments.data ?? []).filter(inUserNamespace)
-    const sts = (statefulSets.data ?? []).filter(inUserNamespace)
-    const svcs = (services.data ?? []).filter(inUserNamespace)
-    const ings = (ingresses.data ?? []).filter(inUserNamespace)
     const gitRepos = repos.data ?? []
-
-    const components = [
-      ...deps.map((d) => workloadToComponent(d, 'Deployment')),
-      ...sts.map((s) => workloadToComponent(s, 'StatefulSet')),
-    ]
-    const resources = svcs
-      // Skip noisy platform-internal services (kube-system default kubernetes svc).
-      .filter((s) => s.metadata?.name !== 'kubernetes')
-      .map(serviceToResource)
-    const apis = ings.map(ingressToApi)
     const repoComponents = gitRepos
       // The org holds the platform's own repos alongside the team's; only the
       // team's are catalog entries (see PLATFORM_REPOS).
       .filter((r) => !isPlatformRepo(r.name, r))
       .map((r) => repoToComponent(r, { toolUrl: giteaPublicUrl, baseDomain: publicBaseDomain }))
+    const custom = customAppNames(repoComponents, applications.data ?? [])
+    // The catalog lists CUSTOM applications only, one entity each. Workloads,
+    // Services and Ingresses in the environment namespaces are no longer
+    // entities of their own: an app runs there once per environment, and the
+    // databases, caches and Kafka pools the control plane composes beside it
+    // live there too — each used to show up as a separate "app" (2026-10-17).
+    // A workload still contributes when it IS a custom app the repos and XRs
+    // do not know (deployed from an external repository).
+    const deps = (deployments.data ?? []).filter(inUserNamespace).filter((d) => isCustomWorkload(d, custom))
+    const sts = (statefulSets.data ?? []).filter(inUserNamespace).filter((d) => isCustomWorkload(d, custom))
+    const components = dedupeByName([
+      ...applicationEntities(applications.data ?? [], repoComponents),
+      ...deps.map((d) => workloadToComponent(d, 'Deployment')),
+      ...sts.map((s) => workloadToComponent(s, 'StatefulSet')),
+    ].filter((e) => !repoComponents.some((r) => r.metadata.name === e.metadata.name)))
+    const resources: Entity[] = []
+    const apis: Entity[] = []
 
     // De-dupe: a k8s workload and its repo may share a name — k8s wins, but we
     // fold the repo link in so the source URL isn't lost.
@@ -512,13 +430,12 @@ export function useLiveCatalog(): LiveCatalog {
     const k8sCount = components.length + resources.length + apis.length
     // Kubernetes rolls several endpoints into one source line; surface the first
     // failure, otherwise report loading/ok collectively.
-    const kubeError = [deployments, statefulSets, services, ingresses].find((qq) => qq.isError)
+    const kubeError = [deployments, statefulSets, applications].find((qq) => qq.isError)
     const kubeStatus: QueryLike = {
       isLoading:
         deployments.isLoading ||
         statefulSets.isLoading ||
-        services.isLoading ||
-        ingresses.isLoading,
+        applications.isLoading,
       isError: Boolean(kubeError),
       error: kubeError?.error,
     }
@@ -535,15 +452,13 @@ export function useLiveCatalog(): LiveCatalog {
     const isLoading =
       deployments.isLoading ||
       statefulSets.isLoading ||
-      services.isLoading ||
-      ingresses.isLoading ||
+      applications.isLoading ||
       repos.isLoading
 
     const isFetching =
       deployments.isFetching ||
       statefulSets.isFetching ||
-      services.isFetching ||
-      ingresses.isFetching ||
+      applications.isFetching ||
       repos.isFetching
 
     return {
@@ -562,26 +477,32 @@ export function useLiveCatalog(): LiveCatalog {
     deployments.isFetching,
     deployments.error,
     statefulSets.isFetching,
-    services.isFetching,
-    ingresses.isFetching,
     repos.isFetching,
     statefulSets.data,
     statefulSets.isLoading,
     statefulSets.isError,
     statefulSets.error,
-    services.data,
-    services.isError,
-    services.isLoading,
-    services.error,
-    ingresses.data,
-    ingresses.isError,
-    ingresses.isLoading,
-    ingresses.error,
     repos.data,
     repos.isError,
     repos.isLoading,
     repos.error,
+    applications.data,
+    applications.isError,
+    applications.isLoading,
+    applications.isFetching,
   ])
+}
+
+function dedupeByName(entities: readonly Entity[]): Entity[] {
+  const seen = new Set<string>()
+  const out: Entity[] = []
+  for (const e of entities) {
+    const k = e.metadata.name.toLowerCase()
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push(e)
+  }
+  return out
 }
 
 /* ─────────── OpenAPI parsing (used by the drawer) ─────────── */

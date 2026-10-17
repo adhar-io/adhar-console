@@ -184,9 +184,14 @@ export function deriveDeployment(
     const an = app.metadata.name.toLowerCase()
     const { hit, env } = matchName(app.metadata.name, name)
     const isExplicit = explicit && an === explicit
-    if ((hit || isExplicit) && !seen.has(an)) {
+    // The control plane names an application's Argo CD apps
+    // `<project>-<app>-<env>` and stamps every one with adhar.io/application
+    // and adhar.io/environment; the name match above never saw them, so a
+    // scaffolded service showed no environments at all (Azure, 2026-10-17).
+    const labelled = (app.metadata.labels?.['adhar.io/application'] ?? '').toLowerCase() === name.toLowerCase()
+    if ((hit || isExplicit || labelled) && !seen.has(an)) {
       seen.add(an)
-      matched.push({ app, env })
+      matched.push({ app, env: env ?? (labelled ? app.metadata.labels?.['adhar.io/environment']?.toLowerCase() : undefined) })
     }
   }
 
@@ -339,6 +344,18 @@ export function useKargoStages(enabled = true) {
 /** Stage → this service's app for it, matched on the derived environment key or namespace. */
 export function kargoEnvironments(stages: readonly kargo.Stage[] | undefined, deployment: EntityDeployment | undefined): KargoEnvironment[] {
   if (!stages?.length) return []
+  // An application promoted through the control plane has its OWN chain
+  // (`<app>-dev` → `<app>-test` → `<app>-prod`, labelled adhar.io/application);
+  // show that chain, not the platform's `environments` stages beside it.
+  const application = deployment?.apps.map((a) => a.metadata.labels?.['adhar.io/application']).find(Boolean)
+  const own = application ? stages.filter((s) => (s.labels?.['adhar.io/application'] ?? '') === application) : []
+  if (own.length) {
+    return own.map((stage, index) => {
+      const env = (stage.labels?.['adhar.io/environment'] ?? '').toLowerCase()
+      const app = deployment?.environments.find((e) => e.key.toLowerCase() === env)?.app
+      return { stage, label: envLabel(env || stage.name), index, app }
+    })
+  }
   return stages.map((stage, index) => {
     const key = stage.name.toLowerCase()
     const app = deployment?.environments.find((e) => {
@@ -448,4 +465,27 @@ export function useKargoActions(project: string | undefined) {
     onSuccess: invalidate,
   })
   return { promote, abort, approve, refresh }
+}
+
+/**
+ * The repository behind a deployment, from the Argo CD source when the catalog
+ * entity itself carries no repo annotation or link. The control plane records
+ * the platform's Gitea by its IN-CLUSTER address; a person needs the public one.
+ */
+export function repoUrlFromDeployment(deployment: EntityDeployment | undefined, giteaPublicUrl: string): string | undefined {
+  const app = deployment?.primary ?? deployment?.apps[0]
+  const raw = (app?.spec.source?.repoURL ?? '').trim().replace(/\.git$/, '')
+  if (!raw) return undefined
+  const inCluster = raw.match(/^https?:\/\/gitea-http\.[^/]+\/(.+)$/)
+  if (inCluster) {
+    const base = giteaPublicUrl.replace(/\/+$/, '')
+    return base ? `${base}/${inCluster[1]}` : undefined
+  }
+  return /^https?:/.test(raw) ? raw : undefined
+}
+
+/** The entity with a `repo` link added when it has none, so docs and the tech stack can read the repository. */
+export function withRepoLink(entity: Entity, repoUrl: string | undefined): Entity {
+  if (!repoUrl || (entity.metadata.links ?? []).some((l) => l.icon === 'repo')) return entity
+  return { ...entity, metadata: { ...entity.metadata, links: [...(entity.metadata.links ?? []), { url: repoUrl, title: 'Source', icon: 'repo' }] } }
 }

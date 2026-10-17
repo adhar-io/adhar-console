@@ -76,6 +76,7 @@
     "@adhar/shell-ui": "./packages/shell-ui/src/index.ts",
     "@adhar/builder": "./packages/builder/src/index.ts",
     "@adhar/builder/project": "./packages/builder/src/project-api.ts",
+    "@adhar/builder/code": "./packages/builder/src/code/index.ts",
     "@adhar/mf-utils": "./packages/mf-utils/src/index.ts",
     "@adhar/platform-info": "./packages/platform-info/src/index.ts",
     "@adhar/build-config": "./packages/build-config/src/index.ts",

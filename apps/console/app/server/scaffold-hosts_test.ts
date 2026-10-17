@@ -23,3 +23,9 @@ Deno.test('a value that is not a hostname is dropped rather than put into the ro
   ])
   assertEquals(parseCustomHostnames(42), [])
 })
+
+Deno.test('an environment that repeats the host label routes under the host wildcard', () => {
+  assertEquals(platformRouteHost('ngapp', 'test', 'test.adhar.io'), 'ngapp-test.test.adhar.io')
+  assertEquals(platformRouteHost('ngapp', 'dev', 'test.adhar.io'), 'ngapp.dev.test.adhar.io')
+  assertEquals(platformRouteHost('ngapp', 'test', 'platform.adhar.io'), 'ngapp.test.platform.adhar.io')
+})

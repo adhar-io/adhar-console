@@ -16,6 +16,7 @@
     "@tailwindcss/vite": "npm:@tailwindcss/vite@^4.0.0",
     "tailwindcss": "npm:tailwindcss@^4.0.0",
     "mermaid": "npm:mermaid@^11.4.1",
+    "@babel/parser": "npm:@babel/parser@^7.29.0",
     "monaco-editor": "npm:monaco-editor@^0.52.2",
     "monaco-editor/min/vs/editor/editor.main.css": "npm:monaco-editor@^0.52.2/min/vs/editor/editor.main.css",
     "@xyflow/react": "npm:@xyflow/react@^12.12.0",

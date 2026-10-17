@@ -2,24 +2,33 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from '@tanstack/react-router'
 
 /**
- * One URL param (`?doc=<id>`) for the Design pages that open a document in
- * place — the Visual Builder and Wireframes — so refresh and shared links land
- * on the open project. Same mechanics as Develop's nav.ts: the host router
- * when present, `history` otherwise; opening pushes (Back returns to the
- * library), closing replaces.
+ * URL params for the Design pages that open something in place — the Visual
+ * Designer (`?repo=&branch=&page=`) and Wireframes (`?doc=`) — so refresh and
+ * shared links land on it. Same mechanics as Develop's nav.ts: the host
+ * router when present, `history` otherwise.
  */
 
-function readParam(key: string): string | undefined {
-  if (typeof location === 'undefined') return undefined
-  return new URLSearchParams(location.search).get(key) ?? undefined
+function read(keys: readonly string[]): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {}
+  if (typeof location === 'undefined') return out
+  const q = new URLSearchParams(location.search)
+  for (const k of keys) out[k] = q.get(k) ?? undefined
+  return out
 }
 
-export function useUrlParam(key: string): [string | undefined, (value: string | undefined, opts?: { replace?: boolean }) => void] {
+export type ParamPatch = Record<string, string | undefined>
+
+export function useUrlParams<K extends string>(keys: readonly K[]): [Record<K, string | undefined>, (patch: Partial<Record<K, string | undefined>>, opts?: { replace?: boolean }) => void] {
   const router = useRouter({ warn: false })
-  const [value, setValue] = useState(() => readParam(key))
+  const keyStr = keys.join(',')
+  const [values, setValues] = useState(() => read(keys) as Record<K, string | undefined>)
 
   useEffect(() => {
-    const sync = () => setValue(readParam(key))
+    const ks = keyStr.split(',')
+    const sync = () => setValues((cur) => {
+      const next = read(ks) as Record<K, string | undefined>
+      return JSON.stringify(cur) === JSON.stringify(next) ? cur : next
+    })
     sync()
     globalThis.addEventListener('popstate', sync)
     const unsubscribe = router?.history?.subscribe?.(sync)
@@ -27,34 +36,42 @@ export function useUrlParam(key: string): [string | undefined, (value: string | 
       globalThis.removeEventListener('popstate', sync)
       unsubscribe?.()
     }
-  }, [router, key])
+  }, [router, keyStr])
 
   const set = useCallback(
-    (next: string | undefined, opts?: { replace?: boolean }) => {
-      const replace = opts?.replace ?? next === undefined
-      setValue(next)
+    (patch: Partial<Record<K, string | undefined>>, opts?: { replace?: boolean }) => {
+      const replace = opts?.replace ?? false
+      setValues((cur) => ({ ...cur, ...patch }))
+      const apply = (prev: Record<string, unknown>) => {
+        const out: Record<string, unknown> = { ...prev }
+        for (const [k, v] of Object.entries(patch)) {
+          if (v === undefined) delete out[k]
+          else out[k] = v
+        }
+        return out
+      }
       if (router) {
-        void router.navigate({
-          to: location.pathname,
-          search: ((prev: Record<string, unknown>) => {
-            const out: Record<string, unknown> = { ...prev }
-            if (next === undefined) delete out[key]
-            else out[key] = next
-            return out
-          }) as never,
-          replace,
-        })
+        void router.navigate({ to: location.pathname, search: apply as never, replace })
         return
       }
-      const qs = new URLSearchParams(location.search)
-      if (next === undefined) qs.delete(key)
-      else qs.set(key, next)
-      const url = `${location.pathname}${qs.toString() ? `?${qs}` : ''}`
+      const q = new URLSearchParams(location.search)
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === undefined) q.delete(k)
+        else q.set(k, String(v))
+      }
+      const url = `${location.pathname}${q.toString() ? `?${q}` : ''}`
       if (replace) history.replaceState(history.state, '', url)
       else history.pushState(history.state, '', url)
       globalThis.dispatchEvent(new PopStateEvent('popstate', { state: history.state }))
     },
-    [router, key],
+    [router],
   )
-  return [value, set]
+  return [values, set]
+}
+
+/** One param — kept for the pages that only need `?doc=`. */
+export function useUrlParam(key: string): [string | undefined, (value: string | undefined, opts?: { replace?: boolean }) => void] {
+  const [values, set] = useUrlParams([key] as const)
+  const setOne = useCallback((value: string | undefined, opts?: { replace?: boolean }) => set({ [key]: value } as never, { replace: opts?.replace ?? value === undefined }), [set, key])
+  return [values[key], setOne]
 }

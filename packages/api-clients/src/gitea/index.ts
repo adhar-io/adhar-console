@@ -433,8 +433,15 @@ export interface GiteaClient {
     body: {
       message: string
       files: Array<{ operation: 'create' | 'update' | 'delete'; path: string; content?: string; sha?: string }>
+      /** Commit onto a NEW branch created from `ref` instead of `ref` itself. */
+      new_branch?: string
     },
   ): Promise<{ commit: { sha: string; html_url?: string } }>
+  /**
+   * Every blob path (+ blob sha) at `ref`, recursively — one request for the
+   * whole repository tree. `truncated` is set when Gitea capped the listing.
+   */
+  getTreeRecursive(org: string, repo: string, ref: string): Promise<{ entries: Array<{ path: string; sha: string; size?: number }>; truncated: boolean }>
 
   /* ── repository management ── */
   createRepo(org: string, body: CreateRepoBody): Promise<Repo>
@@ -648,6 +655,15 @@ function build(http: HttpClient): GiteaClient {
         body: { ...body, branch: ref },
         response: 'raw',
       })
+    },
+    getTreeRecursive: async (org, repo, ref) => {
+      const raw = await http.get<{ tree?: Array<{ path: string; type: string; sha: string; size?: number }>; truncated?: boolean }>(
+        `/api/v1/repos/${org}/${repo}/git/trees/${encodeURIComponent(ref)}?recursive=true&per_page=10000`,
+      )
+      return {
+        entries: (raw.tree ?? []).filter((e) => e.type === 'blob').map((e) => ({ path: e.path, sha: e.sha, size: e.size })),
+        truncated: !!raw.truncated,
+      }
     },
     changeFiles: (org, repo, ref, body) =>
       http.post<{ commit: { sha: string; html_url?: string } }>(
@@ -1372,6 +1388,11 @@ export const GiteaClient = defineClient<GiteaClient>(build, () => ({
   deleteFile: async (_, _repo, _ref, path) => {
     delete STUB_FILES[path]
   },
+  getTreeRecursive: (_, _repo, _ref) =>
+    Promise.resolve({
+      entries: Object.keys(STUB_FILES).map((path) => ({ path, sha: 'stub-' + path.replace(/\W/g, '').slice(0, 16) })),
+      truncated: false,
+    }),
   changeFiles: (_, _repo, _ref, body) => {
     for (const f of body.files) {
       if (f.operation === 'delete') delete STUB_FILES[f.path]

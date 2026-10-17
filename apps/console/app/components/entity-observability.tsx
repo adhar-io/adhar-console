@@ -123,6 +123,9 @@ function readyReplicasQuery(t: EntityTarget): string {
     `max(kube_deployment_status_replicas_ready{${ns}deployment="${n}"})`,
     `max(kube_statefulset_status_replicas_ready{${ns}statefulset="${n}"})`,
     `max(kube_daemonset_status_number_ready{${ns}daemonset="${n}"})`,
+    // Scaffolded services are Argo Rollouts, which kube-state-metrics does not
+    // count; Argo Rollouts publishes its own gauges.
+    `max(rollout_info_replicas_available{${ns}name="${n}"})`,
   ].join(' or ')
 }
 
@@ -134,10 +137,27 @@ function desiredReplicasQuery(t: EntityTarget): string {
     `max(kube_deployment_spec_replicas{${ns}deployment="${n}"})`,
     `max(kube_statefulset_replicas{${ns}statefulset="${n}"})`,
     `max(kube_daemonset_status_desired_number_scheduled{${ns}daemonset="${n}"})`,
+    `max(rollout_info_replicas_desired{${ns}name="${n}"})`,
   ].join(' or ')
 }
 
 const CONTAINERS = `container!="",container!="POD"`
+
+/**
+ * Request counters and latency histograms under BOTH naming conventions in use
+ * on the platform: Micrometer (`http_server_requests_seconds_*`, every Spring
+ * and Quarkus service the templates scaffold) and the Prometheus client
+ * libraries (`http_requests_total`, `http_request_duration_seconds_*`). Asking
+ * only for the latter left every scaffolded service's HTTP panels empty.
+ */
+function requestRate(t: EntityTarget, extra = ''): string {
+  const sel = podSelector(t) + extra
+  return `(sum(rate(http_server_requests_seconds_count{${sel}}[5m])) or sum(rate(http_requests_total{${sel}}[5m])))`
+}
+function latencyQuantile(t: EntityTarget, q: number): string {
+  const sel = podSelector(t)
+  return `1000 * (histogram_quantile(${q}, sum by (le) (rate(http_server_requests_seconds_bucket{${sel}}[5m]))) or histogram_quantile(${q}, sum by (le) (rate(http_request_duration_seconds_bucket{${sel}}[5m]))))`
+}
 
 const PANELS: PanelDef[] = [
   // ── resources ──
@@ -247,9 +267,9 @@ const PANELS: PanelDef[] = [
     label: 'Requests',
     unit: 'rps',
     group: 'http',
-    hint: 'http_requests_total, 5m rate',
-    series: [{ name: 'req/s', query: (t) => `sum(rate(http_requests_total{${podSelector(t)}}[5m]))` }],
-    absent: 'Not instrumented — expose http_requests_total to see request rate.',
+    hint: 'http_server_requests_seconds_count (Micrometer) or http_requests_total, 5m rate',
+    series: [{ name: 'req/s', query: (t) => requestRate(t) }],
+    absent: 'Not instrumented — expose Prometheus metrics (Spring: /actuator/prometheus, scraped by the template\'s PodMonitor).',
   },
   {
     id: 'errors',
@@ -264,23 +284,23 @@ const PANELS: PanelDef[] = [
       {
         name: '5xx',
         query: (t) =>
-          `100 * sum(rate(http_requests_total{${podSelector(t)},status=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total{${podSelector(t)}}[5m])), 0.001)`,
+          `100 * (${requestRate(t, ',status=~"5.."')} or vector(0)) / clamp_min(${requestRate(t)}, 0.001)`,
       },
     ],
-    absent: 'Not instrumented — needs http_requests_total with a status label.',
+    absent: 'Not instrumented — needs a request counter with a status label.',
   },
   {
     id: 'p95',
     label: 'Latency',
     unit: 'ms',
     group: 'http',
-    hint: 'histogram_quantile over http_request_duration_seconds, 5m',
+    hint: 'histogram_quantile over the request-duration histogram (Micrometer or Prometheus client), 5m',
     upIsBad: true,
     series: [
-      { name: 'p95', query: (t) => `1000 * histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{${podSelector(t)}}[5m])))` },
-      { name: 'p50', dashed: true, query: (t) => `1000 * histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{${podSelector(t)}}[5m])))` },
+      { name: 'p95', query: (t) => latencyQuantile(t, 0.95) },
+      { name: 'p50', dashed: true, query: (t) => latencyQuantile(t, 0.5) },
     ],
-    absent: 'Not instrumented — expose an http_request_duration_seconds histogram.',
+    absent: 'Not instrumented — expose a request-duration histogram (Spring: percentiles-histogram for http.server.requests).',
   },
 ]
 

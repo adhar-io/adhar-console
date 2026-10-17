@@ -29,6 +29,11 @@ export interface CanvasNode {
   hidden?: boolean;
   comments?: NodeComment[];
   componentName?: string;
+  /**
+   * Imported from a repository: the node's source range and a fingerprint of
+   * how it looked when imported. Untouched nodes print as their original text.
+   */
+  src?: { start: number; end: number; fp: string };
   /** Layers panel: locked nodes cannot be selected or dragged on the canvas. */
   locked?: boolean;
   /**
@@ -71,6 +76,13 @@ export interface ProjectFile {
   home?: boolean;
   /** A reusable component (symbol): `nodes[0]` is the master; instances reference this file id. */
   symbol?: boolean;
+  /** Repository-backed file: its path in the repo and blob sha when opened. */
+  repoPath?: string;
+  repoSha?: string;
+  /** For a page that lives in a shared file (e.g. a router file): the export to edit. */
+  exportName?: string;
+  /** Set when the page can't be edited visually (shown instead of a canvas). */
+  readonlyReason?: string;
 }
 
 export interface AIMessage {
@@ -121,8 +133,11 @@ export const CONTAINER_TYPES = [
   'screen-mobile', 'screen-tablet', 'screen-desktop', 'frame', 'modal', 'form',
 ];
 
+/** HTML elements imported from a repository that can hold children on the canvas. */
+const HTML_CONTAINERS = ['main', 'header', 'article', 'aside', 'ul', 'ol', 'li', 'fragment', 'blockquote'];
+
 export function isContainer(type: string): boolean {
-  return CONTAINER_TYPES.includes(type);
+  return CONTAINER_TYPES.includes(type) || HTML_CONTAINERS.includes(type);
 }
 
 // ─── File tree utilities ─────────────────────────────────────────────────────

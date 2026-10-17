@@ -1,29 +1,18 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Button, docStore, DocStoreError, PageHeader, Spinner, useToast } from '@adhar/shell-ui'
+import { Button, PageHeader, Spinner, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { BUILDER_CSS } from './builder-styles.ts'
 import { ensureStyle } from './lib/inject-style.ts'
 import { setExtraThemePresets, type ThemePreset } from './lib/builder-api.ts'
-import { VersionsDialog } from './components/versions-dialog.tsx'
-import { defaultProjectFor, normalizeProject } from './lib/project.ts'
-import type {
-  BuilderController,
-  BuilderMode,
-  BuilderProject,
-  BuilderSaveEvent,
-  GeneratedFile,
-} from './types.ts'
+import { normalizeProject } from './lib/project.ts'
+import type { BuilderController, BuilderMode, BuilderProject, BuilderSaveEvent } from './types.ts'
 
 /*
  * The workbench — canvas, panels, generators — is one lazy chunk. Monaco,
- * Mermaid and React Flow are further lazy chunks inside it, fetched only when
- * a surface that needs them opens. Importing `@adhar/builder` costs a host
- * module this file and nothing more.
+ * Mermaid, React Flow and the repo's Tailwind compiler are further lazy
+ * chunks inside it. Importing `@adhar/builder` costs a host module this file.
  */
 const Workbench = lazy(() => import('./app.tsx'))
-
-/** docStore collection the builder persists projects in (tenant-scoped Postgres). */
-export const BUILDER_STORE_KIND = 'builder.project'
 
 const MODE_LABEL: Record<BuilderMode, string> = {
   visual: 'Visual Designer',
@@ -31,55 +20,65 @@ const MODE_LABEL: Record<BuilderMode, string> = {
   theme: 'Theme Builder',
 }
 
+/** Compiles CSS for the classes in use (the repo's Tailwind, scoped to the canvas). */
+export interface CanvasCss {
+  build(candidates: string[]): string
+}
+
 export interface BuilderAppProps {
   mode: BuilderMode
-  /**
-   * Stable id of the document being edited. Persisted under
-   * `builder.project/<docId>` unless `onSave` takes over persistence.
-   * Defaults to the mode, i.e. one shared scratch project per mode.
-   */
-  docId?: string
-  /** Shown as the page title when `title` is not given. */
+  /** Key for the local draft (unsaved edits survive a reload in this browser). */
+  docId: string
+  /** Page title. */
   docName?: string
   title?: ReactNode
-  /** Seed when nothing is stored yet (e.g. a wireframe being opened). */
-  initialProject?: BuilderProject
+  /** The project to edit. */
+  initialProject: BuilderProject
   /**
-   * Take over persistence: called on Save (⌘S) with the full project. When
-   * omitted the builder saves to the console document store itself.
+   * Persist on Save (⌘S) — e.g. a wireframe document. Mutually exclusive with
+   * `onSaveRequest`.
    */
   onSave?(doc: BuilderSaveEvent): void | Promise<void>
+  /**
+   * The host runs its own save flow (e.g. review the diff, commit, open a pull
+   * request) and calls `ctl.markSaved()` when done.
+   */
+  onSaveRequest?(ctl: BuilderController): void
+  /** Label of the primary header action (default "Save"). */
+  saveLabel?: string
+  /** Whether a stored draft still applies (e.g. same commit as the branch head). */
+  isDraftUsable?(draft: BuilderProject): boolean
   /** Renders a Back control before the title. */
   onBack?(): void
   /** Extra page-header actions, rendered left of Save. */
   actions?(ctl: BuilderController): ReactNode
+  /** Something to show next to the title (e.g. a branch picker). */
+  titleExtra?: ReactNode
+  /** Page to open first (builder file id). */
+  initialFileId?: string
+  onActiveFileChange?(fileId: string | null): void
+  /** The exact code a page would be saved as — shown in the Code view. */
+  previewCode?(fileId: string, project: BuilderProject): string | null
+  /** The repo's own CSS, compiled on demand for the canvas and the prototype. */
+  canvasCss?: CanvasCss | null
+  /** Extra design-theme presets offered ahead of the built-ins. */
+  themes?: ThemePreset[]
   /** Editor height. Defaults to filling the viewport below the page header. */
   height?: string
-  /**
-   * `page` (default) renders a PageHeader — the builder IS the page.
-   * `embedded` renders a slim title row, for a builder opened inside another
-   * page that already has its own header (e.g. a wireframe from the library).
-   */
+  /** `page` renders a PageHeader; `embedded` a slim title row. */
   variant?: 'page' | 'embedded'
-  /**
-   * Extra design-theme presets offered ahead of the built-ins — e.g. Design's
-   * "Workspace" theme derived from the workspace design tokens.
-   */
-  themes?: ThemePreset[]
   className?: string
 }
 
-type LoadState = { status: 'loading' } | { status: 'ready'; project: BuilderProject }
-
 const draftKey = (id: string) => `adhar.builder.draft:${id}`
 
-function readDraft(id: string): { at: number; project: BuilderProject } | null {
+function readDraft(id: string): BuilderProject | null {
   try {
     const raw = localStorage.getItem(draftKey(id))
     if (!raw) return null
-    const v = JSON.parse(raw) as { at?: number; project?: unknown }
-    const project = normalizeProject(v.project)
-    return project && typeof v.at === 'number' ? { at: v.at, project } : null
+    const v = JSON.parse(raw) as { project?: unknown; source?: BuilderProject['source'] }
+    const p = normalizeProject(v.project)
+    return p ? { ...p, source: (v.project as BuilderProject)?.source } : null
   } catch {
     return null
   }
@@ -100,13 +99,11 @@ function clearDraft(id: string) {
 }
 
 /**
- * The Adhar Visual Designer — the component behind Design → Visual Designer
- * and wireframe editing. A mode only decides what it opens on.
+ * The Adhar Visual Designer — behind Design → Visual Designer (repository
+ * apps) and wireframe editing. A mode only decides what it opens on.
  *
- * Persistence: the console's document store (Postgres, tenant-scoped) by
- * default, or the host's `onSave`. Every edit is also mirrored to a local
- * draft, so a reload or a crash before Save loses nothing; a draft newer than
- * the stored copy is restored with a toast.
+ * Every edit is mirrored to a local draft so a reload loses nothing; the host
+ * decides whether a draft still applies (`isDraftUsable`).
  */
 export function BuilderApp({
   mode,
@@ -115,8 +112,16 @@ export function BuilderApp({
   title,
   initialProject,
   onSave,
+  onSaveRequest,
+  saveLabel = 'Save',
+  isDraftUsable,
   onBack,
   actions,
+  titleExtra,
+  initialFileId,
+  onActiveFileChange,
+  previewCode,
+  canvasCss,
   height,
   variant = 'page',
   themes,
@@ -126,122 +131,92 @@ export function BuilderApp({
   // One builder is mounted at a time; idempotent, so safe during render.
   setExtraThemePresets(themes ?? [])
   const toast = useToast()
-  const id = docId ?? mode
   const name = docName ?? MODE_LABEL[mode]
 
-  const [load, setLoad] = useState<LoadState>({ status: 'loading' })
+  const [project, setProject] = useState<BuilderProject | null>(null)
   const [revision, setRevision] = useState(0)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [versionsOpen, setVersionsOpen] = useState(false)
   const latest = useRef<BuilderProject | null>(null)
 
-  // ── load ──────────────────────────────────────────────────────────
+  // ── load: the host's project, or a still-valid local draft of it ──
   useEffect(() => {
-    let cancelled = false
-    const settle = (project: BuilderProject, isDirty = false) => {
-      if (cancelled) return
-      latest.current = project
-      setDirty(isDirty)
-      setLoad({ status: 'ready', project })
-      setRevision((r) => r + 1)
-    }
-    ;(async () => {
-      const draft = readDraft(id)
-      let stored: { project: BuilderProject; at: number } | null = null
-      if (!onSave) {
-        try {
-          const doc = await docStore.get<Record<string, unknown>>(BUILDER_STORE_KIND, id)
-          const project = doc ? normalizeProject(doc.data, name) : null
-          if (project) stored = { project, at: Date.parse(doc!.updatedAt) || 0 }
-        } catch (e) {
-          if (!cancelled) {
-            toast.warning('Builder projects cannot be saved right now', {
-              description:
-                e instanceof DocStoreError && e.code === 'store_unavailable'
-                  ? 'The console database is not available. Edits are kept as a local draft in this browser.'
-                  : 'Loading the saved project failed. Edits are kept as a local draft in this browser.',
-            })
-          }
-        }
-      }
-      const base = stored?.project ?? initialProject ?? defaultProjectFor(mode, name)
-      if (draft && draft.at > (stored?.at ?? 0)) {
-        if (stored || initialProject) toast.info('Restored unsaved changes', { description: 'Save to keep them.' })
-        settle(draft.project, true)
-      } else {
-        settle(base)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
+    const draft = readDraft(docId)
+    const usable = draft && (isDraftUsable ? isDraftUsable(draft) : true)
+    if (draft && !usable) clearDraft(docId)
+    const start = usable ? draft! : initialProject
+    latest.current = start
+    setProject(start)
+    setDirty(!!usable)
+    setRevision((r) => r + 1)
+    if (usable) toast.info('Restored unsaved changes', { description: 'They were kept in this browser.' })
     // Reload only when the document identity changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id])
+  }, [docId])
 
-  // ── change / save ─────────────────────────────────────────────────
   const onChange = useCallback(
-    (project: BuilderProject) => {
-      latest.current = project
+    (p: BuilderProject) => {
+      latest.current = p
       setDirty(true)
-      writeDraft(id, project)
+      writeDraft(docId, p)
     },
-    [id],
+    [docId],
   )
 
-  const save = useCallback(async () => {
-    const project = latest.current
-    if (!project || saving) return
-    setSaving(true)
-    try {
-      if (onSave) {
-        await onSave({ id, kind: 'builder', name: project.name || name, mode, project })
-      } else {
-        await docStore.put(BUILDER_STORE_KIND, id, project as unknown as Record<string, unknown>)
-      }
-      clearDraft(id)
-      setDirty(false)
-      toast.success('Saved', { description: project.name || name })
-    } catch (e) {
-      toast.error('Save failed', {
-        description: e instanceof Error ? e.message : String(e),
-      })
-    } finally {
-      setSaving(false)
-    }
-  }, [id, mode, name, onSave, saving, toast])
+  const markSaved = useCallback(() => {
+    clearDraft(docId)
+    setDirty(false)
+  }, [docId])
 
   const loadProject = useCallback(
-    (project: BuilderProject, opts?: { dirty?: boolean }) => {
-      latest.current = project
-      setLoad({ status: 'ready', project })
+    (p: BuilderProject, opts?: { dirty?: boolean }) => {
+      latest.current = p
+      setProject(p)
       setRevision((r) => r + 1)
       const isDirty = opts?.dirty ?? true
       setDirty(isDirty)
-      if (isDirty) writeDraft(id, project)
+      if (isDirty) writeDraft(docId, p)
+      else clearDraft(docId)
     },
-    [id],
+    [docId],
   )
 
-  const generateFiles = useCallback(async (opts?: { basePath?: string }): Promise<GeneratedFile[]> => {
-    const project = latest.current
-    if (!project) return []
-    const { projectToFiles } = await import('./lib/project-export.ts')
-    return projectToFiles(project, opts?.basePath)
-  }, [])
+  const ctlRef = useRef<BuilderController | null>(null)
+  const save = useCallback(async () => {
+    const p = latest.current
+    if (!p || saving) return
+    if (onSaveRequest) {
+      if (ctlRef.current) onSaveRequest(ctlRef.current)
+      return
+    }
+    if (!onSave) return
+    setSaving(true)
+    try {
+      await onSave({ id: docId, kind: 'builder', name: p.name || name, mode, project: p })
+      markSaved()
+      toast.success('Saved', { description: p.name || name })
+    } catch (e) {
+      toast.error('Save failed', { description: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setSaving(false)
+    }
+  }, [docId, markSaved, mode, name, onSave, onSaveRequest, saving, toast])
 
   const ctl: BuilderController = useMemo(
     () => ({
-      project: load.status === 'ready' ? latest.current : null,
+      // A getter: the controller is stable across edits but always current.
+      get project() {
+        return latest.current
+      },
       dirty,
       saving,
       save,
       loadProject,
-      generateFiles,
+      markSaved,
     }),
-    [load, dirty, saving, save, loadProject, generateFiles],
+    [dirty, saving, save, loadProject, markSaved],
   )
+  ctlRef.current = ctl
 
   const heading = (
     <span className="flex min-w-0 items-center gap-2">
@@ -256,27 +231,15 @@ export function BuilderApp({
         </button>
       ) : null}
       <span className="truncate">{title ?? name}</span>
+      {titleExtra}
     </span>
   )
 
   const headerActions = (
     <>
       {actions?.(ctl)}
-      {/* Snapshots live in the doc store; hosts that persist elsewhere (onSave) skip them. */}
-      {!onSave && (
-        <Button size="sm" onClick={() => setVersionsOpen(true)} disabled={load.status !== 'ready'} title="Named versions of this project">
-          Versions
-        </Button>
-      )}
-      <Button
-        variant="primary"
-        size="sm"
-        onClick={() => void save()}
-        loading={saving}
-        disabled={load.status !== 'ready'}
-        title="Save (⌘S)"
-      >
-        {dirty ? 'Save' : 'Saved'}
+      <Button variant="primary" size="sm" onClick={() => void save()} loading={saving} disabled={!project} title={`${saveLabel} (⌘S)`}>
+        {onSaveRequest ? saveLabel : dirty ? saveLabel : 'Saved'}
       </Button>
     </>
   )
@@ -292,24 +255,24 @@ export function BuilderApp({
         </div>
       )}
 
-      {versionsOpen ? (
-        <VersionsDialog docId={id} project={latest.current} onRestore={(p) => loadProject(p, { dirty: true })} onClose={() => setVersionsOpen(false)} />
-      ) : null}
-
       <div
-        className="adhar-builder relative min-h-[560px] overflow-hidden rounded-xl border border-edge-default bg-background"
+        className="adhar-builder relative min-h-140 overflow-hidden rounded-xl border border-edge-default bg-background"
         style={{ height: height ?? 'calc(100vh - 210px)' }}
       >
-        {load.status === 'loading' ? (
+        {!project ? (
           <Loading label={`Loading ${name}…`} />
         ) : (
           <Suspense fallback={<Loading label={`Loading ${MODE_LABEL[mode]}…`} />}>
             <Workbench
               key={revision}
               mode={mode}
-              project={load.project}
+              project={project}
               onChange={onChange}
               onSave={save}
+              initialFileId={initialFileId}
+              onActiveFileChange={onActiveFileChange}
+              previewCode={previewCode}
+              canvasCss={canvasCss ?? null}
             />
           </Suspense>
         )}

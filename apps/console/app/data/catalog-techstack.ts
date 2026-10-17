@@ -81,18 +81,71 @@ const EXACT_FILES = new Set([
   'mix.exs',
   'dockerfile',
   'containerfile',
+  'chart.yaml',
+  'docker-compose.yml',
+  'docker-compose.yaml',
+  'compose.yml',
+  'compose.yaml',
+  'version',
 ])
 
-/** Files whose mere presence says something; never read. */
-const PRESENCE: Array<{ re: RegExp; key: string; detail: string }> = [
+/**
+ * Files whose mere presence says something; never read. `path: true` tests
+ * the whole repository path (CI folders, manifest folders), otherwise only
+ * the file name. One mention per key is kept, with a file count.
+ */
+const PRESENCE: Array<{ re: RegExp; key: string; detail: string; path?: boolean }> = [
   { re: /^tsconfig(\.[\w-]+)?\.json$/i, key: 'typescript', detail: 'tsconfig.json present' },
   { re: /^pnpm-lock\.yaml$/i, key: 'pnpm', detail: 'pnpm-lock.yaml present' },
   { re: /^yarn\.lock$/i, key: 'yarn', detail: 'yarn.lock present' },
   { re: /^package-lock\.json$/i, key: 'npm', detail: 'package-lock.json present' },
-  { re: /^chart\.ya?ml$/i, key: 'helm', detail: 'Chart.yaml present' },
-  { re: /^kustomization\.ya?ml$/i, key: 'kustomize', detail: 'kustomization.yaml present' },
+  { re: /^bun\.lockb?$/i, key: 'bun', detail: 'bun lockfile present' },
+  { re: /^deno\.lock$/i, key: 'deno', detail: 'deno.lock present' },
+  { re: /^uv\.lock$/i, key: 'uv', detail: 'uv.lock present' },
+  { re: /^poetry\.lock$/i, key: 'poetry', detail: 'poetry.lock present' },
+  { re: /^pipfile\.lock$/i, key: 'pipenv', detail: 'Pipfile.lock present' },
+  { re: /^gemfile\.lock$/i, key: 'bundler', detail: 'Gemfile.lock present' },
+  { re: /^chart\.ya?ml$/i, key: 'helm', detail: 'Helm chart' },
+  { re: /^kustomization\.ya?ml$/i, key: 'kustomize', detail: 'kustomization.yaml' },
   { re: /^mvnw$/i, key: 'maven', detail: 'Maven wrapper' },
   { re: /^gradlew$/i, key: 'gradle', detail: 'Gradle wrapper' },
+  { re: /^makefile$/i, key: 'make', detail: 'Makefile' },
+  { re: /^(workspace|workspace\.bazel|module\.bazel)$/i, key: 'bazel', detail: 'Bazel workspace' },
+  { re: /^nx\.json$/i, key: 'nx', detail: 'nx.json' },
+  { re: /^turbo\.json$/i, key: 'turborepo', detail: 'turbo.json' },
+  { re: /^project\.toml$/i, key: 'buildpacks', detail: 'Buildpacks project.toml' },
+  { re: /^skaffold\.ya?ml$/i, key: 'skaffold', detail: 'skaffold.yaml' },
+  { re: /^(docker-)?compose(\.[\w-]+)?\.ya?ml$/i, key: 'docker-compose', detail: 'Compose file' },
+  { re: /\.tf$/i, key: 'terraform', detail: 'Terraform configuration' },
+  // ── CI ── (Tekton is the platform's CI)
+  { re: /(^|\/)\.?tekton\/.+\.ya?ml$/i, key: 'tekton', detail: 'Tekton pipelines', path: true },
+  { re: /^\.gitea\/workflows\/.+\.ya?ml$/i, key: 'gitea-actions', detail: 'Gitea Actions workflows', path: true },
+  { re: /^\.github\/workflows\/.+\.ya?ml$/i, key: 'github-actions', detail: 'GitHub Actions workflows', path: true },
+  { re: /^\.gitlab-ci\.ya?ml$/i, key: 'gitlab-ci', detail: '.gitlab-ci.yml' },
+  { re: /^jenkinsfile$/i, key: 'jenkins', detail: 'Jenkinsfile' },
+  // ── deployment manifests ──
+  { re: /(^|\/)(k8s|kubernetes|kube|manifests|deploy|deployment|deployments|overlays)\/.+\.ya?ml$/i, key: 'kubernetes', detail: 'Kubernetes manifests', path: true },
+  { re: /(^|\/)argo-?cd\/.+\.ya?ml$/i, key: 'argocd', detail: 'Argo CD manifests', path: true },
+  // ── testing ──
+  { re: /^vitest\.(config|workspace)\.[cm]?[jt]s$/i, key: 'vitest', detail: 'vitest config' },
+  { re: /^jest\.config\.[cm]?[jt]s(on)?$/i, key: 'jest', detail: 'jest config' },
+  { re: /^playwright\.config\.[cm]?[jt]s$/i, key: 'playwright', detail: 'playwright config' },
+  { re: /^cypress\.config\.[cm]?[jt]s$/i, key: 'cypress', detail: 'cypress config' },
+  { re: /^(pytest\.ini|conftest\.py)$/i, key: 'pytest', detail: 'pytest config' },
+  { re: /_test\.go$/i, key: 'go-test', detail: 'Go test files' },
+  { re: /(^|\/)src\/test\/(java|kotlin)\//i, key: 'junit', detail: 'tests under src/test', path: true },
+  // ── linters & quality ──
+  { re: /^(\.eslintrc(\.\w+)?|eslint\.config\.[cm]?[jt]s)$/i, key: 'eslint', detail: 'ESLint config' },
+  { re: /^(\.prettierrc(\.\w+)?|prettier\.config\.[cm]?[jt]s)$/i, key: 'prettier', detail: 'Prettier config' },
+  { re: /^biome\.jsonc?$/i, key: 'biome', detail: 'biome.json' },
+  { re: /^\.?ruff\.toml$/i, key: 'ruff', detail: 'ruff.toml' },
+  { re: /^\.flake8$/i, key: 'flake8', detail: '.flake8' },
+  { re: /^mypy\.ini$/i, key: 'mypy', detail: 'mypy.ini' },
+  { re: /^\.golangci\.(ya?ml|toml|json)$/i, key: 'golangci-lint', detail: 'golangci-lint config' },
+  { re: /^checkstyle(-[\w-]+)?\.xml$/i, key: 'checkstyle', detail: 'Checkstyle rules' },
+  { re: /^sonar-project\.properties$/i, key: 'sonarqube', detail: 'sonar-project.properties' },
+  { re: /^\.rubocop\.ya?ml$/i, key: 'rubocop', detail: '.rubocop.yml' },
+  { re: /^\.pre-commit-config\.ya?ml$/i, key: 'pre-commit', detail: 'pre-commit hooks' },
 ]
 
 const isDockerfile = (name: string) => /^(docker|container)file(\.[\w.-]+)?$/i.test(name) || /\.dockerfile$/i.test(name)
@@ -167,6 +220,8 @@ const NODE_LTS: Record<string, string> = {
  * `psycopg2-binary`), so the patterns are anchored to the name part.
  */
 const DEP_SIGNALS: Array<{ re: RegExp; key: string; versioned?: boolean }> = [
+  // Test-only modules first: `org.testcontainers:postgresql` is a test harness, not the datastore.
+  { re: /^(org\.testcontainers:[\w-]+|@testcontainers\/[\w-]+|testcontainers|testcontainers-go|github\.com\/testcontainers\/[\w./-]+)$/i, key: 'testcontainers' },
   { re: /(^|[:/])(postgresql|pgx(\/v\d+)?|pq|pg|psycopg2?(-binary)?|psycopg|asyncpg|r2dbc-postgresql)$/i, key: 'postgres' },
   { re: /(^|[:/])(mysql-connector-(j|java)|mysql2?|go-sql-driver\/mysql|mysqlclient|pymysql)$/i, key: 'mysql' },
   { re: /(^|[:/])(mariadb-java-client|mariadb)$/i, key: 'mariadb' },
@@ -177,8 +232,70 @@ const DEP_SIGNALS: Array<{ re: RegExp; key: string; versioned?: boolean }> = [
   { re: /(^|[:/])(elasticsearch(-java)?|spring-boot-starter-data-elasticsearch|@elastic\/elasticsearch)$/i, key: 'elasticsearch' },
   { re: /(^|[:/])(grpc-[\w-]+|@grpc\/grpc-js|grpcio|grpc)$/i, key: 'grpc' },
   { re: /(^|[:/])(spring-boot-starter-graphql|graphql-java|graphql|graphene|gqlgen)$/i, key: 'graphql' },
+  { re: /(^|[:/])(cassandra-driver-core|java-driver-core|cassandra-driver|gocql)$/i, key: 'cassandra' },
+  { re: /(^|[:/])(jnats|nats|nats\.go|nats-py)$/i, key: 'nats' },
+  { re: /(^|[:/])(pulsar-client(-[\w-]+)?)$/i, key: 'pulsar' },
+  { re: /(^|[:/])(sqlite-jdbc|sqlite3|better-sqlite3|go-sqlite3|aiosqlite)$/i, key: 'sqlite' },
+  { re: /(^|[:/])(clickhouse-jdbc|@clickhouse\/client|clickhouse-go(\/v\d+)?|clickhouse-connect)$/i, key: 'clickhouse' },
+  { re: /(^|[:/])(@aws-sdk\/client-s3|minio|aws-sdk-s3|s3)$/i, key: 's3' },
+  // persistence frameworks and migrations sit with the data they shape
+  { re: /(^|[:/])(spring-boot-starter-data-jpa|hibernate-core|hibernate-orm)$/i, key: 'jpa' },
+  { re: /(^|[:/])(flyway-core|flyway-database-postgresql|flyway-mysql)$/i, key: 'flyway', versioned: true },
+  { re: /(^|[:/])(liquibase-core)$/i, key: 'liquibase', versioned: true },
+  { re: /^(prisma|@prisma\/client)$/i, key: 'prisma', versioned: true },
+  { re: /^(typeorm)$/i, key: 'typeorm', versioned: true },
+  { re: /^(sequelize)$/i, key: 'sequelize', versioned: true },
+  { re: /^(drizzle-orm)$/i, key: 'drizzle', versioned: true },
+  { re: /^(sqlalchemy)$/i, key: 'sqlalchemy', versioned: true },
+  { re: /(^|\/)gorm\.io\/gorm$/i, key: 'gorm', versioned: true },
+  // observability
   { re: /(^|[:/])(opentelemetry-[\w-]+|@opentelemetry\/[\w-]+|otel(\/[\w-]+)?)$/i, key: 'otel' },
-  { re: /(^|[:/])(micrometer-registry-prometheus|prom-client|prometheus-client|prometheus_client|client_golang)$/i, key: 'prometheus' },
+  { re: /(^|[:/])(micrometer-registry-prometheus|prom-client|prometheus-client|prometheus_client|client_golang|prometheus-fastapi-instrumentator)$/i, key: 'prometheus' },
+  { re: /(^|[:/])(micrometer-core|micrometer-tracing(-[\w-]+)?)$/i, key: 'micrometer' },
+  { re: /(^|[:/])(spring-boot-starter-actuator)$/i, key: 'actuator' },
+  { re: /(^|[:/])(sentry(-[\w-]+)?|@sentry\/[\w-]+|sentry-sdk|sentry-go)$/i, key: 'sentry' },
+  { re: /(^|[:/])(dd-trace(-[\w-]+)?|ddtrace|dd-java-agent)$/i, key: 'datadog' },
+  { re: /(^|[:/])(logstash-logback-encoder|logback-classic)$/i, key: 'logback' },
+  { re: /(^|[:/])(log4j-core|log4j-api)$/i, key: 'log4j' },
+  { re: /^(pino|winston|structlog)$/i, key: 'structured-logging' },
+  { re: /(^|\/)(uber-go\/zap|go\.uber\.org\/zap|rs\/zerolog)$/i, key: 'structured-logging' },
+  // testing & quality (dev dependencies)
+  { re: /^(vitest)$/i, key: 'vitest', versioned: true },
+  { re: /^(jest|ts-jest)$/i, key: 'jest', versioned: true },
+  { re: /^(mocha)$/i, key: 'mocha', versioned: true },
+  { re: /^(@playwright\/test|playwright)$/i, key: 'playwright', versioned: true },
+  { re: /^(cypress)$/i, key: 'cypress', versioned: true },
+  { re: /^(@testing-library\/[\w-]+)$/i, key: 'testing-library' },
+  { re: /(^|[:/])(junit-jupiter(-api|-engine)?|junit-bom|junit|spring-boot-starter-test)$/i, key: 'junit', versioned: true },
+  { re: /(^|[:/])(testng)$/i, key: 'testng', versioned: true },
+  { re: /(^|[:/])(mockito-core|mockito-junit-jupiter|mockk)$/i, key: 'mockito' },
+  { re: /^(pytest)$/i, key: 'pytest', versioned: true },
+  { re: /(^|\/)stretchr\/testify$/i, key: 'testify', versioned: true },
+  { re: /^(rspec|rspec-rails)$/i, key: 'rspec', versioned: true },
+  { re: /^(phpunit\/phpunit)$/i, key: 'phpunit', versioned: true },
+  { re: /^(eslint)$/i, key: 'eslint', versioned: true },
+  { re: /^(prettier)$/i, key: 'prettier', versioned: true },
+  { re: /^(@biomejs\/biome)$/i, key: 'biome', versioned: true },
+  { re: /^(ruff)$/i, key: 'ruff', versioned: true },
+  { re: /^(black)$/i, key: 'black', versioned: true },
+  { re: /^(flake8)$/i, key: 'flake8' },
+  { re: /^(mypy)$/i, key: 'mypy', versioned: true },
+  { re: /^(pylint)$/i, key: 'pylint' },
+  { re: /^(rubocop)$/i, key: 'rubocop' },
+  // build plugins (Maven artifactIds, Gradle plugin ids)
+  { re: /(^|[:/])(jacoco-maven-plugin|org\.jacoco\.agent|jacoco)$/i, key: 'jacoco' },
+  { re: /(^|[:/])(maven-checkstyle-plugin|checkstyle)$/i, key: 'checkstyle' },
+  { re: /(^|[:/])(spotbugs-maven-plugin|com\.github\.spotbugs|spotbugs)$/i, key: 'spotbugs' },
+  { re: /(^|[:/])(maven-pmd-plugin|pmd)$/i, key: 'pmd' },
+  { re: /(^|[:/])(spotless-maven-plugin|com\.diffplug\.spotless)$/i, key: 'spotless' },
+  { re: /(^|[:/])(sonar-maven-plugin|org\.sonarqube)$/i, key: 'sonarqube' },
+  { re: /(^|[:/])(jib-maven-plugin|com\.google\.cloud\.tools\.jib)$/i, key: 'jib' },
+  { re: /(^|[:/])(org\.jlleitschuh\.gradle\.ktlint|ktlint)$/i, key: 'ktlint' },
+  { re: /(^|[:/])(io\.gitlab\.arturbosch\.detekt|detekt-gradle-plugin)$/i, key: 'detekt' },
+  // bundlers / front-end build
+  { re: /^(vite)$/i, key: 'vite', versioned: true },
+  { re: /^(webpack)$/i, key: 'webpack', versioned: true },
+  { re: /^(tailwindcss)$/i, key: 'tailwind', versioned: true },
   // frameworks that also carry a useful version of their own
   { re: /^(express)$/i, key: 'express', versioned: true },
   { re: /^(react)$/i, key: 'react', versioned: true },
@@ -201,6 +318,14 @@ const DEP_SIGNALS: Array<{ re: RegExp; key: string; versioned?: boolean }> = [
   { re: /^(laravel\/framework)$/i, key: 'laravel', versioned: true },
   { re: /^(symfony\/framework-bundle)$/i, key: 'symfony', versioned: true },
   { re: /^(phoenix)$/i, key: 'phoenix', versioned: true },
+  { re: /^(hono)$/i, key: 'hono', versioned: true },
+  { re: /^(koa)$/i, key: 'koa', versioned: true },
+  { re: /^(nuxt)$/i, key: 'nuxt', versioned: true },
+  { re: /^(astro)$/i, key: 'astro', versioned: true },
+  { re: /^(@remix-run\/react|@remix-run\/node)$/i, key: 'remix', versioned: true },
+  { re: /^(@tanstack\/react-router|@tanstack\/react-start)$/i, key: 'tanstack', versioned: true },
+  { re: /(^|[:/])(spring-boot-starter-webflux)$/i, key: 'webflux' },
+  { re: /(^|[:/])(spring-boot-starter-security|spring-security-core)$/i, key: 'spring-security' },
 ]
 
 function depMentions(deps: Array<{ name: string; version?: string }>, source: string): TechMention[] {
@@ -335,6 +460,11 @@ export function parsePom(xml: string, source = 'pom.xml'): TechMention[] {
 
   out.push({ key: 'maven', source, detail: 'pom.xml', rank: RANK_HINT })
   out.push(...depMentions(deps.filter((d) => d.artifactId).map((d) => ({ name: `${d.groupId ?? ''}:${d.artifactId}`, version: literal(d.version) })), source))
+  // Build plugins name the quality and packaging tools (jacoco, checkstyle, jib, …).
+  out.push(...depMentions(plugins.filter((p) => p.artifactId && !/^maven-(compiler|resources|jar|install|deploy|clean|site|surefire|failsafe)-plugin$/.test(p.artifactId)).map((p) => ({ name: `${p.groupId ?? ''}:${p.artifactId}` })), source))
+  if (plugins.some((p) => p.artifactId === 'maven-surefire-plugin' || p.artifactId === 'maven-failsafe-plugin') && !out.some((m) => m.key === 'junit' || m.key === 'testng')) {
+    out.push({ key: 'junit', source, detail: 'maven-surefire-plugin', rank: RANK_HINT })
+  }
   return out
 }
 
@@ -511,6 +641,15 @@ export function parseGradle(
   else if (micronaut || /io\.micronaut/.test(s)) out.push({ key: 'micronaut', source, detail: 'io.micronaut', rank: RANK_BUILD })
 
   out.push({ key: 'gradle', source, detail: baseName(source), rank: RANK_HINT })
+  if (/useJUnitPlatform\s*\(/.test(s)) out.push({ key: 'junit', version: '5', source, detail: 'test { useJUnitPlatform() }', rank: RANK_HINT })
+  // Plugins applied by id (`id 'jacoco'`, `id("com.google.cloud.tools.jib")`, a bare `jacoco` in plugins {}).
+  const pluginIds: Array<{ name: string }> = []
+  for (const m of s.matchAll(/\bid\s*\(?\s*['"]([\w.-]+)['"]/g)) pluginIds.push({ name: m[1] })
+  for (const m of s.matchAll(/apply\s+plugin:\s*['"]([\w.-]+)['"]/g)) pluginIds.push({ name: m[1] })
+  const pluginsBlock = /plugins\s*\{([\s\S]*?)\n\s*\}/.exec(s)?.[1] ?? ''
+  for (const m of pluginsBlock.matchAll(/^\s*`?([a-z][\w-]*)`?\s*$/gm)) pluginIds.push({ name: m[1] })
+  for (const p of cat?.plugins ?? []) pluginIds.push({ name: p.id })
+  out.push(...depMentions(pluginIds, source))
   const deps: Array<{ name: string; version?: string }> = []
   for (const m of s.matchAll(/['"]([\w.-]+):([\w.-]+)(?::([^'"@]+))?['"]/g)) deps.push({ name: `${m[1]}:${m[2]}`, version: literal(interp(m[3])) })
   for (const l of cat?.libraries ?? []) deps.push({ name: l.module, version: literal(l.version) })
@@ -667,7 +806,8 @@ export function parsePackageJson(text: string, source = 'package.json'): TechMen
   if (deps.typescript) out.push({ key: 'typescript', version: cleanSpec(deps.typescript), source, detail: `typescript ${deps.typescript}`, rank: RANK_BUILD })
   else out.push({ key: 'javascript', source, detail: 'package.json without TypeScript', rank: RANK_HINT })
   const pm = /^(pnpm|yarn|npm|bun)@(\S+)/.exec(pkg.packageManager ?? '')
-  if (pm && pm[1] !== 'bun') out.push({ key: pm[1], version: cleanSpec(pm[2]), source, detail: `packageManager ${pkg.packageManager}`, rank: RANK_BUILD })
+  if (pm) out.push({ key: pm[1], version: cleanSpec(pm[2]), source, detail: `packageManager ${pkg.packageManager}`, rank: RANK_BUILD })
+  if (pkg.engines?.npm) out.push({ key: 'npm', version: cleanSpec(pkg.engines.npm), source, detail: `engines.npm ${pkg.engines.npm}`, rank: RANK_BUILD })
   if (pkg.engines?.pnpm) out.push({ key: 'pnpm', version: cleanSpec(pkg.engines.pnpm), source, detail: `engines.pnpm ${pkg.engines.pnpm}`, rank: RANK_BUILD })
   const list = Object.entries(deps).map(([name, spec]) => ({ name, version: cleanSpec(spec) }))
   // A Next.js app is a React app; both are worth a row. SvelteKit implies Svelte.
@@ -678,6 +818,8 @@ export function parsePackageJson(text: string, source = 'package.json'): TechMen
 
 export function parseDenoJson(text: string, source = 'deno.json'): TechMention[] {
   const out: TechMention[] = [{ key: 'deno', source, detail: baseName(source), rank: RANK_HINT }, { key: 'typescript', source, detail: 'Deno project', rank: RANK_HINT }]
+  if (/"[\w:-]*test[\w:-]*"\s*:\s*"[^"]*deno test/.test(text)) out.push({ key: 'deno-test', source, detail: 'deno test task', rank: RANK_HINT })
+  if (/"[\w:-]*lint[\w:-]*"\s*:\s*"[^"]*deno lint/.test(text) || /"lint"\s*:\s*\{/.test(text)) out.push({ key: 'deno-lint', source, detail: 'deno lint', rank: RANK_HINT })
   // Imports pin frameworks the same way package.json dependencies do: "react": "npm:react@^19".
   const deps: Array<{ name: string; version?: string }> = []
   for (const m of text.matchAll(/"(?:npm|jsr):(@?[\w./-]+?)@([^"/]+)/g)) deps.push({ name: m[1], version: cleanSpec(m[2]) })
@@ -693,6 +835,7 @@ export function parseGoMod(text: string, source = 'go.mod'): TechMention[] {
   const toolchain = /^toolchain\s+go(\d+(?:\.\d+)*)/m.exec(text)
   out.push({ key: 'go', version: go?.[1], source, detail: go ? `go ${go[1]} directive` : 'go.mod', rank: go ? RANK_BUILD : RANK_HINT })
   if (toolchain && toolchain[1] !== go?.[1]) out.push({ key: 'go', version: toolchain[1], source, detail: `toolchain go${toolchain[1]}`, rank: RANK_BUILD + 1 })
+  out.push({ key: 'go-modules', source, detail: 'go.mod', rank: RANK_HINT })
   const deps: Array<{ name: string; version?: string }> = []
   for (const m of text.matchAll(/^\s*(?:require\s+)?([\w.-]+\.[\w.-]+\/[\w./-]+)\s+v(\d[\w.+-]*)/gm)) deps.push({ name: m[1], version: m[2].replace(/[-+].*$/, '') })
   out.push(...depMentions(deps, source))
@@ -714,6 +857,18 @@ export function parsePyproject(text: string, source = 'pyproject.toml'): TechMen
   const poetryPy = /\[tool\.poetry\.dependencies\][\s\S]*?^\s*python\s*=\s*["']([^"']+)["']/m.exec(text)
   const py = req ? { v: req[1], how: 'requires-python' } : poetryPy ? { v: poetryPy[1], how: 'tool.poetry python' } : undefined
   out.push({ key: 'python', version: cleanSpec(py?.v), source, detail: py ? `${py.how} ${py.v}` : 'pyproject.toml', rank: py ? RANK_BUILD : RANK_HINT })
+  // Tool tables say which build backend, test runner and linters the project uses.
+  const tools: Array<[RegExp, string, string]> = [
+    [/^\[tool\.poetry\]/m, 'poetry', '[tool.poetry]'],
+    [/^\[tool\.uv\]/m, 'uv', '[tool.uv]'],
+    [/^\[tool\.pdm\]/m, 'pdm', '[tool.pdm]'],
+    [/^\[tool\.hatch[\].]/m, 'hatch', '[tool.hatch]'],
+    [/^\[tool\.pytest(\.ini_options)?\]/m, 'pytest', '[tool.pytest.ini_options]'],
+    [/^\[tool\.ruff[\].]/m, 'ruff', '[tool.ruff]'],
+    [/^\[tool\.black\]/m, 'black', '[tool.black]'],
+    [/^\[tool\.mypy\]/m, 'mypy', '[tool.mypy]'],
+  ]
+  for (const [re, key, detail] of tools) if (re.test(text)) out.push({ key, source, detail, rank: RANK_HINT })
   const deps: Array<{ name: string; version?: string }> = []
   // PEP 621: dependencies = ["fastapi>=0.110", …] (and optional-dependencies groups)
   for (const arr of text.matchAll(/^\s*[\w-]+\s*=\s*\[((?:[^\]"']|"[^"]*"|'[^']*')*)\]/gm)) {
@@ -734,12 +889,12 @@ export function parsePyproject(text: string, source = 'pyproject.toml'): TechMen
 
 export function parseRequirements(text: string, source = 'requirements.txt'): TechMention[] {
   const deps = text.split('\n').map((l) => l.replace(/#.*$/, '')).filter((l) => l.trim()).map(pyReq).filter((d): d is { name: string; version?: string } => Boolean(d))
-  return [{ key: 'python', source, detail: 'requirements.txt', rank: RANK_HINT }, ...depMentions(deps, source)]
+  return [{ key: 'python', source, detail: 'requirements.txt', rank: RANK_HINT }, { key: 'pip', source, detail: baseName(source), rank: RANK_HINT }, ...depMentions(deps, source)]
 }
 
 export function parsePipfile(text: string, source = 'Pipfile'): TechMention[] {
   const v = /^\s*python_(?:full_)?version\s*=\s*["']([^"']+)["']/m.exec(text)?.[1]
-  const out: TechMention[] = [{ key: 'python', version: cleanSpec(v), source, detail: v ? `python_version ${v}` : 'Pipfile', rank: v ? RANK_BUILD : RANK_HINT }]
+  const out: TechMention[] = [{ key: 'python', version: cleanSpec(v), source, detail: v ? `python_version ${v}` : 'Pipfile', rank: v ? RANK_BUILD : RANK_HINT }, { key: 'pipenv', source, detail: 'Pipfile', rank: RANK_HINT }]
   const deps: Array<{ name: string; version?: string }> = []
   for (const m of text.matchAll(/^\s*([\w.-]+)\s*=\s*["']([^"']+)["']/gm)) if (!/^python_/.test(m[1]) && !/^(url|name|verify_ssl)$/.test(m[1])) deps.push({ name: m[1].toLowerCase(), version: cleanSpec(m[2]) })
   out.push(...depMentions(deps, source))
@@ -751,7 +906,10 @@ export function parsePipfile(text: string, source = 'Pipfile'): TechMention[] {
 export function parseCargo(text: string, source = 'Cargo.toml'): TechMention[] {
   const rv = /^\s*rust-version\s*=\s*["']([^"']+)["']/m.exec(text)?.[1]
   const edition = /^\s*edition\s*=\s*["'](\d+)["']/m.exec(text)?.[1]
-  const out: TechMention[] = [{ key: 'rust', version: cleanSpec(rv), source, detail: rv ? `rust-version ${rv}` : edition ? `edition ${edition}` : 'Cargo.toml', rank: rv ? RANK_BUILD : RANK_HINT }]
+  const out: TechMention[] = [
+    { key: 'rust', version: cleanSpec(rv), source, detail: rv ? `rust-version ${rv}` : edition ? `edition ${edition}` : 'Cargo.toml', rank: rv ? RANK_BUILD : RANK_HINT },
+    { key: 'cargo', source, detail: 'Cargo.toml', rank: RANK_HINT },
+  ]
   const deps: Array<{ name: string; version?: string }> = []
   for (const m of text.matchAll(/^\s*([\w-]+)\s*=\s*(?:["']([^"']+)["']|\{[^}]*version\s*=\s*["']([^"']+)["'][^}]*\})/gm)) deps.push({ name: m[1], version: cleanSpec(m[2] ?? m[3]) })
   out.push(...depMentions(deps, source))
@@ -766,7 +924,10 @@ export function parseRustToolchain(text: string, source = 'rust-toolchain.toml')
 
 export function parseGemfile(text: string, source = 'Gemfile'): TechMention[] {
   const ruby = /^\s*ruby\s+['"]([^'"]+)['"]/m.exec(text)?.[1]
-  const out: TechMention[] = [{ key: 'ruby', version: cleanSpec(ruby), source, detail: ruby ? `ruby '${ruby}'` : 'Gemfile', rank: ruby ? RANK_BUILD : RANK_HINT }]
+  const out: TechMention[] = [
+    { key: 'ruby', version: cleanSpec(ruby), source, detail: ruby ? `ruby '${ruby}'` : 'Gemfile', rank: ruby ? RANK_BUILD : RANK_HINT },
+    { key: 'bundler', source, detail: 'Gemfile', rank: RANK_HINT },
+  ]
   const deps: Array<{ name: string; version?: string }> = []
   for (const m of text.matchAll(/^\s*gem\s+['"]([\w-]+)['"](?:\s*,\s*['"]([^'"]+)['"])?/gm)) deps.push({ name: m[1], version: cleanSpec(m[2]) })
   out.push(...depMentions(deps, source))
@@ -781,7 +942,10 @@ export function parseComposer(text: string, source = 'composer.json'): TechMenti
     return []
   }
   const req = { ...pkg['require-dev'], ...pkg.require }
-  const out: TechMention[] = [{ key: 'php', version: cleanSpec(req.php), source, detail: req.php ? `require.php ${req.php}` : 'composer.json', rank: req.php ? RANK_BUILD : RANK_HINT }]
+  const out: TechMention[] = [
+    { key: 'php', version: cleanSpec(req.php), source, detail: req.php ? `require.php ${req.php}` : 'composer.json', rank: req.php ? RANK_BUILD : RANK_HINT },
+    { key: 'composer', source, detail: 'composer.json', rank: RANK_HINT },
+  ]
   out.push(...depMentions(Object.entries(req).map(([name, spec]) => ({ name, version: cleanSpec(spec) })), source))
   return out
 }
@@ -806,11 +970,337 @@ export function parseGlobalJson(text: string, source = 'global.json'): TechMenti
 
 export function parseMixExs(text: string, source = 'mix.exs'): TechMention[] {
   const ex = /elixir:\s*"([^"]+)"/.exec(text)?.[1]
-  const out: TechMention[] = [{ key: 'elixir', version: cleanSpec(ex), source, detail: ex ? `elixir: "${ex}"` : 'mix.exs', rank: ex ? RANK_BUILD : RANK_HINT }]
+  const out: TechMention[] = [
+    { key: 'elixir', version: cleanSpec(ex), source, detail: ex ? `elixir: "${ex}"` : 'mix.exs', rank: ex ? RANK_BUILD : RANK_HINT },
+    { key: 'mix', source, detail: 'mix.exs', rank: RANK_HINT },
+  ]
   const deps: Array<{ name: string; version?: string }> = []
   for (const m of text.matchAll(/\{:(\w+),\s*"([^"]+)"/g)) deps.push({ name: m[1], version: cleanSpec(m[2]) })
   out.push(...depMentions(deps, source))
   return out
+}
+
+/* ─────────── Helm / Compose / CI ─────────── */
+
+/** Top-level `key: value` of a YAML document (no nesting) — enough for Chart.yaml. */
+function yamlTop(text: string, key: string): string | undefined {
+  const m = new RegExp(`^${key}:\\s*['"]?([^'"#\\n]+?)['"]?\\s*(?:#.*)?$`, 'm').exec(text)
+  return m ? m[1].trim() : undefined
+}
+
+/** Images that are datastores or brokers → the tech they carry. */
+const SERVICE_IMAGES: Array<{ re: RegExp; key: string }> = [
+  { re: /(^|\/)(postgres|postgresql|postgis\/postgis|cloudnative-pg\/postgresql)$/i, key: 'postgres' },
+  { re: /(^|\/)mysql(-server)?$/i, key: 'mysql' },
+  { re: /(^|\/)mariadb$/i, key: 'mariadb' },
+  { re: /(^|\/)mongo(db)?(-community-server)?$/i, key: 'mongodb' },
+  { re: /(^|\/)redis(-stack)?$/i, key: 'redis' },
+  { re: /(^|\/)valkey$/i, key: 'valkey' },
+  { re: /(^|\/)(rabbitmq)$/i, key: 'rabbitmq' },
+  { re: /(^|\/)(kafka|cp-kafka|cp-server)$/i, key: 'kafka' },
+  { re: /(^|\/)(elasticsearch)$/i, key: 'elasticsearch' },
+  { re: /(^|\/)(opensearch)$/i, key: 'opensearch' },
+  { re: /(^|\/)(clickhouse-server|clickhouse)$/i, key: 'clickhouse' },
+  { re: /(^|\/)(minio)$/i, key: 'minio' },
+  { re: /(^|\/)(nats)$/i, key: 'nats' },
+  { re: /(^|\/)(cassandra)$/i, key: 'cassandra' },
+]
+
+/** Helm chart dependency names → the datastore they install. */
+const CHART_DEPS: Record<string, string> = {
+  postgresql: 'postgres', 'postgresql-ha': 'postgres', mysql: 'mysql', mariadb: 'mariadb', mongodb: 'mongodb', redis: 'redis', 'redis-cluster': 'redis',
+  valkey: 'valkey', rabbitmq: 'rabbitmq', kafka: 'kafka', elasticsearch: 'elasticsearch', opensearch: 'opensearch', clickhouse: 'clickhouse', minio: 'minio', nats: 'nats', cassandra: 'cassandra',
+}
+
+/** Chart.yaml → Helm (chart name and version), plus the datastores its dependencies install. */
+export function parseChart(text: string, source = 'Chart.yaml'): TechMention[] {
+  const name = yamlTop(text, 'name')
+  const version = yamlTop(text, 'version')
+  const api = yamlTop(text, 'apiVersion')
+  const out: TechMention[] = [{ key: 'helm', source, detail: `chart ${name ?? baseName(source)}${version ? ` ${version}` : ''}${api === 'v2' ? ' (Helm 3)' : ''}`, rank: RANK_HINT }]
+  const deps = /^dependencies:\s*\n([\s\S]*?)(?=^\S|$(?![\s\S]))/m.exec(text)?.[1] ?? ''
+  for (const item of deps.split(/^\s*-\s+/m).slice(1)) {
+    const dep = /(?:^|\n)\s*name:\s*['"]?([\w.-]+)/.exec(`\n${item}`)?.[1]
+    const dv = /(?:^|\n)\s*version:\s*['"]?([^'"\s]+)/.exec(`\n${item}`)?.[1]
+    const key = dep ? CHART_DEPS[dep.toLowerCase()] : undefined
+    // A chart's version is not the database's — it names the chart only.
+    if (key) out.push({ key, source, detail: `Helm dependency ${dep}${dv ? ` ${dv}` : ''}`, rank: RANK_HINT })
+  }
+  return out
+}
+
+/** docker-compose / compose.yaml → the datastores and brokers it runs, with the image tag as version. */
+export function parseCompose(text: string, source = 'docker-compose.yml'): TechMention[] {
+  const out: TechMention[] = [{ key: 'docker-compose', source, detail: baseName(source), rank: RANK_HINT }]
+  for (const m of text.matchAll(/^\s*image:\s*['"]?([^'"\s#]+)/gm)) {
+    const ref = parseImageRef(m[1])
+    const hit = SERVICE_IMAGES.find((x) => x.re.test(ref.repository))
+    if (!hit) continue
+    // Confluent's images carry the Confluent Platform version (7.6 ≈ Kafka 3.6), not the broker's.
+    const vendorTag = /^confluentinc\//i.test(ref.repository)
+    const v = ref.tag && !vendorTag ? /^v?(\d+(?:\.\d+)*)/.exec(ref.tag)?.[1] : undefined
+    out.push({ key: hit.key, version: v, source, detail: `image ${ref.repository}${ref.tag ? `:${ref.tag}` : ''}${vendorTag ? ' (Confluent Platform version)' : ''}`, rank: v ? RANK_IMAGE : RANK_HINT })
+  }
+  return out
+}
+
+/** Tekton task names that name a build or scan tool. */
+const TEKTON_TASK_TOOLS: Array<{ re: RegExp; key: string }> = [
+  { re: /^(buildah|buildah-[\w-]+)$/i, key: 'buildah' },
+  { re: /^(kaniko|kaniko-[\w-]+)$/i, key: 'kaniko' },
+  { re: /^(buildpacks|buildpacks-phases)$/i, key: 'buildpacks' },
+  { re: /^(trivy|trivy-scanner|trivy-[\w-]+)$/i, key: 'trivy' },
+  { re: /^(sonarqube-scanner|sonar-[\w-]+)$/i, key: 'sonarqube' },
+  { re: /^(maven)$/i, key: 'maven' },
+  { re: /^(gradle)$/i, key: 'gradle' },
+  { re: /^(golang-build|golang-test)$/i, key: 'go-modules' },
+  { re: /^(npm|node-[\w-]+)$/i, key: 'npm' },
+]
+
+export interface CiSummary {
+  /** Tech key of the CI system (`tekton`, `github-actions`, …). */
+  key: string
+  source: string
+  /** Pipeline / workflow names declared in the file. */
+  names: string[]
+  /** Tasks or actions it runs (`git-clone`, `buildah`, `actions/setup-java`). */
+  steps: string[]
+}
+
+/** A CI definition → what system it is and what it runs. Regex-level, never throws. */
+export function parseCiFile(text: string, source: string): { summary: CiSummary; mentions: TechMention[] } | undefined {
+  const lower = source.toLowerCase()
+  const mentions: TechMention[] = []
+  if (/(^|\/)\.?tekton\//.test(lower) || /apiVersion:\s*tekton\.dev\//.test(text)) {
+    const kinds = [...text.matchAll(/^kind:\s*(\w+)/gm)].map((m) => m[1])
+    const names = [...text.matchAll(/^metadata:\s*\n(?:\s+.*\n)*?\s+(?:name|generateName):\s*['"]?([\w.-]+)/gm)].map((m) => m[1].replace(/-$/, ''))
+    const steps = [...new Set([...text.matchAll(/taskRef:\s*\n(?:\s+(?:kind|resolver|bundle|apiVersion):.*\n)*\s+name:\s*['"]?([\w.-]+)/g)].map((m) => m[1]))]
+    // Resolver-style refs: params: - name: name / value: git-clone
+    for (const m of text.matchAll(/-\s*name:\s*name\s*\n\s*value:\s*['"]?([\w.-]+)/g)) if (!steps.includes(m[1])) steps.push(m[1])
+    for (const t of steps) {
+      const hit = TEKTON_TASK_TOOLS.find((x) => x.re.test(t))
+      if (hit) mentions.push({ key: hit.key, source, detail: `Tekton task ${t}`, rank: RANK_HINT })
+    }
+    const kindTxt = [...new Set(kinds)].join(', ')
+    mentions.unshift({ key: 'tekton', source, detail: `${kindTxt || 'Tekton'}${names.length ? ` ${names.slice(0, 2).join(', ')}` : ''}`, rank: RANK_HINT })
+    return { summary: { key: 'tekton', source, names, steps }, mentions }
+  }
+  if (/^\.(github|gitea|forgejo)\/workflows\//.test(lower)) {
+    const key = lower.startsWith('.github/') ? 'github-actions' : 'gitea-actions'
+    const name = /^name:\s*['"]?([^'"\n]+)/m.exec(text)?.[1]?.trim()
+    const steps = [...new Set([...text.matchAll(/uses:\s*['"]?([\w.-]+\/[\w./-]+?)(?:@[\w.-]+)?['"]?\s*$/gm)].map((m) => m[1]))]
+    mentions.push({ key, source, detail: `workflow ${name ?? baseName(source)}`, rank: RANK_HINT })
+    if (steps.some((x) => /docker\/build-push-action|docker\/setup-buildx/.test(x))) mentions.push({ key: 'docker', source, detail: 'docker/build-push-action', rank: RANK_HINT })
+    return { summary: { key, source, names: name ? [name] : [], steps }, mentions }
+  }
+  if (/(^|\/)jenkinsfile$/.test(lower)) {
+    const steps = [...new Set([...text.matchAll(/stage\s*\(\s*['"]([^'"]+)['"]/g)].map((m) => m[1]))]
+    mentions.push({ key: 'jenkins', source, detail: steps.length ? `stages ${steps.slice(0, 4).join(', ')}` : 'Jenkinsfile', rank: RANK_HINT })
+    return { summary: { key: 'jenkins', source, names: [], steps }, mentions }
+  }
+  if (/(^|\/)\.gitlab-ci\.ya?ml$/.test(lower)) {
+    const steps = [...new Set([...text.matchAll(/^stages:\s*\n((?:\s+-\s*.+\n?)+)/gm)].flatMap((m) => [...m[1].matchAll(/-\s*([\w-]+)/g)].map((x) => x[1])))]
+    mentions.push({ key: 'gitlab-ci', source, detail: steps.length ? `stages ${steps.join(', ')}` : '.gitlab-ci.yml', rank: RANK_HINT })
+    return { summary: { key: 'gitlab-ci', source, names: [], steps }, mentions }
+  }
+  return undefined
+}
+
+/** CI definitions worth reading, best first: Tekton (the platform's CI), then the forges', then Jenkins. */
+export function ciFiles(listing: string[], max = 4): string[] {
+  const rank = (p: string) =>
+    /(^|\/)\.?tekton\/.+\.ya?ml$/i.test(p) ? 0 : /^\.gitea\/workflows\/.+\.ya?ml$/i.test(p) ? 1 : /^\.github\/workflows\/.+\.ya?ml$/i.test(p) ? 2 : /(^|\/)jenkinsfile$/i.test(p) ? 3 : /^\.gitlab-ci\.ya?ml$/i.test(p) ? 4 : -1
+  return listing.filter((p) => rank(p) >= 0).sort((a, b) => rank(a) - rank(b) || a.length - b.length || a.localeCompare(b)).slice(0, max)
+}
+
+/* ─────────── container images ─────────── */
+
+export interface ImageRef {
+  /** Registry host (with port), when the reference names one. */
+  registry?: string
+  /** Repository path without the registry: `library/postgres`, `org/app`. */
+  repository: string
+  tag?: string
+  /** `sha256:…` when the reference is pinned by digest. */
+  digest?: string
+}
+
+/**
+ * Split an image reference the way the container runtime does: the first
+ * path segment is a registry only when it has a dot or a port or is
+ * `localhost`; the tag is after the LAST colon of the last segment, so a
+ * registry port (`registry:5000/app`) is never read as a tag; a digest after
+ * `@` is kept separately.
+ */
+export function parseImageRef(raw: string): ImageRef {
+  const ref = raw.trim()
+  const at = ref.indexOf('@')
+  const digest = at >= 0 ? ref.slice(at + 1) : undefined
+  const noDigest = at >= 0 ? ref.slice(0, at) : ref
+  const parts = noDigest.split('/')
+  let registry: string | undefined
+  if (parts.length > 1 && (/[.:]/.test(parts[0]) || parts[0] === 'localhost')) registry = parts.shift()
+  const last = parts.pop() ?? ''
+  const colon = last.lastIndexOf(':')
+  const tag = colon >= 0 ? last.slice(colon + 1) : undefined
+  const name = colon >= 0 ? last.slice(0, colon) : last
+  return { registry, repository: [...parts, name].join('/'), tag: tag || undefined, digest: digest || undefined }
+}
+
+export interface DockerfileSummary {
+  source: string
+  /** The image the final stage is built FROM — what ships. */
+  base?: string
+  /** Earlier (build) stage images. */
+  builders: string[]
+  ports: string[]
+  /** The USER the image runs as, when set. */
+  user?: string
+  healthcheck: boolean
+  /** Command the container starts with (ENTRYPOINT, else CMD), trimmed. */
+  entrypoint?: string
+}
+
+/** What a Dockerfile builds: base and builder images, exposed ports, user, entrypoint. */
+export function describeDockerfile(text: string, source = 'Dockerfile'): DockerfileSummary {
+  const args: Record<string, string> = {}
+  const stages = new Set<string>()
+  const images: string[] = []
+  const ports: string[] = []
+  let user: string | undefined
+  let healthcheck = false
+  let entry: string | undefined
+  let cmd: string | undefined
+  for (const raw of text.replace(/\\\r?\n/g, ' ').split('\n')) {
+    const line = raw.trim()
+    const arg = /^ARG\s+([\w]+)=["']?([^"'\s]+)["']?/i.exec(line)
+    if (arg) args[arg[1]] = arg[2]
+    const from = /^FROM\s+(?:--platform=\S+\s+)?(\S+)(?:\s+AS\s+(\S+))?/i.exec(line)
+    if (from) {
+      const ref = from[1].replace(/\$\{?(\w+)(?::-([^}]*))?\}?/g, (_all, k: string, dflt?: string) => args[k] ?? dflt ?? '')
+      const isStage = stages.has(ref.toLowerCase())
+      if (from[2]) stages.add(from[2].toLowerCase())
+      images.push(isStage ? `stage ${ref}` : ref)
+      // A new stage resets what the previous one declared.
+      user = undefined
+      entry = undefined
+      cmd = undefined
+      healthcheck = false
+      ports.length = 0
+      continue
+    }
+    const expose = /^EXPOSE\s+(.+)$/i.exec(line)
+    if (expose) ports.push(...expose[1].split(/\s+/).filter(Boolean))
+    const u = /^USER\s+(\S+)/i.exec(line)
+    if (u) user = u[1]
+    if (/^HEALTHCHECK\s+(?!NONE)/i.test(line)) healthcheck = true
+    const e = /^ENTRYPOINT\s+(.+)$/i.exec(line)
+    if (e) entry = e[1]
+    const c = /^CMD\s+(.+)$/i.exec(line)
+    if (c) cmd = c[1]
+  }
+  const base = images.length ? images[images.length - 1] : undefined
+  const tidy = (v?: string) => v?.replace(/^\[|\]$/g, '').replace(/"\s*,\s*"/g, ' ').replace(/"/g, '').trim().slice(0, 120)
+  return { source, base, builders: images.slice(0, -1).filter((i) => !i.startsWith('stage ')), ports, user, healthcheck, entrypoint: tidy(entry ?? cmd) }
+}
+
+/* ─────────── the application's own version ─────────── */
+
+export interface AppVersionHint {
+  version: string
+  source: string
+  /** How the file says it: `<version>`, `appVersion`, `[project] version`. */
+  detail: string
+}
+
+/** The `version` of a TOML table (`[project]`, `[tool.poetry]`, `[package]`). */
+function tomlTableVersion(text: string, table: string): string | undefined {
+  const esc = table.replace(/\./g, '\\.')
+  const sec = new RegExp(`^\\[${esc}\\]\\s*\\n([\\s\\S]*?)(?=^\\[|$(?![\\s\\S]))`, 'm').exec(text)?.[1]
+  return sec ? /^\s*version\s*=\s*["']([^"']+)["']/m.exec(sec)?.[1] : undefined
+}
+
+/**
+ * The version the project's own build file gives the application (not its
+ * dependencies): package.json `version`, the pom's project `<version>`,
+ * Gradle `version =`, Chart.yaml `appVersion`, `[project] version`, Cargo
+ * `[package] version`, deno.json, mix.exs, a `.csproj` `<Version>`, a
+ * VERSION file. `0.0.0` placeholders and unresolved placeholders are skipped.
+ */
+export function appVersionFrom(path: string, text: string): AppVersionHint | undefined {
+  const lower = baseName(path).toLowerCase()
+  const ok = (v: string | undefined) => {
+    const s = literal(v)
+    return s && s !== '0.0.0' && /^\d/.test(s) ? s : undefined
+  }
+  const hint = (v: string | undefined, detail: string) => (ok(v) ? { version: ok(v)!, source: path, detail } : undefined)
+  try {
+    if (lower === 'package.json' || lower === 'deno.json' || lower === 'composer.json') {
+      const v = (JSON.parse(text) as { version?: string }).version
+      return hint(v, `"version" in ${baseName(path)}`)
+    }
+  } catch {
+    return undefined
+  }
+  if (lower === 'pom.xml') {
+    let s = stripXmlComments(text)
+    const props: Record<string, string> = {}
+    for (const block of xmlBlocks(s, 'properties')) for (const m of block.matchAll(/<([A-Za-z0-9_.-]+)>\s*([^<]*?)\s*<\/\1>/g)) props[m[1]] = m[2]
+    for (const tag of ['parent', 'dependencies', 'dependencyManagement', 'build', 'profiles', 'plugins', 'reporting', 'properties', 'distributionManagement']) {
+      s = s.replace(new RegExp(`<${tag}(?:\\s[^>]*)?>[\\s\\S]*?</${tag}>`, 'g'), '')
+    }
+    return hint(interpolate(xmlText(s, 'version'), props), 'project <version>')
+  }
+  if (/^build\.gradle(\.kts)?$/.test(lower)) return hint(/^\s*version\s*=\s*['"]([^'"]+)['"]/m.exec(text)?.[1], 'version = in build script')
+  if (lower === 'gradle.properties') return hint(parseProperties(text).version, 'version= in gradle.properties')
+  if (lower === 'chart.yaml') {
+    const app = yamlTop(text, 'appVersion')
+    return hint(app, 'appVersion in Chart.yaml') ?? hint(yamlTop(text, 'version'), 'chart version')
+  }
+  if (lower === 'pyproject.toml') return hint(tomlTableVersion(text, 'project'), '[project] version') ?? hint(tomlTableVersion(text, 'tool.poetry'), '[tool.poetry] version')
+  if (lower === 'cargo.toml') return hint(tomlTableVersion(text, 'package'), '[package] version')
+  if (lower === 'mix.exs') return hint(/version:\s*"([^"]+)"/.exec(text)?.[1], 'version: in mix.exs')
+  if (isCsproj(lower)) return hint(/<Version>\s*([^<]+?)\s*<\/Version>/.exec(text)?.[1], '<Version>')
+  if (lower === 'version') return hint(text.trim().split('\n')[0], 'VERSION file')
+  return undefined
+}
+
+/**
+ * Every app-version hint the files give, best first: a build manifest in a
+ * focus folder (the entity's own app), then the chart, then the rest, by
+ * path depth. `focus` lists folder prefixes in priority order ('' = root).
+ */
+export function detectAppVersions(files: Record<string, string>, focus: string[] = []): AppVersionHint[] {
+  const kindRank = (p: string) => {
+    const n = baseName(p).toLowerCase()
+    if (n === 'chart.yaml') return 2
+    if (n === 'version') return 1
+    return 0
+  }
+  const focusRank = (p: string) => {
+    const dir = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : ''
+    const i = focus.findIndex((f) => dir === f || (f && dir.startsWith(`${f}/`)))
+    return i < 0 ? focus.length : i
+  }
+  const hints: AppVersionHint[] = []
+  for (const [path, text] of Object.entries(files)) {
+    const h = appVersionFrom(path, text)
+    if (h) hints.push(h)
+  }
+  return hints.sort((a, b) => focusRank(a.source) - focusRank(b.source) || kindRank(a.source) - kindRank(b.source) || a.source.split('/').length - b.source.split('/').length)
+}
+
+/**
+ * Two version strings that describe the same thing: equal, or one a
+ * dotted prefix of the other (`21` / `21.0.2`, `3.3` / `3.3.2`), ignoring a
+ * trailing `+` from a range (`20+` / `20`). Used so compatible precision
+ * differences are not flagged as conflicts.
+ */
+export function sameVersion(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b) return false
+  const x = a.replace(/\+$/, '').replace(/^v/i, '')
+  const y = b.replace(/\+$/, '').replace(/^v/i, '')
+  return x === y || x.startsWith(`${y}.`) || y.startsWith(`${x}.`)
 }
 
 /* ─────────── the whole repository ─────────── */
@@ -858,11 +1348,25 @@ export function detectTech(files: Record<string, string>, listing: string[] = []
     else if (lower === 'mix.exs') out.push(...parseMixExs(text, path))
     else if (isCsproj(name)) out.push(...parseCsproj(text, path))
     else if (isDockerfile(name)) out.push(...parseDockerfile(text, path))
+    else if (lower === 'chart.yaml') out.push(...parseChart(text, path))
+    else if (/^(docker-)?compose(\.[\w-]+)?\.ya?ml$/.test(lower)) out.push(...parseCompose(text, path))
+    else {
+      const ci = parseCiFile(text, path)
+      if (ci) out.push(...ci.mentions)
+    }
   }
+  // Presence signals: one mention per tech, naming the first file and how many there are.
+  const seen = new Map<string, { source: string; detail: string; n: number }>()
   for (const p of listing) {
-    const hit = PRESENCE.find((x) => x.re.test(baseName(p)))
-    if (hit) out.push({ key: hit.key, source: p, detail: hit.detail, rank: RANK_HINT })
+    for (const x of PRESENCE) {
+      if (!x.re.test(x.path ? p : baseName(p))) continue
+      const cur = seen.get(x.key)
+      if (cur) cur.n++
+      else seen.set(x.key, { source: x.path ? p : p, detail: x.detail, n: 1 })
+      break
+    }
   }
+  for (const [key, v] of seen) out.push({ key, source: v.source, detail: v.n > 1 ? `${v.detail} (${v.n} files)` : v.detail, rank: RANK_HINT + 1 })
   return out
 }
 
@@ -878,14 +1382,96 @@ export function mergeDetections(mentions: TechMention[]): DetectedTech[] {
   for (const [key, list] of byKey) {
     const sorted = [...list].sort((a, b) => a.rank - b.rank)
     const best = sorted.find((m) => m.version) ?? sorted[0]
-    const seen = new Set([best.version])
+    const seen: string[] = best.version ? [best.version] : []
     const also: DetectedTech['also'] = []
     for (const m of sorted) {
-      if (!m.version || seen.has(m.version)) continue
-      seen.add(m.version)
+      if (!m.version || seen.some((v) => sameVersion(v, m.version))) continue
+      seen.push(m.version)
       also.push({ version: m.version, source: m.source, detail: m.detail })
     }
     out.push({ key, version: best.version, source: best.source, detail: best.detail, also })
   }
   return out
+}
+
+/* ─────────── repository layout: which folder, which files ─────────── */
+
+/** Subfolders a service often keeps its build in when the root has none. */
+export const NESTED_DIRS = /^(backend|server|service|api|app|frontend|web)$/i
+/** Monorepo workspace containers: `apps/<name>`, `services/<name>`, … */
+const WORKSPACE_DIRS = /^(apps|services|packages|libs|modules|projects|components|cmd)$/i
+/** Folders whose contents say nothing about the service itself. */
+export const SKIP_DIRS = /(^|\/)(node_modules|vendor|dist|build|target|out|\.git|\.idea|\.vscode|third_party|testdata|__fixtures__|fixtures|examples?|\.next|\.nuxt|coverage)(\/|$)/i
+export const MAX_SCAN_FILES = 40
+
+const dirOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
+
+/** `v1.4.2` / `release-1.4.2` / `api/v2.0.0` → the version; undefined for tags that are not versions. */
+export function tagVersion(tag: string): string | undefined {
+  const m = /(?:^|[-_/@])v?(\d+(?:\.\d+)*(?:[-+][\w.]+)?)$/i.exec(tag.trim())
+  return m ? m[1] : undefined
+}
+
+/**
+ * Pick the folder that is this entity's app. In order: the folder the
+ * entity names (annotation / source-location path), a manifest folder named
+ * after the entity (`apps/<name>`, `services/<name>`), the root when it has a
+ * build file, else undefined (scan every manifest folder near the top).
+ */
+export function chooseFocus(paths: string[], entityName: string, explicit: string): { focus: string; reason?: string } {
+  if (explicit) return { focus: explicit, reason: 'entity source path' }
+  const manifestDirs = [...new Set(paths.filter((p) => hasManifest([p])).map(dirOf))]
+  const name = entityName.toLowerCase()
+  const bare = name.replace(/-(service|svc|app|api|web|ui|frontend|backend|server)$/, '')
+  const named = manifestDirs
+    .filter((d) => {
+      const base = d.split('/').pop()?.toLowerCase() ?? ''
+      return d && (base === name || base === bare)
+    })
+    .sort((a, b) => a.split('/').length - b.split('/').length)[0]
+  if (named) return { focus: named, reason: `folder named after ${entityName}` }
+  if (manifestDirs.includes('')) return { focus: '', reason: 'build file at the repository root' }
+  return { focus: '' }
+}
+
+/**
+ * Which files to read: build files in the focus folder, at the root, in
+ * nested service folders when neither has one, plus CI definitions and Helm
+ * charts. Capped at MAX_SCAN_FILES, best first.
+ */
+export function planScan(allPaths: string[], focus: string): { want: string[]; dirs: string[]; listing: string[] } {
+  const paths = allPaths.filter((p) => !SKIP_DIRS.test(p))
+  // In a monorepo, other apps' files would bleed into this one's stack.
+  const inScope = (p: string) => {
+    if (!focus) return true
+    if (p.startsWith(`${focus}/`)) return true
+    const top = p.split('/')[0]
+    return !(p.includes('/') && WORKSPACE_DIRS.test(top))
+  }
+  const listing = paths.filter(inScope)
+  const blobsIn = (d: string) => listing.filter((p) => dirOf(p) === d)
+  const subdirsOf = (d: string) => [...new Set(listing.filter((p) => dirOf(p).startsWith(d ? `${d}/` : '') && dirOf(p) !== d).map((p) => {
+    const rest = d ? p.slice(d.length + 1) : p
+    return (d ? `${d}/` : '') + rest.split('/')[0]
+  }))]
+  const dirs: string[] = []
+  if (focus) dirs.push(focus)
+  if (!dirs.includes('')) dirs.push('')
+  if (!hasManifest(blobsIn(focus)) && !hasManifest(blobsIn(''))) {
+    // No build file where we looked: the nearest manifest folders (depth ≤ 2), service-named ones first.
+    const candidates = [...new Set(listing.filter((p) => hasManifest([p])).map(dirOf))]
+      .filter((d) => d && d.split('/').length <= 2)
+      .sort((a, b) => Number(!NESTED_DIRS.test(a.split('/').pop() ?? '')) - Number(!NESTED_DIRS.test(b.split('/').pop() ?? '')) || a.split('/').length - b.split('/').length || a.localeCompare(b))
+    dirs.push(...candidates.slice(0, 4))
+  }
+  const exists = new Set(listing)
+  const want: string[] = []
+  const add = (p: string) => {
+    if (!want.includes(p) && exists.has(p)) want.push(p)
+  }
+  for (const d of dirs) for (const p of wantedFiles(blobsIn(d), subdirsOf(d))) add(p)
+  for (const p of ciFiles(listing, 4)) add(p)
+  // Helm charts anywhere in scope (charts/<name>/Chart.yaml, deploy/helm/Chart.yaml), focus first.
+  listing.filter((p) => /(^|\/)chart\.ya?ml$/i.test(p)).sort((a, b) => Number(!a.startsWith(focus)) - Number(!b.startsWith(focus)) || a.length - b.length).slice(0, 2).forEach(add)
+  return { want: want.slice(0, MAX_SCAN_FILES), dirs, listing }
 }

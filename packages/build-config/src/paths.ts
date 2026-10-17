@@ -81,6 +81,7 @@ export function consoleAliases(workspaceRoot: string): Record<string, string> {
     '@adhar/tenancy': p('packages/tenancy/src/index.ts'),
     '@adhar/shell-ui': p('packages/shell-ui/src/index.ts'),
     '@adhar/builder/project': p('packages/builder/src/project-api.ts'),
+    '@adhar/builder/code': p('packages/builder/src/code/index.ts'),
     '@adhar/builder': p('packages/builder/src/index.ts'),
     '@adhar/mf-utils': p('packages/mf-utils/src/index.ts'),
     '@adhar/platform-info': p('packages/platform-info/src/index.ts'),

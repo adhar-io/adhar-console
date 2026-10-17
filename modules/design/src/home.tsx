@@ -67,7 +67,7 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   },
   builder: {
     label: 'Visual Designer',
-    description: 'Drag-and-drop app builder — pages, components, data, prototype, React export.',
+    description: 'Edit the React apps in your repositories visually — reviewed commits and pull requests.',
   },
 }
 

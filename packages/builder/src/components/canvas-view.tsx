@@ -31,6 +31,8 @@ interface CanvasViewProps {
   artboardStyle?: React.CSSProperties;
   /** Render the artboard in the design theme's dark variant. */
   artboardDark?: boolean;
+  /** Extra class on the artboard (the repo CSS scope). */
+  artboardClass?: string;
 }
 
 const DEVICE_W = { desktop: 1280, tablet: 768, mobile: 375 } as const;
@@ -41,7 +43,7 @@ export function CanvasView({
   nodes, selectedNodeIds, zoom, devicePreview, canvasBg, pageName,
   onSelect, onDeselect, onUpdateText, onDropNew, onDropReorder,
   onCopy, onPaste, onDuplicate, onMoveUp, onMoveDown, onWrap, onDelete, onZoom,
-  artboardStyle, artboardDark,
+  artboardStyle, artboardDark, artboardClass,
 }: CanvasViewProps) {
   const [ctx, setCtx] = useState<{ x: number; y: number; nodeId: string } | null>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -203,7 +205,7 @@ export function CanvasView({
 
             {/* The actual artboard */}
             <div
-              className={`relative rounded-lg bg-background text-foreground ${artboardDark ? 'dark' : ''}`}
+              className={`relative rounded-lg bg-background text-foreground ${artboardDark ? 'dark' : ''} ${artboardClass ?? ''}`}
               style={{
                 ...artboardStyle,
                 width: deviceWidth,
@@ -369,6 +371,7 @@ function NodeView({ node, selectedNodeIds, hoveredId, parentId, siblingIndex, on
       ? 'ring-1 ring-primary/30'
       : '';
 
+  const inline = isInlineNode(node);
   return (
     <div draggable={!node.locked}
       onClick={(e) => { if (node.locked) return; e.stopPropagation(); onSelect(node.id, e.shiftKey); }}
@@ -380,7 +383,7 @@ function NodeView({ node, selectedNodeIds, hoveredId, parentId, siblingIndex, on
       onDrop={handleDrop}
       onMouseEnter={() => onHover(node.id)}
       onMouseLeave={() => onHover(null)}
-      className={`relative transition-shadow ${ringCls} ${dropPos === 'inside' ? 'ring-2 ring-primary/40 bg-primary/[0.03]' : ''}`}>
+      className={`relative transition-shadow ${inline ? 'inline' : ''} ${ringCls} ${dropPos === 'inside' ? 'ring-2 ring-primary/40 bg-primary/[0.03]' : ''}`}>
 
       {/* Drop indicators — precise lines with dots at edges */}
       {dropPos === 'before' && (
@@ -424,8 +427,10 @@ function NodeView({ node, selectedNodeIds, hoveredId, parentId, siblingIndex, on
               : <div className='p-3 text-xs text-destructive'>Missing component</div>;
           })()}
         </div>
+      ) : node.type === 'code' ? (
+        <CodeChip node={node} />
       ) : renderLeaf(node, item) ?? (
-      <div className={node.type === 'modal' ? CANVAS_MODAL : node.props.className || ''}>
+      <div className={node.type === 'modal' ? CANVAS_MODAL : withInline(node.props.className || '', inline)}>
         {node.type === 'modal' && (
           <span className='absolute -top-2.5 left-3 rounded bg-violet-500 px-1.5 text-[10px] font-semibold text-white'>Modal · opens on click</span>
         )}
@@ -528,6 +533,42 @@ function NodeView({ node, selectedNodeIds, hoveredId, parentId, siblingIndex, on
       </div>
       )}
     </div>
+  );
+}
+
+const INLINE_TYPES = new Set(['text', 'span', 'link', 'strong', 'em', 'small', 'badge', 'label-el']);
+const DISPLAY_RE = /(^|\s)(block|inline|inline-block|flex|inline-flex|grid|inline-grid|hidden|contents|table)(\s|$)/;
+
+/** Text-level nodes flow inline on the canvas, as they do in the app. */
+function isInlineNode(n: CanvasNode): boolean {
+  if (INLINE_TYPES.has(n.type)) return true;
+  return n.type === 'code' && !String(n.props?.code ?? '').trimStart().startsWith('<') && !Array.isArray(n.props?.preview);
+}
+
+function withInline(className: string, inline: boolean): string {
+  return inline && !DISPLAY_RE.test(className) ? `inline ${className}` : className;
+}
+
+/**
+ * Code the designer preserves but doesn't edit: a preview of the JSX inside
+ * it when there is any, else a chip with the expression.
+ */
+function CodeChip({ node }: { node: CanvasNode }) {
+  const label = String(node.props?.label ?? 'code');
+  if (label === 'comment') return null;
+  const preview = Array.isArray(node.props?.preview) ? (node.props.preview as CanvasNode[]) : null;
+  if (preview?.length) {
+    return (
+      <div className='relative rounded-sm outline outline-1 outline-dashed outline-amber-500/50' title={String(node.props?.code ?? '')}>
+        <div className='pointer-events-none'>{preview.map((p) => <StaticNode key={p.id} node={p} />)}</div>
+        <span className='absolute -top-2 right-1 rounded bg-amber-500 px-1 font-mono text-[9px] font-semibold text-white'>{label}</span>
+      </div>
+    );
+  }
+  return (
+    <span className='inline-flex items-center rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[11px] text-amber-700 dark:text-amber-300' title={String(node.props?.code ?? '')}>
+      {label}
+    </span>
   );
 }
 

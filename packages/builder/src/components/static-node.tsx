@@ -58,6 +58,15 @@ export function renderLeaf(n: CanvasNode, item: unknown, key?: string): ReactNod
       return <div key={key} className={className}><div className='h-full rounded-full bg-primary' style={{ width: `${Number(n.props?.['data-value'] ?? 66)}%` }} /></div>;
     case 'separator':
       return <div key={key} className={className} />;
+    case 'img': {
+      const src = String(n.props?.src ?? '');
+      // Repo-relative assets aren't served by the console — show the alt text.
+      return /^(https?:|data:)/.test(src)
+        ? <img key={key} src={src} alt={String(n.props?.alt ?? '')} className={className} />
+        : <span key={key} className={`inline-flex items-center justify-center bg-muted text-xs text-muted-foreground ${className ?? ''}`}>{String(n.props?.alt || 'image')}</span>;
+    }
+    case 'text':
+      return <span key={key}>{text}</span>;
   }
   return null;
 }
@@ -69,6 +78,11 @@ export function StaticNode({ node, depth = 0 }: { node: CanvasNode; depth?: numb
   if (node.type === 'symbol') {
     const master = findMaster(files, String(node.props?.symbolId ?? ''));
     return master ? <StaticNode node={master} depth={depth + 1} /> : null;
+  }
+  if (node.type === 'code') {
+    const preview = Array.isArray(node.props?.preview) ? (node.props.preview as CanvasNode[]) : [];
+    if (preview.length) return <>{preview.map((p) => <StaticNode key={p.id} node={p} depth={depth + 1} />)}</>;
+    return node.props?.label === 'comment' ? null : <span className='rounded bg-amber-500/15 px-1 font-mono text-[11px] text-amber-700'>{String(node.props?.label ?? '')}</span>;
   }
   const leaf = renderLeaf(node, item);
   if (leaf) return leaf;

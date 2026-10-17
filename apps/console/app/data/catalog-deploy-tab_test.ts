@@ -1,8 +1,8 @@
 import { assertEquals } from 'jsr:@std/assert@1'
-import type { argocd } from '@adhar/api-clients'
+import type { argocd, kargo } from '@adhar/api-clients'
 import type { Entity } from './catalog.ts'
 import { matchRun } from './catalog-pipelines.ts'
-import { deriveDeployment, unhealthyNodes, workloadNamespace } from './catalog-deployment.ts'
+import { deriveDeployment, kargoEnvironments, repoUrlFromDeployment, unhealthyNodes, withRepoLink, workloadNamespace } from './catalog-deployment.ts'
 
 const entity = (name: string, annotations: Record<string, string> = {}): Entity =>
   ({ kind: 'Component', metadata: { name, annotations }, spec: {} }) as unknown as Entity
@@ -127,4 +127,38 @@ Deno.test('environments sort along the promotion chain, prod first', () => {
   assertEquals(d.environments.map((e) => e.key), ['prod', 'test', 'dev'])
   // The primary is the production app, not whichever was listed first.
   assertEquals(d.primary?.metadata.name, 'my-service-prod')
+})
+
+Deno.test('control-plane apps named <project>-<app>-<env> match the entity by their labels', () => {
+  const cp = (env: string) => ({
+    metadata: { name: `adhar-ngapp-${env}`, labels: { 'adhar.io/application': 'ngapp', 'adhar.io/environment': env } },
+    spec: { destination: { namespace: env }, source: { repoURL: 'http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/ngapp.git' }, project: 'adhar' },
+    status: { resourceList: [] },
+  }) as unknown as argocd.Application
+  const other = { metadata: { name: 'billing-dev', labels: { 'adhar.io/application': 'billing' } }, spec: { destination: { namespace: 'dev' } }, status: { resourceList: [] } } as unknown as argocd.Application
+  const d = deriveDeployment(entity('ngapp'), [cp('dev'), cp('test'), cp('prod'), other], { isLoading: false, isError: false })
+  assertEquals(d.apps.length, 3)
+  assertEquals(d.environments.map((e) => e.key), ['prod', 'test', 'dev'])
+  assertEquals(d.unmatched, false)
+  assertEquals(repoUrlFromDeployment(d, 'https://gitea.test.adhar.io'), 'https://gitea.test.adhar.io/adhar/ngapp')
+  const linked = withRepoLink(entity('ngapp'), repoUrlFromDeployment(d, 'https://gitea.test.adhar.io'))
+  assertEquals(linked.metadata.links?.find((l) => l.icon === 'repo')?.url, 'https://gitea.test.adhar.io/adhar/ngapp')
+})
+
+Deno.test('an application shows its own Kargo chain, not the platform environments stages', () => {
+  const cp = (env: string) => ({
+    metadata: { name: `adhar-ngapp-${env}`, labels: { 'adhar.io/application': 'ngapp', 'adhar.io/environment': env } },
+    spec: { destination: { namespace: env }, source: { repoURL: 'x' }, project: 'adhar' }, status: { resourceList: [] },
+  }) as unknown as argocd.Application
+  const d = deriveDeployment(entity('ngapp'), [cp('dev'), cp('test'), cp('prod')], { isLoading: false, isError: false })
+  const stage = (name: string, labels: Record<string, string>, upstream: string[] = []) =>
+    ({ name, project: 'adhar', labels, upstream }) as unknown as kargo.Stage
+  const stages = [
+    stage('dev', {}), stage('test', {}, ['dev']),
+    stage('ngapp-dev', { 'adhar.io/application': 'ngapp', 'adhar.io/environment': 'dev' }),
+    stage('ngapp-test', { 'adhar.io/application': 'ngapp', 'adhar.io/environment': 'test' }, ['ngapp-dev']),
+  ]
+  const envs = kargoEnvironments(stages, d)
+  assertEquals(envs.map((e) => e.stage.name), ['ngapp-dev', 'ngapp-test'])
+  assertEquals(envs.map((e) => e.app?.metadata.name), ['adhar-ngapp-dev', 'adhar-ngapp-test'])
 })

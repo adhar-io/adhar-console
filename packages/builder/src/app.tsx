@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useState, useEffect, useRef } from 'react';
-import { AdharSymbol } from '@adhar/shell-ui';
+import { AdharSymbol, useToast } from '@adhar/shell-ui';
 import * as Palette from './lib/builder-palette.ts';
 import { Toolbar } from './components/toolbar.tsx';
 import { CanvasView } from './components/canvas-view.tsx';
@@ -28,7 +28,8 @@ import {
 } from './lib/studio.ts';
 import { SAMPLE_CUSTOMERS, SAMPLE_ORDERS } from './lib/sample-data.ts';
 import { buildPrototypeDoc } from './lib/prototype.ts';
-import { zipFiles } from './lib/zip.ts';
+import { classCandidates } from './code/css-theme.ts';
+import type { CanvasCss } from './builder-app.tsx';
 import { PagesPanel } from './components/pages-panel.tsx';
 import { DataPanel } from './components/data-panel.tsx';
 import { StudioInspector } from './components/studio-inspector.tsx';
@@ -40,7 +41,7 @@ import {
   findFileInTree, getFilePath, isPageFile, getAllPageFiles,
   updateFileInTree, removeFileFromTree, addFileToFolder, langFromName,
   findNode, addChildToNode, removeNodeFromTree, updateNodeProp, reIdNodes,
-  moveNodeInTree, wrapNodeInContainer, insertNodeAt, extractNode,
+  moveNodeInTree, wrapNodeInContainer, insertNodeAt, extractNode, isContainer,
   type AppState, type CanvasNode, type ProjectFile, type AIMessage,
 } from './lib/builder-types.ts';
 
@@ -51,6 +52,11 @@ const FlowCanvas = lazy(() => import('./components/flow-canvas.tsx'));
 
 function SurfaceLoading() {
   return <div className='flex-1 flex items-center justify-center text-xs text-muted-foreground'>Loading…</div>;
+}
+
+/** True when a tree holds preserved source code (imported from a repository). */
+function containsCode(nodes: CanvasNode[]): boolean {
+  return nodes.some((n) => n.type === 'code' || containsCode(n.children));
 }
 
 /** Monaco grammar for a page's generated code. */
@@ -87,17 +93,48 @@ export interface WorkbenchProps {
   project: BuilderProject;
   onChange(project: BuilderProject): void;
   onSave(): void;
+  initialFileId?: string;
+  onActiveFileChange?(fileId: string | null): void;
+  previewCode?(fileId: string, project: BuilderProject): string | null;
+  canvasCss?: CanvasCss | null;
 }
 
+/** Every class string in a tree (incl. preview trees of code nodes) — Tailwind candidates. */
+function collectClasses(nodes: CanvasNode[], into: string[]) {
+  for (const n of nodes) {
+    if (typeof n.props?.className === 'string') into.push(n.props.className);
+    if (Array.isArray(n.props?.preview)) collectClasses(n.props.preview as CanvasNode[], into);
+    collectClasses(n.children, into);
+  }
+}
+function allClasses(files: ProjectFile[], into: string[] = []): string[] {
+  for (const f of files) {
+    if (f.nodes) collectClasses(f.nodes, into);
+    if (f.children) allClasses(f.children, into);
+  }
+  return into;
+}
+// Palette classes are candidates too, so a dropped component renders at once.
+const PALETTE_CLASSES = (() => {
+  const out: string[] = [];
+  const walk = (n: CanvasNode) => { if (typeof n.props?.className === 'string') out.push(n.props.className); n.children.forEach(walk); };
+  for (const c of BLUEPRINTS) for (const it of c.items) {
+    if (typeof it.defaultProps?.className === 'string') out.push(it.defaultProps.className);
+    if (it.build) walk(it.build());
+  }
+  return out;
+})();
+
 // ─── Workbench ───────────────────────────────────────────────────────────────
-export default function Workbench({ mode, project, onChange, onSave }: WorkbenchProps) {
+export default function Workbench({ mode, project, onChange, onSave, initialFileId, onActiveFileChange, previewCode, canvasCss }: WorkbenchProps) {
+  const toast = useToast();
   const rootRef = useRef<HTMLDivElement>(null);
   const consoleDark = useConsoleDark();
   const [aiConnected, setAiConnected] = useState(false);
   useEffect(() => { void adharAiAvailable().then(setAiConnected); }, []);
 
   const [s, setS] = useState<AppState>(() => {
-    const first = initialFileFor(mode, project.files);
+    const first = (initialFileId ? findFileInTree(project.files, initialFileId) : null) ?? initialFileFor(mode, project.files);
     return {
       files: project.files,
       activeFileId: first?.id || null,
@@ -152,6 +189,7 @@ export default function Workbench({ mode, project, onChange, onSave }: Workbench
     onChangeRef.current({
       version: 1,
       name: project.name,
+      source: project.source,
       files: s.files,
       settings: { framework: s.framework, theme: s.theme, darkMode: s.darkMode, customTokenOverrides: s.customTokenOverrides },
     });
@@ -161,32 +199,39 @@ export default function Workbench({ mode, project, onChange, onSave }: Workbench
   // Self-contained: the console's compiled CSS (which includes every utility
   // the builder's palette and generators use) plus the design theme as
   // `--b-*` variables. No Tailwind CDN, no web fonts — works air-gapped.
+  // ─── The repo's own CSS (compiled for the classes in use) ──────
+  const [repoCss, setRepoCss] = useState('');
+  const classKey = canvasCss ? classCandidates([...allClasses(s.files), ...PALETTE_CLASSES]).sort().join(' ') : '';
+  useEffect(() => {
+    if (!canvasCss) return;
+    const t = setTimeout(() => {
+      try { setRepoCss(canvasCss.build(classKey.split(' ').filter(Boolean))); } catch (e) { console.warn('[designer] CSS compile failed', e); }
+    }, 120);
+    return () => clearTimeout(t);
+  }, [canvasCss, classKey]);
+  useEffect(() => {
+    if (!canvasCss || typeof document === 'undefined') return;
+    let el = document.getElementById('adhar-repo-css') as HTMLStyleElement | null;
+    if (!el) { el = document.createElement('style'); el.id = 'adhar-repo-css'; document.head.appendChild(el); }
+    el.textContent = repoCss;
+  }, [canvasCss, repoCss]);
+  useEffect(() => () => { document.getElementById('adhar-repo-css')?.remove(); }, []);
+
+  // Tell the host which page is open (deep links).
+  const onActiveRef = useRef(onActiveFileChange);
+  onActiveRef.current = onActiveFileChange;
+  useEffect(() => { onActiveRef.current?.(s.activeFileId); }, [s.activeFileId]);
+
   function buildPreviewDoc(opts: { chrome?: boolean } = {}): string {
     return buildPrototypeDoc({
       files: s.files,
       css: collectPageCSS(),
+      scoped: !!canvasCss,
       themeVars: designThemeVars(s.theme, s.darkMode, s.customTokenOverrides),
       dark: s.darkMode,
       startPageId: isActive && !activeFile?.symbol ? activeFile?.id : undefined,
       chrome: opts.chrome,
     });
-  }
-
-  async function exportReactApp() {
-    const { projectToFiles } = await import('./lib/project-export.ts');
-    const files = projectToFiles(currentProject());
-    const bytes = zipFiles(files);
-    const blob = new Blob([bytes as BlobPart], { type: 'application/zip' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${(project.name || 'app').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-react.zip`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-
-  function currentProject(): BuilderProject {
-    return { version: 1, name: project.name, files: s.files, settings: { framework: s.framework, theme: s.theme, darkMode: s.darkMode, customTokenOverrides: s.customTokenOverrides } };
   }
 
   // ─── Node operations ───────────────────────────────────────────
@@ -258,6 +303,10 @@ export default function Workbench({ mode, project, onChange, onSave }: Workbench
   }
   function deletePage(id: string) {
     if (listPages(s.files).length < 2) return;
+    if (findFileInTree(s.files, id)?.repoPath) {
+      toast.info('Pages in the repository are not deleted from here', { description: 'Remove the file (and its route) in code.' });
+      return;
+    }
     deleteFile(id);
   }
   function makeComponent(nodeId: string) {
@@ -468,6 +517,20 @@ export default function Workbench({ mode, project, onChange, onSave }: Workbench
       return;
     }
     const fileId = activeFile.id;
+    if (isActive && containsCode(activeNodes)) {
+      // The page holds code the designer preserves verbatim: AI adds to it,
+      // it never rewrites (and so never drops) that code.
+      const reply = await askAdharAi({
+        prompt: `${PAGE_INSTRUCTIONS}\n\nGenerate ONE new section to add to an existing page. Request: ${prompt}`,
+        context: [{ description: 'Builder page', value: `${activeFilePath} (${s.framework})` }],
+      });
+      const nodes = htmlToNodes(extractFence(reply, ['html']) ?? reply);
+      if (!nodes.length) { pushAIMessage('system', 'Adhar AI did not return any markup the canvas can use. Try rephrasing the request.'); return; }
+      const root = activeNodes.length === 1 && isContainer(activeNodes[0].type) ? activeNodes[0] : null;
+      updateNodes((old) => (root ? old.map((n) => (n.id === root.id ? { ...n, children: [...n.children, ...nodes] } : n)) : [...old, ...nodes]));
+      pushAIMessage('assistant', `Added ${nodes.length} section${nodes.length === 1 ? '' : 's'} to ${pageName}. This page contains code the designer keeps as written, so AI adds rather than rewrites. ⌘Z to undo.`);
+      return;
+    }
     if (isActive) {
       const current = activeNodes.length ? activeNodes.map(nodeToHTML).join('\n') : '';
       const reply = await askAdharAi({
@@ -568,6 +631,10 @@ export default function Workbench({ mode, project, onChange, onSave }: Workbench
 
       // Otherwise: treat as a refinement on the current active variant
       const op = parseRefinePrompt(prompt);
+      if (containsCode(activeNodes) && op.kind !== 'append-section') {
+        pushAIMessage('system', 'This page contains code the designer keeps as written, so templates can only add sections here (e.g. "add a pricing section"). Adhar AI can generate new sections too.');
+        return;
+      }
       const refined = applyRefine(activeNodes, op, (activeFile?.lastPrompt || '') + ' ' + prompt);
 
       setS((p) => {
@@ -923,7 +990,11 @@ export default function Workbench({ mode, project, onChange, onSave }: Workbench
   });
 
   // ─── Code generation ───────────────────────────────────────────
-  const fullCode = isActive ? generateCode(activeNodes, pageName, s.framework) : (activeFile?.content || '');
+  // Repo pages show the exact file they'd be saved as.
+  const repoCode = isActive && previewCode && activeFile && s.viewMode === 'code'
+    ? previewCode(activeFile.id, { version: 1, name: project.name, source: project.source, files: s.files, settings: { framework: s.framework, theme: s.theme, darkMode: s.darkMode, customTokenOverrides: s.customTokenOverrides } })
+    : null;
+  const fullCode = repoCode ?? (isActive ? generateCode(activeNodes, pageName, s.framework) : (activeFile?.content || ''));
 
   // ─── Menu definitions ──────────────────────────────────────────
   const menus = [
@@ -939,11 +1010,9 @@ export default function Workbench({ mode, project, onChange, onSave }: Workbench
       { label: 'separator' },
       ...(isActive ? [
         { label: 'Export prototype (HTML)', action: () => downloadFile(buildPreviewDoc(), `${(project.name || pageName).replace(/[^A-Za-z0-9_-]+/g, '-')}-prototype.html`, 'text/html') },
-        { label: 'Export React app (.zip)', action: () => void exportReactApp() },
         { label: 'Export as JSON', action: () => downloadFile(JSON.stringify(activeNodes, null, 2), `${pageName}.json`, 'application/json') },
       ] : []),
       { label: 'separator' },
-      { label: 'Export project file (.json)', action: () => downloadFile(JSON.stringify(currentProject(), null, 2), `${(project.name || 'project').replace(/[^A-Za-z0-9_-]+/g, '-')}.adhar.json`, 'application/json') },
     ]},
     { id: 'edit', label: 'Edit', items: [
       { label: 'Undo', shortcut: '⌘Z', action: undo, disabled: s.historyIndex < 0 },
@@ -999,7 +1068,7 @@ export default function Workbench({ mode, project, onChange, onSave }: Workbench
     { id: 'help', label: 'Help', items: [
       { label: 'Keyboard Shortcuts', action: () => { setS((p) => ({ ...p, rightPanel: 'settings' })); setRightCollapsed(false); } },
       { label: 'separator' },
-      { label: 'About Visual Designer', action: () => showAlert('Adhar Visual Designer', 'Design apps visually: pages and routes, reusable components, data-bound tables and lists, interactions and a clickable prototype.\nExports a runnable React + Tailwind app; commits to Gitea from the page header.') },
+      { label: 'About Visual Designer', action: () => showAlert('Adhar Visual Designer', 'Edit the pages of your React apps visually. Code the designer does not understand is kept exactly as written.\nChanges are saved back as a reviewed commit or pull request.') },
     ]},
   ];
 
@@ -1361,7 +1430,14 @@ export default function Workbench({ mode, project, onChange, onSave }: Workbench
         )}
 
         {/* Design view — Layout mode */}
-        {activeFile && s.viewMode === 'design' && isActive && s.canvasMode === 'layout' && (
+        {activeFile && s.viewMode === 'design' && isActive && activeFile.readonlyReason && (
+          <div className='flex-1 flex flex-col items-center justify-center gap-2 p-8 text-center' style={{ background: 'var(--b-canvas)' }}>
+            <span className='rounded bg-amber-500/15 px-2 py-0.5 font-mono text-xs text-amber-700 dark:text-amber-300'>{activeFile.repoPath}</span>
+            <h3 className='text-sm font-semibold text-foreground'>This page can't be edited visually</h3>
+            <p className='max-w-md text-xs text-muted-foreground'>{activeFile.readonlyReason} It stays exactly as written in the repository.</p>
+          </div>
+        )}
+        {activeFile && s.viewMode === 'design' && isActive && !activeFile.readonlyReason && s.canvasMode === 'layout' && (
           activeNodes.length === 0 && (!activeFile.variants || activeFile.variants.length === 0) ? (
             <DesignHero
               pageName={pageName}
@@ -1422,7 +1498,7 @@ export default function Workbench({ mode, project, onChange, onSave }: Workbench
                 onMoveUp={(nid) => moveUp(nid)} onMoveDown={(nid) => moveDown(nid)}
                 onWrap={(nid) => wrapNode(nid)} onDelete={deleteNode}
                 onZoom={(z) => setS((p) => ({ ...p, zoom: z }))}
-                artboardStyle={artboardStyle} artboardDark={s.darkMode}
+                artboardStyle={artboardStyle} artboardDark={s.darkMode} artboardClass={canvasCss ? 'adhar-repo-canvas' : undefined}
               />
             </div>
           )

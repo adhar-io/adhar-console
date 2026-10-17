@@ -58,14 +58,25 @@ import {
   useEntityDeployment,
   unhealthyNodes,
   useResourceTree,
-  workloadNamespace,
-} from '~/data/catalog-deployment.ts'
+  workloadNamespace, repoUrlFromDeployment, withRepoLink } from '~/data/catalog-deployment.ts'
 import { type EntityRoute, routeLabel, useEntityRoutes } from '~/data/catalog-routes.ts'
 import { type PipelineRunSummary, usePipelineRuns } from '~/data/catalog-pipelines.ts'
 import { describeProgress } from '../data/pipeline-progress.ts'
-import { type DocPage, type DocsSource, editUrl, headingOf, rawBase, repoFileUrl, type RepoTechScan, useDocPage, useDocsPages, useDocsSource, useRepoTechStack } from '~/data/catalog-docs.ts'
-import type { DetectedTech } from '~/data/catalog-techstack.ts'
+import { type DocPage, editUrl, headingOf, rawBase, useDocPage, useDocsPages, useDocsSource, useRepoTechStack } from '~/data/catalog-docs.ts'
+import {
+  genericTags,
+  TECH_GROUP_LABEL,
+  TECH_GROUP_ORDER,
+  TECH_PILL,
+  type TechBadge,
+  techStack,
+  withRepoTech,
+} from '~/data/catalog-tech-badges.ts'
+import { TechStackTab } from '~/components/catalog-tech-stack.tsx'
 import { useDiscoverAlerts } from '~/data/cross-module-signals.ts'
+import { useCompositionRoots } from '~/data/catalog-composition.ts'
+import { CompositionTab, compositionBadge } from './_catalog-composition.tsx'
+import { RawTab } from './_catalog-raw.tsx'
 import { DeleteEntityDialog } from '~/components/catalog-delete.tsx'
 import {
   CATEGORY_LABEL,
@@ -2661,286 +2672,8 @@ function sortEntities(rows: Entity[], by: SortKey): Entity[] {
 
 /* ─────────── tech-stack detection ─────────── */
 
-type TechTone =
-  | 'amber'
-  | 'sky'
-  | 'blue'
-  | 'cyan'
-  | 'indigo'
-  | 'violet'
-  | 'emerald'
-  | 'green'
-  | 'teal'
-  | 'rose'
-  | 'red'
-  | 'orange'
-  | 'slate'
-
-/** Where a technology sits in the stack — drives grouping on the detail tab. */
-type TechGroup = 'language' | 'framework' | 'datastore' | 'runtime' | 'build' | 'platform'
-
-interface TechBadge {
-  label: string
-  tone: TechTone
-  group: TechGroup
-  /** A version, when the tag, annotation or a build file carried one (`java-21` → "21"). */
-  version?: string
-  /** Repository path the version was read from (`pom.xml`), when the repo scan found it. */
-  file?: string
-  /** How the file says it — `<parent> spring-boot-starter-parent`, `engines.node >=20`. */
-  detail?: string
-  /** Other versions recorded elsewhere that disagree (a tag, the Dockerfile's base image). */
-  also?: Array<{ version: string; from: string; file?: boolean }>
-}
-
-/**
- * Split a tech tag into the TECH_MAP key and an optional version.
- *
- * `java-21`, `java@21`, `java:21`, `spring-boot-3.3.2`, `node_20` all read as
- * the tech plus a version; `java` alone reads as the tech. The key must be a
- * known tech — otherwise `python3` would become Python 3 by accident.
- */
-function parseTechTag(raw: string): { key: string; version?: string } {
-  const t = raw.trim().toLowerCase()
-  const m = t.match(/^([a-z#.+][a-z0-9#.+-]*?)[-@:_ ]v?(\d+(?:\.\d+)*)$/)
-  if (m && TECH_MAP[m[1]]) return { key: m[1], version: m[2] }
-  return { key: t }
-}
-
-/**
- * Versions declared as an annotation, for installs that keep tags for
- * classification and record the stack elsewhere:
- *   adhar.io/tech-stack: "java@21, spring-boot@3.3.2, postgres@16"
- *   adhar.io/java-version: "21"   (any `<tech>-version` key TECH_MAP knows)
- */
-function techFromAnnotations(entity: Entity): Array<{ key: string; version?: string }> {
-  const ann = entityAnnotations(entity)
-  const out: Array<{ key: string; version?: string }> = []
-  const list = (ann['adhar.io/tech-stack'] ?? ann['adhar.io/tech'] ?? '').trim()
-  if (list) {
-    for (const part of list.split(/[,;]/)) {
-      const item = part.trim().toLowerCase()
-      if (!item) continue
-      const m = item.match(/^([a-z#.+][a-z0-9#.+-]*?)(?:\s*[@:= ]\s*v?(\d+(?:\.\d+)*))?$/)
-      if (m && TECH_MAP[m[1]]) out.push({ key: m[1], version: m[2] })
-    }
-  }
-  for (const [k, v] of Object.entries(ann)) {
-    const m = k.match(/^adhar\.io\/([a-z0-9.+#-]+)-version$/)
-    if (m && TECH_MAP[m[1]] && v.trim()) out.push({ key: m[1], version: v.trim().replace(/^v/i, '') })
-  }
-  return out
-}
-
-/** Section headings, in the order a reader builds a mental model of a service. */
-const TECH_GROUP_LABEL: Record<TechGroup, string> = {
-  language: 'Languages',
-  framework: 'Frameworks & libraries',
-  datastore: 'Data & messaging',
-  runtime: 'Runtime & packaging',
-  build: 'Build tooling',
-  platform: 'Platform & delivery',
-}
-const TECH_GROUP_ORDER: TechGroup[] = ['language', 'framework', 'datastore', 'runtime', 'build', 'platform']
-
-/**
- * Known language / framework tags → a recognisable, brand-ish badge. Keys are
- * the lowercased tag values `catalog-live.ts` derives from a repo's primary
- * language (`['java','repo']`, `['python','ml']`) or `adhar.io/tags`, and the
- * keys the repository scan (`catalog-techstack.ts`) reports. Anything not in
- * here is treated as a generic tag — never guessed at.
- */
-const TECH_MAP: Record<string, TechBadge> = {
-  // ── languages ──
-  java: { label: 'Java', tone: 'orange', group: 'language' },
-  python: { label: 'Python', tone: 'blue', group: 'language' },
-  py: { label: 'Python', tone: 'blue', group: 'language' },
-  go: { label: 'Go', tone: 'cyan', group: 'language' },
-  golang: { label: 'Go', tone: 'cyan', group: 'language' },
-  typescript: { label: 'TypeScript', tone: 'blue', group: 'language' },
-  ts: { label: 'TypeScript', tone: 'blue', group: 'language' },
-  javascript: { label: 'JavaScript', tone: 'amber', group: 'language' },
-  js: { label: 'JavaScript', tone: 'amber', group: 'language' },
-  rust: { label: 'Rust', tone: 'orange', group: 'language' },
-  'c#': { label: 'C#', tone: 'violet', group: 'language' },
-  csharp: { label: 'C#', tone: 'violet', group: 'language' },
-  ruby: { label: 'Ruby', tone: 'red', group: 'language' },
-  php: { label: 'PHP', tone: 'indigo', group: 'language' },
-  kotlin: { label: 'Kotlin', tone: 'violet', group: 'language' },
-  scala: { label: 'Scala', tone: 'red', group: 'language' },
-  elixir: { label: 'Elixir', tone: 'violet', group: 'language' },
-  shell: { label: 'Shell', tone: 'slate', group: 'language' },
-  bash: { label: 'Shell', tone: 'slate', group: 'language' },
-  // Language runtimes sit with their language: "Node.js 20" is what a reader
-  // means by "which JavaScript".
-  node: { label: 'Node.js', tone: 'green', group: 'language' },
-  nodejs: { label: 'Node.js', tone: 'green', group: 'language' },
-  'node.js': { label: 'Node.js', tone: 'green', group: 'language' },
-  deno: { label: 'Deno', tone: 'slate', group: 'language' },
-  // ── frameworks & libraries ──
-  spring: { label: 'Spring', tone: 'green', group: 'framework' },
-  'spring-boot': { label: 'Spring Boot', tone: 'green', group: 'framework' },
-  springboot: { label: 'Spring Boot', tone: 'green', group: 'framework' },
-  'spring-cloud': { label: 'Spring Cloud', tone: 'green', group: 'framework' },
-  express: { label: 'Express', tone: 'slate', group: 'framework' },
-  react: { label: 'React', tone: 'cyan', group: 'framework' },
-  vue: { label: 'Vue', tone: 'emerald', group: 'framework' },
-  svelte: { label: 'Svelte', tone: 'orange', group: 'framework' },
-  next: { label: 'Next.js', tone: 'slate', group: 'framework' },
-  nextjs: { label: 'Next.js', tone: 'slate', group: 'framework' },
-  'next.js': { label: 'Next.js', tone: 'slate', group: 'framework' },
-  django: { label: 'Django', tone: 'emerald', group: 'framework' },
-  flask: { label: 'Flask', tone: 'slate', group: 'framework' },
-  fastapi: { label: 'FastAPI', tone: 'teal', group: 'framework' },
-  dotnet: { label: '.NET', tone: 'violet', group: 'framework' },
-  '.net': { label: '.NET', tone: 'violet', group: 'framework' },
-  rails: { label: 'Rails', tone: 'red', group: 'framework' },
-  'ruby-on-rails': { label: 'Rails', tone: 'red', group: 'framework' },
-  quarkus: { label: 'Quarkus', tone: 'sky', group: 'framework' },
-  micronaut: { label: 'Micronaut', tone: 'cyan', group: 'framework' },
-  grpc: { label: 'gRPC', tone: 'teal', group: 'framework' },
-  graphql: { label: 'GraphQL', tone: 'rose', group: 'framework' },
-  angular: { label: 'Angular', tone: 'red', group: 'framework' },
-  nestjs: { label: 'NestJS', tone: 'rose', group: 'framework' },
-  fastify: { label: 'Fastify', tone: 'slate', group: 'framework' },
-  gin: { label: 'Gin', tone: 'cyan', group: 'framework' },
-  echo: { label: 'Echo', tone: 'cyan', group: 'framework' },
-  fiber: { label: 'Fiber', tone: 'cyan', group: 'framework' },
-  actix: { label: 'Actix Web', tone: 'orange', group: 'framework' },
-  axum: { label: 'Axum', tone: 'orange', group: 'framework' },
-  rocket: { label: 'Rocket', tone: 'orange', group: 'framework' },
-  laravel: { label: 'Laravel', tone: 'red', group: 'framework' },
-  symfony: { label: 'Symfony', tone: 'slate', group: 'framework' },
-  phoenix: { label: 'Phoenix', tone: 'orange', group: 'framework' },
-  // ── data & messaging ──
-  postgres: { label: 'PostgreSQL', tone: 'blue', group: 'datastore' },
-  postgresql: { label: 'PostgreSQL', tone: 'blue', group: 'datastore' },
-  mysql: { label: 'MySQL', tone: 'sky', group: 'datastore' },
-  mariadb: { label: 'MariaDB', tone: 'orange', group: 'datastore' },
-  mongodb: { label: 'MongoDB', tone: 'green', group: 'datastore' },
-  redis: { label: 'Redis', tone: 'red', group: 'datastore' },
-  valkey: { label: 'Valkey', tone: 'red', group: 'datastore' },
-  kafka: { label: 'Kafka', tone: 'slate', group: 'datastore' },
-  rabbitmq: { label: 'RabbitMQ', tone: 'orange', group: 'datastore' },
-  clickhouse: { label: 'ClickHouse', tone: 'amber', group: 'datastore' },
-  elasticsearch: { label: 'Elasticsearch', tone: 'teal', group: 'datastore' },
-  opensearch: { label: 'OpenSearch', tone: 'teal', group: 'datastore' },
-  s3: { label: 'S3', tone: 'emerald', group: 'datastore' },
-  minio: { label: 'MinIO', tone: 'red', group: 'datastore' },
-  // ── runtime & packaging ──
-  docker: { label: 'Docker', tone: 'blue', group: 'runtime' },
-  oci: { label: 'OCI image', tone: 'blue', group: 'runtime' },
-  buildpacks: { label: 'Buildpacks', tone: 'sky', group: 'runtime' },
-  kpack: { label: 'kpack', tone: 'sky', group: 'runtime' },
-  helm: { label: 'Helm', tone: 'indigo', group: 'runtime' },
-  kustomize: { label: 'Kustomize', tone: 'indigo', group: 'runtime' },
-  serverless: { label: 'Serverless', tone: 'violet', group: 'runtime' },
-  knative: { label: 'Knative', tone: 'violet', group: 'runtime' },
-  // ── build tooling ──
-  maven: { label: 'Maven', tone: 'rose', group: 'build' },
-  gradle: { label: 'Gradle', tone: 'teal', group: 'build' },
-  npm: { label: 'npm', tone: 'red', group: 'build' },
-  pnpm: { label: 'pnpm', tone: 'amber', group: 'build' },
-  yarn: { label: 'Yarn', tone: 'sky', group: 'build' },
-  // ── platform & delivery ──
-  kubernetes: { label: 'Kubernetes', tone: 'blue', group: 'platform' },
-  k8s: { label: 'Kubernetes', tone: 'blue', group: 'platform' },
-  argocd: { label: 'Argo CD', tone: 'orange', group: 'platform' },
-  gitops: { label: 'GitOps', tone: 'orange', group: 'platform' },
-  tekton: { label: 'Tekton', tone: 'sky', group: 'platform' },
-  kargo: { label: 'Kargo', tone: 'amber', group: 'platform' },
-  otel: { label: 'OpenTelemetry', tone: 'indigo', group: 'platform' },
-  opentelemetry: { label: 'OpenTelemetry', tone: 'indigo', group: 'platform' },
-  prometheus: { label: 'Prometheus', tone: 'orange', group: 'platform' },
-  terraform: { label: 'Terraform', tone: 'violet', group: 'platform' },
-  crossplane: { label: 'Crossplane', tone: 'teal', group: 'platform' },
-}
-
-/** Full literal Tailwind classes (JIT-safe), matching the StatusBadge pill pattern. */
-const TECH_PILL: Record<TechTone, string> = {
-  amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 ring-amber-200',
-  sky: 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 ring-sky-200',
-  blue: 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 ring-blue-200',
-  cyan: 'bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 ring-cyan-200',
-  indigo: 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 ring-indigo-200',
-  violet: 'bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300 ring-violet-200',
-  emerald:
-    'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200',
-  green: 'bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300 ring-green-200',
-  teal: 'bg-teal-50 dark:bg-teal-500/10 text-teal-700 dark:text-teal-300 ring-teal-200',
-  rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 ring-rose-200',
-  red: 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 ring-red-200',
-  orange: 'bg-orange-50 dark:bg-orange-500/10 text-orange-700 dark:text-orange-300 ring-orange-200',
-  slate: 'bg-slate-100 dark:bg-slate-500/10 text-slate-700 dark:text-slate-300 ring-slate-300',
-}
-
-/** Lowercased tags that mapped to a tech badge — kept out of the generic tag row. */
-function techTagKeys(entity: Entity): Set<string> {
-  const out = new Set<string>()
-  for (const t of entity.metadata.tags ?? []) {
-    if (TECH_MAP[parseTechTag(t).key]) out.add(t.toLowerCase())
-  }
-  return out
-}
-
-/** Generic (non-tech) tags — the ones the plain tag treatment should render. */
-function genericTags(entity: Entity): string[] {
-  const tech = techTagKeys(entity)
-  return (entity.metadata.tags ?? []).filter((t) => !tech.has(t.toLowerCase()))
-}
-
-/**
- * Detected languages, frameworks, datastores — de-duped by label, each with
- * a version when one was recorded anywhere (tag or annotation). A versioned
- * mention wins over a bare one, so `java` + `adhar.io/java-version: 21`
- * reads as Java 21.
- */
-function techStack(entity: Entity): TechBadge[] {
-  const byLabel = new Map<string, TechBadge>()
-  const mentions = [
-    ...(entity.metadata.tags ?? []).map(parseTechTag),
-    ...techFromAnnotations(entity),
-  ]
-  for (const m of mentions) {
-    const hit = TECH_MAP[m.key]
-    if (!hit) continue
-    const cur = byLabel.get(hit.label)
-    if (!cur) byLabel.set(hit.label, m.version ? { ...hit, version: m.version } : hit)
-    else if (!cur.version && m.version) byLabel.set(hit.label, { ...hit, version: m.version })
-  }
-  return [...byLabel.values()]
-}
-
-/**
- * Fold what the repository's build files say into the catalog's own stack.
- * A build file is the ground truth for a version (it is what compiles), so
- * its number replaces a tag's; a tag or annotation that disagrees is kept
- * under `also` rather than silently dropped. Techs only the repository knows
- * about (Maven, the Dockerfile's base image) are added.
- */
-function withRepoTech(stack: TechBadge[], detected: DetectedTech[] | undefined): TechBadge[] {
-  if (!detected?.length) return stack
-  const out = [...stack]
-  for (const d of detected) {
-    const hit = TECH_MAP[d.key]
-    if (!hit) continue
-    const also = d.also.map((a) => ({ version: a.version, from: a.source, file: true }))
-    const i = out.findIndex((b) => b.label === hit.label)
-    if (i < 0) {
-      out.push({ ...hit, version: d.version, file: d.source, detail: d.detail, also })
-      continue
-    }
-    const cur = out[i]
-    if (!d.version) {
-      // The repo confirms the tech but not its version — keep the catalog's, note the file.
-      if (!cur.version) out[i] = { ...cur, file: d.source, detail: d.detail }
-      continue
-    }
-    const fromCatalog = cur.version && cur.version !== d.version && !cur.file ? [{ version: cur.version, from: 'catalog tag / annotation' }] : []
-    out[i] = { ...cur, version: d.version, file: d.source, detail: d.detail, also: [...fromCatalog, ...also] }
-  }
-  return out
-}
+// The vocabulary (TECH_MAP, tones, groups) and the catalog ⇄ repository merge
+// live in ~/data/catalog-tech-badges.ts, where they are unit-tested.
 
 function TechPill({ badge }: { badge: TechBadge }) {
   return (
@@ -3763,7 +3496,7 @@ function SectionHeader({
 
 /* ─────────── entity drawer ─────────── */
 
-type DrawerTab = 'overview' | 'deploy' | 'tech' | 'docs' | 'metrics' | 'relations' | 'scorecard' | 'raw'
+type DrawerTab = 'overview' | 'deploy' | 'composition' | 'tech' | 'docs' | 'metrics' | 'relations' | 'scorecard' | 'raw'
 
 function EntityDrawer({
   entity,
@@ -3873,8 +3606,6 @@ function EntityDrawer({
   // Tags and annotations, then whatever the repository's build files add —
   // that is where the Java and Spring Boot versions actually live.
   const giteaPublic = useToolPublicUrl('gitea')
-  const repoTech = useRepoTechStack(entity, giteaPublic)
-  const stack = useMemo(() => withRepoTech(techStack(entity), repoTech.data?.tech), [entity, repoTech.data])
   const generics = genericTags(entity)
   const version = entityVersion(entity)
   const health = entityHealth(entity, score)
@@ -3916,13 +3647,23 @@ function EntityDrawer({
   // Only query ArgoCD for entities that can actually be deployed — Users,
   // Groups, Domains never hit the proxy.
   const ann = entityAnnotations(entity)
-  const repoUrl = repoUrlFor(entity)
   const isDeployable = entity.kind === 'Component' || entity.kind === 'Resource'
   const wantsDeploy =
     isDeployable ||
-    Boolean(repoUrl) ||
+    Boolean(repoUrlFor(entity)) ||
     Boolean(ann['adhar.io/argocd-app'] || ann['adhar.io/ci'] || ann['adhar.io/ci-pipeline'])
   const deployment = useEntityDeployment(entity, wantsDeploy)
+  // The platform objects behind the entity (composite, claim, Argo apps) — the
+  // Composition tab's roots and the Raw tab's resource picker.
+  const composition = useCompositionRoots(entity, deployment.apps, entity.kind !== 'User')
+  // The repository: the entity's own annotation or link when it has one,
+  // otherwise the Argo CD source the control plane deploys it from. Without the
+  // fallback a scaffolded service showed "No repository linked" and an empty
+  // tech stack and docs, while its Argo CD app knew the repo all along.
+  const repoUrl = repoUrlFor(entity) ?? repoUrlFromDeployment(deployment, giteaPublic)
+  const enriched = useMemo(() => withRepoLink(entity, repoUrl), [entity, repoUrl])
+  const repoTech = useRepoTechStack(enriched, giteaPublic)
+  const stack = useMemo(() => withRepoTech(techStack(entity), repoTech.data?.tech), [entity, repoTech.data])
   // Where Prometheus should look. The namespace is pinned only when it is
   // KNOWN to be the Kubernetes one — the `adhar.io/namespace` annotation or
   // the Argo CD destination. The entity's own namespace is a catalog grouping
@@ -3964,6 +3705,14 @@ function EntityDrawer({
       label: 'Deployment',
       hidden: !showDeploy,
       badge: deployBadge,
+    },
+    {
+      id: 'composition',
+      label: 'Composition',
+      // Hidden when nothing is composed — but a discovery failure (RBAC) is
+      // shown, so the reason is visible rather than the tab just missing.
+      hidden: composition.roots.length === 0 && !composition.error,
+      badge: compositionBadge(composition),
     },
     {
       id: 'scorecard',
@@ -4326,6 +4075,7 @@ function EntityDrawer({
                     stack={stack}
                     version={version}
                     entity={entity}
+                    repoUrl={repoUrl}
                     scan={{ source: repoTech.source, data: repoTech.data, isLoading: repoTech.isLoading, isError: repoTech.isError }}
                     docsUrl={docsUrl}
                     deployment={showDeploy ? deployment : undefined}
@@ -4333,7 +4083,7 @@ function EntityDrawer({
                   />
                 ) : null}
 
-                {active === 'docs' ? <TechDocsTab url={docsUrl} entity={entity} monitorUrl={monitorUrl} wide={docsWide} onWide={setWide} /> : null}
+                {active === 'docs' ? <TechDocsTab url={docsUrl} entity={enriched} monitorUrl={monitorUrl} wide={docsWide} onWide={setWide} /> : null}
                 {active === 'metrics' && metricTarget ? (
                   <EntityMetrics target={metricTarget} range={metricRange} onRange={setMetricRange} grafanaUrl={monitorUrl || grafanaBase} />
                 ) : null}
@@ -4383,50 +4133,9 @@ function EntityDrawer({
 
                 {active === 'scorecard' ? <ScorecardTab score={score} onAsk={() => askAboutEntity(ai, entity)} /> : null}
 
-                {active === 'raw' ? (
-                  <>
-                    <Card>
-                      <CardHeader>
-                        <h3 className="text-sm font-semibold text-content">Metadata</h3>
-                      </CardHeader>
-                      <CardBody className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <Field
-                          label="Namespace"
-                          value={
-                            <code className="text-xs">{entity.metadata.namespace ?? 'default'}</code>
-                          }
-                        />
-                        <Field
-                          label="Created"
-                          value={
-                            <code className="text-xs">{formatDate(entity.metadata.createdAt)}</code>
-                          }
-                        />
-                        <Field
-                          label="Updated"
-                          value={
-                            <code className="text-xs">{formatDate(entity.metadata.updatedAt)}</code>
-                          }
-                        />
-                        <Field
-                          label="API version"
-                          value={<code className="text-xs">{entity.apiVersion}</code>}
-                        />
-                      </CardBody>
-                    </Card>
+                {active === 'composition' ? <CompositionTab roots={composition} /> : null}
 
-                    <Card>
-                      <CardHeader>
-                        <h3 className="text-sm font-semibold text-content">Raw entity</h3>
-                      </CardHeader>
-                      <CardBody>
-                        <pre className="max-h-72 overflow-auto rounded-lg bg-code p-4 font-mono text-[11px] leading-relaxed text-code-fg">
-                          {JSON.stringify(entity, null, 2)}
-                        </pre>
-                      </CardBody>
-                    </Card>
-                  </>
-                ) : null}
+                {active === 'raw' ? <RawTab entity={entity} roots={composition} relationCount={relationCount} /> : null}
               </div>
             )}
           </Tabs>
@@ -7266,248 +6975,7 @@ function ActivityCard({ events }: { events: Activity[] }) {
   )
 }
 
-/* ─────────── tech stack card (drawer) ─────────── */
-
-function TechStackTab({
-  stack,
-  version,
-  entity,
-  scan,
-  docsUrl,
-  deployment,
-  onOpenDocs,
-}: {
-  stack: TechBadge[]
-  version?: string
-  entity: Entity
-  /** The repository build-file scan behind the versions (`useRepoTechStack`). */
-  scan?: { source: DocsSource | null; data?: RepoTechScan; isLoading: boolean; isError: boolean }
-  docsUrl?: string
-  deployment?: EntityDeployment
-  onOpenDocs?: () => void
-}) {
-  const ann = entityAnnotations(entity)
-  const repoUrl = repoUrlFor(entity)
-  const grouped = TECH_GROUP_ORDER
-    .map((g) => ({ group: g, items: stack.filter((b) => b.group === g) }))
-    .filter((x) => x.items.length > 0)
-  const versioned = stack.filter((b) => b.version)
-  const languages = stack.filter((b) => b.group === 'language')
-  const frameworks = stack.filter((b) => b.group === 'framework')
-  const datastores = stack.filter((b) => b.group === 'datastore')
-  const versionSource = ann['adhar.io/version']
-    ? 'adhar.io/version annotation'
-    : ann['backstage.io/version']
-      ? 'backstage.io/version annotation'
-      : ann['app.kubernetes.io/version']
-        ? 'app.kubernetes.io/version label'
-        : version
-          ? 'version-shaped tag'
-          : undefined
-  const scanSrc = scan?.source ?? null
-  const scanAt = scanSrc && scan?.data ? { ...scanSrc, ref: scan.data.ref } : scanSrc
-  const fileLink = (path: string, className?: string) => {
-    const href = scanAt ? repoFileUrl(scanAt, path) : undefined
-    return href ? (
-      <a href={href} target="_blank" rel="noreferrer" className={cn('font-mono text-brand-700 hover:underline dark:text-brand-300', className)} title={`Open ${path}`}>{path}</a>
-    ) : (
-      <span className={cn('font-mono', className)}>{path}</span>
-    )
-  }
-  // Which file, tag or annotation each badge came from, so a wrong version
-  // can be traced to the line that set it.
-  const sourceOf = (b: TechBadge): React.ReactNode => {
-    if (b.file) return <>{fileLink(b.file)}{b.detail ? <span className="text-content-subtle"> · {b.detail}</span> : null}</>
-    const tag = (entity.metadata.tags ?? []).find((t) => TECH_MAP[parseTechTag(t).key]?.label === b.label)
-    if (tag && (!b.version || parseTechTag(tag).version)) return `tag ${tag}`
-    const fromAnn = techFromAnnotations(entity).find((m) => TECH_MAP[m.key]?.label === b.label)
-    if (fromAnn) return fromAnn.version ? 'adhar.io/tech-stack' : 'annotation'
-    return tag ? `tag ${tag}` : 'catalog'
-  }
-  const withVersion = (list: TechBadge[]) => list.map((b) => (b.version ? `${b.label} ${b.version}` : b.label)).join(', ')
-  // The tile's subline names the file the first versioned item came from — "from pom.xml" answers "says who?".
-  const tileSub = (list: TechBadge[], noun: string) => {
-    if (!list.length) return scan?.isLoading ? 'reading the repository…' : `no ${noun} found`
-    const n = list.filter((b) => b.version).length
-    const file = list.find((b) => b.version && b.file)?.file
-    return file ? `from ${file.split('/').pop()}${n < list.length ? ` · ${n}/${list.length} versioned` : ''}` : `${n}/${list.length} with a version`
-  }
-  const envImages = (deployment?.environments ?? []).map((e) => ({ env: e.label, app: e.app.metadata.name, images: e.app.status.images }))
-  const anyImages = envImages.some((e) => e.images.length)
-
-  const tiles: Array<{ label: string; value: string; sub: string }> = [
-    { label: 'Languages & runtimes', value: languages.length ? withVersion(languages) : '—', sub: tileSub(languages, 'language') },
-    { label: 'Frameworks', value: frameworks.length ? withVersion(frameworks) : '—', sub: tileSub(frameworks, 'framework') },
-    { label: 'Data & messaging', value: datastores.length ? datastores.map((b) => b.label).join(', ') : '—', sub: datastores.length ? `${datastores.length} ${datastores.length === 1 ? 'store' : 'stores'}` : 'none found' },
-    { label: 'App version', value: version ?? '—', sub: versionSource ?? 'not published' },
-  ]
-  const scanned = scan?.data?.files ?? []
-
-  return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-        {tiles.map((t) => (
-          <div key={t.label} className="min-w-0 rounded-xl border border-edge-default bg-surface-raised px-3.5 py-3 shadow-sm">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-content-subtle">{t.label}</div>
-            <div className="mt-1.5 truncate text-[15px] font-semibold leading-tight text-content" title={t.value}>{t.value}</div>
-            <div className="mt-1 truncate text-[11px] text-content-muted" title={t.sub}>{t.sub}</div>
-          </div>
-        ))}
-      </div>
-
-      {stack.length === 0 && !version ? (
-        <DrawerSection title="Stack">
-          {scan?.isLoading ? (
-            <div className="flex items-center gap-2 text-[12px] text-content-muted"><Spinner size={12} /> Reading build files from the repository…</div>
-          ) : (
-            <p className="text-[12px] leading-relaxed text-content-muted">
-              Nothing recorded for <code className="font-mono text-content">{entity.metadata.name}</code>
-              {scanSrc ? ', and no build file in the repository names its stack' : ''}. Commit a build file (<code className="font-mono text-content">pom.xml</code>, <code className="font-mono text-content">build.gradle</code>, <code className="font-mono text-content">package.json</code>, <code className="font-mono text-content">go.mod</code>) or tag it with its stack and versions — for example{' '}
-              <code className="font-mono text-content">java-21</code>, <code className="font-mono text-content">spring-boot-3.3</code>, <code className="font-mono text-content">postgres-16</code> — or set{' '}
-              <code className="font-mono text-content">adhar.io/tech-stack: "java@21, spring-boot@3.3.2"</code>.
-            </p>
-          )}
-        </DrawerSection>
-      ) : (
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-          {grouped.map(({ group, items }) => (
-            <DrawerSection
-              key={group}
-              title={TECH_GROUP_LABEL[group]}
-              aside={<span className="text-[11px] text-content-subtle">{items.filter((b) => b.version).length}/{items.length} versioned</span>}
-            >
-              <ul className="divide-y divide-edge-subtle">
-                {items.map((b) => (
-                  <li key={b.label} className="flex items-start gap-3 py-2 first:pt-0 last:pb-0">
-                    <span className={cn('inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold ring-1 ring-inset', TECH_PILL[b.tone])}>
-                      {b.label.replace(/[^A-Za-z0-9#.+]/g, '').slice(0, 2).toUpperCase()}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-medium text-content">{b.label}</span>
-                      <span className="block truncate text-[10px] text-content-subtle">from {sourceOf(b)}</span>
-                      {b.also?.length ? (
-                        <span className="mt-0.5 block truncate text-[10px] text-amber-700 dark:text-amber-300" title="Recorded differently elsewhere — worth reconciling">
-                          also {b.also.map((a, i) => (
-                            <span key={`${a.version}-${a.from}`}>
-                              {i ? ', ' : ''}
-                              <span className="font-mono font-semibold">{a.version}</span> in {a.file ? fileLink(a.from, 'text-amber-700 dark:text-amber-300') : a.from}
-                            </span>
-                          ))}
-                        </span>
-                      ) : null}
-                    </span>
-                    {b.version ? (
-                      <span className="shrink-0 rounded-md bg-surface-sunken px-2 py-1 font-mono text-[12px] font-semibold text-content ring-1 ring-inset ring-edge-subtle">{b.version}</span>
-                    ) : (
-                      <span className="shrink-0 rounded-md border border-dashed border-edge-default px-2 py-1 text-[10px] italic text-content-subtle" title={b.file ? `${b.file} does not pin a version` : `Add the version to the tag, e.g. ${b.label.toLowerCase().replace(/\s+/g, '-')}-<version>`}>
-                        no version
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </DrawerSection>
-          ))}
-        </div>
-      )}
-
-      {deployment ? (
-        <DrawerSection title="Running now" aside={<span className="text-[11px] text-content-subtle">container images per environment · from Argo CD</span>}>
-          {deployment.isLoading ? (
-            <div className="flex items-center gap-2 text-[11px] text-content-subtle"><Spinner size={12} /> Reading Argo CD…</div>
-          ) : !anyImages ? (
-            <p className="text-[11px] text-content-subtle">
-              {deployment.isError ? 'Argo CD is not reachable.' : deployment.apps.length ? 'Argo CD reports no images for this application.' : 'Not deployed via Argo CD, so there is nothing running to report.'}
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-[12px]">
-                <thead>
-                  <tr className="text-left text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
-                    <th className="pb-1.5 pr-4 font-semibold">Environment</th>
-                    <th className="pb-1.5 pr-4 font-semibold">Image</th>
-                    <th className="pb-1.5 font-semibold">Tag</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-edge-subtle">
-                  {envImages.flatMap((e) =>
-                    e.images.map((img, i) => {
-                      const short = shortImage(img)
-                      const [name, tag] = short.includes(':') ? [short.slice(0, short.lastIndexOf(':')), short.slice(short.lastIndexOf(':') + 1)] : [short, 'latest']
-                      return (
-                        <tr key={`${e.app}-${img}`}>
-                          <td className="py-1.5 pr-4 align-top text-content">{i === 0 ? e.env : ''}</td>
-                          <td className="py-1.5 pr-4 align-top font-mono text-[11px] text-content-muted" title={img}>{name}</td>
-                          <td className="py-1.5 align-top">
-                            <span className={cn('rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold', tag === 'latest' ? 'bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300' : 'bg-surface-sunken text-content')} title={tag === 'latest' ? 'A :latest tag cannot be rolled back to' : undefined}>
-                              {tag}
-                            </span>
-                          </td>
-                        </tr>
-                      )
-                    }),
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </DrawerSection>
-      ) : null}
-
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <DrawerSection title="Where this comes from">
-          <dl className="-my-1 divide-y divide-edge-subtle">
-            {[
-              {
-                label: 'Build files',
-                node: !scanSrc
-                  ? 'no readable repository linked'
-                  : scan?.isLoading
-                    ? <span className="inline-flex items-center gap-1.5 text-content-muted"><Spinner size={11} /> reading…</span>
-                    : scan?.isError
-                      ? `couldn't read ${scanSrc.org}/${scanSrc.repo}`
-                      : scanned.length
-                        ? <span className="break-words">{scanned.map((f, i) => <span key={f}>{i ? ', ' : ''}{fileLink(f)}</span>)}</span>
-                        : 'none at the repository root',
-              },
-              { label: 'Catalog', node: (entity.metadata.tags ?? []).some((t) => TECH_MAP[parseTechTag(t).key]) || techFromAnnotations(entity).length ? `tags${techFromAnnotations(entity).length ? ' and adhar.io/tech-stack' : ''}` : 'no tech tags' },
-              { label: 'Versions', node: versioned.length ? `${versioned.length} of ${stack.length} known` : 'none recorded' },
-              { label: 'App version', node: versionSource ?? 'not published' },
-              { label: 'Repository', node: repoUrl ? <a href={repoUrl} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline dark:text-brand-300">{repoUrl.replace(/^https?:\/\//, '')}{scan?.data ? ` @ ${scan.data.ref}` : ''}</a> : 'not linked' },
-            ].map((r) => (
-              // A host plus an org and a repo does not fit beside its own
-              // label on a phone, and truncating it hid the part that
-              // identifies the repository. It wraps under the label instead.
-              <div key={r.label} className="flex flex-col gap-0.5 py-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
-                <dt className="shrink-0 text-[11px] font-medium text-content-subtle">{r.label}</dt>
-                <dd className={cn('min-w-0 break-words text-[12px] text-content sm:text-right', r.label !== 'Build files' && 'sm:truncate')}>{r.node}</dd>
-              </div>
-            ))}
-          </dl>
-        </DrawerSection>
-        <DrawerSection
-          title="Tech docs"
-          aside={docsUrl && onOpenDocs ? (
-            <button type="button" onClick={onOpenDocs} className="inline-flex min-h-9 items-center text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300 sm:min-h-0">Read here →</button>
-          ) : undefined}
-        >
-          <div className="flex items-center gap-2">
-            {docsUrl ? (
-              <StatusBadge kind="healthy" className="px-1.5 py-0 text-[10px]">registered</StatusBadge>
-            ) : (
-              <StatusBadge kind="paused" className="px-1.5 py-0 text-[10px]">not registered</StatusBadge>
-            )}
-          </div>
-          <p className="mt-2 text-[11px] leading-relaxed text-content-muted">
-            {docsUrl
-              ? 'Markdown kept in the repository renders inside the console, with a table of contents and search.'
-              : 'Add a docs link to metadata.links, or the backstage.io/techdocs-ref / adhar.io/docs annotation, to publish documentation for this component.'}
-          </p>
-        </DrawerSection>
-      </div>
-    </div>
-  )
-}
+/* The drawer's Tech stack tab lives in ~/components/catalog-tech-stack.tsx. */
 
 /* ─────────── lightweight markdown renderer (no deps, XSS-safe) ─────────── */
 

@@ -6,7 +6,7 @@ import type { ProjectFile } from './lib/builder-types.ts'
  * A project is a small virtual file tree: pages and reusable components hold
  * visual node trees, `data/*.json` files are data sources, and other files hold
  * text (Mermaid diagrams, workflows). See lib/studio.ts for the app model and
- * lib/react-export.ts for what an export produces.
+ * code/repo-session.ts for how a repository maps onto it.
  */
 
 /** `visual` is the Visual Designer; `workflow` and `theme` open on those panels. */
@@ -31,12 +31,8 @@ export interface BuilderProject {
   name: string
   files: ProjectFile[]
   settings: BuilderSettings
-}
-
-/** One file of the generated output — what "Commit to repo" writes. */
-export interface GeneratedFile {
-  path: string
-  content: string
+  /** Repository-backed projects: where the files came from. */
+  source?: { repo: string; branch: string; commit?: string }
 }
 
 /** What `onSave` receives. */
@@ -49,20 +45,18 @@ export interface BuilderSaveEvent {
 }
 
 /**
- * Handed to `actions` so a host page can put project-aware controls in the
- * page header (e.g. Develop's "Commit to repo").
+ * Handed to `actions` / `onSaveRequest` so a host page can put project-aware
+ * controls in the page header and run its own save flow.
  */
 export interface BuilderController {
-  project: BuilderProject | null
+  /** The project as edited right now. */
+  readonly project: BuilderProject | null
   /** Unsaved edits since the last save / load. */
   dirty: boolean
   saving: boolean
   save(): Promise<void>
-  /** Replace the open project (e.g. one read back from a repository). */
+  /** Replace the open project (e.g. reloaded from a branch). */
   loadProject(project: BuilderProject, opts?: { dirty?: boolean }): void
-  /** Render the project to files: a runnable React + Tailwind app, diagrams, workflows, manifest. */
-  generateFiles(opts?: { basePath?: string }): Promise<GeneratedFile[]>
+  /** The host persisted the edits: drop the local draft, clear "dirty". */
+  markSaved(): void
 }
-
-/** Path of the project manifest inside a repository. Reopened by "Open from repo". */
-export const BUILDER_MANIFEST = '.adhar/builder.json'

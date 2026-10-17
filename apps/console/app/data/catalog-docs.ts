@@ -2,7 +2,22 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { gitea } from '@adhar/api-clients'
 import type { Entity } from './catalog.ts'
-import { type DetectedTech, detectTech, hasManifest, mergeDetections, wantedFiles } from './catalog-techstack.ts'
+import {
+  type AppVersionHint,
+  type CiSummary,
+  type DetectedTech,
+  describeDockerfile,
+  detectAppVersions,
+  detectTech,
+  type DockerfileSummary,
+  mergeDetections,
+  NESTED_DIRS,
+  parseCiFile,
+  chooseFocus,
+  planScan,
+  SKIP_DIRS,
+  tagVersion,
+} from './catalog-techstack.ts'
 
 /**
  * TechDocs for a catalog entity — where the docs live, and how to read them
@@ -40,6 +55,12 @@ export interface DocsSource {
   ref: string
   /** Directory inside the repository the docs are rooted at ('' = root). */
   dir: string
+  /**
+   * True when the ref came from the entity (a `/src/branch/<ref>` URL or an
+   * `adhar.io/branch` annotation). Otherwise `ref` is only a guess ("main")
+   * and the repository's real default branch should be read.
+   */
+  refExplicit?: boolean
 }
 
 export interface DocPage {
@@ -182,7 +203,14 @@ export function resolveRepoSource(entity: Entity, giteaPublicUrl: string): DocsS
   }
   const kind = kindForHost(p.host, giteaHost)
   if (!kind) return null
-  return { kind, url: repoUrl, org: p.org, repo: p.repo, ref: p.ref ?? ann['adhar.io/branch'] ?? ann['adhar.io/default-branch'] ?? 'main', dir: '' }
+  const explicitRef = p.ref ?? ann['adhar.io/branch'] ?? ann['adhar.io/default-branch']
+  // The entity's own folder in a monorepo: an explicit annotation, else the
+  // tree path of a source-location / repo link (`…/src/branch/main/apps/api`).
+  // A link to a file (`…/catalog-info.yaml`) names its folder, not itself.
+  const dir = (ann['adhar.io/source-path'] ?? ann['adhar.io/path'] ?? p.dir ?? '')
+    .replace(/^\.?\/+|\/+$/g, '')
+    .replace(/(^|\/)[^/]+\.(ya?ml|json|xml|md|toml|txt)$/i, '')
+  return { kind, url: repoUrl, org: p.org, repo: p.repo, ref: explicitRef ?? 'main', dir, refExplicit: Boolean(explicitRef) }
 }
 
 /* ─────────── reading a repository ─────────── */
@@ -364,66 +392,210 @@ export function repoFileUrl(src: DocsSource, path: string): string | undefined {
 
 /* ─────────── tech stack from the repository's build files ─────────── */
 
+export interface RepoRelease {
+  /** The version read from the tag (`v1.4.2` → `1.4.2`). */
+  version: string
+  tag: string
+  kind: 'release' | 'tag'
+  name?: string
+  url?: string
+  at?: string
+}
+
 export interface RepoTechScan {
-  /** The branch actually read (falls back to `master` when `main` is absent). */
+  /** The branch actually read. */
   ref: string
+  /** The repository's default branch, when the forge reported it. */
+  defaultBranch?: string
+  /** Why `ref` was used: the entity named it, it is the default branch, or the `master` fallback. */
+  refSource: 'entity' | 'default-branch' | 'fallback'
   /** Files read, as repository paths. */
   files: string[]
   tech: DetectedTech[]
+  /** The folder treated as this entity's app (monorepos), '' for the root. */
+  focus: string
+  /** How `focus` was chosen. */
+  focusReason?: string
+  /** Folders whose build files were read, focus first. */
+  scannedDirs: string[]
+  /** Paths in the repository listing (after vendor folders are skipped). */
+  pathsSeen: number
+  /** True when the forge capped the recursive listing. */
+  truncated: boolean
+  /** Bytes per language, from the forge's language statistics. */
+  languages?: Record<string, number>
+  /** The application's version as its build files give it, best first. */
+  appVersions: AppVersionHint[]
+  /** Latest published release (else newest tag). */
+  release?: RepoRelease
+  /** CI definitions read (Tekton first). */
+  ci: CiSummary[]
+  /** What each Dockerfile builds. */
+  containers: DockerfileSummary[]
 }
 
-/** Subfolders a service often keeps its build in when the root has none. */
-const NESTED_DIRS = /^(backend|server|service|api|app|frontend|web)$/i
-const MAX_FILES = 24
-
-async function scanRepoTech(src: DocsSource): Promise<RepoTechScan> {
-  let ref = src.ref
-  let root: TreeEntry[]
+/** The repository's default branch, or undefined when the forge won't say. */
+async function defaultBranchOf(src: DocsSource): Promise<string | undefined> {
   try {
-    root = await listDir(src, '')
-  } catch (err) {
-    // Older repositories default to master; the catalog only knows "main".
-    if (ref !== 'main') throw err
-    ref = 'master'
-    root = await listDir({ ...src, ref }, '')
+    if (src.kind === 'gitea') return (await giteaClient.getRepo(src.org!, src.repo!)).default_branch || undefined
+    if (src.kind === 'github') {
+      const res = await fetch(`https://api.github.com/repos/${src.org}/${src.repo}`, { headers: { accept: 'application/vnd.github+json' } })
+      if (!res.ok) return undefined
+      return ((await res.json()) as { default_branch?: string }).default_branch || undefined
+    }
+  } catch {
+    /* unknown — the caller falls back to the entity's ref */
   }
-  const at = { ...src, ref }
-  const blobs = root.filter((e) => e.type === 'blob').map((e) => e.path)
+  return undefined
+}
+
+/** Every blob path at `ref`, in one request. Throws when the forge can't list recursively. */
+async function listAll(src: DocsSource): Promise<{ paths: string[]; truncated: boolean }> {
+  if (src.kind === 'gitea') {
+    const t = await giteaClient.getTreeRecursive(src.org!, src.repo!, src.ref)
+    return { paths: t.entries.map((e) => e.path), truncated: t.truncated }
+  }
+  if (src.kind === 'github') {
+    const res = await fetch(`https://api.github.com/repos/${src.org}/${src.repo}/git/trees/${encodeURIComponent(src.ref)}?recursive=1`, {
+      headers: { accept: 'application/vnd.github+json' },
+    })
+    if (!res.ok) throw new Error(`GitHub ${res.status}`)
+    const raw = (await res.json()) as { tree?: Array<{ path: string; type: string }>; truncated?: boolean }
+    return { paths: (raw.tree ?? []).filter((e) => e.type === 'blob').map((e) => e.path), truncated: Boolean(raw.truncated) }
+  }
+  throw new Error('not a repository source')
+}
+
+/** Older forges without the recursive tree: the root plus the usual service folders. */
+async function listShallow(src: DocsSource): Promise<string[]> {
+  const root = await listDir(src, '')
+  const out = root.filter((e) => e.type === 'blob').map((e) => e.path)
   const dirs = root.filter((e) => e.type === 'tree').map((e) => e.path)
-  const listing = [...blobs]
-  let want = wantedFiles(blobs, dirs)
-  // No build file at the root: look one level into the usual service folders.
-  if (!hasManifest(blobs)) {
-    for (const d of dirs.filter((x) => NESTED_DIRS.test(x.split('/').pop() ?? '')).slice(0, 3)) {
-      try {
-        const sub = await listDir(at, d)
-        const sb = sub.filter((e) => e.type === 'blob').map((e) => e.path)
-        listing.push(...sb)
-        want = [...want, ...wantedFiles(sb, sub.filter((e) => e.type === 'tree').map((e) => e.path))]
-      } catch {
-        /* folder unreadable — skip */
+  const want = [
+    ...(src.dir ? [src.dir] : []),
+    ...dirs.filter((d) => NESTED_DIRS.test(d) || /^(\.tekton|\.gitea|\.github|gradle|\.mvn)$/.test(d)),
+  ].slice(0, 6)
+  for (const d of want) {
+    try {
+      const sub = await listDir(src, d)
+      out.push(...sub.filter((e) => e.type === 'blob').map((e) => e.path))
+      // one more level for CI workflow folders
+      for (const w of sub.filter((e) => e.type === 'tree' && /\/(workflows|wrapper)$/.test(e.path))) {
+        out.push(...(await listDir(src, w.path)).filter((e) => e.type === 'blob').map((e) => e.path))
       }
+    } catch {
+      /* folder unreadable — skip */
     }
   }
-  want = want.slice(0, MAX_FILES)
-  const read = await Promise.allSettled(want.map((p) => readFile(at, p)))
+  return out
+}
+
+async function languagesOf(src: DocsSource): Promise<Record<string, number> | undefined> {
+  try {
+    if (src.kind === 'gitea') return await giteaClient.listLanguages(src.org!, src.repo!)
+    if (src.kind === 'github') {
+      const res = await fetch(`https://api.github.com/repos/${src.org}/${src.repo}/languages`, { headers: { accept: 'application/vnd.github+json' } })
+      return res.ok ? ((await res.json()) as Record<string, number>) : undefined
+    }
+  } catch {
+    /* no stats */
+  }
+  return undefined
+}
+
+/** Latest published release, else the newest tag. Gitea only (GitHub would need auth for rate limits). */
+async function latestRelease(src: DocsSource): Promise<RepoRelease | undefined> {
+  if (src.kind !== 'gitea') return undefined
+  try {
+    const rels = (await giteaClient.listReleases(src.org!, src.repo!)).filter((r) => !r.draft)
+    const rel = rels.find((r) => !r.prerelease) ?? rels[0]
+    const v = rel ? tagVersion(rel.tag_name) : undefined
+    if (rel && v) return { version: v, tag: rel.tag_name, kind: 'release', name: rel.name || undefined, url: rel.html_url, at: rel.published_at ?? rel.created_at }
+    const tags = await giteaClient.listTags(src.org!, src.repo!)
+    const tag = tags.find((t) => tagVersion(t.name))
+    if (tag) return { version: tagVersion(tag.name)!, tag: tag.name, kind: 'tag', at: tag.commit?.created }
+  } catch {
+    /* no releases readable */
+  }
+  return undefined
+}
+
+export async function scanRepoTech(src: DocsSource, entityName = ''): Promise<RepoTechScan> {
+  const defaultBranch = await defaultBranchOf(src)
+  let ref = src.refExplicit ? src.ref : defaultBranch ?? src.ref
+  let refSource: RepoTechScan['refSource'] = src.refExplicit ? 'entity' : defaultBranch ? 'default-branch' : 'fallback'
+  let paths: string[]
+  let truncated = false
+  const listAt = async (r: string) => {
+    try {
+      const all = await listAll({ ...src, ref: r })
+      truncated = all.truncated
+      return all.paths
+    } catch {
+      return listShallow({ ...src, ref: r })
+    }
+  }
+  try {
+    paths = await listAt(ref)
+  } catch (err) {
+    // The named branch is gone, or the guess was wrong: try the default branch, then master.
+    const next = defaultBranch && defaultBranch !== ref ? defaultBranch : ref !== 'master' ? 'master' : undefined
+    if (!next) throw err
+    ref = next
+    refSource = next === defaultBranch ? 'default-branch' : 'fallback'
+    paths = await listAt(ref)
+  }
+  const at = { ...src, ref }
+  const { focus, reason } = chooseFocus(paths.filter((p) => !SKIP_DIRS.test(p)), entityName, src.dir)
+  const plan = planScan(paths, focus)
+  const [read, languages, release] = await Promise.all([
+    Promise.allSettled(plan.want.map((p) => readFile(at, p))),
+    languagesOf(at),
+    latestRelease(at),
+  ])
   const files: Record<string, string> = {}
   read.forEach((r, i) => {
-    if (r.status === 'fulfilled') files[want[i]] = r.value
+    if (r.status === 'fulfilled') files[plan.want[i]] = r.value
   })
-  return { ref, files: Object.keys(files), tech: mergeDetections(detectTech(files, listing)) }
+  const ci: CiSummary[] = []
+  const containers: DockerfileSummary[] = []
+  for (const [path, text] of Object.entries(files)) {
+    const c = parseCiFile(text, path)
+    if (c) ci.push(c.summary)
+    if (/^(docker|container)file(\.[\w.-]+)?$/i.test(path.split('/').pop() ?? '') || /\.dockerfile$/i.test(path)) containers.push(describeDockerfile(text, path))
+  }
+  return {
+    ref,
+    defaultBranch,
+    refSource,
+    files: Object.keys(files),
+    tech: mergeDetections(detectTech(files, plan.listing)),
+    focus,
+    focusReason: reason,
+    scannedDirs: plan.dirs,
+    pathsSeen: plan.listing.length,
+    truncated,
+    languages,
+    appVersions: detectAppVersions(files, plan.dirs),
+    release,
+    ci,
+    containers,
+  }
 }
 
 /**
  * Languages, frameworks and their versions, read from the repository's build
- * files (pom.xml, build.gradle, package.json, go.mod, Dockerfile, …). The
- * scan is a handful of contents-API reads, cached like the docs tree.
+ * files (pom.xml, build.gradle, package.json, go.mod, Dockerfile, …), plus
+ * the forge's language statistics, the latest release, CI definitions and
+ * Dockerfiles. One recursive tree request, a capped number of file reads,
+ * cached like the docs tree.
  */
 export function useRepoTechStack(entity: Entity, giteaPublicUrl: string) {
   const src = useMemo(() => resolveRepoSource(entity, giteaPublicUrl), [entity, giteaPublicUrl])
+  const name = entity.metadata.name
   const query = useQuery({
-    queryKey: ['catalog', 'tech', src?.kind, src?.org, src?.repo, src?.ref],
-    queryFn: () => scanRepoTech(src!),
+    queryKey: ['catalog', 'tech', 'v2', src?.kind, src?.org, src?.repo, src?.ref, src?.refExplicit, src?.dir, name],
+    queryFn: () => scanRepoTech(src!, name),
     enabled: Boolean(src),
     staleTime: REFRESH_MS,
     retry: 0,

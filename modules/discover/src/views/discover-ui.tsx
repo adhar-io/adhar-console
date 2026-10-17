@@ -18,8 +18,8 @@ export function Segmented<T extends string>({
   ariaLabel,
 }: {
   value: T
-  options: Array<{ id: T; label: ReactNode; count?: number }>
-  onChange(v: T): void
+  options: Array<{ id: NoInfer<T>; label: ReactNode; count?: number }>
+  onChange(v: NoInfer<T>): void
   size?: 'xs' | 'sm'
   ariaLabel?: string
 }) {

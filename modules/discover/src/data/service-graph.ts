@@ -260,7 +260,7 @@ export interface Layout {
 
 export const NODE_W = 168
 export const NODE_H = 52
-const GAP_X = 96
+const GAP_X = 150
 const GAP_Y = 28
 const PAD = 24
 
@@ -360,4 +360,40 @@ export function layoutGraph(g: Graph): Layout {
 export function edgeWidth(rps: number): number {
   if (!(rps > 0)) return 1
   return Math.max(1, Math.min(5, 1 + Math.log10(1 + rps)))
+}
+
+/* ─────────── per-node RED (range queries for the side panel) ─────────── */
+
+/**
+ * Served-traffic RED for one node, from the same source the graph came from,
+ * so the panel's numbers agree with the node on the map.
+ */
+export function nodeQueries(src: GraphSource, node: { name: string; namespace?: string }, win: string): { rps: string; errPct: string; p95: string } {
+  const m = [`${src.server}="${esc(node.name)}"`]
+  if (src.serverNs && node.namespace) m.push(`${src.serverNs}="${esc(node.namespace)}"`)
+  const s = `{${m.join(', ')}}`
+  const e = (extra: string) => `{${[...m, extra].join(', ')}}`
+  switch (src.id) {
+    case 'tempo':
+      return {
+        rps: `sum(rate(traces_service_graph_request_total${s}[${win}]))`,
+        errPct: `100 * sum(rate(traces_service_graph_request_failed_total${s}[${win}])) / sum(rate(traces_service_graph_request_total${s}[${win}]))`,
+        p95: `1000 * histogram_quantile(0.95, sum by (le) (rate(traces_service_graph_request_server_seconds_bucket${s}[${win}])))`,
+      }
+    case 'istio': {
+      const r = [...m, 'reporter="destination"']
+      const sr = `{${r.join(', ')}}`
+      return {
+        rps: `sum(rate(istio_requests_total${sr}[${win}]))`,
+        errPct: `100 * sum(rate(istio_requests_total{${[...r, 'response_code=~"5.."'].join(', ')}}[${win}])) / sum(rate(istio_requests_total${sr}[${win}]))`,
+        p95: `histogram_quantile(0.95, sum by (le) (rate(istio_request_duration_milliseconds_bucket${sr}[${win}])))`,
+      }
+    }
+    default:
+      return {
+        rps: `max (sum by (reporter) (rate(hubble_http_requests_total${s}[${win}])))`,
+        errPct: `100 * max (sum by (reporter) (rate(hubble_http_requests_total${e('status=~"5.."')}[${win}]))) / max (sum by (reporter) (rate(hubble_http_requests_total${s}[${win}])))`,
+        p95: `1000 * histogram_quantile(0.95, sum by (le) (rate(hubble_http_request_duration_seconds_bucket${s}[${win}])))`,
+      }
+  }
 }

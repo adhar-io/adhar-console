@@ -307,14 +307,14 @@ export function Meter({
         <span className="font-mono text-content-subtle">{max != null ? `allocatable ${format(max)}` : 'allocatable —'}</span>
       </div>
       {bars.map((b) => (
-        <div key={b.name} className="grid grid-cols-[4.5rem_1fr_4.5rem] items-center gap-2 text-[11px]">
+        <div key={b.name} className="grid grid-cols-[4.5rem_minmax(0,1fr)_auto] items-center gap-2 text-[11px]">
           <span className="text-content-muted">{b.name}</span>
           <div className="h-2 overflow-hidden rounded-full bg-surface-sunken">
             {b.value != null ? (
               <div className="h-full rounded-full" style={{ width: `${Math.min(100, (b.value / top) * 100)}%`, backgroundColor: b.color }} />
             ) : null}
           </div>
-          <span className="text-right font-mono tabular-nums text-content">
+          <span className="whitespace-nowrap text-right font-mono tabular-nums text-content">
             {b.value != null ? format(b.value) : '—'}
             {b.value != null && max ? <span className="text-content-subtle"> · {Math.round((b.value / max) * 100)}%</span> : null}
           </span>
@@ -333,8 +333,8 @@ export function Segmented<T extends string>({
   ariaLabel,
 }: {
   value: T
-  options: ReadonlyArray<{ id: T; label: ReactNode; title?: string }>
-  onChange(v: T): void
+  options: ReadonlyArray<{ id: NoInfer<T>; label: ReactNode; title?: string }>
+  onChange(v: NoInfer<T>): void
   ariaLabel?: string
 }) {
   return (

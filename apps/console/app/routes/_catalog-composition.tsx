@@ -397,7 +397,7 @@ function ListView({ graph, visible, collapsed, onToggle, selected, onSelect, now
   const rows = useMemo(() => flatten(graph, visible, collapsed), [graph, visible, collapsed])
   return (
     <div className="overflow-x-auto rounded-lg border border-edge-default">
-      <table className="w-full min-w-[520px] text-left text-xs">
+      <table className="w-full text-left text-xs sm:min-w-130">
         <thead className="bg-surface-sunken text-[11px] uppercase tracking-wide text-content-subtle">
           <tr>
             <th className="px-3 py-2 font-medium">Resource</th>

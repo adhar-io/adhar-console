@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert'
+import { assertEquals } from 'jsr:@std/assert@1'
 import { availableHeight, BOTTOM_GAP, MIN_PANE } from './fill-height.ts'
 
 /**

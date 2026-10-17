@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lgtm, posthog } from '@adhar/api-clients'
 import { useLiveInvalidate, useLivePoll, usePollingInterval, useToolPublicUrl } from '@adhar/shell-ui'
+import { listSloSummaries } from './slo-api.ts'
 
 /**
  * Discover hooks layer — wraps the LGTM stack (Loki / Mimir / Tempo /
@@ -380,11 +381,16 @@ export function useSilenceAlert() {
   })
 }
 
+/**
+ * Live SLO summaries: console-defined SLOs (doc store `discover.slo`, evaluated
+ * against Prometheus) plus Sloth SLOs detected in Prometheus — see
+ * `slo-api.ts`. The LGTM client's `listSlos()` has no real backend (always []).
+ */
 export function useSlos() {
   return useQuery({
     queryKey: ['lgtm', 'slos'],
-    queryFn: () => lgtmClient.listSlos(),
-    refetchInterval: 30_000,
+    queryFn: () => listSloSummaries(),
+    refetchInterval: 60_000,
   })
 }
 

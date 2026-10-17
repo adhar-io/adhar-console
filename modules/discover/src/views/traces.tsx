@@ -96,8 +96,20 @@ interface Submitted {
 
 export function Traces() {
   const toast = useToast()
-  const [range, setRange] = useState<TimeRangeId>(DEFAULT_RANGE)
-  const [form, setForm] = useState<TraceSearchForm>(EMPTY_FORM)
+  // Deep-link context from the dashboard / service map:
+  // ?section=traces&service=<svc>&status=error&range=1h (and ?trace=<id>).
+  const boot = useMemo(() => {
+    const r = readParam('range')
+    const st = readParam('status')
+    const form: TraceSearchForm = {
+      ...EMPTY_FORM,
+      service: readParam('service') || undefined,
+      status: st === 'error' || st === 'ok' || st === 'unset' ? st : 'any',
+    }
+    return { range: (TIME_RANGES.some((x) => x.id === r) ? r : DEFAULT_RANGE) as TimeRangeId, form }
+  }, [])
+  const [range, setRange] = useState<TimeRangeId>(boot.range)
+  const [form, setForm] = useState<TraceSearchForm>(boot.form)
   const [mode, setMode] = useState<'builder' | 'traceql'>('builder')
   const [raw, setRaw] = useState('{}')
   const [limit, setLimit] = useState(50)
@@ -108,8 +120,8 @@ export function Traces() {
 
   const built = useMemo(() => buildTraceQL(form), [form])
   const [submitted, setSubmitted] = useState<Submitted>(() => {
-    const { start, end } = rangeToWindow(DEFAULT_RANGE)
-    return { query: '{}', start: start.toISOString(), end: end.toISOString(), limit: 50 }
+    const { start, end } = rangeToWindow(boot.range)
+    return { query: buildTraceQL(boot.form), start: start.toISOString(), end: end.toISOString(), limit: 50 }
   })
 
   const win = useMemo(() => rangeToWindow(range), [range])
@@ -590,7 +602,7 @@ function ResultsTable({
       <button
         type="button"
         onClick={() => setSort((s) => ({ key, dir: s.key === key ? (s.dir === 1 ? -1 : 1) : -1 }))}
-        className="inline-flex items-center gap-1 hover:text-content"
+        className="inline-flex items-center gap-1 uppercase tracking-wider hover:text-content"
       >
         {label}
         {sort.key === key ? <span aria-hidden>{sort.dir === -1 ? '↓' : '↑'}</span> : null}
@@ -1134,11 +1146,14 @@ function CompareDrawer({ a, b, hits, onClose }: { a: string; b: string; hits: Tr
     <Drawer open onClose={onClose} width="max-w-5xl" title="Compare traces" subtitle="Total span time per service · operation, A → B. Sorted by the size of the change.">
       <div className="space-y-4 p-5">
         <div className="grid gap-3 sm:grid-cols-2">
-          {[['A', a, ha, qa.data], ['B', b, hb, qb.data] as const].map(([k, id, h, data]) => (
-            <div key={String(k)} className="rounded-xl border border-edge-default bg-surface-raised p-3">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Trace {String(k)}</div>
+          {([
+            { k: 'A', id: a, h: ha, data: qa.data },
+            { k: 'B', id: b, h: hb, data: qb.data },
+          ] as Array<{ k: string; id: string; h?: TraceHit; data?: TraceSpan[] }>).map(({ k, id, h, data }) => (
+            <div key={k} className="rounded-xl border border-edge-default bg-surface-raised p-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Trace {k}</div>
               <div className="mt-1 truncate font-mono text-[12px] text-content">{h?.rootServiceName} · {h?.rootTraceName}</div>
-              <div className="font-mono text-[11px] text-content-muted">{fmtMs(h?.durationMs ?? NaN)} · {(data as TraceSpan[] | undefined)?.length ?? '…'} spans · {String(id).slice(0, 16)}</div>
+              <div className="font-mono text-[11px] text-content-muted">{fmtMs(h?.durationMs ?? NaN)} · {data?.length ?? '…'} spans · {id.slice(0, 16)}</div>
             </div>
           ))}
         </div>

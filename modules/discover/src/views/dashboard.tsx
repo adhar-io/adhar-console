@@ -325,7 +325,8 @@ function KpiStrip({ ctx, src }: { ctx: DashCtx; src: HttpSource | null }) {
   const v = (k: keyof typeof r) => lastOf(r[k].data)
   const firing = (alerts.data ?? []).filter((a) => a.state === 'firing' && alertInScope(a, ctx.scope))
   const crit = firing.filter((a) => a.severity === 'critical').length
-  const podIssues = pods.crashloop?.data || pods.pending?.data || pods.oomKilled?.data
+  const ksmMissing = !!needs(ctx, ['kube-state-metrics'])
+  const podIssues = !ksmMissing && (pods.crashloop?.data || pods.pending?.data || pods.oomKilled?.data)
     ? (pods.crashloop?.data?.length ?? 0) + (pods.pending?.data?.length ?? 0) + (pods.oomKilled?.data?.length ?? 0)
     : null
   const mh = (qs: Array<string | null | undefined>) => metricsLink(ctx, qs.filter(Boolean) as string[])
@@ -361,7 +362,7 @@ function KpiStrip({ ctx, src }: { ctx: DashCtx; src: HttpSource | null }) {
       <Kpi
         label="Pod issues"
         value={podIssues ?? '—'}
-        sub={podIssues == null ? needs(ctx, ['kube-state-metrics']) ? 'needs kube-state-metrics' : 'crashloop · pending · OOM' : 'crashloop · pending · OOM'}
+        sub={ksmMissing ? 'needs kube-state-metrics' : 'crashloop · pending · OOM'}
         href={mh([podHealthQueries(ctx.scope, ctx.range).crashloop])}
         health={podIssues == null ? undefined : podIssues > 0 ? 'crit' : 'ok'}
       />

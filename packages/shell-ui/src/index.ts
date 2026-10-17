@@ -152,6 +152,7 @@ export {
   NexusIcon,
   OTelIcon,
   PlaneIcon,
+  PostHogIcon,
   PrometheusIcon,
   TempoIcon,
   ChaosMeshIcon,

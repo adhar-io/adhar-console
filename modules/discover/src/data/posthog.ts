@@ -575,11 +575,11 @@ export function buildLifecycleQuery(event: string | null, range: DateRangeId): R
 /** Lifecycle results → per-status series (new / returning / resurrecting / dormant). */
 export function parseLifecycle(results: unknown): Record<string, TrendSeries> {
   const out: Record<string, TrendSeries> = {}
-  for (const s of parseTrends(results)) {
-    const raw = (results as Array<{ status?: string }>)[parseTrends(results).indexOf(s)]
-    const status = raw?.status ?? s.label.split(' - ').pop() ?? s.label
+  const raw = Array.isArray(results) ? (results as Array<{ status?: string }>) : []
+  parseTrends(results).forEach((s, i) => {
+    const status = raw[i]?.status ?? s.label.split(' - ').pop() ?? s.label
     out[status] = s
-  }
+  })
   return out
 }
 

@@ -1,5 +1,5 @@
 import { assert, assertEquals } from 'jsr:@std/assert@1'
-import { buildGraph, edgeWidth, filterGraph, GRAPH_SOURCES, layoutGraph, NODE_H, nodeHealth } from './service-graph.ts'
+import { buildGraph, edgeWidth, filterGraph, GRAPH_SOURCES, layoutGraph, NODE_H, nodeHealth, nodeQueries } from './service-graph.ts'
 
 const tempo = GRAPH_SOURCES.find((s) => s.id === 'tempo')!
 const hubble = GRAPH_SOURCES.find((s) => s.id === 'hubble')!
@@ -79,4 +79,11 @@ Deno.test('edgeWidth is log-scaled and clamped', () => {
   assertEquals(edgeWidth(0), 1)
   assert(edgeWidth(10) > edgeWidth(1))
   assertEquals(edgeWidth(1e9), 5)
+})
+
+Deno.test('nodeQueries scope to the served node (and its namespace when the source has one)', () => {
+  const t = nodeQueries(tempo, { name: 'cart' }, '5m')
+  assert(t.rps.includes('traces_service_graph_request_total{server="cart"}[5m]'), t.rps)
+  const h = nodeQueries(hubble, { name: 'api', namespace: 'b' }, '5m')
+  assert(h.p95.includes('{destination_workload="api", destination_namespace="b"}'), h.p95)
 })

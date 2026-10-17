@@ -37,7 +37,6 @@ import {
   reduce,
   REFRESH_INTERVALS,
   resolveRange,
-  SERIES_COLORS,
   SUPPORTED_PANELS,
   type ThresholdTone,
   thresholdFor,
@@ -56,6 +55,7 @@ import {
   useStarDashboard,
 } from '../data/grafana.ts'
 import { SourceError } from './states.tsx'
+import { seriesColor, SERIES_MAX, VizStyle } from './viz.tsx'
 
 /**
  * Native Grafana board renderer.
@@ -174,6 +174,7 @@ export function GrafanaBoard({
 
   return (
     <div className="space-y-4">
+      <VizStyle />
       {/* Board chrome — title left, actions right. */}
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
@@ -478,7 +479,7 @@ function BoardSection({
         >
           <span className={cn('inline-block text-[10px] text-content-subtle transition-transform', collapsed ? '' : 'rotate-90')}>▶</span>
           {title || 'Row'}
-          {collapsed ? <span className="text-[11px] font-normal text-content-subtle">({section.panels.length} panels)</span> : null}
+          {collapsed ? <span className="text-[11px] font-normal text-content-subtle">({section.panels.length} panel{section.panels.length === 1 ? '' : 's'})</span> : null}
         </button>
       ) : null}
       {collapsed ? null : narrow ? (
@@ -652,7 +653,7 @@ function flatten(data: PanelData): FlatSeries[] {
   return out
 }
 
-const MAX_SERIES = 12
+const MAX_SERIES = SERIES_MAX
 
 function PanelBody({ panel, data }: { panel: GrafanaPanel; data: PanelData }) {
   const logs = data.frames.flatMap((f) => f.logs ?? [])
@@ -692,7 +693,7 @@ function TimeseriesPanel({ panel, series }: { panel: GrafanaPanel; series: FlatS
   const [showAll, setShowAll] = useState(false)
   const u = panelUnit(panel)
   const shown = showAll ? series : series.slice(0, MAX_SERIES)
-  const ts: TimeSeries[] = shown.map((s, i) => ({ name: s.name, points: s.points, color: SERIES_COLORS[i % SERIES_COLORS.length] }))
+  const ts: TimeSeries[] = shown.map((s, i) => ({ name: s.name, points: s.points, color: seriesColor(i) }))
   const steps = panel.fieldConfig?.defaults?.thresholds?.steps ?? []
   const style = (panel.fieldConfig?.defaults?.custom?.thresholdsStyle as { mode?: string } | undefined)?.mode
   const thresholds: Threshold[] = style && style !== 'off'
@@ -790,6 +791,9 @@ function GaugePanel({ panel, series }: { panel: GrafanaPanel; series: FlatSeries
   const items = series.slice(0, 8).map((s) => ({ s, v: reduce(s.points.map((p) => p[1]), calc) }))
   const max = u.max ?? (u.unit === 'percentunit' ? 1 : 100)
   const min = u.min ?? 0
+  // Fit the dial to the panel: grid height minus the title bar and padding.
+  const fit = Math.max(56, panelPixelHeight(panel.gridPos?.h ?? 6) - 44)
+  const size = Math.min(items.length > 1 ? 84 : 120, fit - (items.length > 1 ? 18 : 0))
   return (
     <div className="flex h-full flex-wrap items-center justify-center gap-3 overflow-auto">
       {items.map(({ s, v }) => {
@@ -799,7 +803,7 @@ function GaugePanel({ panel, series }: { panel: GrafanaPanel; series: FlatSeries
             <DonutGauge
               value={Math.max(0, (v ?? 0) - min)}
               max={Math.max(1e-9, max - min)}
-              size={items.length > 1 ? 84 : 110}
+              size={size}
               thickness={9}
               color={disp.color ?? 'var(--color-brand-500)'}
               label={<span className="text-sm font-semibold tabular-nums text-content">{disp.text}</span>}
@@ -833,7 +837,7 @@ function BarsPanel({ panel, series, share }: { panel: GrafanaPanel; series: Flat
               </span>
             </div>
             <div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-surface-sunken">
-              <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: share ? SERIES_COLORS[i % SERIES_COLORS.length] : (disp.color ?? 'var(--color-brand-500)') }} />
+              <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: share ? seriesColor(i) : (disp.color ?? 'var(--color-brand-500)') }} />
             </div>
           </li>
         )

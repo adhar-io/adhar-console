@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { EmptyState, LokiIcon, Spinner } from '@adhar/shell-ui'
+import { EmptyState, LokiIcon, Spinner, TimeSeriesChart } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { availableHeight } from '../data/fill-height.ts'
 import type { lgtm } from '@adhar/api-clients'
@@ -42,6 +42,9 @@ import {
   type TsFormat,
 } from '../data/log-fields.ts'
 import { SourceError } from './states.tsx'
+import { detectSpikes, isMetricQuery } from '../data/logql.ts'
+import { useLogMetric, useLogVolume } from '../data/logs-api.ts'
+import { LogQLBuilder } from './logql-builder.tsx'
 import {
   HIST_COLOR,
   Histogram,
@@ -226,6 +229,7 @@ export function Logs() {
   const [fullscreen, setFullscreen] = useState(false)
   const [copiedLink, setCopiedLink] = useState(false)
   const [selected, setSelected] = useState<lgtm.LogEntry | null>(null)
+  const [builderOpen, setBuilderOpen] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   /* ── streaming: the result pane owns its scroll; while tailing we pin it to
@@ -235,7 +239,12 @@ export function Logs() {
   const [following, setFollowing] = useState(true)
   const [unseen, setUnseen] = useState(0)
 
-  const q = useLogs(query, sel, prefs.limit, { live, direction: prefs.order === 'oldest' ? 'forward' : 'backward' })
+  // A LogQL *metric* query returns series, not lines — chart it instead of
+  // feeding a matrix into the line stream.
+  const metric = isMetricQuery(query)
+  const q = useLogs(query, sel, prefs.limit, { live, direction: prefs.order === 'oldest' ? 'forward' : 'backward', enabled: !metric })
+  const metricQ = useLogMetric(query, sel, metric && !!query)
+  const vol = useLogVolume(query, sel, prefs.volume && !metric && !!query, live)
   const all = useMemo(() => q.data ?? [], [q.data])
 
   /* ── derive: level counts, facets, filtered rows ── */
@@ -287,6 +296,18 @@ export function Logs() {
     const { start, end } = selectionToWindow(sel)
     return bucketLogsByLevel(rows.map((r) => r.entry), start, end, 60)
   }, [rows, sel])
+
+  /*
+   * The volume chart prefers Loki's own count of *every* matching line
+   * (count_over_time) — the fetched-lines histogram is capped at the line
+   * limit, so a busy stream looked flat. Text / field refinements are
+   * client-side over fetched lines only, so while one is active the chart
+   * falls back to the fetched lines it actually describes.
+   */
+  const clientRefined = !!text.text || [...facet.values()].some((v) => v.size > 0)
+  const fullVolume = !clientRefined && vol.data?.buckets.length ? vol.data : null
+  const shownBuckets = fullVolume ? fullVolume.buckets : buckets
+  const spikes = useMemo(() => detectSpikes(shownBuckets.map((b) => b.error)), [shownBuckets])
 
   const stats = useMemo(() => computeStats(all, rows, buckets, sel), [all, rows, buckets, sel])
 
@@ -348,6 +369,10 @@ export function Logs() {
   const zoomTo = useCallback((b: HistogramBucket) => {
     setLive(false)
     setSel({ kind: 'absolute', from: new Date(b.start).toISOString(), to: new Date(b.end).toISOString() })
+  }, [])
+  const zoomRange = useCallback((from: number, to: number) => {
+    setLive(false)
+    setSel({ kind: 'absolute', from: new Date(from).toISOString(), to: new Date(to).toISOString() })
   }, [])
 
   const addMatcher = useCallback(
@@ -420,6 +445,20 @@ export function Logs() {
           <span className="mt-1.5 hidden items-center gap-1.5 rounded-md bg-surface-sunken px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-content-muted sm:inline-flex">
             <LokiIcon size={12} /> LogQL
           </span>
+          <button
+            type="button"
+            onClick={() => setBuilderOpen((o) => !o)}
+            aria-pressed={builderOpen}
+            title="Build the query visually — labels, line filters, parser, field filters, metrics"
+            className={cn(
+              'mt-1 inline-flex h-7 items-center rounded-md border px-2 text-[11px] font-medium transition-colors',
+              builderOpen
+                ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-500/40 dark:bg-brand-500/10 dark:text-brand-300'
+                : 'border-edge-default bg-surface-raised text-content-muted hover:text-content',
+            )}
+          >
+            Builder
+          </button>
           <textarea
             ref={inputRef}
             value={draft}
@@ -517,6 +556,12 @@ export function Logs() {
             </button>
           </div>
         </div>
+
+        {builderOpen ? (
+          <div className="mt-2">
+            <LogQLBuilder query={draft} sel={sel} onChange={setDraft} onRun={(x) => run(x)} />
+          </div>
+        ) : null}
 
         {/* time + refine */}
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -683,11 +728,25 @@ export function Logs() {
             ) : (
               <>
             {/* volume */}
-            {prefs.volume ? (
+            {prefs.volume && !metric ? (
               <div className="border-b border-edge-subtle px-3 pb-1 pt-2">
                 <div className="mb-1 flex items-center justify-between">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
-                    Volume · {selectionLabel(sel)} · click a bar to zoom
+                  <span className="flex flex-wrap items-center gap-x-2 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+                    <span>
+                      Volume · {selectionLabel(sel)} ·{' '}
+                      {fullVolume ? `${fmtNum(fullVolume.total)} matching lines (Loki)` : `${fmtNum(rows.length)} fetched lines`} · click or drag to zoom
+                    </span>
+                    {spikes.length ? (
+                      <button
+                        type="button"
+                        onClick={() => zoomTo(shownBuckets[spikes[0].index])}
+                        title="Zoom to the first error spike"
+                        className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-1.5 py-0.5 normal-case tracking-normal text-rose-700 hover:bg-rose-100 dark:bg-rose-500/10 dark:text-rose-300"
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+                        {spikes.length === 1 ? 'Error spike' : `${spikes.length} error spikes`} · {fmtNum(spikes[0].count)} errors at {new Date(shownBuckets[spikes[0].index].start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({spikes[0].ratio.toFixed(0)}× baseline)
+                      </button>
+                    ) : null}
                   </span>
                   <div className="flex items-center gap-2 text-[10px] text-content-subtle">
                     <Legend color={HIST_COLOR.error} label="error" />
@@ -695,7 +754,7 @@ export function Logs() {
                     <Legend color={HIST_COLOR.info} label="info" />
                   </div>
                 </div>
-                <Histogram buckets={buckets} levels={levels} onZoom={zoomTo} height={64} />
+                <Histogram buckets={shownBuckets} levels={levels} onZoom={zoomTo} onZoomRange={zoomRange} spikes={spikes.map((x) => x.index)} height={64} />
               </div>
             ) : null}
 
@@ -712,7 +771,9 @@ export function Logs() {
               }}
               className="relative min-h-0 flex-1 overflow-auto"
             >
-              {q.isLoading && !all.length ? (
+              {metric ? (
+                <MetricResult q={metricQ} />
+              ) : q.isLoading && !all.length ? (
                 <StreamSkeleton />
               ) : rows.length === 0 ? (
                 <EmptyState
@@ -1741,3 +1802,63 @@ function toLocalInput(d: Date): string {
 }
 
 export default Logs
+
+/* ─────────────────────── metric query result ─────────────────────── */
+
+const SERIES_COLORS = [
+  'var(--color-brand-500)',
+  'var(--color-sky-500)',
+  'var(--color-violet-500)',
+  'var(--color-teal-500)',
+  'var(--color-fuchsia-500)',
+  'var(--color-lime-600)',
+  'var(--color-indigo-400)',
+  'var(--color-cyan-600)',
+]
+
+/** A LogQL metric query (`rate`, `count_over_time`, `sum by`) charted from Loki. */
+function MetricResult({ q }: { q: ReturnType<typeof useLogMetric> }) {
+  if (q.isLoading) return <StreamSkeleton />
+  if (q.isError) return <div className="p-4"><SourceError compact tool="Loki" error={q.error} onRetry={() => q.refetch()} icon={<LokiIcon size={20} />} /></div>
+  const series = (q.data ?? []).filter((s) => s.points.length)
+  if (!series.length) {
+    return <EmptyState title="No samples" description="The metric query returned no series in this window. Widen the range or loosen the selector." />
+  }
+  const name = (m: Record<string, string>) => {
+    const e = Object.entries(m)
+    return e.length ? e.map(([k, v]) => `${k}=${v}`).join(', ') : 'value'
+  }
+  const ranked = [...series]
+    .map((s) => ({ ...s, last: s.points[s.points.length - 1]?.[1] ?? 0 }))
+    .sort((a, b) => b.last - a.last)
+  const top = ranked.slice(0, 8)
+  const fmt = (v: number) => (Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(1)}k` : v < 10 ? v.toFixed(2) : v.toFixed(0))
+  return (
+    <div className="space-y-3 p-3">
+      <TimeSeriesChart
+        height={220}
+        series={top.map((s, i) => ({ name: name(s.metric), points: s.points, color: SERIES_COLORS[i % SERIES_COLORS.length] }))}
+        formatY={fmt}
+      />
+      {ranked.length > top.length ? <div className="text-[11px] text-content-subtle">Top {top.length} series charted · all {ranked.length} in the table</div> : null}
+      <table className="w-full text-left text-[12px]">
+        <thead className="text-[10px] uppercase tracking-wider text-content-subtle">
+          <tr><th className="py-1.5 pr-3">Series</th><th className="py-1.5 pr-3 text-right">Last</th><th className="py-1.5 pr-3 text-right">Max</th><th className="py-1.5 text-right">Avg</th></tr>
+        </thead>
+        <tbody className="divide-y divide-edge-subtle">
+          {ranked.map((s) => {
+            const vals = s.points.map(([, v]) => v)
+            return (
+              <tr key={name(s.metric)}>
+                <td className="max-w-md truncate py-1 pr-3 font-mono text-content">{name(s.metric)}</td>
+                <td className="py-1 pr-3 text-right font-mono tabular-nums text-content">{fmt(s.last)}</td>
+                <td className="py-1 pr-3 text-right font-mono tabular-nums text-content-muted">{fmt(Math.max(...vals))}</td>
+                <td className="py-1 text-right font-mono tabular-nums text-content-muted">{fmt(vals.reduce((a, b) => a + b, 0) / vals.length)}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}

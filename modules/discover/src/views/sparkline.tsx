@@ -7,32 +7,40 @@ interface Props {
   points: Point[]
   width?: number
   height?: number
+  /** Stroke colour; defaults to the first categorical series slot. */
+  color?: string
+  label?: string
 }
 
 /**
- * Tiny inline sparkline — avoids pulling in a charting lib for v1.
- * Swap for Recharts or a Grafana scene panel when/if density increases.
+ * Tiny inline sparkline over `{t, v}` points, x positioned by time (so gaps in
+ * collection show as compressed spans rather than being spread evenly).
+ * Theme-aware: stroke and the "no data" text use tokens, not fixed hex.
  */
-export function Sparkline({ points, width = 280, height = 48 }: Props) {
-  if (points.length < 2) {
+export function Sparkline({ points, width = 280, height = 48, color = 'var(--viz-1, var(--color-brand-500))', label = 'trend' }: Props) {
+  const pts = points.filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v))
+  if (pts.length < 2) {
     return (
       <svg width={width} height={height} role="img" aria-label="No data">
-        <text x={width / 2} y={height / 2} textAnchor="middle" fontSize="11" fill="#94a3b8">
+        <text x={width / 2} y={height / 2 + 3} textAnchor="middle" fontSize="10" fill="var(--color-content-subtle)">
           no data
         </text>
       </svg>
     )
   }
-  const min = Math.min(...points.map((p) => p.v))
-  const max = Math.max(...points.map((p) => p.v))
+  const t0 = pts[0].t
+  const t1 = pts[pts.length - 1].t
+  const min = Math.min(...pts.map((p) => p.v))
+  const max = Math.max(...pts.map((p) => p.v))
   const range = max - min || 1
-  const step = width / (points.length - 1)
-  const d = points
-    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${i * step} ${height - ((p.v - min) / range) * height}`)
+  const span = t1 - t0 || 1
+  const pad = 1.5
+  const d = pts
+    .map((p, i) => `${i === 0 ? 'M' : 'L'}${(((p.t - t0) / span) * (width - pad * 2) + pad).toFixed(1)},${(height - pad - ((p.v - min) / range) * (height - pad * 2)).toFixed(1)}`)
     .join(' ')
   return (
-    <svg width={width} height={height} role="img" aria-label="time series">
-      <path d={d} fill="none" stroke="#0f172a" strokeWidth={1.5} />
+    <svg width={width} height={height} role="img" aria-label={label}>
+      <path d={d} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
     </svg>
   )
 }

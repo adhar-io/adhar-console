@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { LokiIcon, Spinner, StatusBadge, type StatusKind } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
@@ -21,6 +21,8 @@ import {
   withLineFilter,
   withMatcher,
 } from '../data/log-fields.ts'
+import { findTraceId } from '../data/logql.ts'
+import { goTrace } from '../data/discover-nav.ts'
 
 /* ─────────── level styling (shared) ─────────── */
 
@@ -69,13 +71,38 @@ export function Histogram({
   buckets,
   levels,
   onZoom,
+  onZoomRange,
+  spikes = [],
   height = 84,
 }: {
   buckets: HistogramBucket[]
   levels: Set<string>
   onZoom(b: HistogramBucket): void
+  /** Drag across bars to zoom to the brushed range. */
+  onZoomRange?(startMs: number, endMs: number): void
+  /** Bucket indexes flagged as error spikes (marked above the bar). */
+  spikes?: number[]
   height?: number
 }) {
+  const [drag, setDrag] = useState<{ a: number; b: number } | null>(null)
+  const dragRef = useRef<{ a: number; b: number } | null>(null)
+  useEffect(() => {
+    if (!drag) return
+    const up = () => {
+      const d = dragRef.current
+      dragRef.current = null
+      setDrag(null)
+      if (!d) return
+      const lo = Math.min(d.a, d.b)
+      const hi = Math.max(d.a, d.b)
+      if (lo === hi) onZoom(buckets[lo])
+      else if (onZoomRange) onZoomRange(buckets[lo].start, buckets[hi].end)
+    }
+    globalThis.addEventListener('mouseup', up)
+    return () => globalThis.removeEventListener('mouseup', up)
+  }, [drag, buckets, onZoom, onZoomRange])
+  const spikeSet = new Set(spikes)
+  const inBrush = (i: number) => !!drag && i >= Math.min(drag.a, drag.b) && i <= Math.max(drag.a, drag.b)
   const showError = levels.has('error') || levels.has('fatal')
   const showWarn = levels.has('warn')
   const showInfo = levels.has('info') || levels.has('debug')
@@ -116,14 +143,31 @@ export function Histogram({
             <button
               key={i}
               type="button"
-              onClick={() => onZoom(b)}
-              onMouseEnter={() => setHover(i)}
-              title="Zoom to this bucket"
+              // Keyboard activation only (detail 0); pointer clicks/drags are
+              // handled by the brush (mousedown → mouseup) above.
+              onClick={(e) => { if (e.detail === 0) onZoom(b) }}
+              onMouseDown={(e) => {
+                if (e.button !== 0) return
+                e.preventDefault()
+                dragRef.current = { a: i, b: i }
+                setDrag({ a: i, b: i })
+              }}
+              onMouseEnter={() => {
+                setHover(i)
+                if (dragRef.current) {
+                  dragRef.current = { ...dragRef.current, b: i }
+                  setDrag({ ...dragRef.current })
+                }
+              }}
+              title={onZoomRange ? 'Click to zoom to this bucket · drag across bars to zoom to a range' : 'Zoom to this bucket'}
               className={cn(
                 'relative flex h-full flex-1 flex-col justify-end rounded-sm transition-colors',
-                hover === i ? 'bg-brand-500/10' : 'hover:bg-surface-sunken/60',
+                inBrush(i) ? 'bg-brand-500/20' : hover === i ? 'bg-brand-500/10' : 'hover:bg-surface-sunken/60',
               )}
             >
+              {spikeSet.has(i) ? (
+                <span aria-label="error spike" className="pointer-events-none absolute -top-1 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-rose-500 ring-2 ring-surface-raised" />
+              ) : null}
               {segs.map((s) => (
                 <div
                   key={s.key}
@@ -133,7 +177,7 @@ export function Histogram({
               ))}
               {hover === i ? (
                 <span className="pointer-events-none absolute -top-7 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[10px] font-medium text-white shadow-md dark:bg-slate-100 dark:text-slate-900">
-                  {fmtBucket(b)} · {total} line{total === 1 ? '' : 's'}
+                  {fmtBucket(b)} · {total.toLocaleString()} line{total === 1 ? '' : 's'}
                   {b.error ? <span className="ml-1 text-rose-300 dark:text-rose-600">{b.error} err</span> : null}
                 </span>
               ) : null}
@@ -313,6 +357,7 @@ export function LogDetailDrawer({
 }) {
   const [tab, setTab] = useState<'fields' | 'raw' | 'context'>('fields')
   const parsed = parseLine(entry)
+  const traceId = findTraceId(entry.message, labelsOf(entry), parsed.fields)
   const lvl = levelOf(entry)
   const ts = new Date(entry.timestamp)
 
@@ -343,6 +388,19 @@ export function LogDetailDrawer({
               <p className="mt-2 line-clamp-3 break-all font-mono text-[12px] text-content-muted">{entry.message}</p>
             </div>
             <div className="flex shrink-0 items-center gap-1">
+              {traceId ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose()
+                    goTrace(traceId)
+                  }}
+                  title={`Open trace ${traceId} in Traces`}
+                  className="inline-flex h-8 items-center gap-1 rounded-lg border border-edge-default bg-surface-raised px-2.5 text-[12px] font-medium text-content hover:border-brand-300"
+                >
+                  Trace <IconArrowUpRight />
+                </button>
+              ) : null}
               <IconBtn label="Copy line" onClick={() => copy(entry.message)}><IconCopy /></IconBtn>
               <IconBtn label="Copy as JSON" onClick={() => copy(JSON.stringify(entry, null, 2))}><IconBraces /></IconBtn>
               <IconBtn label="Close" onClick={onClose}><IconX /></IconBtn>

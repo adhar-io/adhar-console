@@ -482,6 +482,7 @@ export function percentile(xs: number[], p: number): number {
 
 export function fmtMs(ms: number): string {
   if (!Number.isFinite(ms)) return '—'
+  if (ms === 0) return '0'
   if (ms < 1) return `${(ms * 1000).toFixed(0)}µs`
   if (ms < 1000) return `${ms < 10 ? ms.toFixed(1) : ms.toFixed(0)}ms`
   if (ms < 60_000) return `${(ms / 1000).toFixed(2)}s`

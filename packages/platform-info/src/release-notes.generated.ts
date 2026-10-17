@@ -4,6 +4,16 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.138",
+    "date": "2026-10-17",
+    "changes": [
+      {
+        "type": "improvement",
+        "text": "Discover enhancement"
+      }
+    ]
+  },
+  {
     "version": "0.1.137",
     "date": "2026-10-17",
     "changes": [
@@ -940,41 +950,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "fix",
         "scope": "platform",
         "text": "Cloud Shell opens a terminal, and Logs actually stream"
-      }
-    ]
-  },
-  {
-    "version": "0.1.98",
-    "date": "2026-09-25",
-    "changes": [
-      {
-        "type": "fix",
-        "text": "Cloud dev environments fix"
-      },
-      {
-        "type": "feature",
-        "scope": "perf",
-        "text": "The Scripts list says what happened, and Runs can be acted on"
-      },
-      {
-        "type": "fix",
-        "scope": "mobile",
-        "text": "Controls you can actually hit with a thumb"
-      },
-      {
-        "type": "feature",
-        "scope": "apps",
-        "text": "Strapi in the launcher, and no tiles onto things you cannot open"
-      },
-      {
-        "type": "feature",
-        "scope": "perf",
-        "text": "A run drawer you can watch, and runs that actually start"
-      },
-      {
-        "type": "feature",
-        "scope": "ai",
-        "text": "The landing reads on a phone, and the composer stops claiming context it never sent"
       }
     ]
   }

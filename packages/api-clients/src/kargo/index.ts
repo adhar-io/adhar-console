@@ -1,6 +1,9 @@
 import { z } from 'zod'
 import { defineClient, HttpClient } from '../base/index.ts'
 
+// Project-environment model (shared vs per-app stages) — pure, see the file.
+export * from './project-envs.ts'
+
 /**
  * Kargo (promotion pipelines).
  *
@@ -20,6 +23,12 @@ export const StageSchema = z.object({
   name: z.string(),
   /** Kargo project == namespace. */
   project: z.string(),
+  /**
+   * Object labels. The control plane stamps every Stage it composes with
+   * `adhar.io/application` and `adhar.io/environment`; without them a service's
+   * own promotion chain cannot be told apart from every other app's stages.
+   */
+  labels: z.record(z.string()).optional(),
   currentFreight: z.string().optional(),
   currentFreightAlias: z.string().optional(),
   lastPromoted: z.string().optional(),
@@ -28,6 +37,24 @@ export const StageSchema = z.object({
   /** Upstream stages this one promotes from (empty = fed by a warehouse). */
   upstream: z.array(z.string()).optional(),
   warehouse: z.string().optional(),
+  /**
+   * Every Warehouse the stage requests freight from (`spec.requestedFreight[].origin`).
+   * A per-app stage has one; a project's shared stage (`adhar.io/stage-scope:
+   * project`) has one per application in the project.
+   */
+  origins: z.array(z.string()).optional(),
+  /**
+   * The freight currently in the stage, per origin warehouse (= application):
+   * `status.freightHistory[0].items`. In a shared stage `currentFreight` is just
+   * the first of these — read this map to know what ONE app is running.
+   */
+  freightByOrigin: z.record(z.string()).optional(),
+  /** The freight (and its origin) the running promotion carries. */
+  currentPromotionFreight: z.string().optional(),
+  currentPromotionOrigin: z.string().optional(),
+  /** The freight (and its origin) of the last finished promotion. */
+  lastPromotionFreight: z.string().optional(),
+  lastPromotionOrigin: z.string().optional(),
   message: z.string().optional(),
   /** Promotion currently running against this stage, if any. */
   currentPromotion: z.string().optional(),
@@ -87,6 +114,12 @@ export interface Promotion {
   message?: string
   created: string
   finished?: string
+  /** Who created it (`kargo.akuity.io/create-actor`): a user, or the controller for auto-promotion. */
+  actor?: string
+  /** The commit the promotion pushed (its `git-push` step's output), when it got that far. */
+  commit?: string
+  /** The warehouse (= application) the promoted freight came from, when Kargo recorded it. */
+  origin?: string
 }
 
 export interface KargoClient {
@@ -107,13 +140,14 @@ export interface KargoClient {
 
 /* ─────────── raw CRD shapes (subset) ─────────── */
 
-interface KMeta {
+export interface KMeta {
   name: string
   namespace?: string
   creationTimestamp?: string
   labels?: Record<string, string>
+  annotations?: Record<string, string>
 }
-interface RawStage {
+export interface RawStage {
   metadata: KMeta
   spec?: {
     requestedFreight?: Array<{ origin?: { kind?: string; name?: string }; sources?: { direct?: boolean; stages?: string[] } }>
@@ -128,8 +162,8 @@ interface RawStage {
       items?: Record<string, { name?: string; origin?: { kind?: string; name?: string } }>
       verificationHistory?: Array<{ phase?: string; message?: string; startTime?: string; finishTime?: string }>
     }>
-    lastPromotion?: { name?: string; finishedAt?: string; status?: { phase?: string } }
-    currentPromotion?: { name?: string }
+    lastPromotion?: { name?: string; finishedAt?: string; status?: { phase?: string }; freight?: { name?: string; origin?: { kind?: string; name?: string } } }
+    currentPromotion?: { name?: string; freight?: { name?: string; origin?: { kind?: string; name?: string } } }
     conditions?: Array<{ type?: string; status?: string; reason?: string; message?: string }>
   }
 }
@@ -160,17 +194,18 @@ interface RawFreight {
   charts?: Array<{ repoURL: string; name?: string; version?: string }>
   status?: { verifiedIn?: Record<string, unknown>; approvedFor?: Record<string, unknown> }
 }
-interface RawPromotion {
+export interface RawPromotion {
   metadata: KMeta
   spec?: { stage?: string; freight?: string }
-  status?: { phase?: string; message?: string; finishedAt?: string }
+  status?: { phase?: string; message?: string; finishedAt?: string; state?: Record<string, unknown>; freight?: { name?: string; origin?: { kind?: string; name?: string } } }
 }
 
 const API = '/apis/kargo.akuity.io/v1alpha1'
 /** Annotation/status updates go as JSON merge patches so the rest of the object is untouched. */
 const MERGE_PATCH = { 'content-type': 'application/merge-patch+json' }
 
-function toStage(s: RawStage): Stage {
+/** Raw Kargo Stage → `Stage` (exported for tests). */
+export function toStage(s: RawStage): Stage {
   const st = s.status ?? {}
   const latest = st.freightHistory?.[0]?.items
   const current = st.currentFreight?.name ?? (latest ? Object.values(latest)[0]?.name : undefined)
@@ -182,6 +217,15 @@ function toStage(s: RawStage): Stage {
     ...(s.spec?.requestedFreight ?? []).flatMap((r) => r.sources?.stages ?? []),
   ]
   const warehouse = s.spec?.subscriptions?.warehouse ?? s.spec?.requestedFreight?.find((r) => r.origin?.kind === 'Warehouse')?.origin?.name
+  const origins = [...new Set([
+    ...(s.spec?.subscriptions?.warehouse ? [s.spec.subscriptions.warehouse] : []),
+    ...(s.spec?.requestedFreight ?? []).filter((r) => (r.origin?.kind ?? 'Warehouse') === 'Warehouse' && r.origin?.name).map((r) => r.origin!.name!),
+  ])]
+  const freightByOrigin: Record<string, string> = {}
+  for (const [key, item] of Object.entries(latest ?? {})) {
+    const origin = item?.origin?.name ?? (key.includes('/') ? key.slice(key.indexOf('/') + 1) : key)
+    if (origin && item?.name) freightByOrigin[origin] = item.name
+  }
   const verification = st.freightHistory?.[0]?.verificationHistory?.[0]
   const issues = [
     ...(st.health?.issues ?? []),
@@ -192,15 +236,22 @@ function toStage(s: RawStage): Stage {
   return {
     name: s.metadata.name,
     project: s.metadata.namespace ?? '',
+    ...(s.metadata.labels ? { labels: s.metadata.labels } : {}),
     currentFreight: current,
     lastPromoted: st.lastPromotion?.finishedAt,
     phase,
     health: h === 'Healthy' || h === 'Unhealthy' || h === 'Progressing' ? h : h ? 'Unknown' : undefined,
     upstream: [...new Set(upstream)],
     warehouse,
+    ...(origins.length ? { origins } : {}),
+    ...(Object.keys(freightByOrigin).length ? { freightByOrigin } : {}),
     message: st.message ?? st.health?.issues?.[0],
     currentPromotion: st.currentPromotion?.name,
+    ...(st.currentPromotion?.freight?.name ? { currentPromotionFreight: st.currentPromotion.freight.name } : {}),
+    ...(st.currentPromotion?.freight?.origin?.name ? { currentPromotionOrigin: st.currentPromotion.freight.origin.name } : {}),
     lastPromotionPhase: st.lastPromotion?.status?.phase,
+    ...(st.lastPromotion?.freight?.name ? { lastPromotionFreight: st.lastPromotion.freight.name } : {}),
+    ...(st.lastPromotion?.freight?.origin?.name ? { lastPromotionOrigin: st.lastPromotion.freight.origin.name } : {}),
     verification: verification?.phase
       ? { phase: verification.phase, message: verification.message, startTime: verification.startTime, finishTime: verification.finishTime }
       : undefined,
@@ -245,7 +296,7 @@ function toFreight(f: RawFreight): Freight {
   }
 }
 
-function toPromotion(p: RawPromotion): Promotion {
+export function toPromotion(p: RawPromotion): Promotion {
   const ph = p.status?.phase ?? 'Unknown'
   return {
     name: p.metadata.name,
@@ -256,7 +307,19 @@ function toPromotion(p: RawPromotion): Promotion {
     message: p.status?.message,
     created: p.metadata.creationTimestamp ?? new Date(0).toISOString(),
     finished: p.status?.finishedAt,
+    ...(p.metadata.annotations?.['kargo.akuity.io/create-actor'] ? { actor: p.metadata.annotations['kargo.akuity.io/create-actor'] } : {}),
+    ...(pushedCommit(p.status?.state) ? { commit: pushedCommit(p.status?.state) } : {}),
+    ...(p.status?.freight?.origin?.name ? { origin: p.status.freight.origin.name } : {}),
   }
+}
+
+/** The `commit` a promotion's git-push step recorded in `status.state` (keyed by the step's alias). */
+function pushedCommit(state: Record<string, unknown> | undefined): string | undefined {
+  for (const v of Object.values(state ?? {})) {
+    const c = v && typeof v === 'object' ? (v as { commit?: unknown }).commit : undefined
+    if (typeof c === 'string' && /^[0-9a-f]{7,40}$/i.test(c)) return c
+  }
+  return undefined
 }
 
 /** Namespace-scoped list; empty (or forbidden) → fall back to every namespace the user can see. */

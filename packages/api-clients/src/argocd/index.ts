@@ -34,6 +34,7 @@ const RawApplicationSchema = z.object({
     namespace: z.string(),
     creationTimestamp: z.string().optional(),
     labels: z.record(z.string()).optional(),
+    annotations: z.record(z.string()).optional(),
   }),
   spec: z
     .object({
@@ -80,6 +81,9 @@ const RawApplicationSchema = z.object({
         revision: z.string().optional(),
         revisions: z.array(z.string()).optional(),
         deployedAt: z.string().optional(),
+        deployStartedAt: z.string().optional(),
+        // Argo CD >= 2.13 records who started each sync in the history entry.
+        initiatedBy: z.object({ username: z.string().optional(), automated: z.boolean().optional() }).optional(),
         source: z.object({ repoURL: z.string().optional() }).optional(),
         sources: z.array(z.object({ repoURL: z.string().optional() })).optional(),
       })).optional(),
@@ -92,7 +96,7 @@ export type RawApplication = z.infer<typeof RawApplicationSchema>
 
 /** Normalized Application — every field views read is guaranteed present. */
 export interface Application {
-  metadata: { name: string; namespace: string; creationTimestamp?: string; labels: Record<string, string> }
+  metadata: { name: string; namespace: string; creationTimestamp?: string; labels: Record<string, string>; annotations?: Record<string, string> }
   spec: {
     project: string
     /** Resolved from `source`, else the first of `sources`, else an empty ref. */
@@ -144,6 +148,8 @@ export interface Application {
       revision?: string
       revisions?: string[]
       deployedAt?: string
+      deployStartedAt?: string
+      initiatedBy?: { username?: string; automated?: boolean }
       source?: { repoURL?: string }
       sources?: Array<{ repoURL?: string }>
     }>

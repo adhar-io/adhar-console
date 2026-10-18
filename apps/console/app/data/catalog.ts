@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type SourceStatus, useLiveCatalog } from './catalog-live.ts'
+import { pruneStaleScaffolded } from './catalog-app-delete-model.ts'
 
 /**
  * Backstage-style Service Catalog.
@@ -813,7 +814,12 @@ export function useCatalog(): CatalogResult {
   const registeredQ = useRegisteredEntities()
   const liveCatalog = useLiveCatalog()
 
-  const registered = registeredQ.data ?? []
+  const sourcesHealthy = !liveCatalog.isLoading &&
+    liveCatalog.sources.every((s) => s.state === 'ok' || s.state === 'empty')
+  const registered = useMemo(
+    () => pruneStaleScaffolded(registeredQ.data ?? [], liveCatalog.entities, sourcesHealthy),
+    [registeredQ.data, liveCatalog.entities, sourcesHealthy],
+  )
   const fetching = registeredQ.isLoading || liveCatalog.isLoading
 
   return useMemo(() => {

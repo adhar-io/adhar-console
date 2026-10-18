@@ -355,6 +355,7 @@ export { isPlatformRepo, PLATFORM_REPOS } from './catalog-platform-repos.ts'
 import { APPLICATION_GVR, applicationEntities, CONTROL_PLANE_NAMESPACE, customAppNames, isCustomWorkload } from './catalog-custom-apps.ts'
 export { APPLICATION_GVR, applicationEntities, CONTROL_PLANE_NAMESPACE, customAppNames, isCustomWorkload }
 import { isPlatformRepo } from './catalog-platform-repos.ts'
+import { applicationXRsQuery, belongsToDeletingApp, splitApplications } from './catalog-app-delete.ts'
 
 export function useLiveCatalog(): LiveCatalog {
   // Org whose repos are surfaced as Components — runtime config, never hardcoded.
@@ -380,8 +381,7 @@ export function useLiveCatalog(): LiveCatalog {
   // The control plane's own record of every custom application: one
   // Application XR per app, wherever its repository lives.
   const applications = useQuery({
-    queryKey: ['catalog', 'live', 'applications'],
-    queryFn: () => kubeClient.listGeneric(undefined, APPLICATION_GVR, CONTROL_PLANE_NAMESPACE),
+    ...applicationXRsQuery,
     ...LIVE_QUERY,
   })
 
@@ -392,7 +392,12 @@ export function useLiveCatalog(): LiveCatalog {
       // team's are catalog entries (see PLATFORM_REPOS).
       .filter((r) => !isPlatformRepo(r.name, r))
       .map((r) => repoToComponent(r, { toolUrl: giteaPublicUrl, baseDomain: publicBaseDomain }))
-    const custom = customAppNames(repoComponents, applications.data ?? [])
+    // An XR with a deletionTimestamp is on its way out (someone deleted the
+    // application; Crossplane is removing what it composed). It is not listed,
+    // and neither are the workloads it still owns while they are pruned — they
+    // would otherwise resurface as stray "apps" for a minute or two.
+    const { active: liveApps, deleting } = splitApplications(applications.data ?? [])
+    const custom = customAppNames(repoComponents, liveApps)
     // The catalog lists CUSTOM applications only, one entity each. Workloads,
     // Services and Ingresses in the environment namespaces are no longer
     // entities of their own: an app runs there once per environment, and the
@@ -400,13 +405,19 @@ export function useLiveCatalog(): LiveCatalog {
     // live there too — each used to show up as a separate "app" (2026-10-17).
     // A workload still contributes when it IS a custom app the repos and XRs
     // do not know (deployed from an external repository).
-    const deps = (deployments.data ?? []).filter(inUserNamespace).filter((d) => isCustomWorkload(d, custom))
-    const sts = (statefulSets.data ?? []).filter(inUserNamespace).filter((d) => isCustomWorkload(d, custom))
+    const isAppWorkload = (d: { metadata?: k8s.ObjectMeta }) =>
+      inUserNamespace(d) && isCustomWorkload(d, custom) && !belongsToDeletingApp(d, deleting)
+    const deps = (deployments.data ?? []).filter(isAppWorkload)
+    const sts = (statefulSets.data ?? []).filter(isAppWorkload)
+    // Names compare case-insensitively: Gitea keeps a repo's casing (`Cart`)
+    // while Kubernetes names are lowercase (`cart`), and an exact comparison
+    // listed the same app twice.
+    const repoNames = new Set(repoComponents.map((r) => r.metadata.name.toLowerCase()))
     const components = dedupeByName([
-      ...applicationEntities(applications.data ?? [], repoComponents),
+      ...applicationEntities(liveApps, repoComponents),
       ...deps.map((d) => workloadToComponent(d, 'Deployment')),
       ...sts.map((s) => workloadToComponent(s, 'StatefulSet')),
-    ].filter((e) => !repoComponents.some((r) => r.metadata.name === e.metadata.name)))
+    ].filter((e) => !repoNames.has(e.metadata.name.toLowerCase())))
     const resources: Entity[] = []
     const apis: Entity[] = []
 

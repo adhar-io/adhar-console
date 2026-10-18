@@ -46,6 +46,11 @@ export const PLATFORM_CATEGORIES = [
   'security',
   'observability',
   'operations',
+  // Measured on applications only (the resilience runner's automated k6 load
+  // test and Litmus pod-delete experiment, live SLOs, and how the workload is
+  // built to survive failure). `null` on a platform package: nothing was tested.
+  'performance',
+  'resilience',
 ] as const
 
 export type PlatformCategory = (typeof PLATFORM_CATEGORIES)[number]
@@ -59,6 +64,29 @@ export interface PlatformSignal {
   /** False when the signal could not be evaluated — dropped from the denominator. */
   applicable: boolean
   score: number
+  /** Why it scored what it did, in the scorer's words (e.g. "p95 120 ms (target < 500 ms)…"). */
+  detail?: string
+}
+
+/** One environment of an application, as Argo CD reports it. */
+export interface PlatformEnvironment {
+  name: string
+  namespace: string
+  health: string
+  sync: string
+  argocdApp: string
+}
+
+/** What the resilience runner proved about an application (its raw record). */
+export interface PlatformEvidence {
+  environment?: string
+  image?: string
+  testedAt?: string
+  target?: string
+  pending?: string
+  performance?: Record<string, unknown>
+  chaos?: Record<string, unknown>
+  slo?: Record<string, unknown> | null
 }
 
 export interface PlatformService {
@@ -73,9 +101,19 @@ export interface PlatformService {
   health: string
   /** ArgoCD `status.sync.status` at scoring time. */
   sync: string
-  /** Per-category score, 0–100. */
-  categories: Record<PlatformCategory, number>
+  /** Per-category score, 0–100; `null` when no signal in it applies. */
+  categories: Record<PlatformCategory, number | null>
   signals: PlatformSignal[]
+  /**
+   * `application` — one record per delivered application (named after it, so it
+   * joins the catalog entity), graded on its most-promoted environment.
+   * `package` — a platform package, one per Argo CD Application.
+   */
+  kind: 'application' | 'package'
+  /** The environment an application was graded on. */
+  environment?: string
+  environments?: PlatformEnvironment[]
+  evidence?: PlatformEvidence
 }
 
 export interface PlatformScorecards {
@@ -157,16 +195,58 @@ function coerceSignals(v: unknown): PlatformSignal[] {
       category,
       applicable: r.applicable !== false,
       score: clamp(num(r.score, 0), 0, 1),
+      ...(str(r.detail) ? { detail: str(r.detail)!.slice(0, 400) } : {}),
     })
   }
   return out
 }
 
-function coerceCategories(v: unknown): Record<PlatformCategory, number> {
+function coerceCategories(v: unknown): Record<PlatformCategory, number | null> {
   const src = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>
-  const out = {} as Record<PlatformCategory, number>
-  for (const cat of PLATFORM_CATEGORIES) out[cat] = clamp(Math.round(num(src[cat], 0)), 0, 100)
+  const out = {} as Record<PlatformCategory, number | null>
+  for (const cat of PLATFORM_CATEGORIES) {
+    const n = num(src[cat], Number.NaN)
+    // Absent or null means "nothing in this category applies" — a scorer that
+    // predates a category reports it as missing, and neither is a zero.
+    out[cat] = Number.isFinite(n) ? clamp(Math.round(n), 0, 100) : null
+  }
   return out
+}
+
+function coerceEnvironments(v: unknown): PlatformEnvironment[] | undefined {
+  if (!Array.isArray(v)) return undefined
+  const out: PlatformEnvironment[] = []
+  for (const raw of v) {
+    if (!raw || typeof raw !== 'object') continue
+    const r = raw as Record<string, unknown>
+    const name = str(r.name)
+    if (!name) continue
+    out.push({
+      name,
+      namespace: str(r.namespace) ?? name,
+      health: str(r.health) ?? 'Unknown',
+      sync: str(r.sync) ?? 'Unknown',
+      argocdApp: str(r.argocdApp) ?? '',
+    })
+  }
+  return out
+}
+
+function coerceEvidence(v: unknown): PlatformEvidence | undefined {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined
+  const r = v as Record<string, unknown>
+  const obj = (x: unknown) => (x && typeof x === 'object' && !Array.isArray(x) ? (x as Record<string, unknown>) : undefined)
+  const out: PlatformEvidence = {
+    ...(str(r.environment) ? { environment: str(r.environment) } : {}),
+    ...(str(r.image) ? { image: str(r.image) } : {}),
+    ...(str(r.testedAt) ? { testedAt: str(r.testedAt) } : {}),
+    ...(str(r.target) ? { target: str(r.target) } : {}),
+    ...(str(r.pending) ? { pending: str(r.pending) } : {}),
+    ...(obj(r.performance) ? { performance: obj(r.performance) } : {}),
+    ...(obj(r.chaos) ? { chaos: obj(r.chaos) } : {}),
+    ...(obj(r.slo) ? { slo: obj(r.slo) } : {}),
+  }
+  return Object.keys(out).length ? out : undefined
 }
 
 function coerceWeights(v: unknown): Record<PlatformCategory, number> | undefined {
@@ -214,6 +294,10 @@ function coerceService(raw: unknown): PlatformService | null {
     sync: str(r.sync) ?? 'Unknown',
     categories: coerceCategories(r.categories),
     signals: coerceSignals(r.signals),
+    kind: r.kind === 'application' ? 'application' : 'package',
+    ...(str(r.environment) ? { environment: str(r.environment) } : {}),
+    ...(coerceEnvironments(r.environments) ? { environments: coerceEnvironments(r.environments) } : {}),
+    ...(coerceEvidence(r.evidence) ? { evidence: coerceEvidence(r.evidence) } : {}),
   }
 }
 
@@ -291,9 +375,10 @@ export function normaliseScorerConfigMap(
         grade: coerceGrade(r.grade) ?? gradeFrom(score),
         health: 'Unknown',
         sync: 'Unknown',
-        // No breakdown in index.json — report zeroes, never invented numbers.
+        // No breakdown in index.json — no category numbers, never invented ones.
         categories: coerceCategories(undefined),
         signals: [],
+        kind: r.kind === 'application' ? 'application' : 'package',
       })
     }
     return {

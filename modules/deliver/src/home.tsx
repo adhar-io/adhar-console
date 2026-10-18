@@ -40,7 +40,7 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   },
   environments: {
     label: 'Environments',
-    description: 'dev / staging / prod environments aggregated from ArgoCD destinations + Kargo stages.',
+    description: "Each project's dev → test → prod, shared by every application in it — versions, health and promotions per app.",
   },
   stages: {
     label: 'Kargo Stages',

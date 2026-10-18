@@ -4,7 +4,8 @@
     "dev:server": "PORT=5099 deno run -A --env-file=../../.env --watch server.ts",
     "build": "deno run -A npm:vite@^7.1.12 build",
     "preview": "deno run -A npm:vite@^7.1.12 preview --port 5100",
-    "check": "deno check app/**/*.ts app/**/*.tsx"
+    "check": "deno check app/**/*.ts app/**/*.tsx",
+    "check:server": "deno run --allow-read --allow-run --allow-env scripts/check-server.ts"
   },
   "imports": {
     "react": "npm:react@^19.2.0",
@@ -37,6 +38,11 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "jsxImportSource": "react",
-    "lib": ["dom", "dom.iterable", "es2022", "deno.window"]
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "es2022",
+      "deno.window"
+    ]
   }
 }

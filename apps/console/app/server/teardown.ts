@@ -4,6 +4,7 @@ import { giteaConn, giteaFetcher } from './gitea-auth.ts'
 import { apiServerFetch, resolveIdentity } from './k8s/gateway.ts'
 import { getTool } from './tool-registry.ts'
 import { toolPublicUrl } from './domain.ts'
+import { canDeleteApplications } from './app-delete.ts'
 
 /**
  * `POST /api/catalog/teardown` — remove a catalog entity from the platform.
@@ -231,6 +232,10 @@ export async function handleTeardown(req: Request): Promise<Response> {
   /* ── 5. Gitea repository ── */
   if (!body.repo) {
     step({ id: 'repo', label: 'Source repository', ok: true, skipped: true, detail: 'kept' })
+  } else if (!canDeleteApplications(auth.user)) {
+    // Gitea is driven with ADMIN credentials, so no Gitea permission check
+    // stands between the caller and the delete — the role check must.
+    step({ id: 'repo', label: 'Source repository', ok: false, detail: 'kept — deleting a repository needs the platform-admin, platform-engineer or application-admin role' })
   } else {
     const target = giteaRepoOf(body.repo)
     const conn = giteaConn()

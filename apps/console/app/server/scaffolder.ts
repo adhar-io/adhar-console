@@ -560,7 +560,11 @@ async function scaffold(
     // raw Argo CD Application with destination `default` whose manifests named
     // `adhar-system`, so every team's service landed in the platform namespace
     // with no promotion chain at all.
-    const project = typeof params.project === 'string' && params.project.trim() ? params.project.trim() : DEFAULT_PROJECT
+    // The wizard's values: `params` only exists inside the skeleton branch above,
+    // and referencing it here threw "params is not defined" AFTER the repository
+    // was created, so no scaffolded app ever got its Application (2026-10-18).
+    const requested = (body.params ?? {}) as Record<string, unknown>
+    const project = typeof requested.project === 'string' && requested.project.trim() ? requested.project.trim() : DEFAULT_PROJECT
     const outcome = await applyXr(applicationManifest({ name, project, repoUrl: cloneUrl, path: manifestPath }))
     appName = outcome.ok ? name : undefined
     step({

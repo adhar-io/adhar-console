@@ -55,6 +55,16 @@ jobs:
         continue-on-error: true
         run: deno lint
 
+      # Blocking: the console's server code must type-check. The repo-wide
+      # check below is still advisory (older errors in the UI packages); this
+      # one is not, because an undefined variable in the scaffolder shipped
+      # past it and broke every scaffold (2026-10-18).
+      - name: deno check (console server, blocking)
+        working-directory: adhar-console/apps/console
+        env:
+          ADHAR_UI_PATH: ${{ github.workspace }}/adhar-ui
+        run: deno task check:server
+
       - name: deno check
         working-directory: adhar-console
         continue-on-error: true

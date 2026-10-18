@@ -12,7 +12,7 @@ import {
   type StatusKind,
 } from '@adhar/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
-import type { kargo } from '@adhar/api-clients'
+import { kargo } from '@adhar/api-clients'
 import {
   CanvasBtn,
   edgeBetween,
@@ -83,6 +83,42 @@ function isBusy(s: kargo.Stage): boolean {
   return stageStatus(s).kind === 'progressing' || !!s.currentPromotion
 }
 
+/**
+ * Every freight a stage holds. A project's SHARED stage holds one per
+ * application (keyed by origin warehouse); a per-app stage holds one.
+ */
+function heldFreight(s: kargo.Stage): string[] {
+  if (s.freightByOrigin && Object.keys(s.freightByOrigin).length) return Object.values(s.freightByOrigin)
+  return s.currentFreight ? [s.currentFreight] : []
+}
+
+/** A shared stage carrying more than one application's freight — shown per app, never as one "current" freight. */
+function multiApp(s: kargo.Stage): boolean {
+  return kargo.isSharedStage(s) && Object.keys(s.freightByOrigin ?? {}).length + (s.origins?.length ?? 0) > 1
+}
+
+/** `app  alias` lines for a shared stage. */
+function AppFreightList({ stage: s, freightList, max = 4 }: { stage: kargo.Stage; freightList: kargo.Freight[]; max?: number }) {
+  const apps = [...new Set([...(s.origins ?? []), ...Object.keys(s.freightByOrigin ?? {})])].sort()
+  return (
+    <ul className="space-y-0.5">
+      {apps.slice(0, max).map((app) => {
+        const id = s.freightByOrigin?.[app]
+        const f = id ? freightList.find((x) => x.id === id) : undefined
+        return (
+          <li key={app} className="flex min-w-0 items-center gap-1.5 text-[10px]">
+            <span className="w-16 shrink-0 truncate text-content-muted" title={app}>{app}</span>
+            {id
+              ? <code className="truncate rounded bg-surface-sunken px-1 font-mono font-semibold text-content" title={id}>{f?.alias ?? f?.images[0]?.tag ?? id.slice(0, 12)}</code>
+              : <span className="text-content-subtle">no freight</span>}
+          </li>
+        )
+      })}
+      {apps.length > max ? <li className="text-[10px] text-content-subtle">+{apps.length - max} more</li> : null}
+    </ul>
+  )
+}
+
 /* ─────────── canvas layout constants ─────────── */
 
 const NODE_W = 268
@@ -95,6 +131,8 @@ const ROW_GAP = 26
 type PipelineView = 'canvas' | 'list'
 interface Prefs {
   view: PipelineView
+  /** Kargo project (namespace) the page is scoped to. */
+  project?: string
 }
 const PREFS_KEY = 'adhar.deliver.kargo.prefs.v1'
 const DEFAULT_PREFS: Prefs = { view: 'canvas' }
@@ -157,10 +195,16 @@ export function KargoStages() {
       return next
     })
 
-  const stageList = useMemo(() => stages.data ?? [], [stages.data])
-  const freightList = useMemo(() => freight.data ?? [], [freight.data])
-  const warehouseList = useMemo(() => warehouses.data ?? [], [warehouses.data])
-  const promotionList = useMemo(() => promotions.data ?? [], [promotions.data])
+  // One Kargo project at a time: every project has its own `dev`/`test`/`prod`
+  // (shared stages are named after the environment), so a cluster-wide graph
+  // keyed by stage name would merge different projects' chains.
+  const kargoProjects = useMemo(() => [...new Set((stages.data ?? []).map((s) => s.project))].sort(), [stages.data])
+  const activeProject = prefs.project && kargoProjects.includes(prefs.project) ? prefs.project : kargoProjects[0]
+  const inProject = <T extends { project: string }>(list: T[] | undefined) => (list ?? []).filter((x) => !activeProject || x.project === activeProject)
+  const stageList = useMemo(() => inProject(stages.data), [stages.data, activeProject])
+  const freightList = useMemo(() => inProject(freight.data), [freight.data, activeProject])
+  const warehouseList = useMemo(() => inProject(warehouses.data), [warehouses.data, activeProject])
+  const promotionList = useMemo(() => inProject(promotions.data), [promotions.data, activeProject])
 
   const stats = useMemo(() => {
     const s = { steady: 0, active: 0, failed: 0, unhealthy: 0, verifying: 0, running: 0, failedPromos: 0 }
@@ -316,6 +360,22 @@ export function KargoStages() {
 
   return (
     <div className="space-y-5">
+      {kargoProjects.length > 1 ? (
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span className="text-[11px] text-content-subtle">Kargo project</span>
+          <select
+            value={activeProject}
+            onChange={(e) => {
+              setSelected(null)
+              setPrefs({ project: e.target.value })
+            }}
+            aria-label="Kargo project"
+            className="h-8 rounded-lg border border-edge-default bg-surface-raised px-2 text-[12px] text-content focus:outline-none"
+          >
+            {kargoProjects.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </div>
+      ) : null}
       {/* ── stats strip (tiles filter the pipeline) ── */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
         <StatTile label="Stages" value={stageList.length} active={phaseF === 'all'} onClick={() => setPhaseF('all')} />
@@ -716,7 +776,9 @@ function StageNode({
       </div>
 
       <div className="mt-2 min-w-0 space-y-0.5">
-        {alias ? (
+        {multiApp(s) ? (
+          <AppFreightList stage={s} freightList={freightList} max={3} />
+        ) : alias ? (
           <div className="flex items-center gap-1.5">
             <code className="truncate rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] font-semibold text-content">{alias}</code>
             {current ? <span className="shrink-0 text-[10px] text-content-subtle" title={formatAbsolute(current.created)}>{formatRelative(current.created)}</span> : null}
@@ -724,7 +786,7 @@ function StageNode({
         ) : (
           <div className="text-[11px] text-content-subtle">no freight yet</div>
         )}
-        {image ? (
+        {image && !multiApp(s) ? (
           <div className="truncate font-mono text-[10px] text-content-muted" title={`${image.repoURL}:${image.tag}`}>
             {image.repoURL.replace(/^https?:\/\//, '').split('/').slice(-1)[0]}:<span className="text-content">{image.tag}</span>
           </div>
@@ -816,8 +878,10 @@ function StageDetailPanel({
         </header>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4 text-[12px]">
-          <PanelSection title="Current freight">
-            {current ? (
+          <PanelSection title={multiApp(s) ? 'Current freight, per application' : 'Current freight'}>
+            {multiApp(s) ? (
+              <AppFreightList stage={s} freightList={freightList} max={50} />
+            ) : current ? (
               <div className="space-y-1">
                 <div className="flex items-center gap-1.5">
                   <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content">{current.alias ?? current.id.slice(0, 12)}</code>
@@ -1015,8 +1079,10 @@ function StageCard({
       </CardHeader>
       <CardBody className="space-y-3 pl-4 text-[12px]">
         <div>
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Current freight</div>
-          {current ? (
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{multiApp(s) ? 'Current freight, per application' : 'Current freight'}</div>
+          {multiApp(s) ? (
+            <div className="mt-1"><AppFreightList stage={s} freightList={freightList} /></div>
+          ) : current ? (
             <div className="mt-1 space-y-1">
               <div className="flex items-center gap-1.5">
                 <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content">{current.alias ?? current.id.slice(0, 12)}</code>
@@ -1087,7 +1153,7 @@ function FlowArrow() {
 }
 
 function FreightRow({ freight: f, stages, onApprove }: { freight: kargo.Freight; stages: kargo.Stage[]; onApprove(): void }) {
-  const liveIn = stages.filter((s) => s.currentFreight === f.id).map((s) => s.name)
+  const liveIn = stages.filter((s) => heldFreight(s).includes(f.id)).map((s) => s.name)
   const verified = f.verifiedIn ?? []
   const approved = f.approvedFor ?? []
   return (
@@ -1145,7 +1211,12 @@ function PromoteModal({
   // this one) is what Kargo would normally allow; show it first, but let the
   // operator pick anything — Kargo enforces its own rules on the Promotion.
   const eligible = (f: kargo.Freight) => (stage.upstream ?? []).some((u) => (f.verifiedIn ?? []).includes(u)) || (f.approvedFor ?? []).includes(stage.name) || !(stage.upstream?.length)
-  const ordered = [...freight].sort((a, b) => Number(eligible(b)) - Number(eligible(a)))
+  // Only freight the stage requests (its origin warehouses — one per app in a
+  // shared stage), and not what it already holds for that app.
+  const held = new Set(heldFreight(stage))
+  const requested = (f: kargo.Freight) => !stage.origins?.length || !f.warehouse || stage.origins.includes(f.warehouse)
+  const shared = multiApp(stage)
+  const ordered = freight.filter((f) => requested(f) && !held.has(f.id)).sort((a, b) => Number(eligible(b)) - Number(eligible(a)))
   const [picked, setPicked] = useState<string>(ordered.find(eligible)?.id ?? ordered[0]?.id ?? '')
   if (typeof document === 'undefined') return null
 
@@ -1154,7 +1225,7 @@ function PromoteModal({
       open
       onClose={onClose}
       title={`Promote ${stage.name}`}
-      description={stage.upstream?.length ? `Freight verified in ${stage.upstream.join(' / ')} (or approved for ${stage.name}) is listed first.` : 'Pick the freight bundle to roll into this stage.'}
+      description={`${stage.upstream?.length ? `Freight verified in ${stage.upstream.join(' / ')} (or approved for ${stage.name}) is listed first.` : 'Pick the freight bundle to roll into this stage.'}${shared ? ' This stage is shared by the project: only the chosen freight\'s application changes.' : ''}`}
       branded
       footer={
         <>
@@ -1181,6 +1252,7 @@ function PromoteModal({
               <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content ring-1 ring-edge-subtle">{f.alias ?? f.id.slice(0, 12)}</code>
               <div className="min-w-0 flex-1">
                 <div className="text-[11px] text-content-subtle">
+                  {shared && f.warehouse ? <span className="font-medium text-content">{f.warehouse} · </span> : null}
                   created {formatRelative(f.created)}
                   {(f.verifiedIn ?? []).length ? ` · verified in ${f.verifiedIn!.join(', ')}` : ''}
                   {!ok ? ' · not yet verified upstream' : ''}

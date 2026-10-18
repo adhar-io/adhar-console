@@ -75,6 +75,18 @@ export interface ArgoTreeNode {
   health?: { status?: string; message?: string }
   info?: Array<{ name?: string; value?: string }>
   parentRefs?: Array<{ group?: string; kind?: string; name?: string; namespace?: string; uid?: string }>
+  /** Container images, for workloads and Pods. */
+  images?: string[]
+  /** Routing facts Argo derives: hostnames, target Services, target pod labels. */
+  networkingInfo?: ArgoNetworkingInfo
+}
+
+export interface ArgoNetworkingInfo {
+  ingress?: Array<{ hostname?: string; ip?: string }>
+  externalURLs?: string[]
+  targetLabels?: Record<string, string>
+  targetRefs?: Array<{ group?: string; kind?: string; name?: string; namespace?: string }>
+  labels?: Record<string, string>
 }
 
 export type HealthLevel = 'healthy' | 'progressing' | 'degraded' | 'suspended' | 'missing' | 'unknown' | 'none'
@@ -89,6 +101,8 @@ export interface NodeStatus {
   sync?: string
   /** Argo CD health status, verbatim. */
   health?: string
+  /** Argo would prune it on the next sync (no longer in Git). */
+  prune?: boolean
 }
 
 export type NodeSource = 'composite' | 'claim' | 'composed' | 'argo-app' | 'argo-resource' | 'manifest'
@@ -115,6 +129,10 @@ export interface CompNode {
   /** Argo CD Application that manages this resource. */
   argoApp?: { name: string; namespace?: string }
   info?: Array<{ name: string; value: string }>
+  images?: string[]
+  networking?: ArgoNetworkingInfo
+  /** A display-only node standing for many same-kind siblings (see `stackSiblings`). */
+  stack?: { kind: string; parent: string; members: string[]; byLevel: Partial<Record<HealthLevel, number>> }
   children: string[]
   parents: string[]
   error?: FetchError
@@ -473,7 +491,7 @@ export async function buildCompositionGraph(
   fetcher: CompositionFetcher,
   opts: WalkOptions = {},
 ): Promise<CompositionGraph> {
-  const maxDepth = opts.maxDepth ?? 6
+  const maxDepth = opts.maxDepth ?? 8
   const maxNodes = opts.maxNodes ?? 400
   const nodes: Record<string, CompNode> = {}
   const rootIds: string[] = []
@@ -628,11 +646,16 @@ export function addArgoResources(
     namespace?: string
     status?: string
     health?: { status?: string; message?: string }
+    requiresPruning?: boolean
   }>
   const syncById = new Map<string, string | undefined>()
-  for (const r of statusResources) syncById.set(nodeId(r), r.status)
+  const pruneById = new Set<string>()
+  for (const r of statusResources) {
+    syncById.set(nodeId(r), r.status)
+    if (r.requiresPruning) pruneById.add(nodeId(r))
+  }
 
-  const make = (r: { group?: string; version?: string; kind: string; name: string; namespace?: string; uid?: string; createdAt?: string; health?: { status?: string; message?: string }; info?: ArgoTreeNode['info'] }): string | undefined => {
+  const make = (r: { group?: string; version?: string; kind: string; name: string; namespace?: string; uid?: string; createdAt?: string; health?: { status?: string; message?: string }; info?: ArgoTreeNode['info']; images?: string[]; networkingInfo?: ArgoNetworkingInfo }): string | undefined => {
     const id = nodeId(r)
     if (id === appId) return undefined
     const sync = syncById.get(id)
@@ -644,6 +667,7 @@ export function addArgoResources(
       sync,
       health: h,
       message: r.health?.message,
+      prune: pruneById.has(id) || undefined,
     }
     const existing = nodes[id]
     if (existing) {
@@ -670,6 +694,8 @@ export function addArgoResources(
       uid: r.uid,
       argoApp: appRef,
       info: (r.info ?? []).filter((i): i is { name: string; value: string } => Boolean(i?.name) && i?.value !== undefined).map((i) => ({ name: i.name, value: String(i.value) })),
+      images: r.images?.length ? [...r.images] : undefined,
+      networking: r.networkingInfo,
       children: [],
       parents: [],
     }
@@ -757,11 +783,23 @@ export function hasFilter(f: GraphFilter): boolean {
 export function visibleNodes(graph: CompositionGraph, f: GraphFilter): Set<string> | undefined {
   if (!hasFilter(f)) return undefined
   const needle = (f.search ?? '').trim().toLowerCase()
+  return visibleWhere(graph, (n) => {
+    if (f.kind && n.kind !== f.kind) return false
+    if (f.unhealthyOnly && !(isUnhealthy(n.status.level) || n.status.sync === 'OutOfSync')) return false
+    if (needle && !matchesText(n, needle)) return false
+    return true
+  })
+}
+
+export function matchesText(n: CompNode, needle: string): boolean {
+  return `${n.kind} ${n.name} ${n.namespace ?? ''} ${n.status.label} ${n.status.reason ?? ''}`.toLowerCase().includes(needle)
+}
+
+/** Nodes matching `pred`, plus every ancestor of a match (a hit keeps its path to the root). */
+export function visibleWhere(graph: CompositionGraph, pred: (n: CompNode) => boolean): Set<string> {
   const out = new Set<string>()
   for (const n of Object.values(graph.nodes)) {
-    if (f.kind && n.kind !== f.kind) continue
-    if (f.unhealthyOnly && !(isUnhealthy(n.status.level) || n.status.sync === 'OutOfSync')) continue
-    if (needle && !`${n.kind} ${n.name} ${n.namespace ?? ''} ${n.status.label} ${n.status.reason ?? ''}`.toLowerCase().includes(needle)) continue
+    if (!pred(n)) continue
     const stack = [n.id]
     while (stack.length) {
       const id = stack.pop()!
@@ -1033,4 +1071,148 @@ export function kindFamily(n: { group: string; kind: string; source?: NodeSource
   if (['PersistentVolumeClaim', 'PersistentVolume', 'StorageClass', 'Bucket'].includes(n.kind)) return 'storage'
   if (['Role', 'RoleBinding', 'ClusterRole', 'ClusterRoleBinding', 'ServiceAccount'].includes(n.kind)) return 'rbac'
   return 'other'
+}
+
+/* ───────────────────────── display helpers ───────────────────────── */
+
+export function stackId(parent: string, kind: string): string {
+  return `stack:${parent}:${kind}`
+}
+
+const PLURAL: Record<string, string> = { Endpoints: 'Endpoints', Ingress: 'Ingresses', Policy: 'Policies', NetworkPolicy: 'NetworkPolicies' }
+export function pluralKind(kind: string, n: number): string {
+  if (n === 1) return kind
+  if (PLURAL[kind]) return PLURAL[kind]
+  return /(s|x|ch|sh)$/.test(kind) ? `${kind}es` : /[^aeiou]y$/.test(kind) ? `${kind.slice(0, -1)}ies` : `${kind}s`
+}
+
+/**
+ * Fold runs of same-kind siblings into one stack node ("12 Pods") the way
+ * Argo CD groups them, so a wide fan-out stays readable. A stack is opened by
+ * putting its id in `expanded`. Returns a display graph; the input is not
+ * mutated. Members' own subtrees are hidden with them.
+ */
+export function stackSiblings(
+  graph: CompositionGraph,
+  visible: Set<string> | undefined,
+  opts: { threshold?: number; expanded?: ReadonlySet<string> } = {},
+): { graph: CompositionGraph; visible?: Set<string> } {
+  const threshold = opts.threshold ?? 6
+  const expanded = opts.expanded ?? new Set<string>()
+  const nodes: Record<string, CompNode> = {}
+  for (const [id, n] of Object.entries(graph.nodes)) nodes[id] = { ...n, children: [...n.children] }
+  const vis = visible ? new Set(visible) : undefined
+  for (const parent of Object.values(graph.nodes)) {
+    if (vis && !vis.has(parent.id)) continue
+    const kids = parent.children.filter((c) => graph.nodes[c] && (!vis || vis.has(c)))
+    const byKind = new Map<string, string[]>()
+    for (const c of kids) {
+      const k = graph.nodes[c].kind
+      byKind.set(k, [...(byKind.get(k) ?? []), c])
+    }
+    for (const [kind, members] of byKind) {
+      const sid = stackId(parent.id, kind)
+      if (members.length < threshold || expanded.has(sid)) continue
+      const byLevel: Partial<Record<HealthLevel, number>> = {}
+      let worst: HealthLevel = 'none'
+      for (const m of members) {
+        const l = graph.nodes[m].status.level
+        byLevel[l] = (byLevel[l] ?? 0) + 1
+        worst = worse(worst, rollup(graph, m))
+      }
+      const bad = members.filter((m) => isUnhealthy(graph.nodes[m].status.level)).length
+      const namespaces = new Set(members.map((m) => graph.nodes[m].namespace ?? ''))
+      const first = graph.nodes[members[0]]
+      nodes[sid] = {
+        id: sid,
+        group: first.group,
+        kind,
+        name: `${members.length} ${pluralKind(kind, members.length)}`,
+        namespace: namespaces.size === 1 ? first.namespace : undefined,
+        source: first.source,
+        status: { level: worst, label: bad ? `${bad} need attention` : 'All healthy' },
+        conditions: [],
+        createdAt: members.map((m) => graph.nodes[m].createdAt).filter(Boolean).sort()[0],
+        children: [],
+        parents: [parent.id],
+        stack: { kind, parent: parent.id, members, byLevel },
+      }
+      const pc = nodes[parent.id].children
+      const at = pc.indexOf(members[0])
+      nodes[parent.id].children = pc.filter((c) => !members.includes(c))
+      nodes[parent.id].children.splice(Math.max(0, Math.min(at, nodes[parent.id].children.length)), 0, sid)
+      if (vis) {
+        vis.add(sid)
+        for (const m of members) vis.delete(m)
+      }
+    }
+  }
+  return { graph: { ...graph, nodes }, visible: vis }
+}
+
+/** The node and every ancestor up to the roots. */
+export function pathToRoot(graph: CompositionGraph, id: string): Set<string> {
+  const out = new Set<string>()
+  const stack = [id]
+  while (stack.length) {
+    const cur = stack.pop()!
+    if (out.has(cur)) continue
+    out.add(cur)
+    stack.push(...(graph.nodes[cur]?.parents ?? []))
+  }
+  return out
+}
+
+export type SortKey = 'name' | 'kind' | 'status' | 'sync' | 'age'
+
+/** Compare siblings for the tree-table's sortable columns. */
+export function compareNodes(key: SortKey, dir: 1 | -1): (a: CompNode, b: CompNode) => number {
+  const sev = (n: CompNode) => LEVEL_SEVERITY[n.status.level]
+  const ts = (n: CompNode) => (n.createdAt ? Date.parse(n.createdAt) : 0)
+  return (a, b) => {
+    let d = 0
+    if (key === 'name') d = a.name.localeCompare(b.name)
+    else if (key === 'kind') d = a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name)
+    else if (key === 'status') d = sev(b) - sev(a) || a.name.localeCompare(b.name)
+    else if (key === 'sync') d = (a.status.sync ?? '~').localeCompare(b.status.sync ?? '~') || a.name.localeCompare(b.name)
+    else d = ts(b) - ts(a)
+    return d * dir
+  }
+}
+
+export interface TreeRow {
+  node: CompNode
+  depth: number
+  hasChildren: boolean
+  /** For each ancestor level, whether a guide line continues below (ancestor has later siblings). */
+  guides: boolean[]
+  last: boolean
+}
+
+/** Depth-first rows with guide-line info, siblings ordered by `cmp`. */
+export function treeRows(
+  graph: CompositionGraph,
+  visible: Set<string> | undefined,
+  collapsed: ReadonlySet<string>,
+  cmp?: (a: CompNode, b: CompNode) => number,
+): TreeRow[] {
+  const rows: TreeRow[] = []
+  const seen = new Set<string>()
+  const kidsOf = (n: CompNode) => {
+    const ids = n.children.filter((c) => graph.nodes[c] && (!visible || visible.has(c)) && !seen.has(c))
+    const list = ids.map((c) => graph.nodes[c])
+    if (cmp) list.sort(cmp)
+    return list
+  }
+  const walk = (n: CompNode, depth: number, guides: boolean[], last: boolean) => {
+    if (seen.has(n.id)) return
+    seen.add(n.id)
+    const kids = kidsOf(n)
+    rows.push({ node: n, depth, hasChildren: kids.length > 0, guides, last })
+    if (collapsed.has(n.id)) return
+    kids.forEach((k, i) => walk(k, depth + 1, [...guides, !last], i === kids.length - 1))
+  }
+  const roots = graph.roots.map((r) => graph.nodes[r]).filter((n): n is CompNode => Boolean(n) && (!visible || visible.has(n.id)))
+  roots.forEach((r, i) => walk(r, 0, [], i === roots.length - 1))
+  return rows
 }

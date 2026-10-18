@@ -24,6 +24,8 @@ import {
 } from '~/data/catalog-tech-badges.ts'
 import { describeSupport, REVIEWED_AT, SUPPORT_TABLE, type SupportStatus, supportStatus, worstSupport } from '~/data/catalog-tech-support.ts'
 import { parseImageRef } from '~/data/catalog-techstack.ts'
+import { driftOf, effectiveVersion, type RunningEnv, runningByEnv } from '~/data/catalog-running.ts'
+import { useRunningVersions } from '~/data/catalog-running-query.ts'
 
 /**
  * The catalog entity drawer's "Tech stack" tab.
@@ -134,8 +136,9 @@ function toMarkdown(args: {
   appVersion?: AppVersion
   scan?: RepoTechScan
   repoUrl?: string
+  runningEnvs?: RunningEnv[]
 }): string {
-  const { entity, stack, support, shares, appVersion, scan, repoUrl } = args
+  const { entity, stack, support, shares, appVersion, scan, repoUrl, runningEnvs } = args
   const lines: string[] = [`## Tech stack — ${entity.metadata.title ?? entity.metadata.name}`, '']
   if (repoUrl) lines.push(`Repository: ${repoUrl}${scan ? ` @ \`${scan.ref}\`${scan.focus ? ` (folder \`${scan.focus}\`)` : ''}` : ''}`)
   if (appVersion) lines.push(`App version: **${appVersion.value}** (${appVersion.from})`)
@@ -144,11 +147,13 @@ function toMarkdown(args: {
   for (const g of TECH_GROUP_ORDER) {
     const items = stack.filter((b) => b.group === g)
     if (!items.length) continue
-    lines.push(`### ${TECH_GROUP_LABEL[g]}`, '', '| Tech | Version | Source | Support |', '| --- | --- | --- | --- |')
+    lines.push(`### ${TECH_GROUP_LABEL[g]}`, '', '| Tech | Version (declared → resolved) | Running | Source | Support |', '| --- | --- | --- | --- | --- |')
     for (const b of items) {
       const st = support.get(b.label)
       const also = b.also?.length ? ` (also ${b.also.map((a) => `${a.version} in ${a.from}`).join(', ')})` : ''
-      lines.push(`| ${b.label} | ${b.version ?? '—'}${also} | ${b.file ?? (b.share != null ? 'language stats' : 'catalog')} | ${st && st.state !== 'unknown' ? describeSupport(st) : ''} |`)
+      const ver = `${b.spec ?? b.version ?? '—'}${b.resolved && b.resolved.version !== (b.spec ?? b.version) ? ` → ${b.resolved.version} (${b.resolved.source})` : ''}`
+      const run = b.key && runningEnvs ? runningByEnv(runningEnvs, b.key).map((r) => `${r.env} ${r.version}`).join(', ') : ''
+      lines.push(`| ${b.label} | ${ver}${also} | ${run || '—'} | ${b.file ?? (b.share != null ? 'language stats' : 'catalog')} | ${st && st.state !== 'unknown' ? describeSupport(st) : ''} |`)
     }
     lines.push('')
   }
@@ -188,8 +193,20 @@ export function TechStackTab({
   const shares = useMemo(() => languageComposition(data?.languages), [data?.languages])
 
   // Argo CD knows the service is delivered by GitOps to Kubernetes even when the repo says nothing.
+  // What runs: trivy-operator SBOMs of the deployed images, per environment.
+  const running = useRunningVersions(deployment)
+
   const stack = useMemo(() => {
     let out = withLanguageShares(baseStack, shares)
+    // A runtime or framework the image carries but no repo file named (the JDK in a temurin base).
+    for (const e of running.envs) {
+      for (const img of e.images) {
+        for (const v of img.versions) {
+          const hit = TECH_MAP[v.key]
+          if (hit && !out.some((x) => x.label === hit.label)) out = [...out, { ...hit, key: v.key, detail: `running image (${v.source === 'sbom' ? 'SBOM' : 'vulnerability report'})` }]
+        }
+      }
+    }
     const apps = deployment?.apps ?? []
     if (apps.length) {
       const add = (key: string, detail: string) => {
@@ -203,16 +220,23 @@ export function TechStackTab({
       if (apps.some((a) => a.spec.sources.some((s) => s.chart))) add('helm', 'Argo CD source is a Helm chart')
     }
     return out
-  }, [baseStack, shares, deployment?.apps])
+  }, [baseStack, shares, deployment?.apps, running.envs])
 
+  /** Running versions of a badge's tech, per environment (production first). */
+  const runningOf = (b: TechBadge) => (b.key ? runningByEnv(running.envs, b.key) : [])
+
+  // Support is judged on the most accurate version known: running › lockfile › declared.
   const support = useMemo(() => {
     const m = new Map<string, SupportStatus>()
     for (const b of stack) {
-      if (!b.key || !SUPPORT_TABLE[b.key === 'nodejs' ? 'node' : b.key] || !b.version) continue
-      m.set(b.label, supportStatus(b.key, b.version))
+      if (!b.key || !SUPPORT_TABLE[b.key === 'nodejs' ? 'node' : b.key]) continue
+      const eff = effectiveVersion(b.version, b.resolved?.version, b.key ? runningByEnv(running.envs, b.key) : [])
+      if (!eff.version) continue
+      const st = supportStatus(b.key, eff.version)
+      m.set(b.label, { ...st, note: [st.note, eff.basis === 'running' ? `judged on ${eff.version} running in ${eff.env}` : eff.basis === 'resolved' ? `judged on ${eff.version} from the lockfile` : undefined].filter(Boolean).join(' · ') || undefined })
     }
     return m
-  }, [stack])
+  }, [stack, running.envs])
 
   const lang = primaryLanguage(stack, shares)
   const runtime = runtimeFor(lang, stack)
@@ -230,6 +254,13 @@ export function TechStackTab({
             ? 'version-shaped tag'
             : undefined
     const candidates: AppVersion[] = []
+    // What runs is the truest app version: the OCI label, else a version-shaped image tag, per environment.
+    for (const e of running.envs) {
+      const img = e.images.find((i) => i.appVersion)
+      if (img?.appVersion) {
+        candidates.push({ value: img.appVersion.version, from: `running in ${e.env} (${img.appVersion.source === 'oci-label' ? 'OCI version label' : 'image tag'})`, others: [] })
+      }
+    }
     if (version && declared) candidates.push({ value: version, from: declared, others: [] })
     if (data?.release) {
       candidates.push({ value: data.release.version, from: `latest ${data.release.kind} ${data.release.tag}`, href: data.release.url, others: [] })
@@ -239,11 +270,16 @@ export function TechStackTab({
     const [first, ...rest] = candidates
     const seen = new Set([first.value])
     return { ...first, others: rest.filter((c) => !seen.has(c.value) && seen.add(c.value)).map((c) => ({ value: c.value, from: c.from })) }
-  }, [version, data, ann, scanSrc])
+  }, [version, data, ann, scanSrc, running.envs])
 
   const worst = worstSupport([...support.entries()].map(([label, status]) => ({ label, status })))
   const attention = [...support.entries()].filter(([, s]) => s.state === 'eol' || s.state === 'ending')
   const conflicts = stack.filter((b) => b.also?.length)
+  // Repo (lockfile-resolved, else declared) vs what each environment runs.
+  const drifts = stack.flatMap((b) => {
+    const repo = b.resolved?.version ?? b.version
+    return runningOf(b).filter((r) => driftOf(repo, r.version) === 'drift').map((r) => ({ b, repo, ...r }))
+  })
 
   const grouped = TECH_GROUP_ORDER.map((g) => ({ group: g, items: stack.filter((b) => b.group === g) })).filter((x) => x.items.length > 0)
   const versioned = stack.filter((b) => b.version).length
@@ -275,11 +311,19 @@ export function TechStackTab({
   const sourceText = (b: TechBadge) => (b.file ? `${b.file}${b.detail ? ` · ${b.detail}` : ''}` : b.detail ?? 'catalog')
 
   const copyMarkdown = () => {
-    const md = toMarkdown({ entity, stack, support, shares, appVersion, scan: data, repoUrl })
+    const md = toMarkdown({ entity, stack, support, shares, appVersion, scan: data, repoUrl, runningEnvs: running.envs })
     navigator.clipboard
       .writeText(md)
       .then(() => toast.success('Tech stack copied as Markdown'))
       .catch(() => toast.error('Could not copy to the clipboard'))
+  }
+
+  /** "Production runs 17.0.11" for a tile, when a scan of the running image says so. */
+  const runsLine = (b: TechBadge | undefined) => {
+    const r = b ? runningOf(b)[0] : undefined
+    if (!r) return undefined
+    const repo = b!.resolved?.version ?? b!.version
+    return `${r.env} runs ${r.version}${driftOf(repo, r.version) === 'drift' ? ` · repository says ${repo}` : ''}`
   }
 
   /* ── header facts ── */
@@ -289,13 +333,13 @@ export function TechStackTab({
       badge: lang,
       value: lang ? `${lang.label}${runtime && runtime !== lang ? '' : lang.version ? ` ${lang.version}` : ''}` : '—',
       title: lang ? `${lang.label}${lang.version ? ` ${lang.version}` : ''}${runtime && runtime !== lang ? ` on ${runtime.label}${runtime.version ? ` ${runtime.version}` : ''}` : ''}` : undefined,
-      sub: runtime && runtime !== lang ? `on ${runtime.label}${runtime.version ? ` ${runtime.version}` : ''}` : lang?.share != null ? `${lang.share}% of the code` : lang ? sourceText(lang) : loading ? 'reading the repository…' : 'not detected',
+      sub: runsLine(runtime ?? lang) ?? (runtime && runtime !== lang ? `on ${runtime.label}${runtime.version ? ` ${runtime.version}` : ''}` : undefined) ?? (lang?.share != null ? `${lang.share}% of the code` : lang ? sourceText(lang) : loading ? 'reading the repository…' : 'not detected'),
     },
     {
       label: 'Framework',
       badge: framework,
       value: framework ? `${framework.label}${framework.version ? ` ${framework.version}` : ''}` : '—',
-      sub: framework ? sourceText(framework) : loading ? 'reading the repository…' : 'none detected',
+      sub: framework ? runsLine(framework) ?? sourceText(framework) : loading ? 'reading the repository…' : 'none detected',
     },
     {
       label: 'Build tool',
@@ -366,7 +410,7 @@ export function TechStackTab({
       </div>
 
       {/* ── attention: support and conflicts ── */}
-      {attention.length || conflicts.length ? (
+      {attention.length || conflicts.length || drifts.length ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 dark:border-amber-500/30 dark:bg-amber-500/5">
           <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-800 dark:text-amber-300">Needs attention</div>
           <ul className="mt-2 space-y-1.5 text-[12px] text-content">
@@ -375,6 +419,15 @@ export function TechStackTab({
                 <SupportPill status={s} compact />
                 <span className="font-medium">{label} {s.cycle}</span>
                 <span className="text-content-muted">{describeSupport(s)}{s.note ? ` — ${s.note}` : ''}</span>
+              </li>
+            ))}
+            {drifts.map((d) => (
+              <li key={`d-${d.b.label}-${d.env}`} className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">Drift</span>
+                <span className="font-medium">{d.b.label}</span>
+                <span className="text-content-muted">
+                  repository <span className="font-mono font-semibold text-content">{d.repo}</span>{d.b.resolved ? ' (lockfile)' : d.b.file ? ` (${d.b.file.split('/').pop()})` : ''}, {d.env} runs <span className="font-mono font-semibold text-content" title={`${d.component} in ${d.image}`}>{d.version}</span>
+                </span>
               </li>
             ))}
             {conflicts.map((b) => (
@@ -409,6 +462,17 @@ export function TechStackTab({
         )}
       </Section>
 
+      {/* ── declared · resolved · running ── */}
+      {data?.locks.length || running.envs.length ? (
+        <Section
+          title="Versions in use"
+          aside={<span className="text-[11px] text-content-subtle">declared in manifests · resolved by lockfiles · running per environment (trivy-operator)</span>}
+        >
+          <VersionMatrix stack={stack} envs={running.envs} fileLink={fileLink} />
+          {data?.skippedLocks.length ? <p className="mt-2 text-[11px] text-content-subtle">Skipped for size: {data.skippedLocks.join(', ')}</p> : null}
+        </Section>
+      ) : null}
+
       {/* ── grouped stack ── */}
       {loading && !stack.length ? (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
@@ -438,7 +502,7 @@ export function TechStackTab({
                 className="mb-5 break-inside-avoid"
                 aside={<span className="text-[11px] text-content-subtle">{items.length} · {items.filter((b) => b.version).length} versioned</span>}
               >
-                <TechList items={sortItems(group, items)} support={support} sourceOf={sourceOf} fileLink={fileLink} />
+                <TechList items={sortItems(group, items)} support={support} sourceOf={sourceOf} fileLink={fileLink} runningOf={runningOf} />
               </Section>
             ))}
           </div>
@@ -448,7 +512,7 @@ export function TechStackTab({
           >
             <DeliveryFlow ci={ciSummary} containers={containers} apps={argoApps} fileLink={fileLink} scanning={Boolean(scan?.isLoading)} noRepo={!scanSrc} />
             {grouped.find((g) => g.group === 'delivery') ? (
-              <TechList items={sortItems('delivery', grouped.find((g) => g.group === 'delivery')!.items)} support={support} sourceOf={sourceOf} fileLink={fileLink} />
+              <TechList items={sortItems('delivery', grouped.find((g) => g.group === 'delivery')!.items)} support={support} sourceOf={sourceOf} fileLink={fileLink} runningOf={runningOf} />
             ) : null}
           </Section>
         </>
@@ -471,6 +535,7 @@ export function TechStackTab({
                   const pinned = Boolean(ref.digest)
                   const latest = !pinned && (!ref.tag || ref.tag === 'latest')
                   const matchesRelease = data?.release && ref.tag && ref.tag.replace(/^v/, '') === data.release.version
+                  const live = running.envs.find((x) => x.app === e.app)?.images.find((x) => x.image === img)
                   return (
                     <li key={`${e.app}-${img}`} className="flex flex-col gap-1 py-2 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:gap-3">
                       <span className="w-28 shrink-0 text-[12px] font-medium text-content">{i === 0 ? e.env : ''}</span>
@@ -491,6 +556,9 @@ export function TechStackTab({
                           <span className="rounded bg-amber-50 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-amber-800 dark:bg-amber-500/10 dark:text-amber-300" title="No tag means :latest, which cannot be rolled back to">latest (implicit)</span>
                         ) : null}
                         {matchesRelease ? <span className="text-[10px] font-medium text-emerald-700 dark:text-emerald-300" title={`Matches ${data!.release!.kind} ${data!.release!.tag}`}>= latest release</span> : null}
+                        {live?.appVersion?.source === 'oci-label' ? <span className="text-[10px] text-content-muted" title={live.appVersion.revision ? `revision ${live.appVersion.revision}` : undefined}>version {live.appVersion.version} (OCI label)</span> : null}
+                        {live?.os ? <span className="text-[10px] text-content-subtle">{live.os}</span> : null}
+                        {live?.report ? <span className="text-[10px] text-content-subtle" title={`trivy-operator ${live.report.kind === 'sbom' ? 'SbomReport' : 'VulnerabilityReport'} ${live.report.name}`}>{live.versions.length} pinned by scan</span> : null}
                       </span>
                     </li>
                   )
@@ -529,6 +597,14 @@ export function TechStackTab({
                       : data?.files.length
                         ? <span className="break-words">{data.files.map((f, i) => <span key={f}>{i ? ', ' : ''}{fileLink(f)}</span>)}</span>
                         : 'none found',
+              },
+              {
+                label: 'Lockfiles',
+                node: !data ? '—' : data.locks.length ? <span className="break-words">{data.locks.map((l, i) => <span key={l.source}>{i ? ', ' : ''}{fileLink(l.source)} <span className="text-content-subtle">({l.packages.toLocaleString()})</span></span>)}</span> : 'none committed — versions are as declared',
+              },
+              {
+                label: 'Running versions',
+                node: !running.envs.length ? 'no deployed images' : running.isLoading ? 'reading trivy-operator reports…' : running.envs.some((e) => e.images.some((i) => i.report)) ? `trivy-operator ${running.envs.some((e) => e.images.some((i) => i.report?.kind === 'sbom')) ? 'SBOM' : 'vulnerability'} reports` : RUNNING_STATE_TEXT[running.envs[0].state] || 'no scan reports',
               },
               { label: 'Listing', node: data ? `${data.pathsSeen.toLocaleString()} files scanned${data.truncated ? ' (forge truncated the tree)' : ''}` : '—' },
               { label: 'Catalog', node: (entity.metadata.tags ?? []).some((t) => TECH_MAP[parseTechTag(t).key]) || techFromAnnotations(entity).length ? `tags${techFromAnnotations(entity).length ? ' and adhar.io/tech-stack' : ''}` : 'no tech tags' },
@@ -576,11 +652,13 @@ function TechList({
   support,
   sourceOf,
   fileLink,
+  runningOf,
 }: {
   items: TechBadge[]
   support: Map<string, SupportStatus>
   sourceOf: (b: TechBadge) => React.ReactNode
   fileLink: (path: string, className?: string) => React.ReactNode
+  runningOf: (b: TechBadge) => Array<{ env: string; version: string; component: string; image: string }>
 }) {
   return (
     <ul className="divide-y divide-edge-subtle">
@@ -610,9 +688,10 @@ function TechList({
                   ))}
                 </span>
               ) : null}
+              <RunningChips repo={b.resolved?.version ?? b.version} running={runningOf(b)} />
             </span>
-            {b.version ? (
-              <span className="max-w-[8rem] shrink-0 truncate rounded-md bg-surface-sunken px-2 py-1 font-mono text-[12px] font-semibold text-content ring-1 ring-inset ring-edge-subtle" title={b.version}>{b.version}</span>
+            {b.version || b.resolved ? (
+              <VersionCell badge={b} />
             ) : (
               <span className="shrink-0 rounded-md border border-dashed border-edge-default px-2 py-1 text-[10px] italic text-content-subtle" title={b.file ? `${b.file} does not pin a version` : `Add the version to the tag, e.g. ${b.label.toLowerCase().replace(/\s+/g, '-')}-<version>`}>
                 no version
@@ -717,5 +796,133 @@ function DeliveryFlow({
         </li>
       ))}
     </ol>
+  )
+}
+
+/** Declared → resolved: `^18.2.0 → 18.3.1`, with where each came from. */
+function VersionCell({ badge: b }: { badge: TechBadge }) {
+  const declared = b.spec ?? b.version
+  const resolved = b.resolved?.version
+  const showArrow = resolved && declared && resolved !== declared
+  const title = [
+    declared ? `Declared ${declared}${b.file ? ` in ${b.file}` : ''}` : undefined,
+    resolved ? `Resolved ${resolved} in ${b.resolved!.source}` : b.spec ? 'No lockfile pins it — the range is all the repository says' : undefined,
+  ].filter(Boolean).join('\n')
+  return (
+    <span className="flex max-w-[11rem] shrink-0 items-center gap-1 rounded-md bg-surface-sunken px-2 py-1 font-mono text-[12px] ring-1 ring-inset ring-edge-subtle" title={title}>
+      {showArrow ? (
+        <>
+          <span className="truncate text-content-muted">{declared}</span>
+          <span aria-hidden className="text-content-subtle">→</span>
+          <span className="truncate font-semibold text-content">{resolved}</span>
+        </>
+      ) : (
+        <span className="truncate font-semibold text-content">{resolved ?? declared}</span>
+      )}
+      {resolved ? <span aria-label="pinned by a lockfile" className="text-[10px] text-emerald-600 dark:text-emerald-400">●</span> : null}
+    </span>
+  )
+}
+
+/** One chip per environment with the exact version running there; drift in rose. */
+function RunningChips({ repo, running }: { repo?: string; running: Array<{ env: string; version: string; component: string; image: string }> }) {
+  if (!running.length) return null
+  return (
+    <span className="mt-1 flex flex-wrap gap-1">
+      {running.map((r) => {
+        const drift = driftOf(repo, r.version) === 'drift'
+        return (
+          <span
+            key={r.env}
+            title={`${r.env} runs ${r.version} (${r.component} in ${r.image})${drift ? ` — the repository says ${repo}` : ''}`}
+            className={cn(
+              'inline-flex max-w-full items-center gap-1 truncate rounded px-1.5 py-0.5 text-[10px] ring-1 ring-inset',
+              drift ? 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30' : 'bg-surface-sunken text-content-muted ring-edge-subtle',
+            )}
+          >
+            <span className="font-medium">{r.env}</span>
+            <span className="font-mono font-semibold">{r.version}</span>
+            {drift ? <span>drift</span> : null}
+          </span>
+        )
+      })}
+    </span>
+  )
+}
+
+const RUNNING_STATE_TEXT: Record<RunningEnv['state'], string> = {
+  ok: '',
+  'no-report': 'trivy-operator has not scanned this image yet',
+  absent: 'trivy-operator is not installed (no SbomReport / VulnerabilityReport CRDs)',
+  forbidden: 'your account may not read trivy-operator reports in this namespace',
+  error: 'could not read trivy-operator reports',
+  loading: 'reading trivy-operator reports…',
+}
+
+/** Declared · resolved · running, one row per tech that has a resolved or running version. */
+export function VersionMatrix({ stack, envs, fileLink }: { stack: TechBadge[]; envs: RunningEnv[]; fileLink: (path: string, className?: string) => React.ReactNode }) {
+  const cols = envs.filter((e) => e.images.length)
+  const rows = stack.filter((b) => b.resolved || (b.key && cols.some((e) => e.images.some((i) => i.versions.some((v) => v.key === b.key)))))
+  return (
+    <div className="space-y-3">
+      {cols.some((e) => e.state !== 'ok') ? (
+        <ul className="space-y-0.5 text-[11px] text-content-muted">
+          {cols.filter((e) => e.state !== 'ok').map((e) => (
+            <li key={e.app}><span className="font-medium text-content">{e.env}</span> · {RUNNING_STATE_TEXT[e.state]}</li>
+          ))}
+        </ul>
+      ) : null}
+      {rows.length ? (
+        <div className="-mx-4 overflow-x-auto px-4 sm:-mx-5 sm:px-5">
+          <table className="w-full min-w-[34rem] text-[12px]">
+            <thead>
+              <tr className="text-left text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
+                <th className="pb-1.5 pr-3 font-semibold">Tech</th>
+                <th className="pb-1.5 pr-3 font-semibold">Declared</th>
+                <th className="pb-1.5 pr-3 font-semibold">Resolved</th>
+                {cols.map((e) => <th key={e.app} className="pb-1.5 pr-3 font-semibold">{e.env}</th>)}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-edge-subtle">
+              {rows.map((b) => {
+                const repo = b.resolved?.version ?? b.version
+                return (
+                  <tr key={b.label}>
+                    <td className="py-1.5 pr-3 align-top font-medium text-content">{b.label}</td>
+                    <td className="py-1.5 pr-3 align-top">
+                      {b.spec ?? b.version ? <span className="font-mono text-content">{b.spec ?? b.version}</span> : <span className="text-content-subtle">—</span>}
+                      {b.file ? <div className="truncate text-[10px] text-content-subtle">{fileLink(b.file)}</div> : null}
+                    </td>
+                    <td className="py-1.5 pr-3 align-top">
+                      {b.resolved ? (
+                        <>
+                          <span className="font-mono font-semibold text-content">{b.resolved.version}</span>
+                          <div className="truncate text-[10px] text-content-subtle">{fileLink(b.resolved.source)}</div>
+                        </>
+                      ) : <span className="text-content-subtle" title="No lockfile pins this package">—</span>}
+                    </td>
+                    {cols.map((e) => {
+                      const hit = e.images.flatMap((i) => i.versions.filter((v) => v.key === b.key).map((v) => ({ v, i })))[0]
+                      const drift = hit ? driftOf(repo, hit.v.version) === 'drift' : false
+                      return (
+                        <td key={e.app} className="py-1.5 pr-3 align-top">
+                          {hit ? (
+                            <span title={`${hit.v.component} in ${hit.i.image} (${hit.v.source === 'sbom' ? 'SBOM' : 'vulnerability report'})`} className={cn('font-mono font-semibold', drift ? 'text-rose-700 dark:text-rose-300' : 'text-content')}>
+                              {hit.v.version}{drift ? <span className="ml-1 font-sans text-[10px] font-medium">drift</span> : null}
+                            </span>
+                          ) : <span className="text-content-subtle">—</span>}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="text-[12px] text-content-muted">No lockfile or image scan gives an exact version yet — the versions above are as declared.</p>
+      )}
+    </div>
   )
 }

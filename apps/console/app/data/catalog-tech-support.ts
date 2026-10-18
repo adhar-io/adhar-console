@@ -152,6 +152,18 @@ export const SUPPORT_TABLE: Record<string, SupportProduct> = {
       { cycle: '4.1', eol: '2027-06-30', approx: true },
     ],
   },
+  spring: {
+    label: 'Spring Framework',
+    parts: 2,
+    policy: 'Spring Framework OSS support (commercial support is longer)',
+    cycles: [
+      { cycle: '5.3', eol: '2024-08-31' },
+      { cycle: '6.0', eol: '2024-08-31' },
+      { cycle: '6.1', eol: '2025-06-30' },
+      { cycle: '6.2', eol: '2026-06-30' },
+      { cycle: '7.0', eol: '2027-06-30', approx: true },
+    ],
+  },
   react: {
     label: 'React',
     parts: 1,

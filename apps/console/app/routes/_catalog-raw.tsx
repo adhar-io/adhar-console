@@ -1,5 +1,5 @@
-import { type ReactNode, useMemo, useState } from 'react'
-import { Select, Spinner, useToast } from '@adhar/shell-ui'
+import { type CSSProperties, type ReactNode, useMemo, useState } from 'react'
+import { Button, Select, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { CodeViewer } from '~/components/code-viewer.tsx'
 import type { Entity } from '~/data/catalog.ts'
@@ -78,36 +78,93 @@ export function RawTab({
       </Select>
     </label>
   ) : (
-    <span className="text-xs font-medium text-content-muted">catalog-info</span>
+    <span className="hidden text-xs font-medium text-content-muted sm:inline">catalog-info</span>
   )
 
+  const summaryTitle = source.id === ENTITY ? `${entity.kind} · ${entity.metadata.name}` : value ? `${(value as KObj).kind ?? source.ref!.kind} · ${(value as KObj).metadata?.name ?? source.ref!.name}` : source.label
+  const errStatus = (live.error as { status?: number } | null)?.status
+
   return (
-    <div className="space-y-5">
-      {source.id === ENTITY ? (
-        <EntitySummary entity={entity} relationCount={relationCount} backing={sources.length - 1} />
-      ) : value ? (
-        <ObjectSummary obj={value as KObj} />
-      ) : null}
+    // The drawer's tab bar is sticky at the top of its scroll area; the
+    // viewer's toolbar pins just below it.
+    <div className="space-y-3" style={{ ['--viewer-sticky-top' as string]: '3.25rem' } as CSSProperties}>
+      <Details title="Details" subtitle={summaryTitle}>
+        {source.id === ENTITY ? (
+          <EntitySummary entity={entity} relationCount={relationCount} backing={sources.length - 1} />
+        ) : value ? (
+          <ObjectSummary obj={value as KObj} />
+        ) : (
+          <p className="text-xs text-content-subtle">Nothing to summarise until the object is read.</p>
+        )}
+      </Details>
 
       {source.id !== ENTITY && !value ? (
-        live.isLoading ? (
-          <div className="flex items-center gap-2 py-6 text-sm text-content-muted"><Spinner /> Reading the live object…</div>
-        ) : (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">{picker}</div>
-            <p className="text-sm text-content-muted">
-              {(live.error as { status?: number } | null)?.status === 403
-                ? 'Your Kubernetes role cannot read this object.'
-                : (live.error as { status?: number } | null)?.status === 404
-                  ? 'This object no longer exists, or its CRD is not installed.'
-                  : `Could not read it${live.error instanceof Error ? `: ${live.error.message}` : '.'}`}
-            </p>
-          </div>
-        )
+        <div className="overflow-hidden rounded-lg border border-edge-default bg-surface-raised">
+          <div className="flex items-center gap-2 border-b border-edge-default px-2 py-1.5">{picker}</div>
+          {live.isLoading ? (
+            <div className="space-y-2 p-4" aria-label="Reading the live object">
+              {Array.from({ length: 8 }, (_, i) => <div key={i} className="h-3 animate-pulse rounded bg-surface-sunken" style={{ width: `${30 + ((i * 37) % 55)}%` }} />)}
+            </div>
+          ) : (
+            <div className="px-4 py-10 text-center">
+              <p className="text-sm font-medium text-content">{errStatus === 403 ? 'No permission to read this object' : errStatus === 404 ? 'Object not found' : 'Could not read the object'}</p>
+              <p className="mt-1 text-xs text-content-muted">
+                {errStatus === 403
+                  ? 'Your Kubernetes role cannot read it. The catalog entity is still available in the picker.'
+                  : errStatus === 404
+                    ? 'It no longer exists, or its CRD is not installed on this cluster.'
+                    : live.error instanceof Error ? live.error.message : 'The request failed.'}
+              </p>
+              <Button size="sm" variant="secondary" className="mt-3" onClick={() => void live.refetch()}>Try again</Button>
+            </div>
+          )}
+        </div>
       ) : (
-        <CodeViewer value={value} filename={filename} ariaLabel={`${source.label} as ${'YAML'}`} toolbarStart={picker} />
+        <CodeViewer
+          value={value}
+          filename={filename}
+          ariaLabel={`${source.label} source`}
+          toolbarStart={picker}
+          stickyToolbar
+          height="max(360px, calc(100dvh - 17rem))"
+        />
       )}
     </div>
+  )
+}
+
+/** Collapsible, remembered per browser: the summary above the editor. */
+function Details({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
+  const KEY = 'adhar.catalog.raw.details-open'
+  const [open, setOpen] = useState(() => {
+    try {
+      const v = globalThis.localStorage?.getItem(KEY)
+      return v === null || v === undefined ? true : v === '1'
+    } catch {
+      return true
+    }
+  })
+  const toggle = () => {
+    setOpen((o) => {
+      try {
+        globalThis.localStorage?.setItem(KEY, o ? '0' : '1')
+      } catch {
+        // storage unavailable — the toggle still works for this view
+      }
+      return !o
+    })
+  }
+  return (
+    <section className="rounded-lg border border-edge-default bg-surface-raised">
+      <button type="button" onClick={toggle} aria-expanded={open} className="flex w-full items-center gap-2 px-3 py-2 text-left">
+        <svg viewBox="0 0 24 24" className={cn('h-3.5 w-3.5 fill-current text-content-subtle transition-transform', open && 'rotate-90')} aria-hidden>
+          <path d="M9 6l6 6-6 6z" />
+        </svg>
+        <span className="text-xs font-semibold text-content">{title}</span>
+        {subtitle ? <span className="truncate font-mono text-[11px] text-content-subtle">{subtitle}</span> : null}
+      </button>
+      {open ? <div className="space-y-3 border-t border-edge-default px-3 py-3">{children}</div> : null}
+    </section>
   )
 }
 
@@ -136,7 +193,7 @@ function EntitySummary({ entity, relationCount, backing }: { entity: Entity; rel
     ['Backing objects', backing ? String(backing) : 'none found'],
   ]
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <FieldGrid fields={fields} />
       <ChipTable title="Tags" entries={(entity.metadata.tags ?? []).map((t) => [t, ''])} empty="No tags." />
       <ChipTable title="Annotations" entries={Object.entries(ann)} empty="No annotations." />
@@ -164,7 +221,7 @@ function ObjectSummary({ obj }: { obj: KObj }) {
   if (comp.revision) fields.push(['Composition revision', comp.revision])
   if (m.deletionTimestamp) fields.push(['Deleting since', fmtDate(m.deletionTimestamp)])
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <FieldGrid fields={fields} />
       <ChipTable title="Labels" entries={Object.entries(m.labels ?? {})} empty="No labels." />
       <ChipTable
@@ -184,11 +241,11 @@ function fmtDate(iso: string | undefined): string {
 
 function FieldGrid({ fields }: { fields: Array<[string, ReactNode]> }) {
   return (
-    <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-xs sm:grid-cols-2">
+    <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
       {fields.map(([k, v]) => (
         <div key={k} className="flex min-w-0 items-baseline gap-3">
           <dt className="w-28 shrink-0 text-content-subtle">{k}</dt>
-          <dd className="min-w-0 break-all font-mono text-content">{v}</dd>
+          <dd className="min-w-0 truncate font-mono text-content" title={typeof v === 'string' ? v : undefined}>{v}</dd>
         </div>
       ))}
     </dl>

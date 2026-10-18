@@ -94,55 +94,79 @@ function isPlain(v: unknown): boolean {
   return v === null || typeof v !== 'object'
 }
 
-function emit(value: unknown, indent: number, out: string[]): void {
+/** A key as it appears in a path: `.name`, or `["odd/key"]` when it needs quoting. */
+export function pathKey(k: string): string {
+  return /^[A-Za-z_$][\w$-]*$/.test(k) ? `.${k}` : `[${JSON.stringify(k)}]`
+}
+
+/**
+ * Lines with, aligned, the path of the value each line belongs to
+ * (`.spec.template.spec.containers[0].image`). The viewer's status bar and
+ * "Copy path" read it; emitting it alongside the text is exact where parsing
+ * the text back would be a guess.
+ */
+class Sink {
+  lines: string[] = []
+  paths: string[] = []
+  push(path: string, ...lines: string[]) {
+    for (const l of lines) {
+      this.lines.push(l)
+      this.paths.push(path)
+    }
+  }
+}
+
+function emit(value: unknown, indent: number, out: Sink, path = ''): void {
   const pad = '  '.repeat(indent)
 
   if (Array.isArray(value)) {
-    for (const item of value) {
+    value.forEach((item, i) => {
+      const p = `${path}[${i}]`
       if (typeof item === 'string' && blockable(item)) {
         const [head, ...rest] = blockScalar(item, pad)
-        out.push(`${pad}- ${head}`, ...rest)
-        continue
+        out.push(p, `${pad}- ${head}`, ...rest)
+        return
       }
       if (isPlain(item)) {
-        out.push(`${pad}- ${yamlScalar(item)}`)
-        continue
+        out.push(p, `${pad}- ${yamlScalar(item)}`)
+        return
       }
-      const nested: string[] = []
-      emit(item, indent + 1, nested)
-      if (nested.length === 0) {
-        out.push(`${pad}- ${Array.isArray(item) ? '[]' : '{}'}`)
-        continue
+      const nested = new Sink()
+      emit(item, indent + 1, nested, p)
+      if (nested.lines.length === 0) {
+        out.push(p, `${pad}- ${Array.isArray(item) ? '[]' : '{}'}`)
+        return
       }
-      out.push(`${pad}- ${nested[0].trimStart()}`)
-      for (const line of nested.slice(1)) out.push(line)
-    }
+      out.push(nested.paths[0], `${pad}- ${nested.lines[0].trimStart()}`)
+      for (let j = 1; j < nested.lines.length; j++) out.push(nested.paths[j], nested.lines[j])
+    })
     return
   }
 
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
     if (v === undefined || typeof v === 'function') continue
     const key = yamlKey(k)
+    const p = `${path}${pathKey(k)}`
     if (typeof v === 'string' && blockable(v)) {
       const [head, ...rest] = blockScalar(v, pad)
-      out.push(`${pad}${key}: ${head}`, ...rest)
+      out.push(p, `${pad}${key}: ${head}`, ...rest)
       continue
     }
     if (isPlain(v)) {
-      out.push(`${pad}${key}: ${yamlScalar(v)}`)
+      out.push(p, `${pad}${key}: ${yamlScalar(v)}`)
       continue
     }
     if (Array.isArray(v) && v.length === 0) {
-      out.push(`${pad}${key}: []`)
+      out.push(p, `${pad}${key}: []`)
       continue
     }
     if (!Array.isArray(v) && Object.keys(v as object).filter((x) => (v as Record<string, unknown>)[x] !== undefined).length === 0) {
-      out.push(`${pad}${key}: {}`)
+      out.push(p, `${pad}${key}: {}`)
       continue
     }
-    out.push(`${pad}${key}:`)
+    out.push(p, `${pad}${key}:`)
     // Sequences under a key sit at the key's own indent (kubectl style).
-    emit(v, Array.isArray(v) ? indent : indent + 1, out)
+    emit(v, Array.isArray(v) ? indent : indent + 1, out, p)
   }
 }
 
@@ -158,20 +182,62 @@ function ordered(obj: Record<string, unknown>, order: readonly string[]): Record
 
 /** Serialise any JSON value. Objects that look like manifests get manifest key order. */
 export function toYaml(value: unknown): string {
-  if (isPlain(value)) return `${yamlScalar(value)}\n`
-  let root = value
-  if (!Array.isArray(value)) {
-    const o = value as Record<string, unknown>
-    root = ordered(o, TOP_ORDER)
-    const meta = o.metadata
-    if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
-      ;(root as Record<string, unknown>).metadata = ordered(meta as Record<string, unknown>, META_ORDER)
-    }
+  return toYamlWithPaths(value).text
+}
+
+export interface Rendered {
+  text: string
+  /** `paths[i]` is the path of line `i` (0-based); `''` for the root. */
+  paths: string[]
+}
+
+function manifestOrdered(value: unknown): unknown {
+  if (isPlain(value) || Array.isArray(value)) return value
+  const o = value as Record<string, unknown>
+  const root = ordered(o, TOP_ORDER)
+  const meta = o.metadata
+  if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+    root.metadata = ordered(meta as Record<string, unknown>, META_ORDER)
   }
-  const out: string[] = []
-  emit(root, 0, out)
-  if (out.length === 0) return Array.isArray(value) ? '[]\n' : '{}\n'
-  return `${out.join('\n')}\n`
+  return root
+}
+
+export function toYamlWithPaths(value: unknown): Rendered {
+  if (isPlain(value)) return { text: `${yamlScalar(value)}\n`, paths: [''] }
+  const out = new Sink()
+  emit(manifestOrdered(value), 0, out)
+  if (out.lines.length === 0) return { text: Array.isArray(value) ? '[]\n' : '{}\n', paths: [''] }
+  return { text: `${out.lines.join('\n')}\n`, paths: out.paths }
+}
+
+/** `JSON.stringify(v, null, 2)` (manifest key order), with per-line paths. */
+export function toJsonWithPaths(value: unknown): Rendered {
+  const lines: string[] = []
+  const paths: string[] = []
+  const put = (line: string, path: string) => {
+    lines.push(line)
+    paths.push(path)
+  }
+  const walk = (v: unknown, indent: number, path: string, prefix: string, comma: string) => {
+    const pad = '  '.repeat(indent)
+    if (v === null || typeof v !== 'object') {
+      put(`${pad}${prefix}${JSON.stringify(v ?? null)}${comma}`, path)
+      return
+    }
+    const entries: Array<[string, unknown, string]> = Array.isArray(v)
+      ? v.map((x, i) => [String(i), x, `${path}[${i}]`])
+      : Object.entries(v as Record<string, unknown>).filter(([, x]) => x !== undefined && typeof x !== 'function').map(([k, x]) => [k, x, `${path}${pathKey(k)}`])
+    const [open, close] = Array.isArray(v) ? ['[', ']'] : ['{', '}']
+    if (!entries.length) {
+      put(`${pad}${prefix}${open}${close}${comma}`, path)
+      return
+    }
+    put(`${pad}${prefix}${open}`, path)
+    entries.forEach(([k, x, p], i) => walk(x, indent + 1, p, Array.isArray(v) ? '' : `${JSON.stringify(k)}: `, i < entries.length - 1 ? ',' : ''))
+    put(`${pad}${close}${comma}`, path)
+  }
+  walk(manifestOrdered(value), 0, '', '', '')
+  return { text: `${lines.join('\n')}\n`, paths }
 }
 
 export function toJson(value: unknown): string {

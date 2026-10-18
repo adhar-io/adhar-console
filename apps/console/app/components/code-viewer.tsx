@@ -1,20 +1,38 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
-import { hasServerNoise, stripServerNoise, toJson, toYaml } from '~/data/k8s-yaml.ts'
-import { consoleMonacoTheme, loadMonaco, type MonacoApi, type MonacoEditorInstance } from './monaco-loader.ts'
+import { hasServerNoise, type Rendered, stripServerNoise, toJsonWithPaths, toYamlWithPaths } from '~/data/k8s-yaml.ts'
+import { applyConsoleTheme, CONSOLE_THEME, loadMonaco, type MonacoApi, type MonacoEditorInstance } from './monaco-loader.ts'
 
 /**
  * A read-only object viewer: the value as YAML or JSON in Monaco, with line
  * numbers, folding, find (⌘F / the toolbar), word wrap, copy and download.
  *
- * The text is shown immediately as plain preformatted text and upgraded to the
- * editor when Monaco's chunk arrives, so a slow or blocked chunk never leaves
- * the panel empty. `managedFields` (and the last-applied annotation) are
- * hidden by default — hundreds of lines of bookkeeping above the spec.
+ *   • The editor IS a console surface: its theme is built from the console's
+ *     live colour tokens (surface, edge, content, brand) and rebuilt whenever
+ *     `<html>`'s class or style changes, so light/dark and brand presets
+ *     follow at runtime.
+ *   • No flash on load: until Monaco's chunk arrives the same text renders as
+ *     plain lines with the same background, font, line height and gutter, and
+ *     the editor replaces it in place.
+ *   • The status bar names where you are: the path of the key under the
+ *     pointer (else the cursor), e.g. `.spec.template.spec.containers[0].image`,
+ *     with Copy path, plus line:column, line count and document size.
+ *   • `managedFields` (and the last-applied annotation) are hidden by default.
  */
 
 export type ViewFormat = 'yaml' | 'json'
+
+const FONT = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
+const FONT_SIZE = 12
+const LINE_HEIGHT = 20
+const PAD_TOP = 8
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
 
 export function CodeViewer({
   value,
@@ -23,6 +41,7 @@ export function CodeViewer({
   height = 'min(70vh, 640px)',
   toolbarStart,
   className,
+  stickyToolbar = false,
 }: {
   value: unknown
   /** Download name without extension. */
@@ -32,32 +51,55 @@ export function CodeViewer({
   /** Rendered at the toolbar's start (left) — e.g. a source picker. */
   toolbarStart?: ReactNode
   className?: string
+  /** Keep the toolbar pinned while the page scrolls (offset: `--viewer-sticky-top`). */
+  stickyToolbar?: boolean
 }) {
   const toast = useToast()
   const [format, setFormat] = useState<ViewFormat>('yaml')
   const [showManaged, setShowManaged] = useState(false)
   const [wrap, setWrap] = useState(false)
   const noisy = hasServerNoise(value)
-  const text = useMemo(() => {
+  const rendered: Rendered = useMemo(() => {
     const v = noisy && !showManaged ? stripServerNoise(value) : value
     try {
-      return format === 'yaml' ? toYaml(v) : toJson(v)
+      return format === 'yaml' ? toYamlWithPaths(v) : toJsonWithPaths(v)
     } catch (e) {
-      return `# Could not serialise: ${e instanceof Error ? e.message : String(e)}`
+      return { text: `# Could not serialise: ${e instanceof Error ? e.message : String(e)}\n`, paths: [''] }
     }
   }, [value, format, showManaged, noisy])
+  const text = rendered.text
   const lines = useMemo(() => text.split('\n').length - 1, [text])
+  const bytes = useMemo(() => new TextEncoder().encode(text).length, [text])
 
   const hostRef = useRef<HTMLDivElement | null>(null)
   const editorRef = useRef<MonacoEditorInstance | null>(null)
   const monacoRef = useRef<MonacoApi | null>(null)
   const [ready, setReady] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [cursor, setCursor] = useState({ line: 1, col: 1 })
+  const [hoverLine, setHoverLine] = useState<number | null>(null)
   // The first text, for the editor's creation; later changes go through setValue.
   const textRef = useRef(text)
   textRef.current = text
   const formatRef = useRef(format)
   formatRef.current = format
+  const pathsRef = useRef(rendered.paths)
+  pathsRef.current = rendered.paths
+
+  const pathAt = (line: number) => rendered.paths[line - 1] ?? ''
+  const shownPath = pathAt(hoverLine ?? cursor.line)
+
+  const copyText = (t: string, what: string, description?: string) =>
+    navigator.clipboard
+      .writeText(t)
+      .then(() => toast.success(`Copied ${what}`, { description }))
+      .catch(() => toast.error('Could not copy to the clipboard'))
+  const copyPath = (line = cursor.line) => {
+    const p = pathAt(line) || '.'
+    void copyText(p, 'path', p)
+  }
+  const copyPathRef = useRef(copyPath)
+  copyPathRef.current = copyPath
 
   useEffect(() => {
     let disposed = false
@@ -65,7 +107,8 @@ export function CodeViewer({
       .then((monaco) => {
         if (disposed || !hostRef.current) return
         monacoRef.current = monaco
-        editorRef.current = monaco.editor.create(hostRef.current, {
+        applyConsoleTheme(monaco)
+        const ed = monaco.editor.create(hostRef.current, {
           value: textRef.current,
           language: formatRef.current,
           readOnly: true,
@@ -73,21 +116,36 @@ export function CodeViewer({
           automaticLayout: true,
           minimap: { enabled: false },
           lineNumbers: 'on',
+          lineNumbersMinChars: 4,
+          glyphMargin: false,
           folding: true,
           foldingStrategy: 'indentation',
-          showFoldingControls: 'always',
+          showFoldingControls: 'mouseover',
           scrollBeyondLastLine: false,
           renderLineHighlight: 'line',
           stickyScroll: { enabled: true },
           wordWrap: 'off',
-          fontSize: 12.5,
-          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+          fontSize: FONT_SIZE,
+          lineHeight: LINE_HEIGHT,
+          fontFamily: FONT,
           tabSize: 2,
           contextmenu: true,
           ariaLabel,
-          padding: { top: 8, bottom: 8 },
-          theme: consoleMonacoTheme(),
-          scrollbar: { alwaysConsumeMouseWheel: false },
+          padding: { top: PAD_TOP, bottom: PAD_TOP },
+          theme: CONSOLE_THEME,
+          overviewRulerLanes: 0,
+          hideCursorInOverviewRuler: true,
+          scrollbar: { alwaysConsumeMouseWheel: false, verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
+        })
+        editorRef.current = ed
+        ed.onDidChangeCursorPosition((e) => setCursor({ line: e.position.lineNumber, col: e.position.column }))
+        ed.onMouseMove((e) => setHoverLine(e.target.position?.lineNumber ?? null))
+        ed.onMouseLeave(() => setHoverLine(null))
+        ed.addAction({
+          id: 'adhar.copyPath',
+          label: 'Copy path of this key',
+          contextMenuGroupId: '9_cutcopypaste',
+          run: (e) => copyPathRef.current(e.getPosition()?.lineNumber),
         })
         setReady(true)
       })
@@ -104,11 +162,13 @@ export function CodeViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Follow the console theme (the class on <html>, not the media query).
+  // Follow the console theme (the class/style on <html>, not the media query).
   useEffect(() => {
     if (typeof MutationObserver === 'undefined') return
-    const ob = new MutationObserver(() => monacoRef.current?.editor.setTheme(consoleMonacoTheme()))
-    ob.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    const ob = new MutationObserver(() => {
+      if (monacoRef.current) applyConsoleTheme(monacoRef.current)
+    })
+    ob.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] })
     return () => ob.disconnect()
   }, [])
 
@@ -135,13 +195,6 @@ export function CodeViewer({
     void ed.getAction(action)?.run()
   }
 
-  const copy = () => {
-    navigator.clipboard
-      .writeText(text)
-      .then(() => toast.success(`Copied ${format.toUpperCase()}`, { description: `${lines} lines` }))
-      .catch(() => toast.error('Could not copy to the clipboard'))
-  }
-
   const download = () => {
     try {
       const blob = new Blob([text], { type: format === 'yaml' ? 'application/yaml' : 'application/json' })
@@ -159,16 +212,28 @@ export function CodeViewer({
     }
   }
 
+  const gutterCh = Math.max(4, String(lines).length)
+
   return (
     <div
-      className={cn('overflow-hidden rounded-lg border border-edge-default bg-surface-raised', className)}
+      className={cn('rounded-lg border border-edge-default bg-surface-raised shadow-sm', className)}
       // Escape inside the editor closes Monaco's find widget — it must not
       // also reach the drawer's window-level Escape handler and close it.
+      // ⌘F anywhere in the viewer (toolbar included) opens find.
       onKeyDown={(e) => {
         if (e.key === 'Escape' && ready && hostRef.current?.contains(e.target as Node)) e.stopPropagation()
+        if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'f' && ready && !hostRef.current?.contains(e.target as Node)) {
+          e.preventDefault()
+          run('actions.find')
+        }
       }}
     >
-      <div className="flex flex-wrap items-center gap-2 border-b border-edge-default px-2 py-1.5">
+      <div
+        className={cn(
+          'flex flex-wrap items-center gap-2 rounded-t-lg border-b border-edge-default bg-surface-raised/95 px-2 py-1.5 backdrop-blur supports-[backdrop-filter]:bg-surface-raised/85',
+          stickyToolbar && 'sticky top-[var(--viewer-sticky-top,0px)] z-10',
+        )}
+      >
         <div className="flex min-w-0 flex-1 items-center gap-2">{toolbarStart}</div>
         <div className="flex flex-wrap items-center justify-end gap-1">
           <Segmented<ViewFormat>
@@ -188,6 +253,7 @@ export function CodeViewer({
           <ToggleChip on={wrap} onClick={() => setWrap((v) => !v)} title="Wrap long lines">
             Wrap
           </ToggleChip>
+          <span className="mx-0.5 hidden h-4 w-px bg-edge-default sm:inline-block" aria-hidden />
           <IconBtn label="Find (⌘F)" onClick={() => run('actions.find')} disabled={!ready}>
             <path d="M11 4a7 7 0 1 0 4.2 12.6l4.1 4.1 1.4-1.4-4.1-4.1A7 7 0 0 0 11 4zm0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10z" />
           </IconBtn>
@@ -197,7 +263,7 @@ export function CodeViewer({
           <IconBtn label="Unfold all" onClick={() => run('editor.unfoldAll')} disabled={!ready}>
             <path d="M7 9l5-5 5 5H7zm0 6l5 5 5-5H7zM4 11h16v2H4z" />
           </IconBtn>
-          <IconBtn label="Copy" onClick={copy}>
+          <IconBtn label={`Copy ${format.toUpperCase()}`} onClick={() => void copyText(text, format.toUpperCase(), `${lines} lines · ${fmtBytes(bytes)}`)}>
             <path d="M8 3h11a2 2 0 0 1 2 2v11h-2V5H8V3zM5 7h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zm0 2v10h10V9H5z" />
           </IconBtn>
           <IconBtn label="Download" onClick={download}>
@@ -205,26 +271,50 @@ export function CodeViewer({
           </IconBtn>
         </div>
       </div>
-      <div className="relative" style={{ height }}>
+      <div className="relative overflow-hidden bg-surface-raised" style={{ height }}>
         <div ref={hostRef} className={cn('absolute inset-0', ready ? '' : 'invisible')} aria-label={ariaLabel} />
-        {!ready ? (
-          <pre className="absolute inset-0 overflow-auto bg-surface-sunken p-3 font-mono text-[12px] leading-5 text-content" aria-label={ariaLabel}>
-            {text}
-          </pre>
-        ) : null}
+        {!ready ? <PlainLines text={text} gutterCh={gutterCh} ariaLabel={ariaLabel} /> : null}
         {loadError ? (
           <div className="absolute bottom-2 right-3 rounded bg-surface-raised px-2 py-1 text-[11px] text-content-subtle ring-1 ring-edge-default">
             Plain view — the editor did not load ({loadError})
           </div>
         ) : null}
       </div>
-      <div className="flex items-center justify-between border-t border-edge-default px-3 py-1 text-[11px] text-content-subtle">
-        <span>
-          {lines} lines · {format.toUpperCase()}
+      <div className="flex min-h-7 flex-wrap items-center gap-x-3 gap-y-0.5 rounded-b-lg border-t border-edge-default px-3 py-1 text-[11px] text-content-subtle">
+        <span className="flex min-w-0 flex-1 items-center gap-1.5">
+          <span className="truncate font-mono text-content-muted" title={shownPath || '.'}>{shownPath || '.'}</span>
+          {shownPath ? (
+            <button type="button" onClick={() => copyPath(hoverLine ?? cursor.line)} className="shrink-0 rounded px-1 text-content-subtle hover:bg-surface-sunken hover:text-content" title="Copy this key's path">
+              Copy path
+            </button>
+          ) : null}
+        </span>
+        <span className="shrink-0 tabular-nums">
+          {ready ? `Ln ${cursor.line}, Col ${cursor.col} · ` : ''}
+          {lines} lines · {fmtBytes(bytes)} · {format.toUpperCase()}
           {noisy && !showManaged ? ' · managedFields hidden' : ''}
         </span>
-        <span className="hidden sm:inline">Read-only · ⌘F to search</span>
       </div>
+    </div>
+  )
+}
+
+/**
+ * The pre-Monaco rendering: identical surface, font, line height, top padding
+ * and a gutter of the same width, so the editor's arrival is a swap, not a
+ * flash.
+ */
+function PlainLines({ text, gutterCh, ariaLabel }: { text: string; gutterCh: number; ariaLabel: string }) {
+  const rows = useMemo(() => text.replace(/\n$/, '').split('\n').slice(0, 400), [text])
+  const style: CSSProperties = { fontFamily: FONT, fontSize: FONT_SIZE, lineHeight: `${LINE_HEIGHT}px`, paddingTop: PAD_TOP }
+  return (
+    <div className="absolute inset-0 overflow-hidden bg-surface-raised text-content" style={style} aria-label={ariaLabel} role="document">
+      {rows.map((l, i) => (
+        <div key={i} className="flex whitespace-pre">
+          <span className="shrink-0 select-none pr-[26px] text-right text-content-subtle" style={{ width: `calc(${gutterCh}ch + 10px)` }}>{i + 1}</span>
+          <span>{l}</span>
+        </div>
+      ))}
     </div>
   )
 }

@@ -83,7 +83,7 @@ export class NotServedError extends Error {
   }
 }
 
-function useDiscovery(enabled: boolean) {
+export function useDiscovery(enabled: boolean) {
   return useQuery({
     queryKey: ['k8s', 'discovery'],
     queryFn: async () => makeDiscovery((await k8s.kube.discovery()).resources),

@@ -109,8 +109,12 @@ export function buildReleases(
   // or through an upstream stage) by the freight's warehouse, in the freight's
   // project. Ordering every stage on the cluster together made one chain out of
   // every application's — and the platform's own environments — at once.
+  // A project's SHARED stage requests freight from every app's warehouse, so
+  // it is on this freight's chain when its origins include the warehouse.
+  const feeds = (s: kargo.Stage, warehouse: string) =>
+    s.origins?.length ? s.origins.includes(warehouse) : !s.warehouse || s.warehouse === warehouse
   const chainFor = (f: kargo.Freight) =>
-    orderStages(stages.filter((s) => s.project === f.project && (!f.warehouse || !s.warehouse || s.warehouse === f.warehouse)))
+    orderStages(stages.filter((s) => s.project === f.project && (!f.warehouse || feeds(s, f.warehouse))))
 
   // The most recent successful promotion of each (freight, stage) pair, which
   // is when that stage actually took it.
@@ -129,7 +133,8 @@ export function buildReleases(
     const stageRows: ReleaseStage[] = ordered.map((s, index) => ({
       name: s.name,
       index,
-      current: s.currentFreight === f.id,
+      // A shared stage holds one freight per app — this one, if it is any of them.
+      current: s.freightByOrigin ? Object.values(s.freightByOrigin).includes(f.id) : s.currentFreight === f.id,
       verified: (f.verifiedIn ?? []).includes(s.name),
       approved: (f.approvedFor ?? []).includes(s.name),
       promotedAt: promotedAt.get(`${f.id}:${s.name}`),

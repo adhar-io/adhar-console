@@ -18,6 +18,8 @@ import {
   SKIP_DIRS,
   tagVersion,
 } from './catalog-techstack.ts'
+import { lockfilesFor, MAX_LOCKFILE_BYTES, parseLockfile, resolveWithLocks } from './catalog-lockfiles.ts'
+import { withManagedVersions } from './catalog-managed-versions.ts'
 
 /**
  * TechDocs for a catalog entity — where the docs live, and how to read them
@@ -432,6 +434,10 @@ export interface RepoTechScan {
   ci: CiSummary[]
   /** What each Dockerfile builds. */
   containers: DockerfileSummary[]
+  /** Lockfiles read, with how many packages each pins. */
+  locks: Array<{ source: string; kind: string; packages: number }>
+  /** Lockfiles skipped for size (over MAX_LOCKFILE_BYTES). */
+  skippedLocks: string[]
 }
 
 /** The repository's default branch, or undefined when the forge won't say. */
@@ -450,18 +456,19 @@ async function defaultBranchOf(src: DocsSource): Promise<string | undefined> {
 }
 
 /** Every blob path at `ref`, in one request. Throws when the forge can't list recursively. */
-async function listAll(src: DocsSource): Promise<{ paths: string[]; truncated: boolean }> {
+async function listAll(src: DocsSource): Promise<{ paths: string[]; truncated: boolean; sizes: Map<string, number> }> {
   if (src.kind === 'gitea') {
     const t = await giteaClient.getTreeRecursive(src.org!, src.repo!, src.ref)
-    return { paths: t.entries.map((e) => e.path), truncated: t.truncated }
+    return { paths: t.entries.map((e) => e.path), truncated: t.truncated, sizes: new Map(t.entries.filter((e) => e.size != null).map((e) => [e.path, e.size!])) }
   }
   if (src.kind === 'github') {
     const res = await fetch(`https://api.github.com/repos/${src.org}/${src.repo}/git/trees/${encodeURIComponent(src.ref)}?recursive=1`, {
       headers: { accept: 'application/vnd.github+json' },
     })
     if (!res.ok) throw new Error(`GitHub ${res.status}`)
-    const raw = (await res.json()) as { tree?: Array<{ path: string; type: string }>; truncated?: boolean }
-    return { paths: (raw.tree ?? []).filter((e) => e.type === 'blob').map((e) => e.path), truncated: Boolean(raw.truncated) }
+    const raw = (await res.json()) as { tree?: Array<{ path: string; type: string; size?: number }>; truncated?: boolean }
+    const blobs = (raw.tree ?? []).filter((e) => e.type === 'blob')
+    return { paths: blobs.map((e) => e.path), truncated: Boolean(raw.truncated), sizes: new Map(blobs.filter((e) => e.size != null).map((e) => [e.path, e.size!])) }
   }
   throw new Error('not a repository source')
 }
@@ -526,10 +533,12 @@ export async function scanRepoTech(src: DocsSource, entityName = ''): Promise<Re
   let refSource: RepoTechScan['refSource'] = src.refExplicit ? 'entity' : defaultBranch ? 'default-branch' : 'fallback'
   let paths: string[]
   let truncated = false
+  let sizes = new Map<string, number>()
   const listAt = async (r: string) => {
     try {
       const all = await listAll({ ...src, ref: r })
       truncated = all.truncated
+      sizes = all.sizes
       return all.paths
     } catch {
       return listShallow({ ...src, ref: r })
@@ -548,11 +557,16 @@ export async function scanRepoTech(src: DocsSource, entityName = ''): Promise<Re
   const at = { ...src, ref }
   const { focus, reason } = chooseFocus(paths.filter((p) => !SKIP_DIRS.test(p)), entityName, src.dir)
   const plan = planScan(paths, focus)
-  const [read, languages, release] = await Promise.all([
+  // Lockfiles pin the exact versions; a huge one is skipped (and said so) rather than stalling the tab.
+  const lockPaths = lockfilesFor(plan.listing, plan.dirs, sizes)
+  const skippedLocks = lockfilesFor(plan.listing, plan.dirs, undefined, 8).filter((p) => (sizes.get(p) ?? 0) > MAX_LOCKFILE_BYTES)
+  const [read, lockRead, languages, release] = await Promise.all([
     Promise.allSettled(plan.want.map((p) => readFile(at, p))),
+    Promise.allSettled(lockPaths.map((p) => readFile(at, p))),
     languagesOf(at),
     latestRelease(at),
   ])
+  const locks = lockRead.flatMap((r, i) => (r.status === 'fulfilled' ? [parseLockfile(lockPaths[i], r.value)] : []))
   const files: Record<string, string> = {}
   read.forEach((r, i) => {
     if (r.status === 'fulfilled') files[plan.want[i]] = r.value
@@ -569,7 +583,9 @@ export async function scanRepoTech(src: DocsSource, entityName = ''): Promise<Re
     defaultBranch,
     refSource,
     files: Object.keys(files),
-    tech: mergeDetections(detectTech(files, plan.listing)),
+    tech: withManagedVersions(resolveWithLocks(mergeDetections(detectTech(files, plan.listing)), locks)),
+    locks: locks.map((l) => ({ source: l.source, kind: l.kind, packages: l.packages.size })),
+    skippedLocks,
     focus,
     focusReason: reason,
     scannedDirs: plan.dirs,
@@ -594,7 +610,7 @@ export function useRepoTechStack(entity: Entity, giteaPublicUrl: string) {
   const src = useMemo(() => resolveRepoSource(entity, giteaPublicUrl), [entity, giteaPublicUrl])
   const name = entity.metadata.name
   const query = useQuery({
-    queryKey: ['catalog', 'tech', 'v2', src?.kind, src?.org, src?.repo, src?.ref, src?.refExplicit, src?.dir, name],
+    queryKey: ['catalog', 'tech', 'v3', src?.kind, src?.org, src?.repo, src?.ref, src?.refExplicit, src?.dir, name],
     queryFn: () => scanRepoTech(src!, name),
     enabled: Boolean(src),
     staleTime: REFRESH_MS,

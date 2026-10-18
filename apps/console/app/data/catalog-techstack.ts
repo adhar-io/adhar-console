@@ -28,6 +28,10 @@ export interface TechMention {
   detail?: string
   /** Lower is more authoritative. */
   rank: number
+  /** Package coordinate the version belongs to (`react`, `org.springframework.boot:spring-boot`) — for lockfile and SBOM matching. */
+  pkg?: string
+  /** The range as declared (`^18.2.0`, `>=3.11,<3.13`) when it differs from `version`. */
+  spec?: string
 }
 
 export interface DetectedTech {
@@ -37,6 +41,12 @@ export interface DetectedTech {
   detail?: string
   /** Other versions found elsewhere in the repository that disagree. */
   also: Array<{ version: string; source: string; detail?: string }>
+  /** Package coordinate behind `version` (see TechMention.pkg). */
+  pkg?: string
+  /** The declared range behind `version` (`^18.2.0`). */
+  spec?: string
+  /** The exact version a lockfile pins for `pkg` (see catalog-lockfiles.ts). */
+  resolved?: { version: string; source: string; detail?: string }
 }
 
 /** Build manifests: what the build actually compiles against. */
@@ -328,12 +338,14 @@ const DEP_SIGNALS: Array<{ re: RegExp; key: string; versioned?: boolean }> = [
   { re: /(^|[:/])(spring-boot-starter-security|spring-security-core)$/i, key: 'spring-security' },
 ]
 
-function depMentions(deps: Array<{ name: string; version?: string }>, source: string): TechMention[] {
+function depMentions(deps: Array<{ name: string; version?: string; spec?: string }>, source: string): TechMention[] {
   const out: TechMention[] = []
   for (const d of deps) {
     for (const s of DEP_SIGNALS) {
       if (!s.re.test(d.name)) continue
-      out.push({ key: s.key, version: s.versioned ? d.version : undefined, source, detail: `dependency ${d.name}`, rank: s.versioned ? RANK_BUILD : RANK_HINT })
+      // Only a versioned signal's package speaks for the tech's version (a Postgres driver is not Postgres).
+      const spec = s.versioned && d.spec && d.spec.trim() !== d.version ? d.spec.trim() : undefined
+      out.push({ key: s.key, version: s.versioned ? d.version : undefined, source, detail: `dependency ${d.name}`, rank: s.versioned ? RANK_BUILD : RANK_HINT, pkg: s.versioned ? d.name : undefined, spec })
       break
     }
   }
@@ -650,7 +662,7 @@ export function parseGradle(
   for (const m of pluginsBlock.matchAll(/^\s*`?([a-z][\w-]*)`?\s*$/gm)) pluginIds.push({ name: m[1] })
   for (const p of cat?.plugins ?? []) pluginIds.push({ name: p.id })
   out.push(...depMentions(pluginIds, source))
-  const deps: Array<{ name: string; version?: string }> = []
+  const deps: Array<{ name: string; version?: string; spec?: string }> = []
   for (const m of s.matchAll(/['"]([\w.-]+):([\w.-]+)(?::([^'"@]+))?['"]/g)) deps.push({ name: `${m[1]}:${m[2]}`, version: literal(interp(m[3])) })
   for (const l of cat?.libraries ?? []) deps.push({ name: l.module, version: literal(l.version) })
   out.push(...depMentions(deps, source))
@@ -803,13 +815,13 @@ export function parsePackageJson(text: string, source = 'package.json'): TechMen
   const deps = { ...pkg.peerDependencies, ...pkg.devDependencies, ...pkg.dependencies }
   const node = pkg.volta?.node ? { v: pkg.volta.node, how: 'volta.node' } : pkg.engines?.node ? { v: pkg.engines.node, how: 'engines.node' } : undefined
   out.push({ key: 'node', version: cleanSpec(node?.v), source, detail: node ? `${node.how} ${node.v}` : 'package.json', rank: node ? RANK_BUILD : RANK_HINT })
-  if (deps.typescript) out.push({ key: 'typescript', version: cleanSpec(deps.typescript), source, detail: `typescript ${deps.typescript}`, rank: RANK_BUILD })
+  if (deps.typescript) out.push({ key: 'typescript', version: cleanSpec(deps.typescript), source, detail: `typescript ${deps.typescript}`, rank: RANK_BUILD, pkg: 'typescript', spec: deps.typescript !== cleanSpec(deps.typescript) ? deps.typescript : undefined })
   else out.push({ key: 'javascript', source, detail: 'package.json without TypeScript', rank: RANK_HINT })
   const pm = /^(pnpm|yarn|npm|bun)@(\S+)/.exec(pkg.packageManager ?? '')
   if (pm) out.push({ key: pm[1], version: cleanSpec(pm[2]), source, detail: `packageManager ${pkg.packageManager}`, rank: RANK_BUILD })
   if (pkg.engines?.npm) out.push({ key: 'npm', version: cleanSpec(pkg.engines.npm), source, detail: `engines.npm ${pkg.engines.npm}`, rank: RANK_BUILD })
   if (pkg.engines?.pnpm) out.push({ key: 'pnpm', version: cleanSpec(pkg.engines.pnpm), source, detail: `engines.pnpm ${pkg.engines.pnpm}`, rank: RANK_BUILD })
-  const list = Object.entries(deps).map(([name, spec]) => ({ name, version: cleanSpec(spec) }))
+  const list: Array<{ name: string; version?: string; spec?: string }> = Object.entries(deps).map(([name, spec]) => ({ name, version: cleanSpec(spec), spec }))
   // A Next.js app is a React app; both are worth a row. SvelteKit implies Svelte.
   if (deps['@sveltejs/kit'] && !deps.svelte) list.push({ name: 'svelte', version: undefined })
   out.push(...depMentions(list, source))
@@ -821,8 +833,8 @@ export function parseDenoJson(text: string, source = 'deno.json'): TechMention[]
   if (/"[\w:-]*test[\w:-]*"\s*:\s*"[^"]*deno test/.test(text)) out.push({ key: 'deno-test', source, detail: 'deno test task', rank: RANK_HINT })
   if (/"[\w:-]*lint[\w:-]*"\s*:\s*"[^"]*deno lint/.test(text) || /"lint"\s*:\s*\{/.test(text)) out.push({ key: 'deno-lint', source, detail: 'deno lint', rank: RANK_HINT })
   // Imports pin frameworks the same way package.json dependencies do: "react": "npm:react@^19".
-  const deps: Array<{ name: string; version?: string }> = []
-  for (const m of text.matchAll(/"(?:npm|jsr):(@?[\w./-]+?)@([^"/]+)/g)) deps.push({ name: m[1], version: cleanSpec(m[2]) })
+  const deps: Array<{ name: string; version?: string; spec?: string }> = []
+  for (const m of text.matchAll(/"(?:npm|jsr):(@?[\w./-]+?)@([^"/]+)/g)) deps.push({ name: m[1], version: cleanSpec(m[2]), spec: m[2] })
   out.push(...depMentions(deps, source))
   return out
 }
@@ -836,7 +848,7 @@ export function parseGoMod(text: string, source = 'go.mod'): TechMention[] {
   out.push({ key: 'go', version: go?.[1], source, detail: go ? `go ${go[1]} directive` : 'go.mod', rank: go ? RANK_BUILD : RANK_HINT })
   if (toolchain && toolchain[1] !== go?.[1]) out.push({ key: 'go', version: toolchain[1], source, detail: `toolchain go${toolchain[1]}`, rank: RANK_BUILD + 1 })
   out.push({ key: 'go-modules', source, detail: 'go.mod', rank: RANK_HINT })
-  const deps: Array<{ name: string; version?: string }> = []
+  const deps: Array<{ name: string; version?: string; spec?: string }> = []
   for (const m of text.matchAll(/^\s*(?:require\s+)?([\w.-]+\.[\w.-]+\/[\w./-]+)\s+v(\d[\w.+-]*)/gm)) deps.push({ name: m[1], version: m[2].replace(/[-+].*$/, '') })
   out.push(...depMentions(deps, source))
   return out
@@ -845,10 +857,10 @@ export function parseGoMod(text: string, source = 'go.mod'): TechMention[] {
 /* ─────────── Python ─────────── */
 
 /** A PEP 508 requirement → name + version: `fastapi[all]>=0.110,<1` → fastapi / 0.110+. */
-function pyReq(line: string): { name: string; version?: string } | undefined {
+function pyReq(line: string): { name: string; version?: string; spec?: string } | undefined {
   const m = /^\s*([A-Za-z0-9][\w.-]*)\s*(?:\[[^\]]*\])?\s*([^;#]*)/.exec(line)
   if (!m || /^-/.test(line.trim())) return undefined
-  return { name: m[1].toLowerCase(), version: cleanSpec(m[2]) }
+  return { name: m[1].toLowerCase(), version: cleanSpec(m[2]), spec: m[2].trim() || undefined }
 }
 
 export function parsePyproject(text: string, source = 'pyproject.toml'): TechMention[] {
@@ -869,7 +881,7 @@ export function parsePyproject(text: string, source = 'pyproject.toml'): TechMen
     [/^\[tool\.mypy\]/m, 'mypy', '[tool.mypy]'],
   ]
   for (const [re, key, detail] of tools) if (re.test(text)) out.push({ key, source, detail, rank: RANK_HINT })
-  const deps: Array<{ name: string; version?: string }> = []
+  const deps: Array<{ name: string; version?: string; spec?: string }> = []
   // PEP 621: dependencies = ["fastapi>=0.110", …] (and optional-dependencies groups)
   for (const arr of text.matchAll(/^\s*[\w-]+\s*=\s*\[((?:[^\]"']|"[^"]*"|'[^']*')*)\]/gm)) {
     for (const s of arr[1].matchAll(/["']([^"']+)["']/g)) {
@@ -880,7 +892,7 @@ export function parsePyproject(text: string, source = 'pyproject.toml'): TechMen
   // Poetry / PDM tables: fastapi = "^0.110.0" or { version = "^0.110" }
   for (const sec of text.matchAll(/^\[tool\.poetry\.(?:group\.\w+\.)?(?:dev-)?dependencies\]\s*\n([\s\S]*?)(?=^\[|$(?![\s\S]))/gm)) {
     for (const m of sec[1].matchAll(/^\s*([\w.-]+)\s*=\s*(?:["']([^"']+)["']|\{[^}]*version\s*=\s*["']([^"']+)["'][^}]*\})/gm)) {
-      if (m[1].toLowerCase() !== 'python') deps.push({ name: m[1].toLowerCase(), version: cleanSpec(m[2] ?? m[3]) })
+      if (m[1].toLowerCase() !== 'python') deps.push({ name: m[1].toLowerCase(), version: cleanSpec(m[2] ?? m[3]), spec: m[2] ?? m[3] })
     }
   }
   out.push(...depMentions(deps, source))
@@ -888,15 +900,15 @@ export function parsePyproject(text: string, source = 'pyproject.toml'): TechMen
 }
 
 export function parseRequirements(text: string, source = 'requirements.txt'): TechMention[] {
-  const deps = text.split('\n').map((l) => l.replace(/#.*$/, '')).filter((l) => l.trim()).map(pyReq).filter((d): d is { name: string; version?: string } => Boolean(d))
+  const deps = text.split('\n').map((l) => l.replace(/#.*$/, '')).filter((l) => l.trim()).map(pyReq).filter((d): d is { name: string; version?: string; spec?: string } => Boolean(d))
   return [{ key: 'python', source, detail: 'requirements.txt', rank: RANK_HINT }, { key: 'pip', source, detail: baseName(source), rank: RANK_HINT }, ...depMentions(deps, source)]
 }
 
 export function parsePipfile(text: string, source = 'Pipfile'): TechMention[] {
   const v = /^\s*python_(?:full_)?version\s*=\s*["']([^"']+)["']/m.exec(text)?.[1]
   const out: TechMention[] = [{ key: 'python', version: cleanSpec(v), source, detail: v ? `python_version ${v}` : 'Pipfile', rank: v ? RANK_BUILD : RANK_HINT }, { key: 'pipenv', source, detail: 'Pipfile', rank: RANK_HINT }]
-  const deps: Array<{ name: string; version?: string }> = []
-  for (const m of text.matchAll(/^\s*([\w.-]+)\s*=\s*["']([^"']+)["']/gm)) if (!/^python_/.test(m[1]) && !/^(url|name|verify_ssl)$/.test(m[1])) deps.push({ name: m[1].toLowerCase(), version: cleanSpec(m[2]) })
+  const deps: Array<{ name: string; version?: string; spec?: string }> = []
+  for (const m of text.matchAll(/^\s*([\w.-]+)\s*=\s*["']([^"']+)["']/gm)) if (!/^python_/.test(m[1]) && !/^(url|name|verify_ssl)$/.test(m[1])) deps.push({ name: m[1].toLowerCase(), version: cleanSpec(m[2]), spec: m[2] })
   out.push(...depMentions(deps, source))
   return out
 }
@@ -910,8 +922,8 @@ export function parseCargo(text: string, source = 'Cargo.toml'): TechMention[] {
     { key: 'rust', version: cleanSpec(rv), source, detail: rv ? `rust-version ${rv}` : edition ? `edition ${edition}` : 'Cargo.toml', rank: rv ? RANK_BUILD : RANK_HINT },
     { key: 'cargo', source, detail: 'Cargo.toml', rank: RANK_HINT },
   ]
-  const deps: Array<{ name: string; version?: string }> = []
-  for (const m of text.matchAll(/^\s*([\w-]+)\s*=\s*(?:["']([^"']+)["']|\{[^}]*version\s*=\s*["']([^"']+)["'][^}]*\})/gm)) deps.push({ name: m[1], version: cleanSpec(m[2] ?? m[3]) })
+  const deps: Array<{ name: string; version?: string; spec?: string }> = []
+  for (const m of text.matchAll(/^\s*([\w-]+)\s*=\s*(?:["']([^"']+)["']|\{[^}]*version\s*=\s*["']([^"']+)["'][^}]*\})/gm)) deps.push({ name: m[1], version: cleanSpec(m[2] ?? m[3]), spec: m[2] ?? m[3] })
   out.push(...depMentions(deps, source))
   return out
 }
@@ -928,8 +940,8 @@ export function parseGemfile(text: string, source = 'Gemfile'): TechMention[] {
     { key: 'ruby', version: cleanSpec(ruby), source, detail: ruby ? `ruby '${ruby}'` : 'Gemfile', rank: ruby ? RANK_BUILD : RANK_HINT },
     { key: 'bundler', source, detail: 'Gemfile', rank: RANK_HINT },
   ]
-  const deps: Array<{ name: string; version?: string }> = []
-  for (const m of text.matchAll(/^\s*gem\s+['"]([\w-]+)['"](?:\s*,\s*['"]([^'"]+)['"])?/gm)) deps.push({ name: m[1], version: cleanSpec(m[2]) })
+  const deps: Array<{ name: string; version?: string; spec?: string }> = []
+  for (const m of text.matchAll(/^\s*gem\s+['"]([\w-]+)['"](?:\s*,\s*['"]([^'"]+)['"])?/gm)) deps.push({ name: m[1], version: cleanSpec(m[2]), spec: m[2] })
   out.push(...depMentions(deps, source))
   return out
 }
@@ -946,7 +958,7 @@ export function parseComposer(text: string, source = 'composer.json'): TechMenti
     { key: 'php', version: cleanSpec(req.php), source, detail: req.php ? `require.php ${req.php}` : 'composer.json', rank: req.php ? RANK_BUILD : RANK_HINT },
     { key: 'composer', source, detail: 'composer.json', rank: RANK_HINT },
   ]
-  out.push(...depMentions(Object.entries(req).map(([name, spec]) => ({ name, version: cleanSpec(spec) })), source))
+  out.push(...depMentions(Object.entries(req).map(([name, spec]) => ({ name, version: cleanSpec(spec), spec })), source))
   return out
 }
 
@@ -974,7 +986,7 @@ export function parseMixExs(text: string, source = 'mix.exs'): TechMention[] {
     { key: 'elixir', version: cleanSpec(ex), source, detail: ex ? `elixir: "${ex}"` : 'mix.exs', rank: ex ? RANK_BUILD : RANK_HINT },
     { key: 'mix', source, detail: 'mix.exs', rank: RANK_HINT },
   ]
-  const deps: Array<{ name: string; version?: string }> = []
+  const deps: Array<{ name: string; version?: string; spec?: string }> = []
   for (const m of text.matchAll(/\{:(\w+),\s*"([^"]+)"/g)) deps.push({ name: m[1], version: cleanSpec(m[2]) })
   out.push(...depMentions(deps, source))
   return out
@@ -1389,7 +1401,7 @@ export function mergeDetections(mentions: TechMention[]): DetectedTech[] {
       seen.push(m.version)
       also.push({ version: m.version, source: m.source, detail: m.detail })
     }
-    out.push({ key, version: best.version, source: best.source, detail: best.detail, also })
+    out.push({ key, version: best.version, source: best.source, detail: best.detail, also, pkg: best.pkg, spec: best.spec })
   }
   return out
 }

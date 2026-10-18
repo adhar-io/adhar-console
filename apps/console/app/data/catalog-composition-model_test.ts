@@ -12,8 +12,14 @@ import {
   type ObjRef,
   parseXrAnnotation,
   rollup,
+  compareNodes,
+  pathToRoot,
+  pluralKind,
   rootCandidates,
+  stackId,
+  stackSiblings,
   summarize,
+  treeRows,
   visibleNodes,
 } from './catalog-composition-model.ts'
 
@@ -231,4 +237,95 @@ Deno.test('entity → root candidates', () => {
   assertEquals(explicit[0].namespace, 'team')
   assertEquals(rootCandidates({ kind: 'Group', metadata: { name: 'platform' } })[0].labelSelector, 'adhar.io/team=platform')
   assertEquals(rootCandidates({ kind: 'User', metadata: { name: 'u' } }), [])
+})
+
+function synthetic(spec: { fan: number[]; leafKind?: string }): ReturnType<typeof buildSync> {
+  return buildSync(spec)
+}
+function buildSync({ fan, leafKind = 'Pod' }: { fan: number[]; leafKind?: string }) {
+  // fan[i] = children per node at depth i
+  const nodes: Record<string, CompNode> = {}
+  const mk = (id: string, kind: string, level: CompNode['status']['level'] = 'healthy'): CompNode => ({ id, group: '', kind, name: id, source: 'composed', status: { level, label: level }, conditions: [], children: [], parents: [] })
+  nodes.root = mk('root', 'Application')
+  let frontier = ['root']
+  fan.forEach((n, depth) => {
+    const next: string[] = []
+    for (const p of frontier) {
+      for (let i = 0; i < n; i++) {
+        const id = `${p}.${i}`
+        nodes[id] = mk(id, depth === fan.length - 1 ? leafKind : `K${depth}`, i === 1 ? 'degraded' : 'healthy')
+        nodes[id].parents.push(p)
+        nodes[p].children.push(id)
+        next.push(id)
+      }
+    }
+    frontier = next
+  })
+  return { nodes, roots: ['root'], truncated: false }
+}
+
+function assertNoOverlap(layout: ReturnType<typeof layoutTree>) {
+  const byCol = new Map<number, number[]>()
+  for (const n of layout.nodes) byCol.set(n.col, [...(byCol.get(n.col) ?? []), n.row])
+  for (const rows of byCol.values()) {
+    rows.sort((a, b) => a - b)
+    for (let i = 1; i < rows.length; i++) assert(rows[i] - rows[i - 1] >= 1, `rows ${rows[i - 1]} and ${rows[i]} overlap`)
+  }
+}
+
+Deno.test('layout: wide (≥80) and deep (≥6) trees never overlap', () => {
+  const wide = synthetic({ fan: [4, 5, 5] }) // 4 + 20 + 100 = 125 nodes
+  const lw = layoutTree(wide)
+  assertEquals(lw.nodes.length, 125)
+  assertNoOverlap(lw)
+  const deep = synthetic({ fan: [2, 1, 2, 1, 2, 1, 2] }) // 8 levels
+  const ld = layoutTree(deep)
+  assertEquals(ld.cols, 8)
+  assertNoOverlap(ld)
+  // parents sit within their children's span
+  const pos = new Map(ld.nodes.map((n) => [n.id, n]))
+  for (const n of Object.values(deep.nodes)) {
+    if (!n.children.length) continue
+    const rows = n.children.map((c) => pos.get(c)!.row)
+    assert(pos.get(n.id)!.row >= Math.min(...rows) && pos.get(n.id)!.row <= Math.max(...rows))
+  }
+})
+
+Deno.test('sibling stacking folds same-kind fan-outs and opens on demand', () => {
+  const g = synthetic({ fan: [2, 10] }) // 2 parents × 10 Pods
+  const { graph: s } = stackSiblings(g, undefined, { threshold: 6 })
+  const sid = stackId('root.0', 'Pod')
+  assertEquals(s.nodes['root.0'].children, [sid])
+  assertEquals(s.nodes[sid].name, '10 Pods')
+  assertEquals(s.nodes[sid].stack!.members.length, 10)
+  assertEquals(s.nodes[sid].status.level, 'degraded')
+  assertEquals(s.nodes[sid].stack!.byLevel, { healthy: 9, degraded: 1 })
+  assertEquals(layoutTree(s).nodes.length, 1 + 2 + 2)
+  assertNoOverlap(layoutTree(s))
+  // the input graph is untouched
+  assertEquals(g.nodes['root.0'].children.length, 10)
+  // expanding one stack restores its members only
+  const { graph: e } = stackSiblings(g, undefined, { threshold: 6, expanded: new Set([sid]) })
+  assertEquals(e.nodes['root.0'].children.length, 10)
+  assertEquals(e.nodes['root.1'].children, [stackId('root.1', 'Pod')])
+  // with a filter, members leave the visible set and the stack joins it
+  const vis = new Set(Object.keys(g.nodes))
+  const f = stackSiblings(g, vis, { threshold: 6 })
+  assert(f.visible!.has(sid) && !f.visible!.has('root.0.3'))
+  // below the threshold nothing changes
+  assertEquals(stackSiblings(synthetic({ fan: [1, 3] }), undefined).graph.nodes.root.children.length, 1)
+})
+
+Deno.test('collapse state, path to root and sortable tree rows', () => {
+  const g = synthetic({ fan: [2, 3] })
+  assertEquals(layoutTree(g, undefined, new Set(['root.0'])).nodes.length, 1 + 2 + 3)
+  assertEquals([...pathToRoot(g, 'root.1.2')].sort(), ['root', 'root.1', 'root.1.2'])
+  const rows = treeRows(g, undefined, new Set(['root.1']), compareNodes('status', 1))
+  assertEquals(rows.map((r) => r.node.id), ['root', 'root.1', 'root.0', 'root.0.1', 'root.0.0', 'root.0.2'])
+  assertEquals(rows[1].hasChildren, true)
+  assertEquals(rows.find((r) => r.node.id === 'root.0.2')!.last, true)
+  assertEquals(rows.find((r) => r.node.id === 'root.0.0')!.guides, [false, false])
+  assertEquals(rows.find((r) => r.node.id === 'root.1')!.last, false)
+  assertEquals(pluralKind('Ingress', 2), 'Ingresses')
+  assertEquals(pluralKind('Policy', 3), 'Policies')
 })

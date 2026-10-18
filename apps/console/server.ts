@@ -36,6 +36,7 @@ import { handleListTemplates } from './app/server/templates.ts'
 import { handleScorecardHistory, handleScorecardRerun, handleScorecards } from './app/server/scorecards.ts'
 import { handleEntityRoutes } from './app/server/entity-routes.ts'
 import { handleTeardown } from './app/server/teardown.ts'
+import { handleAppDelete } from './app/server/app-delete.ts'
 import { handleCoderIdentity, handleCoderIdeSession } from './app/server/coder-ide.ts'
 import { handleAlertmanagerWebhook } from './app/server/alertmanager.ts'
 import { handleListTeams } from './app/server/teams.ts'
@@ -388,6 +389,11 @@ async function route(req: Request): Promise<Response> {
   // Remove an entity from the platform: Argo CD apps (cascading), kpack
   // Image, PipelineRuns, optionally its namespace and Gitea repository.
   if (path === '/api/catalog/teardown') return handleTeardown(req)
+
+  // Delete a custom application: its Application XR as the signed-in user
+  // (Crossplane removes the Argo CD apps and composed resources), then,
+  // optionally, its Gitea repository. Role-gated server-side.
+  if (path === '/api/apps/delete') return handleAppDelete(req)
 
   // Owner/team (Group entity) picker for Catalog → Create New — discovered
   // from the adhar/adhar-templates Gitea repo, always incl. the two defaults.

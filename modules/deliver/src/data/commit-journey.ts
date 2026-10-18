@@ -214,7 +214,8 @@ export function buildJourneys(input: JourneyInput, limit = 20): CommitJourney[] 
     )
 
     const inStages = freight
-      ? ordered.filter((s) => s.currentFreight === freight.id).map((s) => s.name)
+      // A shared (project) stage holds one freight per application.
+      ? ordered.filter((s) => (s.freightByOrigin ? Object.values(s.freightByOrigin).includes(freight.id) : s.currentFreight === freight.id)).map((s) => s.name)
       : []
     steps.push({
       id: 'promotion',

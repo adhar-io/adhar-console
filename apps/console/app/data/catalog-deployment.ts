@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { envOrder } from './catalog-env-order.ts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { argocd, kargo } from '@adhar/api-clients'
 import type { Entity } from './catalog.ts'
@@ -87,17 +88,15 @@ export function envLabel(key: string): string {
   return key.charAt(0).toUpperCase() + key.slice(1)
 }
 
-/** Rank environments so Production sorts first, Dev last. */
-function envRank(key: string): number {
-  const k = key.toLowerCase()
-  if (k.startsWith('prod')) return 0
-  if (k.startsWith('stag') || k === 'stg') return 1
-  if (k === 'uat') return 2
-  if (k === 'qa' || k === 'test') return 3
-  if (k === 'preview' || k === 'canary') return 4
-  if (k.startsWith('dev')) return 5
-  return 6
-}
+/**
+ * Position of an environment along a promotion chain: dev first, prod last.
+ *
+ * This is the order the control plane chains Kargo stages in (the project's
+ * `environments`, default dev → test → prod) and the order people read a
+ * rollout in — left to right, the way a build travels. Unknown keys sort
+ * between the known pre-production tiers and production.
+ */
+export { envOrder }
 
 /**
  * The environment an Application belongs to, or `undefined` when nothing says.
@@ -138,7 +137,7 @@ export interface EntityEnvironment {
 export interface EntityDeployment {
   /** Every ArgoCD Application confidently matched to this entity. */
   apps: argocd.Application[]
-  /** Apps grouped into ordered environments (prod → dev). */
+  /** Apps grouped into environments in promotion order (dev → prod). */
   environments: EntityEnvironment[]
   /**
    * Matched apps that belong to no environment — the platform's own singletons
@@ -205,7 +204,7 @@ export function deriveDeployment(
     else unscoped.push(app)
   }
   const environments = scoped.sort(
-    (a, b) => envRank(a.key) - envRank(b.key) || a.label.localeCompare(b.label),
+    (a, b) => envOrder(a.key) - envOrder(b.key) || a.label.localeCompare(b.label),
   )
 
   const apps = matched.map((m) => m.app)
@@ -270,7 +269,9 @@ export function useDeploymentIndex(enabled = true): {
     staleTime: REFRESH_MS,
     enabled,
   })
-  return { apps: q.data, isLoading: q.isLoading, isError: q.isError }
+  // A failed BACKGROUND refetch keeps the last good list: only a query that
+  // never answered is an error.
+  return { apps: q.data, isLoading: q.isLoading, isError: q.isError && !q.data }
 }
 
 /**
@@ -286,7 +287,7 @@ export function useEntityDeployment(entity: Entity, enabled = true): EntityDeplo
     staleTime: REFRESH_MS,
     enabled,
   })
-  const state = { isLoading: q.isLoading, isError: q.isError }
+  const state = { isLoading: q.isLoading, isError: q.isError && !q.data }
   return useMemo(
     () => deriveDeployment(entity, q.data, state),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -298,11 +299,11 @@ export function useEntityDeployment(entity: Entity, enabled = true): EntityDeplo
 /* ─────────── Kargo environments ─────────── */
 
 /**
- * On this platform an environment is a Kargo Stage — `dev`, `test`, `prod` in
- * the `adhar-environments` project, each one promoting from the last. A
- * service's Argo CD apps rarely say which stage they belong to (the bootstrap
- * app is named `<service>-bootstrap`), so the Deploy tab reads the stages
- * directly instead of inventing environments from app names.
+ * The environments a service is promoted through. Environments belong to the
+ * service's PROJECT (dev → test → prod, shared by every app in it); the Kargo
+ * state per environment is either the project's shared stage filtered to THIS
+ * app's freight (target shape) or the app's own `<app>-<env>` stage (current
+ * shape). See `kargo.buildProjectMatrix` in `@adhar/api-clients`.
  */
 export interface KargoEnvironment {
   stage: kargo.Stage
@@ -311,6 +312,28 @@ export interface KargoEnvironment {
   index: number
   /** The service's Argo CD app for this stage, when one can be matched. */
   app?: argocd.Application
+  /** The project environment (`dev`, `test`, …). */
+  env: string
+  /** The project the environment belongs to, when known. */
+  project?: string
+  /** `shared`: the project's stage, carrying every app; `per-app`: this app's own. */
+  shape: 'shared' | 'per-app'
+  /** THIS application's current freight in the stage (never another app's). */
+  freight?: string
+  /** The running promotion, when it is this application's. */
+  promotion?: string
+  /** Another application's promotion is running in the shared stage. */
+  busyWithOther?: boolean
+  /** This application's last promotion into the stage, when the stage records it. */
+  lastPromoted?: string
+  lastPromotionPhase?: string
+  /** The model's view of the stage for this app — what promotion candidates are computed from. */
+  view: kargo.AppStage
+}
+
+/** "adhar · Development" — an environment is the project's, not the service's. */
+export function projectEnvLabel(project: string | undefined, env: string): string {
+  return project ? `${project} · ${envLabel(env)}` : envLabel(env)
 }
 
 /** Topological order along `upstream` edges; entry stages first, ties by name. */
@@ -341,29 +364,106 @@ export function useKargoStages(enabled = true) {
   })
 }
 
-/** Stage → this service's app for it, matched on the derived environment key or namespace. */
-export function kargoEnvironments(stages: readonly kargo.Stage[] | undefined, deployment: EntityDeployment | undefined): KargoEnvironment[] {
-  if (!stages?.length) return []
-  // An application promoted through the control plane has its OWN chain
-  // (`<app>-dev` → `<app>-test` → `<app>-prod`, labelled adhar.io/application);
-  // show that chain, not the platform's `environments` stages beside it.
-  const application = deployment?.apps.map((a) => a.metadata.labels?.['adhar.io/application']).find(Boolean)
-  const own = application ? stages.filter((s) => (s.labels?.['adhar.io/application'] ?? '') === application) : []
-  if (own.length) {
-    return own.map((stage, index) => {
-      const env = (stage.labels?.['adhar.io/environment'] ?? '').toLowerCase()
-      const app = deployment?.environments.find((e) => e.key.toLowerCase() === env)?.app
-      return { stage, label: envLabel(env || stage.name), index, app }
-    })
+export interface KargoEnvironmentOptions {
+  /** The service's project (Application XR `spec.parameters.project`). */
+  project?: string
+  /** The project's environments (`kargo.projectEnvironments(projectXR)`), in order. */
+  envs?: readonly kargo.ProjectEnv[]
+  /** Freight, to attribute a running promotion in a shared stage to its app. */
+  freight?: readonly kargo.Freight[]
+}
+
+/**
+ * This service's Kargo environments, in project environment order, each with
+ * its Argo CD app.
+ *
+ * Project first: the project is the service's own (option, else its Argo CD
+ * apps' `adhar.io/project`, else the namespace of a stage labelled for it or
+ * of a shared stage that requests its warehouse, else the Argo CD AppProject
+ * of its environment apps). Its stages are grouped by
+ * environment for both shapes, and each environment resolves to the shared
+ * stage when that stage requests this app's freight, else the app's own stage.
+ * A shared stage that does not request this app is never shown as its
+ * environment, and neither is another application's `<app>-<env>` stage.
+ *
+ * Stages composed before any label existed still match by `<app>-<env>`, and
+ * an unlabelled env-named stage without origin information is shown only where
+ * the service has an Argo CD app for that environment.
+ */
+export function kargoEnvironments(
+  stages: readonly kargo.Stage[] | undefined,
+  deployment: EntityDeployment | undefined,
+  entityName?: string,
+  opts: KargoEnvironmentOptions = {},
+): KargoEnvironment[] {
+  if (!stages?.length || !deployment) return []
+  const application = (
+    deployment.apps.map((a) => a.metadata.labels?.['adhar.io/application']).find(Boolean) ?? entityName ?? ''
+  ).toLowerCase()
+  if (!application) return []
+  const appFor = (env: string) => deployment.environments.find((e) => e.key.toLowerCase() === env)?.app
+  const freightById = new Map((opts.freight ?? []).map((f) => [f.id, f]))
+  const project = opts.project
+    ?? deployment.apps.map((a) => a.metadata.labels?.['adhar.io/project']).find(Boolean)
+    ?? stages.find((s) => kargo.stageApplication(s) === application)?.project
+    ?? stages.find((s) => kargo.isSharedStage(s) && kargo.stageCarriesApp(s, application))?.project
+    // The control plane puts `<project>-<app>-<env>` in the project's own Argo CD AppProject.
+    ?? deployment.environments.map((e) => e.app.spec.project).find((p) => p && p !== 'default')
+
+  const fromView = (view: kargo.AppStage, index: number): KargoEnvironment => {
+    const st = view.stage
+    const mineLast = view.shape === 'per-app' || (st.lastPromotionOrigin ?? '').toLowerCase() === application ||
+      (Boolean(st.lastPromotionFreight) && st.lastPromotionFreight === view.freight)
+    return {
+      stage: st,
+      label: projectEnvLabel(project, view.env),
+      index,
+      app: appFor(view.env),
+      env: view.env,
+      ...(project ? { project } : {}),
+      shape: view.shape,
+      ...(view.freight ? { freight: view.freight } : {}),
+      ...(view.promotion ? { promotion: view.promotion } : {}),
+      ...(view.busyWithOther ? { busyWithOther: true } : {}),
+      ...(mineLast && st.lastPromoted ? { lastPromoted: st.lastPromoted } : {}),
+      ...(mineLast && st.lastPromotionPhase ? { lastPromotionPhase: st.lastPromotionPhase } : {}),
+      view,
+    }
   }
-  return stages.map((stage, index) => {
-    const key = stage.name.toLowerCase()
-    const app = deployment?.environments.find((e) => {
-      const k = e.key.toLowerCase()
-      const ns = e.app.spec.destination.namespace.toLowerCase()
-      return k === key || envLabel(k) === envLabel(key) || ns === key || ns.endsWith(`-${key}`)
-    })?.app
-    return { stage, label: envLabel(stage.name), index, app }
+
+  if (project) {
+    const declared = (opts.envs ?? []).map((e) => e.name.toLowerCase())
+    const known = [...new Set([...declared, ...deployment.environments.map((e) => e.key.toLowerCase()), ...ENV_SUFFIXES])]
+    const groups = kargo.groupStagesByEnvironment([...stages], project, known)
+    const order = declared.length
+      ? [...declared, ...[...groups.keys()].filter((k) => !declared.includes(k)).sort((a, b) => envOrder(a) - envOrder(b))]
+      : [...groups.keys()].sort((a, b) => envOrder(a) - envOrder(b) || a.localeCompare(b))
+    const views: kargo.AppStage[] = []
+    for (const env of order) {
+      const g = groups.get(env)
+      if (!g) continue
+      const view = kargo.appStage(g, application, freightById)
+      if (view) {
+        views.push(view)
+        continue
+      }
+      // An env-named stage that says nothing about its origins (composed
+      // before freight origins were recorded): this app's only where it
+      // actually has an Argo CD app in that environment.
+      const s = g.shared
+      if (s && !s.origins?.length && !s.freightByOrigin && appFor(env)) {
+        views.push({ app: application, env, shape: 'shared', stage: s, ...(s.currentFreight ? { freight: s.currentFreight } : {}), ...(s.currentPromotion ? { promotion: s.currentPromotion } : {}) })
+      }
+    }
+    if (views.length) return views.map(fromView)
+  }
+
+  // Before any label existed: this app's `<app>-<env>` stages by name.
+  const prefix = `${application}-`
+  const legacy = stages.filter((s) => !kargo.stageApplication(s) && s.name.toLowerCase().startsWith(prefix) && appFor(s.name.toLowerCase().slice(prefix.length)))
+  return legacy.map((stage, index) => {
+    const env = stage.name.toLowerCase().slice(prefix.length)
+    return fromView({ app: application, env, shape: 'per-app', stage, ...(stage.currentFreight ? { freight: stage.currentFreight } : {}), ...(stage.currentPromotion ? { promotion: stage.currentPromotion } : {}) }, index)
   })
 }
 
@@ -420,6 +520,15 @@ export function promotableFreight(
     if (!ups.length) return !stage.warehouse || f.warehouse === stage.warehouse
     return ups.some((u) => (f.verifiedIn ?? []).includes(u))
   })
+}
+
+/**
+ * The freight THIS service may be promoted to in one of its environments —
+ * only its own (origin `Warehouse/<app>`), even when the stage is shared by
+ * the whole project, verified upstream or approved for the stage.
+ */
+export function promotableFreightFor(env: KargoEnvironment, freight: readonly kargo.Freight[] | undefined): kargo.Freight[] {
+  return kargo.promotableFreightForApp(env.view, freight)
 }
 
 /** Short, stable label for a freight: its alias if Kargo gave it one, else a short id. */

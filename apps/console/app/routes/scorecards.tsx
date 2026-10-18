@@ -30,6 +30,7 @@ import {
   PLATFORM_CATEGORIES,
   PLATFORM_CATEGORY_LABEL,
   type PlatformScorecardsState,
+  type PlatformEvidence,
   type PlatformService,
   platformCategoryAverages,
   platformSignalLabel,
@@ -1298,6 +1299,63 @@ function ScoreHistoryCard({
   )
 }
 
+/**
+ * What the platform's resilience runner last proved about an application: the
+ * automated k6 load test, the Litmus pod-delete experiment, and the live SLO.
+ * Raw numbers as the runner recorded them — the signal ledger below says how
+ * they scored.
+ */
+function EvidenceSummary({ evidence }: { evidence: PlatformEvidence }) {
+  const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
+  const perf = evidence.performance ?? {}
+  const chaos = evidence.chaos ?? {}
+  const slo = evidence.slo ?? {}
+  const p95 = n(perf.p95Ms)
+  const errs = n(perf.errorRate)
+  const rps = n(perf.rps)
+  const probe = n(chaos.probeSuccessPercentage)
+  const recovery = n(chaos.recoverySeconds)
+  const liveP95 = n(slo.p95Ms)
+  const live5xx = n(slo.errorRatio)
+  const cell = (label: string, value: string, status?: unknown) => (
+    <div className="flex flex-col gap-0.5 rounded-md bg-surface-sunken px-2 py-1.5">
+      <span className="text-[10px] uppercase tracking-wide text-content-subtle">{label}</span>
+      <span
+        className={cn(
+          'font-mono text-[12px] tabular-nums',
+          status === 'passed' ? 'text-emerald-700 dark:text-emerald-300' : status === 'failed' ? 'text-rose-700 dark:text-rose-300' : 'text-content',
+        )}
+      >
+        {value}
+      </span>
+    </div>
+  )
+  if (evidence.pending && !evidence.performance && !evidence.chaos) {
+    return (
+      <p className="rounded-md bg-surface-sunken px-2 py-1 text-[11px] text-content-muted">
+        Automated load and chaos tests: {evidence.pending}.
+      </p>
+    )
+  }
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[11px] text-content-muted">
+        Automated tests
+        {evidence.environment ? <> in <span className="font-mono">{evidence.environment}</span></> : null}
+        {evidence.testedAt ? <> · {new Date(evidence.testedAt).toLocaleString()}</> : null}
+      </p>
+      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+        {cell('Load p95', p95 !== undefined ? `${Math.round(p95)} ms` : String(perf.status ?? '—'), perf.status)}
+        {cell('Load errors / rps', errs !== undefined ? `${(errs * 100).toFixed(2)}% · ${Math.round(rps ?? 0)}/s` : '—', perf.status)}
+        {cell('Chaos probe', probe !== undefined ? `${probe}% up` : String(chaos.status ?? '—'), chaos.status)}
+        {cell('Recovery', recovery !== undefined ? `${recovery}s` : '—', chaos.status)}
+        {cell('Live p95 (24h)', liveP95 !== undefined ? `${Math.round(liveP95)} ms` : '—')}
+        {cell('Live 5xx (24h)', live5xx !== undefined ? `${(live5xx * 100).toFixed(3)}%` : '—')}
+      </div>
+    </div>
+  )
+}
+
 /** The scorer's per-service breakdown: categories, then its signal ledger. */
 function PlatformPanel({ service, card }: { service: PlatformService; card: Scorecard }) {
   return (
@@ -1323,26 +1381,52 @@ function PlatformPanel({ service, card }: { service: PlatformService; card: Scor
         </div>
       </CardHeader>
       <CardBody className="space-y-4">
-        <div className="grid grid-cols-2 gap-x-5 gap-y-2 sm:grid-cols-4">
+        {service.kind === 'application' && service.environments?.length ? (
+          <p className="text-[11px] text-content-muted">
+            Graded on <span className="font-medium text-content">{service.environment}</span>, its
+            most-promoted environment ·{' '}
+            {service.environments.map((e, i) => (
+              <span key={e.name}>
+                {i ? ', ' : ''}
+                <span className="font-mono">{e.name}</span> {e.health}
+              </span>
+            ))}
+          </p>
+        ) : null}
+
+        <div className="grid grid-cols-2 gap-x-5 gap-y-2 sm:grid-cols-3">
           {PLATFORM_CATEGORIES.map((cat) => {
-            const v = service.categories[cat] ?? 0
+            const raw = service.categories[cat]
+            // null: nothing in this category applies (a platform package is never
+            // load- or chaos-tested). Shown as n/a, never as a zero.
+            const na = raw === null || raw === undefined
+            const v = na ? 0 : raw
             return (
-              <div key={cat} className="flex flex-col gap-1">
+              <div key={cat} className="flex flex-col gap-1" title={na ? `${PLATFORM_CATEGORY_LABEL[cat]}: not applicable` : undefined}>
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="truncate text-[11px] text-content-muted">
                     {PLATFORM_CATEGORY_LABEL[cat]}
                   </span>
-                  <span className={cn('font-mono text-[12px] font-semibold tabular-nums', scoreTextTone(v))}>
-                    {v}
+                  <span
+                    className={cn(
+                      'font-mono text-[12px] font-semibold tabular-nums',
+                      na ? 'text-content-subtle' : scoreTextTone(v),
+                    )}
+                  >
+                    {na ? 'n/a' : v}
                   </span>
                 </div>
                 <span className="block h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
-                  <span className={cn('block h-full rounded-full', barTone(v))} style={{ width: `${v}%` }} />
+                  {na ? null : (
+                    <span className={cn('block h-full rounded-full', barTone(v))} style={{ width: `${v}%` }} />
+                  )}
                 </span>
               </div>
             )
           })}
         </div>
+
+        {service.evidence ? <EvidenceSummary evidence={service.evidence} /> : null}
 
         {service.signals.length ? (
           <div className="divide-y divide-edge-subtle">
@@ -1378,6 +1462,7 @@ function PlatformPanel({ service, card }: { service: PlatformService; card: Scor
                         : pct >= 100
                           ? 'Pass'
                           : `${pct}%`}
+                      {sig.detail ? <span className="block text-content-subtle">{sig.detail}</span> : null}
                     </div>
                   </div>
                 </div>

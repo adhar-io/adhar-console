@@ -118,13 +118,13 @@ Deno.test('an environment in the app name or the namespace is still recognised',
   assertEquals(byNamespace.environments.map((e) => e.key), ['test'])
 })
 
-Deno.test('environments sort along the promotion chain, prod first', () => {
+Deno.test('environments sort along the promotion chain, dev first', () => {
   const d = derive([
     depApp('my-service-dev', [{ kind: 'Deployment', name: 'x', namespace: 'adhar-system' }]),
     depApp('my-service-prod', [{ kind: 'Deployment', name: 'x', namespace: 'adhar-system' }]),
     depApp('my-service-test', [{ kind: 'Deployment', name: 'x', namespace: 'adhar-system' }]),
   ])
-  assertEquals(d.environments.map((e) => e.key), ['prod', 'test', 'dev'])
+  assertEquals(d.environments.map((e) => e.key), ['dev', 'test', 'prod'])
   // The primary is the production app, not whichever was listed first.
   assertEquals(d.primary?.metadata.name, 'my-service-prod')
 })
@@ -138,7 +138,7 @@ Deno.test('control-plane apps named <project>-<app>-<env> match the entity by th
   const other = { metadata: { name: 'billing-dev', labels: { 'adhar.io/application': 'billing' } }, spec: { destination: { namespace: 'dev' } }, status: { resourceList: [] } } as unknown as argocd.Application
   const d = deriveDeployment(entity('ngapp'), [cp('dev'), cp('test'), cp('prod'), other], { isLoading: false, isError: false })
   assertEquals(d.apps.length, 3)
-  assertEquals(d.environments.map((e) => e.key), ['prod', 'test', 'dev'])
+  assertEquals(d.environments.map((e) => e.key), ['dev', 'test', 'prod'])
   assertEquals(d.unmatched, false)
   assertEquals(repoUrlFromDeployment(d, 'https://gitea.test.adhar.io'), 'https://gitea.test.adhar.io/adhar/ngapp')
   const linked = withRepoLink(entity('ngapp'), repoUrlFromDeployment(d, 'https://gitea.test.adhar.io'))

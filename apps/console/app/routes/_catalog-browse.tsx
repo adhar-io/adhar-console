@@ -45,23 +45,13 @@ import { parseApiDefinition, type ParsedApi, type SourceStatus } from '~/data/ca
 import {
   deriveDeployment,
   type EntityDeployment,
-  freightLabel,
-  freightTags,
-  kargoEnvironments,
-  type KargoEnvironment,
-  promotableFreight,
-  useKargoActions,
-  useKargoFreight,
-  useKargoStages,
-  type EntityEnvironment,
   useDeploymentIndex,
   useEntityDeployment,
-  unhealthyNodes,
-  useResourceTree,
-  workloadNamespace, repoUrlFromDeployment, withRepoLink } from '~/data/catalog-deployment.ts'
+  repoUrlFromDeployment,
+  withRepoLink,
+} from '~/data/catalog-deployment.ts'
 import { type EntityRoute, routeLabel, useEntityRoutes } from '~/data/catalog-routes.ts'
-import { type PipelineRunSummary, usePipelineRuns } from '~/data/catalog-pipelines.ts'
-import { describeProgress } from '../data/pipeline-progress.ts'
+import { CatalogDeploymentTab, DeployFrequencyCard } from '~/components/catalog-deployment-tab.tsx'
 import { type DocPage, editUrl, headingOf, rawBase, useDocPage, useDocsPages, useDocsSource, useRepoTechStack } from '~/data/catalog-docs.ts'
 import {
   genericTags,
@@ -73,11 +63,11 @@ import {
   withRepoTech,
 } from '~/data/catalog-tech-badges.ts'
 import { TechStackTab } from '~/components/catalog-tech-stack.tsx'
-import { useDiscoverAlerts } from '~/data/cross-module-signals.ts'
 import { useCompositionRoots } from '~/data/catalog-composition.ts'
 import { CompositionTab, compositionBadge } from './_catalog-composition.tsx'
 import { RawTab } from './_catalog-raw.tsx'
-import { DeleteEntityDialog } from '~/components/catalog-delete.tsx'
+import { ResourcesTab } from './_catalog-resources.tsx'
+import { CatalogDeleteDialog, useEntityDeleteMode } from '~/components/catalog-delete-app.tsx'
 import {
   CATEGORY_LABEL,
   type Check,
@@ -116,8 +106,6 @@ type ViewMode = 'grid' | 'table' | 'compact'
 type SortKey = 'name' | 'recent' | 'lifecycle' | 'score'
 /** How the grid is sectioned. `none` is one flat grid. */
 type GroupKey = 'none' | 'system' | 'owner' | 'kind' | 'lifecycle'
-/** One matched Argo CD Application, as the deployment module normalises it. */
-type ArgoApp = EntityDeployment['apps'][number]
 type Tristate = null | true | false
 
 interface FilterState {
@@ -603,7 +591,6 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
         onPick={openEntity}
         onDelete={setDeleting}
         loading={q.isLoading}
-        refreshing={q.refreshing}
         searching={isFiltering}
         filterCount={filterCount}
         text={text}
@@ -629,7 +616,7 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
       ) : null}
 
       {deleting ? (
-        <DeleteEntityDialog
+        <CatalogDeleteDialog
           entity={deleting}
           open
           onClose={() => setDeleting(null)}
@@ -1280,7 +1267,6 @@ function BrowseAll({
   onPick,
   onDelete,
   loading,
-  refreshing = false,
   searching,
   filterCount,
   text,
@@ -1310,7 +1296,6 @@ function BrowseAll({
   onDelete(e: Entity): void
   loading: boolean
   /** Sources are refetching behind data already on screen — never blocks. */
-  refreshing?: boolean
   searching: boolean
   filterCount: number
   text: string
@@ -1370,7 +1355,6 @@ function BrowseAll({
         onClearSearch={onClearSearch}
         searchInputRef={searchInputRef}
         loading={loading}
-        refreshing={refreshing}
       />
 
       {loading ? (
@@ -1602,7 +1586,6 @@ function Toolbar({
   onClearSearch,
   searchInputRef,
   loading,
-  refreshing = false,
 }: {
   filter: FilterState
   onFilter(next: FilterState): void
@@ -1625,7 +1608,6 @@ function Toolbar({
   onClearSearch(): void
   searchInputRef: React.RefObject<HTMLInputElement | null>
   loading: boolean
-  refreshing?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const anchorRef = useRef<HTMLDivElement>(null)
@@ -1755,14 +1737,6 @@ function Toolbar({
           >
             <Spinner size={11} />
             <span>Loading…</span>
-          </span>
-        ) : refreshing ? (
-          <span
-            className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-content-subtle"
-            title="Refreshing sources in the background"
-          >
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-500" />
-            <span>Refreshing</span>
           </span>
         ) : null}
       </div>
@@ -3496,7 +3470,7 @@ function SectionHeader({
 
 /* ─────────── entity drawer ─────────── */
 
-type DrawerTab = 'overview' | 'deploy' | 'composition' | 'tech' | 'docs' | 'metrics' | 'relations' | 'scorecard' | 'raw'
+type DrawerTab = 'overview' | 'deploy' | 'resources' | 'composition' | 'tech' | 'docs' | 'metrics' | 'relations' | 'scorecard' | 'raw'
 
 function EntityDrawer({
   entity,
@@ -3532,6 +3506,8 @@ function EntityDrawer({
   const [metricRange, setMetricRange] = useState<RangeId>('1h')
   const toast = useToast()
   const ai = useAi()
+  // XR-backed apps get "Delete application…" (role-gated); others the teardown.
+  const deleteMode = useEntityDeleteMode(entity)
 
   // Where this entity sits in the list it was opened from.
   const position = useMemo(() => {
@@ -3707,6 +3683,13 @@ function EntityDrawer({
       badge: deployBadge,
     },
     {
+      id: 'resources',
+      label: 'Resources',
+      // Argo CD's app view of every deployed component; only when an app matched.
+      hidden: deployment.apps.length === 0,
+      badge: deployment.apps.length > 1 ? deployment.apps.length : undefined,
+    },
+    {
       id: 'composition',
       label: 'Composition',
       // Hidden when nothing is composed — but a discovery failure (RBAC) is
@@ -3770,7 +3753,9 @@ function EntityDrawer({
       />
       <aside
         className={cn(
-          'relative flex h-full w-full flex-col overflow-hidden bg-surface-canvas shadow-2xl transition-[max-width] duration-200 ease-out sm:border-l sm:border-edge-default',
+          'relative flex h-full w-full flex-col overflow-hidden shadow-2xl transition-[max-width] duration-200 ease-out sm:border-l sm:border-edge-default',
+          // Raw reads as a document: white, not the tinted canvas the other tabs' cards sit on.
+          effectiveTab === 'raw' ? 'bg-surface-raised' : 'bg-surface-canvas',
           effectiveTab === 'docs' && docsWide ? 'max-w-[min(100rem,calc(100vw-3rem))]' : 'max-w-4xl',
         )}
       >
@@ -3878,12 +3863,12 @@ function EntityDrawer({
               >
                 {starred ? <IconStarFilled /> : <IconStar />}
               </button>
-              {onDelete ? (
+              {onDelete && deleteMode !== 'forbidden' ? (
                 <button
                   type="button"
                   onClick={onDelete}
-                  aria-label="Delete from platform"
-                  title="Delete from platform…"
+                  aria-label={deleteMode === 'application' ? 'Delete application' : 'Delete from platform'}
+                  title={deleteMode === 'application' ? 'Delete application…' : 'Delete from platform…'}
                   className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
                 >
                   <IconTrash />
@@ -3978,7 +3963,7 @@ function EntityDrawer({
                     {scoreable || (showDeploy && deployment) || metricTarget ? (
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                         {scoreable ? <ReadinessByCategory score={score} onOpen={() => setTab('scorecard')} /> : null}
-                        {showDeploy && deployment ? <DeploymentsChart deployment={deployment} onOpen={() => setTab('deploy')} /> : null}
+                        {showDeploy && deployment ? <DeployFrequencyCard deployment={deployment} onOpen={() => setTab('deploy')} /> : null}
                         {metricTarget ? (
                           <DrawerSection
                             title="Last hour"
@@ -4060,13 +4045,14 @@ function EntityDrawer({
                 ) : null}
 
                 {active === 'deploy' ? (
-                  <DeploymentTab
+                  <CatalogDeploymentTab
                     entity={entity}
                     deployment={deployment}
                     repoUrl={repoUrl}
                     routes={routeList}
                     monitorUrl={monitorUrl}
                     onMetrics={metricTarget ? () => setTab('metrics') : undefined}
+                    onComposition={composition.roots.length || composition.error ? () => setTab('composition') : undefined}
                   />
                 ) : null}
 
@@ -4132,6 +4118,8 @@ function EntityDrawer({
                 ) : null}
 
                 {active === 'scorecard' ? <ScorecardTab score={score} onAsk={() => askAboutEntity(ai, entity)} /> : null}
+
+                {active === 'resources' ? <ResourcesTab entity={entity} deployment={deployment} /> : null}
 
                 {active === 'composition' ? <CompositionTab roots={composition} /> : null}
 
@@ -4297,64 +4285,6 @@ function ReadinessByCategory({ score, onOpen }: { score: Scorecard; onOpen(): vo
           </li>
         ))}
       </ul>
-    </DrawerSection>
-  )
-}
-
-/**
- * Deployments per week for the last eight weeks, from Argo CD's sync
- * history across every matched application. Frequency is the one delivery
- * number that needs no interpretation: a bar that has been empty for a
- * month says more than a "last synced 31d ago".
- */
-function DeploymentsChart({ deployment, onOpen }: { deployment: EntityDeployment; onOpen?(): void }) {
-  const WEEKS = 8
-  const now = Date.now()
-  const weekMs = 7 * 86_400_000
-  const stamps = deployment.apps
-    .flatMap((a) => a.status.history.map((h) => h.deployedAt))
-    .filter((d): d is string => Boolean(d))
-    .map((d) => new Date(d).getTime())
-    .filter((t) => Number.isFinite(t))
-  const bars = Array.from({ length: WEEKS }, (_, i) => {
-    const end = now - (WEEKS - 1 - i) * weekMs
-    const start = end - weekMs
-    const n = stamps.filter((t) => t > start && t <= end).length
-    const label = i === WEEKS - 1 ? 'this wk' : `-${WEEKS - 1 - i}w`
-    return { label, value: n }
-  })
-  const total = bars.reduce((a, b) => a + b.value, 0)
-  const last = stamps.length ? Math.max(...stamps) : null
-  return (
-    <DrawerSection
-      title="Deployments"
-      aside={
-        onOpen ? (
-          <button type="button" onClick={onOpen} className="inline-flex min-h-9 items-center text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300 sm:min-h-0">
-            Deployment →
-          </button>
-        ) : (
-          <span className="text-[11px] text-content-subtle">per week · from Argo CD sync history</span>
-        )
-      }
-    >
-      {deployment.isLoading ? (
-        <div className="flex h-24 items-center justify-center text-[11px] text-content-subtle"><Spinner size={12} /></div>
-      ) : deployment.isError ? (
-        <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-edge-default text-[11px] text-content-subtle">Argo CD not reachable</div>
-      ) : !deployment.apps.length ? (
-        <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-edge-default text-[11px] text-content-subtle">Not deployed via Argo CD</div>
-      ) : (
-        <>
-          <BarChart bars={bars} height={72} color="var(--color-brand-500)" formatY={(v) => String(Math.round(v))} />
-          <div className="mt-2 flex items-baseline justify-between text-[11px] text-content-muted">
-            <span>
-              <span className="font-mono font-semibold tabular-nums text-content">{total}</span> in {WEEKS} weeks
-            </span>
-            <span>{last ? `last ${relativeTime(new Date(last).toISOString()) || formatDate(new Date(last).toISOString())}` : 'no sync history'}</span>
-          </div>
-        </>
-      )}
     </DrawerSection>
   )
 }
@@ -5422,17 +5352,6 @@ function DrawerSection({
   )
 }
 
-function Field({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div>
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
-        {label}
-      </div>
-      <div className="mt-1 text-sm text-content">{value}</div>
-    </div>
-  )
-}
-
 function formatDate(iso?: string): string {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -5440,7 +5359,7 @@ function formatDate(iso?: string): string {
   return d.toISOString().split('T')[0]
 }
 
-/* ─────────── deployment tab (repo · gitops · envs · pipelines · monitoring) ─────────── */
+/* ─────────── deployment tab: see ~/components/catalog-deployment-tab.tsx ─────────── */
 
 /** Best-known source repository URL for an entity (link or annotation). */
 function repoUrlFor(e: Entity): string | undefined {
@@ -5475,17 +5394,6 @@ function argoHealthKind(status?: string): StatusKind {
   }
 }
 
-function argoSyncKind(status?: string): StatusKind {
-  if (status === 'Synced') return 'healthy'
-  if (status === 'OutOfSync') return 'paused'
-  return 'unknown'
-}
-
-function shortSha(rev?: string): string | undefined {
-  if (!rev) return undefined
-  return /^[0-9a-f]{7,40}$/i.test(rev) ? rev.slice(0, 7) : rev
-}
-
 /** A subtle copy-to-clipboard button used for clone commands. */
 function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false)
@@ -5506,784 +5414,6 @@ function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) 
       {copied ? <IconCheck /> : <IconCopy />}
       {copied ? 'Copied' : label}
     </button>
-  )
-}
-
-/** A deep link into another 6D phase view (opens the full-page module view). */
-function PhaseLink({ href, children }: { href: string; children: React.ReactNode }) {
-  return (
-    <a
-      href={href}
-      className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300"
-    >
-      {children}
-    </a>
-  )
-}
-
-function DeploymentTab({
-  entity,
-  deployment,
-  repoUrl,
-  routes,
-  monitorUrl,
-  onMetrics,
-}: {
-  entity: Entity
-  deployment: EntityDeployment
-  repoUrl?: string
-  routes: EntityRoute[]
-  monitorUrl?: string
-  onMetrics?(): void
-}) {
-  const argoBase = useToolPublicUrl('argocd')
-  const appUrl = (app: ArgoApp): string | undefined =>
-    argoBase ? `${argoBase}/applications/${app.metadata.namespace}/${app.metadata.name}` : undefined
-  const p = deployment.primary
-  return (
-    <div className="space-y-5">
-      {/*
-        The rollout first — it is what a Deployment tab is opened for. One
-        outcome at a time: loading, Argo CD unreachable, nothing matched, or
-        the real state (summary, environments, history, GitOps details). The
-        static cards (endpoints, repository, pipelines, monitoring) follow,
-        because they are true whether or not Argo CD is answering.
-      */}
-      {deployment.isLoading ? (
-        <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised px-4 py-6 text-xs text-content-muted">
-          <Spinner /> Reading rollout state from Argo CD…
-        </div>
-      ) : deployment.isError ? (
-        <DeploymentUnavailable reason="unreachable" entity={entity} argoBase={argoBase} />
-      ) : !p ? (
-        <DeploymentUnavailable reason="unmatched" entity={entity} argoBase={argoBase} />
-      ) : (
-        <>
-          <DeploymentSummary deployment={deployment} appUrl={appUrl(p)} />
-          <EnvironmentsGrid deployment={deployment} appUrl={appUrl} repoUrl={repoUrl} />
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-            <div className="min-w-0 space-y-5">
-              <DeploymentsChart deployment={deployment} />
-              <SyncHistoryCard deployment={deployment} repoUrl={repoUrl} />
-            </div>
-            <GitOpsDetailsCard app={p} appUrl={appUrl(p)} apps={deployment.apps.length} />
-          </div>
-        </>
-      )}
-      <EndpointsCard routes={routes} repoUrl={repoUrl} />
-      <RepositoryCard entity={entity} repoUrl={repoUrl} primary={deployment.primary} />
-      <PipelinesCard entity={entity} repoUrl={repoUrl} runsIn={deployment.namespace} />
-      <MonitoringCard entity={entity} monitorUrl={monitorUrl} onMetrics={onMetrics} />
-    </div>
-  )
-}
-
-/**
- * Why there is no rollout to show, and what to do about it — two different
- * situations that used to render as three near-identical empty states
- * stacked down the tab.
- */
-function DeploymentUnavailable({
-  reason,
-  entity,
-  argoBase,
-}: {
-  reason: 'unreachable' | 'unmatched'
-  entity: Entity
-  argoBase: string
-}) {
-  const name = entity.metadata.name
-  return (
-    <div className="rounded-xl border border-dashed border-edge-strong bg-surface-raised px-5 py-5">
-      <div className="flex items-start gap-3">
-        <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-sunken text-content-muted">
-          <IconRocket />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="text-[14px] font-semibold text-content">
-            {reason === 'unreachable' ? 'Argo CD is not reachable' : 'Not deployed via Argo CD'}
-          </div>
-          <p className="mt-1 text-[12px] leading-relaxed text-content-muted">
-            {reason === 'unreachable' ? (
-              <>
-                The console could not read Applications from Argo CD, so the rollout state, environments and sync history cannot be shown. This is a
-                connectivity problem, not a statement about <code className="font-mono text-content">{name}</code> — it will appear as soon as Argo CD answers.
-              </>
-            ) : (
-              <>
-                No Argo CD Application matches <code className="font-mono text-content">{name}</code> (by name, by name with an environment suffix such as{' '}
-                <code className="font-mono text-content">{name}-prod</code>, or via the <code className="font-mono text-content">adhar.io/argocd-app</code> annotation).
-              </>
-            )}
-          </p>
-          {reason === 'unmatched' ? (
-            <ol className="mt-3 space-y-1.5 text-[12px] text-content-muted">
-              <li className="flex gap-2"><span className="font-mono text-content-subtle">1.</span><span>If it is already deployed under another name, set <code className="font-mono text-content">adhar.io/argocd-app: &lt;app-name&gt;</code> on the entity.</span></li>
-              <li className="flex gap-2"><span className="font-mono text-content-subtle">2.</span><span>If it is not deployed yet, scaffold it from a Golden Path template or add it to the platform's ApplicationSet.</span></li>
-              <li className="flex gap-2"><span className="font-mono text-content-subtle">3.</span><span>A library or a docs site legitimately has no deployment — that is fine.</span></li>
-            </ol>
-          ) : null}
-          <div className="mt-3 flex flex-wrap gap-2">
-            {argoBase ? (
-              <a href={`${argoBase}/applications`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300">
-                Open Argo CD <IconArrowUpRight />
-              </a>
-            ) : null}
-            <PhaseLink href="/deliver?section=apps">GitOps view</PhaseLink>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/** The rollout at a glance: five facts, each the answer to a question people open this tab with. */
-function DeploymentSummary({ deployment, appUrl }: { deployment: EntityDeployment; appUrl?: string }) {
-  const p = deployment.primary!
-  const h = p.status.health.status
-  const sy = p.status.sync.status
-  const r = p.status.resources
-  const op = p.status.operationState
-  const auto = p.spec.syncPolicy.automated
-  const stages = useKargoStages()
-  const kenvs = kargoEnvironments(stages.data, deployment)
-  // Kargo's stages are this service's environments only when it is deployed
-  // through them; otherwise they are the platform's, not its.
-  const inKargo = kenvs.filter((e) => e.app)
-  const envs = inKargo.length ? inKargo.map((e) => ({ label: e.label })) : deployment.environments
-  const tree = useResourceTree(p)
-  const bad = unhealthyNodes(tree.data ?? [])
-  const firstBad = bad[0]
-  const dotFor = (k: StatusKind) =>
-    k === 'healthy' ? 'bg-emerald-500' : k === 'degraded' || k === 'failed' ? 'bg-rose-500' : k === 'paused' ? 'bg-amber-500' : k === 'progressing' ? 'bg-sky-500 animate-pulse' : 'bg-slate-400'
-  const tiles: Array<{ label: string; value: React.ReactNode; sub: string; dot?: string }> = [
-    {
-      label: 'Health',
-      value: h,
-      dot: dotFor(argoHealthKind(h)),
-      sub: p.status.health.message
-        ? p.status.health.message.slice(0, 80)
-        : firstBad
-          ? `${firstBad.kind} ${firstBad.name}: ${firstBad.reason || firstBad.status}`
-          : `${deployment.apps.length} ${deployment.apps.length === 1 ? 'application' : 'applications'}`,
-    },
-    { label: 'Sync', value: sy, dot: dotFor(argoSyncKind(sy)), sub: r.outOfSync ? `${r.outOfSync} of ${r.total} resources drifted` : r.total ? `${r.total} resources in sync` : 'no resources reported' },
-    {
-      label: 'Environments',
-      value: envs.length ? String(envs.length) : '—',
-      // Zero is the honest answer for the platform's own apps and a scaffolded
-      // service's bootstrap app: they belong to no environment. Saying where
-      // they run instead of naming a namespace "Environment: Adhar-system" is
-      // the whole point of the fix in `environmentOf`.
-      sub: envs.length
-        ? envs.map((e) => e.label).slice(0, 3).join(', ') + (envs.length > 3 ? ` +${envs.length - 3}` : '')
-        : deployment.namespace
-          ? `not environment-scoped · runs in ${deployment.namespace}`
-          : 'not environment-scoped',
-    },
-    { label: 'Last sync', value: op?.phase ?? 'none', dot: op ? (op.phase === 'Succeeded' ? 'bg-emerald-500' : op.phase === 'Running' ? 'bg-sky-500 animate-pulse' : 'bg-rose-500') : 'bg-slate-400', sub: op?.finishedAt ? `${relativeTime(op.finishedAt) || formatDate(op.finishedAt)}${op.initiatedBy ? ` · by ${op.initiatedBy}` : ''}` : 'no operation recorded' },
-    { label: 'Auto-sync', value: auto ? 'On' : 'Manual', dot: auto ? 'bg-emerald-500' : 'bg-amber-500', sub: auto ? [auto.prune ? 'prune' : null, auto.selfHeal ? 'self-heal' : null].filter(Boolean).join(' · ') || 'no prune, no self-heal' : 'someone has to press Sync' },
-  ]
-  return (
-    <div>
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-2">
-        {tiles.map((t) => (
-          <div key={t.label} className="min-w-0 rounded-xl border border-edge-default bg-surface-raised px-3.5 py-3 shadow-sm">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-content-subtle">{t.label}</div>
-            <div className="mt-1.5 flex items-center gap-2 text-[15px] font-semibold leading-tight text-content">
-              {t.dot ? <span className={cn('h-2 w-2 shrink-0 rounded-full', t.dot)} /> : null}
-              <span className="truncate">{t.value}</span>
-            </div>
-            <div className="mt-1 truncate text-[11px] text-content-muted" title={t.sub}>{t.sub}</div>
-          </div>
-        ))}
-      </div>
-      {bad.length ? (
-        <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 dark:border-rose-500/30 dark:bg-rose-500/10">
-          <div className="text-[12px] font-semibold text-rose-800 dark:text-rose-200">
-            Why it is {h.toLowerCase()} · {bad.length} unhealthy {bad.length === 1 ? 'resource' : 'resources'}
-          </div>
-          <ul className="mt-1.5 space-y-1">
-            {bad.slice(0, 5).map((n) => (
-              <li key={`${n.kind}/${n.namespace}/${n.name}`} className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-[11px] text-rose-800 dark:text-rose-200">
-                <span className="font-mono font-medium">{n.kind}/{n.name}</span>
-                <span className="text-rose-700/80 dark:text-rose-300/80">{n.status}</span>
-                {n.reason ? <span className="min-w-0 truncate" title={n.reason}>— {n.reason}</span> : null}
-              </li>
-            ))}
-            {bad.length > 5 ? <li className="text-[11px] text-rose-700/80 dark:text-rose-300/80">+{bad.length - 5} more in Argo CD</li> : null}
-          </ul>
-        </div>
-      ) : null}
-      {appUrl ? (
-        <div className="mt-2 flex justify-end">
-          <a href={appUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">
-            Open {p.metadata.name} in Argo CD <IconArrowUpRight />
-          </a>
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-/** A commit link when the repository host is one that uses `/commit/<sha>` (Gitea, GitHub, GitLab). */
-function commitUrl(repoUrl: string | undefined, rev: string | undefined): string | undefined {
-  if (!repoUrl || !rev || !/^[0-9a-f]{7,40}$/i.test(rev)) return undefined
-  const base = repoUrl.replace(/\.git$/, '').replace(/\/$/, '')
-  return `${base}/commit/${rev}`
-}
-
-/**
- * Environments ARE the Kargo promotion chain (dev → test → prod).
- *
- * This is the platform's environment model — `globals.PlatformEnvironmentsCSV`
- * on the CLI side, the Kargo stages bootstrap creates in `adhar-environments`
- * here — so the chain is always what this section draws, and each stage carries
- * its Kargo health, current freight, last promotion and the service's Argo CD
- * app for that stage when one matches.
- *
- * The chain is also WRITABLE from here: a stage can be promoted to any freight
- * its upstream has verified, a running promotion can be aborted, freight can be
- * approved manually, and a stage can be asked to reconcile. Those writes go
- * through the k8s gateway as the SIGNED-IN USER, so a viewer simply gets a
- * permission error instead of a button that silently does nothing.
- *
- * A promotion advances the ENVIRONMENT, not this one service — the stage is
- * shared — and the section says so rather than implying otherwise from a
- * service's drawer.
- */
-function EnvironmentsGrid(props: {
-  deployment: EntityDeployment
-  appUrl(app: ArgoApp): string | undefined
-  repoUrl?: string
-}) {
-  const stages = useKargoStages()
-  const envs = kargoEnvironments(stages.data, props.deployment)
-  const project = envs[0]?.stage.project
-  const promoted = envs.some((e) => e.app)
-  const [promoting, setPromoting] = useState<KargoEnvironment | null>(null)
-  return (
-    <>
-      {envs.length ? (
-        <DrawerSection
-          title={`Environments · ${envs.length}`}
-          aside={<PhaseLink href="/deliver?section=environments">Promotions →</PhaseLink>}
-        >
-          <ol className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {envs.map((env, i) => (
-              <li key={`${env.stage.project}/${env.stage.name}`} className="relative">
-                <KargoEnvCard env={env} appUrl={props.appUrl} onPromote={() => setPromoting(env)} />
-                {i < envs.length - 1 ? (
-                  <span
-                    aria-hidden
-                    className="absolute -right-3 top-1/2 hidden -translate-y-1/2 text-base leading-none text-content-subtle xl:block"
-                  >
-                    →
-                  </span>
-                ) : null}
-              </li>
-            ))}
-          </ol>
-          <p className="mt-2.5 text-[11px] leading-relaxed text-content-subtle">
-            Kargo project <span className="font-mono text-content-muted">{project}</span> · each stage
-            promotes the freight its upstream has verified. Promoting advances the whole environment, not
-            only{' '}
-            <code className="font-mono text-content-muted">
-              {props.deployment.primary?.metadata.name ?? 'this service'}
-            </code>
-            .
-            {promoted ? null : ' This service is not deployed through the chain yet — it syncs straight from its Argo CD application.'}
-          </p>
-        </DrawerSection>
-      ) : null}
-      {promoting ? (
-        <PromoteDialog
-          env={promoting}
-          project={project}
-          onClose={() => setPromoting(null)}
-        />
-      ) : null}
-      <AppsGrid {...props} titled={envs.length > 0} />
-    </>
-  )
-}
-
-function kargoHealthKind(h: KargoEnvironment['stage']['health'], phase: KargoEnvironment['stage']['phase']): StatusKind {
-  if (phase === 'Failed' || phase === 'Erroring') return 'failed'
-  if (phase === 'Promoting' || phase === 'Verifying' || h === 'Progressing') return 'progressing'
-  if (h === 'Healthy') return 'healthy'
-  if (h === 'Unhealthy') return 'degraded'
-  return 'unknown'
-}
-
-function KargoEnvCard({
-  env,
-  appUrl,
-  onPromote,
-}: {
-  env: KargoEnvironment
-  appUrl(app: ArgoApp): string | undefined
-  onPromote(): void
-}) {
-  const { stage, app } = env
-  const kind = kargoHealthKind(stage.health, stage.phase)
-  const url = app ? appUrl(app) : undefined
-  const toast = useToast()
-  const { abort, refresh } = useKargoActions(stage.project)
-  const running = Boolean(stage.currentPromotion)
-  const busy = abort.isPending || refresh.isPending
-  const act = async (what: string, run: () => Promise<unknown>) => {
-    try {
-      await run()
-      toast.success(`${what} ${stage.name}`)
-    } catch (e) {
-      toast.error(kargoActionError(what, stage.name, e))
-    }
-  }
-  return (
-    <div className="flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm transition-shadow hover:shadow-md">
-      <div className="flex items-start justify-between gap-2 px-3.5 pt-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-brand-600 text-[9px] font-bold text-white">
-              {env.index + 1}
-            </span>
-            <span className="truncate text-[13px] font-semibold text-content">{env.label}</span>
-          </div>
-          <div className="mt-0.5 truncate font-mono text-[10px] text-content-subtle">
-            stage {stage.name}
-            {stage.upstream?.length
-              ? ` · from ${stage.upstream.join(', ')}`
-              : stage.warehouse
-                ? ` · from warehouse ${stage.warehouse}`
-                : ''}
-          </div>
-        </div>
-        <StatusBadge kind={kind} className="shrink-0 px-1.5 py-0 text-[10px]" pulse={kind === 'progressing'}>
-          {stage.phase === 'Promoting' || stage.phase === 'Verifying' ? stage.phase : stage.health ?? stage.phase}
-        </StatusBadge>
-      </div>
-      <dl className="mt-2.5 space-y-1.5 px-3.5 pb-3 text-[11px]">
-        <div className="flex items-baseline justify-between gap-2">
-          <dt className="shrink-0 text-content-subtle">Freight</dt>
-          <dd className="min-w-0 truncate font-mono text-content" title={stage.currentFreight}>
-            {stage.currentFreightAlias ?? (stage.currentFreight ? stage.currentFreight.slice(0, 12) : '—')}
-          </dd>
-        </div>
-        <div className="flex items-baseline justify-between gap-2">
-          <dt className="shrink-0 text-content-subtle">Last promotion</dt>
-          <dd className="min-w-0 truncate text-right text-content">
-            {stage.lastPromoted ? relativeTime(stage.lastPromoted) || formatDate(stage.lastPromoted) : '—'}
-            {stage.lastPromotionPhase ? (
-              <span
-                className={cn(
-                  stage.lastPromotionPhase === 'Succeeded'
-                    ? 'text-emerald-700 dark:text-emerald-300'
-                    : 'text-rose-700 dark:text-rose-300',
-                )}
-              >
-                {' · '}
-                {stage.lastPromotionPhase.toLowerCase()}
-              </span>
-            ) : null}
-          </dd>
-        </div>
-        {stage.verification ? (
-          <div className="flex items-baseline justify-between gap-2">
-            <dt className="shrink-0 text-content-subtle">Verification</dt>
-            <dd className="min-w-0 truncate text-right text-content">{stage.verification.phase}</dd>
-          </div>
-        ) : null}
-        {stage.currentPromotion ? (
-          <div className="flex items-baseline justify-between gap-2">
-            <dt className="shrink-0 text-content-subtle">Promoting</dt>
-            <dd className="min-w-0 truncate text-right font-mono text-sky-700 dark:text-sky-300">
-              {stage.currentPromotion}
-            </dd>
-          </div>
-        ) : null}
-        {stage.issues?.length ? (
-          <p className="truncate text-rose-700 dark:text-rose-300" title={stage.issues.join('\n')}>
-            {stage.issues[0]}
-          </p>
-        ) : null}
-      </dl>
-      <div className="mt-auto flex items-center justify-between gap-2 border-t border-edge-subtle bg-surface-sunken/40 px-3.5 py-1.5 text-[10px]">
-        {app ? (
-          <span className="flex min-w-0 items-center gap-1.5">
-            <StatusBadge kind={argoHealthKind(app.status.health.status)} className="px-1 py-0 text-[9px]">
-              {app.status.health.status}
-            </StatusBadge>
-            {url ? (
-              <a
-                href={url}
-                target="_blank"
-                rel="noreferrer"
-                className="truncate font-mono text-content-subtle hover:text-brand-700 hover:underline dark:hover:text-brand-300"
-              >
-                {app.metadata.name}
-              </a>
-            ) : (
-              <span className="truncate font-mono text-content-subtle">{app.metadata.name}</span>
-            )}
-          </span>
-        ) : (
-          <span className="truncate text-content-subtle">Deployed from the environments repo</span>
-        )}
-        <span className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onClick={() => void act('Refreshed', () => refresh.mutateAsync({ stage: stage.name }))}
-            disabled={busy}
-            title="Make Kargo reconcile this stage now"
-            className="rounded px-1.5 py-0.5 font-medium text-content-subtle transition-colors hover:bg-surface-raised hover:text-content disabled:opacity-50"
-          >
-            Refresh
-          </button>
-          {running ? (
-            <button
-              type="button"
-              onClick={() =>
-                void act('Aborted the promotion on', () =>
-                  abort.mutateAsync({ promotion: stage.currentPromotion! }),
-                )
-              }
-              disabled={busy}
-              title="Abort the promotion currently running against this stage"
-              className="rounded px-1.5 py-0.5 font-semibold text-rose-700 transition-colors hover:bg-rose-50 disabled:opacity-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
-            >
-              Abort
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onPromote}
-              title={`Promote freight into ${stage.name}`}
-              className="rounded px-1.5 py-0.5 font-semibold text-brand-700 transition-colors hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-500/10"
-            >
-              Promote…
-            </button>
-          )}
-        </span>
-      </div>
-    </div>
-  )
-}
-
-/**
- * A Kargo write refused by RBAC is the common case for a viewer, and
- * "Failed to fetch" tells them nothing. Name the permission instead.
- */
-function kargoActionError(what: string, stage: string, e: unknown): string {
-  const status = (e as { status?: number } | undefined)?.status
-  if (status === 403) {
-    return `Not allowed to ${what.toLowerCase().replace(/ed\b/, '')} ${stage} — promoting needs write access to Kargo in this project.`
-  }
-  const msg = e instanceof Error ? e.message : String(e)
-  return `${what} ${stage} failed: ${msg}`
-}
-
-/**
- * Pick the freight to promote into a stage.
- *
- * The candidates are Kargo's, not ours (`promotableFreight`): what the stage's
- * upstream has verified, or what somebody approved for it explicitly. An empty
- * list is the honest and common answer for `prod` on a fresh platform — nothing
- * has been verified in `test` yet — so it explains that rather than showing a
- * dead dropdown.
- */
-function PromoteDialog({
-  env,
-  project,
-  onClose,
-}: {
-  env: KargoEnvironment
-  project: string | undefined
-  onClose(): void
-}) {
-  const { stage } = env
-  const freight = useKargoFreight(project)
-  const candidates = useMemo(() => promotableFreight(stage, freight.data), [stage, freight.data])
-  const [choice, setChoice] = useState('')
-  const toast = useToast()
-  const { promote } = useKargoActions(project)
-  const selected = choice || candidates[0]?.id || ''
-  const go = async () => {
-    if (!selected) return
-    try {
-      await promote.mutateAsync({ stage: stage.name, freight: selected })
-      toast.success(`Promoting ${stage.name}`)
-      onClose()
-    } catch (e) {
-      toast.error(kargoActionError('Promoted', stage.name, e))
-    }
-  }
-  return (
-    <Modal open onClose={onClose} title={`Promote ${env.label}`}>
-      <div className="space-y-4">
-        <p className="text-xs leading-relaxed text-content-muted">
-          Creates a Kargo <code className="font-mono">Promotion</code> for stage{' '}
-          <span className="font-mono text-content">{stage.name}</span> in project{' '}
-          <span className="font-mono text-content">{project}</span>. This advances the whole
-          environment.
-        </p>
-        {freight.isLoading ? (
-          <div className="flex items-center gap-2 text-xs text-content-muted">
-            <Spinner /> Reading freight…
-          </div>
-        ) : candidates.length ? (
-          <FormField label="Freight" hint="What the upstream stage has verified, newest first.">
-            <Select value={selected} onChange={(e) => setChoice(e.currentTarget.value)}>
-              {candidates.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {freightLabel(f)}
-                  {freightTags(f) ? ` — ${freightTags(f)}` : ''}
-                </option>
-              ))}
-            </Select>
-          </FormField>
-        ) : (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-            No freight is eligible for <span className="font-mono">{stage.name}</span> yet.
-            {stage.upstream?.length ? (
-              <>
-                {' '}
-                It accepts only what <span className="font-mono">{stage.upstream.join(', ')}</span> has
-                verified — promote and verify upstream first, or approve a freight for this stage in
-                Kargo.
-              </>
-            ) : (
-              <> Its warehouse has not discovered any artifacts yet.</>
-            )}
-          </div>
-        )}
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={() => void go()} disabled={!selected || promote.isPending}>
-            {promote.isPending ? 'Promoting…' : 'Promote'}
-          </Button>
-        </div>
-      </div>
-    </Modal>
-  )
-}
-
-/** The service's Argo CD applications — what is running, from which commit, since when. */
-function AppsGrid({
-  deployment,
-  appUrl,
-  repoUrl,
-  titled,
-}: {
-  deployment: EntityDeployment
-  appUrl(app: ArgoApp): string | undefined
-  repoUrl?: string
-  /** Kargo already listed the environments; this section is the Argo CD apps. */
-  titled?: boolean
-}) {
-  const pub = usePublicUrl()
-  return (
-    <DrawerSection
-      title={titled ? `Argo CD applications · ${deployment.apps.length}` : `Environments · ${deployment.environments.length}`}
-      aside={<PhaseLink href="/deliver?section=apps">GitOps view →</PhaseLink>}
-    >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {deployment.environments.map((env) => {
-          const app = env.app
-          const rev = app.status.sync.revision
-          const sha = shortSha(rev)
-          const link = commitUrl(repoUrl ?? pub(app.spec.source.repoURL), rev)
-          const fin = app.status.operationState?.finishedAt
-          const url = appUrl(app)
-          const images = app.status.images
-          return (
-            <div key={app.metadata.name} className="flex min-w-0 flex-col rounded-xl border border-edge-default bg-surface-raised shadow-sm">
-              <div className="flex items-start justify-between gap-2 px-3.5 pt-3">
-                <div className="min-w-0">
-                  <div className="truncate text-[13px] font-semibold text-content">{env.label}</div>
-                  <div
-                    className="truncate font-mono text-[10px] text-content-subtle"
-                    title={workloadNamespace(app) === app.spec.destination.namespace
-                      ? `${app.metadata.name} → ${app.spec.destination.namespace}`
-                      : `${app.metadata.name} runs in ${workloadNamespace(app)} (Argo CD destination: ${app.spec.destination.namespace})`}
-                  >
-                    ns {workloadNamespace(app)}
-                  </div>
-                </div>
-                <div className="flex shrink-0 flex-col items-end gap-1">
-                  <StatusBadge kind={argoHealthKind(app.status.health.status)} className="px-1.5 py-0 text-[10px]" pulse={app.status.health.status === 'Progressing'}>
-                    {app.status.health.status}
-                  </StatusBadge>
-                  <StatusBadge kind={argoSyncKind(app.status.sync.status)} className="px-1.5 py-0 text-[10px]" dot={false}>
-                    {app.status.sync.status}
-                  </StatusBadge>
-                </div>
-              </div>
-              <dl className="mt-2.5 space-y-1.5 px-3.5 text-[11px]">
-                <div className="flex items-center justify-between gap-2">
-                  <dt className="text-content-subtle">Revision</dt>
-                  <dd className="min-w-0 truncate font-mono text-content">
-                    {sha ? (link ? <a href={link} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline dark:text-brand-300">{sha}</a> : sha) : '—'}
-                    {app.spec.source.targetRevision ? <span className="text-content-subtle"> · {app.spec.source.targetRevision}</span> : null}
-                  </dd>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <dt className="text-content-subtle">Last sync</dt>
-                  <dd className="truncate text-content">{fin ? relativeTime(fin) || formatDate(fin) : '—'}</dd>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <dt className="text-content-subtle">Resources</dt>
-                  <dd className="truncate text-content">
-                    {app.status.resources.total}
-                    {app.status.resources.unhealthy ? <span className="text-rose-700 dark:text-rose-300"> · {app.status.resources.unhealthy} unhealthy</span> : null}
-                    {app.status.resources.outOfSync ? <span className="text-amber-700 dark:text-amber-300"> · {app.status.resources.outOfSync} drifted</span> : null}
-                  </dd>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <dt className="text-content-subtle">Auto-sync</dt>
-                  <dd className="text-content">{app.spec.syncPolicy.automated ? 'on' : 'manual'}</dd>
-                </div>
-              </dl>
-              {images.length ? (
-                <div className="mt-2.5 border-t border-edge-subtle px-3.5 pt-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Images</div>
-                  <ul className="mt-0.5 space-y-0.5">
-                    {images.slice(0, 2).map((img) => (
-                      <li key={img} title={img} className="truncate font-mono text-[10px] text-content">{shortImage(img)}</li>
-                    ))}
-                    {images.length > 2 ? <li className="text-[10px] text-content-subtle">+{images.length - 2} more</li> : null}
-                  </ul>
-                </div>
-              ) : null}
-              <div className="mt-auto flex items-center justify-between border-t border-edge-subtle bg-surface-sunken/40 px-3.5 py-1.5 text-[10px]">
-                <span className="truncate font-mono text-content-subtle">{app.metadata.name}</span>
-                {url ? (
-                  <a href={url} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 font-medium text-brand-700 hover:underline dark:text-brand-300">
-                    Argo CD <IconArrowUpRight />
-                  </a>
-                ) : null}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </DrawerSection>
-  )
-}
-
-/** The last syncs across every matched application, newest first. */
-function SyncHistoryCard({ deployment, repoUrl }: { deployment: EntityDeployment; repoUrl?: string }) {
-  const pub = usePublicUrl()
-  const rows = deployment.apps
-    .flatMap((app) =>
-      app.status.history.map((h) => ({
-        app: app.metadata.name,
-        env: deployment.environments.find((e) => e.app.metadata.name === app.metadata.name)?.label ?? app.metadata.name,
-        id: h.id,
-        revision: h.revision ?? h.revisions?.[0],
-        at: h.deployedAt,
-        repo: h.source?.repoURL ?? h.sources?.[0]?.repoURL,
-      })),
-    )
-    .filter((r) => r.at)
-    .sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
-    .slice(0, 8)
-  return (
-    <DrawerSection title="Sync history" aside={<span className="text-[11px] text-content-subtle">newest first</span>}>
-      {rows.length === 0 ? (
-        <p className="text-[11px] text-content-subtle">No sync history recorded yet.</p>
-      ) : (
-        <ol className="relative space-y-2.5 border-l border-edge-subtle pl-4">
-          {rows.map((r) => {
-            const sha = shortSha(r.revision)
-            const link = commitUrl(repoUrl ?? (r.repo ? pub(r.repo) : undefined), r.revision)
-            return (
-              <li key={`${r.app}-${r.id}`} className="relative">
-                <span className="absolute -left-[19px] top-1.5 inline-flex h-2.5 w-2.5 rounded-full bg-brand-500 ring-2 ring-surface-raised" />
-                <div className="flex flex-wrap items-baseline gap-x-2 text-[12px]">
-                  <span className="font-medium text-content">{r.env}</span>
-                  {sha ? (
-                    link ? <a href={link} target="_blank" rel="noreferrer" className="font-mono text-brand-700 hover:underline dark:text-brand-300">{sha}</a> : <span className="font-mono text-content-muted">{sha}</span>
-                  ) : null}
-                  <span className="text-[11px] text-content-subtle">{relativeTime(r.at!) || formatDate(r.at)}</span>
-                </div>
-                <div className="truncate font-mono text-[10px] text-content-subtle">#{r.id} · {r.app}</div>
-              </li>
-            )
-          })}
-        </ol>
-      )}
-    </DrawerSection>
-  )
-}
-
-/** Everything Argo CD knows about the primary application, as facts. */
-function GitOpsDetailsCard({ app, appUrl, apps }: { app: ArgoApp; appUrl?: string; apps: number }) {
-  const pub = usePublicUrl()
-  const src = { ...app.spec.source, repoURL: pub(app.spec.source.repoURL) }
-  const auto = app.spec.syncPolicy.automated
-  const rows: Array<{ label: string; node: React.ReactNode }> = [
-    { label: 'Application', node: <span className="font-mono text-[12px] text-content">{app.metadata.namespace}/{app.metadata.name}</span> },
-    { label: 'Project', node: <span className="text-[12px] text-content">{app.spec.project}</span> },
-    {
-      label: 'Source',
-      node: (
-        <span className="block min-w-0">
-          {src.repoURL ? (
-            <a href={src.repoURL} target="_blank" rel="noreferrer" className="block truncate font-mono text-[11px] text-brand-700 hover:underline dark:text-brand-300" title={src.repoURL}>
-              {src.repoURL.replace(/^https?:\/\//, '')}
-            </a>
-          ) : <span className="text-[12px] italic text-content-subtle">none</span>}
-          <span className="block truncate font-mono text-[11px] text-content-muted">
-            {src.path ? src.path : '/'}{src.targetRevision ? ` @ ${src.targetRevision}` : ''}
-          </span>
-        </span>
-      ),
-    },
-    { label: 'Destination', node: <span className="font-mono text-[11px] text-content">{app.spec.destination.name || app.spec.destination.server || 'in-cluster'} · {app.spec.destination.namespace}</span> },
-    ...(workloadNamespace(app) !== app.spec.destination.namespace
-      ? [{
-        label: 'Runs in',
-        node: <span className="text-[12px] text-content"><span className="font-mono">{workloadNamespace(app)}</span><span className="text-content-subtle"> · the manifests set their own namespace</span></span>,
-      }]
-      : []),
-    { label: 'Sync policy', node: <span className="text-[12px] text-content">{auto ? `Automated${auto.prune ? ' · prune' : ''}${auto.selfHeal ? ' · self-heal' : ''}` : 'Manual'}{app.spec.syncPolicy.syncOptions.length ? <span className="text-content-subtle"> · {app.spec.syncPolicy.syncOptions.join(', ')}</span> : null}</span> },
-    { label: 'Resources', node: <span className="text-[12px] text-content">{app.status.resources.total} managed{app.status.resources.outOfSync ? ` · ${app.status.resources.outOfSync} out of sync` : ''}{app.status.resources.unhealthy ? ` · ${app.status.resources.unhealthy} unhealthy` : ''}</span> },
-    { label: 'Reconciled', node: <span className="text-[12px] text-content">{app.status.reconciledAt ? relativeTime(app.status.reconciledAt) || formatDate(app.status.reconciledAt) : '—'}</span> },
-  ]
-  if (apps > 1) rows.push({ label: 'Matched apps', node: <span className="text-[12px] text-content">{apps} — this is the production one</span> })
-  return (
-    <DrawerSection
-      title="GitOps details"
-      aside={appUrl ? (
-        <a href={appUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">
-          Argo CD <IconArrowUpRight />
-        </a>
-      ) : undefined}
-    >
-      <dl className="-my-1 divide-y divide-edge-subtle">
-        {rows.map((r) => (
-          <div key={r.label} className="flex items-start justify-between gap-3 py-2">
-            <dt className="w-24 shrink-0 text-[11px] font-medium text-content-subtle">{r.label}</dt>
-            <dd className="min-w-0 flex-1 text-right">{r.node}</dd>
-          </div>
-        ))}
-      </dl>
-      {app.status.conditions.length ? (
-        <ul className="mt-3 space-y-1.5">
-          {app.status.conditions.map((c, i) => (
-            <li key={`${c.type}-${i}`} className={cn('rounded-md px-3 py-2 text-[11px] leading-relaxed', /error/i.test(c.type) ? 'bg-rose-50 text-rose-800 dark:bg-rose-500/10 dark:text-rose-200' : 'bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-200')}>
-              <span className="font-semibold">{c.type}</span>{c.message ? ` — ${c.message}` : ''}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {app.status.health.message ? (
-        <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-[11px] text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">{app.status.health.message}</p>
-      ) : null}
-    </DrawerSection>
   )
 }
 
@@ -6335,463 +5465,6 @@ function EntityRoutesBar({ routes, onSeeAll }: { routes: EntityRoute[]; onSeeAll
         </button>
       ) : null}
     </div>
-  )
-}
-
-/**
- * Every URL the entity answers on, in full.
- *
- * Full URLs, not hostnames: a path-prefixed route (`/api`) is a different
- * endpoint from the root, and a truncated display is not something anyone can
- * copy into a terminal or a ticket.
- *
- * Each row states HOW the route was attributed — a `backendRefs` entry naming
- * the entity's Service is the cluster asserting the link, while a name match is
- * a guess this console made. Showing that distinction is what lets someone trust
- * or discount the row instead of wondering why an unrelated URL appeared.
- */
-function EndpointsCard({ routes, repoUrl }: { routes: EntityRoute[]; repoUrl?: string }) {
-  const primary = routes[0]
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <IconGlobe />
-            <h3 className="text-sm font-semibold text-content">Endpoints</h3>
-            {routes.length ? (
-              <span className="rounded-full bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-content-muted">
-                {routes.length}
-              </span>
-            ) : null}
-          </div>
-          {repoUrl ? (
-            <a
-              href={repoUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300"
-              title={repoUrl}
-            >
-              <IconGit />
-              Source
-              <IconArrowUpRight />
-            </a>
-          ) : null}
-        </div>
-      </CardHeader>
-      <CardBody className="space-y-3">
-        {routes.length === 0 ? (
-          <EmptyState
-            compact
-            title="No public endpoint"
-            description={
-              <>
-                Nothing routes to this entity yet. A golden-path service gets its{' '}
-                <code>HTTPRoute</code> from <code>deploy/</code>; a worker or library
-                legitimately has none.
-              </>
-            }
-          />
-        ) : (
-          <>
-            <ul className="divide-y divide-edge-subtle overflow-hidden rounded-lg border border-edge-subtle">
-              {routes.map((r) => {
-                let host = r.url
-                let path = ''
-                let secure = false
-                try {
-                  const u = new URL(r.url)
-                  host = u.host
-                  path = u.pathname === '/' ? '' : u.pathname
-                  secure = u.protocol === 'https:'
-                } catch {
-                  /* show as-is */
-                }
-                return (
-                  <li key={r.url} className="flex items-center gap-3 bg-surface-raised px-3 py-2.5">
-                    <span
-                      className={cn('inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md', secure ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300')}
-                      title={secure ? 'HTTPS' : 'Plain HTTP'}
-                    >
-                      <IconLock />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <a href={r.url} target="_blank" rel="noreferrer" className="block truncate font-mono text-[12px] font-medium text-brand-700 hover:underline dark:text-brand-300" title={r.url}>
-                        {host}
-                        {path ? <span className="text-content-muted">{path}</span> : null}
-                      </a>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10px] text-content-subtle">
-                        <span title={`${r.kind} ${r.namespace}/${r.name}`}>{r.kind} · {r.namespace}/{r.name}</span>
-                        <span
-                          className={cn('rounded px-1 py-px font-medium', r.via === 'backend' ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300')}
-                          title={r.via === 'backend' ? `backendRefs → Service/${r.service ?? '?'} — the cluster asserts this link` : 'matched by name only — verify it belongs to this entity'}
-                        >
-                          {r.via === 'backend' ? `backend → ${r.service ?? 'service'}` : 'matched by name'}
-                        </span>
-                      </div>
-                    </div>
-                    <CopyButton text={r.url} />
-                    <a href={r.url} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 rounded-md border border-edge-default px-2 py-1 text-[11px] font-medium text-content-muted transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300">
-                      Open <IconArrowUpRight />
-                    </a>
-                  </li>
-                )
-              })}
-            </ul>
-            {primary ? (
-              <div className="flex items-center gap-2 rounded-lg border border-edge-subtle bg-surface-sunken px-3 py-2">
-                <code className="flex-1 truncate font-mono text-[11px] text-content-muted">curl -fsSI {primary.url}</code>
-                <CopyButton text={`curl -fsSI ${primary.url}`} />
-              </div>
-            ) : null}
-          </>
-        )}
-      </CardBody>
-    </Card>
-  )
-}
-
-/** Which forge a repository URL points at, for provider-specific paths and a name. */
-function repoProvider(url: string | undefined): { name: string; kind: 'gitea' | 'github' | 'gitlab' | 'other' } {
-  if (!url) return { name: '—', kind: 'other' }
-  let host = ''
-  try {
-    host = new URL(url).host.toLowerCase()
-  } catch {
-    return { name: url, kind: 'other' }
-  }
-  if (host.includes('github')) return { name: 'GitHub', kind: 'github' }
-  if (host.includes('gitlab')) return { name: 'GitLab', kind: 'gitlab' }
-  if (host.includes('gitea') || host.startsWith('git.')) return { name: 'Gitea', kind: 'gitea' }
-  return { name: host, kind: 'other' }
-}
-
-/** The repository browsed at a branch or commit, per forge. */
-function repoTreeUrl(repoUrl: string, ref: string, kind: ReturnType<typeof repoProvider>['kind']): string {
-  const base = repoUrl.replace(/\.git$/, '').replace(/\/$/, '')
-  if (kind === 'gitea') return /^[0-9a-f]{7,40}$/i.test(ref) ? `${base}/src/commit/${ref}` : `${base}/src/branch/${encodeURIComponent(ref)}`
-  if (kind === 'gitlab') return `${base}/-/tree/${encodeURIComponent(ref)}`
-  return `${base}/tree/${encodeURIComponent(ref)}`
-}
-
-function RepositoryCard({
-  entity,
-  repoUrl,
-  primary,
-}: {
-  entity: Entity
-  repoUrl?: string
-  primary?: EntityDeployment['primary']
-}) {
-  const a = entityAnnotations(entity)
-  const branch =
-    primary?.spec.source.targetRevision ?? a['adhar.io/branch'] ?? a['adhar.io/default-branch'] ?? 'main'
-  const path = primary?.spec.source.path
-  const rev = primary?.status.sync.revision
-  const sha = shortSha(rev)
-  const provider = repoProvider(repoUrl)
-  const cloneUrl = repoUrl ? (repoUrl.endsWith('.git') ? repoUrl : `${repoUrl}.git`) : undefined
-  const atRevision = repoUrl && rev ? repoTreeUrl(repoUrl, rev, provider.kind) : undefined
-  const atBranch = repoUrl ? repoTreeUrl(repoUrl, branch, provider.kind) : undefined
-
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <IconGit />
-            <h3 className="text-sm font-semibold text-content">Repository</h3>
-            {repoUrl ? <span className="rounded-full bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium text-content-muted">{provider.name}</span> : null}
-          </div>
-          {repoUrl ? (
-            <div className="flex items-center gap-1.5">
-              {atRevision ? (
-                <a href={atRevision} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300" title={`Browse the repository at the deployed commit ${sha}`}>
-                  At {sha} <IconArrowUpRight />
-                </a>
-              ) : null}
-              <a href={repoUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors border border-edge-default bg-surface-raised text-content shadow-sm hover:border-edge-strong hover:bg-surface-sunken">
-                <LinkGlyph icon="repo" />
-                Open repo
-              </a>
-            </div>
-          ) : null}
-        </div>
-      </CardHeader>
-      <CardBody className="space-y-3">
-        {repoUrl ? (
-          <>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Field label="Provider" value={<span className="text-sm">{provider.name}</span>} />
-              <Field
-                label="Branch"
-                value={atBranch ? <a href={atBranch} target="_blank" rel="noreferrer" className="font-mono text-xs text-brand-700 hover:underline dark:text-brand-300">{branch}</a> : <code className="text-xs text-content-muted">{branch}</code>}
-              />
-              <Field label="Path" value={<code className="text-xs text-content-muted">{path ?? '/'}</code>} />
-              <Field
-                label="Deployed commit"
-                value={sha ? (atRevision ? <a href={atRevision} target="_blank" rel="noreferrer" className="font-mono text-xs text-brand-700 hover:underline dark:text-brand-300">{sha}</a> : <code className="text-xs text-content-muted">{sha}</code>) : <span className="text-xs text-content-subtle">not deployed</span>}
-              />
-            </div>
-            {cloneUrl ? (
-              <div className="flex items-center gap-2 rounded-lg border border-edge-subtle bg-surface-sunken px-3 py-2">
-                <code className="flex-1 truncate font-mono text-[11px] text-content-muted">
-                  git clone {cloneUrl}
-                </code>
-                <CopyButton text={`git clone ${cloneUrl}`} />
-              </div>
-            ) : null}
-          </>
-        ) : (
-          <EmptyState
-            compact
-            title="No repository linked"
-            description={
-              <>
-                Set the <code>adhar.io/source-repo</code> annotation (or add a <code>repo</code> link)
-                so the source, clone command, and pipelines wire up here.
-              </>
-            }
-          />
-        )}
-      </CardBody>
-    </Card>
-  )
-}
-
-const RUN_TONE: Record<PipelineRunSummary['state'], { dot: string; kind: StatusKind; label: string }> = {
-  running: { dot: 'bg-sky-500 animate-pulse', kind: 'progressing', label: 'Running' },
-  succeeded: { dot: 'bg-emerald-500', kind: 'healthy', label: 'Succeeded' },
-  failed: { dot: 'bg-rose-500', kind: 'failed', label: 'Failed' },
-  cancelled: { dot: 'bg-amber-500', kind: 'paused', label: 'Cancelled' },
-  pending: { dot: 'bg-slate-400', kind: 'unknown', label: 'Pending' },
-}
-
-function fmtSecs(s?: number): string {
-  if (s === undefined) return '—'
-  if (s < 60) return `${s}s`
-  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`
-  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`
-}
-
-/**
- * The entity's recent Tekton PipelineRuns, live. Each row is the run as a
- * person reads it — outcome, when, how long, which commit — and the whole
- * card is the way into the CI view for logs and re-runs.
- */
-function PipelinesCard({ entity, repoUrl, runsIn }: { entity: Entity; repoUrl?: string; runsIn?: string }) {
-  const a = entityAnnotations(entity)
-  const ci = a['adhar.io/ci'] ?? a['adhar.io/ci-pipeline']
-  const { runs, isLoading, isError, notInstalled } = usePipelineRuns(entity, repoUrl, true, runsIn)
-  const last = runs[0]
-  const ok = runs.filter((r) => r.state === 'succeeded').length
-  const finished = runs.filter((r) => r.state === 'succeeded' || r.state === 'failed').length
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <IconPipeline />
-            <h3 className="text-sm font-semibold text-content">Pipeline runs</h3>
-            {runs.length ? (
-              <span className="truncate text-[11px] text-content-muted">
-                {ci ? <span className="font-mono">{ci}</span> : 'Tekton'} · {ok}/{finished || runs.length} succeeded
-              </span>
-            ) : null}
-          </div>
-          <a href="/develop?section=builds" className="inline-flex min-h-9 items-center text-xs font-medium text-brand-700 hover:underline dark:text-brand-300 sm:min-h-0">
-            Builds →
-          </a>
-        </div>
-      </CardHeader>
-      <CardBody className="space-y-3">
-        {isLoading ? (
-          <div className="flex items-center gap-2 text-xs text-content-muted"><Spinner /> Reading PipelineRuns…</div>
-        ) : notInstalled ? (
-          <EmptyState compact title="Tekton is not installed on this cluster" description="PipelineRuns will appear here once the CI package is enabled." />
-        ) : isError ? (
-          <EmptyState compact title="Could not read PipelineRuns" description="The cluster gateway did not answer; the runs will appear when it does." />
-        ) : runs.length === 0 ? (
-          <EmptyState
-            compact
-            title={ci || repoUrl ? 'No runs yet for this entity' : 'No CI pipeline linked'}
-            description={
-              ci || repoUrl ? (
-                <>
-                  Nothing has run CI for <code>{entity.metadata.name}</code> yet. A push to its repository starts the platform's <code>app-ci</code> pipeline, and the run appears here.
-                </>
-              ) : (
-                <>
-                  Add an <code>adhar.io/ci-pipeline</code> annotation, or scaffold the component from a Golden Path template to wire up Tekton PipelineRuns.
-                </>
-              )
-            }
-          />
-        ) : (
-          <>
-            {last ? (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-edge-subtle bg-surface-sunken/50 px-3 py-2 text-[12px]">
-                <span className="text-content-subtle">Last run</span>
-                <StatusBadge kind={RUN_TONE[last.state].kind} className="px-1.5 py-0 text-[10px]" pulse={last.state === 'running'}>{RUN_TONE[last.state].label}</StatusBadge>
-                <span className="text-content-muted">{last.startedAt ? relativeTime(last.startedAt) || formatDate(last.startedAt) : ''}</span>
-                <span className="text-content-muted">· {fmtSecs(last.durationSecs)}</span>
-                {last.reason && last.state === 'failed' ? <span className="truncate text-rose-700 dark:text-rose-300">· {last.reason}</span> : null}
-              </div>
-            ) : null}
-            <ul className="divide-y divide-edge-subtle overflow-hidden rounded-lg border border-edge-subtle">
-              {runs.map((r) => (
-                <li key={`${r.namespace}/${r.name}`} className="flex items-center gap-3 bg-surface-raised px-3 py-2">
-                  <span className={cn('h-2 w-2 shrink-0 rounded-full', RUN_TONE[r.state].dot)} title={RUN_TONE[r.state].label} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline gap-2">
-                      <span className="truncate font-mono text-[12px] text-content">{r.name}</span>
-                      {r.branch ? <span className="shrink-0 rounded bg-surface-sunken px-1 font-mono text-[10px] text-content-muted">{r.branch}</span> : null}
-                      {r.commit ? <span className="shrink-0 font-mono text-[10px] text-content-subtle">{shortSha(r.commit) ?? r.commit.slice(0, 7)}</span> : null}
-                    </div>
-                    <div className="truncate text-[10px] text-content-subtle">
-                      {r.pipeline ? `${r.pipeline} · ` : ''}{r.namespace}{r.tasks ? ` · ${describeProgress(r.tasks)}` : ''}{r.message && r.state === 'failed' ? ` · ${r.message.slice(0, 80)}` : ''}
-                    </div>
-                  </div>
-                  <span className="shrink-0 text-right text-[11px] text-content-muted">
-                    <span className="block">{r.startedAt ? relativeTime(r.startedAt) || formatDate(r.startedAt) : '—'}</span>
-                    <span className="block font-mono text-[10px] text-content-subtle">{fmtSecs(r.durationSecs)}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-      </CardBody>
-    </Card>
-  )
-}
-
-/** Does this alert belong to the entity? Label conventions, most specific first. */
-function alertMatches(labels: Record<string, string>, name: string, namespace?: string): boolean {
-  const n = name.toLowerCase()
-  const ns = (labels.namespace ?? '').toLowerCase()
-  if (namespace && ns && ns !== namespace.toLowerCase()) return false
-  const direct = [labels.deployment, labels.statefulset, labels.daemonset, labels.workload, labels.app, labels.service, labels['app.kubernetes.io/name'], labels.job, labels.container]
-  if (direct.some((v) => (v ?? '').toLowerCase() === n)) return true
-  const pod = (labels.pod ?? '').toLowerCase()
-  return Boolean(pod && (pod === n || pod.startsWith(`${n}-`)))
-}
-
-/**
- * Observability, with the thing that matters first: the alerts firing for
- * this workload right now. Then the ways in — dashboard, runbook, the
- * Metrics tab, Grafana — and the SLO / alerting statements the entity makes
- * about itself.
- */
-function MonitoringCard({ entity, monitorUrl, onMetrics }: { entity: Entity; monitorUrl?: string; onMetrics?(): void }) {
-  const a = entityAnnotations(entity)
-  const dashboard =
-    (entity.metadata.links ?? []).find((l) => l.icon === 'dashboard')?.url ??
-    a['adhar.io/dashboard'] ??
-    a['backstage.io/dashboard'] ??
-    monitorUrl
-  const runbook =
-    (entity.metadata.links ?? []).find((l) => l.icon === 'runbook')?.url ??
-    a['adhar.io/runbook'] ??
-    a['backstage.io/runbook']
-  const slo = a['adhar.io/slo']
-  const alerting = a['adhar.io/alerts'] ?? a['adhar.io/alerting']
-  const namespace = (a['adhar.io/namespace'] ?? '').trim() || undefined
-  const alertsQ = useDiscoverAlerts()
-  const mine = useMemo(
-    () => (alertsQ.data ?? []).filter((al) => al.state !== 'resolved' && alertMatches(al.labels, entity.metadata.name, namespace)),
-    [alertsQ.data, entity.metadata.name, namespace],
-  )
-  const firing = mine.filter((al) => al.state === 'firing')
-  const pending = mine.filter((al) => al.state === 'pending')
-  const sevTone: Record<string, string> = { critical: 'bg-rose-500', warning: 'bg-amber-500', info: 'bg-sky-500' }
-
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <IconPulse />
-            <h3 className="text-sm font-semibold text-content">Observability</h3>
-            {alertsQ.isLoading ? null : mine.length ? (
-              <StatusBadge kind={firing.some((al) => al.severity === 'critical') ? 'failed' : firing.length ? 'degraded' : 'paused'} className="px-1.5 py-0 text-[10px]">
-                {firing.length ? `${firing.length} firing` : `${pending.length} pending`}
-              </StatusBadge>
-            ) : alertsQ.isError ? null : (
-              <StatusBadge kind="healthy" className="px-1.5 py-0 text-[10px]" dot={false}>no alerts</StatusBadge>
-            )}
-          </div>
-          <a href="/discover?section=alerts" className="inline-flex min-h-9 items-center text-xs font-medium text-brand-700 hover:underline dark:text-brand-300 sm:min-h-0">
-            All alerts →
-          </a>
-        </div>
-      </CardHeader>
-      <CardBody className="space-y-3">
-        {alertsQ.isLoading ? (
-          <div className="flex items-center gap-2 text-xs text-content-muted"><Spinner /> Reading Alertmanager…</div>
-        ) : alertsQ.isError ? (
-          <p className="text-[11px] text-content-subtle">Alertmanager is not reachable — alert state is unknown, not clear.</p>
-        ) : mine.length ? (
-          <ul className="divide-y divide-edge-subtle overflow-hidden rounded-lg border border-edge-subtle">
-            {mine.slice(0, 5).map((al) => (
-              <li key={al.fingerprint} className="flex items-start gap-3 bg-surface-raised px-3 py-2">
-                <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', sevTone[al.severity] ?? 'bg-slate-400', al.state === 'pending' && 'opacity-60')} title={`${al.severity} · ${al.state}`} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-baseline gap-x-2">
-                    <span className="text-[12px] font-medium text-content">{al.name}</span>
-                    <span className="text-[10px] uppercase tracking-wider text-content-subtle">{al.severity} · {al.state}</span>
-                    <span className="text-[10px] text-content-subtle">since {relativeTime(al.startsAt) || formatDate(al.startsAt)}</span>
-                  </div>
-                  {al.summary || al.description ? <div className="mt-0.5 text-[11px] leading-relaxed text-content-muted">{al.summary ?? al.description}</div> : null}
-                </div>
-                {al.runbook_url ? (
-                  <a href={al.runbook_url} target="_blank" rel="noreferrer" className="shrink-0 text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">runbook ↗</a>
-                ) : null}
-              </li>
-            ))}
-            {mine.length > 5 ? <li className="bg-surface-raised px-3 py-1.5 text-[10px] text-content-subtle">+{mine.length - 5} more</li> : null}
-          </ul>
-        ) : (
-          <p className="text-[11px] text-content-muted">No alerts are firing or pending for <span className="font-mono text-content">{entity.metadata.name}</span>.</p>
-        )}
-
-        <div className="flex flex-wrap gap-2">
-          {dashboard ? (
-            <a href={dashboard} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300">
-              <LinkGlyph icon="dashboard" /> Dashboard <IconArrowUpRight />
-            </a>
-          ) : null}
-          {runbook ? (
-            <a href={runbook} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300">
-              <LinkGlyph icon="runbook" /> Runbook <IconArrowUpRight />
-            </a>
-          ) : null}
-          {onMetrics ? (
-            <button type="button" onClick={onMetrics} className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300">
-              <IconPulse /> Live metrics
-            </button>
-          ) : null}
-          <PhaseLink href="/discover?section=slos">SLOs</PhaseLink>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Field
-            label="SLO target"
-            value={slo ? <span className="text-sm">{slo}</span> : <span className="text-xs text-content-subtle">none declared — set adhar.io/slo</span>}
-          />
-          <Field
-            label="Alerting"
-            value={alerting ? <span className="text-sm">{alerting}</span> : <span className="text-xs text-content-subtle">{mine.length ? `${mine.length} rule${mine.length === 1 ? '' : 's'} active` : 'no rules matched this workload'}</span>}
-          />
-        </div>
-        {!dashboard && !runbook ? (
-          <p className="text-xs text-content-muted">
-            Link a dashboard (<code>adhar.io/dashboard</code>) and a runbook (<code>adhar.io/runbook</code>) so an on-call engineer can go from an alert to the picture and the procedure in one click.
-          </p>
-        ) : null}
-      </CardBody>
-    </Card>
   )
 }
 
@@ -8158,24 +6831,6 @@ const Svg = ({ children }: { children: React.ReactNode }) => (
   </svg>
 )
 
-/* ─────────── deployment-tab icons (14px, currentColor) ─────────── */
-
-const Svg14 = ({ children }: { children: React.ReactNode }) => (
-  <svg
-    width="14"
-    height="14"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden
-  >
-    {children}
-  </svg>
-)
-
 function IconGlobe({ size = 14 }: { size?: number } = {}) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
@@ -8190,59 +6845,6 @@ function IconArrowUpRight({ size = 12 }: { size?: number } = {}) {
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0 opacity-70">
       <path d="M7 17 17 7M9 7h8v8" />
     </svg>
-  )
-}
-
-function IconGit() {
-  return (
-    <Svg14>
-      <circle cx="18" cy="18" r="3" />
-      <circle cx="6" cy="6" r="3" />
-      <path d="M6 21V9a9 9 0 0 0 9 9" />
-    </Svg14>
-  )
-}
-
-function IconRocket() {
-  return (
-    <Svg14>
-      <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
-      <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
-      <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
-      <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
-    </Svg14>
-  )
-}
-
-function IconSync() {
-  return (
-    <Svg14>
-      <path d="M21 2v6h-6" />
-      <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-      <path d="M3 22v-6h6" />
-      <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-    </Svg14>
-  )
-}
-
-function IconPipeline() {
-  return (
-    <Svg14>
-      <circle cx="5" cy="6" r="2" />
-      <circle cx="12" cy="6" r="2" />
-      <circle cx="19" cy="6" r="2" />
-      <path d="M7 6h3M14 6h3" />
-      <path d="M5 8v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8" />
-      <path d="M12 14v6" />
-    </Svg14>
-  )
-}
-
-function IconPulse() {
-  return (
-    <Svg14>
-      <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-    </Svg14>
   )
 }
 
@@ -8314,15 +6916,6 @@ function IconChevronRight() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="m9 6 6 6-6 6" />
-    </svg>
-  )
-}
-
-function IconLock() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <rect x="4" y="11" width="16" height="10" rx="2" />
-      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
     </svg>
   )
 }

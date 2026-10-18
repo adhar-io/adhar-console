@@ -3394,6 +3394,9 @@
         ]
       },
       "packages/auth": {
+        "dependencies": [
+          "npm:react@^19.2.0"
+        ],
         "packageJson": {
           "dependencies": [
             "npm:jose@^5.9.6",

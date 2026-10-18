@@ -50,6 +50,10 @@ export interface TechBadge {
   also?: Array<{ version: string; from: string; file?: boolean }>
   /** Share of the repository's code (0–100) when Gitea's language stats name it. */
   share?: number
+  /** The range as declared in the manifest (`^18.2.0`), when it differs from `version`. */
+  spec?: string
+  /** The exact version a lockfile pins (`18.3.1` from package-lock.json). */
+  resolved?: { version: string; source: string; detail?: string }
 }
 
 /** Section headings, in the order a reader builds a mental model of a service. */
@@ -105,7 +109,7 @@ export const TECH_MAP: Record<string, TechBadge> = {
   dotnet: b('.NET', 'violet', 'language'),
   '.net': b('.NET', 'violet', 'language'),
   // ── frameworks & libraries ──
-  spring: b('Spring', 'green', 'framework'),
+  spring: b('Spring Framework', 'green', 'framework'),
   'spring-boot': b('Spring Boot', 'green', 'framework'),
   springboot: b('Spring Boot', 'green', 'framework'),
   'spring-cloud': b('Spring Cloud', 'green', 'framework'),
@@ -409,20 +413,20 @@ export function withRepoTech(stack: TechBadge[], detected: DetectedTech[] | unde
     const also = d.also.map((a) => ({ version: a.version, from: a.source, file: true }))
     const i = out.findIndex((x) => x.label === hit.label)
     if (i < 0) {
-      out.push({ ...hit, key, version: d.version, file: d.source, detail: d.detail, also: dedupe(d.version, also) })
+      out.push({ ...hit, key, version: d.version, file: d.source, detail: d.detail, also: dedupe(d.version, also), spec: d.spec, resolved: d.resolved })
       continue
     }
     const cur = out[i]
     if (!d.version) {
       // The repo confirms the tech but not its version — keep the catalog's, note the file.
-      if (!cur.version && !cur.file) out[i] = { ...cur, key, file: d.source, detail: d.detail }
+      if (!cur.version && !cur.file) out[i] = { ...cur, key, file: d.source, detail: d.detail, resolved: cur.resolved ?? d.resolved }
       continue
     }
     // What the badge said before this detection: a catalog tag, or an earlier file.
     const before = cur.version && !sameVersion(cur.version, d.version)
       ? [cur.file ? { version: cur.version, from: cur.file, file: true } : { version: cur.version, from: 'catalog tag / annotation' }]
       : []
-    out[i] = { ...cur, key, version: d.version, file: d.source, detail: d.detail, also: dedupe(d.version, [...before, ...(cur.also ?? []), ...also]) }
+    out[i] = { ...cur, key, version: d.version, file: d.source, detail: d.detail, also: dedupe(d.version, [...before, ...(cur.also ?? []), ...also]), spec: d.spec, resolved: d.resolved ?? cur.resolved }
   }
   return out
 }

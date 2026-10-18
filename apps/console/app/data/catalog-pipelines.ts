@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { k8s } from '@adhar/api-clients'
 import type { Entity } from './catalog.ts'
 import { taskProgress, type TaskProgress } from './pipeline-progress.ts'
@@ -47,11 +47,19 @@ export interface PipelineRunSummary {
   /** Git details the triggers put on the run, when present. */
   branch?: string
   commit?: string
+  /**
+   * What started the run: a push to the default branch (`app-push`), a pull
+   * request labelled `preview` (`pr-preview-build`), or a person / another
+   * controller creating it directly.
+   */
+  trigger: 'push' | 'pull-request' | 'manual'
+  /** The repository the run built (the trigger's `repo-name`). */
+  repo?: string
   /** Terminal tasks out of the whole graph, with failures and skips beside it (see pipeline-progress.ts). */
   tasks?: TaskProgress
 }
 
-interface RawRun {
+export interface RawRun {
   metadata?: { name?: string; namespace?: string; labels?: Record<string, string>; annotations?: Record<string, string>; creationTimestamp?: string }
   spec?: { pipelineRef?: { name?: string }; params?: Array<{ name?: string; value?: unknown }> }
   status?: {
@@ -129,6 +137,8 @@ export function matchRun(run: RawRun, entity: Entity, repoUrl?: string): boolean
   return false
 }
 
+const SHA = /^[0-9a-f]{7,40}$/i
+
 export function summarise(run: RawRun): PipelineRunSummary {
   const { state, reason, message } = stateOf(run)
   const startedAt = run.status?.startTime ?? run.metadata?.creationTimestamp
@@ -138,6 +148,21 @@ export function summarise(run: RawRun): PipelineRunSummary {
   const durationSecs = Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, Math.round((end - start) / 1000)) : undefined
   const labels = run.metadata?.labels ?? {}
   const ann = run.metadata?.annotations ?? {}
+  // The platform's app-ci trigger passes the pushed commit as `revision` and,
+  // for a pull request, its head branch as `git-ref`. `revision` is a SHA —
+  // it used to be read as the BRANCH, so every run showed a hash in the
+  // branch chip and no commit at all.
+  const rev = paramValue(run, 'git-revision', 'commit', 'sha', 'revision') ?? labels['tekton.dev/git-revision'] ?? ann['tekton.dev/git-revision']
+  const commit = rev && SHA.test(rev) ? rev : undefined
+  const namedRef = paramValue(run, 'git-ref', 'git-branch', 'branch') ?? labels['tekton.dev/git-branch'] ?? ann['tekton.dev/git-branch'] ?? (rev && !SHA.test(rev) ? rev : undefined)
+  const branch = namedRef?.replace(/^refs\/heads\//, '')
+  const trig = labels['triggers.tekton.dev/trigger'] ?? ''
+  const trigger: PipelineRunSummary['trigger'] =
+    labels['adhar.io/preview'] === 'true' || trig === 'pr-preview-build' || paramValue(run, 'git-ref') !== undefined
+      ? 'pull-request'
+      : trig || labels['triggers.tekton.dev/eventlistener'] || /^app-ci-/.test(run.metadata?.name ?? '')
+        ? 'push'
+        : 'manual'
   const tasks = taskProgress(message, run.status?.pipelineSpec?.tasks?.length, run.status?.childReferences?.length)
   return {
     name: run.metadata?.name ?? '',
@@ -149,8 +174,10 @@ export function summarise(run: RawRun): PipelineRunSummary {
     startedAt,
     completedAt,
     durationSecs,
-    branch: paramValue(run, 'git-branch', 'branch', 'revision') ?? labels['tekton.dev/git-branch'] ?? ann['tekton.dev/git-branch'],
-    commit: paramValue(run, 'git-revision', 'commit', 'sha') ?? labels['tekton.dev/git-revision'] ?? ann['tekton.dev/git-revision'],
+    branch: branch ?? (trigger === 'push' ? 'main' : undefined),
+    commit,
+    trigger,
+    repo: paramValue(run, 'repo-name', 'repoName') ?? labels['adhar.io/app'],
     ...(tasks ? { tasks } : {}),
   }
 }
@@ -183,6 +210,9 @@ export function usePipelineRuns(entity: Entity, repoUrl: string | undefined, ena
     enabled,
     staleTime: REFRESH_MS,
     refetchInterval: enabled ? REFRESH_MS : false,
+    // The namespace set settles once Argo CD answers; keep the previous list
+    // on screen meanwhile rather than flashing back to a loading state.
+    placeholderData: keepPreviousData,
     retry: 1,
   })
   const runs = useMemo(() => {
@@ -200,5 +230,5 @@ export function usePipelineRuns(entity: Entity, repoUrl: string | undefined, ena
       .slice(0, 8)
   }, [q.data, entity, repoUrl])
   const status = (q.error as { status?: number } | null)?.status
-  return { runs, isLoading: q.isLoading, isError: q.isError && status !== 404, notInstalled: status === 404 }
+  return { runs, isLoading: q.isLoading, isError: q.isError && !q.data && status !== 404, notInstalled: status === 404 && !q.data }
 }

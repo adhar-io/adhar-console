@@ -25,8 +25,6 @@ declare global {
   var __adharConsoleMonaco: Promise<MonacoApi> | undefined
 }
 
-export const THEME_LIGHT = 'adhar-console-light'
-export const THEME_DARK = 'adhar-console-dark'
 
 export function loadMonaco(): Promise<MonacoApi> {
   if (typeof window === 'undefined') return Promise.reject(new Error('Monaco requires a browser'))
@@ -96,52 +94,128 @@ function registerJson(monaco: MonacoApi): void {
 }
 
 function defineThemes(monaco: MonacoApi): void {
-  monaco.editor.defineTheme(THEME_LIGHT, {
-    base: 'vs',
-    inherit: true,
-    rules: [
-      { token: 'type', foreground: '1d4ed8', fontStyle: 'bold' },
-      { token: 'string', foreground: '047857' },
-      { token: 'number', foreground: 'b45309' },
-      { token: 'keyword', foreground: '7c3aed', fontStyle: 'bold' },
-      { token: 'comment', foreground: '6b7280', fontStyle: 'italic' },
-      { token: 'tag', foreground: 'be185d' },
-      { token: 'operators', foreground: '374151' },
-      { token: 'delimiter', foreground: '374151' },
-    ],
-    colors: {
-      'editor.background': '#f8fafc',
-      'editorLineNumber.foreground': '#94a3b8',
-      'editorLineNumber.activeForeground': '#334155',
-      'editor.lineHighlightBackground': '#f1f5f9',
-      'editorIndentGuide.background1': '#e2e8f0',
-    },
-  })
-  monaco.editor.defineTheme(THEME_DARK, {
-    base: 'vs-dark',
-    inherit: true,
-    rules: [
-      { token: 'type', foreground: '93c5fd', fontStyle: 'bold' },
-      { token: 'string', foreground: '6ee7b7' },
-      { token: 'number', foreground: 'fcd34d' },
-      { token: 'keyword', foreground: 'c4b5fd', fontStyle: 'bold' },
-      { token: 'comment', foreground: '6b7280', fontStyle: 'italic' },
-      { token: 'tag', foreground: 'f9a8d4' },
-      { token: 'operators', foreground: 'cbd5e1' },
-      { token: 'delimiter', foreground: 'cbd5e1' },
-    ],
-    colors: {
-      'editor.background': '#0b1220',
-      'editorLineNumber.foreground': '#475569',
-      'editorLineNumber.activeForeground': '#cbd5e1',
-      'editor.lineHighlightBackground': '#111a2e',
-      'editorIndentGuide.background1': '#1e293b',
-    },
-  })
+  applyConsoleTheme(monaco)
 }
 
-/** The theme matching the console's light/dark class on `<html>`. */
-export function consoleMonacoTheme(): string {
-  if (typeof document === 'undefined') return THEME_LIGHT
-  return document.documentElement.classList.contains('dark') ? THEME_DARK : THEME_LIGHT
+/* ───────────────────────── theme from the console's tokens ───────────────────────── */
+
+export const CONSOLE_THEME = 'adhar-console'
+
+/**
+ * Resolve any CSS colour — the console's tokens are `oklch(...)`, which
+ * Monaco's theme API cannot read — to `#rrggbb` by painting one pixel.
+ */
+function toHex(css: string, fallback: string): string {
+  if (typeof document === 'undefined' || !css) return fallback
+  try {
+    const c = document.createElement('canvas')
+    c.width = c.height = 1
+    const ctx = c.getContext('2d', { willReadFrequently: true })
+    if (!ctx) return fallback
+    ctx.fillStyle = '#000'
+    ctx.fillStyle = css
+    ctx.fillRect(0, 0, 1, 1)
+    const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data
+    return `#${[r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('')}`
+  } catch {
+    return fallback
+  }
+}
+
+function token(name: string, fallback: string): string {
+  if (typeof document === 'undefined') return fallback
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return toHex(v, fallback)
+}
+
+export function isDark(): boolean {
+  return typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+}
+
+/**
+ * Define (or redefine) the editor theme from the console's live tokens —
+ * surface, edge, content and brand — so the editor IS the console surface in
+ * either mode and under any brand preset, then apply it. Called on load and
+ * whenever `<html>`'s class changes.
+ */
+export function applyConsoleTheme(monaco: MonacoApi): void {
+  const dark = isDark()
+  const bg = token('--color-surface-raised', dark ? '#111827' : '#ffffff')
+  const sunken = token('--color-surface-sunken', dark ? '#0b1220' : '#f1f5f9')
+  const edge = token('--color-edge-default', dark ? '#1e293b' : '#e2e8f0')
+  const strong = token('--color-edge-strong', dark ? '#334155' : '#cbd5e1')
+  const text = token('--color-content', dark ? '#e2e8f0' : '#0f172a')
+  const muted = token('--color-content-muted', dark ? '#94a3b8' : '#475569')
+  const subtle = token('--color-content-subtle', dark ? '#64748b' : '#94a3b8')
+  const brand = token('--color-brand-500', '#3b82f6')
+  const strip = (h: string) => h.replace('#', '')
+  const rules = dark
+    ? [
+      { token: 'type', foreground: '93c5fd', fontStyle: 'bold' },
+      { token: 'string', foreground: '6ee7b7' },
+      { token: 'string.escape', foreground: 'fcd34d' },
+      { token: 'number', foreground: 'fcd34d' },
+      { token: 'keyword', foreground: 'c4b5fd', fontStyle: 'bold' },
+      { token: 'comment', foreground: strip(subtle), fontStyle: 'italic' },
+      { token: 'tag', foreground: 'f9a8d4' },
+      { token: 'operators', foreground: strip(muted) },
+      { token: 'delimiter', foreground: strip(muted) },
+    ]
+    : [
+      { token: 'type', foreground: '1d4ed8', fontStyle: 'bold' },
+      { token: 'string', foreground: '047857' },
+      { token: 'string.escape', foreground: 'b45309' },
+      { token: 'number', foreground: 'b45309' },
+      { token: 'keyword', foreground: '7c3aed', fontStyle: 'bold' },
+      { token: 'comment', foreground: strip(subtle), fontStyle: 'italic' },
+      { token: 'tag', foreground: 'be185d' },
+      { token: 'operators', foreground: strip(muted) },
+      { token: 'delimiter', foreground: strip(muted) },
+    ]
+  monaco.editor.defineTheme(CONSOLE_THEME, {
+    base: dark ? 'vs-dark' : 'vs',
+    inherit: true,
+    rules: [{ token: '', foreground: strip(text) }, ...rules],
+    colors: {
+      'editor.background': bg,
+      'editor.foreground': text,
+      'editorGutter.background': bg,
+      'editorLineNumber.foreground': subtle,
+      'editorLineNumber.activeForeground': text,
+      'editor.lineHighlightBackground': sunken,
+      'editor.lineHighlightBorder': '#00000000',
+      'editorCursor.foreground': brand,
+      'editor.selectionBackground': `${brand}40`,
+      'editor.inactiveSelectionBackground': `${brand}26`,
+      'editor.selectionHighlightBackground': `${brand}1f`,
+      'editor.wordHighlightBackground': `${brand}1f`,
+      'editor.findMatchBackground': `${brand}66`,
+      'editor.findMatchHighlightBackground': `${brand}33`,
+      'editorIndentGuide.background1': edge,
+      'editorIndentGuide.activeBackground1': strong,
+      'editorBracketMatch.background': `${brand}26`,
+      'editorBracketMatch.border': `${brand}80`,
+      'editorWidget.background': bg,
+      'editorWidget.border': edge,
+      'editorStickyScroll.background': bg,
+      'editorStickyScrollHover.background': sunken,
+      'editorStickyScroll.shadow': `${edge}`,
+      'input.background': sunken,
+      'input.border': edge,
+      'input.foreground': text,
+      'focusBorder': brand,
+      'scrollbarSlider.background': `${strong}66`,
+      'scrollbarSlider.hoverBackground': `${strong}99`,
+      'scrollbarSlider.activeBackground': `${strong}cc`,
+      'scrollbar.shadow': '#00000000',
+      'widget.shadow': dark ? '#00000080' : '#0f172a1f',
+      'editorOverviewRuler.border': '#00000000',
+      'menu.background': bg,
+      'menu.foreground': text,
+      'menu.selectionBackground': sunken,
+      'menu.selectionForeground': text,
+      'menu.border': edge,
+    },
+  })
+  monaco.editor.setTheme(CONSOLE_THEME)
 }

@@ -14,12 +14,21 @@ import {
 // Relative, not `~/`: the alias is Vite-only and does not resolve under `deno check`.
 import type {
   PlatformCategory,
+  PlatformEnvironment,
+  PlatformEvidence,
   PlatformScorecards,
   PlatformService,
   PlatformSignal,
 } from '../server/scorecards.ts'
 
-export type { PlatformCategory, PlatformScorecards, PlatformService, PlatformSignal }
+export type {
+  PlatformCategory,
+  PlatformEnvironment,
+  PlatformEvidence,
+  PlatformScorecards,
+  PlatformService,
+  PlatformSignal,
+}
 
 /**
  * Production-readiness scorecards.
@@ -548,6 +557,8 @@ export const PLATFORM_CATEGORIES: readonly PlatformCategory[] = [
   'security',
   'observability',
   'operations',
+  'performance',
+  'resilience',
 ]
 
 export const PLATFORM_CATEGORY_LABEL: Record<PlatformCategory, string> = {
@@ -555,6 +566,8 @@ export const PLATFORM_CATEGORY_LABEL: Record<PlatformCategory, string> = {
   security: 'Security',
   observability: 'Observability',
   operations: 'Operations',
+  performance: 'Performance',
+  resilience: 'Resilience',
 }
 
 /**
@@ -571,6 +584,20 @@ const PLATFORM_SIGNAL_LABEL: Record<string, string> = {
   argocd_synced: 'Argo CD application Synced with Git',
   httproute_exposed: 'Reachable through an HTTPRoute',
   backup: 'Backup coverage (Velero Schedule / CNPG)',
+  // Performance — the resilience runner's automated k6 load test, plus live SLOs.
+  load_test: 'Automated load test meets its latency and error targets',
+  latency_slo: 'Live p95 latency within target (24 h)',
+  error_budget: 'Live 5xx ratio within the availability SLO (24 h)',
+  // Resilience — automated Litmus chaos, plus how the workload is built.
+  chaos_pod_delete: 'Keeps serving while a pod is killed (automated chaos)',
+  recovery_time: 'Back to full readiness quickly after chaos',
+  replicas_ha: 'At least two replicas',
+  pod_disruption_budget: 'PodDisruptionBudget protects it during drains',
+  autoscaling: 'HorizontalPodAutoscaler',
+  spread_across_nodes: 'Replicas spread across nodes',
+  graceful_shutdown: 'Graceful shutdown (preStop drain)',
+  restart_stability: 'No crash-looping containers',
+  progressive_delivery: 'Progressive delivery (canary / blue-green)',
 }
 
 export function platformSignalLabel(name: string): string {

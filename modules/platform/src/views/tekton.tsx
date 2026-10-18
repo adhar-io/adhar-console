@@ -12,6 +12,7 @@ import {
   StatusBadge,
   useActiveNamespace,
   useLiveRefetch,
+  useToast,
   type StatusKind,
 } from '@adhar/shell-ui';
 import type { GatewayGVR as GVR, KubeObject } from '@adhar/api-clients/k8s';
@@ -27,6 +28,7 @@ import { age } from '../data/format.ts';
 import { K8sRolePill } from '../components/role-gate.tsx';
 import { DrawerSection, DrawerStatusTile, Row } from './resource-drawer.tsx';
 import { ListShell, matchesSearch } from './list-shell.tsx';
+import { readRunParam } from '../data/run-param.ts';
 
 /**
  * Tekton CI/CD surface — PipelineRuns (with a task DAG / service map, per-step
@@ -1293,6 +1295,30 @@ function ScopedEmpty({ what, namespace }: { what: string; namespace?: string }) 
   );
 }
 
+/**
+ * `?run=<namespace>/<name>` — the open PipelineRun, in the URL.
+ *
+ * Other pages link straight to one build (the catalog's Deployment tab, a
+ * toast, a pasted link), and that run is often outside the namespace this
+ * list is scoped to, so it is fetched by name rather than looked up in the
+ * list. Opening and closing the drawer keeps the parameter in step, so a
+ * refresh or a shared link lands on the same build. This module has no router
+ * of its own; the host router follows `popstate`.
+ */
+function writeRunParam(run: TektonRun | null) {
+  if (typeof location === 'undefined') return;
+  const params = new URLSearchParams(location.search);
+  const ns = run?.metadata?.namespace;
+  const name = run?.metadata?.name;
+  if (ns && name) params.set('run', `${ns}/${name}`);
+  else params.delete('run');
+  const qs = params.toString();
+  const url = `${location.pathname}${qs ? `?${qs}` : ''}${location.hash}`;
+  if (url === `${location.pathname}${location.search}${location.hash}`) return;
+  history.replaceState(history.state, '', url);
+  globalThis.dispatchEvent(new PopStateEvent('popstate', { state: history.state }));
+}
+
 export function TektonPipelineRuns({ namespace }: { namespace?: string }) {
   const live = useLiveList<TektonRun>(PIPELINERUNS_GVR, { namespace });
   // Mirror useLiveList's own fallback so the empty state names the namespace
@@ -1300,8 +1326,50 @@ export function TektonPipelineRuns({ namespace }: { namespace?: string }) {
   const { namespace: pickedNamespace } = useActiveNamespace();
   const effectiveNamespace = namespace ?? pickedNamespace;
   const [search, setSearch] = useState('');
-  const [selected, setSelected] = useState<TektonRun | null>(null);
+  const [selected, setSelectedState] = useState<TektonRun | null>(null);
+  const setSelected = (r: TektonRun | null) => {
+    setSelectedState(r);
+    writeRunParam(r);
+  };
   useTick();
+
+  // A run linked by `?run=ns/name`: fetch it directly and open its drawer.
+  const { cluster } = useActiveCluster();
+  const cp = clusterParam(cluster);
+  const toast = useToast();
+  const [linked, setLinked] = useState(() => readRunParam());
+  useEffect(() => {
+    const onPop = () => {
+      const next = readRunParam();
+      setLinked(next);
+      if (!next) setSelectedState(null);
+    };
+    globalThis.addEventListener('popstate', onPop);
+    return () => globalThis.removeEventListener('popstate', onPop);
+  }, []);
+  const linkedQ = useQuery<TektonRun>({
+    queryKey: ['platform', 'tekton', 'linked-run', linked?.ns ?? '-', linked?.name ?? '-', cp ?? '-'],
+    queryFn: () => kube.get<TektonRun>(PIPELINERUNS_GVR, linked!.ns, linked!.name, { cluster: cp }),
+    enabled: !!linked,
+    retry: 0,
+    staleTime: 30_000,
+  });
+  const linkedData = linkedQ.data;
+  useEffect(() => {
+    if (!linkedData) return;
+    setSelectedState((cur) =>
+      cur?.metadata?.namespace === linkedData.metadata?.namespace && cur?.metadata?.name === linkedData.metadata?.name ? cur : linkedData
+    );
+  }, [linkedData]);
+  const linkedFailed = linkedQ.isError;
+  useEffect(() => {
+    if (!linkedFailed || !linked) return;
+    toast.error(`Build ${linked.name} not found`, {
+      description: `No PipelineRun ${linked.ns}/${linked.name} on this cluster — it may have been pruned.`,
+    });
+    writeRunParam(null);
+    setLinked(null);
+  }, [linkedFailed]);
 
   const all = live.data;
   const rows = useMemo(

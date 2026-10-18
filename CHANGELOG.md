@@ -6,6 +6,17 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.139] - 2026-10-18
+
+### Improved
+
+- Enhance the service catalog
+
+### Fixed
+
+- Fix CI
+- Fix CI issue
+
 ## [0.1.138] - 2026-10-17
 
 ### Improved

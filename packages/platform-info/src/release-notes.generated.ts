@@ -4,8 +4,26 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.139",
+    "date": "2026-10-18",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Fix CI"
+      },
+      {
+        "type": "fix",
+        "text": "Fix CI issue"
+      },
+      {
+        "type": "improvement",
+        "text": "Enhance the service catalog"
+      }
+    ]
+  },
+  {
     "version": "0.1.138",
-    "date": "2026-10-17",
+    "date": "2026-10-18",
     "changes": [
       {
         "type": "improvement",
@@ -929,27 +947,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "feature",
         "scope": "ai",
         "text": "Strip the landing to the one thing it is for"
-      }
-    ]
-  },
-  {
-    "version": "0.1.99",
-    "date": "2026-09-27",
-    "changes": [
-      {
-        "type": "feature",
-        "scope": "ai",
-        "text": "A landing you can read at a glance"
-      },
-      {
-        "type": "feature",
-        "scope": "develop",
-        "text": "Cloud Envs opens VS Code, IntelliJ and a terminal that work"
-      },
-      {
-        "type": "fix",
-        "scope": "platform",
-        "text": "Cloud Shell opens a terminal, and Logs actually stream"
       }
     ]
   }

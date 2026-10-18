@@ -41,7 +41,7 @@ jobs:
 
       - uses: denoland/setup-deno@v2
         with:
-          deno-version: v2.1.4
+          deno-version: v2.9.5
 
       # Reported for visibility but non-blocking: fmt/lint/type-check surface
       # issues without gating the pipeline (the build job is the hard gate).

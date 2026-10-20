@@ -4,6 +4,16 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.140",
+    "date": "2026-10-20",
+    "changes": [
+      {
+        "type": "change",
+        "text": "Rebuild Decide and Define pages from ground up"
+      }
+    ]
+  },
+  {
     "version": "0.1.139",
     "date": "2026-10-18",
     "changes": [
@@ -932,21 +942,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "feature",
         "scope": "ai",
         "text": "A landing with nothing around it"
-      }
-    ]
-  },
-  {
-    "version": "0.1.100",
-    "date": "2026-09-27",
-    "changes": [
-      {
-        "type": "improvement",
-        "text": "Enhance cloud shell"
-      },
-      {
-        "type": "feature",
-        "scope": "ai",
-        "text": "Strip the landing to the one thing it is for"
       }
     ]
   }

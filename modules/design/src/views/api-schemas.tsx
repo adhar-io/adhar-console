@@ -38,6 +38,13 @@ import { copyText, downloadText, pickTextFile } from '../components/export.ts'
 import { useAutosave } from '../components/use-autosave.ts'
 import { Icon, Menu, SaveDot, SearchBox, Segmented, useConfirm } from '../components/ui-bits.tsx'
 import { slugify } from '../data/mermaid-util.ts'
+import { type DesignScope, notifyOrg, usePlatformCatalog, useDesignScope } from '../data/platform.ts'
+import { scopeFilter, type Scoped } from '../data/scope.ts'
+import { CatalogApis, ClientPanel, RepoPanel } from '../components/api-platform.tsx'
+import { AskAiModal, SparkIcon } from '../components/ai-draft.tsx'
+import { EntityChip } from '../components/catalog-bits.tsx'
+import { DesignScopeBar, ScopeChip, ScopeModal } from '../components/scope-bits.tsx'
+import { designHref } from '../data/deep-link.ts'
 
 /**
  * API & Schemas — design OpenAPI 3.x / Swagger 2.0, AsyncAPI and JSON Schema
@@ -71,9 +78,14 @@ type SpecDoc = ApiSpec & {
   source?: string
   git?: { repo: string; branch: string; path: string; sha?: string; at: string }
   updated_by?: string
+  /** Catalog API entity this spec defines (canonical ref). */
+  entity?: string
+  project?: string
+  team?: string
+  pr?: { repo: string; number: number; branch: string; base: string; at: string }
 }
 
-type Tab = 'explorer' | 'schemas' | 'problems' | 'changes'
+type Tab = 'explorer' | 'schemas' | 'problems' | 'changes' | 'platform' | 'client'
 type Layout = 'code' | 'split' | 'docs'
 
 const METHOD_TONE: Record<string, string> = {
@@ -125,11 +137,19 @@ export function ApiSchemas() {
   const [newOpen, setNewOpen] = useState(false)
   const [urlOpen, setUrlOpen] = useState(false)
   const [repoOpen, setRepoOpen] = useState(false)
+  const [aiOpen, setAiOpen] = useState(false)
+  const scope = useDesignScope()
+  const listTab = !params.spec && params.tab === 'catalog' ? 'catalog' : 'specs'
+  const catalog = usePlatformCatalog(listTab === 'catalog' || !!params.spec)
   useNewFlag(() => setNewOpen(true), !isLoading)
+  const scoped = useMemo(() => scopeFilter(list, scope.lens).shown, [list, scope.lens])
 
   const open = (id: string | undefined) => setParams({ spec: id, op: undefined, tab: undefined }, { push: true })
 
-  const createFrom = (document: string, meta: { name?: string; version?: string; description?: string; source?: string } = {}) => {
+  const createFrom = (
+    document: string,
+    meta: { name?: string; version?: string; description?: string; source?: string; entity?: string; git?: SpecDoc['git'] } & Scoped = {},
+  ) => {
     const { doc } = parseSpec(document)
     const info = (doc?.info ?? {}) as { title?: string; version?: string; description?: string }
     const now = new Date().toISOString()
@@ -144,6 +164,11 @@ export function ApiSchemas() {
       created_at: now,
       updated_at: now,
       updated_by: user?.name,
+      ...scope.initial,
+      ...(meta.project !== undefined ? { project: meta.project } : {}),
+      ...(meta.team !== undefined ? { team: meta.team } : {}),
+      ...(meta.entity ? { entity: meta.entity } : {}),
+      ...(meta.git ? { git: meta.git } : {}),
     }
     createSpec.mutate(spec, {
       onSuccess: (created) => {
@@ -172,11 +197,11 @@ export function ApiSchemas() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return list
+    return scoped
       .filter((s) => kindFilter === 'all' || summaries.get(s.id)?.kind === kindFilter)
       .filter((s) => !q || [s.name, s.description, s.version].join(' ').toLowerCase().includes(q))
       .sort((a, b) => (b._updatedAt ?? b.updated_at ?? '').localeCompare(a._updatedAt ?? a.updated_at ?? ''))
-  }, [list, search, kindFilter, summaries])
+  }, [scoped, search, kindFilter, summaries])
 
   if (error) return <ErrorBlock error={error} onRetry={refetch} />
   if (isLoading) return <LoadingBlock label="Loading API specs…" />
@@ -197,8 +222,10 @@ export function ApiSchemas() {
         <SpecEditor
           key={spec.id}
           spec={spec}
+          scope={scope}
+          catalog={catalog}
           onBack={() => open(undefined)}
-          onDuplicate={(document) => createFrom(document, { name: `${spec.name} (copy)`, version: spec.version, description: spec.description })}
+          onDuplicate={(document) => createFrom(document, { name: `${spec.name} (copy)`, version: spec.version, description: spec.description, project: spec.project, team: spec.team })}
           onDelete={() =>
             ask({
               title: `Delete “${spec.name}”?`,
@@ -220,8 +247,41 @@ export function ApiSchemas() {
 
   const kinds = (['openapi', 'swagger', 'asyncapi', 'jsonschema'] as SpecKind[]).filter((k) => [...summaries.values()].some((s) => s.kind === k))
 
+  const listTabs = (
+    <div className="flex items-center gap-1 border-b border-edge-subtle" role="tablist">
+      {([['specs', 'Specs', scoped.length], ['catalog', 'Catalog APIs', catalog.entities.filter((e) => e.kind === 'API').length]] as const).map(([id, label, n]) => (
+        <button
+          key={id}
+          type="button"
+          role="tab"
+          aria-selected={listTab === id}
+          onClick={() => setParams({ tab: id === 'specs' ? undefined : id })}
+          className={`-mb-px border-b-2 px-3 py-1.5 text-[13px] ${listTab === id ? 'border-brand-500 font-semibold text-content' : 'border-transparent text-content-muted hover:text-content'}`}
+        >
+          {label}
+          {id === 'specs' || !catalog.isLoading ? <span className="ml-1.5 rounded-full bg-surface-sunken px-1.5 font-mono text-[10px] text-content-subtle">{n}</span> : null}
+        </button>
+      ))}
+    </div>
+  )
+
+  if (listTab === 'catalog') {
+    return (
+      <div className="space-y-4">
+        {listTabs}
+        <CatalogApis
+          catalog={catalog}
+          specs={list.map((s) => ({ id: s.id, name: s.name, entity: s.entity }))}
+          onOpenSpec={(id) => open(id)}
+          onImport={(sp) => createFrom(sp.document, { name: sp.name, source: sp.source, entity: sp.entity, git: sp.git })}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
+      {listTabs}
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex flex-wrap gap-1">
           {(['all', ...kinds] as const).map((k) => (
@@ -238,7 +298,7 @@ export function ApiSchemas() {
             >
               {k === 'all' ? 'All' : KIND_LABEL[k]}
               <span className="font-mono text-[10px] opacity-60">
-                {k === 'all' ? list.length : [...summaries.values()].filter((s) => s.kind === k).length}
+                {k === 'all' ? scoped.length : scoped.filter((s) => summaries.get(s.id)?.kind === k).length}
               </span>
             </button>
           ))}
@@ -260,9 +320,11 @@ export function ApiSchemas() {
               },
             ]}
           />
+          <Button size="sm" leading={<SparkIcon />} onClick={() => setAiOpen(true)}>Ask Adhar AI</Button>
           <Button size="sm" variant="primary" leading={<Icon name="plus" />} onClick={() => setNewOpen(true)}>New spec</Button>
         </div>
       </div>
+      <DesignScopeBar scope={scope} shown={scoped.length} total={list.length} noun="specs" />
 
       {list.length === 0
         ? (
@@ -313,6 +375,14 @@ export function ApiSchemas() {
                     </StatusBadge>
                   </div>
                   <p className="mt-1.5 line-clamp-2 min-h-8 text-[12px] leading-relaxed text-content-muted">{s.description || '—'}</p>
+                  {s.entity || s.team || s.project
+                    ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-1">
+                        {s.entity ? <EntityChip entityRef={s.entity} entity={catalog.entities.find((e) => `${e.kind.toLowerCase()}:${e.namespace}/${e.name}` === s.entity)} /> : null}
+                        <ScopeChip item={s} scope={scope} />
+                      </div>
+                    )
+                    : null}
                   <div className="mt-3 flex items-center gap-3 text-[11px] text-content-muted">
                     {sum.kind !== 'jsonschema'
                       ? <span><span className="font-semibold text-content">{sum.ops}</span> {sum.kind === 'asyncapi' ? 'operation' : 'endpoint'}{sum.ops === 1 ? '' : 's'}</span>
@@ -337,7 +407,19 @@ export function ApiSchemas() {
         onClose={() => setRepoOpen(false)}
         title="Import a spec from Gitea"
         accept={/\.(ya?ml|json)$/i}
-        onImport={(f) => createFrom(f.text, { source: `gitea:${f.repo}/${f.path}` })}
+        onImport={(f) => createFrom(f.text, { source: `gitea:${f.repo}/${f.path}`, git: { repo: f.repo, branch: f.branch, path: f.path, at: new Date().toISOString() } })}
+      />
+      <AskAiModal
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        kind="api"
+        title="Design an API with Adhar AI"
+        description="Describe the API; Adhar AI drafts an OpenAPI 3.0 document you can then validate, diff and publish."
+        placeholder="A REST API for orders: create an order, read it, list a customer's orders, cancel an order…"
+        context={[{ description: 'Existing specs', value: list.map((s) => `${s.name} v${s.version}`).join('\n') || 'none' }]}
+        fence={['yaml', 'yml', 'json']}
+        applyLabel="Create spec"
+        onApply={(doc) => createFrom(doc, { source: 'Adhar AI' })}
       />
       {confirmDialog}
     </div>
@@ -490,11 +572,15 @@ interface Draft {
 
 function SpecEditor({
   spec,
+  scope,
+  catalog,
   onBack,
   onDuplicate,
   onDelete,
 }: {
   spec: Listed<SpecDoc>
+  scope: DesignScope
+  catalog: ReturnType<typeof usePlatformCatalog>
   onBack(): void
   onDuplicate(document: string): void
   onDelete(): void
@@ -518,7 +604,11 @@ function SpecEditor({
   const [urlOpen, setUrlOpen] = useState(false)
   const [repoOpen, setRepoOpen] = useState(false)
   const [ask, confirmDialog] = useConfirm()
-  const tab = (['explorer', 'schemas', 'problems', 'changes'].includes(params.tab ?? '') ? params.tab : 'explorer') as Tab
+  const [aiOpen, setAiOpen] = useState(false)
+  const [scopeOpen, setScopeOpen] = useState(false)
+  const [linkOpen, setLinkOpen] = useState(false)
+  const [publishVersion, setPublishVersion] = useState<string | undefined>()
+  const tab = (['explorer', 'schemas', 'problems', 'changes', 'platform', 'client'].includes(params.tab ?? '') ? params.tab : 'explorer') as Tab
   const setTab = (t: Tab) => setParams({ tab: t === 'explorer' ? undefined : t })
 
   const latest = useRef(spec)
@@ -602,13 +692,14 @@ function SpecEditor({
               { id: 'docs', label: <Icon name="eye" />, title: 'Explorer only' },
             ]}
           />
+          <Button size="sm" leading={<SparkIcon />} onClick={() => setAiOpen(true)}>Ask AI</Button>
           <Button size="sm" leading={<Icon name="history" />} onClick={() => setSnapOpen(true)}>Save version</Button>
           <Menu
             label="Export"
             icon={<Icon name="download" />}
             items={[
               { label: isJson ? 'Download JSON' : 'Download YAML', onSelect: () => downloadText(draft.document, `${base}.${isJson ? 'json' : 'yaml'}`) },
-              { label: 'Commit to Gitea…', onSelect: () => setCommitOpen(true) },
+              { label: 'Publish as pull request…', onSelect: () => setCommitOpen(true) },
               'separator',
               { label: 'Convert to YAML', onSelect: () => convert('yaml'), disabled: !isJson },
               { label: 'Convert to JSON', onSelect: () => convert('json'), disabled: isJson },
@@ -634,6 +725,7 @@ function SpecEditor({
                 },
               },
               'separator',
+              { label: 'Project & owner…', onSelect: () => setScopeOpen(true) },
               { label: 'Duplicate', onSelect: () => onDuplicate(draft.document) },
               { label: 'Delete spec', onSelect: onDelete, danger: true },
             ]}
@@ -679,6 +771,8 @@ function SpecEditor({
                   ['schemas', kind === 'jsonschema' ? 'Definitions & test' : 'Schemas', Object.keys(componentSchemas(doc)).length],
                   ['problems', 'Problems', issues.length],
                   ['changes', 'Changes', draft.versions.length],
+                  ['platform', 'Repo & catalog', null],
+                  ['client', 'Client', null],
                 ] as [Tab, string, number | null][]).map(([id, label, n]) => (
                   <button
                     key={id}
@@ -692,7 +786,7 @@ function SpecEditor({
                 ))}
               </div>
               <div className="min-h-0 flex-1 overflow-auto p-3">
-                {!doc && tab !== 'problems' && tab !== 'changes'
+                {!doc && tab !== 'problems' && tab !== 'changes' && tab !== 'platform'
                   ? (
                     <EmptyState
                       compact
@@ -709,6 +803,25 @@ function SpecEditor({
                   ? kind === 'jsonschema' ? <JsonSchemaPanel doc={doc!} defsOnly /> : <SchemasPanel doc={doc!} />
                   : tab === 'problems'
                   ? <Problems issues={issues} onReveal={goLine} />
+                  : tab === 'platform'
+                  ? (
+                    <RepoPanel
+                      git={spec.git}
+                      pr={spec.pr}
+                      entity={spec.entity}
+                      catalog={catalog}
+                      current={doc}
+                      version={draft.version}
+                      onReplace={replaceFrom}
+                      onPublish={(v) => {
+                        setPublishVersion(v)
+                        setCommitOpen(true)
+                      }}
+                      onLinkFile={() => setLinkOpen(true)}
+                    />
+                  )
+                  : tab === 'client'
+                  ? <ClientPanel doc={doc} name={base} />
                   : (
                     <Changes
                       versions={draft.versions}
@@ -746,14 +859,70 @@ function SpecEditor({
       />
       <CommitToRepoModal
         open={commitOpen}
-        onClose={() => setCommitOpen(false)}
-        title="Commit spec to Gitea"
+        onClose={() => {
+          setCommitOpen(false)
+          setPublishVersion(undefined)
+        }}
+        title="Publish spec to Gitea"
+        description={publishVersion ? `The diff against the default branch suggests version ${publishVersion}.` : 'Opens a pull request with the spec (or commits straight to the branch).'}
         initial={spec.git ? { repo: spec.git.repo, branch: spec.git.branch, folder: spec.git.path.split('/').slice(0, -1).join('/') } : undefined}
         defaultFolder="api"
-        defaultMessage={`docs(api): ${draft.name} ${draft.version}`}
+        defaultMessage={`docs(api): ${draft.name} ${publishVersion ?? draft.version}`}
+        prBody={`API spec “${draft.name}” published from Adhar Console → Design → API & Schemas.${spec.entity ? `\n\nCatalog API: ${spec.entity}` : ''}`}
         buildFiles={() => [{ path: spec.git?.path.split('/').pop() ?? `${base}.${isJson ? 'json' : 'yaml'}`, content: draft.document }]}
-        onCommitted={(t) =>
-          void update.mutateAsync({ ...latest.current, ...draft, git: { repo: t.repo, branch: t.branch, path: t.paths[0], sha: t.sha, at: new Date().toISOString() }, updated_at: new Date().toISOString() })}
+        onCommitted={(t) => {
+          const at = new Date().toISOString()
+          void update.mutateAsync({
+            ...latest.current,
+            ...draft,
+            ...(publishVersion ? { version: publishVersion } : {}),
+            git: { repo: t.repo, branch: t.branch, path: t.paths[0], sha: t.sha, at },
+            ...(t.pr ? { pr: { repo: t.repo, number: t.pr.number, branch: t.pr.branch, base: t.branch, at } } : {}),
+            updated_at: at,
+          })
+          if (publishVersion) setDraft((d) => ({ ...d, version: publishVersion }))
+          if (t.pr) {
+            void notifyOrg({
+              title: `API change PR: ${draft.name}`,
+              description: `${user?.name ?? 'Someone'} opened ${t.repo}#${t.pr.number}${publishVersion ? ` (${publishVersion})` : ''}.`,
+              href: designHref('api-schemas', { spec: spec.id, tab: 'platform' }),
+              key: `design-api-pr-${spec.id}-${t.pr.number}`,
+            })
+          }
+        }}
+      />
+      <ImportFromRepoModal
+        open={linkOpen}
+        onClose={() => setLinkOpen(false)}
+        title="Link the spec file in Gitea"
+        accept={/\.(ya?ml|json)$/i}
+        onImport={(f) => {
+          const at = new Date().toISOString()
+          void update.mutateAsync({ ...latest.current, ...draft, git: { repo: f.repo, branch: f.branch, path: f.path, at }, updated_at: at })
+          setTab('platform')
+        }}
+      />
+      <ScopeModal
+        open={scopeOpen}
+        onClose={() => setScopeOpen(false)}
+        value={{ project: spec.project, team: spec.team }}
+        scope={scope}
+        onSave={(v) => {
+          setScopeOpen(false)
+          void update.mutateAsync({ ...latest.current, ...draft, project: v.project, team: v.team, updated_at: new Date().toISOString() })
+        }}
+      />
+      <AskAiModal
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        kind="api"
+        title="Revise this spec with Adhar AI"
+        description="Describe the change; the reply replaces the document when you apply it (undo with ⌘Z, or diff it in Changes after saving a version)."
+        placeholder="Add pagination to every list operation and a 409 response to create…"
+        context={[{ description: 'Current spec', value: draft.document.slice(0, 60_000) }]}
+        fence={isJson ? ['json', 'yaml'] : ['yaml', 'yml', 'json']}
+        applyLabel="Replace document"
+        onApply={(text) => setDocument(text)}
       />
       <UrlImportModal open={urlOpen} onClose={() => setUrlOpen(false)} onLoaded={(text, url) => replaceFrom(text, url)} />
       <ImportFromRepoModal

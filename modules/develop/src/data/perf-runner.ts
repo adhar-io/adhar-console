@@ -1,10 +1,12 @@
 import { gateEnv } from './perf-gate.ts'
 import {
   LABEL_COMMIT,
+  LABEL_APPLICATION,
   LABEL_MANAGED,
   LABEL_TEST,
   type PerfTestConfig,
   SCRIPT_FILE,
+  targetApplication,
 } from './perf-format.ts'
 import { LABEL_RUNNER, LABEL_SCHEDULE, LABEL_TRIGGER } from './perf-results.ts'
 
@@ -106,7 +108,7 @@ if ! k get configmap "$CM" -o jsonpath='{.data.gate\.env}' > "$WORK/gate.env"; t
   log "ConfigMap $NS/$CM not found. Run the test once from the console (or save its gate) to materialise it."
   exit 2
 fi
-PERF_COMMIT='' GATE_P95_MS='' GATE_P99_MS='' GATE_AVG_MS='' GATE_ERROR_PCT='' GATE_MIN_RPS=''
+PERF_COMMIT='' TARGET_APP='' GATE_P95_MS='' GATE_P99_MS='' GATE_AVG_MS='' GATE_ERROR_PCT='' GATE_MIN_RPS=''
 GATE_REQUIRE_THRESHOLDS=true GATE_FAIL_ON_REGRESSION=false
 TOL_LATENCY_PCT=10 TOL_ERROR_PTS=0.5 TOL_RPS_PCT=10
 BASE_RUN='' BASE_P95_MS='' BASE_P99_MS='' BASE_AVG_MS='' BASE_ERROR_PCT='' BASE_RPS=''
@@ -261,7 +263,8 @@ RESULT="k6-result-$RUN"
 if k create configmap "$RESULT" --from-file="summary.txt=$WORK/summary.txt" > /dev/null; then
   k label configmap "$RESULT" adhar.io/perf-result=true "adhar.io/perf-test=$TEST" \
     "adhar.io/perf-trigger=$TRIGGER" app.kubernetes.io/managed-by=adhar-console \
-    %{PERF_COMMIT:+"adhar.io/perf-commit=$PERF_COMMIT"} %{SCHEDULE:+"adhar.io/perf-schedule=$SCHEDULE"} > /dev/null
+    %{PERF_COMMIT:+"adhar.io/perf-commit=$PERF_COMMIT"} %{SCHEDULE:+"adhar.io/perf-schedule=$SCHEDULE"} \
+    %{TARGET_APP:+"adhar.io/application=$TARGET_APP"} > /dev/null
   k annotate configmap "$RESULT" "adhar.io/perf-run=$RUN" "adhar.io/perf-started=$STARTED" \
     "adhar.io/perf-finished=$FINISHED" "adhar.io/perf-stage=$STAGE" "adhar.io/perf-exit-code=$EXIT" \
     "adhar.io/perf-verdict=$VERDICT" "adhar.io/perf-verdict-reasons=$NOTE" "adhar.io/perf-parallelism=%{PAR:-1}" > /dev/null
@@ -307,6 +310,7 @@ export function testRunTemplate(input: { test: string; config: PerfTestConfig; c
         // The runner owns this run's harvest — the console must not race it.
         [LABEL_RUNNER]: 'job',
         ...(commit ? { [LABEL_COMMIT]: commit } : {}),
+        ...(targetApplication(config) ? { [LABEL_APPLICATION]: targetApplication(config)! } : {}),
       },
     },
     spec: {
@@ -340,7 +344,14 @@ export function artefactConfigMap(input: { test: string; config: PerfTestConfig;
     data: {
       [SCRIPT_FILE]: input.script,
       [TESTRUN_KEY]: `${JSON.stringify(testRunTemplate({ test, config, commit }), null, 2)}\n`,
-      [GATE_KEY]: gateEnv({ test, namespace: ns, commit, gate: config.gate, baseline: config.baseline }),
+      [GATE_KEY]: gateEnv({
+        test,
+        namespace: ns,
+        commit,
+        gate: config.gate,
+        baseline: config.baseline,
+        application: targetApplication(config),
+      }),
       [RUNNER_KEY]: RUN_SCRIPT,
     },
   }

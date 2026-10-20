@@ -1,280 +1,246 @@
-import { useQuery, type UseQueryResult } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { docStore } from '@adhar/shell-ui'
+import {
+  blendedRates,
+  type Budget,
+  type CostRow,
+  type DayCost,
+  dailyOf,
+  IDLE_KEY,
+  isPseudo,
+  type OcAllocation,
+  type OcResponse,
+  rowsOf,
+  type Rates,
+  type UsageRow,
+} from './cost-model.ts'
+import { envFromNamespace, projectFromNamespace } from './dora-model.ts'
+import { num, promInstant } from './prom.ts'
 
 /**
- * Cloud-cost breakdown — REAL, backed by OpenCost / Kubecost allocation data.
- *
- * Data is fetched live through the console BFF proxy at `/api/svc/opencost/…`
- * (service-authenticated by the server; no client token). There is NO stub /
- * synthesized fallback: if OpenCost is unreachable or not configured the proxy
- * errors and this query surfaces the error so the view can render an
- * error/empty state (never fake numbers).
- *
- * OpenCost REST allocation API (https://www.opencost.io/docs/integrations/api):
- *   GET /allocation/compute?window=…&aggregate=…&accumulate=…&step=…
- *   → { code, data: [ { "<key>": { name, cpuCost, ramCost, pvCost,
- *        networkCost, gpuCost, totalCost, properties? } , … } , … ] }
- * With `accumulate=true` `data` has a single roll-up map; with
- * `accumulate=false&step=30d` it is one map per time step.
+ * Spend data hooks. Every number comes from OpenCost's allocation API through
+ * the console BFF (`/api/svc/opencost/allocation/compute`), usage for
+ * rightsizing from Prometheus (`/api/svc/prometheus`), and budgets / saved
+ * views from the tenant document store (`decide.budget`, `decide.spend-view`).
+ * No fallback numbers: an unreachable source surfaces as an error.
  */
 
-export interface CostComponents {
-  /** vCPU / compute cost (cpuCost + gpuCost). */
-  compute: number
-  /** RAM cost (ramCost). */
-  memory: number
-  /** Persistent-volume cost (pvCost). */
-  storage: number
-  /** Egress / load-balancer cost (networkCost). */
-  network: number
-}
+const OPENCOST = '/api/svc/opencost'
 
-export interface NamespaceCost {
-  namespace: string
-  total: number
-  components: CostComponents
-  /** Month-over-month change as a fraction (e.g. 0.064 = +6.4%). */
-  momPct: number
-  /** Share of the monthly total, 0–100. */
-  share: number
-  /** Trailing 6-month monthly totals (oldest → newest). */
-  trend: number[]
-}
-
-export interface WorkloadCost {
-  workload: string
-  namespace: string
-  /** Controller kind reported by OpenCost (Deployment, StatefulSet, …). */
-  kind: string
-  total: number
-  components: CostComponents
-}
-
-export interface CostBreakdown {
-  monthlyTotal: number
-  prevMonthTotal: number
-  /** Month-over-month change as a fraction. */
-  momPct: number
-  /** Aggregate cost components across every namespace. */
-  components: CostComponents
-  namespaces: NamespaceCost[]
-  workloads: WorkloadCost[]
-  /** Trailing 6-month monthly totals (oldest → newest). */
-  trend: number[]
-  /**
-   * Monthly budget threshold in USD, or `null` when none is configured. Driven
-   * by the `VITE_OPENCOST_MONTHLY_BUDGET` build-time env — never fabricated.
-   */
-  budget: number | null
-}
-
-/* ── OpenCost wire types ──────────────────────────────────────────────── */
-
-interface OcAllocation {
-  name?: string
-  cpuCost?: number
-  gpuCost?: number
-  ramCost?: number
-  pvCost?: number
-  networkCost?: number
-  loadBalancerCost?: number
-  totalCost?: number
-  properties?: {
-    namespace?: string
-    controller?: string
-    controllerKind?: string
-  }
-}
-
-interface OcResponse {
-  code?: number
-  data?: Array<Record<string, OcAllocation> | null>
-}
-
-/** OpenCost pseudo-allocations that aren't real namespaces/workloads. */
-const PSEUDO = new Set(['__idle__', '__unallocated__', '__unmounted__'])
-
-function isPseudo(key: string): boolean {
-  return PSEUDO.has(key) || (key.startsWith('__') && key.endsWith('__'))
-}
-
-function componentsOf(a: OcAllocation): CostComponents {
-  return {
-    compute: (a.cpuCost ?? 0) + (a.gpuCost ?? 0),
-    memory: a.ramCost ?? 0,
-    storage: a.pvCost ?? 0,
-    network: (a.networkCost ?? 0) + (a.loadBalancerCost ?? 0),
-  }
-}
-
-function addComponents(x: CostComponents, y: CostComponents): CostComponents {
-  return {
-    compute: x.compute + y.compute,
-    memory: x.memory + y.memory,
-    storage: x.storage + y.storage,
-    network: x.network + y.network,
-  }
-}
-
-function totalOf(a: OcAllocation): number {
-  const t = a.totalCost
-  if (typeof t === 'number' && t > 0) return t
-  const c = componentsOf(a)
-  return c.compute + c.memory + c.storage + c.network
-}
-
-/* ── OpenCost fetch (through the BFF proxy) ───────────────────────────── */
-
-const OPENCOST_BASE = '/api/svc/opencost'
-
-async function ocGet(path: string): Promise<OcResponse> {
-  const res = await fetch(`${OPENCOST_BASE}${path}`, {
+async function ocGet(params: Record<string, string>): Promise<OcResponse> {
+  const res = await fetch(`${OPENCOST}/allocation/compute?${new URLSearchParams(params)}`, {
     credentials: 'include',
     headers: { accept: 'application/json' },
   })
-  if (!res.ok) {
-    throw new Error(`OpenCost request failed (${res.status} ${res.statusText})`)
-  }
-  return (await res.json()) as OcResponse
+  if (!res.ok) throw Object.assign(new Error(`OpenCost request failed (${res.status})`), { status: res.status })
+  const body = (await res.json()) as OcResponse
+  if (body.code && body.code >= 400) throw new Error(body.message ?? `OpenCost error ${body.code}`)
+  return body
 }
 
-/** First (or only) allocation map in an OpenCost response. */
-function firstMap(r: OcResponse): Record<string, OcAllocation> {
-  const m = r.data?.[0]
-  return m ?? {}
+const iso = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const hourFloor = (ms: number) => Math.floor(ms / 3_600_000) * 3_600_000
+
+export { SPEND_RANGES, type SpendRangeId, spendWindow } from './cost-model.ts'
+
+/* ─────────── dimensions ─────────── */
+
+export const DIMENSIONS = [
+  { id: 'namespace', label: 'Namespace', aggregate: 'namespace' },
+  { id: 'project', label: 'Project', aggregate: 'namespace' },
+  { id: 'team', label: 'Team', aggregate: 'namespace' },
+  { id: 'env', label: 'Environment', aggregate: 'namespace' },
+  { id: 'workload', label: 'App / workload', aggregate: 'namespace,controller' },
+  { id: 'label', label: 'Label', aggregate: 'label' },
+] as const
+
+export type DimensionId = (typeof DIMENSIONS)[number]['id']
+
+export function dimensionOf(id: string | undefined) {
+  return DIMENSIONS.find((d) => d.id === id) ?? DIMENSIONS[1]
 }
 
-/** All per-step allocation maps (accumulate=false responses). */
-function stepMaps(r: OcResponse): Array<Record<string, OcAllocation>> {
-  return (r.data ?? []).map((m) => m ?? {})
+/** OpenCost's aggregate parameter for a dimension. */
+export function aggregateParam(dim: DimensionId, label: string): string {
+  if (dim === 'label') return `label:${label || 'app.kubernetes.io/name'}`
+  return dimensionOf(dim).aggregate
 }
 
-function configuredBudget(): number | null {
-  try {
-    const raw = (import.meta as { env?: Record<string, string | undefined> }).env
-      ?.VITE_OPENCOST_MONTHLY_BUDGET
-    const n = raw ? Number(raw) : NaN
-    return Number.isFinite(n) && n > 0 ? n : null
-  } catch {
-    return null
-  }
+/** Platform namespaces have no project; they are the platform's own cost. */
+export const PLATFORM = '(platform)'
+
+export function projectOfNamespace(ns: string | undefined): string {
+  return projectFromNamespace(ns) || PLATFORM
 }
 
-/* ── mapping OpenCost → CostBreakdown ─────────────────────────────────── */
-
-function buildBreakdown(
-  current: OcResponse,
-  trendResp: OcResponse,
-  workloadsResp: OcResponse,
-): CostBreakdown {
-  // Current-month namespaces (30d, accumulated).
-  const currentMap = firstMap(current)
-
-  // Trailing 6 steps (each 30d), per namespace.
-  const steps = stepMaps(trendResp)
-  const stepTotals = steps.map((m) =>
-    Object.entries(m).reduce((sum, [k, a]) => (isPseudo(k) ? sum : sum + totalOf(a)), 0),
-  )
-  const nsTrend = (ns: string): number[] => steps.map((m) => (m[ns] ? totalOf(m[ns]) : 0))
-
-  const namespaces: NamespaceCost[] = Object.entries(currentMap)
-    .filter(([k]) => !isPseudo(k))
-    .map(([key, a]) => {
-      const namespace = a.properties?.namespace ?? a.name ?? key
-      const total = totalOf(a)
-      const t = nsTrend(namespace)
-      const prev = t.length >= 2 ? t[t.length - 2] : 0
-      const last = t.length >= 1 ? t[t.length - 1] : total
-      const momPct = prev > 0 ? Number(((last - prev) / prev).toFixed(4)) : 0
-      return {
-        namespace,
-        total,
-        components: componentsOf(a),
-        momPct,
-        share: 0, // filled once the grand total is known
-        trend: t.length ? t : [total],
-      }
-    })
-    .sort((x, y) => y.total - x.total)
-
-  const monthlyTotal = namespaces.reduce((s, n) => s + n.total, 0)
-  for (const n of namespaces) {
-    n.share = monthlyTotal > 0 ? Math.round((n.total / monthlyTotal) * 1000) / 10 : 0
-  }
-
-  const components = namespaces.reduce<CostComponents>(
-    (acc, n) => addComponents(acc, n.components),
-    { compute: 0, memory: 0, storage: 0, network: 0 },
-  )
-
-  // Aggregate 6-month trend from the step totals; pin the newest point to the
-  // authoritative current-month total so the hero + trend agree.
-  const trend = stepTotals.length ? [...stepTotals] : [monthlyTotal]
-  trend[trend.length - 1] = monthlyTotal
-  const prevMonthTotal = trend.length >= 2 ? trend[trend.length - 2] : monthlyTotal
-  const momPct = prevMonthTotal > 0
-    ? Number(((monthlyTotal - prevMonthTotal) / prevMonthTotal).toFixed(4))
-    : 0
-
-  // Workloads (30d, aggregated by controller).
-  const workloadMap = firstMap(workloadsResp)
-  const workloads: WorkloadCost[] = Object.entries(workloadMap)
-    .filter(([k]) => !isPseudo(k))
-    .map(([key, a]) => ({
-      workload: a.properties?.controller ?? a.name ?? key,
-      namespace: a.properties?.namespace ?? '—',
-      kind: a.properties?.controllerKind ?? 'Workload',
-      total: totalOf(a),
-      components: componentsOf(a),
-    }))
-    .filter((w) => w.total > 0)
-    .sort((x, y) => y.total - x.total)
-
-  return {
-    monthlyTotal,
-    prevMonthTotal,
-    momPct,
-    components,
-    namespaces,
-    workloads,
-    trend,
-    budget: configuredBudget(),
-  }
+export function envOfNamespace(ns: string | undefined): string {
+  return envFromNamespace(ns, projectFromNamespace(ns)) || '(none)'
 }
 
-async function fetchCostBreakdown(): Promise<CostBreakdown> {
-  const [current, trendResp, workloadsResp] = await Promise.all([
-    ocGet('/allocation/compute?window=30d&aggregate=namespace&accumulate=true'),
-    ocGet('/allocation/compute?window=180d&aggregate=namespace&accumulate=false&step=30d'),
-    ocGet('/allocation/compute?window=30d&aggregate=controller&accumulate=true'),
-  ])
-  return buildBreakdown(current, trendResp, workloadsResp)
+/* ─────────── hooks ─────────── */
+
+export interface Allocation {
+  rows: CostRow[]
+  idle: number
+  allocated: number
+  rates: Rates
 }
 
-/**
- * Live namespace + workload cost breakdown from OpenCost — monthly totals,
- * OpenCost cost components (compute / memory / storage / network), MoM deltas
- * from consecutive monthly steps, share, a trailing 6-month trend, and an
- * optional configured budget. Real `useQuery`: loading + error are surfaced,
- * never faked.
- */
-export function useCostBreakdown(): UseQueryResult<CostBreakdown> {
+function toAllocation(resp: OcResponse): Allocation {
+  const m = resp.data?.[0] ?? {}
+  const real = Object.entries(m).filter(([k]) => !isPseudo(k)).map(([, a]) => a as OcAllocation)
+  return { ...rowsOf(resp), rates: blendedRates(real) }
+}
+
+/** Accumulated allocation for one window and aggregate. */
+export function useAllocation(aggregate: string, start: number, end: number, enabled = true) {
   return useQuery({
-    queryKey: ['opencost', 'allocation', 'breakdown'],
-    queryFn: fetchCostBreakdown,
+    queryKey: ['decide', 'opencost', 'alloc', aggregate, start, end],
+    queryFn: async () =>
+      toAllocation(await ocGet({ window: `${iso(start)},${iso(end)}`, aggregate, accumulate: 'true', includeIdle: 'true' })),
+    enabled: enabled && end > start,
+    staleTime: 5 * 60_000,
+    refetchInterval: 10 * 60_000,
+    retry: false,
+  })
+}
+
+/** Daily namespace spend from `start` to now (step 1d). */
+export function useDailySpend(start: number, now: number) {
+  const end = hourFloor(now)
+  return useQuery({
+    queryKey: ['decide', 'opencost', 'daily', start, end],
+    queryFn: async (): Promise<DayCost[]> =>
+      dailyOf(await ocGet({ window: `${iso(start)},${iso(end)}`, aggregate: 'namespace', step: '1d', accumulate: 'false', includeIdle: 'true' })),
+    staleTime: 5 * 60_000,
+    refetchInterval: 10 * 60_000,
+    retry: false,
+  })
+}
+
+/** A day's spend restricted to namespaces that pass `keep` (idle only when everything is kept). */
+export function scopeDays(days: DayCost[], keep: ((ns: string) => boolean) | null): DayCost[] {
+  if (!keep) return days
+  return days.map((d) => {
+    const byKey: Record<string, number> = {}
+    let total = 0
+    for (const [k, v] of Object.entries(d.byKey)) {
+      if (k === IDLE_KEY || !keep(k)) continue
+      byKey[k] = v
+      total += v
+    }
+    return { day: d.day, total, idle: 0, byKey }
+  })
+}
+
+/* ─────────── rightsizing usage (Prometheus) ─────────── */
+
+const C = 'container!="", container!="POD"'
+export const RIGHTSIZE_QUERIES = {
+  cpuP95: `quantile_over_time(0.95, (avg by (namespace, container) (rate(container_cpu_usage_seconds_total{${C}}[5m])))[7d:15m])`,
+  memMax: `max_over_time((avg by (namespace, container) (container_memory_working_set_bytes{${C}}))[7d:15m])`,
+  cpuReq: 'avg by (namespace, container) (kube_pod_container_resource_requests{resource="cpu"})',
+  memReq: 'avg by (namespace, container) (kube_pod_container_resource_requests{resource="memory"})',
+  replicas: 'count by (namespace, container) (kube_pod_container_resource_requests{resource="cpu"})',
+}
+
+export function useRightsizeUsage(enabled: boolean) {
+  return useQuery({
+    queryKey: ['decide', 'prom', 'rightsize'],
+    queryFn: async (): Promise<UsageRow[]> => {
+      const [cpuP95, memMax, cpuReq, memReq, replicas] = await Promise.all([
+        promInstant(RIGHTSIZE_QUERIES.cpuP95),
+        promInstant(RIGHTSIZE_QUERIES.memMax),
+        promInstant(RIGHTSIZE_QUERIES.cpuReq),
+        promInstant(RIGHTSIZE_QUERIES.memReq),
+        promInstant(RIGHTSIZE_QUERIES.replicas),
+      ])
+      const key = (m: Record<string, string>) => `${m.namespace}/${m.container}`
+      const idx = (r: typeof cpuP95) => new Map(r.map((s) => [key(s.metric), num(s.value[1])]))
+      const p95 = idx(cpuP95)
+      const mx = idx(memMax)
+      const mr = idx(memReq)
+      const rp = idx(replicas)
+      return cpuReq
+        .filter((s) => s.metric.namespace && s.metric.container)
+        .map((s) => {
+          const k = key(s.metric)
+          return {
+            namespace: s.metric.namespace,
+            container: s.metric.container,
+            cpuReq: num(s.value[1]) ?? 0,
+            cpuP95: p95.get(k) ?? null,
+            memReq: mr.get(k) ?? 0,
+            memMax: mx.get(k) ?? null,
+            replicas: rp.get(k) ?? 1,
+          }
+        })
+    },
+    enabled,
+    staleTime: 15 * 60_000,
+    retry: false,
+  })
+}
+
+/* ─────────── budgets & saved views (doc store) ─────────── */
+
+export const BUDGET_KIND = 'decide.budget'
+export const VIEW_KIND = 'decide.spend-view'
+
+export function useBudgets() {
+  return useQuery({
+    queryKey: ['decide', 'budgets'],
+    queryFn: async () => (await docStore.list<Budget>(BUDGET_KIND)).map((d) => ({ ...d.data, id: d.id })),
     staleTime: 60_000,
     retry: false,
   })
 }
 
-/* ── formatting helpers ───────────────────────────────────────────────── */
-
-export function formatUsd(v: number): string {
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`
-  if (v >= 10_000) return `$${(v / 1_000).toFixed(1)}K`
-  return `$${Math.round(v).toLocaleString('en-US')}`
+export function useSaveBudget() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...rest }: Budget) =>
+      id ? docStore.put<Omit<Budget, 'id'>>(BUDGET_KIND, id, rest) : docStore.create<Omit<Budget, 'id'>>(BUDGET_KIND, rest),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['decide', 'budgets'] }),
+  })
 }
 
-export function formatPct(fraction: number): string {
-  const sign = fraction > 0 ? '+' : ''
-  return `${sign}${(fraction * 100).toFixed(1)}%`
+export function useDeleteBudget() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => docStore.remove(BUDGET_KIND, id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['decide', 'budgets'] }),
+  })
+}
+
+export interface SpendView {
+  id: string
+  name: string
+  /** The page's search params, minus `section`. */
+  params: Record<string, string>
+}
+
+export function useSpendViews() {
+  return useQuery({
+    queryKey: ['decide', 'spend-views'],
+    queryFn: async () => (await docStore.list<SpendView>(VIEW_KIND)).map((d) => ({ ...d.data, id: d.id })),
+    staleTime: 60_000,
+    retry: false,
+  })
+}
+
+export function useSaveSpendView() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: Omit<SpendView, 'id'>) => docStore.create<Omit<SpendView, 'id'>>(VIEW_KIND, v),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['decide', 'spend-views'] }),
+  })
+}
+
+export function useDeleteSpendView() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => docStore.remove(VIEW_KIND, id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['decide', 'spend-views'] }),
+  })
 }

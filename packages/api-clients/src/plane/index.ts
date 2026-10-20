@@ -1674,3 +1674,6 @@ const STUB_STICKIES: Sticky[] = [
 
 /* Helpful re-exports for views that don't want to import from /base. */
 export { Paginated as PaginatedSchema }
+export { type Attachment, parseIssueKey, planeToday, type PlaneUser, PlaneWorkClient, type WorkItem } from './work.ts'
+export { type HistoryActivity, type PlaneInsights, PlaneInsightsClient } from './insights.ts'
+export { type PlanIssue, type PlanRelations, PlanningClient, type ProjectMembership, type StateGroupName, toPlanIssue, toPlanRelations } from './planning.ts'

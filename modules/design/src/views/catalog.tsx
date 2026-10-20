@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
-import { Badge, Checkbox, EmptyState, Input, SearchInput, Select, useToast } from '@adhar/shell-ui'
+import { Badge, Checkbox, EmptyState, Input, SearchInput, Select, Tabs, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { useDesignParams, useSetDesignParams } from '../data/nav.ts'
 import {
@@ -11,6 +11,10 @@ import {
   type Values,
 } from '../components/catalog-registry.tsx'
 import { CodeBlock, copyText, IconCopy, IconMoon, IconSun, Segmented } from '../components/ux-kit.tsx'
+import { useDesignScope } from '../data/design-scope.ts'
+import { ProjectComponents, useShellUsage } from '../components/project-components.tsx'
+
+const SHELL_NAMES = [...new Set(CATALOG.flatMap((c) => c.imports))]
 
 type Mode = 'light' | 'dark'
 
@@ -25,6 +29,9 @@ type Mode = 'light' | 'dark'
 export function Catalog() {
   const params = useDesignParams()
   const setParams = useSetDesignParams()
+  const scope = useDesignScope()
+  const tab = params.tab === 'project' ? 'project' : 'shell'
+  const usage = useShellUsage(scope, SHELL_NAMES)
   const [q, setQ] = useState('')
   const [mode, setMode] = useState<Mode>(() => (appIsDark() ? 'dark' : 'light'))
 
@@ -38,8 +45,29 @@ export function Catalog() {
 
   const active = CATALOG.find((c) => c.id === params.component) ?? filtered[0] ?? CATALOG[0]
 
+  const tabs = (
+    <Tabs<'shell' | 'project'>
+      tabs={[
+        { id: 'shell', label: 'Adhar UI', badge: String(CATALOG.length) },
+        { id: 'project', label: scope.project ? `${scope.activeProject?.name ?? scope.project} components` : 'Project components' },
+      ]}
+      value={tab}
+      onChange={(id) => setParams({ tab: id === 'shell' ? undefined : id, component: undefined })}
+      ariaLabel="Component sources"
+    />
+  )
+  if (tab === 'project') {
+    return (
+      <div className="space-y-4">
+        {tabs}
+        <ProjectComponents scope={scope} shellNames={SHELL_NAMES} />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
+      {tabs}
       <div className="flex flex-wrap items-center gap-2">
         <div className="text-xs text-content-muted">
           {CATALOG.length} components from <code className="font-mono text-[11px]">@adhar/shell-ui</code>, rendered live
@@ -90,7 +118,7 @@ export function Catalog() {
           </nav>
         </aside>
 
-        {active ? <ComponentDoc key={active.id} entry={active} mode={mode} /> : (
+        {active ? <ComponentDoc key={active.id} entry={active} mode={mode} usage={usage} /> : (
           <EmptyState title="No component selected" />
         )}
       </div>
@@ -100,7 +128,7 @@ export function Catalog() {
 
 /* ───────────────────────────── doc page ───────────────────────────── */
 
-function ComponentDoc({ entry, mode }: { entry: CatalogEntry; mode: Mode }) {
+function ComponentDoc({ entry, mode, usage }: { entry: CatalogEntry; mode: Mode; usage: Map<string, number> | null }) {
   const toast = useToast()
   const importLine = `import { ${entry.imports.join(', ')} } from '@adhar/shell-ui'`
   const copy = (text: string, what: string) =>
@@ -112,6 +140,11 @@ function ComponentDoc({ entry, mode }: { entry: CatalogEntry; mode: Mode }) {
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-xl font-semibold tracking-tight text-content">{entry.name}</h2>
           <Badge tone="brand">{entry.category}</Badge>
+          {usage ? (
+            <span className="text-xs text-content-muted" title="JSX usages in the scanned project component files (Project components tab)">
+              {entry.imports.reduce((n, i) => n + (usage.get(i) ?? 0), 0)} uses in scanned project components
+            </span>
+          ) : null}
         </div>
         <p className="max-w-3xl text-sm leading-relaxed text-content-muted">{entry.description}</p>
         <div className="flex max-w-3xl items-center gap-2 rounded-lg border border-edge-default bg-surface-sunken/60 px-3 py-2">

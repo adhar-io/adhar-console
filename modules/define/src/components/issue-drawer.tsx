@@ -1,1224 +1,320 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import {
-  Button,
-  Card,
-  CardBody,
-  Spinner,
-  StatusBadge,
-  useToast,
-} from '@adhar/shell-ui'
+import { Button, useOverlayDismiss, useToast } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
+import { memberDisplayName, planeError, useCreateIssue, useDeleteIssue, useIssue, usePlaneLink, useProjects } from '../data/plane.ts'
+import { useProjectIssues, useScopeMeta, type WorkItem } from '../data/work-hooks.ts'
+import { useMembers } from '../data/plane.ts'
+import { issueKey } from '../data/work-ql.ts'
+import { absoluteHref, defineHref, issueParam } from '../data/work-nav.ts'
 import { IssueSearch } from './issue-search.tsx'
+import { RichEditor, RichView } from './rich-editor.tsx'
 import {
-  memberDisplayName,
-  memberInitials,
-  planeError,
-  priorityKind,
-  useActivities,
-  useComments,
-  useCreateComment,
-  useCreateIssue,
-  useCreateLink,
-  useCreateRelation,
-  useCycles,
-  useDeleteLink,
-  useIssues,
-  useLinks,
-  useRelations,
-  useDeleteIssue,
-  useIssue,
-  useLabels,
-  useMembers,
-  useModules,
-  useStates,
-  useSubIssues,
-  useUpdateIssue,
-} from '../data/plane.ts'
+  AssigneesField,
+  DateField,
+  EpicField,
+  EstimateField,
+  type FieldData,
+  LabelsField,
+  PriorityField,
+  SprintField,
+  StateField,
+  useItemEditor,
+} from './issue-fields.tsx'
+import {
+  AttachmentsPanel,
+  ChecklistPanel,
+  CommentsPanel,
+  DevelopmentPanel,
+  HistoryPanel,
+  LinksPanel,
+  type PanelCtx,
+  RelationsPanel,
+  Section,
+  SubtasksPanel,
+  WatchButton,
+  WorklogPanel,
+} from './issue-panels.tsx'
+import { Avatar, IconClose, IconCopy, IconExpand, IconExternal, IconTrash, InlineLoading, PlaneErrorState } from './work-ui.tsx'
 
 /**
- * Plane-style issue detail drawer.
+ * The work-item drawer (or full page, with Expand): Plane's fields plus the
+ * Jira/Trello extras — sub-tasks, checklists, dependencies, links,
+ * attachments, the Development panel (Gitea + Argo CD), comments with
+ * @mentions, history and time tracking. Opening it from a list puts
+ * `?issue=<project>/<id>` on the URL so it can be shared.
  *
- * Sticks to the right side of the viewport and lets the operator do
- * everything you'd otherwise do in Plane:
- *   • Inline-edit title (Enter to save, Esc to revert).
- *   • Change state (dropdown), priority, assignees (multi), labels (multi),
- *     start_date / target_date, estimate, cycle, module — every change PATCHes
- *     and invalidates the right query keys so the board re-renders.
- *   • View / add / delete comments (rich-text → server stores HTML).
- *   • Read activity log.
- *   • Browse sub-issues + jump into them.
+ * Props are unchanged from the original drawer so Cycles, Modules, Intake
+ * and the project panel keep opening it the same way.
  */
 
 interface Props {
   projectId: string
   issueId: string
   onClose(): void
+  /** Open another item of the same project (sub-task, relation). */
   onPick(id: string): void
+  /** Open an item in another project; defaults to `onPick` when absent. */
+  onPickIn?(projectId: string, id: string): void
 }
 
-export function IssueDrawer({ projectId, issueId, onClose, onPick }: Props) {
-  const issue = useIssue(projectId, issueId)
-  const states = useStates(projectId)
-  const labels = useLabels(projectId)
+type Tab = 'comments' | 'history' | 'worklog'
+
+export function IssueDrawer({ projectId, issueId, onClose, onPick, onPickIn }: Props) {
+  const list = useProjectIssues(projectId)
+  const fromList = list.data?.find((i) => i.id === issueId)
+  // Only read the single item when the project list can't supply it.
+  const single = useIssue(projectId, !fromList && (list.isFetched || list.isError) ? issueId : undefined)
+  const item = (fromList ?? single.data) as WorkItem | undefined
+  const meta = useScopeMeta([projectId])
   const members = useMembers()
-  const cycles = useCycles(projectId)
-  const modules = useModules(projectId)
-  const subs = useSubIssues(projectId, issueId)
-  const update = useUpdateIssue(projectId)
+  const projects = useProjects()
+  const project = projects.data?.find((p) => p.id === projectId)
+  const edit = useItemEditor()
   const remove = useDeleteIssue(projectId)
-  const create = useCreateIssue(projectId)
+  const duplicate = useCreateIssue(projectId)
   const toast = useToast()
+  const [expanded, setExpanded] = useState(false)
+  const [editingDesc, setEditingDesc] = useState(false)
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [tab, setTab] = useState<Tab>('comments')
+  const [parentPick, setParentPick] = useState(false)
 
-  // ESC closes.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useOverlayDismiss(true, () => {
+    if (!editingDesc && !editingTitle) onClose()
+  })
 
-  const stateMap = useMemo(
-    () => new Map((states.data ?? []).map((s) => [s.id, s])),
-    [states.data],
-  )
-  const memberMap = useMemo(
-    () => new Map((members.data ?? []).map((m) => [m.member?.id ?? m.id, m])),
-    [members.data],
-  )
+  const data: FieldData = useMemo(() => ({
+    states: meta.states,
+    labels: meta.labels,
+    cycles: meta.cycles,
+    modules: meta.modules,
+    members: members.data ?? [],
+    stateById: new Map(meta.states.map((s) => [s.id, s])),
+    labelById: new Map(meta.labels.map((l) => [l.id, l])),
+    memberById: new Map((members.data ?? []).map((m) => [m.member?.id ?? m.id, m])),
+    cycleById: new Map(meta.cycles.map((c) => [c.id, c])),
+    moduleById: new Map(meta.modules.map((m) => [m.id, m])),
+  }), [meta, members.data])
 
-  const i = issue.data
-  /** Save a patch; the issue as read tells the client which cycle/module to leave. */
-  const save = (patch: Partial<plane.Issue>) => {
-    if (!i) return
-    update.mutate(
-      { id: i.id, patch, current: { cycle: i.cycle ?? null, module: i.module ?? null } },
-      { onError: (e) => toast.error(planeError(e, "Couldn't save the issue.")) },
-    )
+  const projList = (projects.data ?? []).map((p) => ({ id: p.id, identifier: p.identifier, name: p.name }))
+  const keyOf = (i: Pick<WorkItem, 'project' | 'sequence_id'>) => issueKey(i, projList)
+  const key = item ? keyOf(item) : ''
+  const planeUrl = usePlaneLink(`projects/${projectId}/issues/${issueId}`)
+  const pick = (p: string, id: string) => (p === projectId ? onPick(id) : onPickIn ? onPickIn(p, id) : onPick(id))
+  const parent = item?.parent ? list.data?.find((i) => i.id === item.parent) : undefined
+
+  useEffect(() => setEditingDesc(false), [issueId])
+
+  const copy = (text: string, what: string) => {
+    navigator.clipboard?.writeText(text).then(() => toast.success(`Copied ${what}`), () => toast.error(`Couldn't copy the ${what}`))
   }
+
   if (typeof document === 'undefined') return null
+
+  const ctx: PanelCtx | undefined = item
+    ? { item, projectId, itemKey: key, states: meta.states, stateById: data.stateById, memberById: data.memberById, siblings: (list.data ?? []) as WorkItem[], keyOf, onPick: pick, planeUrl }
+    : undefined
+  const lite = !fromList // single-item read carries no sprint/epic when the list failed
+
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
-      <button
-        type="button"
-        aria-label="Close"
-        className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
-        onClick={onClose}
-      />
-      <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
-        <header className="flex items-start justify-between gap-3 border-b border-edge-default bg-surface-raised px-6 py-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
-              {i?.sequence_id ? `#${i.sequence_id}` : 'issue'}
-              {update.isPending ? (
-                <span className="inline-flex items-center gap-1 text-content-muted">
-                  <Spinner size={11} /> saving
-                </span>
-              ) : null}
-            </div>
-            {i ? (
-              <TitleField
-                value={i.name}
-                onSave={(name) => save({ name })}
-              />
-            ) : (
-              <div className="mt-1 h-6 w-72 animate-pulse rounded bg-edge-default/40" />
-            )}
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            {i ? (
-              <IssueActionsMenu
-                issue={i}
-                onCopyLink={() => {
-                  const url =
-                    typeof window !== 'undefined'
-                      ? `${window.location.origin}/define?section=issues&issue=${i.id}`
-                      : i.id
-                  navigator.clipboard?.writeText(url)
-                }}
-                onDuplicate={() => {
-                  create.mutate(
-                    {
-                      name: `${i.name} (copy)`,
-                      state: i.state,
-                      priority: i.priority,
-                      assignees: i.assignees,
-                      labels: i.labels,
-                      description_html: i.description_html,
-                      estimate_point: i.estimate_point ?? null,
-                      cycle: i.cycle ?? null,
-                      module: i.module ?? null,
-                    } as Partial<plane.Issue>,
-                    {
-                      onSuccess: (next) => onPick(next.id),
-                      onError: (e) => toast.error(planeError(e, "Couldn't duplicate the issue.")),
-                    },
-                  )
-                }}
-                onDelete={() => {
-                  if (!confirm(`Delete "${i.name}"? This can't be undone.`)) return
-                  remove.mutate(i.id, {
-                    onSuccess: onClose,
-                    onError: (e) => toast.error(planeError(e, "Couldn't delete the issue.")),
-                  })
-                }}
-              />
+    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={item ? `${key} ${item.name}` : 'Work item'}>
+      <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} />
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl transition-[max-width]', expanded ? 'max-w-none' : 'max-w-5xl')}>
+        <header className="flex items-center gap-2 border-b border-edge-default bg-surface-raised px-4 py-2.5 sm:px-6">
+          <nav className="flex min-w-0 items-center gap-1.5 text-[12px] text-content-muted" aria-label="Breadcrumb">
+            <span className="truncate">{project?.name ?? 'Project'}</span>
+            {parent ? (
+              <>
+                <span aria-hidden>/</span>
+                <button type="button" onClick={() => onPick(parent.id)} className="truncate font-mono text-[11.5px] hover:text-content hover:underline">{keyOf(parent)}</button>
+              </>
             ) : null}
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
-            >
-              <IconClose />
+            <span aria-hidden>/</span>
+            <button type="button" title="Copy key" onClick={() => key && copy(key, 'key')} className="inline-flex items-center gap-1 font-mono text-[11.5px] font-semibold text-content hover:underline">
+              {key || '…'} <IconCopy size={11} />
             </button>
+            {edit.pending ? <InlineLoading label="saving" /> : null}
+          </nav>
+          <div className="ml-auto flex shrink-0 items-center gap-0.5">
+            {ctx ? <WatchButton c={ctx} /> : null}
+            <IconBtn title="Copy link" onClick={() => copy(absoluteHref(defineHref('issues', { issue: issueParam(projectId, issueId) })), 'link')}><IconLinkSmall /></IconBtn>
+            {planeUrl ? <a href={planeUrl} target="_blank" rel="noreferrer" title="Open in Plane" className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"><IconExternal size={14} /></a> : null}
+            <IconBtn title={expanded ? 'Collapse to drawer' : 'Expand to full page'} onClick={() => setExpanded((e) => !e)} className="hidden sm:flex"><IconExpand /></IconBtn>
+            {item ? (
+              <IconBtn
+                title="Duplicate"
+                onClick={() =>
+                  duplicate.mutate({ name: `${item.name} (copy)`, state: item.state, priority: item.priority, assignees: item.assignees, labels: item.labels, description_html: item.description_html, parent: item.parent ?? null, cycle: item.cycle ?? null, module: item.module ?? null } as Partial<plane.Issue>, {
+                    onSuccess: (n) => {
+                      toast.success(`Duplicated as ${keyOf(n)}`)
+                      onPick(n.id)
+                    },
+                    onError: (e) => toast.error(planeError(e, "Couldn't duplicate.")),
+                  })}
+              >
+                <IconCopy size={14} />
+              </IconBtn>
+            ) : null}
+            {item ? (
+              <IconBtn
+                title="Delete"
+                danger
+                onClick={() => {
+                  if (!confirm(`Delete ${key} “${item.name}”? Plane deletes it permanently.`)) return
+                  remove.mutate(item.id, { onSuccess: () => { toast.success(`Deleted ${key}`); onClose() }, onError: (e) => toast.error(planeError(e, "Couldn't delete — Plane allows it only for admins and the creator.")) })
+                }}
+              >
+                <IconTrash size={14} />
+              </IconBtn>
+            ) : null}
+            <IconBtn title="Close (Esc)" onClick={onClose}><IconClose /></IconBtn>
           </div>
         </header>
 
-        <div className="grid flex-1 grid-cols-1 overflow-hidden md:grid-cols-[1fr_280px]">
-          <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
-            <DescriptionBlock
-              issue={i}
-              onSave={(description_html) =>
-                save({ description_html })
-              }
-            />
-
-            <SubIssuesBlock
-              issues={subs.data ?? []}
-              loading={subs.isLoading}
-              onPick={onPick}
-              stateMap={stateMap}
-            />
-
-            <RelationsBlock projectId={projectId} issueId={issueId} stateMap={stateMap} onPick={onPick} />
-            <LinksBlock projectId={projectId} issueId={issueId} />
-
-            <CommentsBlock projectId={projectId} issueId={issueId} memberMap={memberMap} />
-            <ActivityBlock projectId={projectId} issueId={issueId} memberMap={memberMap} />
-          </div>
-
-          <aside className="border-t border-edge-subtle bg-surface-raised px-5 py-5 md:border-l md:border-t-0 md:overflow-y-auto">
-            {!i ? (
-              <div className="space-y-4">
-                {Array.from({ length: 8 }).map((_, idx) => (
-                  <div key={idx} className="h-6 animate-pulse rounded bg-edge-default/40" />
-                ))}
+        {!item ? (
+          <div className="flex-1 overflow-y-auto p-6">
+            {single.isError && !fromList ? <PlaneErrorState error={single.error} what="this work item" /> : list.isError && !single.isLoading && !single.data ? <PlaneErrorState error={list.error} what="this work item" /> : (
+              <div className="space-y-3">
+                <div className="h-7 w-2/3 animate-pulse rounded bg-surface-sunken" />
+                <div className="h-24 animate-pulse rounded bg-surface-sunken" />
+                <div className="h-40 animate-pulse rounded bg-surface-sunken" />
               </div>
-            ) : (
-              <PropertiesPanel
-                issue={i}
-                states={states.data ?? []}
-                labels={labels.data ?? []}
-                members={members.data ?? []}
-                cycles={cycles.data ?? []}
-                modules={modules.data ?? []}
-                onPatch={save}
-              />
             )}
-          </aside>
-        </div>
+          </div>
+        ) : (
+          <div className={cn('grid min-h-0 flex-1 grid-cols-1 overflow-y-auto md:overflow-hidden', expanded ? 'md:grid-cols-[1fr_340px]' : 'md:grid-cols-[1fr_300px]')}>
+            <div className="min-w-0 space-y-6 px-4 py-5 sm:px-6 md:overflow-y-auto">
+              {editingTitle ? (
+                <input
+                  autoFocus
+                  defaultValue={item.name}
+                  aria-label="Title"
+                  onBlur={(e) => {
+                    const v = e.target.value.trim()
+                    if (v && v !== item.name) edit.patch(item, { name: v })
+                    setEditingTitle(false)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') e.currentTarget.blur()
+                    if (e.key === 'Escape') {
+                      e.stopPropagation()
+                      setEditingTitle(false)
+                    }
+                  }}
+                  className="w-full rounded-md border border-brand-400 bg-surface-raised px-2 py-1 text-xl font-semibold tracking-tight text-content focus:outline-none"
+                />
+              ) : (
+                <h2 className="-mx-2 cursor-text rounded-md px-2 py-1 text-xl font-semibold tracking-tight text-content hover:bg-surface-sunken" onClick={() => setEditingTitle(true)} title="Click to rename">{item.name}</h2>
+              )}
+
+              <Section title="Description" action={!editingDesc ? <Button size="xs" variant="ghost" onClick={() => setEditingDesc(true)}>Edit</Button> : null}>
+                {editingDesc ? (
+                  <RichEditor
+                    initial={item.description_html}
+                    onCancel={() => setEditingDesc(false)}
+                    onSave={(html) => {
+                      edit.patch(item, { description_html: html || '<p></p>' })
+                      setEditingDesc(false)
+                    }}
+                  />
+                ) : item.description_html && item.description_stripped !== '' ? (
+                  <div onDoubleClick={() => setEditingDesc(true)}><RichView html={item.description_html} nameOf={(id) => (data.memberById.get(id) ? memberDisplayName(data.memberById.get(id)) : undefined)} /></div>
+                ) : (
+                  <button type="button" onClick={() => setEditingDesc(true)} className="block w-full rounded-lg border border-dashed border-edge-default px-3 py-4 text-left text-[13px] text-content-subtle hover:bg-surface-sunken">Add a description…</button>
+                )}
+              </Section>
+
+              {ctx ? (
+                <>
+                  <SubtasksPanel c={ctx} />
+                  <ChecklistPanel c={ctx} />
+                  <RelationsPanel c={ctx} />
+                  <LinksPanel c={ctx} />
+                  <AttachmentsPanel c={ctx} />
+                  <DevelopmentPanel c={ctx} />
+                  <section className="space-y-3">
+                    <div role="tablist" className="flex gap-1 border-b border-edge-default">
+                      {(['comments', 'history', 'worklog'] as Tab[]).map((t) => (
+                        <button key={t} role="tab" type="button" aria-selected={tab === t} onClick={() => setTab(t)} className={cn('-mb-px border-b-2 px-2.5 pb-1.5 text-[12.5px] font-medium', tab === t ? 'border-brand-500 text-content' : 'border-transparent text-content-muted hover:text-content')}>
+                          {t === 'comments' ? 'Comments' : t === 'history' ? 'History' : 'Work log'}
+                        </button>
+                      ))}
+                    </div>
+                    {tab === 'comments' ? <CommentsPanel c={ctx} /> : tab === 'history' ? <HistoryPanel c={ctx} /> : <WorklogPanel c={ctx} />}
+                  </section>
+                </>
+              ) : null}
+            </div>
+
+            <aside className="space-y-1 border-t border-edge-subtle bg-surface-raised px-4 py-4 md:overflow-y-auto md:border-l md:border-t-0">
+              <Prop label="Status"><StateField item={item} data={data} edit={edit} /></Prop>
+              <Prop label="Priority"><PriorityField item={item} edit={edit} /></Prop>
+              <Prop label="Assignees"><AssigneesField item={item} data={data} edit={edit} /></Prop>
+              <Prop label="Labels"><LabelsField item={item} data={data} edit={edit} /></Prop>
+              <Prop label="Estimate"><EstimateField item={item} edit={edit} /></Prop>
+              <Prop label="Start"><DateField item={item} field="start_date" edit={edit} /></Prop>
+              <Prop label="Due"><DateField item={item} field="target_date" edit={edit} groupOf={data.stateById.get(item.state)?.group} /></Prop>
+              <Prop label="Sprint"><SprintField item={item} data={data} edit={edit} lite={lite} /></Prop>
+              <Prop label="Epic"><EpicField item={item} data={data} edit={edit} lite={lite} /></Prop>
+              <Prop label="Parent">
+                {parentPick ? (
+                  <div className="space-y-1">
+                    <IssueSearch autoFocus project={projectId} exclude={[item.id]} placeholder="Parent — title or KEY-123" onPick={(h) => { edit.patch(item, { parent: h.id }, `Parent set to ${h.project__identifier}-${h.sequence_id}`); setParentPick(false) }} />
+                    <div className="flex gap-1">
+                      {item.parent ? <Button size="xs" variant="ghost" onClick={() => { edit.patch(item, { parent: null }); setParentPick(false) }}>Remove parent</Button> : null}
+                      <Button size="xs" variant="ghost" onClick={() => setParentPick(false)}>Cancel</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => setParentPick(true)} className="flex h-7 w-full items-center rounded-md px-1.5 text-left text-[12.5px] hover:bg-surface-sunken">
+                    {parent ? <span className="truncate"><span className="font-mono text-[11px] text-content-subtle">{keyOf(parent)}</span> {parent.name}</span> : item.parent ? <span className="text-content-muted">Another project's item</span> : <span className="text-content-subtle">None</span>}
+                  </button>
+                )}
+              </Prop>
+              <div className="my-3 border-t border-edge-subtle" />
+              {ctx ? <Prop label="Time"><div className="px-1.5"><WorklogPanel c={ctx} compact /></div></Prop> : null}
+              <Prop label="Created">
+                <span className="flex items-center gap-1.5 px-1.5 text-[12px] text-content-muted">
+                  {item.created_by && data.memberById.get(item.created_by) ? <Avatar member={data.memberById.get(item.created_by)} size={16} /> : null}
+                  <span title={item.created_at}>{formatRelative(item.created_at)}</span>
+                </span>
+              </Prop>
+              {item.updated_at ? <Prop label="Updated"><span className="px-1.5 text-[12px] text-content-muted" title={item.updated_at}>{formatRelative(item.updated_at)}</span></Prop> : null}
+              {item.completed_at ? <Prop label="Resolved"><span className="px-1.5 text-[12px] text-content-muted">{formatRelative(item.completed_at)}</span></Prop> : null}
+              {lite ? <p className="pt-2 text-[11px] text-content-subtle">Sprint and epic need the project's item list, which couldn't load.</p> : null}
+            </aside>
+          </div>
+        )}
       </aside>
     </div>,
     document.body,
   )
 }
 
-/* ───── title editor ───── */
-
-function TitleField({ value, onSave }: { value: string; onSave(v: string): void }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
-  useEffect(() => setDraft(value), [value])
-
-  if (!editing) {
-    return (
-      <button
-        type="button"
-        onClick={() => setEditing(true)}
-        className="mt-0.5 -ml-1 truncate rounded px-1 py-0.5 text-left text-lg font-semibold tracking-tight text-content hover:bg-surface-sunken"
-      >
-        {value}
-      </button>
-    )
-  }
+function Prop({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <input
-      autoFocus
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => {
-        if (draft.trim() && draft !== value) onSave(draft.trim())
-        setEditing(false)
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.currentTarget.blur()
-        } else if (e.key === 'Escape') {
-          setDraft(value)
-          setEditing(false)
-        }
-      }}
-      className="mt-0.5 -ml-1 w-full rounded border border-brand-400 bg-surface-raised px-1 py-0.5 text-lg font-semibold tracking-tight text-content focus:outline-none focus:ring-2 focus:ring-brand-400/25"
-    />
-  )
-}
-
-/* ───── description ───── */
-
-function DescriptionBlock({
-  issue,
-  onSave,
-}: {
-  issue?: plane.Issue
-  onSave(html: string): void
-}) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState('')
-  useEffect(() => {
-    setDraft(issue?.description_html ?? '')
-  }, [issue?.id])
-  if (!issue) return null
-  return (
-    <Section
-      title="Description"
-      action={
-        editing ? (
-          <div className="flex items-center gap-2">
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={() => {
-                setDraft(issue.description_html ?? '')
-                setEditing(false)
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="xs"
-              onClick={() => {
-                onSave(draft)
-                setEditing(false)
-              }}
-            >
-              Save
-            </Button>
-          </div>
-        ) : (
-          <Button size="xs" variant="ghost" onClick={() => setEditing(true)}>
-            Edit
-          </Button>
-        )
-      }
-    >
-      {editing ? (
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          rows={6}
-          className="block w-full resize-y rounded-lg border border-edge-default bg-surface-raised px-3 py-2 font-mono text-xs text-content focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
-          placeholder="Plane stores HTML — paste rich text or write Markdown-flavoured prose."
-        />
-      ) : issue.description_stripped || issue.description_html ? (
-        <div
-          className="prose prose-sm max-w-none text-sm leading-relaxed text-content"
-          dangerouslySetInnerHTML={{
-            __html:
-              issue.description_html ||
-              `<p>${escapeHtml(issue.description_stripped ?? '')}</p>`,
-          }}
-        />
-      ) : (
-        <button
-          type="button"
-          onClick={() => setEditing(true)}
-          className="block w-full rounded-lg border border-dashed border-edge-default bg-surface-sunken/40 px-3 py-4 text-left text-sm text-content-subtle hover:bg-surface-sunken hover:text-content-muted"
-        >
-          Add a description…
-        </button>
-      )}
-    </Section>
-  )
-}
-
-/* ───── sub-issues ───── */
-
-function SubIssuesBlock({
-  issues,
-  loading,
-  onPick,
-  stateMap,
-}: {
-  issues: plane.Issue[]
-  loading: boolean
-  onPick(id: string): void
-  stateMap: Map<string, plane.State>
-}) {
-  if (loading) return null
-  if (!issues.length) return null
-  const done = issues.filter((i) => i.completed_at).length
-  return (
-    <Section
-      title="Sub-issues"
-      action={
-        <span className="text-[11px] text-content-subtle">
-          {done}/{issues.length} done
-        </span>
-      }
-    >
-      <ul className="divide-y divide-edge-subtle rounded-lg border border-edge-default bg-surface-raised">
-        {issues.map((s) => {
-          const st = stateMap.get(s.state)
-          return (
-            <li key={s.id}>
-              <button
-                type="button"
-                onClick={() => onPick(s.id)}
-                className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-brand-50/40"
-              >
-                {st ? (
-                  <span
-                    className="h-1.5 w-1.5 rounded-full"
-                    style={{ backgroundColor: st.color }}
-                  />
-                ) : null}
-                <span className="font-mono text-[10px] uppercase text-content-subtle">
-                  #{s.sequence_id}
-                </span>
-                <span className="flex-1 truncate text-content">{s.name}</span>
-                <StatusBadge kind={priorityKind(s.priority)} dot={false}>
-                  {s.priority}
-                </StatusBadge>
-              </button>
-            </li>
-          )
-        })}
-      </ul>
-    </Section>
-  )
-}
-
-
-/* ───── relations ───── */
-
-const RELATION_GROUPS: Array<{ key: plane.RelationType; label: string; tone: string }> = [
-  { key: 'blocked_by', label: 'Blocked by', tone: 'text-rose-700 dark:text-rose-300' },
-  { key: 'blocking', label: 'Blocking', tone: 'text-amber-700 dark:text-amber-300' },
-  { key: 'relates_to', label: 'Relates to', tone: 'text-content-muted' },
-  { key: 'duplicate', label: 'Duplicate of', tone: 'text-content-muted' },
-  { key: 'start_before', label: 'Starts before', tone: 'text-content-muted' },
-  { key: 'start_after', label: 'Starts after', tone: 'text-content-muted' },
-  { key: 'finish_before', label: 'Finishes before', tone: 'text-content-muted' },
-  { key: 'finish_after', label: 'Finishes after', tone: 'text-content-muted' },
-]
-const ADDABLE: Array<[plane.RelationType, string]> = [
-  ['blocked_by', 'Blocked by'],
-  ['blocking', 'Blocking'],
-  ['relates_to', 'Relates to'],
-  ['duplicate', 'Duplicate of'],
-]
-
-/**
- * Dependencies between work items. Titles come from the project's issue list
- * (already cached by the board), so this costs one request, not one per row.
- * Plane's public API can add relations but not remove them — removal is a
- * link to Plane.
- */
-function RelationsBlock({ projectId, issueId, stateMap, onPick }: { projectId: string; issueId: string; stateMap: Map<string, plane.State>; onPick(id: string): void }) {
-  const rel = useRelations(projectId, issueId)
-  const issues = useIssues(projectId)
-  const create = useCreateRelation(projectId, issueId)
-  const toast = useToast()
-  const [adding, setAdding] = useState<plane.RelationType | null>(null)
-  const byId = useMemo(() => new Map((issues.data ?? []).map((i) => [i.id, i])), [issues.data])
-  if (rel.isError) return null
-  const groups = RELATION_GROUPS.map((g) => ({ ...g, items: rel.data?.[g.key] ?? [] })).filter((g) => g.items.length)
-  const total = groups.reduce((n, g) => n + g.items.length, 0)
-  const blocked = (rel.data?.blocked_by ?? []).some((r) => {
-    const st = stateMap.get(byId.get(r.issue_id)?.state ?? '')
-    return !st || (st.group !== 'completed' && st.group !== 'cancelled')
-  })
-  return (
-    <Section
-      title={`Relations${total ? ` · ${total}` : ''}`}
-    >
-      {blocked ? (
-        <div className="rounded-md bg-rose-50 px-2.5 py-1.5 text-[12px] text-rose-800 dark:bg-rose-500/10 dark:text-rose-200">
-          Blocked — at least one blocking issue is still open.
-        </div>
-      ) : null}
-      <div className="flex flex-wrap items-center gap-1">
-        <span className="mr-1 text-[11px] text-content-subtle">Add</span>
-        {ADDABLE.map(([k, label]) => (
-          <button
-            key={k}
-            type="button"
-            aria-pressed={adding === k}
-            onClick={() => setAdding(adding === k ? null : k)}
-            className={cn('whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors', adding === k ? 'border-content bg-content text-surface-raised' : 'border-edge-default text-content-muted hover:border-edge-strong hover:text-content')}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {adding ? (
-        <IssueSearch
-          autoFocus
-          exclude={[issueId]}
-          placeholder={`${ADDABLE.find(([k]) => k === adding)?.[1]} — search title or KEY-123…`}
-          onPick={(h) =>
-            create.mutate({ type: adding, issues: [h.id] }, {
-              onSuccess: () => {
-                toast.success(`Linked ${h.project__identifier}-${h.sequence_id}`)
-                setAdding(null)
-              },
-              onError: (e) => toast.error(planeError(e, "Couldn't add the relation.")),
-            })}
-        />
-      ) : null}
-      {rel.isLoading ? (
-        <div className="flex items-center gap-2 text-[12px] text-content-muted"><Spinner size={11} /> Loading…</div>
-      ) : !groups.length ? (
-        adding ? null : <p className="text-[12px] text-content-subtle">No dependencies yet.</p>
-      ) : (
-        <div className="space-y-2.5">
-          {groups.map((g) => (
-            <div key={g.key}>
-              <div className={cn('mb-1 text-[11px] font-semibold uppercase tracking-wider', g.tone)}>{g.label}</div>
-              <ul className="divide-y divide-edge-subtle rounded-lg border border-edge-default bg-surface-raised">
-                {g.items.map((r) => {
-                  const it = r.project_id === projectId ? byId.get(r.issue_id) : undefined
-                  const st = it ? stateMap.get(it.state) : undefined
-                  return (
-                    <li key={`${g.key}-${r.issue_id}`}>
-                      <button
-                        type="button"
-                        disabled={!it}
-                        onClick={() => it && onPick(it.id)}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] hover:bg-brand-50/40 disabled:cursor-default"
-                      >
-                        {st ? <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: st.color }} title={st.name} /> : null}
-                        <span className="font-mono text-[10px] text-content-subtle">{it ? `#${it.sequence_id}` : r.issue_id.slice(0, 8)}</span>
-                        <span className="min-w-0 flex-1 truncate text-content">{it?.name ?? 'Issue in another project'}</span>
-                        {st ? <span className="text-[11px] text-content-subtle">{st.name}</span> : null}
-                      </button>
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
-          ))}
-        </div>
-      )}
-    </Section>
-  )
-}
-
-/* ───── links ───── */
-
-function LinksBlock({ projectId, issueId }: { projectId: string; issueId: string }) {
-  const links = useLinks(projectId, issueId)
-  const create = useCreateLink(projectId, issueId)
-  const remove = useDeleteLink(projectId, issueId)
-  const toast = useToast()
-  const [adding, setAdding] = useState(false)
-  const [url, setUrl] = useState('')
-  const [title, setTitle] = useState('')
-  const valid = /^https?:\/\/\S+$/i.test(url.trim())
-  const submit = () => {
-    if (!valid) return
-    create.mutate({ url: url.trim(), title: title.trim() || undefined }, {
-      onSuccess: () => {
-        setUrl('')
-        setTitle('')
-        setAdding(false)
-      },
-      onError: (e) => toast.error(planeError(e, "Couldn't add the link.")),
-    })
-  }
-  const list = links.data ?? []
-  return (
-    <Section
-      title={`Links${list.length ? ` · ${list.length}` : ''}`}
-      action={<button type="button" onClick={() => setAdding((a) => !a)} className="rounded-md px-1.5 py-0.5 text-[11px] font-medium text-content-muted hover:bg-surface-sunken hover:text-content">{adding ? 'Cancel' : '+ Add link'}</button>}
-    >
-      {adding ? (
-        <form className="grid grid-cols-1 gap-2 sm:grid-cols-[1.4fr_1fr_auto]" onSubmit={(e) => { e.preventDefault(); submit() }}>
-          <input autoFocus value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" aria-label="URL" className="h-8 rounded-md border border-edge-default bg-surface-app px-2 text-[13px] text-content focus:border-brand-400 focus:outline-none" />
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title (optional)" aria-label="Title" className="h-8 rounded-md border border-edge-default bg-surface-app px-2 text-[13px] text-content focus:border-brand-400 focus:outline-none" />
-          <Button variant="primary" size="sm" type="submit" disabled={!valid} loading={create.isPending}>Add</Button>
-        </form>
-      ) : null}
-      {links.isLoading ? null : list.length ? (
-        <ul className="divide-y divide-edge-subtle rounded-lg border border-edge-default bg-surface-raised">
-          {list.map((l) => {
-            let host = l.url
-            try {
-              host = new URL(l.url).host
-            } catch { /* keep raw */ }
-            return (
-              <li key={l.id} className="group flex items-center gap-2 px-3 py-1.5 text-[13px]">
-                <span className="shrink-0 text-content-subtle"><IconLink /></span>
-                <a href={l.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-brand-700 hover:underline dark:text-brand-300">{l.title || l.url}</a>
-                <span className="hidden truncate text-[11px] text-content-subtle sm:inline">{host}</span>
-                <button
-                  type="button"
-                  aria-label="Remove link"
-                  onClick={() => remove.mutate(l.id, { onError: (e) => toast.error(planeError(e, "Couldn't remove the link.")) })}
-                  className="rounded px-1 text-content-subtle opacity-0 hover:text-rose-600 group-hover:opacity-100 focus:opacity-100"
-                >
-                  ✕
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      ) : adding ? null : <p className="text-[12px] text-content-subtle">Designs, docs, dashboards, the PR — anything this issue points at.</p>}
-    </Section>
-  )
-}
-
-/* ───── comments ───── */
-
-function CommentsBlock({
-  projectId,
-  issueId,
-  memberMap,
-}: {
-  projectId: string
-  issueId: string
-  memberMap: Map<string, plane.Member>
-}) {
-  const q = useComments(projectId, issueId)
-  const create = useCreateComment(projectId, issueId)
-  const [draft, setDraft] = useState('')
-  return (
-    <Section
-      title="Comments"
-      action={<span className="text-[11px] text-content-subtle">{q.data?.length ?? 0}</span>}
-    >
-      <div className="space-y-3">
-        <ul className="space-y-2">
-          {(q.data ?? []).map((c) => {
-            const m =
-              memberMap.get(c.actor) ??
-              ({
-                member: c.actor_detail
-                  ? {
-                      id: c.actor,
-                      display_name: c.actor_detail.display_name,
-                      email: c.actor_detail.email ?? '',
-                      avatar: c.actor_detail.avatar ?? null,
-                    }
-                  : undefined,
-              } as plane.Member)
-            return (
-              <li
-                key={c.id}
-                className="flex items-start gap-2.5 rounded-lg border border-edge-subtle bg-surface-raised p-3"
-              >
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-50 text-[10px] font-semibold text-brand-700 ring-1 ring-inset ring-brand-200">
-                  {memberInitials(m)}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-xs font-medium text-content">
-                      {memberDisplayName(m)}
-                    </span>
-                    <span className="text-[11px] text-content-subtle">
-                      {formatRelative(c.created_at)}
-                    </span>
-                  </div>
-                  <div
-                    className="mt-1 text-sm leading-relaxed text-content"
-                    dangerouslySetInnerHTML={{
-                      __html: c.comment_html ?? `<p>${escapeHtml(c.comment_stripped ?? '')}</p>`,
-                    }}
-                  />
-                </div>
-              </li>
-            )
-          })}
-          {(q.data?.length ?? 0) === 0 && !q.isLoading ? (
-            <li className="rounded-lg border border-dashed border-edge-default bg-surface-sunken/40 px-3 py-6 text-center text-xs text-content-subtle">
-              No comments yet.
-            </li>
-          ) : null}
-        </ul>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            const text = draft.trim()
-            if (!text) return
-            const html = `<p>${escapeHtml(text)}</p>`
-            create.mutate({ comment_html: html })
-            setDraft('')
-          }}
-          className="flex flex-col gap-2 rounded-lg border border-edge-default bg-surface-raised p-2"
-        >
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Leave a comment…"
-            rows={2}
-            className="block w-full resize-none rounded border-0 bg-transparent px-1 py-1 text-sm focus:outline-none"
-          />
-          <div className="flex items-center justify-end gap-2">
-            <span className="text-[11px] text-content-subtle">
-              Markdown-flavoured plain text
-            </span>
-            <Button
-              size="xs"
-              type="submit"
-              disabled={!draft.trim() || create.isPending}
-              loading={create.isPending}
-            >
-              Comment
-            </Button>
-          </div>
-        </form>
-      </div>
-    </Section>
-  )
-}
-
-/* ───── activity ───── */
-
-function ActivityBlock({
-  projectId,
-  issueId,
-  memberMap,
-}: {
-  projectId: string
-  issueId: string
-  memberMap: Map<string, plane.Member>
-}) {
-  const q = useActivities(projectId, issueId)
-  if (q.isLoading || !q.data?.length) return null
-  return (
-    <Section title="Activity">
-      <ol className="relative space-y-3 border-l border-edge-default pl-5">
-        {q.data
-          .slice()
-          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-          .map((act) => {
-            const actor =
-              memberMap.get(act.actor) ??
-              ({
-                member: act.actor_detail
-                  ? {
-                      id: act.actor,
-                      display_name: act.actor_detail.display_name,
-                      email: act.actor_detail.email ?? '',
-                      avatar: act.actor_detail.avatar ?? null,
-                    }
-                  : undefined,
-              } as plane.Member)
-            return (
-              <li key={act.id} className="relative">
-                <span className="absolute -left-[26px] top-1.5 h-2.5 w-2.5 rounded-full bg-brand-500 ring-4 ring-surface-raised" />
-                <div className="text-xs text-content-muted">
-                  <span className="font-medium text-content">{memberDisplayName(actor)}</span>{' '}
-                  {act.verb}
-                  {act.field ? <> the {act.field}</> : null}
-                  {act.old_value && act.new_value ? (
-                    <>
-                      {' '}
-                      from{' '}
-                      <code className="rounded bg-surface-sunken px-1 py-0.5 text-[10px]">
-                        {act.old_value}
-                      </code>{' '}
-                      to{' '}
-                      <code className="rounded bg-surface-sunken px-1 py-0.5 text-[10px]">
-                        {act.new_value}
-                      </code>
-                    </>
-                  ) : act.new_value ? (
-                    <>
-                      {' '}
-                      to{' '}
-                      <code className="rounded bg-surface-sunken px-1 py-0.5 text-[10px]">
-                        {act.new_value}
-                      </code>
-                    </>
-                  ) : null}
-                  <span className="ml-2 text-[11px] text-content-subtle">
-                    {formatRelative(act.created_at)}
-                  </span>
-                </div>
-              </li>
-            )
-          })}
-      </ol>
-    </Section>
-  )
-}
-
-/* ───── properties panel ───── */
-
-const PRIORITIES: plane.Priority[] = ['urgent', 'high', 'medium', 'low', 'none']
-
-function PropertiesPanel({
-  issue,
-  states,
-  labels,
-  members,
-  cycles,
-  modules,
-  onPatch,
-}: {
-  issue: plane.Issue
-  states: plane.State[]
-  labels: plane.Label[]
-  members: plane.Member[]
-  cycles: plane.Cycle[]
-  modules: plane.Module[]
-  onPatch(patch: Partial<plane.Issue>): void
-}) {
-  return (
-    <div className="space-y-4">
-      <PropRow
-        label="State"
-        control={
-          <select
-            value={issue.state}
-            onChange={(e) => onPatch({ state: e.target.value })}
-            className="h-7 rounded-md border border-edge-default bg-surface-raised px-2 text-xs"
-          >
-            {states.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-        }
-      />
-      <PropRow
-        label="Priority"
-        control={
-          <select
-            value={issue.priority}
-            onChange={(e) => onPatch({ priority: e.target.value as plane.Priority })}
-            className="h-7 rounded-md border border-edge-default bg-surface-raised px-2 text-xs"
-          >
-            {PRIORITIES.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-        }
-      />
-      <PropRow
-        label="Assignees"
-        control={
-          <MultiPicker
-            items={members.map((m) => ({
-              id: m.member?.id ?? m.id,
-              label: memberDisplayName(m),
-            }))}
-            selected={issue.assignees}
-            onChange={(assignees) => onPatch({ assignees })}
-            placeholder="Unassigned"
-          />
-        }
-      />
-      <PropRow
-        label="Labels"
-        control={
-          <MultiPicker
-            items={labels.map((l) => ({ id: l.id, label: l.name, color: l.color }))}
-            selected={issue.labels}
-            onChange={(labels) => onPatch({ labels })}
-            placeholder="No labels"
-          />
-        }
-      />
-      <PropRow
-        label="Estimate"
-        control={
-          <input
-            type="number"
-            min={0}
-            value={issue.estimate_point ?? ''}
-            onChange={(e) =>
-              onPatch({ estimate_point: e.target.value === '' ? null : Number(e.target.value) })
-            }
-            placeholder="—"
-            className="h-7 w-20 rounded-md border border-edge-default bg-surface-raised px-2 text-xs"
-          />
-        }
-      />
-      <PropRow
-        label="Start date"
-        control={
-          <input
-            type="date"
-            value={iso(issue.start_date)}
-            onChange={(e) => onPatch({ start_date: e.target.value || null })}
-            className="h-7 rounded-md border border-edge-default bg-surface-raised px-2 text-xs"
-          />
-        }
-      />
-      <PropRow
-        label="Target date"
-        control={
-          <input
-            type="date"
-            value={iso(issue.target_date)}
-            onChange={(e) => onPatch({ target_date: e.target.value || null })}
-            className="h-7 rounded-md border border-edge-default bg-surface-raised px-2 text-xs"
-          />
-        }
-      />
-      <PropRow
-        label="Cycle"
-        control={
-          <select
-            value={issue.cycle ?? ''}
-            onChange={(e) => onPatch({ cycle: e.target.value || null })}
-            className="h-7 max-w-full rounded-md border border-edge-default bg-surface-raised px-2 text-xs"
-          >
-            <option value="">None</option>
-            {cycles.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        }
-      />
-      <PropRow
-        label="Module"
-        control={
-          <select
-            value={issue.module ?? ''}
-            onChange={(e) => onPatch({ module: e.target.value || null })}
-            className="h-7 max-w-full rounded-md border border-edge-default bg-surface-raised px-2 text-xs"
-          >
-            <option value="">None</option>
-            {modules.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-        }
-      />
-      <hr className="border-edge-subtle" />
-      <PropRow
-        label="Created"
-        control={
-          <span className="text-xs text-content-muted">{formatRelative(issue.created_at)}</span>
-        }
-      />
-      {issue.updated_at ? (
-        <PropRow
-          label="Updated"
-          control={
-            <span className="text-xs text-content-muted">{formatRelative(issue.updated_at)}</span>
-          }
-        />
-      ) : null}
+    <div className="grid grid-cols-[84px_1fr] items-center gap-1">
+      <span className="text-[11.5px] text-content-subtle">{label}</span>
+      <div className="min-w-0">{children}</div>
     </div>
   )
 }
 
-function MultiPicker({
-  items,
-  selected,
-  onChange,
-  placeholder,
-}: {
-  items: Array<{ id: string; label: string; color?: string }>
-  selected: string[]
-  onChange(next: string[]): void
-  placeholder: string
-}) {
-  const [open, setOpen] = useState(false)
+function IconBtn({ title, onClick, children, danger, className }: { title: string; onClick(): void; children: ReactNode; danger?: boolean; className?: string }) {
   return (
-    <div className="relative w-full">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex h-auto min-h-7 w-full flex-wrap items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 py-0.5 text-left text-xs"
-      >
-        {selected.length === 0 ? (
-          <span className="text-content-subtle">{placeholder}</span>
-        ) : (
-          items
-            .filter((it) => selected.includes(it.id))
-            .map((it) => (
-              <span
-                key={it.id}
-                className="inline-flex items-center gap-1 rounded bg-surface-sunken px-1.5 py-0.5 text-[10px] text-content"
-              >
-                {it.color ? (
-                  <span
-                    className="h-1.5 w-1.5 rounded-full"
-                    style={{ backgroundColor: it.color }}
-                  />
-                ) : null}
-                {it.label}
-              </span>
-            ))
-        )}
-      </button>
-      {open ? (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <ul className="absolute right-0 top-full z-20 mt-1 max-h-60 w-56 overflow-y-auto rounded-lg border border-edge-default bg-surface-raised py-1 shadow-xl ring-1 ring-black/5">
-            {items.length === 0 ? (
-              <li className="px-3 py-2 text-xs text-content-subtle">No options</li>
-            ) : (
-              items.map((it) => {
-                const on = selected.includes(it.id)
-                return (
-                  <li key={it.id}>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onChange(on ? selected.filter((s) => s !== it.id) : [...selected, it.id])
-                      }
-                      className={cn(
-                        'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs',
-                        on ? 'bg-brand-50 text-brand-800' : 'hover:bg-surface-sunken',
-                      )}
-                    >
-                      {it.color ? (
-                        <span
-                          className="h-2 w-2 rounded-full"
-                          style={{ backgroundColor: it.color }}
-                        />
-                      ) : null}
-                      <span className="flex-1 truncate">{it.label}</span>
-                      {on ? <IconCheck /> : null}
-                    </button>
-                  </li>
-                )
-              })
-            )}
-          </ul>
-        </>
-      ) : null}
-    </div>
-  )
-}
-
-/* ───── atoms ───── */
-
-function Section({
-  title,
-  action,
-  children,
-}: {
-  title: string
-  action?: ReactNode
-  children: ReactNode
-}) {
-  return (
-    <Card>
-      <CardBody className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h4 className="text-xs font-semibold uppercase tracking-[0.06em] text-content-subtle">
-            {title}
-          </h4>
-          {action}
-        </div>
-        {children}
-      </CardBody>
-    </Card>
-  )
-}
-
-function PropRow({ label, control }: { label: string; control: ReactNode }) {
-  return (
-    <div className="grid grid-cols-[90px_1fr] items-start gap-2">
-      <span className="pt-1 text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
-        {label}
-      </span>
-      <div className="min-w-0">{control}</div>
-    </div>
-  )
-}
-
-function iso(date?: string | null) {
-  if (!date) return ''
-  return date.slice(0, 10)
-}
-
-function escapeHtml(s: string) {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
-function IconClose() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.25"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M18 6 6 18" />
-      <path d="m6 6 12 12" />
-    </svg>
-  )
-}
-
-function IconCheck() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      className="text-brand-700"
-    >
-      <path d="M20 6 9 17l-5-5" />
-    </svg>
-  )
-}
-
-/* ───── action menu (copy link / duplicate / delete) ───── */
-
-function IssueActionsMenu({
-  issue,
-  onCopyLink,
-  onDuplicate,
-  onDelete,
-}: {
-  issue: plane.Issue
-  onCopyLink(): void
-  onDuplicate(): void
-  onDelete(): void
-}) {
-  const [open, setOpen] = useState(false)
-  const [copied, setCopied] = useState(false)
-  useEffect(() => {
-    if (!open) return
-    const onClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement
-      if (!target.closest('[data-issue-actions]')) setOpen(false)
-    }
-    window.addEventListener('mousedown', onClickOutside)
-    return () => window.removeEventListener('mousedown', onClickOutside)
-  }, [open])
-  return (
-    <div data-issue-actions className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-label="Issue actions"
-        className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <circle cx="12" cy="5" r="1.5" />
-          <circle cx="12" cy="12" r="1.5" />
-          <circle cx="12" cy="19" r="1.5" />
-        </svg>
-      </button>
-      {open ? (
-        <div className="absolute right-0 top-full z-30 mt-1 w-52 overflow-hidden rounded-lg border border-edge-default bg-surface-raised py-1 shadow-xl ring-1 ring-black/5">
-          <ActionItem
-            onClick={() => {
-              onCopyLink()
-              setCopied(true)
-              setTimeout(() => setCopied(false), 1200)
-            }}
-            icon={<IconLink />}
-          >
-            {copied ? 'Link copied' : 'Copy issue link'}
-          </ActionItem>
-          <ActionItem
-            onClick={() => {
-              onDuplicate()
-              setOpen(false)
-            }}
-            icon={<IconDuplicate />}
-          >
-            Duplicate issue
-          </ActionItem>
-          <div className="my-1 border-t border-edge-subtle" />
-          <ActionItem
-            onClick={() => {
-              setOpen(false)
-              onDelete()
-            }}
-            icon={<IconTrash />}
-            danger
-          >
-            Delete issue · #{issue.sequence_id ?? ''}
-          </ActionItem>
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-function ActionItem({
-  onClick,
-  icon,
-  danger,
-  children,
-}: {
-  onClick(): void
-  icon: ReactNode
-  danger?: boolean
-  children: ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors ${
-        danger ? 'text-rose-700 hover:bg-rose-50' : 'text-content hover:bg-surface-sunken'
-      }`}
-    >
-      <span className="text-content-subtle">{icon}</span>
+    <button type="button" title={title} aria-label={title} onClick={onClick} className={cn('flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken', danger ? 'hover:text-rose-600' : 'hover:text-content', className)}>
       {children}
     </button>
   )
 }
 
-function IconLink() {
+function IconLinkSmall() {
   return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
       <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-    </svg>
-  )
-}
-function IconDuplicate() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <rect x="9" y="9" width="11" height="11" rx="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-    </svg>
-  )
-}
-function IconTrash() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M3 6h18" />
-      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
     </svg>
   )
 }

@@ -160,6 +160,14 @@ export interface XrKindConfig {
   parametersMode?: boolean
   supportsCompositionSelector?: boolean
   compositionSelectorRequired?: boolean
+  /**
+   * Spec (or `spec.parameters`) keys the form deliberately does not offer —
+   * e.g. an Application's `environments`, which belong to its Project. An
+   * existing value is carried through an edit untouched, never dropped.
+   */
+  preservedKeys?: string[]
+  /** One line shown above the generated form (why a field is not offered). */
+  formNote?: string
 }
 
 export interface XR {
@@ -293,6 +301,13 @@ function assembleSpec(
   } else if (config.supportsCompositionSelector && existing?.compositionSelector) {
     // Preserve an existing selector on edit when the picker made no change.
     spec.compositionSelector = existing.compositionSelector
+  }
+  // Keys the form does not offer keep whatever the object already has.
+  const existingInputs = (config.parametersMode ? existing?.parameters : existing) as Record<string, unknown> | undefined
+  for (const k of config.preservedKeys ?? []) {
+    if (existingInputs?.[k] === undefined) continue
+    if (config.parametersMode) (spec.parameters as Record<string, unknown>)[k] = existingInputs[k]
+    else spec[k] = existingInputs[k]
   }
   // Carry a pre-existing writeConnectionSecretToRef through edits untouched.
   if (existing?.writeConnectionSecretToRef) {
@@ -1532,6 +1547,9 @@ export function ClaimFormModal({
           ) : null}
 
           {/* ── spec (generated form or raw fallback) ── */}
+          {fields && config.formNote ? (
+            <p className="rounded-lg border border-edge-subtle bg-surface-sunken/50 px-3 py-2 text-[11px] leading-relaxed text-content-muted">{config.formNote}</p>
+          ) : null}
           {fields ? (
             grouped.map((g) => (
               <fieldset key={g.label || '__default'} className="space-y-3" disabled={applyMut.isPending}>

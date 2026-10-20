@@ -133,6 +133,14 @@ export function Policy() {
         </a>
         , framed around what gates a release: which rules are enforced, what is
         currently failing, and which exceptions are in effect.
+        Image-scan gates (severity, licenses, waivers) are set in{' '}
+        <a
+          href="/deliver?section=scans&tab=policy"
+          className="font-medium text-brand-700 underline-offset-2 hover:underline dark:text-brand-300"
+        >
+          Scans → Policy
+        </a>
+        .
       </p>
 
       {nothingInstalled ? (

@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import {
   Button,
   Card,
+  Tabs,
+  type TabDef,
   CardBody,
   EmptyState,
   SearchInput,
@@ -29,6 +31,16 @@ import {
   type ScannedArtifact,
   type Severity,
 } from '../data/scan-rollup.ts'
+import { usePolicy, useGates } from '../data/security-api.ts'
+import { useSecurityModel } from '../data/security-model.ts'
+import { SECURITY_TABS, type SecurityTab, useSecurityParams, useSetSecurityParams } from '../data/security-nav.ts'
+import { SecurityOverview } from './security/overview.tsx'
+import { Findings } from './security/findings.tsx'
+import { Licenses } from './security/licenses.tsx'
+import { ReviewQueue } from './security/review.tsx'
+import { WaiversRegistry } from './security/waivers.tsx'
+import { PolicyEditor } from './security/policy-editor.tsx'
+import { Notice } from './security/shared.tsx'
 
 /**
  * Vulnerability Scans — what is in the images this platform ships.
@@ -67,7 +79,8 @@ const SEV_TONE: Record<Severity, { chip: string; fill: string; text: string }> =
   },
 }
 
-export function Scans() {
+/** Harbor image scans — the per-artifact view (the Images tab). */
+export function ImageScans() {
   const registry = useRegistryArtifacts()
   const scanners = useHarborScanners()
   const scan = useScanArtifact()
@@ -605,6 +618,59 @@ function VulnRow({ vuln: v }: { vuln: harbor.Vulnerability }) {
         </p>
       ) : null}
     </li>
+  )
+}
+
+/**
+ * Deliver → Scans: the whole OSS and vulnerability flow — what is found
+ * (runtime + CI + registry), what is accepted (waivers, with review and
+ * expiry), what is gated (policy + the manual scan gate). Deep links:
+ * `?section=scans&tab=<tab>&finding=<id|pkg>&waiver=<id>&project=<p>`.
+ */
+export function Scans({ defaultTab = 'overview' }: { defaultTab?: SecurityTab } = {}) {
+  const params = useSecurityParams()
+  const setParams = useSetSecurityParams()
+  const tab: SecurityTab = (SECURITY_TABS as readonly string[]).includes(params.tab ?? '') ? params.tab as SecurityTab : defaultTab
+  const model = useSecurityModel()
+  const gates = useGates()
+  const policy = usePolicy()
+  const pending = model.waiverItems.filter((w) => w.status === 'requested').length
+  const awaiting = (gates.data?.items ?? []).filter((g) => g.state === 'awaiting').length
+  const open = model.totals.open.critical + model.totals.open.high
+
+  const tabs: TabDef<SecurityTab>[] = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'findings', label: 'Findings', badge: open ? { kind: 'failed', value: open } : undefined },
+    { id: 'images', label: 'Images' },
+    { id: 'licenses', label: 'Licenses' },
+    { id: 'review', label: 'Review', badge: pending + awaiting ? { kind: 'progressing', value: pending + awaiting } : undefined },
+    { id: 'waivers', label: 'Waivers' },
+    { id: 'policy', label: 'Policy' },
+  ]
+  // Honest about enforcement: until the platform seeds its global scan policy,
+  // CI does not read the waiver ConfigMaps this page writes.
+  const notEnforced = policy.data && !policy.data.platformEnforces && !policy.data.global.error && tab !== 'images'
+  const noStore = model.waivers.error && (model.waivers.error as { status?: number }).status === 503
+
+  return (
+    <div className="space-y-4">
+      <Tabs tabs={tabs} value={tab} onChange={(t) => setParams({ tab: t, finding: undefined, waiver: undefined })} ariaLabel="Security scans" />
+      {notEnforced ? (
+        <Notice tone="warn" title="Waivers are recorded but CI doesn't enforce them until the platform is upgraded">
+          The platform's scan policy (<code>adhar-system/scan-policy-global</code>) does not exist yet, so pipelines do not read the <code>scan-waivers</code> ConfigMaps or pause for manual approval.
+        </Notice>
+      ) : null}
+      {noStore && tab !== 'images' ? (
+        <Notice tone="error" title="Waivers cannot be recorded">The console database is not configured, so waiver requests and reviews have nowhere to live.</Notice>
+      ) : null}
+      {tab === 'overview' && <SecurityOverview model={model} />}
+      {tab === 'findings' && <Findings model={model} />}
+      {tab === 'images' && <ImageScans />}
+      {tab === 'licenses' && <Licenses model={model} />}
+      {tab === 'review' && <ReviewQueue model={model} />}
+      {tab === 'waivers' && <WaiversRegistry model={model} />}
+      {tab === 'policy' && <PolicyEditor model={model} />}
+    </div>
   )
 }
 

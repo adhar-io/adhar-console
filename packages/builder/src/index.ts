@@ -18,3 +18,6 @@ export {
 } from './types.ts'
 export { defaultProjectFor, normalizeProject } from './lib/project.ts'
 export type { ThemePreset, ThemeTokens } from './lib/builder-api.ts'
+/** HTML (Tailwind-classed) → canvas nodes, and the fence helper — used to turn an Adhar AI page draft into a wireframe. */
+export { extractFence, htmlToNodes } from './lib/html-to-nodes.ts'
+export { adharAiAvailable, askAdharAi, PAGE_INSTRUCTIONS } from './lib/adhar-ai.ts'

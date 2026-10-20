@@ -4,12 +4,16 @@ import { cn, formatRelative } from '@adhar/utils'
 import {
   KIND,
   TOKEN_SET_ID,
+  tokenSetId,
   useCollection,
   useCreate,
-  useDoc,
   useRemove,
-  useUpsertDoc,
 } from '../data/store.ts'
+import { useDesignScope, type DesignScope } from '../data/design-scope.ts'
+import { useEffectiveTokens, useSaveTokenDoc } from '../data/token-scope.ts'
+import { computeOverrides, droppedTokens } from '../data/token-publish.ts'
+import { LatestPublishBadge, PaletteAiModal, PublishHistory, PublishModal, RepoImportRow } from '../components/token-integrations.tsx'
+import { AskAiButton } from '../components/integrations.tsx'
 import { DEFAULT_TOKENS } from '../data/tokens-seed.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import type { ColorToken, MotionToken, TokenSet, TokenSnapshot, ValueToken } from '../data/types.ts'
@@ -79,9 +83,14 @@ type Doc = TokenSet & { id: string }
  * `dark`), so the Visual Builder and any older reader keep working.
  */
 export function Tokens() {
-  const { data, isLoading, error } = useDoc<TokenSet>(KIND.tokenSet, TOKEN_SET_ID)
-  const upsert = useUpsertDoc<TokenSet>(KIND.tokenSet, TOKEN_SET_ID)
-  const snapshots = useCollection<TokenSnapshot>(KIND.tokenSnapshot)
+  const scope = useDesignScope()
+  const project = scope.project
+  const eff = useEffectiveTokens(project)
+  const { isLoading, error } = eff
+  const saveDoc = useSaveTokenDoc()
+  const allSnapshots = useCollection<TokenSnapshot>(KIND.tokenSnapshot)
+  // History is per scope: the workspace set's versions, or this project's.
+  const snapshots = { ...allSnapshots, items: allSnapshots.items.filter((s) => (s.project ?? '') === project) }
   const createSnap = useCreate<TokenSnapshot>(KIND.tokenSnapshot)
   const toast = useToast()
   const params = useDesignParams()
@@ -91,19 +100,28 @@ export function Tokens() {
   const [mode, setMode] = useState<Mode>('light')
   const [importOpen, setImportOpen] = useState(false)
   const [saveOpen, setSaveOpen] = useState(false)
+  const [publishOpen, setPublishOpen] = useState(false)
+  const [aiOpen, setAiOpen] = useState(false)
 
+  const docId = tokenSetId(project)
   const source = useMemo<Doc | null>(
-    () => (isLoading || error ? null : { id: TOKEN_SET_ID, ...mergeDefaults(data) }),
-    [data, isLoading, error],
+    () => (isLoading || error ? null : { id: docId, ...eff.effective }),
+    [eff.effective, isLoading, error, docId],
   )
-  const { draft, update, saving } = useDraft<Doc>(source, ({ id: _id, ...t }) =>
-    upsert.mutateAsync(t).catch((e: Error) => toast.error('Could not save tokens', { description: e.message })), 500)
+  // A project stores only what differs from the workspace set; the id travels
+  // with the draft so a save flushed during a scope switch lands where it was made.
+  const { draft, update, saving } = useDraft<Doc>(source, ({ id, ...t }) =>
+    saveDoc.mutateAsync({ id, data: id === TOKEN_SET_ID ? t : computeOverrides(eff.workspace, t) })
+      .catch((e: Error) => toast.error('Could not save tokens', { description: e.message })), 500)
 
   if (error) return <ErrorBlock error={error} />
   if (isLoading || !draft) return <LoadingBlock label="Loading design tokens…" />
 
   const tokens: TokenSet = draft
-  const replaceAll = (next: TokenSet) => update(() => ({ id: TOKEN_SET_ID, ...next }))
+  const replaceAll = (next: TokenSet) => update((d) => ({ id: d.id, ...next }))
+  const overrides = project ? computeOverrides(eff.workspace, tokens) : null
+  const overrideN = overrides ? CATEGORIES.reduce((n, c) => n + ((overrides[c] as unknown[] | undefined)?.length ?? 0), 0) : 0
+  const dropped = project ? droppedTokens(eff.workspace, tokens) : []
   const setCat = <C extends TokenCategory>(cat: C, fn: (list: TokenSet[C]) => TokenSet[C]) =>
     update((d) => ({ ...d, [cat]: fn(d[cat]) }))
 
@@ -114,6 +132,7 @@ export function Tokens() {
       created_at: new Date().toISOString(),
       count: countTokens(t),
       tokens: t,
+      ...(project ? { project } : {}),
     })
 
   const withUndo = (label: string, next: TokenSet) => {
@@ -124,9 +143,10 @@ export function Tokens() {
 
   const reset = async () => {
     try {
-      await snapshot('Before reset to defaults')
+      await snapshot(project ? 'Before reset to the workspace set' : 'Before reset to defaults')
     } catch { /* history is best effort; the undo toast still covers it */ }
-    withUndo('Tokens reset to defaults', DEFAULT_TOKENS)
+    // A project resets to the workspace set (no overrides); the workspace to the defaults.
+    withUndo(project ? 'Project tokens reset to the workspace set' : 'Tokens reset to defaults', project ? eff.workspace : DEFAULT_TOKENS)
   }
 
   const tabDefs = [
@@ -144,9 +164,21 @@ export function Tokens() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <div className="text-xs text-content-muted">
-          {countTokens(tokens)} tokens · {CATEGORIES.length} categories
+          {project ? (
+            <span title="The project's tokens are the workspace set plus the tokens changed or added here.">
+              Project <span className="font-medium text-content">{scope.activeProject?.name ?? project}</span> ·{' '}
+              {overrideN ? `${overrideN} override${overrideN === 1 ? '' : 's'} on the workspace set` : 'same as the workspace set'} ·{' '}
+            </span>
+          ) : (
+            <span>Workspace set · </span>
+          )}
+          {countTokens(tokens)} tokens
           {saving ? <span className="text-content-subtle"> · saving…</span> : null}
+          {dropped.length ? (
+            <span className="text-amber-700 dark:text-amber-300" title={dropped.join(', ')}> · {dropped.length} removed here still apply from the workspace set</span>
+          ) : null}
         </div>
+        <LatestPublishBadge scopeId={project || 'workspace'} />
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <Segmented<Mode>
             ariaLabel="Colour mode"
@@ -157,17 +189,21 @@ export function Tokens() {
               { value: 'dark', label: <><IconMoon size={12} /> Dark</> },
             ]}
           />
-          <Button size="sm" variant="ghost" onClick={reset} leading={<IconReset size={12} />}>
-            Reset
+          <Button size="sm" variant="ghost" onClick={reset} leading={<IconReset size={12} />} title={project ? 'Drop this project\'s overrides' : 'Back to the default tokens'}>
+            {project ? 'Reset to workspace' : 'Reset'}
           </Button>
+          <AskAiButton onClick={() => setAiOpen(true)}>Palette with AI</AskAiButton>
           <Button size="sm" onClick={() => setSaveOpen(true)} leading={<IconHistory size={12} />}>
             Save version
           </Button>
           <Button size="sm" onClick={() => setImportOpen(true)} leading={<IconUpload size={12} />}>
             Import
           </Button>
-          <Button size="sm" variant="primary" onClick={() => setParams({ tab: 'code' })} leading={<IconDownload size={12} />}>
+          <Button size="sm" onClick={() => setParams({ tab: 'code' })} leading={<IconDownload size={12} />}>
             Export
+          </Button>
+          <Button size="sm" variant="primary" onClick={() => setPublishOpen(true)}>
+            Publish
           </Button>
         </div>
       </div>
@@ -185,7 +221,12 @@ export function Tokens() {
       {tab === 'effects' && <EffectsTab tokens={tokens} setCat={setCat} />}
       {tab === 'breakpoints' && <BreakpointsTab tokens={tokens} setCat={setCat} />}
       {tab === 'preview' && <PreviewTab tokens={tokens} />}
-      {tab === 'code' && <CodeTab tokens={tokens} />}
+      {tab === 'code' && (
+        <div className="space-y-6">
+          <PublishHistory scopeId={project || 'workspace'} onPublish={() => setPublishOpen(true)} />
+          <CodeTab tokens={tokens} />
+        </div>
+      )}
       {tab === 'history' && (
         <HistoryTab
           tokens={tokens}
@@ -219,9 +260,27 @@ export function Tokens() {
           }
         }}
       />
+      <PublishModal
+        open={publishOpen}
+        onClose={() => setPublishOpen(false)}
+        tokens={tokens}
+        scope={scope}
+        overrides={overrideN}
+        versionCount={snapshots.items.length}
+      />
+      <PaletteAiModal
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        onApply={(colors) => {
+          setAiOpen(false)
+          withUndo(`Added ${colors.length} colour${colors.length === 1 ? '' : 's'} from Adhar AI`, mergeTokenSets(tokens, { color: colors }, 'merge'))
+          setParams({ tab: undefined })
+        }}
+      />
       <ImportModal
         open={importOpen}
         onClose={() => setImportOpen(false)}
+        scope={scope}
         current={tokens}
         onApply={async (next, count) => {
           setImportOpen(false)
@@ -1037,11 +1096,13 @@ const IMPORT_PLACEHOLDER = [
 function ImportModal({
   open,
   onClose,
+  scope,
   current,
   onApply,
 }: {
   open: boolean
   onClose(): void
+  scope: DesignScope
   current: TokenSet
   onApply(next: TokenSet, count: number): void
 }) {
@@ -1068,7 +1129,7 @@ function ImportModal({
       open={open}
       onClose={onClose}
       title="Import tokens"
-      description="Paste or upload W3C Design Tokens JSON, a previous Adhar export, or CSS custom properties."
+      description="W3C Design Tokens JSON, a previous Adhar export, or CSS custom properties — from a file, a repository, or pasted."
       width="lg"
       footer={
         <>
@@ -1094,7 +1155,7 @@ function ImportModal({
               }}
             />
           </label>
-          <span className="text-[11px] text-content-subtle">or paste below</span>
+          <span className="text-[11px] text-content-subtle">or paste below, or load from a repository</span>
           <div className="ml-auto">
             <Segmented<'merge' | 'replace'>
               size="xs"
@@ -1108,6 +1169,7 @@ function ImportModal({
             />
           </div>
         </div>
+        <RepoImportRow scope={scope} onText={(t) => setText(t)} />
         <Textarea
           rows={10}
           value={text}

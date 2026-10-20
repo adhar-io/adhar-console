@@ -86,6 +86,8 @@ export interface PlatformEvidence {
   pending?: string
   performance?: Record<string, unknown>
   chaos?: Record<string, unknown>
+  /** Every fault of the automated chaos suite, by experiment name. */
+  chaosSuite?: Record<string, Record<string, unknown>>
   slo?: Record<string, unknown> | null
 }
 
@@ -114,6 +116,10 @@ export interface PlatformService {
   environment?: string
   environments?: PlatformEnvironment[]
   evidence?: PlatformEvidence
+  /** The team's own Performance Center results targeting this application. */
+  perfCenter?: Record<string, unknown>
+  /** Game days (console / ChaosCenter) that targeted its workload. */
+  gameDays?: Record<string, unknown>
 }
 
 export interface PlatformScorecards {
@@ -245,6 +251,7 @@ function coerceEvidence(v: unknown): PlatformEvidence | undefined {
     ...(obj(r.performance) ? { performance: obj(r.performance) } : {}),
     ...(obj(r.chaos) ? { chaos: obj(r.chaos) } : {}),
     ...(obj(r.slo) ? { slo: obj(r.slo) } : {}),
+    ...(obj(r.chaosSuite) ? { chaosSuite: obj(r.chaosSuite) as Record<string, Record<string, unknown>> } : {}),
   }
   return Object.keys(out).length ? out : undefined
 }
@@ -298,6 +305,12 @@ function coerceService(raw: unknown): PlatformService | null {
     ...(str(r.environment) ? { environment: str(r.environment) } : {}),
     ...(coerceEnvironments(r.environments) ? { environments: coerceEnvironments(r.environments) } : {}),
     ...(coerceEvidence(r.evidence) ? { evidence: coerceEvidence(r.evidence) } : {}),
+    ...(r.perfCenter && typeof r.perfCenter === 'object' && !Array.isArray(r.perfCenter)
+      ? { perfCenter: r.perfCenter as Record<string, unknown> }
+      : {}),
+    ...(r.gameDays && typeof r.gameDays === 'object' && !Array.isArray(r.gameDays)
+      ? { gameDays: r.gameDays as Record<string, unknown> }
+      : {}),
   }
 }
 

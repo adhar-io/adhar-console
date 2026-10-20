@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@adhar/utils'
 import { useOverlayDismiss } from '@adhar/shell-ui'
-import { loadMonaco, type MonacoEditorInstance } from './monaco-loader.ts'
+import { loadMonaco, type MonacoApi, type MonacoEditorInstance } from './monaco-loader.ts'
 
 /**
  * Shared, enterprise-grade code editor — a single Monaco-backed component used
@@ -48,16 +48,20 @@ interface RichMonaco {
   KeyCode: Record<string, number>
 }
 
-/** Resolve the Monaco theme from the app's current theme setting. */
+/**
+ * Resolve the Monaco theme from the app's current theme. The console applies
+ * light / dark / system as a single `.dark` class on <html> (theme.ts); an
+ * explicit `data-theme` still wins when a host sets one.
+ */
 function themeName(): string {
   if (typeof document === 'undefined') return 'adhar-light'
-  const attr = document.documentElement.getAttribute('data-theme')
-  if (attr === 'dark') return 'vs-dark'
+  const root = document.documentElement
+  const attr = root.getAttribute('data-theme')
+  if (attr === 'dark') return 'adhar-dark'
   if (attr === 'light') return 'adhar-light'
-  const prefersDark =
-    typeof globalThis.matchMedia === 'function' &&
-    globalThis.matchMedia('(prefers-color-scheme: dark)').matches
-  return prefersDark ? 'vs-dark' : 'adhar-light'
+  // The console resolves light / dark / system to the `.dark` class itself;
+  // consulting the OS here again painted a dark editor on a light page.
+  return root.classList.contains('dark') ? 'adhar-dark' : 'adhar-light'
 }
 
 /** Pretty-print JSON / YAML-ish content for the Format action (best-effort). */
@@ -108,6 +112,8 @@ export interface CodeEditorProps {
   /** Hide the toolbar entirely (rare — embedded contexts). */
   hideToolbar?: boolean
   className?: string
+  /** Called once Monaco is up — for callers that need the editor itself (completions, markers, commands). */
+  onMount?(editor: MonacoEditorInstance, monaco: MonacoApi): void
 }
 
 export function CodeEditor({
@@ -124,6 +130,7 @@ export function CodeEditor({
   wordWrap: wordWrapInit = false,
   hideToolbar = false,
   className,
+  onMount,
 }: CodeEditorProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const editorRef = useRef<MonacoEditorInstance | null>(null)
@@ -139,6 +146,8 @@ export function CodeEditor({
   onChangeRef.current = onChange
   const onSaveRef = useRef(onSave)
   onSaveRef.current = onSave
+  const onMountRef = useRef(onMount)
+  onMountRef.current = onMount
 
   const lineCount = useMemo(() => value.split('\n').length, [value])
 
@@ -175,6 +184,7 @@ export function CodeEditor({
           onChangeRef.current?.(editorRef.current?.getValue() ?? '')
         })
         editorRef.current.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.KeyS, () => onSaveRef.current?.())
+        onMountRef.current?.(editorRef.current, raw)
         setReady(true)
       })
       .catch((e) => setFailed((e as Error).message))
@@ -212,7 +222,7 @@ export function CodeEditor({
   useEffect(() => {
     if (typeof document === 'undefined') return
     const obs = new MutationObserver(() => monacoRef.current?.editor.setTheme(themeName()))
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] })
     return () => obs.disconnect()
   }, [])
 

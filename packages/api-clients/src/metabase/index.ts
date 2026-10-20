@@ -1,5 +1,34 @@
+// deno-lint-ignore-file require-await -- the in-memory stub implements an async interface with synchronous bodies.
 import { z } from 'zod'
 import { defineClient, HttpClient } from '../base/index.ts'
+import type {
+  MbAlert,
+  MbAlertInput,
+  MbBookmark,
+  MbCard,
+  MbCollectionNode,
+  MbCurrentUser,
+  MbDashboardDetail,
+  MbDashcard,
+  MbDatabase,
+  MbDatabaseMetadata,
+  MbDataset,
+  MbField,
+  MbNewCard,
+  MbParameterValue,
+  MbPulse,
+  MbPulseFormInput,
+  MbPulseInput,
+  MbRecentItem,
+  MbSearchItem,
+  MbSessionProperties,
+  MbSnippet,
+  MbTable,
+  MbTemplateTag,
+  MbUserRef,
+} from './types.ts'
+
+export * from './types.ts'
 
 /**
  * Metabase BI client.
@@ -142,6 +171,60 @@ export interface MetabaseClient {
   togglePulse(id: number, active: boolean): Promise<void>
   /** Run native SQL against a database. */
   runQuery(databaseId: number, sql: string): Promise<QueryResult>
+
+  /* ── Metabase 0.51 wire-shaped API (BI views) ── */
+  currentUser(): Promise<MbCurrentUser>
+  sessionProperties(): Promise<MbSessionProperties>
+  collectionTree(): Promise<MbCollectionNode[]>
+  search(opts: { q?: string; models?: string[]; collectionId?: number }): Promise<MbSearchItem[]>
+  listCards(): Promise<MbCard[]>
+  getCard(id: number): Promise<MbCard>
+  runCard(id: number, parameters?: MbParameterValue[]): Promise<MbDataset>
+  createCard(card: MbNewCard): Promise<MbCard>
+  updateCard(id: number, patch: Partial<MbCard>): Promise<MbCard>
+  /** Moves the card to the trash (`archived: true`) — recoverable in Metabase. */
+  archiveCard(id: number): Promise<void>
+  getDashboardDetail(id: number): Promise<MbDashboardDetail>
+  runDashcard(
+    dashboardId: number,
+    dashcardId: number,
+    cardId: number,
+    parameters?: MbParameterValue[],
+  ): Promise<MbDataset>
+  createDashboard(input: { name: string; description?: string | null; collection_id: number | null }): Promise<MbDashboardDetail>
+  /** Append a saved question below the dashboard's existing cards. */
+  addCardToDashboard(dashboardId: number, cardId: number, opts?: { tabId?: number | null; sizeX?: number; sizeY?: number }): Promise<MbDashboardDetail>
+  /** Suggested values of a list-backed dashboard filter (`[]` when it has none). */
+  parameterValues(dashboardId: number, parameterId: string): Promise<string[]>
+  listBookmarks(): Promise<MbBookmark[]>
+  setBookmark(type: 'card' | 'dashboard' | 'collection', id: number, on: boolean): Promise<void>
+  recentViews(): Promise<MbRecentItem[]>
+  /** Native SQL with template tags (`{{var}}`) and their values. */
+  runNative(
+    databaseId: number,
+    sql: string,
+    opts?: { templateTags?: Record<string, MbTemplateTag>; parameters?: MbParameterValue[] },
+  ): Promise<MbDataset>
+  listDatabasesFull(): Promise<MbDatabase[]>
+  databaseMetadata(id: number): Promise<MbDatabaseMetadata>
+  syncSchema(id: number): Promise<void>
+  rescanValues(id: number): Promise<void>
+  /** `{ status: 'ok' }` or `{ status: 'error', message }`. */
+  databaseHealth(id: number): Promise<{ status: string; message?: string }>
+  updateTable(id: number, patch: Pick<Partial<MbTable>, 'description' | 'display_name'>): Promise<MbTable>
+  updateField(id: number, patch: Pick<Partial<MbField>, 'description' | 'semantic_type' | 'display_name'>): Promise<MbField>
+  listSubscriptions(): Promise<MbPulse[]>
+  createSubscription(input: MbPulseInput): Promise<MbPulse>
+  updateSubscription(id: number, patch: Partial<MbPulseInput> & { archived?: boolean }): Promise<MbPulse>
+  /** Sends the subscription once, now, to its recipients. */
+  testSubscription(input: MbPulseInput): Promise<void>
+  pulseFormInput(): Promise<MbPulseFormInput>
+  listAlerts(): Promise<MbAlert[]>
+  createAlert(input: MbAlertInput): Promise<MbAlert>
+  updateAlert(id: number, patch: Partial<MbAlertInput> & { archived?: boolean }): Promise<MbAlert>
+  listUsers(): Promise<MbUserRef[]>
+  listSnippets(): Promise<MbSnippet[]>
+  createSnippet(input: { name: string; content: string; description?: string }): Promise<MbSnippet>
 }
 
 /**
@@ -189,6 +272,167 @@ function build(http: HttpClient): MetabaseClient {
         type: 'native',
         native: { query: sql },
       }),
+    ...build51(http, list),
+  }
+}
+
+/**
+ * Highest row a new dashcard can start on: one below everything already
+ * placed on the target tab.
+ */
+export function nextFreeRow(dashcards: Pick<MbDashcard, 'row' | 'size_y' | 'dashboard_tab_id'>[], tabId?: number | null): number {
+  return dashcards
+    .filter((d) => tabId == null || d.dashboard_tab_id == null || d.dashboard_tab_id === tabId)
+    .reduce((m, d) => Math.max(m, (d.row ?? 0) + (d.size_y ?? 0)), 0)
+}
+
+/** Metabase 0.47 renamed a dashboard's `ordered_cards` / `cards` to `dashcards`. */
+export function normalizeDashboard(raw: unknown): MbDashboardDetail {
+  const d = (raw ?? {}) as MbDashboardDetail & { ordered_cards?: MbDashcard[]; cards?: MbDashcard[] }
+  const dashcards = Array.isArray(d.dashcards) ? d.dashcards : Array.isArray(d.ordered_cards) ? d.ordered_cards : Array.isArray(d.cards) ? d.cards : []
+  return { ...d, dashcards, tabs: Array.isArray(d.tabs) ? d.tabs : [], parameters: Array.isArray(d.parameters) ? d.parameters : [] }
+}
+
+/** Recent views across the three response shapes Metabase has used. */
+export function normalizeRecents(raw: unknown): MbRecentItem[] {
+  const r = raw as { recents?: unknown; recent_views?: unknown } | unknown[] | null
+  const arr = Array.isArray(r) ? r : Array.isArray(r?.recents) ? r.recents : Array.isArray(r?.recent_views) ? r.recent_views : []
+  return (arr as Array<Record<string, unknown>>).map((x) => {
+    const model = String(x.model ?? '')
+    const inner = (x.model_object ?? {}) as Record<string, unknown>
+    return {
+      model,
+      id: Number(x.id ?? x.model_id ?? inner.id),
+      name: String(x.name ?? inner.name ?? ''),
+      timestamp: (x.timestamp as string | undefined) ?? (x.max_ts as string | undefined),
+      display: (x.display ?? inner.display) as string | undefined,
+      moderated_status: (x.moderated_status ?? inner.moderated_status) as string | null | undefined,
+    }
+  }).filter((x) => Number.isFinite(x.id) && x.name)
+}
+
+function build51(http: HttpClient, list: <T>(path: string) => Promise<T[]>) {
+  const putDashcards = async (id: number, detail: MbDashboardDetail, extra: Partial<MbDashcard>[]) => {
+    const keep = detail.dashcards.map((dc) => ({
+      id: dc.id,
+      card_id: dc.card_id,
+      dashboard_tab_id: dc.dashboard_tab_id ?? null,
+      row: dc.row,
+      col: dc.col,
+      size_x: dc.size_x,
+      size_y: dc.size_y,
+      parameter_mappings: dc.parameter_mappings ?? [],
+      visualization_settings: dc.visualization_settings ?? {},
+      series: (dc.series ?? []).map((s) => ({ id: s.id })),
+    }))
+    const body: Record<string, unknown> = { dashcards: [...keep, ...extra] }
+    if (detail.tabs?.length) body.tabs = detail.tabs.map((t) => ({ id: t.id, name: t.name }))
+    return normalizeDashboard(await http.put<unknown>(`/api/dashboard/${id}`, body))
+  }
+  return {
+    currentUser: () => http.get<MbCurrentUser>(`/api/user/current`),
+    sessionProperties: () => http.get<MbSessionProperties>(`/api/session/properties`),
+    collectionTree: () => list<MbCollectionNode>(`/api/collection/tree?exclude-archived=true`),
+    search: ({ q, models, collectionId }: { q?: string; models?: string[]; collectionId?: number }) => {
+      const qs = new URLSearchParams()
+      if (q) qs.set('q', q)
+      for (const m of models ?? []) qs.append('models', m)
+      if (collectionId != null) qs.set('collection', String(collectionId))
+      const s = qs.toString()
+      return list<MbSearchItem>(`/api/search${s ? `?${s}` : ''}`)
+    },
+    listCards: () => list<MbCard>(`/api/card?f=all`),
+    getCard: (id: number) => http.get<MbCard>(`/api/card/${id}`),
+    runCard: (id: number, parameters: MbParameterValue[] = []) =>
+      http.post<MbDataset>(`/api/card/${id}/query`, { parameters, ignore_cache: false }, { timeoutMs: 120_000 }),
+    createCard: (card: MbNewCard) => http.post<MbCard>(`/api/card`, card),
+    updateCard: (id: number, patch: Partial<MbCard>) => http.put<MbCard>(`/api/card/${id}`, patch),
+    archiveCard: async (id: number) => {
+      await http.put<unknown>(`/api/card/${id}`, { archived: true })
+    },
+    getDashboardDetail: async (id: number) => normalizeDashboard(await http.get<unknown>(`/api/dashboard/${id}`)),
+    runDashcard: (dashboardId: number, dashcardId: number, cardId: number, parameters: MbParameterValue[] = []) =>
+      http.post<MbDataset>(
+        `/api/dashboard/${dashboardId}/dashcard/${dashcardId}/card/${cardId}/query`,
+        { parameters },
+        { timeoutMs: 120_000 },
+      ),
+    createDashboard: async (input: { name: string; description?: string | null; collection_id: number | null }) =>
+      normalizeDashboard(await http.post<unknown>(`/api/dashboard`, input)),
+    addCardToDashboard: async (dashboardId: number, cardId: number, opts: { tabId?: number | null; sizeX?: number; sizeY?: number } = {}) => {
+      const detail = normalizeDashboard(await http.get<unknown>(`/api/dashboard/${dashboardId}`))
+      const tabId = opts.tabId ?? detail.tabs?.[0]?.id ?? null
+      return putDashcards(dashboardId, detail, [{
+        id: -1,
+        card_id: cardId,
+        dashboard_tab_id: tabId,
+        row: nextFreeRow(detail.dashcards, tabId),
+        col: 0,
+        size_x: opts.sizeX ?? 12,
+        size_y: opts.sizeY ?? 6,
+        parameter_mappings: [],
+        visualization_settings: {},
+        series: [],
+      }])
+    },
+    parameterValues: async (dashboardId: number, parameterId: string) => {
+      const r = await http.get<{ values?: unknown[] }>(`/api/dashboard/${dashboardId}/params/${encodeURIComponent(parameterId)}/values`)
+      return (Array.isArray(r?.values) ? r.values : []).map((v) => (Array.isArray(v) ? String(v[0]) : String(v)))
+    },
+    listBookmarks: () => list<MbBookmark>(`/api/bookmark`),
+    setBookmark: async (type: 'card' | 'dashboard' | 'collection', id: number, on: boolean) => {
+      if (on) await http.post<unknown>(`/api/bookmark/${type}/${id}`)
+      else await http.delete<unknown>(`/api/bookmark/${type}/${id}`)
+    },
+    recentViews: async () => {
+      try {
+        return normalizeRecents(await http.get<unknown>(`/api/activity/recents?context=views`))
+      } catch {
+        // Metabase < 0.50 only has the older endpoint.
+        return normalizeRecents(await http.get<unknown>(`/api/activity/recent_views`))
+      }
+    },
+    runNative: (
+      databaseId: number,
+      sql: string,
+      opts: { templateTags?: Record<string, MbTemplateTag>; parameters?: MbParameterValue[] } = {},
+    ) =>
+      http.post<MbDataset>(
+        `/api/dataset`,
+        {
+          database: databaseId,
+          type: 'native',
+          native: { query: sql, 'template-tags': opts.templateTags ?? {} },
+          parameters: opts.parameters ?? [],
+        },
+        { timeoutMs: 180_000 },
+      ),
+    listDatabasesFull: () => list<MbDatabase>(`/api/database?include=tables`),
+    databaseMetadata: (id: number) => http.get<MbDatabaseMetadata>(`/api/database/${id}/metadata`),
+    syncSchema: async (id: number) => {
+      await http.post<unknown>(`/api/database/${id}/sync_schema`)
+    },
+    rescanValues: async (id: number) => {
+      await http.post<unknown>(`/api/database/${id}/rescan_values`)
+    },
+    databaseHealth: (id: number) => http.get<{ status: string; message?: string }>(`/api/database/${id}/healthcheck`),
+    updateTable: (id: number, patch: Pick<Partial<MbTable>, 'description' | 'display_name'>) => http.put<MbTable>(`/api/table/${id}`, patch),
+    updateField: (id: number, patch: Pick<Partial<MbField>, 'description' | 'semantic_type' | 'display_name'>) =>
+      http.put<MbField>(`/api/field/${id}`, patch),
+    listSubscriptions: () => list<MbPulse>(`/api/pulse?archived=false`),
+    createSubscription: (input: MbPulseInput) => http.post<MbPulse>(`/api/pulse`, input),
+    updateSubscription: (id: number, patch: Partial<MbPulseInput> & { archived?: boolean }) => http.put<MbPulse>(`/api/pulse/${id}`, patch),
+    testSubscription: async (input: MbPulseInput) => {
+      await http.post<unknown>(`/api/pulse/test`, input, { timeoutMs: 120_000 })
+    },
+    pulseFormInput: () => http.get<MbPulseFormInput>(`/api/pulse/form_input`),
+    listAlerts: () => list<MbAlert>(`/api/alert`),
+    createAlert: (input: MbAlertInput) => http.post<MbAlert>(`/api/alert`, input),
+    updateAlert: (id: number, patch: Partial<MbAlertInput> & { archived?: boolean }) => http.put<MbAlert>(`/api/alert/${id}`, patch),
+    listUsers: () => list<MbUserRef>(`/api/user?status=active`),
+    listSnippets: () => list<MbSnippet>(`/api/native-query-snippet?archived=false`),
+    createSnippet: (input: { name: string; content: string; description?: string }) =>
+      http.post<MbSnippet>(`/api/native-query-snippet`, input),
   }
 }
 
@@ -569,8 +813,211 @@ const STUB_PULSES: Pulse[] = [
   },
 ]
 
+/**
+ * In-memory 0.51-shaped stub, derived from the legacy stub data above so the
+ * two never disagree. Offline / tests only — the console is real by default.
+ */
+function stub51(runQuery: (db: number, sql: string) => Promise<QueryResult>) {
+  const toDataset = (r?: QueryResult, scalar?: number): MbDataset => {
+    if (r) {
+      return {
+        data: { rows: r.rows, cols: r.cols.map((c) => ({ ...c, base_type: c.base_type ?? 'type/Text' })) },
+        row_count: r.row_count,
+        running_time: r.running_time_ms ?? 0,
+        status: r.status,
+        error: r.error ?? null,
+      }
+    }
+    return {
+      data: { rows: [[scalar ?? null]], cols: [{ name: 'value', display_name: 'Value', base_type: 'type/Float' }] },
+      row_count: 1,
+      running_time: 12,
+      status: 'completed',
+    }
+  }
+  const cards: MbCard[] = STUB_QUESTIONS.map((q) => ({
+    id: q.id,
+    name: q.name,
+    description: q.description ?? null,
+    type: 'question',
+    display: q.display === 'gauge' || q.display === 'progress' ? q.display : q.display,
+    collection_id: q.collection_id ?? null,
+    database_id: q.database_id,
+    query_type: q.sql ? 'native' : 'query',
+    dataset_query: q.sql
+      ? { type: 'native', database: q.database_id, native: { query: q.sql, 'template-tags': {} } }
+      : { type: 'query', database: q.database_id, query: {} },
+    visualization_settings: {},
+    view_count: q.view_count,
+    created_at: q.created_at,
+    updated_at: q.updated_at,
+    can_write: true,
+    archived: false,
+  }))
+  const datasetFor = (id: number) => {
+    const q = STUB_QUESTIONS.find((x) => x.id === id)
+    return toDataset(q?.result, q?.scalar)
+  }
+  const dashboards: MbDashboardDetail[] = STUB_DASHBOARDS.map((d) => ({
+    id: d.id,
+    name: d.name,
+    description: d.description ?? null,
+    collection_id: d.collection_id ?? null,
+    dashcards: (d.cards ?? []).map((dc) => ({
+      id: dc.id,
+      card_id: dc.card_id,
+      card: cards.find((c) => c.id === dc.card_id) ?? null,
+      dashboard_tab_id: null,
+      row: dc.row * 2,
+      col: dc.col * 2,
+      size_x: dc.size_x * 2,
+      size_y: dc.size_y * 2,
+      parameter_mappings: [],
+      visualization_settings: {},
+      series: [],
+    })),
+    tabs: [],
+    parameters: [],
+    can_write: true,
+    view_count: d.view_count,
+    created_at: d.created_at,
+    updated_at: d.updated_at,
+  }))
+  const bookmarks: MbBookmark[] = []
+  const pulses: MbPulse[] = []
+  const alerts: MbAlert[] = []
+  const snippets: MbSnippet[] = []
+  let seq = 1000
+  const findDash = (id: number) => {
+    const d = dashboards.find((x) => x.id === id)
+    if (!d) throw new Error(`Stub: dashboard ${id} not found`)
+    return d
+  }
+  return {
+    currentUser: async (): Promise<MbCurrentUser> => ({ id: 1, email: 'stub@adhar.dev', common_name: 'Stub User', is_superuser: true }),
+    sessionProperties: async (): Promise<MbSessionProperties> => ({ version: { tag: 'v0.51.0-stub' }, 'report-timezone-short': 'UTC' }),
+    collectionTree: async (): Promise<MbCollectionNode[]> =>
+      STUB_COLLECTIONS.map((c) => ({ id: c.id, name: c.name, description: c.description ?? null, children: [], here: ['card', 'dashboard'] })),
+    search: async ({ q, models }: { q?: string; models?: string[] }): Promise<MbSearchItem[]> => {
+      const f = (q ?? '').toLowerCase()
+      const out: MbSearchItem[] = []
+      if (!models?.length || models.includes('dashboard')) {
+        for (const d of dashboards) {
+          out.push({ id: d.id, model: 'dashboard', name: d.name, description: d.description, collection_id: d.collection_id, dashboardcard_count: d.dashcards.length, updated_at: d.updated_at, bookmark: bookmarks.some((b) => b.type === 'dashboard' && b.item_id === d.id) })
+        }
+      }
+      if (!models?.length || models.includes('card')) {
+        for (const c of cards) out.push({ id: c.id, model: 'card', name: c.name, description: c.description, collection_id: c.collection_id, display: c.display, updated_at: c.updated_at })
+      }
+      return out.filter((x) => !f || x.name.toLowerCase().includes(f))
+    },
+    listCards: async () => cards.filter((c) => !c.archived),
+    getCard: async (id: number) => {
+      const c = cards.find((x) => x.id === id)
+      if (!c) throw new Error(`Stub: card ${id} not found`)
+      return c
+    },
+    runCard: async (id: number) => datasetFor(id),
+    createCard: async (card: MbNewCard) => {
+      const c: MbCard = { ...card, id: ++seq, can_write: true, created_at: new Date().toISOString() }
+      cards.push(c)
+      return c
+    },
+    updateCard: async (id: number, patch: Partial<MbCard>) => {
+      const c = cards.find((x) => x.id === id)
+      if (!c) throw new Error(`Stub: card ${id} not found`)
+      Object.assign(c, patch)
+      return c
+    },
+    archiveCard: async (id: number) => {
+      const c = cards.find((x) => x.id === id)
+      if (c) c.archived = true
+    },
+    getDashboardDetail: async (id: number) => findDash(id),
+    runDashcard: async (_d: number, _dc: number, cardId: number) => datasetFor(cardId),
+    createDashboard: async (input: { name: string; description?: string | null; collection_id: number | null }) => {
+      const d: MbDashboardDetail = { id: ++seq, ...input, dashcards: [], tabs: [], parameters: [], can_write: true, created_at: new Date().toISOString() }
+      dashboards.push(d)
+      return d
+    },
+    addCardToDashboard: async (dashboardId: number, cardId: number, opts: { tabId?: number | null; sizeX?: number; sizeY?: number } = {}) => {
+      const d = findDash(dashboardId)
+      d.dashcards.push({
+        id: ++seq,
+        card_id: cardId,
+        card: cards.find((c) => c.id === cardId) ?? null,
+        dashboard_tab_id: opts.tabId ?? null,
+        row: nextFreeRow(d.dashcards, opts.tabId),
+        col: 0,
+        size_x: opts.sizeX ?? 12,
+        size_y: opts.sizeY ?? 6,
+      })
+      return d
+    },
+    parameterValues: async (): Promise<string[]> => [],
+    listBookmarks: async () => bookmarks,
+    setBookmark: async (type: 'card' | 'dashboard' | 'collection', id: number, on: boolean) => {
+      const i = bookmarks.findIndex((b) => b.type === type && b.item_id === id)
+      if (on && i < 0) bookmarks.push({ id: `${type}-${id}`, type, item_id: id, name: String(id) })
+      if (!on && i >= 0) bookmarks.splice(i, 1)
+    },
+    recentViews: async (): Promise<MbRecentItem[]> => [],
+    runNative: async (databaseId: number, sql: string) => toDataset(await runQuery(databaseId, sql)),
+    listDatabasesFull: async (): Promise<MbDatabase[]> =>
+      STUB_DATABASES.map((d) => ({ id: d.id, name: d.name, engine: d.engine, description: d.description ?? null, is_sample: d.is_sample, initial_sync_status: 'complete', native_permissions: 'write', tables: [] })),
+    databaseMetadata: async (id: number): Promise<MbDatabaseMetadata> => {
+      const d = STUB_DATABASES.find((x) => x.id === id)
+      if (!d) throw new Error(`Stub: database ${id} not found`)
+      return { id: d.id, name: d.name, engine: d.engine, tables: [] }
+    },
+    syncSchema: async () => {},
+    rescanValues: async () => {},
+    databaseHealth: async () => ({ status: 'ok' }),
+    updateTable: async (id: number, patch: Pick<Partial<MbTable>, 'description' | 'display_name'>): Promise<MbTable> => ({ id, name: String(id), ...patch }),
+    updateField: async (id: number, patch: Pick<Partial<MbField>, 'description' | 'semantic_type' | 'display_name'>): Promise<MbField> => ({ id, name: String(id), ...patch }),
+    listSubscriptions: async () => pulses.filter((p) => !p.archived),
+    createSubscription: async (input: MbPulseInput) => {
+      const p: MbPulse = { ...input, id: ++seq, created_at: new Date().toISOString() }
+      pulses.push(p)
+      return p
+    },
+    updateSubscription: async (id: number, patch: Partial<MbPulseInput> & { archived?: boolean }) => {
+      const p = pulses.find((x) => x.id === id)
+      if (!p) throw new Error(`Stub: subscription ${id} not found`)
+      Object.assign(p, patch)
+      return p
+    },
+    testSubscription: async () => {},
+    pulseFormInput: async (): Promise<MbPulseFormInput> => ({ channels: { email: { configured: true }, slack: { configured: false } } }),
+    listAlerts: async () => alerts.filter((a) => !a.archived),
+    createAlert: async (input: MbAlertInput) => {
+      const a: MbAlert = { ...input, id: ++seq, card: { ...input.card, name: cards.find((c) => c.id === input.card.id)?.name } }
+      alerts.push(a)
+      return a
+    },
+    updateAlert: async (id: number, patch: Partial<MbAlertInput> & { archived?: boolean }) => {
+      const a = alerts.find((x) => x.id === id)
+      if (!a) throw new Error(`Stub: alert ${id} not found`)
+      Object.assign(a, patch, patch.card ? { card: { ...a.card, ...patch.card } } : {})
+      return a
+    },
+    listUsers: async (): Promise<MbUserRef[]> => [{ id: 1, email: 'stub@adhar.dev', common_name: 'Stub User' }],
+    listSnippets: async () => snippets,
+    createSnippet: async (input: { name: string; content: string; description?: string }) => {
+      const sn: MbSnippet = { id: ++seq, ...input }
+      snippets.push(sn)
+      return sn
+    },
+  }
+}
+
 export const MetabaseClient = defineClient<MetabaseClient>(build, () => {
   const pulses = STUB_PULSES.slice()
+  const legacy = stubLegacy(pulses)
+  return { ...legacy, ...stub51(legacy.runQuery) }
+})
+
+function stubLegacy(pulses: Pulse[]) {
   return {
     listDatabases: async () => STUB_DATABASES,
     listCollections: async () => STUB_COLLECTIONS,
@@ -587,7 +1034,7 @@ export const MetabaseClient = defineClient<MetabaseClient>(build, () => {
     getDashboard: async (id) => {
       const dashboard = STUB_DASHBOARDS.find((d) => d.id === id)
       if (!dashboard) throw new Error(`Stub: dashboard ${id} not found`)
-      const cards = dashboard.cards
+      const cards = (dashboard.cards ?? [])
         .map((dc) => STUB_QUESTIONS.find((q) => q.id === dc.card_id))
         .filter((q): q is Question => !!q)
       return { dashboard, cards }
@@ -669,5 +1116,5 @@ export const MetabaseClient = defineClient<MetabaseClient>(build, () => {
         running_time_ms: Date.now() - start,
       }
     },
-  }
-})
+  } satisfies Omit<MetabaseClient, keyof ReturnType<typeof stub51>>
+}

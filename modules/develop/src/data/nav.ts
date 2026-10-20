@@ -54,9 +54,11 @@ export interface DevelopParams {
   /** Performance: the open suite / run. */
   suite?: string;
   run?: string;
+  /** Performance Readiness: the application whose report is open. */
+  app?: string;
 }
 
-const KEYS = ['repo', 'tab', 'pr', 'issue', 'sha', 'branch', 'state', 'conn', 'view', 'suite', 'run'] as const;
+const KEYS = ['repo', 'tab', 'pr', 'issue', 'sha', 'branch', 'state', 'conn', 'view', 'suite', 'run', 'app'] as const;
 
 function clean(o: Record<string, unknown>): Record<string, string> {
   const out: Record<string, string> = {};

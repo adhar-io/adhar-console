@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Button, Modal, useToast } from '@adhar/shell-ui'
+import { usePatchSprintMeta } from '../data/planning-store.ts'
 import type { plane } from '@adhar/api-clients'
 import {
   memberDisplayName,
@@ -85,6 +86,7 @@ export function CreateProjectModal({
             Cancel
           </Button>
           <Button
+            variant="primary"
             size="sm"
             onClick={submit}
             loading={create.isPending}
@@ -151,9 +153,11 @@ export function CreateCycleModal({
   onCreated?(c: plane.Cycle): void
 }) {
   const create = useCreateCycle(projectId)
+  const sprintMeta = usePatchSprintMeta()
   const toast = useToast()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [goal, setGoal] = useState('')
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
 
@@ -167,11 +171,14 @@ export function CreateCycleModal({
         end_date: end || null,
       },
       {
-        onError: (e) => toast.error(planeError(e, "Couldn't create the cycle.")),
+        onError: (e) => toast.error(planeError(e, "Couldn't create the sprint.")),
         onSuccess: (c) => {
-          toast.success(`Created cycle ${c.name}.`)
+          toast.success(`Created sprint ${c.name}.`)
+          // The goal is console-side (Plane cycles have no goal field).
+          if (goal.trim()) sprintMeta.mutate({ id: c.id, fn: (cur) => ({ ...(cur ?? { project: projectId! }), project: projectId!, goal: goal.trim() }) }, { onError: () => toast.error('The sprint was created, but its goal could not be saved (console database unavailable).') })
           onCreated?.(c)
           setName('')
+          setGoal('')
           setDescription('')
           setStart('')
           setEnd('')
@@ -185,8 +192,8 @@ export function CreateCycleModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="New cycle"
-      description="Sprint-shaped iteration. Pick a start + end date and Plane tracks progress."
+      title="New sprint"
+      description="A Plane cycle. Give it dates now, or leave them empty and start it from the sprint when the team commits."
       branded
       footer={
         <>
@@ -194,12 +201,13 @@ export function CreateCycleModal({
             Cancel
           </Button>
           <Button
+            variant="primary"
             size="sm"
             onClick={submit}
             loading={create.isPending}
             disabled={!name.trim() || !projectId || Boolean(start) !== Boolean(end) || (Boolean(start && end) && end < start)}
           >
-            Create cycle
+            Create sprint
           </Button>
         </>
       }
@@ -237,14 +245,22 @@ export function CreateCycleModal({
             ? 'Plane needs both dates, or neither for a draft cycle.'
             : start && end && end < start
               ? 'The end date is before the start date.'
-              : 'Leave both empty to save a draft cycle.'}
+              : 'Leave both empty to save a draft sprint.'}
         </p>
+        <Field label="Sprint goal" hint="What the team commits to deliver. Kept in the console.">
+          <input
+            value={goal}
+            onChange={(e) => setGoal(e.target.value)}
+            placeholder="Ship team switching end to end"
+            className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+          />
+        </Field>
         <Field label="Description">
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
-            placeholder="Goal of this cycle — what ships?"
+            placeholder="Notes for this sprint"
             className="block w-full resize-y rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           />
         </Field>
@@ -288,9 +304,9 @@ export function CreateModuleModal({
         members: lead ? [lead] : [],
       },
       {
-        onError: (e) => toast.error(planeError(e, "Couldn't create the module.")),
+        onError: (e) => toast.error(planeError(e, "Couldn't create the epic.")),
         onSuccess: (m) => {
-          toast.success(`Created module ${m.name}.`)
+          toast.success(`Created epic ${m.name}.`)
           onCreated?.(m)
           setName('')
           setDescription('')
@@ -307,8 +323,8 @@ export function CreateModuleModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="New module"
-      description="Epic-shaped grouping that bundles related issues."
+      title="New epic"
+      description="A Plane module: a deliverable that groups related work items, with a lead, dates and progress."
       branded
       footer={
         <>
@@ -316,12 +332,13 @@ export function CreateModuleModal({
             Cancel
           </Button>
           <Button
+            variant="primary"
             size="sm"
             onClick={submit}
             loading={create.isPending}
             disabled={!name.trim() || !projectId}
           >
-            Create module
+            Create epic
           </Button>
         </>
       }
@@ -462,6 +479,7 @@ export function CreateViewModal({
             Cancel
           </Button>
           <Button
+            variant="primary"
             size="sm"
             onClick={submit}
             loading={create.isPending}
@@ -654,6 +672,7 @@ export function InviteMemberModal({
             Cancel
           </Button>
           <Button
+            variant="primary"
             size="sm"
             onClick={submit}
             loading={invite.isPending}

@@ -26,6 +26,13 @@ import { SEED_JOURNEYS, SEED_PERSONAS } from '../data/seed.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import type { Journey, JourneyEmotion, JourneyStage, Persona } from '../data/types.ts'
 import { useDesignParams, useGoDesign, useSetDesignParams } from '../data/nav.ts'
+import { type DesignScope, useDesignScope } from '../data/design-scope.ts'
+import { scopedApps, useCatalogApps } from '../data/designer-repos.ts'
+import { analyticsProblem, FUNNEL_RANGES, pct, useEventNames, useJourneyFunnel } from '../data/analytics.ts'
+import { usePlaneIssueIndex } from '../data/plane.ts'
+import { AskAiButton, CohortField, ComponentChips, IssueStateChip, type PickableApp, PlaneLinksList } from '../components/integrations.tsx'
+import { JourneyAiModal, JourneyWorkItemsButton, ProjectTagSelect } from '../components/ux-integrations.tsx'
+import { SharedChip } from '../components/scope-picker.tsx'
 import {
   EMOTION_EMOJI,
   EMOTION_SCORE,
@@ -74,8 +81,17 @@ const LANE_DOT: Record<LaneKey, string> = {
  * open journey lives in the URL (`?journey=…`).
  */
 export function Journeys() {
-  const { items, isLoading, error, refetch } = useCollection<Journey>(KIND.journey)
+  const scope = useDesignScope()
+  const all = useCollection<Journey>(KIND.journey)
+  const { isLoading, error, refetch } = all
+  const items = useMemo(() => all.items.filter((j) => scope.matches(j)), [all.items, scope])
   const { items: personas } = useCollection<Persona>(KIND.persona)
+  const catalog = useCatalogApps()
+  // Catalog components a stage can be linked to: the applications in scope.
+  const apps = useMemo<PickableApp[]>(
+    () => scopedApps(catalog.data ?? [], scope.inScope, scope.projects).map((a) => ({ name: a.name, project: a.project })),
+    [catalog.data, scope.inScope, scope.projects],
+  )
   const create = useCreate<Journey>(KIND.journey)
   const remove = useRemove(KIND.journey)
   const restore = useSeedExamples<Journey>(KIND.journey)
@@ -109,12 +125,13 @@ export function Journeys() {
     })
   }, [sorted, q, personas])
 
-  const open = items.find((j) => j.id === params.journey) ?? sorted[0] ?? null
+  // A deep link may name a journey outside the scope — still open it.
+  const open = all.items.find((j) => j.id === params.journey) ?? sorted[0] ?? null
 
   const doCreate = async (j: Journey) => {
     setCreateOpen(false)
     try {
-      const created = await create.mutateAsync(j)
+      const created = await create.mutateAsync({ ...scope.tag(), ...j })
       setParams({ journey: created.id })
       toast.success('Journey created', { description: 'Click any cell to start mapping.' })
     } catch (e) {
@@ -162,7 +179,7 @@ export function Journeys() {
 
   return (
     <div className="space-y-4">
-      {items.length === 0 ? (
+      {all.items.length === 0 ? (
         <>
           <div className="flex justify-end">
             <Button size="sm" variant="primary" onClick={() => setCreateOpen(true)} leading={<IconPlus size={12} />}>
@@ -223,7 +240,10 @@ export function Journeys() {
                       </span>
                     )}
                     <span className="min-w-0 flex-1">
-                      <span className={cn('block truncate text-sm', on ? 'font-semibold text-content' : 'text-content')}>{j.name}</span>
+                      <span className="flex items-center gap-1.5">
+                        <span className={cn('block truncate text-sm', on ? 'font-semibold text-content' : 'text-content')}>{j.name}</span>
+                        {scope.project && !j.project ? <SharedChip /> : null}
+                      </span>
                       <span className="block truncate text-[11px] text-content-subtle">
                         {j.stages.length} stages{p ? ` · ${shortPersonaName(p.name)}` : ' · no persona'}
                       </span>
@@ -231,7 +251,7 @@ export function Journeys() {
                   </button>
                 )
               })}
-              {visible.length === 0 ? <p className="px-2 py-3 text-xs text-content-subtle">No journeys match.</p> : null}
+              {visible.length === 0 ? <p className="px-2 py-3 text-xs text-content-subtle">{items.length ? 'No journeys match.' : `No journeys in ${scope.label}.`}</p> : null}
             </nav>
           </aside>
 
@@ -240,6 +260,8 @@ export function Journeys() {
               key={open.id}
               journey={open}
               personas={personas}
+              scope={scope}
+              apps={apps}
               onDelete={() => del(open)}
               onDuplicate={() => {
                 const { _createdAt: _a, _updatedAt: _b, _updatedBy: _c, ...plain } = open
@@ -288,11 +310,15 @@ function blankStage(name: string): JourneyStage {
 function JourneyEditor({
   journey,
   personas,
+  scope,
+  apps,
   onDelete,
   onDuplicate,
 }: {
   journey: Listed<Journey>
   personas: Persona[]
+  scope: DesignScope
+  apps: PickableApp[]
   onDelete(): void
   onDuplicate(): void
 }) {
@@ -304,11 +330,20 @@ function JourneyEditor({
   const [dragFrom, setDragFrom] = useState<number | null>(null)
   const [dragOver, setDragOver] = useState<number | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
+  const [aiOpen, setAiOpen] = useState(false)
+  // Product analytics: a PostHog funnel over the events that mark each stage.
+  // Reads the saved journey (autosaved), so typing an event name doesn't query per keystroke.
+  const funnel = useJourneyFunnel(journey)
+  const eventNames = useEventNames()
+  const plane = usePlaneIssueIndex(draft?.planeLinks ?? [])
 
   if (!draft) return null
   const j = draft
   const persona = personas.find((p) => p.id === j.persona)
   const n = j.stages.length
+  const conv = new Map((funnel.data ?? []).map((c) => [c.stageId, c]))
+  const stepsNamed = j.stages.filter((s) => (s.events ?? []).some((e) => e.trim())).length
+  const stageApps = j.project ? apps.filter((a) => !a.project || a.project === j.project || scope.projects.find((p) => p.slug === j.project)?.argoProject === a.project) : apps
 
   const set = (patch: Partial<Journey>) => edit((d) => ({ ...d, ...patch }))
   const setStages = (fn: (s: JourneyStage[]) => JourneyStage[]) => edit((d) => ({ ...d, stages: fn(d.stages) }))
@@ -354,7 +389,9 @@ function JourneyEditor({
             {saving ? 'Saving…' : journey._updatedAt ? `Edited ${formatRelative(journey._updatedAt)}` : null}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <AskAiButton onClick={() => setAiOpen(true)}>Draft stages</AskAiButton>
+          <JourneyWorkItemsButton journey={j} persona={persona} scope={scope} onLinks={(planeLinks) => set({ planeLinks })} />
           <ExportMenu open={exportOpen} setOpen={setExportOpen} onPick={exportAs} />
           <Button size="sm" variant="ghost" onClick={onDuplicate} leading={<IconDuplicate size={12} />}>
             Duplicate
@@ -402,6 +439,38 @@ function JourneyEditor({
           <InlineText value={j.goal ?? ''} onCommit={(v) => set({ goal: v.trim() || undefined })} placeholder="What is the persona trying to achieve?" className="text-sm" />
           <Mini>Summary</Mini>
           <InlineText multiline value={j.summary} onCommit={(v) => set({ summary: v })} placeholder="Scope and scenario of this journey…" className="text-sm text-content-muted" />
+        </div>
+        <div className="space-y-2 md:col-span-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Mini>Evidence</Mini>
+            <span className="text-[11px] text-content-subtle">PostHog funnel over the stage events{j.evidence?.cohortName ? `, narrowed to “${j.evidence.cohortName}”` : ''}</span>
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <Select
+                aria-label="Funnel date range"
+                value={j.evidence?.range ?? '-30d'}
+                onChange={(e) => set({ evidence: { ...(j.evidence ?? {}), range: e.target.value } })}
+                className="h-8 py-1 text-xs"
+                options={FUNNEL_RANGES.map((r) => ({ value: r.id, label: `Last ${r.label}` }))}
+              />
+              <span className="text-[11px] text-content-subtle">Project</span>
+              <ProjectTagSelect scope={scope} value={j.project} onChange={(project) => set({ project })} />
+            </div>
+          </div>
+          <CohortField
+            value={j.evidence?.cohortId}
+            onChange={(c) => set({ evidence: { ...(j.evidence ?? {}), cohortId: c?.id, cohortName: c?.name } })}
+          />
+          <p className="text-[11px] text-content-muted">
+            {stepsNamed < 2
+              ? 'Name the PostHog event that marks each stage (Analytics row below) — conversion shows once two stages have one.'
+              : funnel.error
+              ? analyticsProblem(funnel.error)
+              : funnel.isLoading
+              ? 'Loading conversion from PostHog…'
+              : funnel.data?.length
+              ? `${funnel.data[0].count.toLocaleString()} people reached “${funnel.data[0].stageName}”; ${pct(funnel.data[funnel.data.length - 1].fromStart)} made it to “${funnel.data[funnel.data.length - 1].stageName}”.`
+              : 'PostHog returned no funnel for these events in this range.'}
+          </p>
         </div>
       </div>
 
@@ -521,6 +590,60 @@ function JourneyEditor({
               <div className="border-l border-t border-edge-subtle" />
             </LaneRow>
           ))}
+
+          {/* Platform links: catalog components, analytics events, Plane items */}
+          <LaneRow label="Components" hint="Catalog apps serving it">
+            {j.stages.map((s) => (
+              <div key={s.id} className="border-l border-t border-edge-subtle px-2 py-2">
+                <ComponentChips apps={stageApps} value={s.components ?? []} onChange={(components) => setStage(s.id, { components })} emptyHint="No apps in scope" />
+              </div>
+            ))}
+            <div className="border-l border-t border-edge-subtle" />
+          </LaneRow>
+          <LaneRow label="Analytics" hint="Event reaching it">
+            {j.stages.map((s) => {
+              const c = conv.get(s.id)
+              return (
+                <div key={s.id} className="space-y-1 border-l border-t border-edge-subtle px-2 py-2">
+                  <input
+                    value={s.events?.[0] ?? ''}
+                    onChange={(e) => setStage(s.id, { events: e.target.value ? [e.target.value] : [] })}
+                    list={`ph-events-${j.id}`}
+                    placeholder="PostHog event…"
+                    aria-label={`PostHog event for ${s.name}`}
+                    className="h-7 w-full rounded-md border border-edge-default bg-surface-raised px-2 font-mono text-[11px] text-content placeholder:font-sans placeholder:text-content-subtle focus:border-brand-400 focus:outline-none"
+                  />
+                  {c ? (
+                    <div className="text-[11px] text-content-muted" title={`${pct(c.fromStart)} of the first stage`}>
+                      <span className="font-semibold tabular-nums text-content">{c.count.toLocaleString()}</span> people
+                      {c.stageId !== funnel.data?.[0]?.stageId ? <span> · {pct(c.fromPrevious)} from previous</span> : null}
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
+            <div className="border-l border-t border-edge-subtle" />
+          </LaneRow>
+          <LaneRow label="Work items" hint="Live from Plane">
+            {j.stages.map((s) => {
+              const mine = (j.planeLinks ?? []).filter((l) => l.source.includes(`:${s.id}:`))
+              return (
+                <div key={s.id} className="space-y-1 border-l border-t border-edge-subtle px-2 py-2">
+                  {mine.length ? mine.map((l) => {
+                    const info = plane.index.get(l.issueId)
+                    return (
+                      <div key={l.issueId} className="flex items-center gap-1.5 text-[11px]" title={info?.name ?? l.name}>
+                        <span className="shrink-0 font-mono text-content-subtle">{info?.key ?? l.key ?? '—'}</span>
+                        <span className="min-w-0 flex-1 truncate text-content">{info?.name ?? l.name}</span>
+                        <IssueStateChip info={info} missing={!plane.loading && !plane.error && !info} />
+                      </div>
+                    )
+                  }) : <span className="text-[11px] text-content-subtle">—</span>}
+                </div>
+              )
+            })}
+            <div className="border-l border-t border-edge-subtle" />
+          </LaneRow>
         </div>
       </div>
       {n === 0 ? (
@@ -531,6 +654,26 @@ function JourneyEditor({
           action={<Button size="sm" variant="primary" onClick={() => insertAt(0)} leading={<IconPlus size={12} />}>Add stage</Button>}
         />
       ) : null}
+      <datalist id={`ph-events-${j.id}`}>
+        {(eventNames.data ?? []).slice(0, 300).map((e) => <option key={e} value={e} />)}
+      </datalist>
+      {j.planeLinks?.length ? (
+        <PlaneLinksList links={j.planeLinks} label="Work items in Plane" onUnlink={(l) => set({ planeLinks: (j.planeLinks ?? []).filter((x) => x.issueId !== l.issueId) })} />
+      ) : null}
+      <JourneyAiModal
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        journey={j}
+        persona={persona}
+        onApply={(stages, mode) => {
+          setAiOpen(false)
+          const before = j.stages
+          setStages((ss) => (mode === 'replace' ? stages : [...ss, ...stages]))
+          toast.success(mode === 'replace' ? `Drafted ${stages.length} stages` : `Appended ${stages.length} stages`, {
+            action: { label: 'Undo', onClick: () => setStages(() => before) },
+          })
+        }}
+      />
       <p className="text-[11px] text-content-subtle">
         Drag stage headers to reorder · click any item to edit · Enter to add the next one · changes save automatically.
       </p>

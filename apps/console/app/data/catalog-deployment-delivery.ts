@@ -60,10 +60,17 @@ export interface DeliveryDiagnosis {
   xr: { name: string; namespace: string; phase?: string; message?: string; composition?: string }
   conditions: Condition[]
   project: { name: string; found: boolean; environments: Array<{ name: string; namespace?: string }> }
-  /** The application's own `spec.parameters.environments` filter, when set. */
+  /**
+   * The application's own `spec.parameters.environments`, when set. Deprecated:
+   * environments are the project's, and a current control plane ignores it
+   * (`wantedIgnored`); an older one still filters by it.
+   */
   wanted: string[]
+  wantedIgnored: boolean
   /** Environments the application asks for that its Project does not have. */
   unknownEnvs: string[]
+  /** The control plane's `ProjectEnvironments` condition, when it reports one (Inherited | OverrideIgnored). */
+  inheritance?: { reason: string; message?: string }
   envs: EnvDiagnosis[]
   warehouse: Piece
   /** Composed Objects reporting Synced/Ready = False, with their messages. */
@@ -141,8 +148,17 @@ export function diagnoseDelivery({ xr, project, objects, argoApps, stages }: Dia
   const projEnvs = (((project?.status ?? {}) as { environments?: Array<{ name?: string; namespace?: string }> }).environments ?? [])
     .filter((e): e is { name: string; namespace?: string } => Boolean(e?.name))
   const wanted = (params(xr).environments ?? []).map((e) => (e?.name ?? '').trim()).filter(Boolean)
-  const expected = projEnvs.filter((e) => !wanted.length || wanted.includes(e.name))
-  const unknownEnvs = wanted.filter((w) => projEnvs.length && !projEnvs.some((e) => e.name === w))
+  // A current control plane publishes the app's environments itself
+  // (`status.environments[]`: name, namespace, argoApplication, stage) — always
+  // the project's, the app's own list ignored. An older one still filters.
+  const published = ((xrStatus as { environments?: unknown }).environments ?? []) as Array<{ name?: string; namespace?: string; argoApplication?: string; stage?: string }>
+  const fromStatus = Array.isArray(published) && published.some((e) => e?.name)
+  const inheritCond = conditions.find((c) => c.type === 'ProjectEnvironments')
+  const wantedIgnored = fromStatus || Boolean(inheritCond)
+  const expected: Array<{ name: string; namespace?: string; argoApplication?: string; stage?: string }> = fromStatus
+    ? published.filter((e): e is { name: string } => Boolean(e?.name)).map((e) => ({ ...e, namespace: e.namespace ?? projEnvs.find((p) => p.name === e.name)?.namespace }))
+    : projEnvs.filter((e) => wantedIgnored || !wanted.length || wanted.includes(e.name))
+  const unknownEnvs = wantedIgnored ? [] : wanted.filter((w) => projEnvs.length && !projEnvs.some((e) => e.name === w))
 
   // What each composed Object wraps, so a piece can be told "composed" from "missing".
   const refs = new Set(composedRefs(xr).map((r: ObjRef) => r.name))
@@ -182,10 +198,11 @@ export function diagnoseDelivery({ xr, project, objects, argoApps, stages }: Dia
 
   const envs: EnvDiagnosis[] = expected
     .map((e) => {
-      const appName = `${proj}-${app}-${e.name}`
+      const appName = e.argoApplication || `${proj}-${app}-${e.name}`
       // The project's shared stage when it requests this app's freight, else the app's own.
-      const shared = kargo.appStage(groups.get(e.name.toLowerCase()), app)
-      const stageName = shared?.shape === 'shared' ? shared.stage.name : `${app}-${e.name}`
+      const view = kargo.appStage(groups.get(e.name.toLowerCase()), app)
+      const shared = view?.shape === 'shared' || (Boolean(e.stage) && e.stage === e.name)
+      const stageName = e.stage || (view ? view.stage.name : `${app}-${e.name}`)
       // An Object that is Ready means the manifest exists in the cluster even
       // when the Argo CD API does not list it (its token cannot see the project).
       const argoObj = wraps.get(`Application/${appName}`)
@@ -195,7 +212,11 @@ export function diagnoseDelivery({ xr, project, objects, argoApps, stages }: Dia
         ...(e.namespace ? { namespace: e.namespace } : {}),
         app: piece('Application', appName, 'adhar-system', argoLive),
         stage: piece('Stage', stageName, proj, stageKeys.has(`${proj}/${stageName}`)),
-        analysis: piece('AnalysisTemplate', `${app}-${e.name}-health`, proj, false),
+        // Shared shape: ONE `<env>-health` per environment (per-app metrics
+        // inside), composed by the project with its stage.
+        analysis: shared
+          ? { kind: 'AnalysisTemplate' as const, name: `${e.name}-health`, namespace: proj, state: stageKeys.has(`${proj}/${stageName}`) ? 'live' as const : 'missing' as const }
+          : piece('AnalysisTemplate', `${app}-${e.name}-health`, proj, false),
       }
     })
     .sort((a, b) => envOrder(a.env) - envOrder(b.env))
@@ -207,7 +228,7 @@ export function diagnoseDelivery({ xr, project, objects, argoApps, stages }: Dia
   const synced = conditions.find((c) => c.type === 'Synced')
   const ready = conditions.find((c) => c.type === 'Ready')
   const xrInfo = { name: app, namespace: xr.metadata.namespace ?? '', ...(xrStatus.phase ? { phase: xrStatus.phase } : {}), ...(xrStatus.message ? { message: xrStatus.message } : {}), ...(composition ? { composition } : {}) }
-  const base = { xr: xrInfo, conditions, project: { name: proj, found: project !== null, environments: projEnvs }, wanted, unknownEnvs, envs, warehouse, objectErrors }
+  const base = { xr: xrInfo, conditions, project: { name: proj, found: project !== null, environments: projEnvs }, wanted, unknownEnvs, wantedIgnored, ...(inheritCond?.reason ? { inheritance: { reason: inheritCond.reason, ...(inheritCond.message ? { message: inheritCond.message } : {}) } } : {}), envs, warehouse, objectErrors }
 
   if (project === null) {
     return { ...base, phase: 'blocked', headline: `Project ${proj} does not exist`, detail: `Application ${app} belongs to project ${proj}, which is not in ${xrInfo.namespace}. Create the project, or point the application at an existing one.` }

@@ -259,10 +259,26 @@ export function curationFor(kind: string): Curation {
  * matching drawer "Spec" view is generated from the same fields (paths honour
  * whether values live under `spec.parameters`).
  */
+/**
+ * Inputs a kind's form must not offer, because something above it owns them.
+ * Environments belong to the PROJECT: every application of a project is
+ * deployed into the project's dev → test → prod, so an Application form that
+ * offered its own `environments` invited per-app overrides the platform no
+ * longer supports. Existing values are read and carried through edits.
+ */
+export const PROJECT_MANAGED_FIELDS: Record<string, { keys: string[]; note: string }> = {
+  Application: {
+    keys: ['environments'],
+    note: "Environments come from the application's project — every application in a project is deployed to the project's dev → test → prod. Change them in Platform → Projects.",
+  },
+}
+
 export function configFromXrd(info: XrdInfo): XrKindConfig {
   const cur = curationFor(info.kind)
+  const managed = PROJECT_MANAGED_FIELDS[info.kind]
+  const fields = managed ? info.fields.filter((f) => !managed.keys.includes(f.key)) : info.fields
   const singular = cur.label ?? info.humanSingular
-  const specFields = info.fields.slice(0, 12).map((f) => ({
+  const specFields = fields.slice(0, 12).map((f) => ({
     key: info.parametersMode ? `parameters.${f.key}` : f.key,
     label: f.label,
     mono: f.mono,
@@ -274,7 +290,8 @@ export function configFromXrd(info: XrdInfo): XrKindConfig {
     plural: cur.label ? `${cur.label}s` : info.humanPlural,
     description: cur.description ?? `${info.kind} — provisioned via Crossplane composition.`,
     docsHref: 'https://docs.adhar.io/platform',
-    formFields: info.fields,
+    formFields: fields,
+    ...(managed ? { preservedKeys: managed.keys, formNote: managed.note } : {}),
     specFields,
     connectionSecret: cur.connectionSecret,
     parametersMode: info.parametersMode,

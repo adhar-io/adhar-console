@@ -11,6 +11,9 @@ import { toPublicUrl, useGiteaOrg, usePublicBaseDomain, useToolPublicUrl } from 
  * and the user's session decides what they can read and write.
  */
 
+export { gitBlobSha, prBranchName } from './gitea-pure.ts'
+import { gitBlobSha } from './gitea-pure.ts'
+
 export const giteaClient = gitea.GiteaClient.auto({ tool: 'gitea' })
 
 const STALE = 30_000
@@ -97,18 +100,33 @@ export interface CommitFile {
   content: string
 }
 
-/** Commit files (create or update) in one commit; returns the commit sha. */
+export interface CommitResult {
+  sha?: string
+  created: number
+  updated: number
+  /** Blob sha per committed path. */
+  blobs: Record<string, string>
+  /** Set when the change was opened as a pull request. */
+  pr?: { number: number; branch: string; url?: string }
+}
+
+/**
+ * Commit files (create or update) in one commit. With `pr`, the commit lands
+ * on a new branch cut from `branch` and a pull request into `branch` is
+ * opened — the reviewable path the console prefers for docs and specs.
+ */
 export function useCommitFiles() {
   const org = useGiteaOrg()
   return useMutation({
     mutationFn: async (
-      { repo, branch, message, files }: {
+      { repo, branch, message, files, pr }: {
         repo: string
         branch: string
         message: string
         files: CommitFile[]
+        pr?: { branch: string; title: string; body?: string }
       },
-    ) => {
+    ): Promise<CommitResult> => {
       if (!files.length) throw new Error('Nothing to commit.')
       const shas = await Promise.all(
         files.map(async (f) => {
@@ -127,11 +145,21 @@ export function useCommitFiles() {
           content: b64(f.content),
           ...(shas[i] ? { sha: shas[i] } : {}),
         })),
+        ...(pr ? { new_branch: pr.branch } : {}),
       })
+      const blobs: Record<string, string> = {}
+      for (const f of files) blobs[f.path] = await gitBlobSha(f.content)
+      let opened: CommitResult['pr']
+      if (pr) {
+        const created = await giteaClient.createPullRequest(org, repo, { head: pr.branch, base: branch, title: pr.title, body: pr.body })
+        opened = { number: created.number, branch: pr.branch, url: created.html_url }
+      }
       return {
         sha: res.commit?.sha,
         created: shas.filter((s) => !s).length,
         updated: shas.filter(Boolean).length,
+        blobs,
+        pr: opened,
       }
     },
   })

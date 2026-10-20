@@ -46,6 +46,11 @@ import {
   undo as undoHistory,
   wrapText,
   zoomAt,
+  EMBED_W,
+  embedHeight,
+  entityFacts,
+  gridAround,
+  stickiesForWork,
 } from '../data/whiteboard-model.ts'
 import { BOARD_TEMPLATES, type BoardTemplate } from '../data/whiteboard-templates.ts'
 import { designLink, useDesignParams, useNewFlag, useSetDesignParams } from '../data/deep-link.ts'
@@ -53,6 +58,16 @@ import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import { copyText, downloadBlob, downloadText, pickTextFile, svgToPng } from '../components/export.ts'
 import { useAutosave } from '../components/use-autosave.ts'
 import { Icon, Menu, SaveDot, useConfirm } from '../components/ui-bits.tsx'
+import { type DesignScope, useDesignScope, usePlatformCatalog, useWorkspaceMembers } from '../data/platform.ts'
+import { refOf } from '../data/platform-model.ts'
+import { scopeFilter, type Scoped } from '../data/scope.ts'
+import { ideaLines } from '../data/ai.ts'
+import type { Diagram } from '../data/types.ts'
+import { renderToSvg } from '../components/mermaid-render.tsx'
+import { DesignScopeBar, ScopeChip, ScopeModal } from '../components/scope-bits.tsx'
+import { EntityPickerModal } from '../components/catalog-bits.tsx'
+import { CreateWorkItemsModal } from '../components/work-bits.tsx'
+import { AskAiModal, SparkIcon } from '../components/ai-draft.tsx'
 
 /**
  * Whiteboard — a freeform infinite canvas persisted in the document store
@@ -129,11 +144,13 @@ export function Whiteboard() {
   // With no boards the template grid is already on screen.
   useNewFlag(() => boards.length && setNewOpen(true), !isLoading)
   const [ask, confirmDialog] = useConfirm()
+  const scope = useDesignScope()
 
   const sorted = useMemo(
-    () => [...boards].sort((a, b) => (b._updatedAt ?? b.updated_at ?? '').localeCompare(a._updatedAt ?? a.updated_at ?? '')),
-    [boards],
+    () => scopeFilter(boards, scope.lens).shown.sort((a, b) => (b._updatedAt ?? b.updated_at ?? '').localeCompare(a._updatedAt ?? a.updated_at ?? '')),
+    [boards, scope.lens],
   )
+  // A deep link opens its board even when the team lens would hide it.
   const active = (params.board ? boards.find((b) => b.id === params.board) : undefined) ?? sorted[0]
 
   const create = (name: string, elements: BoardEl[]) => {
@@ -145,6 +162,7 @@ export function Whiteboard() {
       ...toLegacy(elements),
       created_at: now,
       updated_at: now,
+      ...scope.initial,
     }
     createBoard.mutate(board, {
       onSuccess: (created) => {
@@ -197,11 +215,14 @@ export function Whiteboard() {
 
   return (
     <>
+      <DesignScopeBar scope={scope} shown={sorted.length} total={boards.length} noun="boards" />
       <BoardCanvas
         key={active.id}
         board={active}
         boards={sorted}
         me={user?.name ?? ''}
+        meId={user?.id}
+        scope={scope}
         onSwitch={(id) => setParams({ board: id }, { push: true })}
         onNew={() => setNewOpen(true)}
         onDuplicate={(b, elements) => create(`${b.name} (copy)`, cloneElements(elements, new Set(elements.map((e) => e.id)), (p) => newId(p), 0, 0))}
@@ -314,6 +335,8 @@ function BoardCanvas({
   board,
   boards,
   me,
+  meId,
+  scope,
   onSwitch,
   onNew,
   onDuplicate,
@@ -323,6 +346,8 @@ function BoardCanvas({
   board: Listed<BoardDoc>
   boards: Listed<BoardDoc>[]
   me: string
+  meId?: string
+  scope: DesignScope
   onSwitch(id: string): void
   onNew(): void
   onDuplicate(b: BoardDoc, elements: BoardEl[]): void
@@ -345,6 +370,20 @@ function BoardCanvas({
   const [preview, setPreview] = useState<{ kind: ShapeKind; box: Box } | null>(null)
   const [connectPreview, setConnectPreview] = useState<{ a: Pt; b: Pt; target?: string } | null>(null)
   const [penPoints, setPenPoints] = useState<Pt[] | null>(null)
+  const [scopeV, setScopeV] = useState<Scoped>({ project: board.project, team: board.team })
+  const [scopeOpen, setScopeOpen] = useState(false)
+  const [entityOpen, setEntityOpen] = useState(false)
+  const [diagramOpen, setDiagramOpen] = useState(false)
+  const [workOpen, setWorkOpen] = useState(false)
+  const [aiOpen, setAiOpen] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const hasEntityEmbeds = (board.elements ?? []).some((e) => isShape(e) && e.embed?.type === 'entity')
+  const catalog = usePlatformCatalog(entityOpen || refreshing || hasEntityEmbeds)
+  const { items: diagramDocs } = useCollection<Diagram>(KIND.diagram)
+  const members = useWorkspaceMembers()
+  // Last save this tab made — tells our own autosaves from someone else's edits.
+  const ownSave = useRef<string | undefined>(board._updatedAt)
+  const loadedAt = useRef(board._updatedAt)
 
   const hostRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
@@ -364,17 +403,24 @@ function BoardCanvas({
   const latestBoard = useRef(board)
   latestBoard.current = board
   const save = useCallback(
-    (v: { name: string; elements: BoardEl[] }) =>
+    (v: { name: string; elements: BoardEl[]; scope: Scoped }) =>
       update.mutateAsync({
         ...latestBoard.current,
         name: v.name.trim() || 'Untitled board',
         elements: v.elements,
         ...toLegacy(v.elements),
+        project: v.scope.project,
+        team: v.scope.team,
         updated_at: new Date().toISOString(),
+        updated_by: me || undefined,
+        updated_by_id: meId,
+      } as BoardDoc).then((saved) => {
+        ownSave.current = (saved as Listed<BoardDoc>)._updatedAt
+        return saved
       }),
-    [update],
+    [update, me, meId],
   )
-  const autosave = useAutosave({ name, elements }, save, {
+  const autosave = useAutosave({ name, elements, scope: scopeV }, save, {
     key: board.id,
     delay: 800,
     onError: (e) => toast.error('Autosave failed', { description: e.message }),
@@ -689,6 +735,10 @@ function BoardCanvas({
     const id = (e.target as Element).closest('[data-el-id]')?.getAttribute('data-el-id')
     if (id) {
       const el = elsRef.current.find((x) => x.id === id)
+      if (el && isShape(el) && el.embed) {
+        setSelected(new Set([id]))
+        return
+      }
       if (el && el.kind !== 'pen' && !el.locked) {
         setSelected(new Set([id]))
         setEditing(id)
@@ -898,6 +948,122 @@ function BoardCanvas({
     )
   }
 
+  /* platform: embeds, work items, AI */
+  const centre = () => {
+    const v = viewport()
+    return toWorld(v.left + v.w / 2, v.top + v.h / 2)
+  }
+  const embedEntities = (refs: string[]) => {
+    const at = new Date().toISOString()
+    const picked = catalog.entities.filter((e) => refs.includes(refOf(e)))
+    if (!picked.length) return
+    const c = centre()
+    const pos = gridAround(c, picked.length, EMBED_W, 200, 24)
+    const els: ShapeEl[] = picked.map((e, i) => {
+      const f = entityFacts(e)
+      return {
+        id: newId('el'),
+        kind: 'rect',
+        x: pos[i].x,
+        y: pos[i].y,
+        w: EMBED_W,
+        h: embedHeight(f.lines.length),
+        text: '',
+        color: 'slate',
+        embed: { type: 'entity', ref: refOf(e), title: f.title, subtitle: f.subtitle, lines: f.lines, at },
+      }
+    })
+    commit((prev) => [...prev, ...els])
+    setSelected(new Set(els.map((e) => e.id)))
+    toast.success(`Embedded ${els.length} catalog entit${els.length === 1 ? 'y' : 'ies'}`, { description: 'Read-only snapshots — refresh them from the board menu.' })
+  }
+  const svgDataUri = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+  const embedDiagram = async (d: Diagram) => {
+    try {
+      const svg = await renderToSvg(d.source)
+      const c = centre()
+      const el: ShapeEl = {
+        id: newId('el'),
+        kind: 'rect',
+        x: c.x - 200,
+        y: c.y - 150,
+        w: 400,
+        h: 300,
+        text: '',
+        color: 'slate',
+        embed: { type: 'diagram', ref: d.id, title: d.title, subtitle: 'Diagram', image: svgDataUri(svg), at: new Date().toISOString() },
+      }
+      commit((prev) => [...prev, el])
+      setSelected(new Set([el.id]))
+    } catch (err) {
+      toast.error('Could not render the diagram', { description: (err as Error).message })
+    }
+  }
+  const refreshEmbeds = () => {
+    const targets = elsRef.current.filter((e): e is ShapeEl => isShape(e) && !!e.embed && (!selected.size || selected.has(e.id)))
+    if (!targets.length) return toast.info('No embeds to refresh')
+    setRefreshing(true)
+  }
+  // Runs once the catalog is enabled and loaded for a refresh.
+  useEffect(() => {
+    if (!refreshing || catalog.isLoading) return
+    let alive = true
+    ;(async () => {
+      const at = new Date().toISOString()
+      const sel = selRef.current
+      const updates = new Map<string, ShapeEl['embed']>()
+      for (const e of elsRef.current) {
+        if (!isShape(e) || !e.embed || (sel.size && !sel.has(e.id))) continue
+        if (e.embed.type === 'entity') {
+          const ent = catalog.entities.find((x) => refOf(x) === e.embed!.ref)
+          if (!ent) updates.set(e.id, { ...e.embed, missing: true, at })
+          else {
+            const f = entityFacts(ent)
+            updates.set(e.id, { ...e.embed, title: f.title, subtitle: f.subtitle, lines: f.lines, missing: false, at })
+          }
+        } else {
+          const d = diagramDocs.find((x) => x.id === e.embed!.ref)
+          if (!d) updates.set(e.id, { ...e.embed, missing: true, at })
+          else {
+            try {
+              updates.set(e.id, { ...e.embed, title: d.title, image: svgDataUri(await renderToSvg(d.source)), missing: false, at })
+            } catch {
+              updates.set(e.id, { ...e.embed, at })
+            }
+          }
+        }
+      }
+      if (!alive) return
+      setRefreshing(false)
+      commit((prev) =>
+        prev.map((x) => {
+          const emb = updates.get(x.id)
+          if (!emb || !isShape(x)) return x
+          return { ...x, embed: emb, h: emb.type === 'entity' ? Math.max(x.h, embedHeight(emb.lines?.length ?? 0)) : x.h }
+        })
+      )
+      const missing = [...updates.values()].filter((u) => u?.missing).length
+      toast.success(`Refreshed ${updates.size} snapshot${updates.size === 1 ? '' : 's'}`, { description: missing ? `${missing} source${missing === 1 ? ' is' : 's are'} gone — marked missing.` : undefined })
+    })()
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshing, catalog.isLoading])
+
+  const workStickies = stickiesForWork(elements, selected)
+  const addIdeas = (ideas: string[]) => {
+    if (!ideas.length) return toast.info('No ideas in the reply')
+    const pos = gridAround(centre(), ideas.length)
+    const els: ShapeEl[] = ideas.map((t, i) => ({ id: newId('el'), kind: 'sticky', x: pos[i].x, y: pos[i].y, w: STICKY_W, h: STICKY_H, text: t, color, author: 'Adhar AI' }))
+    commit((prev) => [...prev, ...els])
+    setSelected(new Set(els.map((e) => e.id)))
+    toast.success(`Added ${els.length} sticky notes`)
+  }
+  const lastEditor = board.updated_by ?? (board._updatedBy ? members.data?.find((m) => m.userId === board._updatedBy)?.name : undefined)
+  const changedElsewhere = !!board._updatedAt && board._updatedAt !== ownSave.current && board._updatedAt !== loadedAt.current &&
+    (!board.updated_by_id || board.updated_by_id !== meId)
+
   /* export */
   const exportSvg = (): string | null => {
     const g = contentRef.current
@@ -952,6 +1118,10 @@ function BoardCanvas({
           className="min-w-40 flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 text-base font-semibold tracking-tight text-content hover:border-edge-default focus:border-edge-default focus:outline-none focus:ring-2 focus:ring-brand-400/20"
         />
         <SaveDot state={autosave.state} />
+        <ScopeChip item={scopeV} scope={scope} />
+        <span className="text-[11px] text-content-subtle" title={board._updatedAt}>
+          Edited {formatRelative(board._updatedAt ?? board.updated_at)}{lastEditor ? ` by ${lastEditor}` : ''}
+        </span>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <div className="flex items-center">
             <IconBtn label="Undo (⌘Z)" onClick={doUndo} disabled={!history.past.length}><Icon name="undo" /></IconBtn>
@@ -981,6 +1151,16 @@ function BoardCanvas({
             ariaLabel="Board actions"
             icon={<Icon name="more" />}
             items={[
+              { label: 'Project & owner…', onSelect: () => setScopeOpen(true) },
+              { label: 'Embed catalog entity…', onSelect: () => setEntityOpen(true) },
+              { label: 'Embed diagram…', onSelect: () => setDiagramOpen(true) },
+              { label: selected.size ? 'Refresh selected snapshots' : 'Refresh all snapshots', onSelect: refreshEmbeds },
+              {
+                label: `Create Plane work items from ${workStickies.length || 'selected'} stick${workStickies.length === 1 ? 'y' : 'ies'}…`,
+                onSelect: () => setWorkOpen(true),
+                disabled: !workStickies.length,
+              },
+              'separator',
               { label: 'Duplicate board', onSelect: () => onDuplicate({ ...board, name }, elements) },
               {
                 label: 'Import board JSON…',
@@ -1006,9 +1186,18 @@ function BoardCanvas({
               { label: 'Delete board', onSelect: () => onDelete(board), danger: true },
             ]}
           />
+          <Button size="sm" leading={<SparkIcon />} onClick={() => setAiOpen(true)}>Ask Adhar AI</Button>
           <Button size="sm" variant="primary" leading={<Icon name="plus" />} onClick={onNew}>New board</Button>
         </div>
       </div>
+      {changedElsewhere
+        ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[12px] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+            {lastEditor ?? 'Someone else'} saved this board {formatRelative(board._updatedAt ?? board.updated_at)} while you had it open. Your next edit overwrites theirs.
+            <button type="button" onClick={() => location.reload()} className="font-semibold underline-offset-2 hover:underline">Reload their version</button>
+          </div>
+        )
+        : null}
 
       {/* canvas */}
       <div
@@ -1174,6 +1363,16 @@ function BoardCanvas({
               onBack={() => commit((prev) => reorder(prev, selected, 'back'))}
               onDuplicate={duplicateSelected}
               onDelete={deleteSelected}
+              extra={
+                <>
+                  {workStickies.length
+                    ? <button type="button" className="rounded-md px-1.5 py-0.5 text-[11px] font-medium text-brand-700 hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-500/10" onClick={() => setWorkOpen(true)}>To Plane ({workStickies.length})</button>
+                    : null}
+                  {selectedEls.some((e) => isShape(e) && e.embed)
+                    ? <button type="button" className="rounded-md px-1.5 py-0.5 text-[11px] font-medium text-content-muted hover:bg-surface-sunken hover:text-content" onClick={refreshEmbeds}>{refreshing ? 'Refreshing…' : 'Refresh snapshot'}</button>
+                    : null}
+                </>
+              }
             />
           )
           : (tool === 'sticky' || tool === 'rect' || tool === 'ellipse' || tool === 'diamond' || tool === 'pen')
@@ -1237,7 +1436,81 @@ function BoardCanvas({
 
         {helpOpen ? <ShortcutHelp onClose={() => setHelpOpen(false)} /> : null}
       </div>
+      <ScopeModal open={scopeOpen} onClose={() => setScopeOpen(false)} value={scopeV} scope={scope} onSave={(v) => {
+        setScopeOpen(false)
+        setScopeV(v)
+      }} />
+      <EntityPickerModal
+        open={entityOpen}
+        onClose={() => setEntityOpen(false)}
+        entities={catalog.entities}
+        sources={catalog.sources}
+        selected={[]}
+        title="Embed catalog entities"
+        onSave={(refs) => {
+          setEntityOpen(false)
+          embedEntities(refs)
+        }}
+      />
+      <DiagramPickerModal open={diagramOpen} onClose={() => setDiagramOpen(false)} diagrams={diagramDocs} onPick={(d) => {
+        setDiagramOpen(false)
+        void embedDiagram(d)
+      }} />
+      <CreateWorkItemsModal
+        open={workOpen}
+        onClose={() => setWorkOpen(false)}
+        title={`Create ${workStickies.length} Plane work item${workStickies.length === 1 ? '' : 's'}`}
+        description="One work item per selected sticky note, each linking back to this board. Review the titles first."
+        items={workStickies.map((s) => ({ source: `board:${board.id}:sticky:${s.id}`, name: s.text.split('\n')[0].slice(0, 200), description: `${s.text}\n\nFrom whiteboard “${name}”${s.author ? ` · note by ${s.author}` : ''}.`, context: 'Sticky note' }))}
+        scope={scopeV.project ? { slug: scopeV.project, name: scope.projectName(scopeV.project) } : undefined}
+        backLink={designLink({ board: board.id })}
+        onCreated={(links) => {
+          const at = new Date().toISOString()
+          const bySticky = new Map(links.map((l) => [l.source.split(':sticky:')[1], l]))
+          commit((prev) =>
+            prev.map((x) => {
+              const l = bySticky.get(x.id)
+              if (!l || !isShape(x)) return x
+              return { ...x, work: { projectId: l.projectId, issueId: l.issueId, key: l.key, at } }
+            })
+          )
+        }}
+      />
+      <AskAiModal
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        kind="stickies"
+        title="Brainstorm with Adhar AI"
+        description="Adhar AI suggests ideas; each line becomes a sticky note in the middle of the board."
+        placeholder="Risks of moving the checkout service to event-driven ordering"
+        context={[{ description: 'Notes on this board', value: elements.filter(isShape).map((e) => e.text).filter(Boolean).slice(0, 60).join('\n') || 'empty board' }]}
+        fence={['text', 'markdown']}
+        applyLabel="Add sticky notes"
+        onApply={(text) => addIdeas(ideaLines('```text\n' + text + '```'))}
+      />
     </div>
+  )
+}
+
+function DiagramPickerModal({ open, onClose, diagrams, onPick }: { open: boolean; onClose(): void; diagrams: Diagram[]; onPick(d: Diagram): void }) {
+  const [q, setQ] = useState('')
+  const shown = diagrams.filter((d) => !q.trim() || d.title.toLowerCase().includes(q.toLowerCase())).sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''))
+  return (
+    <Modal open={open} onClose={onClose} title="Embed a diagram" description="Places a rendered snapshot on the board; refresh it after the diagram changes." width="md">
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search diagrams…" aria-label="Search diagrams" className="mb-2 h-8 w-full rounded-lg border border-edge-default bg-surface-raised px-2.5 text-[12.5px] text-content" />
+      <ul className="max-h-[50vh] divide-y divide-edge-subtle overflow-auto rounded-lg border border-edge-default">
+        {shown.length === 0
+          ? <li className="p-4 text-center text-[12px] text-content-subtle">{diagrams.length ? 'No diagrams match.' : 'No diagrams yet — create one in Design → Diagrams.'}</li>
+          : shown.map((d) => (
+            <li key={d.id}>
+              <button type="button" onClick={() => onPick(d)} className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[13px] text-content hover:bg-surface-sunken/60">
+                <span className="truncate">{d.title}</span>
+                <span className="shrink-0 text-[11px] text-content-subtle">{formatRelative(d.updated_at)}</span>
+              </button>
+            </li>
+          ))}
+      </ul>
+    </Modal>
   )
 }
 
@@ -1310,6 +1583,42 @@ const ElementView = memo(function ElementView({
 })
 
 const ShapeView = memo(function ShapeView({ el, editing, onDown }: { el: ShapeEl; editing: boolean; onDown(e: React.PointerEvent, el: BoardEl): void }) {
+  if (el.embed) return <EmbedView el={el} onDown={onDown} />
+  return <PlainShapeView el={el} editing={editing} onDown={onDown} />
+})
+
+/** A read-only snapshot card: a catalog entity's facts or a rendered diagram. */
+function EmbedView({ el, onDown }: { el: ShapeEl; onDown(e: React.PointerEvent, el: BoardEl): void }) {
+  const em = el.embed!
+  const tone = em.type === 'entity' ? '#0ea5e9' : '#8b5cf6'
+  const fit = (t: string, size: number, maxW: number) => {
+    const m = measurer(size)
+    if (m(t) <= maxW) return t
+    let s = t
+    while (s.length > 1 && m(`${s}…`) > maxW) s = s.slice(0, -1)
+    return `${s}…`
+  }
+  const lines = (em.lines ?? []).slice(0, Math.max(0, Math.floor((el.h - 64) / 18)))
+  return (
+    <g data-el-id={el.id} onPointerDown={(e) => onDown(e, el)} style={{ cursor: el.locked ? 'default' : 'move' }}>
+      <rect x={el.x + 2} y={el.y + 4} width={el.w} height={el.h} rx={12} fill="#0f172a" opacity={0.08} />
+      <rect x={el.x} y={el.y} width={el.w} height={el.h} rx={12} fill="var(--color-surface-raised, #ffffff)" stroke={tone} strokeOpacity={0.55} strokeWidth={1.5} />
+      <rect x={el.x} y={el.y} width={5} height={el.h} rx={2.5} fill={tone} />
+      <text x={el.x + 16} y={el.y + 24} fontSize={14} fontWeight={600} fill="currentColor" fontFamily={FONT}>{fit(em.title, 14, el.w - 32)}</text>
+      <text x={el.x + 16} y={el.y + 41} fontSize={11} fill={tone} fontFamily={FONT}>{fit(`${em.subtitle ?? ''}${em.missing ? ' · source missing' : ''}`, 11, el.w - 32)}</text>
+      {em.type === 'diagram' && em.image
+        ? <image href={em.image} x={el.x + 10} y={el.y + 50} width={el.w - 20} height={Math.max(10, el.h - 72)} preserveAspectRatio="xMidYMid meet" />
+        : lines.map((l, i) => (
+          <text key={i} x={el.x + 16} y={el.y + 64 + i * 18} fontSize={12} fill="currentColor" opacity={0.8} fontFamily={FONT}>{fit(l, 12, el.w - 32)}</text>
+        ))}
+      <text x={el.x + el.w - 10} y={el.y + el.h - 8} textAnchor="end" fontSize={9.5} fill="currentColor" opacity={0.45} fontFamily={FONT}>
+        snapshot {new Date(em.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+      </text>
+    </g>
+  )
+}
+
+const PlainShapeView = memo(function PlainShapeView({ el, editing, onDown }: { el: ShapeEl; editing: boolean; onDown(e: React.PointerEvent, el: BoardEl): void }) {
   const pal = PALETTE[el.color]
   const size = defaultFont(el)
   const weight = el.kind === 'frame' ? 600 : 400
@@ -1377,6 +1686,14 @@ const ShapeView = memo(function ShapeView({ el, editing, onDown }: { el: ShapeEl
         : null}
       {el.kind === 'sticky' && el.author
         ? <text x={el.x + el.w - 8} y={el.y + el.h - 8} textAnchor="end" fontSize={10} fill={textFill} opacity={0.55} fontFamily={FONT}>{el.author}</text>
+        : null}
+      {el.kind === 'sticky' && el.work
+        ? (
+          <g>
+            <rect x={el.x + 8} y={el.y + el.h - 22} width={Math.max(46, measurer(10, 600)(el.work.key ?? 'Plane') + 22)} height={15} rx={7.5} fill="#4f46e5" opacity={0.9} />
+            <text x={el.x + 15} y={el.y + el.h - 11.5} fontSize={10} fontWeight={600} fill="#ffffff" fontFamily={FONT}>↗ {el.work.key ?? 'Plane'}</text>
+          </g>
+        )
         : null}
       {el.locked
         ? <text x={el.x + el.w - 6} y={el.y + 14} textAnchor="end" fontSize={11} fill="currentColor" opacity={0.5} data-export-ignore="">🔒</text>
@@ -1511,8 +1828,10 @@ function PropertiesBar({
   onBack,
   onDuplicate,
   onDelete,
+  extra,
 }: {
   els: BoardEl[]
+  extra?: React.ReactNode
   onColor(c: ColorId): void
   onPatch(p: Partial<ShapeEl> & Partial<{ route: Route; arrow: ArrowStyle; dashed: boolean; width: number }>): void
   onFront(): void
@@ -1585,8 +1904,12 @@ function PropertiesBar({
       >
         <Icon name="trash" size={13} />
       </button>
+      {extra}
       {els.length === 1 && first.kind === 'sticky' && (first as ShapeEl).author
         ? <span className="ml-1 text-[10.5px] text-content-subtle">by {(first as ShapeEl).author}</span>
+        : null}
+      {els.length === 1 && first.kind === 'sticky' && (first as ShapeEl).work
+        ? <span className="ml-1 text-[10.5px] text-content-subtle">· in Plane {(first as ShapeEl).work!.key ?? ''}</span>
         : null}
     </div>
   )

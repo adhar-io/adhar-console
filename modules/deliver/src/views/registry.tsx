@@ -71,6 +71,10 @@ export function Registry() {
             Nexus <span className="font-normal text-content-subtle">· packages</span>
           </SegButton>
         </div>
+        {/* Findings across images, waivers and the scan gate live on Scans. */}
+        <a href="/deliver?section=scans&tab=findings" className="text-[12px] font-medium text-brand-700 hover:underline dark:text-brand-300">
+          Findings, waivers and scan review →
+        </a>
       </div>
       {kind === 'harbor' ? <HarborRegistry /> : <NexusRegistry />}
     </div>

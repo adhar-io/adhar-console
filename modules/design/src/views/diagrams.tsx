@@ -21,7 +21,7 @@ import {
   TYPE_LABEL,
 } from '../data/diagrams-seed.ts'
 import { detectSyntax, slugify, SYNTAX_LABEL } from '../data/mermaid-util.ts'
-import { designLink, useDesignParams, useNewFlag, useSetDesignParams } from '../data/deep-link.ts'
+import { designHref, designLink, useDesignParams, useNewFlag, useSetDesignParams } from '../data/deep-link.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import type { Diagram, DiagramType } from '../data/types.ts'
 import { MermaidPreview, renderToSvg, useMermaidSvg } from '../components/mermaid-render.tsx'
@@ -30,6 +30,17 @@ import { PanZoom } from '../components/pan-zoom.tsx'
 import { copyText, downloadBlob, downloadText, svgToPng } from '../components/export.ts'
 import { useAutosave } from '../components/use-autosave.ts'
 import { Icon, Menu, SaveDot, SearchBox, Segmented, TagInput, useConfirm } from '../components/ui-bits.tsx'
+import { type DesignScope, notifyOrg, usePlatformCatalog, usePlatformSnapshot, useDesignScope } from '../data/platform.ts'
+import { generateDiagram, type GeneratorInfo, type GeneratorKind, type GeneratorParams, GENERATOR_LABEL, lineDiff } from '../data/platform-model.ts'
+import { scopeFilter, type Scoped } from '../data/scope.ts'
+import type { AdrDoc } from '../data/adr.ts'
+import { formatAdrNumber } from '../data/adr.ts'
+import { GenerateDiagramModal, RegenerateModal } from '../components/diagram-platform.tsx'
+import { AskAiModal, SparkIcon } from '../components/ai-draft.tsx'
+import { EntityChips, EntityPickerModal } from '../components/catalog-bits.tsx'
+import { DesignScopeBar, ScopeChip, ScopeFields } from '../components/scope-bits.tsx'
+import { CommitToRepoModal } from '../components/git-dialogs.tsx'
+import { PrBadge } from '../components/work-bits.tsx'
 
 /**
  * Diagrams — Mermaid (incl. C4) diagrams-as-code.
@@ -49,6 +60,18 @@ type DiagramDoc = Diagram & {
   syntax?: string
   description?: string
   updated_by?: string
+  /** Workspace project / owner team. */
+  project?: string
+  team?: string
+  /** Catalog entities this diagram documents (canonical refs). */
+  entities?: string[]
+  /** ADRs this diagram illustrates (ids). */
+  adrs?: string[]
+  /** Set when generated from platform data — enables Regenerate. */
+  generator?: GeneratorInfo
+  /** Last publish to a repository. */
+  git?: { repo: string; branch: string; path: string; at: string }
+  pr?: { repo: string; number: number; branch: string; base: string; at: string }
 }
 
 type SortKey = 'updated' | 'title' | 'created'
@@ -85,11 +108,16 @@ export function Diagrams() {
   const [filter, setFilter] = useState<'all' | DiagramType>('all')
   const [sort, setSort] = useState<SortKey>('updated')
   const [galleryOpen, setGalleryOpen] = useState(false)
+  const [generateOpen, setGenerateOpen] = useState(false)
+  const [aiOpen, setAiOpen] = useState(false)
+  const scope = useDesignScope()
+  const catalog = usePlatformCatalog(aiOpen || !!params.diagram)
   useNewFlag(() => setGalleryOpen(true), !isLoading)
+  const scoped = useMemo(() => scopeFilter(list, scope.lens).shown, [list, scope.lens])
 
   const open = (id: string | undefined) => setParams({ diagram: id }, { push: true })
 
-  const create = (input: { title: string; source: string; type: DiagramType; tags?: string[]; description?: string }) => {
+  const create = (input: { title: string; source: string; type: DiagramType; tags?: string[]; description?: string; generator?: GeneratorInfo } & Scoped) => {
     const now = new Date().toISOString()
     const { type, syntax } = typeFromSource(input.source, input.type)
     const next: DiagramDoc = {
@@ -103,6 +131,10 @@ export function Diagrams() {
       created_at: now,
       updated_at: now,
       updated_by: user?.name,
+      ...scope.initial,
+      ...(input.project !== undefined ? { project: input.project } : {}),
+      ...(input.team !== undefined ? { team: input.team } : {}),
+      ...(input.generator ? { generator: input.generator } : {}),
     }
     createDiag.mutate(next, {
       onSuccess: (created) => {
@@ -114,7 +146,7 @@ export function Diagrams() {
   }
 
   const duplicate = (d: DiagramDoc) =>
-    create({ title: `${d.title} (copy)`, source: d.source, type: d.type, tags: d.tags, description: d.description })
+    create({ title: `${d.title} (copy)`, source: d.source, type: d.type, tags: d.tags, description: d.description, project: d.project, team: d.team })
 
   const remove = (d: DiagramDoc, after?: () => void) =>
     ask({
@@ -132,7 +164,7 @@ export function Diagrams() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    const out = list
+    const out = scoped
       .filter((d) => filter === 'all' || d.type === filter)
       .filter(
         (d) =>
@@ -148,13 +180,20 @@ export function Diagrams() {
       title: (a, b) => a.title.localeCompare(b.title),
     }
     return out.sort(by[sort])
-  }, [list, search, filter, sort])
+  }, [scoped, search, filter, sort])
 
   const counts = useMemo(() => {
     const out: Partial<Record<DiagramType, number>> = {}
-    for (const d of list) out[d.type] = (out[d.type] ?? 0) + 1
+    for (const d of scoped) out[d.type] = (out[d.type] ?? 0) + 1
     return out
-  }, [list])
+  }, [scoped])
+
+  const aiContext = [
+    {
+      description: 'Service catalog',
+      value: catalog.entities.slice(0, 80).map((e) => `${e.kind} ${e.name}${e.system ? ` (system ${e.system})` : ''}${e.providesApis.length ? ` provides ${e.providesApis.join(', ')}` : ''}${e.consumesApis.length ? ` consumes ${e.consumesApis.join(', ')}` : ''}`).join('\n') || 'empty',
+    },
+  ]
 
   if (error) return <ErrorBlock error={error} onRetry={refetch} />
   if (isLoading) return <LoadingBlock label="Loading diagrams…" />
@@ -175,6 +214,8 @@ export function Diagrams() {
         <DiagramEditor
           key={d.id}
           diagram={d}
+          scope={scope}
+          aiContext={aiContext}
           onBack={() => open(undefined)}
           onDuplicate={() => duplicate(d)}
           onDelete={() => remove(d, () => open(undefined))}
@@ -190,7 +231,7 @@ export function Diagrams() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex flex-wrap items-center gap-1">
-          <FilterChip on={filter === 'all'} onClick={() => setFilter('all')} label="All" count={list.length} />
+          <FilterChip on={filter === 'all'} onClick={() => setFilter('all')} label="All" count={scoped.length} />
           {types.map((t) => (
             <FilterChip key={t} on={filter === t} onClick={() => setFilter(t)} label={TYPE_LABEL[t]} count={counts[t] ?? 0} />
           ))}
@@ -210,6 +251,12 @@ export function Diagrams() {
           <Button size="sm" onClick={() => setGalleryOpen(true)} leading={<Icon name="template" />}>
             Templates
           </Button>
+          <Button size="sm" onClick={() => setAiOpen(true)} leading={<SparkIcon />}>
+            Ask Adhar AI
+          </Button>
+          <Button size="sm" onClick={() => setGenerateOpen(true)} leading={<Icon name="split" />}>
+            Generate from platform
+          </Button>
           <Button
             size="sm"
             variant="primary"
@@ -222,14 +269,18 @@ export function Diagrams() {
         </div>
       </div>
 
+      <DesignScopeBar scope={scope} shown={scoped.length} total={list.length} noun="diagrams" />
       {list.length === 0
         ? (
           <EmptyState
             title="Diagrams as code"
-            description="Write Mermaid — flowcharts, sequences, C4, ER, state machines — and see it render live. Start from an Adhar architecture template or a blank canvas."
+            description="Write Mermaid — flowcharts, sequences, C4, ER, state machines — and see it render live. Generate C4, deployment and tenancy views from your live platform, or start from a template."
             action={
               <div className="flex flex-wrap items-center justify-center gap-2">
-                <Button size="sm" variant="primary" onClick={() => setGalleryOpen(true)} leading={<Icon name="template" />}>
+                <Button size="sm" variant="primary" onClick={() => setGenerateOpen(true)}>
+                  Generate from platform
+                </Button>
+                <Button size="sm" onClick={() => setGalleryOpen(true)} leading={<Icon name="template" />}>
                   Browse templates
                 </Button>
                 <Button
@@ -254,6 +305,7 @@ export function Diagrams() {
               <DiagramCard
                 key={d.id}
                 d={d}
+                scope={scope}
                 onOpen={() => open(d.id)}
                 onDuplicate={() => duplicate(d)}
                 onDelete={() => remove(d)}
@@ -273,6 +325,41 @@ export function Diagrams() {
           setGalleryOpen(false)
           create({ title: t.title, source: t.source, type: t.type, tags: t.tags, description: t.description })
         }}
+      />
+      <GenerateDiagramModal
+        open={generateOpen}
+        onClose={() => setGenerateOpen(false)}
+        initialProject={scope.initial.project}
+        busy={createDiag.isPending}
+        onCreate={(g) => {
+          setGenerateOpen(false)
+          create({
+            title: g.title,
+            source: g.source,
+            type: 'flowchart',
+            tags: ['generated', g.kind],
+            description: `Generated from the platform (${GENERATOR_LABEL[g.kind]}).`,
+            ...(g.params.project ? { project: g.params.project } : {}),
+            generator: { kind: g.kind, params: g.params, at: new Date().toISOString(), output: g.source },
+          })
+        }}
+      />
+      <AskAiModal
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        kind="diagram"
+        title="Draw a diagram with Adhar AI"
+        description="Describe what to show; Adhar AI writes Mermaid using your catalog's names."
+        placeholder="Sequence of a checkout: storefront calls orders-api, which reserves stock and charges payments…"
+        context={aiContext}
+        fence="mermaid"
+        applyLabel="Create diagram"
+        renderPreview={(text) => (
+          <div className="flex h-[40vh] items-center justify-center overflow-hidden rounded-lg border border-edge-default p-3" style={PAPER_BG}>
+            <MermaidPreview source={text} className="flex h-full w-full items-center justify-center [&_svg]:!h-full [&_svg]:!w-full [&_svg]:!max-w-none" />
+          </div>
+        )}
+        onApply={(source) => create({ title: 'AI diagram', source, type: 'flowchart', tags: ['ai'] })}
       />
       {confirmDialog}
     </div>
@@ -336,12 +423,14 @@ function TypePill({ d }: { d: DiagramDoc }) {
 
 function DiagramCard({
   d,
+  scope,
   onOpen,
   onDuplicate,
   onDelete,
   onCopyLink,
 }: {
   d: Listed<DiagramDoc>
+  scope: DesignScope
   onOpen(): void
   onDuplicate(): void
   onDelete(): void
@@ -378,6 +467,8 @@ function DiagramCard({
             ? <p className="line-clamp-1 text-[12px] text-content-muted">{d.description}</p>
             : null}
           <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-content-subtle">
+            <ScopeChip item={d} scope={scope} />
+            {d.generator ? <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">generated</span> : null}
             <span>
               Updated {formatRelative(d.updated_at)}
               {d.updated_by || d._updatedBy ? ` by ${d.updated_by ?? d._updatedBy}` : ''}
@@ -499,11 +590,15 @@ interface Draft {
 
 function DiagramEditor({
   diagram,
+  scope,
+  aiContext,
   onBack,
   onDuplicate,
   onDelete,
 }: {
-  diagram: DiagramDoc
+  diagram: Listed<DiagramDoc>
+  scope: DesignScope
+  aiContext: { description: string; value: string }[]
   onBack(): void
   onDuplicate(): void
   onDelete(): void
@@ -520,6 +615,13 @@ function DiagramEditor({
   const [layout, setLayout] = useState<Layout>('split')
   const [reveal, setReveal] = useState<{ line: number; nonce: number } | null>(null)
   const [tplOpen, setTplOpen] = useState(false)
+  const [aiOpen, setAiOpen] = useState(false)
+  const [publishOpen, setPublishOpen] = useState(false)
+  const [entityOpen, setEntityOpen] = useState(false)
+  const [regen, setRegen] = useState<{ source: string } | null>(null)
+  const [regenerating, setRegenerating] = useState(false)
+  const snapshot = usePlatformSnapshot(regenerating || entityOpen || (diagram.entities ?? []).length > 0)
+  const { items: adrs } = useCollection<AdrDoc>(KIND.adr)
   const render = useMermaidSvg(draft.source, 250)
   const syntax = detectSyntax(draft.source)
 
@@ -546,6 +648,21 @@ function DiagramEditor({
   })
 
   const name = slugify(draft.title, 'diagram')
+  const patchMeta = (patch: Partial<DiagramDoc>) =>
+    update.mutateAsync({ ...latest.current, ...draft, ...patch, updated_at: new Date().toISOString(), updated_by: user?.name })
+      .catch((e: Error) => toast.error('Could not save', { description: e.message }))
+
+  // Regenerate once the snapshot is ready.
+  useEffect(() => {
+    if (!regenerating || !snapshot.ready || !diagram.generator) return
+    setRegenerating(false)
+    const next = generateDiagram(diagram.generator.kind as GeneratorKind, diagram.generator.params as GeneratorParams, snapshot.data)
+    if (next.trim() === draft.source.trim()) {
+      toast.success('Up to date', { description: 'The platform matches this diagram.' })
+      void patchMeta({ generator: { ...diagram.generator, at: new Date().toISOString(), output: next } })
+    } else setRegen({ source: next })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [regenerating, snapshot.ready])
 
   const exportSvg = async () => {
     try {
@@ -597,6 +714,14 @@ function DiagramEditor({
               { id: 'preview', label: <Icon name="eye" />, title: 'Preview only' },
             ]}
           />
+          {diagram.generator
+            ? (
+              <Button size="sm" onClick={() => setRegenerating(true)} loading={regenerating} title={`Generated ${formatRelative(diagram.generator.at)} — ${GENERATOR_LABEL[diagram.generator.kind]}`}>
+                Regenerate
+              </Button>
+            )
+            : null}
+          <Button size="sm" onClick={() => setAiOpen(true)} leading={<SparkIcon />}>Ask AI</Button>
           <Button size="sm" onClick={() => setTplOpen(true)} leading={<Icon name="template" />}>
             Templates
           </Button>
@@ -607,6 +732,7 @@ function DiagramEditor({
               { label: 'SVG image', onSelect: exportSvg },
               { label: 'PNG image (2×)', onSelect: exportPng },
               { label: 'Mermaid source (.mmd)', onSelect: () => downloadText(draft.source, `${name}.mmd`) },
+              { label: 'Publish to repo docs (PR)…', onSelect: () => setPublishOpen(true) },
               'separator',
               { label: 'Copy as Markdown', onSelect: copyMd },
               {
@@ -697,6 +823,47 @@ function DiagramEditor({
           : null}
       </div>
 
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <ScopeFields compact value={{ project: diagram.project, team: diagram.team }} onChange={(v) => void patchMeta({ project: v.project, team: v.team })} scope={scope} />
+        <div>
+          <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">Catalog entities</span>
+          <div className="flex flex-wrap items-center gap-1">
+            <EntityChips refs={diagram.entities ?? []} entities={snapshot.catalog.entities} loaded={snapshot.catalog.settled} onChange={(entities) => void patchMeta({ entities })} />
+            <button type="button" onClick={() => setEntityOpen(true)} className="text-[11.5px] text-brand-700 hover:underline dark:text-brand-300">Link…</button>
+          </div>
+        </div>
+        <div>
+          <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">Decisions (ADRs)</span>
+          <div className="flex flex-wrap items-center gap-1">
+            {(diagram.adrs ?? []).map((id) => {
+              const a = adrs.find((x) => x.id === id)
+              return (
+                <span key={id} className="inline-flex items-center gap-1 rounded-full bg-surface-sunken px-2 py-0.5 text-[11.5px] text-content">
+                  <a href={designHref('adrs', { adr: id })} className="hover:underline">{a ? `${formatAdrNumber(a.number)} ${a.title}` : 'missing ADR'}</a>
+                  <button type="button" aria-label="Unlink" className="opacity-60 hover:opacity-100" onClick={() => void patchMeta({ adrs: (diagram.adrs ?? []).filter((x) => x !== id) })}>×</button>
+                </span>
+              )
+            })}
+            <select
+              value=""
+              onChange={(e) => e.target.value && void patchMeta({ adrs: [...(diagram.adrs ?? []), e.target.value] })}
+              className="h-7 max-w-40 rounded-lg border border-dashed border-edge-default bg-transparent px-2 text-[12px] text-content-muted"
+              aria-label="Link ADR"
+            >
+              <option value="">+ Link ADR…</option>
+              {adrs.filter((a) => !(diagram.adrs ?? []).includes(a.id)).sort((a, b) => b.number - a.number).map((a) => (
+                <option key={a.id} value={a.id}>{formatAdrNumber(a.number)} · {a.title}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="text-[11px] text-content-subtle">
+          <span className="mb-1 block font-semibold uppercase tracking-[0.06em]">Activity</span>
+          Last saved {formatRelative(diagram._updatedAt ?? diagram.updated_at)}{diagram.updated_by || diagram._updatedBy ? ` by ${diagram.updated_by ?? diagram._updatedBy}` : ''}
+          {diagram.generator ? <div>Generated {formatRelative(diagram.generator.at)} · {GENERATOR_LABEL[diagram.generator.kind]}</div> : null}
+          {diagram.pr ? <div className="mt-0.5"><PrBadge repo={diagram.pr.repo} number={diagram.pr.number} /></div> : null}
+        </div>
+      </div>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <label className="block">
           <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">Tags</span>
@@ -713,6 +880,71 @@ function DiagramEditor({
         </label>
       </div>
 
+      <AskAiModal
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        kind="diagram"
+        title="Rework this diagram with Adhar AI"
+        description="Describe the change; the reply replaces the source when you apply it (undo with ⌘Z)."
+        placeholder="Add the payments service and show which calls are asynchronous…"
+        context={[{ description: 'Current diagram', value: draft.source }, ...aiContext]}
+        fence="mermaid"
+        applyLabel="Replace source"
+        renderPreview={(text) => (
+          <div className="flex h-[40vh] items-center justify-center overflow-hidden rounded-lg border border-edge-default p-3" style={PAPER_BG}>
+            <MermaidPreview source={text} className="flex h-full w-full items-center justify-center [&_svg]:!h-full [&_svg]:!w-full [&_svg]:!max-w-none" />
+          </div>
+        )}
+        onApply={(source) => setDraft((d) => ({ ...d, source }))}
+      />
+      <RegenerateModal
+        open={!!regen}
+        onClose={() => setRegen(null)}
+        diff={regen ? lineDiff(draft.source, regen.source) : []}
+        handEdited={!!diagram.generator && diagram.generator.output.trim() !== draft.source.trim()}
+        onReplace={() => {
+          if (!regen || !diagram.generator) return
+          const source = regen.source
+          setDraft((d) => ({ ...d, source }))
+          void patchMeta({ source, generator: { ...diagram.generator, at: new Date().toISOString(), output: source } })
+          setRegen(null)
+          toast.success('Diagram regenerated', { description: 'Updated from live platform data.' })
+        }}
+      />
+      <EntityPickerModal
+        open={entityOpen}
+        onClose={() => setEntityOpen(false)}
+        entities={snapshot.catalog.entities}
+        sources={snapshot.catalog.sources}
+        selected={diagram.entities ?? []}
+        title="Attach to catalog entities"
+        onSave={(entities) => {
+          setEntityOpen(false)
+          void patchMeta({ entities })
+        }}
+      />
+      <CommitToRepoModal
+        open={publishOpen}
+        onClose={() => setPublishOpen(false)}
+        title="Publish diagram to repository docs"
+        description="Writes the Mermaid source (.mmd) and a rendered SVG next to it."
+        initial={diagram.git ? { repo: diagram.git.repo, branch: diagram.git.branch, folder: diagram.git.path.split('/').slice(0, -1).join('/') } : undefined}
+        defaultFolder="docs/diagrams"
+        defaultMessage={`docs(diagrams): ${draft.title}`}
+        prBody={`Diagram “${draft.title}” published from Adhar Console → Design → Diagrams.${diagram.generator ? `\n\nGenerated from the platform (${GENERATOR_LABEL[diagram.generator.kind]}).` : ''}`}
+        buildFiles={async () => [
+          { path: `${name}.mmd`, content: draft.source.trimEnd() + '\n' },
+          { path: `${name}.svg`, content: await renderToSvg(draft.source) },
+        ]}
+        onCommitted={(t) => {
+          const at = new Date().toISOString()
+          void patchMeta({
+            git: { repo: t.repo, branch: t.branch, path: t.paths[0], at },
+            ...(t.pr ? { pr: { repo: t.repo, number: t.pr.number, branch: t.pr.branch, base: t.branch, at } } : {}),
+          })
+          if (t.pr) void notifyOrg({ title: `Diagram PR: ${draft.title}`, description: `${user?.name ?? 'Someone'} opened ${t.repo}#${t.pr.number}.`, href: designHref('diagrams', { diagram: diagram.id }), key: `design-diagram-pr-${diagram.id}-${t.pr.number}` })
+        }}
+      />
       <InsertTemplateModal
         open={tplOpen}
         onClose={() => setTplOpen(false)}

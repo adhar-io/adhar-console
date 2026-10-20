@@ -224,3 +224,21 @@ Deno.test('release history: in a shared stage only this service\'s promotions co
   const h = releaseHistory([{ stage: s, env: 'retail · Development', shared: true }], promos, freight, 'my-service')
   assertEquals(h.map((r) => r.promotion), ['p-origin', 'p-mine'])
 })
+
+Deno.test('delivery: the control plane\'s published environments win, the app\'s own list is ignored', () => {
+  const x = xr({
+    status: {
+      conditions: [{ type: 'Synced', status: 'True' }, { type: 'ProjectEnvironments', status: 'True', reason: 'OverrideIgnored', message: 'spec.parameters.environments is ignored' }],
+      environments: [
+        { name: 'dev', namespace: 'retail-dev', argoApplication: 'retail-my-service-dev', stage: 'dev' },
+        { name: 'test', namespace: 'retail-test', argoApplication: 'retail-my-service-test', stage: 'test' },
+      ],
+    },
+  }, { project: 'retail', environments: [{ name: 'prod' }] })
+  const d = diagnoseDelivery({ xr: x, project: project(ENVS3), objects: [], argoApps: [], stages: [sharedStage('dev', ['my-service'])] })
+  assertEquals(d.envs.map((e) => [e.env, e.app.name, e.stage.name, e.analysis.name, e.analysis.state]), [
+    ['dev', 'retail-my-service-dev', 'dev', 'dev-health', 'live'],
+    ['test', 'retail-my-service-test', 'test', 'test-health', 'missing'],
+  ])
+  assertEquals([d.wanted, d.wantedIgnored, d.unknownEnvs, d.inheritance?.reason], [['prod'], true, [], 'OverrideIgnored'])
+})

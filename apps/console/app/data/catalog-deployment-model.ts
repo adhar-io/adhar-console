@@ -1,4 +1,4 @@
-import type { argocd } from '@adhar/api-clients'
+import { type argocd, kargo } from '@adhar/api-clients'
 import { envLabel, envOrder, type EntityDeployment, type KargoEnvironment, workloadNamespace } from './catalog-deployment.ts'
 
 /**
@@ -176,8 +176,9 @@ export type TriggerKind = 'promotion' | 'user' | 'auto' | 'unknown'
  */
 export function describeTrigger(ev: Pick<DeployEvent, 'initiatedBy' | 'automated'>, commitMessage?: string): { kind: TriggerKind; label: string } {
   const msg = (commitMessage ?? '').trim()
-  const promo = /^promote\(([^)]+)\)/.exec(msg)
-  if (promo) return { kind: 'promotion', label: `Kargo promotion to ${promo[1]}` }
+  // `promote(<env>): <app> <digest>` (shared stages) or `promote(<env>): <digest>` (per-app).
+  const promo = kargo.parsePromotionCommit(msg)
+  if (promo) return { kind: 'promotion', label: promo.app ? `Kargo promotion of ${promo.app} to ${promo.env}` : `Kargo promotion to ${promo.env}` }
   if (ev.initiatedBy && ev.initiatedBy !== 'automation') return { kind: 'user', label: `Synced by ${ev.initiatedBy}` }
   if (ev.automated || ev.initiatedBy === 'automation') return { kind: 'auto', label: 'Auto-sync' }
   return { kind: 'unknown', label: '' }

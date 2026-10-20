@@ -124,3 +124,22 @@ Deno.test('camera fit and zoom anchor', () => {
   assertEquals([pen.x, pen.y, pen.w, pen.h], [10, 10, 10, 20])
   assertEquals(pen.points, [[0, 0], [10, 20]])
 })
+
+Deno.test('platform embeds, work-item selection and grid layout', async () => {
+  const m = await import('./whiteboard-model.ts')
+  const f = m.entityFacts({ kind: 'Component', name: 'cart', type: 'service', owner: 'group:default/payments', project: 'shop', providesApis: ['api:default/cart-rest'], consumesApis: [], dependsOn: ['resource:default/cart-db'] })
+  if (f.title !== 'cart' || f.subtitle !== 'Component · service') throw new Error('title')
+  if (!f.lines.includes('Owner: payments') || !f.lines.includes('Provides: cart-rest') || !f.lines.includes('Depends on: cart-db')) throw new Error(f.lines.join('|'))
+  const els = [
+    { id: 'a', kind: 'sticky', x: 0, y: 0, w: 10, h: 10, text: 'Do X', color: 'amber' },
+    { id: 'b', kind: 'sticky', x: 0, y: 0, w: 10, h: 10, text: 'Done', color: 'amber', work: { projectId: 'p', issueId: 'i', at: '' } },
+    { id: 'c', kind: 'sticky', x: 0, y: 0, w: 10, h: 10, text: '  ', color: 'amber' },
+    { id: 'd', kind: 'rect', x: 0, y: 0, w: 10, h: 10, text: 'box', color: 'amber' },
+  ] as import('./whiteboard-model.ts').BoardEl[]
+  const picked = m.stickiesForWork(els, new Set(['a', 'b', 'c', 'd']))
+  if (picked.map((e) => e.id).join() !== 'a') throw new Error('only text stickies without a work item')
+  const copy = m.cloneElements(els, new Set(['b']), (p) => `${p}-1`)[0] as import('./whiteboard-model.ts').ShapeEl
+  if (copy.work) throw new Error('a copy is not linked to the work item')
+  const g = m.gridAround({ x: 0, y: 0 }, 4, 100, 100, 0)
+  if (JSON.stringify(g) !== JSON.stringify([{ x: -100, y: -100 }, { x: 0, y: -100 }, { x: -100, y: 0 }, { x: 0, y: 0 }])) throw new Error(JSON.stringify(g))
+})

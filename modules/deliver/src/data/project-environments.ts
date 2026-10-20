@@ -151,7 +151,10 @@ export function useProjectEnvironmentsData(project: string | undefined) {
       freight: freight.data ?? [],
       promotions: promotions.data ?? [],
       argoApps: argo.data ?? [],
-      extraApps: (xrs.data ?? []).filter((x) => xrProject(x) === active).map((x) => x.metadata.name),
+      extraApps: [
+        ...kargo.projectApplications(projectXR),
+        ...(xrs.data ?? []).filter((x) => xrProject(x) === active).map((x) => x.metadata.name),
+      ],
     })
   }, [active, projectXR, stages.data, freight.data, promotions.data, argo.data, xrs.data])
 
@@ -170,4 +173,29 @@ export function useProjectEnvironmentsData(project: string | undefined) {
       projects: projects.isError && !projects.data ? projects.error : undefined,
     },
   }
+}
+
+const ANALYSIS_RUN_GVR: k8s.GVR = { group: 'argoproj.io', version: 'v1alpha1', resource: 'analysisruns', namespaced: true }
+
+/**
+ * The AnalysisRun behind a stage's latest verification. A project's shared
+ * stage runs ONE `<env>-health` analysis with per-app metrics (`<app>-…`), so
+ * each app's verdict is read out of it with `kargo.appVerification`.
+ */
+export function useAnalysisRun(ref: { name: string; namespace: string } | undefined) {
+  return useQuery({
+    queryKey: ['deliver', 'analysisrun', ref?.namespace ?? '', ref?.name ?? ''],
+    queryFn: async (): Promise<kargo.AnalysisRunLike | null> => {
+      try {
+        return (await k8sClient.getGeneric(undefined, ANALYSIS_RUN_GVR, ref!.namespace, ref!.name)) as unknown as kargo.AnalysisRunLike
+      } catch (e) {
+        if (statusOf(e) === 404 || statusOf(e) === 403) return null
+        throw e
+      }
+    },
+    enabled: Boolean(ref?.name && ref.namespace),
+    refetchInterval: usePollingInterval(ARGO_MS),
+    placeholderData: keepPreviousData,
+    retry: 1,
+  })
 }

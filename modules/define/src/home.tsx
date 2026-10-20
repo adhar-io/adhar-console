@@ -9,8 +9,14 @@ import { Okrs } from './views/okrs.tsx'
 import { Modules } from './views/modules.tsx'
 import { Pages } from './views/pages.tsx'
 import { Views } from './views/views.tsx'
+import { Board } from './views/board.tsx'
+import { Backlog } from './views/backlog.tsx'
 import { Roadmap } from './views/roadmap.tsx'
 import { Members } from './views/members.tsx'
+import { MyWork } from './views/my-work.tsx'
+import { Reports } from './views/reports.tsx'
+import { Releases } from './views/releases.tsx'
+import { Automation } from './views/automation.tsx'
 import { ProjectPicker } from './components/project-picker.tsx'
 import { ProjectDetail } from './components/project-detail.tsx'
 import {
@@ -33,6 +39,12 @@ type Section =
   | 'roadmap'
   | 'okrs'
   | 'members'
+  | 'board'
+  | 'backlog'
+  | 'my-work'
+  | 'reports'
+  | 'releases'
+  | 'automation'
 
 const SECTIONS: Record<Section, { label: string; description: string }> = {
   dashboard: {
@@ -41,23 +53,39 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   },
   projects: {
     label: 'Projects',
-    description: 'Every project in the workspace — open issue counts, leads, recent activity.',
+    description: 'Portfolio — health, progress, active sprint, open bugs and leads for every project, scoped to your team.',
+  },
+  board: {
+    label: 'Board',
+    description: 'Kanban by workflow state — swimlanes, WIP limits, drag to change status or rank.',
+  },
+  backlog: {
+    label: 'Backlog',
+    description: 'Rank the backlog and plan sprints (Plane cycles) against capacity.',
   },
   issues: {
     label: 'Issues',
-    description: 'Kanban + list view with priority and label filters. Backed by Plane.so.',
+    description: 'Query work items with WQL, edit inline, bulk-update and export. Backed by Plane.',
   },
   intake: {
     label: 'Intake',
     description: 'Triage queue — accept, decline, snooze or merge incoming requests before they reach the backlog.',
   },
   cycles: {
-    label: 'Cycles',
-    description: 'Sprint-shaped time-boxed iterations with progress + countdown.',
+    label: 'Sprints',
+    description: 'Plane cycles as sprints — goals, capacity, burndown, start and complete with carry-over, velocity.',
   },
   modules: {
-    label: 'Modules',
-    description: 'Plane modules — epic-shaped groupings with leads, members, and progress.',
+    label: 'Epics',
+    description: 'Plane modules as epics — progress, target dates, leads, burnup, linked OKRs and releases.',
+  },
+  releases: {
+    label: 'Releases',
+    description: 'Versions that ship together — dates, progress, burndown and generated release notes.',
+  },
+  automation: {
+    label: 'Automation',
+    description: 'Console-side rules — when work moves or a pull request merges, update it.',
   },
   pages: {
     label: 'Pages',
@@ -69,7 +97,7 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   },
   roadmap: {
     label: 'Roadmap',
-    description: 'Issues with target dates grouped by quarter — overdue items pinned to the top.',
+    description: 'Timeline of epics and work items across projects — drag to reschedule, dependencies, milestones.',
   },
   okrs: {
     label: 'OKRs',
@@ -77,7 +105,15 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   },
   members: {
     label: 'Members',
-    description: 'Workspace-wide membership and Plane RBAC role assignment.',
+    description: 'Workload and capacity across projects, availability, the workspace directory and invitations.',
+  },
+  'my-work': {
+    label: 'My Work',
+    description: 'Your inbox — assigned, due this week, mentions, watching and recently viewed, across projects.',
+  },
+  reports: {
+    label: 'Reports',
+    description: 'Burndown, burnup, velocity, cumulative flow, control chart, created vs resolved and more.',
   },
 }
 
@@ -88,8 +124,13 @@ const PROJECT_SCOPED: Set<Section> = new Set([
   'modules',
   'pages',
   'views',
+  'board',
+  'backlog',
   'roadmap',
   'okrs',
+  'reports',
+  'releases',
+  'automation',
 ])
 
 export default function DefineHome({ section }: { section?: string } = {}) {
@@ -124,6 +165,17 @@ export default function DefineHome({ section }: { section?: string } = {}) {
       setActiveProjectIdState(fallback)
     }
   }, [activeProjectId, projects.data])
+
+  // Deep links (`?project=<id>`, e.g. a dashboard drill-down) pick the project.
+  useEffect(() => {
+    if (typeof location === 'undefined') return
+    const wanted = new URLSearchParams(location.search).get('project')?.replace(/^"|"$/g, '')
+    if (wanted && wanted !== activeProjectId && projects.data?.some((p) => p.id === wanted)) {
+      setActiveProjectIdState(wanted)
+      setStoredProjectId(wanted)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section, projects.data])
 
   const setActiveProjectId = (id: string) => {
     setActiveProjectIdState(id)
@@ -175,8 +227,10 @@ export default function DefineHome({ section }: { section?: string } = {}) {
         }
       />
       {active === 'dashboard' && (
-        <Dashboard onOpenProject={(id) => setOpenProjectId(id)} onPickProject={setActiveProjectId} />
+        <Dashboard projectId={activeProjectId} onOpenProject={(id) => setOpenProjectId(id)} onPickProject={setActiveProjectId} />
       )}
+      {active === 'my-work' && <MyWork />}
+      {active === 'reports' && <Reports projectId={activeProjectId} />}
       {active === 'projects' && (
         <Projects
           activeId={activeProjectId}
@@ -187,6 +241,8 @@ export default function DefineHome({ section }: { section?: string } = {}) {
       {active === 'issues' && (
         <Issues projectId={activeProjectId} appliedQuery={appliedIssueQuery} />
       )}
+      {active === 'board' && <Board projectId={activeProjectId} />}
+      {active === 'backlog' && <Backlog projectId={activeProjectId} />}
       {active === 'intake' && <Intake projectId={activeProjectId} />}
       {active === 'cycles' && <Cycles projectId={activeProjectId} />}
       {active === 'modules' && <Modules projectId={activeProjectId} />}
@@ -203,6 +259,8 @@ export default function DefineHome({ section }: { section?: string } = {}) {
       {active === 'roadmap' && <Roadmap projectId={activeProjectId} />}
       {active === 'okrs' && <Okrs projectId={activeProjectId} />}
       {active === 'members' && <Members />}
+      {active === 'releases' && <Releases projectId={activeProjectId} />}
+      {active === 'automation' && <Automation projectId={activeProjectId} />}
       {openProjectId ? (
         <ProjectDetail
           projectId={openProjectId}

@@ -59,6 +59,8 @@ export interface ProjectEnv {
   order: number
   /** Human-readable guardrails the project declares for this environment (approval, quota, …). */
   guardrails: string[]
+  /** The project's shared Kargo stage, as the Project publishes it (only once the chain exists). */
+  stage?: string
 }
 
 /** The minimal Project XR shape read here. */
@@ -125,9 +127,19 @@ export function projectEnvironments(project: ProjectLike | null | undefined): Pr
         namespace: typeof e.namespace === 'string' && e.namespace ? e.namespace : `${name}-${env}`,
         order,
         guardrails: [...new Set([...guardrailsOf(e), ...guardrailsOf(spec)])],
+        ...(typeof e.stage === 'string' && e.stage ? { stage: e.stage } : {}),
       }
     })
     .sort((a, b) => a.order - b.order || envOrder(a.name) - envOrder(b.name) || a.name.localeCompare(b.name))
+}
+
+/** The applications a Project publishes in `status.applications[]` (names, or objects with a name). */
+export function projectApplications(project: ProjectLike | null | undefined): string[] {
+  const list = asObj(project?.status)?.applications
+  if (!Array.isArray(list)) return []
+  return list
+    .map((a) => (typeof a === 'string' ? a : typeof asObj(a)?.name === 'string' ? String(asObj(a)!.name) : ''))
+    .filter(Boolean)
 }
 
 /* ─────────── stages ─────────── */
@@ -566,4 +578,71 @@ export function markDrift(cells: MatrixCell[]): string[] {
     }
   }
   return out
+}
+
+/* ─────────── promotion commits and verification ─────────── */
+
+/**
+ * `promote(<env>): <app> <digest> [skip ci]` — the commit a promotion pushes
+ * (the per-app shape wrote `promote(<env>): <digest>`, with no app).
+ */
+export function parsePromotionCommit(message: string | undefined): { env: string; app?: string; digest?: string } | undefined {
+  const m = /^promote\(([^)]+)\):\s*(.*)$/.exec((message ?? '').split('\n')[0].trim())
+  if (!m) return undefined
+  const words = m[2].replace(/\[skip ci\]/i, '').trim().split(/\s+/).filter(Boolean)
+  const digest = words.find((w) => /^sha256:|^[0-9a-f]{12,}$/i.test(w))
+  const app = words.find((w) => w !== digest)
+  return { env: m[1], ...(app ? { app } : {}), ...(digest ? { digest } : {}) }
+}
+
+/** The per-app metric families the project's `<env>-health` AnalysisTemplate defines. */
+export const APP_METRIC_SUFFIXES = ['rollout-healthy', 'pods-ready', 'no-restarts', 'error-rate'] as const
+
+/** The minimal Argo Rollouts AnalysisRun shape read here. */
+export interface AnalysisRunLike {
+  status?: { phase?: string; message?: string; metricResults?: Array<{ name?: string; phase?: string; message?: string }> }
+}
+
+export interface AppVerification {
+  /** This app's verdict from its own metrics (Successful / Failed / Error / Running / Pending / Inconclusive). */
+  phase: string
+  metrics: Array<{ name: string; phase: string; message?: string }>
+  /** The run's overall phase — the environment's verdict, which ANY app's failing metric decides. */
+  runPhase?: string
+  /** Other applications whose metrics failed: they block verification for the whole environment. */
+  blockedBy: string[]
+}
+
+const FAILED = new Set(['Failed', 'Error', 'Inconclusive'])
+
+/**
+ * One app's share of a shared environment's verification: the AnalysisRun's
+ * metric results named `<app>-…`. A per-app run (current shape) has
+ * unprefixed metrics — then every metric is the app's.
+ */
+export function appVerification(run: AnalysisRunLike | undefined, app: string): AppVerification | undefined {
+  const results = run?.status?.metricResults ?? []
+  if (!run?.status) return undefined
+  const prefix = `${lower(app)}-`
+  const prefixed = results.filter((r) => lower(r.name).startsWith(prefix))
+  const perApp = results.some((r) => APP_METRIC_SUFFIXES.some((sfx) => lower(r.name).endsWith(`-${sfx}`) && lower(r.name) !== sfx))
+  const mine = perApp ? prefixed : results
+  const metrics = mine.map((r) => ({ name: perApp ? (r.name ?? '').slice(prefix.length) : r.name ?? '', phase: r.phase ?? 'Pending', ...(r.message ? { message: r.message } : {}) }))
+  const phase = metrics.some((m) => FAILED.has(m.phase))
+    ? metrics.find((m) => FAILED.has(m.phase))!.phase
+    : metrics.some((m) => m.phase === 'Running')
+      ? 'Running'
+      : metrics.length && metrics.every((m) => m.phase === 'Successful')
+        ? 'Successful'
+        : metrics.length ? 'Pending' : run.status.phase ?? 'Pending'
+  const blockedBy = perApp
+    ? [...new Set(results
+      .filter((r) => !lower(r.name).startsWith(prefix) && FAILED.has(r.phase ?? ''))
+      .map((r) => {
+        const n = lower(r.name)
+        const sfx = APP_METRIC_SUFFIXES.find((x) => n.endsWith(`-${x}`))
+        return sfx ? n.slice(0, -(sfx.length + 1)) : n
+      }))]
+    : []
+  return { phase, metrics, ...(run.status.phase ? { runPhase: run.status.phase } : {}), blockedBy }
 }

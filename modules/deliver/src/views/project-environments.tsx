@@ -3,7 +3,7 @@ import { Button, EmptyState, Field, Modal, Select, Spinner, StatusBadge, type St
 import { cn, formatRelative } from '@adhar/utils'
 import { kargo } from '@adhar/api-clients'
 import { useAbortPromotion, usePromote } from '../data/delivery.ts'
-import { useProjectEnvironmentsData } from '../data/project-environments.ts'
+import { useAnalysisRun, useProjectEnvironmentsData } from '../data/project-environments.ts'
 
 /**
  * **Project environments** — the top of Deliver → Environments.
@@ -212,6 +212,10 @@ function EnvColumn({
   const deployed = cells.filter((c) => c.argoApp || c.version)
   const unhealthy = cells.filter((c) => c.health === 'Degraded' || c.health === 'Missing').length
   const drifted = cells.filter((c) => c.driftFrom).length
+  // The shared stage's verification is ONE run with per-app metrics: each
+  // app's verdict comes out of it, and any app failing fails the environment.
+  const run = useAnalysisRun(group?.shared?.verification?.analysisRun)
+  const failedRun = group?.shared?.verification && ['Failed', 'Error', 'Inconclusive'].includes(group.shared.verification.phase)
   const stageLine = group?.shared
     ? `stage ${group.shared.name} · shared by ${Math.max(group.shared.origins?.length ?? 0, Object.keys(group.shared.freightByOrigin ?? {}).length)} apps`
     : group && Object.keys(group.perApp).length
@@ -235,8 +239,20 @@ function EnvColumn({
         </div>
         <div className='mt-1.5 flex flex-wrap items-center gap-1'>
           <span className='text-[10px] text-content-subtle'>{stageLine}</span>
+          {group?.shared?.verification ? (
+            <span className={cn('text-[10px]', failedRun ? 'text-rose-700 dark:text-rose-300' : 'text-content-subtle')}>· verification {group.shared.verification.phase.toLowerCase()}</span>
+          ) : null}
           {drifted ? <span className='rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300'>{drifted} behind</span> : null}
         </div>
+        {failedRun ? (
+          <p className='mt-1.5 text-[10px] leading-relaxed text-rose-700 dark:text-rose-300'>
+            One failing application blocks verification for the whole environment
+            {(() => {
+              const blockers = run.data ? [...new Set(cells.flatMap((c) => kargo.appVerification(run.data!, c.app)?.blockedBy ?? []))] : []
+              return blockers.length ? ` — failing: ${blockers.join(', ')}` : ''
+            })()}.
+          </p>
+        ) : null}
         {env.guardrails.length ? (
           <div className='mt-1.5 flex flex-wrap gap-1'>
             {env.guardrails.map((g) => (
@@ -249,14 +265,22 @@ function EnvColumn({
         <p className='px-3.5 py-4 text-[12px] text-content-muted'>No applications in this project yet.</p>
       ) : (
         <ul className='divide-y divide-edge-subtle'>
-          {cells.map((c) => <AppRow key={c.app} cell={c} onPromote={onPromote} onAbort={onAbort} />)}
+          {cells.map((c) => (
+            <AppRow
+              key={c.app}
+              cell={c}
+              verification={c.stage?.shape === 'shared' && run.data ? kargo.appVerification(run.data, c.app) : undefined}
+              onPromote={onPromote}
+              onAbort={onAbort}
+            />
+          ))}
         </ul>
       )}
     </div>
   )
 }
 
-function AppRow({ cell: c, onPromote, onAbort }: { cell: kargo.MatrixCell; onPromote(t: Target): void; onAbort(t: Target): void }) {
+function AppRow({ cell: c, verification, onPromote, onAbort }: { cell: kargo.MatrixCell; verification?: kargo.AppVerification; onPromote(t: Target): void; onAbort(t: Target): void }) {
   const view = c.stage
   const hk = healthKind(c.health)
   return (
@@ -276,6 +300,14 @@ function AppRow({ cell: c, onPromote, onAbort }: { cell: kargo.MatrixCell; onPro
               <span className='text-content-subtle'>{c.argoApp ? 'no version yet' : 'not deployed'}</span>
             )}
             {c.version?.tag && c.version.tag !== c.version.label ? <span className='truncate font-mono text-content-subtle'>{c.version.tag}</span> : null}
+            {verification && verification.metrics.length ? (
+              <span
+                className={cn('text-[10px]', ['Failed', 'Error', 'Inconclusive'].includes(verification.phase) ? 'text-rose-700 dark:text-rose-300' : verification.phase === 'Successful' ? 'text-emerald-700 dark:text-emerald-300' : 'text-content-subtle')}
+                title={verification.metrics.map((m) => `${m.name}: ${m.phase}${m.message ? ` — ${m.message}` : ''}`).join('\n')}
+              >
+                verify {verification.phase.toLowerCase()}
+              </span>
+            ) : null}
             {c.driftFrom ? (
               <span className='rounded-full bg-amber-100 px-1.5 py-px text-[10px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300' title={`Runs something different from ${c.driftFrom}`}>
                 ≠ {c.driftFrom}

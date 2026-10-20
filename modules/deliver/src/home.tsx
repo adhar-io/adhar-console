@@ -23,6 +23,10 @@ type Section =
   | 'scans'
   | 'runtime'
   | 'policy'
+  | 'scan-review'
+  | 'waivers'
+  | 'licenses'
+  | 'scan-policy'
 
 const SECTIONS: Record<Section, { label: string; description: string }> = {
   dashboard: {
@@ -62,7 +66,25 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   },
   scans: {
     label: 'Vulnerability Scans',
-    description: 'Trivy reports — image, config, secret, RBAC and compliance findings.',
+    description:
+      'Findings in running workloads, CI and the registry; OSS licenses; waivers with review, expiry and audit; scan policy and the manual scan gate.',
+  },
+  // Direct entries into the Scans page's tabs (deep-linkable sidebar rows).
+  'scan-review': {
+    label: 'Security Review',
+    description: 'Waiver requests and pipeline runs paused at the scan gate, waiting for a reviewer.',
+  },
+  waivers: {
+    label: 'Scan Waivers',
+    description: 'Every accepted, pending, expired and revoked scan waiver — with its audit trail.',
+  },
+  licenses: {
+    label: 'OSS Licenses',
+    description: 'License inventory from the running images\' SBOMs, judged against the license policy.',
+  },
+  'scan-policy': {
+    label: 'Scan Policy',
+    description: 'Severity gate, scanners, enforce / warn, manual approval, license lists and waiver limits — global and per project.',
   },
   runtime: {
     label: 'Runtime Security',
@@ -89,6 +111,10 @@ export default function DeliverHome({ section }: { section?: string } = {}) {
       {active === 'releases' && <Releases />}
       {active === 'registry' && <Registry />}
       {active === 'scans' && <Scans />}
+      {active === 'scan-review' && <Scans defaultTab="review" />}
+      {active === 'waivers' && <Scans defaultTab="waivers" />}
+      {active === 'licenses' && <Scans defaultTab="licenses" />}
+      {active === 'scan-policy' && <Scans defaultTab="policy" />}
       {active === 'runtime' && <Runtime />}
       {active === 'policy' && <Policy />}
     </div>

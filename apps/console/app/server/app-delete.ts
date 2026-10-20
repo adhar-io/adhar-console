@@ -1,4 +1,5 @@
 import { env } from '@adhar/utils'
+import { normaliseToken } from './role-tokens.ts'
 import { getRequestUser, unauthorized } from './request-user.ts'
 import { giteaConn, giteaFetcher } from './gitea-auth.ts'
 import { apiServerFetch, resolveIdentity } from './k8s/gateway.ts'
@@ -73,10 +74,7 @@ const ALLOWED_TOKENS = new Set([
 /** DNS-1123 label — what an Application XR name and its repo name must be. */
 const DNS_LABEL = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/
 
-function normaliseToken(raw: string): string {
-  const t = raw.trim().toLowerCase().replace(/^\/+/, '')
-  return t.split('/').pop() || t
-}
+export { normaliseToken }
 
 /** True when the user's roles or groups include a role allowed to delete applications. */
 export function canDeleteApplications(user: { roles?: readonly string[]; groups?: readonly string[] } | null | undefined): boolean {

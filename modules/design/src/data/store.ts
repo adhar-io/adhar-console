@@ -32,7 +32,16 @@ export const KIND = {
   apiSpec: 'design.api-spec',
   /** Saved versions of the design-token set (Design Tokens → History). */
   tokenSnapshot: 'design.token-snapshot',
+  /** Where the token set was published to code (one doc per scope). */
+  tokenPublish: 'design.token-publish',
+  /** Per-scope Design settings — e.g. the Plane project (id = project slug or `workspace`). */
+  settings: 'design.settings',
 } as const
+
+/** Token-set document id for a scope: the workspace set, or a project's overrides. */
+export function tokenSetId(project?: string): string {
+  return project ? `project:${project}` : TOKEN_SET_ID
+}
 
 /** Well-known id for the single, workspace-wide design-token document. */
 export const TOKEN_SET_ID = 'default'

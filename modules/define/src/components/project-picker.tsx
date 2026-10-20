@@ -45,11 +45,11 @@ export function ProjectPicker({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false)
     }
-    window.addEventListener('mousedown', onClick)
-    window.addEventListener('keydown', onKey)
+    globalThis.addEventListener('mousedown', onClick)
+    globalThis.addEventListener('keydown', onKey)
     return () => {
-      window.removeEventListener('mousedown', onClick)
-      window.removeEventListener('keydown', onKey)
+      globalThis.removeEventListener('mousedown', onClick)
+      globalThis.removeEventListener('keydown', onKey)
     }
   }, [open])
 

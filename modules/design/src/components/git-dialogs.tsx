@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Modal, useToast } from '@adhar/shell-ui'
+import { useRouter } from '@tanstack/react-router'
+import { prHref } from '../data/platform.ts'
 import {
   type CommitFile,
+  type CommitResult,
   joinPath,
+  prBranchName,
   useCommitFiles,
   useGiteaBranches,
   useGiteaFileUrl,
@@ -34,7 +38,7 @@ function Label({ children }: { children: React.ReactNode }) {
   )
 }
 
-function RepoBranchFields({
+export function RepoBranchFields({
   repo,
   setRepo,
   branch,
@@ -111,7 +115,19 @@ function RepoBranchFields({
   )
 }
 
-/** Commit generated files into `<folder>/` of a Gitea repository. */
+export interface CommittedTarget extends GitTarget {
+  sha?: string
+  paths: string[]
+  /** Blob sha per committed path. */
+  blobs: Record<string, string>
+  pr?: CommitResult['pr']
+}
+
+/**
+ * Commit generated files into `<folder>/` of a Gitea repository — by default
+ * as a pull request (a new `design/…` branch cut from the chosen branch), or
+ * straight onto the branch.
+ */
 export function CommitToRepoModal({
   open,
   onClose,
@@ -122,6 +138,9 @@ export function CommitToRepoModal({
   defaultMessage,
   buildFiles,
   onCommitted,
+  prBody,
+  defaultMode = 'pr',
+  fixedFolder,
 }: {
   open: boolean
   onClose(): void
@@ -130,17 +149,28 @@ export function CommitToRepoModal({
   initial?: Partial<GitTarget>
   defaultFolder: string
   defaultMessage: string
-  /** Files relative to the chosen folder. */
-  buildFiles(): CommitFile[]
-  onCommitted?(target: GitTarget & { sha?: string; paths: string[] }): void
+  /** Files relative to the chosen folder (may be async — e.g. rendered SVG). */
+  buildFiles(): CommitFile[] | Promise<CommitFile[]>
+  onCommitted?(target: CommittedTarget): void
+  /** Pull request description. */
+  prBody?: string
+  defaultMode?: 'pr' | 'direct'
+  /** Lock the folder (files carry full paths). */
+  fixedFolder?: boolean
 }) {
   const toast = useToast()
+  const router = useRouter({ warn: false })
   const commit = useCommitFiles()
   const fileUrl = useGiteaFileUrl()
   const [repo, setRepo] = useState('')
   const [branch, setBranch] = useState('')
   const [folder, setFolder] = useState(defaultFolder)
   const [message, setMessage] = useState(defaultMessage)
+  const [mode, setMode] = useState<'pr' | 'direct'>(defaultMode)
+  const [headBranch, setHeadBranch] = useState('')
+  const [files, setFiles] = useState<CommitFile[]>([])
+  const [building, setBuilding] = useState(false)
+  const [buildError, setBuildError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -148,34 +178,63 @@ export function CommitToRepoModal({
     setBranch(initial?.branch ?? '')
     setFolder(initial?.folder ?? defaultFolder)
     setMessage(defaultMessage)
+    setMode(defaultMode)
+    setHeadBranch(prBranchName(defaultMessage.replace(/^[a-z]+(\([^)]*\))?:\s*/i, '')))
+    let alive = true
+    setBuilding(true)
+    setBuildError(null)
+    Promise.resolve()
+      .then(() => buildFiles())
+      .then((f) => alive && setFiles(f))
+      .catch((e: Error) => alive && setBuildError(e.message))
+      .finally(() => alive && setBuilding(false))
+    return () => {
+      alive = false
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  const files = useMemo(() => (open ? buildFiles() : []), [open, buildFiles])
-  const paths = files.map((f) => joinPath(folder, f.path))
+  const paths = files.map((f) => (fixedFolder ? f.path : joinPath(folder, f.path)))
+  const isPr = mode === 'pr'
 
   const submit = () => {
     if (!repo || !branch || !files.length) return
+    const msg = message.trim() || defaultMessage
     commit.mutate(
       {
         repo,
         branch,
-        message: message.trim() || defaultMessage,
+        message: msg,
         files: files.map((f, i) => ({ path: paths[i], content: f.content })),
+        pr: isPr ? { branch: headBranch.trim() || prBranchName('design'), title: msg.split('\n')[0], body: prBody } : undefined,
       },
       {
         onSuccess: (res) => {
-          const url = fileUrl(repo, branch, paths[0])
-          toast.success(`Committed to ${repo}@${branch}`, {
-            description: `${res.created} created, ${res.updated} updated${
-              res.sha ? ` · ${res.sha.slice(0, 7)}` : ''
-            }`,
-            action: url ? { label: 'Open in Gitea', onClick: () => globalThis.open(url, '_blank') } : undefined,
-          })
-          onCommitted?.({ repo, branch, folder, sha: res.sha, paths })
+          if (res.pr) {
+            const pr = res.pr
+            toast.success(`Pull request #${pr.number} opened`, {
+              description: `${repo}: ${pr.branch} → ${branch}`,
+              action: {
+                label: 'View pull request',
+                onClick: () => {
+                  const href = prHref(repo, pr.number)
+                  if (router) void router.navigate({ to: '/develop', search: { section: 'prs', pr: `${repo}/${pr.number}` } as never })
+                  else location.assign(href)
+                },
+              },
+              duration: 10_000,
+            })
+          } else {
+            const url = fileUrl(repo, branch, paths[0])
+            toast.success(`Committed to ${repo}@${branch}`, {
+              description: `${res.created} created, ${res.updated} updated${res.sha ? ` · ${res.sha.slice(0, 7)}` : ''}`,
+              action: url ? { label: 'Open in Gitea', onClick: () => globalThis.open(url, '_blank') } : undefined,
+            })
+          }
+          onCommitted?.({ repo, branch, folder, sha: res.sha, paths, blobs: res.blobs, pr: res.pr })
           onClose()
         },
-        onError: (e) => toast.error('Commit failed', { description: e.message }),
+        onError: (e) => toast.error(isPr ? 'Could not open the pull request' : 'Commit failed', { description: e.message }),
       },
     )
   }
@@ -198,26 +257,53 @@ export function CommitToRepoModal({
             variant="primary"
             onClick={submit}
             loading={commit.isPending}
-            disabled={!repo || !branch || !files.length || commit.isPending}
+            disabled={!repo || !branch || !files.length || commit.isPending || building || (isPr && !headBranch.trim())}
           >
-            Commit {files.length > 1 ? `${files.length} files` : 'file'}
+            {isPr ? 'Open pull request' : `Commit ${files.length > 1 ? `${files.length} files` : 'file'}`}
           </Button>
         </>
       }
     >
       <div className="space-y-4">
         <RepoBranchFields repo={repo} setRepo={setRepo} branch={branch} setBranch={setBranch} open={open} />
+        <div className="inline-flex rounded-lg border border-edge-default p-0.5" role="radiogroup" aria-label="How to write the change">
+          {([['pr', 'Pull request'], ['direct', 'Commit to branch']] as const).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={mode === id}
+              onClick={() => setMode(id)}
+              className={`rounded-md px-2.5 py-1 text-[12px] ${mode === id ? 'bg-surface-sunken font-semibold text-content' : 'text-content-muted hover:text-content'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {isPr
+          ? (
+            <label className="block">
+              <Label>New branch</Label>
+              <input value={headBranch} onChange={(e) => setHeadBranch(e.target.value)} className={`mt-1.5 font-mono ${INPUT}`} />
+              <span className="mt-1 block text-[11px] text-content-subtle">Cut from {branch || 'the selected branch'}; the pull request merges back into it.</span>
+            </label>
+          )
+          : null}
+        {fixedFolder ? null : (
+          <label className="block">
+            <Label>Folder</Label>
+            <input value={folder} onChange={(e) => setFolder(e.target.value)} className={`mt-1.5 font-mono ${INPUT}`} />
+          </label>
+        )}
         <label className="block">
-          <Label>Folder</Label>
-          <input value={folder} onChange={(e) => setFolder(e.target.value)} className={`mt-1.5 font-mono ${INPUT}`} />
-        </label>
-        <label className="block">
-          <Label>Commit message</Label>
+          <Label>{isPr ? 'Title / commit message' : 'Commit message'}</Label>
           <input value={message} onChange={(e) => setMessage(e.target.value)} className={`mt-1.5 ${INPUT}`} />
         </label>
         <div>
           <Label>Files</Label>
           <ul className="mt-1.5 max-h-40 overflow-auto rounded-lg border border-edge-default bg-surface-sunken/60 p-2 font-mono text-[11px] text-content-muted">
+            {building ? <li className="py-0.5">Preparing files…</li> : null}
+            {buildError ? <li className="py-0.5 text-rose-600 dark:text-rose-400">{buildError}</li> : null}
             {paths.map((p) => (
               <li key={p} className="truncate py-0.5">
                 {p}

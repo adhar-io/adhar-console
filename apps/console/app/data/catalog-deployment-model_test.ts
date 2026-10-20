@@ -241,3 +241,7 @@ Deno.test('shared stages never list another app as this service\'s environment',
   const k = kargoEnvironments([sharedStage('dev', { cart: 'f1', billing: 'f2' })], d, 'shop', { project: 'adhar' })
   assertEquals(k, [])
 })
+
+Deno.test('a shared-stage promotion commit names the application it promoted', () => {
+  assertEquals(describeTrigger({}, 'promote(test): shop sha256:0123456789abcdef [skip ci]'), { kind: 'promotion', label: 'Kargo promotion of shop to test' })
+})

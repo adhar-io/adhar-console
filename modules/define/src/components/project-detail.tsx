@@ -1,41 +1,28 @@
-import { useEffect, useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
-import {
-  Button,
-  Card,
-  CardBody,
-  CardHeader,
-  EmptyState,
-  Spinner,
-  StatusBadge,
-  Tabs,
-} from '@adhar/shell-ui'
+import { useMemo, useState } from 'react'
+import { Button, EmptyState, StatusBadge, Tabs } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
-import type { plane } from '@adhar/api-clients'
-import {
-  memberDisplayName,
-  memberInitials,
-  priorityKind,
-  useCycles,
-  useIssues,
-  useMembers,
-  useModules,
-  useProject,
-  useProjectSummary,
-  useStates,
-} from '../data/plane.ts'
-import { ProjectMembersTab, ProjectSettingsTab, WorkflowTab } from './project-admin.tsx'
+import { useCycles, useLabels, useModules, useProject, useProjectSummary } from '../data/plane.ts'
+import { usePlanIssues } from '../data/planning-plane.ts'
+import { useProjectMeta } from '../data/planning-store.ts'
+import { daysLeft, deriveHealth, effectiveHealth, isBugLabel, isOpen, isOverdue, toMs } from '../data/planning-model.ts'
+import { usePlanningParams, useSetPlanningParams } from '../data/planning-nav.ts'
+import { LabelsTab, ProjectArchive, ProjectFeatures, ProjectMembersTab, WorkflowTab } from './project-admin.tsx'
+import { EstimatesTab, HealthOverrideForm, NotificationsTab, ProjectDetailsForm, TenancyLink } from './project-settings.tsx'
+import { AutomationEditor } from './automation-editor.tsx'
 import { ProjectMark } from './project-picker.tsx'
 import { IssueDrawer } from './issue-drawer.tsx'
+import { AvatarStack, HealthBadge, Loading, Meter, ProblemState, SectionTitle, SidePanel, Stat, usePeople } from './planning-ui.tsx'
 
 /**
- * Sliding per-project overview. Aggregates the project's issues, cycles,
- * modules and members into a single dashboard so the operator can see the
- * health of one project without bouncing between sub-tabs.
- *
- * Keeps the issue work list in-line and lets clicks open the IssueDrawer —
- * portal stacking ensures the issue drawer layers above this drawer.
+ * Project drawer — overview (health, progress, sprint, epics, bugs, recent
+ * activity) and every project setting: members, workflow (states +
+ * transition rules), labels, estimates, automation, notifications, details,
+ * tenancy link, features and archive.
  */
+
+type Tab = 'overview' | 'members' | 'workflow' | 'labels' | 'estimates' | 'automation' | 'notifications' | 'settings'
+const TABS: Tab[] = ['overview', 'members', 'workflow', 'labels', 'estimates', 'automation', 'notifications', 'settings']
+
 export function ProjectDetail({
   projectId,
   onClose,
@@ -46,408 +33,198 @@ export function ProjectDetail({
   onSetActive(id: string): void
 }) {
   const project = useProject(projectId)
-  const issues = useIssues(projectId)
+  const summary = useProjectSummary(projectId)
+  const params = usePlanningParams()
+  const setParams = useSetPlanningParams()
+  const [localTab, setLocalTab] = useState<Tab>(() => (TABS.includes(params.ptab as Tab) ? params.ptab as Tab : 'overview'))
+  const linked = params.pd === projectId
+  const tab = linked && TABS.includes(params.ptab as Tab) ? params.ptab as Tab : localTab
+  const setTab = (t: Tab) => {
+    setLocalTab(t)
+    if (linked) setParams({ ptab: t === 'overview' ? undefined : t })
+  }
+  const p = project.data
+
+  return (
+    <SidePanel
+      onClose={onClose}
+      eyebrow={
+        <>
+          Project
+          {p ? <span className="rounded-md bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-content-muted">{p.identifier}</span> : null}
+          {p?.archived_at ? <StatusBadge kind="paused">archived</StatusBadge> : null}
+        </>
+      }
+      title={<span className="inline-flex items-center gap-2">{p ? <ProjectMark project={p} /> : null}{p?.name ?? 'Project'}</span>}
+      meta={p?.description || undefined}
+      actions={<Button size="sm" onClick={() => onSetActive(projectId)}>Set as active</Button>}
+    >
+      {project.isLoading ? <Loading label="Loading project…" /> : project.isError ? <ProblemState error={project.error} onRetry={() => project.refetch()} /> : !p ? null : (
+        <Tabs
+          ariaLabel="Project"
+          value={tab}
+          onChange={(t) => setTab(t as Tab)}
+          tabs={[
+            { id: 'overview', label: 'Overview' },
+            { id: 'members', label: 'Members', badge: summary.data?.counts.members ? { kind: 'unknown', value: summary.data.counts.members } : undefined },
+            { id: 'workflow', label: 'Workflow' },
+            { id: 'labels', label: 'Labels' },
+            { id: 'estimates', label: 'Estimates' },
+            { id: 'automation', label: 'Automation' },
+            { id: 'notifications', label: 'Notifications' },
+            { id: 'settings', label: 'Settings' },
+          ]}
+        >
+          {(active) => (
+            <div className="pt-4">
+              {active === 'members'
+                ? <ProjectMembersTab projectId={projectId} />
+                : active === 'workflow'
+                ? <WorkflowTab projectId={projectId} />
+                : active === 'labels'
+                ? <LabelsTab projectId={projectId} />
+                : active === 'estimates'
+                ? <EstimatesTab projectId={projectId} />
+                : active === 'automation'
+                ? <AutomationEditor projectId={projectId} />
+                : active === 'notifications'
+                ? <NotificationsTab projectId={projectId} />
+                : active === 'settings'
+                ? (
+                  <div className="space-y-8">
+                    <ProjectDetailsForm project={p} />
+                    <TenancyLink project={p} />
+                    <HealthOverrideForm projectId={projectId} />
+                    <section className="space-y-1">
+                      <h3 className="text-[14px] font-semibold text-content">Work item types and templates</h3>
+                      <p className="text-[12px] text-content-muted">Templates for new work items (bug, story, task) are managed from the Issues page's new-item dialog.</p>
+                    </section>
+                    <ProjectFeatures project={p} />
+                    <ProjectArchive project={p} onArchived={onClose} />
+                  </div>
+                )
+                : <Overview projectId={projectId} />}
+            </div>
+          )}
+        </Tabs>
+      )}
+    </SidePanel>
+  )
+}
+
+function Overview({ projectId }: { projectId: string }) {
+  const issues = usePlanIssues(projectId)
   const cycles = useCycles(projectId)
   const modules = useModules(projectId)
-  const states = useStates(projectId)
-  const members = useMembers()
+  const labels = useLabels(projectId)
+  const meta = useProjectMeta(projectId)
+  const { people } = usePeople()
   const [openIssue, setOpenIssue] = useState<string | null>(null)
-  const [tab, setTab] = useState<'overview' | 'members' | 'workflow' | 'settings'>('overview')
-  const summary = useProjectSummary(projectId)
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+  const data = useMemo(() => {
+    const list = (issues.data ?? []).filter((i) => i.state_group !== 'cancelled')
+    const done = list.filter((i) => i.state_group === 'completed').length
+    const open = list.filter(isOpen)
+    const bugIds = new Set((labels.data ?? []).filter((l) => isBugLabel(l.name)).map((l) => l.id))
+    const active = (cycles.data ?? []).find((c) => c.status === 'current')
+    const derived = deriveHealth({
+      items: list,
+      activeSprint: active ? { start_date: active.start_date, end_date: active.end_date, total: (active.total_issues ?? 0) - (active.cancelled_issues ?? 0), done: active.completed_issues ?? 0 } : undefined,
+    })
+    const recent = [...(issues.data ?? [])].sort((a, b) => (toMs(b.updated_at ?? b.created_at) ?? 0) - (toMs(a.updated_at ?? a.created_at) ?? 0)).slice(0, 8)
+    return {
+      total: list.length,
+      done,
+      open: open.length,
+      overdue: open.filter((i) => isOverdue(i)).length,
+      bugs: open.filter((i) => i.labels.some((l) => bugIds.has(l))).length,
+      inProgress: open.filter((i) => i.state_group === 'started').length,
+      active,
+      derived,
+      recent,
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [issues.data, cycles.data, labels.data])
 
-  const stateMap = useMemo(
-    () => new Map((states.data ?? []).map((s) => [s.id, s])),
-    [states.data],
-  )
-  const memberMap = useMemo(
-    () => new Map((members.data ?? []).map((m) => [m.member?.id ?? m.id, m])),
-    [members.data],
-  )
+  if (issues.isLoading) return <Loading label="Loading work items…" />
+  if (issues.isError) return <ProblemState error={issues.error} onRetry={() => issues.refetch()} />
+  const eff = effectiveHealth(data.derived, meta.data?.healthOverride)
+  const epics = (modules.data ?? []).filter((m) => m.status === 'in-progress' || m.status === 'planned')
 
-  const p = project.data
-  const list = issues.data ?? []
-  const open = list.filter((i) => !i.completed_at).length
-  const done = list.filter((i) => !!i.completed_at).length
-  const total = list.length
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0
-  const recent = list
-    .slice()
-    .sort(
-      (a, b) =>
-        new Date(b.updated_at ?? b.created_at).getTime() -
-        new Date(a.updated_at ?? a.created_at).getTime(),
-    )
-    .slice(0, 8)
-  const activeCycle = (cycles.data ?? []).find((c) => c.status === 'current')
-  const activeModules = (modules.data ?? []).filter(
-    (m) => m.status === 'in-progress' || m.status === 'planned',
-  )
-  const lead = p?.project_lead ? memberMap.get(p.project_lead) : undefined
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center gap-3">
+        <HealthBadge health={eff.health} overridden={eff.overridden} />
+        <span className="text-[12px] text-content-muted">{eff.reasons.join(' · ')}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        <Stat label="Work items" value={data.total} />
+        <Stat label="Done" value={data.done} hint={data.total ? `${Math.round((data.done / data.total) * 100)}%` : undefined} />
+        <Stat label="In progress" value={data.inProgress} />
+        <Stat label="Open" value={data.open} />
+        <Stat label="Overdue" value={data.overdue} tone={data.overdue ? 'warn' : undefined} />
+        <Stat label="Open bugs" value={data.bugs} tone={data.bugs ? 'warn' : undefined} />
+      </div>
 
-  if (typeof document === 'undefined') return null
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
-      <button
-        type="button"
-        aria-label="Close"
-        className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
-        onClick={onClose}
-      />
-      <aside className="relative flex h-full w-full max-w-5xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
-        <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
-          <div className="flex min-w-0 items-start gap-3">
-            {p ? <ProjectMark project={p} /> : null}
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
-                Project
-                {p ? (
-                  <span className="rounded-md bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-content-muted">
-                    {p.identifier}
-                  </span>
-                ) : null}
-                {p?.archived_at ? <StatusBadge kind="paused">archived</StatusBadge> : null}
-              </div>
-              <h2 className="mt-0.5 truncate text-lg font-semibold tracking-tight text-content">
-                {p?.name ?? 'Project'}
-              </h2>
-              {p?.description ? (
-                <p className="mt-1 max-w-2xl text-xs text-content-muted">{p.description}</p>
-              ) : null}
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Button size="sm" variant="secondary" onClick={() => onSetActive(projectId)}>
-              Set as active
-            </Button>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
-            >
-              <IconClose />
-            </button>
-          </div>
-        </header>
-
-        <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
-          {project.isLoading ? (
-            <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-              <Spinner size={14} /> Loading project…
-            </div>
-          ) : project.isError ? (
-            <EmptyState
-              title="Couldn't load project"
-              description={
-                project.error instanceof Error ? project.error.message : 'Unknown error.'
-              }
-            />
-          ) : (
-            <Tabs
-              ariaLabel="Project"
-              value={tab}
-              onChange={(t) => setTab(t as typeof tab)}
-              tabs={[
-                { id: 'overview', label: 'Overview' },
-                { id: 'members', label: 'Members', badge: summary.data?.counts.members ? { kind: 'unknown', value: summary.data.counts.members } : undefined },
-                { id: 'workflow', label: 'States & labels' },
-                { id: 'settings', label: 'Settings' },
-              ]}
-            >
-              {(active) => active === 'members' ? <div className="pt-4"><ProjectMembersTab projectId={projectId} /></div>
-                : active === 'workflow' ? <div className="pt-4"><WorkflowTab projectId={projectId} /></div>
-                : active === 'settings' && p ? <div className="pt-4"><ProjectSettingsTab project={p} onArchived={onClose} /></div>
-                : (
-            <div className="space-y-6 pt-4">
-              {summary.data ? (
-                <div className="flex flex-wrap gap-x-5 gap-y-1 rounded-lg border border-edge-subtle bg-surface-raised px-4 py-2 text-[12px] text-content-muted">
-                  {([['issues', 'issues'], ['cycles', 'cycles'], ['modules', 'modules'], ['members', 'members'], ['states', 'states'], ['labels', 'labels'], ['intake', 'in intake']] as const).map(([k, label]) =>
-                    summary.data!.counts[k] !== undefined ? <span key={k}><b className="font-semibold tabular-nums text-content">{summary.data!.counts[k]}</b> {label}</span> : null
-                  )}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <section>
+          <SectionTitle>Active sprint</SectionTitle>
+          {data.active
+            ? (
+              <div className="space-y-2 rounded-xl border border-edge-default bg-surface-raised p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-[13px] font-semibold text-content">{data.active.name}</span>
+                  <span className="text-[12px] tabular-nums text-content-muted">{daysLeft(data.active.end_date) ?? '—'}d left</span>
                 </div>
-              ) : null}
-              {/* hero stats */}
-              <Card>
-                <CardBody className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                  <HeroStat label="Total" value={total} />
-                  <HeroStat label="Open" value={open} tone="amber" />
-                  <HeroStat label="Done" value={done} tone="emerald" />
-                  <HeroStat label="% done" value={`${pct}%`} tone="brand" />
-                </CardBody>
-              </Card>
-
-              {/* progress + people */}
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                <Card className="lg:col-span-2">
-                  <CardHeader>
-                    <div className="text-sm font-semibold text-content">Issue progress</div>
-                    <div className="text-[11px] text-content-subtle">
-                      Done / open distribution across this project
-                    </div>
-                  </CardHeader>
-                  <CardBody>
-                    <div className="flex h-3 w-full overflow-hidden rounded-full bg-surface-sunken ring-1 ring-inset ring-edge-subtle">
-                      <div
-                        className="h-full bg-linear-to-r from-brand-500 to-brand-400"
-                        style={{ width: `${total > 0 ? (done / total) * 100 : 0}%` }}
-                      />
-                      <div
-                        className="h-full bg-linear-to-r from-amber-400 to-amber-300"
-                        style={{ width: `${total > 0 ? (open / total) * 100 : 0}%` }}
-                      />
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-content-muted">
-                      <span className="inline-flex items-center gap-1.5">
-                        <span className="h-1.5 w-1.5 rounded-full bg-brand-500" />
-                        Done · {done}
-                      </span>
-                      <span className="inline-flex items-center gap-1.5">
-                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                        Open · {open}
-                      </span>
-                    </div>
-                  </CardBody>
-                </Card>
-                <Card>
-                  <CardHeader>
-                    <div className="text-sm font-semibold text-content">Team</div>
-                    <div className="text-[11px] text-content-subtle">
-                      {p?.total_members ?? 0} members
-                    </div>
-                  </CardHeader>
-                  <CardBody className="space-y-2">
-                    <div className="flex items-center gap-2 text-xs text-content-muted">
-                      {lead ? (
-                        <>
-                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-50 text-[10px] font-semibold text-brand-700 ring-1 ring-inset ring-brand-200">
-                            {memberInitials(lead)}
-                          </span>
-                          <span>Lead · {memberDisplayName(lead)}</span>
-                        </>
-                      ) : (
-                        <span>No lead assigned</span>
-                      )}
-                    </div>
-                    <div className="text-[11px] text-content-subtle">
-                      {p?.created_at ? `Created ${formatRelative(p.created_at)}` : null}
-                    </div>
-                  </CardBody>
-                </Card>
+                <Meter value={data.active.progress ?? 0} label="Sprint progress" />
+                <div className="text-[12px] text-content-muted">{data.active.completed_issues ?? 0} of {(data.active.total_issues ?? 0) - (data.active.cancelled_issues ?? 0)} done</div>
               </div>
-
-              {/* active cycle */}
-              {activeCycle ? (
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-sm font-semibold text-content">Active cycle</div>
-                        <div className="text-[11px] text-content-subtle">
-                          {activeCycle.name}
-                        </div>
+            )
+            : <p className="text-[12px] text-content-subtle">No sprint is running.</p>}
+        </section>
+        <section>
+          <SectionTitle>Epics in flight · {epics.length}</SectionTitle>
+          {epics.length
+            ? (
+              <ul className="space-y-2">
+                {epics.slice(0, 5).map((m) => {
+                  const total = (m.total_issues ?? 0) - (m.cancelled_issues ?? 0)
+                  const pct = total ? Math.round(((m.completed_issues ?? 0) / total) * 100) : 0
+                  return (
+                    <li key={m.id} className="rounded-lg border border-edge-subtle px-3 py-2">
+                      <div className="flex items-center justify-between gap-2 text-[12px]">
+                        <span className="truncate font-medium text-content">{m.name}</span>
+                        <span className="tabular-nums text-content-muted">{pct}%</span>
                       </div>
-                      <StatusBadge kind="progressing">in progress</StatusBadge>
-                    </div>
-                  </CardHeader>
-                  <CardBody>
-                    <CycleProgressRow cycle={activeCycle} />
-                  </CardBody>
-                </Card>
-              ) : null}
-
-              {/* active modules */}
-              {activeModules.length > 0 ? (
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm font-semibold text-content">Active modules</div>
-                      <StatusBadge kind="info">{activeModules.length}</StatusBadge>
-                    </div>
-                  </CardHeader>
-                  <CardBody className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {activeModules.slice(0, 6).map((m) => (
-                      <ModuleSnippet key={m.id} mod={m} />
-                    ))}
-                  </CardBody>
-                </Card>
-              ) : null}
-
-              {/* recent issues */}
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm font-semibold text-content">
-                      Recent issues ({list.length})
-                    </div>
-                    {issues.isFetching ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] text-content-subtle">
-                        <Spinner size={10} /> updating
-                      </span>
-                    ) : null}
-                  </div>
-                </CardHeader>
-                <CardBody className="p-0">
-                  {recent.length === 0 ? (
-                    <EmptyState compact title="No issues in this project yet" />
-                  ) : (
-                    <ul className="divide-y divide-edge-subtle">
-                      {recent.map((iss) => {
-                        const st = stateMap.get(iss.state)
-                        return (
-                          <li key={iss.id}>
-                            <button
-                              type="button"
-                              onClick={() => setOpenIssue(iss.id)}
-                              className="flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-brand-50/40"
-                            >
-                              <code className="font-mono text-[11px] text-content-muted">
-                                #{iss.sequence_id ?? '—'}
-                              </code>
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate text-sm font-medium text-content">
-                                  {iss.name}
-                                </div>
-                                <div className="mt-0.5 flex items-center gap-2 text-[11px] text-content-muted">
-                                  {st ? (
-                                    <span className="inline-flex items-center gap-1">
-                                      <span
-                                        className="h-1.5 w-1.5 rounded-full"
-                                        style={{ backgroundColor: st.color }}
-                                      />
-                                      {st.name}
-                                    </span>
-                                  ) : null}
-                                  <span>· {formatRelative(iss.updated_at ?? iss.created_at)}</span>
-                                </div>
-                              </div>
-                              <StatusBadge kind={priorityKind(iss.priority)} dot={false}>
-                                {iss.priority}
-                              </StatusBadge>
-                            </button>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  )}
-                </CardBody>
-              </Card>
-            </div>
-                )}
-            </Tabs>
-          )}
-        </div>
-
-        {openIssue ? (
-          <IssueDrawer
-            projectId={projectId}
-            issueId={openIssue}
-            onClose={() => setOpenIssue(null)}
-            onPick={setOpenIssue}
-          />
-        ) : null}
-      </aside>
-    </div>,
-    document.body,
-  )
-}
-
-function HeroStat({
-  label,
-  value,
-  tone = 'slate',
-}: {
-  label: string
-  value: number | string
-  tone?: 'slate' | 'amber' | 'emerald' | 'brand'
-}) {
-  const text =
-    tone === 'amber'
-      ? 'text-amber-700'
-      : tone === 'emerald'
-        ? 'text-emerald-700'
-        : tone === 'brand'
-          ? 'text-brand-700'
-          : 'text-content'
-  return (
-    <div className="rounded-lg border border-edge-subtle bg-surface-sunken/40 p-3">
-      <div className={`text-2xl font-semibold tabular-nums ${text}`}>{value}</div>
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
-        {label}
+                      <Meter value={pct} className="mt-1" label={`${m.name} progress`} />
+                    </li>
+                  )
+                })}
+              </ul>
+            )
+            : <p className="text-[12px] text-content-subtle">No epics planned or in progress.</p>}
+        </section>
       </div>
+
+      <section>
+        <SectionTitle>Recently updated</SectionTitle>
+        {data.recent.length
+          ? (
+            <ul className="divide-y divide-edge-subtle overflow-hidden rounded-xl border border-edge-default bg-surface-raised">
+              {data.recent.map((i) => (
+                <li key={i.id}>
+                  <button type="button" onClick={() => setOpenIssue(i.id)} className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-surface-sunken/60">
+                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: i.state_color ?? 'var(--color-edge-strong)' }} title={i.state_name} />
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-content">{i.name}</span>
+                    <AvatarStack ids={i.assignees} people={people} max={2} size={18} />
+                    <span className="hidden shrink-0 text-[11px] text-content-subtle sm:inline">{formatRelative(i.updated_at ?? i.created_at)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )
+          : <EmptyState compact title="No work items yet" />}
+      </section>
+      {openIssue ? <IssueDrawer projectId={projectId} issueId={openIssue} onClose={() => setOpenIssue(null)} onPick={setOpenIssue} /> : null}
     </div>
-  )
-}
-
-function CycleProgressRow({ cycle }: { cycle: plane.Cycle }) {
-  const total = cycle.total_issues ?? 0
-  const done = cycle.completed_issues ?? 0
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0
-  return (
-    <div className="space-y-2">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="truncate text-sm text-content">
-          {done} / {total} issues complete
-        </span>
-        <span className="text-base font-semibold tabular-nums text-content">{pct}%</span>
-      </div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-surface-sunken">
-        <div
-          className="h-full bg-linear-to-r from-brand-500 to-brand-400 transition-[width] duration-500"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <div className="text-[11px] text-content-subtle">
-        {cycle.start_date && cycle.end_date
-          ? `${new Date(cycle.start_date).toLocaleDateString()} → ${new Date(cycle.end_date).toLocaleDateString()}`
-          : '—'}
-      </div>
-    </div>
-  )
-}
-
-function ModuleSnippet({ mod }: { mod: plane.Module }) {
-  const total = mod.total_issues ?? 0
-  const done = mod.completed_issues ?? 0
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0
-  return (
-    <div className="rounded-lg border border-edge-subtle bg-surface-sunken/40 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-sm font-medium text-content">{mod.name}</span>
-        <span className="text-[11px] tabular-nums text-content-muted">{pct}%</span>
-      </div>
-      <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
-        <div
-          className="h-full bg-linear-to-r from-brand-500 to-brand-400 transition-[width] duration-500"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-    </div>
-  )
-}
-
-function IconClose() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.25"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M18 6 6 18" />
-      <path d="m6 6 12 12" />
-    </svg>
   )
 }

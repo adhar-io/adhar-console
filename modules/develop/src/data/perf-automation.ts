@@ -4,7 +4,7 @@ import { useOptionalUser } from '@adhar/shell-ui'
 import { k8s } from '@adhar/api-clients'
 import { kube } from '@adhar/api-clients/k8s'
 import { finishedAt, isRunning, type TestRun, useTestRuns } from './k6.ts'
-import { LABEL_COMMIT, LABEL_TEST, type PerfTestConfig } from './perf-format.ts'
+import { LABEL_APPLICATION, LABEL_COMMIT, LABEL_TEST, type PerfTestConfig } from './perf-format.ts'
 import {
   baselineFromRecord,
   evaluateGate,
@@ -226,6 +226,7 @@ export async function harvestRun(run: TestRun): Promise<string> {
     stage: run.status?.stage,
     exitCode,
     parallelism: run.spec?.parallelism,
+    application: labels[LABEL_APPLICATION],
   })
   await kube.apply(cm)
   await kube.patch(TEST_RUNS, ns, name, { metadata: { annotations: { [ANN_HARVESTED]: cm.metadata.name } } }, 'merge')

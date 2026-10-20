@@ -161,3 +161,29 @@ export function useNewFlag(open: () => void, ready = true) {
     openRef.current()
   }, [ready, params.new, setParams])
 }
+
+/**
+ * Navigate to another Design section with its own params
+ * (`openDesign('diagrams', { diagram: id })`) — through the host router when
+ * shared, else the History API.
+ */
+export function useOpenDesign() {
+  const router = useRouter({ warn: false })
+  return useCallback(
+    (section: string, params: DesignParams = {}) => {
+      const search = clean({ section, ...params })
+      if (router) {
+        void router.navigate({ to: '/design', search: search as never })
+        return
+      }
+      writeUrl('/design', search, false)
+    },
+    [router],
+  )
+}
+
+/** Plain href for a Design section deep link (for anchors and notifications). */
+export function designHref(section: string, params: DesignParams = {}): string {
+  const qs = new URLSearchParams(Object.entries(clean({ section, ...params })).map(([k, v]) => [k, encode(v)])).toString()
+  return `/design${qs ? `?${qs}` : ''}`
+}

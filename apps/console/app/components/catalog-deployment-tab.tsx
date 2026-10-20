@@ -59,6 +59,7 @@ import {
   workloadDashboardUrl,
 } from '~/data/catalog-deployment-model.ts'
 import {
+  useAnalysisRun,
   useApplicationXRs,
   useComposedObjects,
   useEnvironmentRoutes,
@@ -575,7 +576,8 @@ const PHASE: Record<DeliveryDiagnosis['phase'], StatusKind> = { ready: 'healthy'
  * provider-kubernetes error) or were never composed.
  */
 function DeliverySection({ diagnosis: d, onComposition, loading }: { diagnosis: DeliveryDiagnosis; onComposition?(): void; loading: boolean }) {
-  const bad = d.conditions.filter((c) => c.status !== 'True')
+  // ProjectEnvironments is informational (Inherited / OverrideIgnored), shown below.
+  const bad = d.conditions.filter((c) => c.status !== 'True' && c.type !== 'ProjectEnvironments')
   return (
     <Section
       title="Delivery"
@@ -612,9 +614,16 @@ function DeliverySection({ diagnosis: d, onComposition, loading }: { diagnosis: 
           {d.project.environments.length
             ? d.project.environments.map((e) => e.name).join(' → ')
             : <span className="text-amber-700 dark:text-amber-300">none published</span>}
-          {d.wanted.length ? <span className="text-content-subtle"> · app asks for {d.wanted.join(', ')}</span> : null}
+          {d.wanted.length
+            ? <span className="text-content-subtle">{d.wantedIgnored ? ` · the app's own list (${d.wanted.join(', ')}) is ignored` : ` · app asks for ${d.wanted.join(', ')}`}</span>
+            : null}
         </Fact>
       </dl>
+      {d.inheritance?.reason === 'OverrideIgnored' ? (
+        <p className="mt-2 rounded-md bg-sky-50 px-3 py-2 text-[11px] leading-relaxed text-sky-900 dark:bg-sky-500/10 dark:text-sky-200">
+          {d.inheritance.message ?? `This application lists its own environments; they are ignored — it is deployed to every environment of project ${d.project.name}.`}
+        </p>
+      ) : null}
       {d.unknownEnvs.length ? (
         <p className="mt-2 text-[11px] text-amber-800 dark:text-amber-300">
           The application asks for {d.unknownEnvs.join(', ')}, which project {d.project.name} does not have — {d.unknownEnvs.length === 1 ? 'it is' : 'they are'} skipped.
@@ -875,7 +884,12 @@ function EnvCard({ ctx, row, step, onPromote }: { ctx: Ctx; row: EnvRow; step: n
   const version = app?.status.images[0] ? imageVersion(app.status.images[0], ctx.artifacts) : undefined
   const url = app ? ctx.appUrl(app) : undefined
   const stage = kargo?.stage
-  const headKind: StatusKind = app ? argoHealthKind(app.status.health.status) : stage ? kargoKind(stage) : 'unknown'
+  // A shared stage's health is whichever app was promoted last: this app's
+  // health is its Argo CD app's, never the stage's.
+  const sharedStage = kargo?.shape === 'shared'
+  const headKind: StatusKind = app ? argoHealthKind(app.status.health.status) : stage && !sharedStage ? kargoKind(stage) : 'unknown'
+  const run = useAnalysisRun(sharedStage ? stage?.verification?.analysisRun : undefined)
+  const verify = sharedStage && run.data ? kargoModel.appVerification(run.data, ctx.appName) : undefined
   const workload = row.namespace ? pickWorkload(ctx.workloads, ctx.appName, row.namespace) : undefined
   const authProblem = authorisationProblem(app, stage)
   return (
@@ -892,7 +906,7 @@ function EnvCard({ ctx, row, step, onPromote }: { ctx: Ctx; row: EnvRow; step: n
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           <StatusBadge kind={app || stage ? headKind : 'paused'} className="px-1.5 py-0 text-[10px]">
-            {app ? app.status.health.status : stage ? stage.health ?? stage.phase : 'Not deployed'}
+            {app ? app.status.health.status : stage && !sharedStage ? stage.health ?? stage.phase : 'Not deployed'}
           </StatusBadge>
           {app ? (
             <StatusBadge kind={argoSyncKind(app.status.sync.status)} dot={false} className="px-1.5 py-0 text-[10px]">
@@ -948,7 +962,19 @@ function EnvCard({ ctx, row, step, onPromote }: { ctx: Ctx; row: EnvRow; step: n
                 </span>
               ) : null}
             </Row>
-            {stage.verification ? <Row label="Verification" title={stage.verification.message}>{stage.verification.phase}</Row> : null}
+            {sharedStage ? (
+              verify ? (
+                <Row label="Verification" title={verify.metrics.map((m) => `${m.name}: ${m.phase}${m.message ? ` — ${m.message}` : ''}`).join('\n')}>
+                  <span className={['Failed', 'Error', 'Inconclusive'].includes(verify.phase) ? 'text-rose-700 dark:text-rose-300' : undefined}>{verify.phase}</span>
+                  {verify.blockedBy.length ? <span className="text-rose-700 dark:text-rose-300"> · environment blocked by {verify.blockedBy.join(', ')}</span> : null}
+                </Row>
+              ) : stage.verification ? (
+                <Row label="Verification" title={stage.verification.message}>{`environment ${stage.verification.phase.toLowerCase()}`}</Row>
+              ) : null
+            ) : stage.verification ? <Row label="Verification" title={stage.verification.message}>{stage.verification.phase}</Row> : null}
+            {sharedStage && (verify?.blockedBy.length || (stage.verification && ['Failed', 'Error'].includes(stage.verification.phase))) ? (
+              <p className="text-[10px] leading-relaxed text-content-subtle">One failing application blocks verification for the whole {row.label} environment.</p>
+            ) : null}
             {kargo!.promotion ? (
               <Row label="Promoting" title={kargo!.promotion}>
                 <span className="font-mono text-indigo-700 dark:text-indigo-300">{kargo!.promotion}</span>
@@ -958,7 +984,7 @@ function EnvCard({ ctx, row, step, onPromote }: { ctx: Ctx; row: EnvRow; step: n
                 <span className="text-content-subtle">promoting another application</span>
               </Row>
             ) : null}
-            {stage.issues?.length ? (
+            {stage.issues?.length && !sharedStage ? (
               <p className="truncate text-rose-700 dark:text-rose-300" title={stage.issues.join('\n')}>{stage.issues[0]}</p>
             ) : null}
           </>

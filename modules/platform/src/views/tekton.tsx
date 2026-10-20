@@ -27,6 +27,7 @@ import { useHasK8sPermission } from '../data/access.ts';
 import { age } from '../data/format.ts';
 import { K8sRolePill } from '../components/role-gate.tsx';
 import { DrawerSection, DrawerStatusTile, Row } from './resource-drawer.tsx';
+import { ScanGateSection } from './scan-gate.tsx';
 import { ListShell, matchesSearch } from './list-shell.tsx';
 import { readRunParam } from '../data/run-param.ts';
 
@@ -156,6 +157,7 @@ interface TektonRunSpec {
   timeouts?: Record<string, unknown>;
   serviceAccountName?: string;
   taskRunTemplate?: Record<string, unknown>;
+  taskRunSpecs?: Array<Record<string, unknown>>;
 }
 interface TektonRun extends KubeObject {
   spec?: TektonRunSpec;
@@ -1648,7 +1650,11 @@ function PipelineRunDrawer(
       const manifest: KubeObject = {
         apiVersion: 'tekton.dev/v1',
         kind: 'PipelineRun',
-        metadata: { name: rerunName(name), ...(ns ? { namespace: ns } : {}) },
+        metadata: {
+          name: rerunName(name),
+          ...(ns ? { namespace: ns } : {}),
+          ...(rerunLabels(run.metadata?.labels) ? { labels: rerunLabels(run.metadata?.labels) } : {}),
+        },
         spec: pruneSpec(run.spec),
       };
       return kube.apply<TektonRun>(manifest, { cluster: cp });
@@ -1856,6 +1862,9 @@ function PipelineRunDrawer(
               value={age(run.status?.startTime ?? run.metadata?.creationTimestamp)}
             />
           </section>
+
+          {/* Scan gate (results + manual approval) — the console server reads it for the default cluster. */}
+          {!cp ? <ScanGateSection namespace={ns} name={name} running={running} /> : null}
 
           <DrawerSection title='Pipeline stages'>
             {taskRunsForbidden
@@ -3397,6 +3406,21 @@ function workspaceBinding(w: Record<string, unknown>): string {
   return `${k}: ${formatValue(v)}`;
 }
 
+/**
+ * Labels a re-run keeps: what the app-ci trigger stamped (app, repo, trigger
+ * kind…) so the run still shows up under its application. Tekton's own
+ * `tekton.dev/*` labels and the scan-approval state are the controller's and
+ * the gate's to set, and annotations (approval decisions, results) are never
+ * copied — an old approval must not carry over to a new run.
+ */
+function rerunLabels(labels: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (!labels) return undefined;
+  const out = Object.fromEntries(
+    Object.entries(labels).filter(([k]) => !k.startsWith('tekton.dev/') && !k.startsWith('adhar.io/scan-approval') && !k.startsWith('triggers.tekton.dev/')),
+  );
+  return Object.keys(out).length ? out : undefined;
+}
+
 /** Generate a unique re-run name derived from the source run. */
 function rerunName(base: string): string {
   const root = base.replace(/-(rerun|run)-[a-z0-9]+$/i, '').slice(0, 40);
@@ -3414,6 +3438,11 @@ function pruneSpec(spec: TektonRunSpec | undefined): TektonRunSpec {
   if (spec.serviceAccountName) out.serviceAccountName = spec.serviceAccountName;
   if (spec.taskRunTemplate) out.taskRunTemplate = spec.taskRunTemplate;
   if (spec.timeouts) out.timeouts = spec.timeouts;
+  // Per-task identities and timeouts. app-ci runs its scan-policy / scan-gate /
+  // scan-report tasks as a separate ServiceAccount (so code under test can't
+  // approve its own review) with a long review window; a re-run without them
+  // falls back to strict defaults and fails after an hour.
+  if (spec.taskRunSpecs) out.taskRunSpecs = spec.taskRunSpecs;
   // Deliberately drop spec.status (would create a pre-cancelled run).
   return out;
 }

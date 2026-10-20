@@ -1,20 +1,22 @@
-import { useEffect, useMemo, useState } from 'react'
-import {
-  Button,
-  Card,
-  CardBody,
-  CardHeader,
-  EmptyState,
-  Modal,
-  StatusBadge,
-} from '@adhar/shell-ui'
-import { KIND, newId, useCollection, useCreate, useRemove, useSeedExamples, useUpdate } from '../data/store.ts'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Button, Card, CardBody, CardHeader, EmptyState, Field, Input, Modal, StatusBadge, Textarea, useToast } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
+import { defaultProjectFor, extractFence, htmlToNodes, PAGE_INSTRUCTIONS } from '@adhar/builder'
+import { KIND, type Listed, newId, useCollection, useCreate, useRemove, useSeedExamples, useUpdate } from '../data/store.ts'
 import { SEED_WIREFRAMES } from '../data/seed.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
-import type { Wireframe, WireframeBlock } from '../data/types.ts'
+import type { ComponentLink, Wireframe, WireframeBlock } from '../data/types.ts'
 import { FrameCanvas } from '../components/frame-canvas.tsx'
 import { BuilderEmbed } from './builder.tsx'
 import { useUrlParam } from '../data/builder-nav.ts'
+import { useDesignScope } from '../data/design-scope.ts'
+import { appRepo, scopedApps, useCatalogApps } from '../data/designer-repos.ts'
+import { projectToBlocks, projectWithNodes } from '../data/wireframe-builder.ts'
+import { askAdharAi } from '../data/ai.ts'
+import { useGiteaOrg } from '@adhar/shell-ui'
+import { AskAiButton, ComponentSelect, type PickableApp, PrBadge, ReviewBadge, Spark } from '../components/integrations.tsx'
+import { FrameDetails } from '../components/wireframe-integrations.tsx'
+import { SharedChip } from '../components/scope-picker.tsx'
 
 const FLOW_LABEL: Record<string, string> = {
   onboarding: 'Onboarding flow',
@@ -22,25 +24,40 @@ const FLOW_LABEL: Record<string, string> = {
 }
 
 /**
- * Wireframes — flow-grouped low-fi screens.
+ * Wireframes — flow-grouped low-fi screens, scoped to the active project.
  *
- *   Library mode: cards grouped by flow, with an SVG thumbnail per frame.
- *   Editor mode:  opens the frame in the Visual Designer (`@adhar/builder`).
- *                 Saving stores the builder project on the wireframe and
- *                 re-derives its blocks, so the library thumbnail follows.
+ *   Library:  cards grouped by flow with an SVG thumbnail, review state, the
+ *             catalog component, Plane state and Visual Designer PRs.
+ *   Details:  `?wireframe=<id>` — link a component and Plane work items, run a
+ *             design review, "Implement in repo" (repo-first Visual Designer
+ *             with the frame as a new page; its PR shows here).
+ *   Editor:   `?doc=<id>` — the frame in the Visual Designer; saving stores
+ *             the builder project and re-derives the thumbnail blocks.
  */
 export function Wireframes() {
-  const { items: list, isLoading, error, refetch } = useCollection<Wireframe>(KIND.wireframe)
+  const scope = useDesignScope()
+  const org = useGiteaOrg()
+  const all = useCollection<Wireframe>(KIND.wireframe)
+  const { isLoading, error, refetch } = all
+  const list = useMemo(() => all.items.filter((w) => scope.matches(w)), [all.items, scope])
   const createWf = useCreate<Wireframe>(KIND.wireframe)
   const updateWf = useUpdate<Wireframe>(KIND.wireframe)
   const removeWf = useRemove(KIND.wireframe)
   const seed = useSeedExamples<Wireframe>(KIND.wireframe)
+  const toast = useToast()
+  const catalog = useCatalogApps()
+  const apps = useMemo<PickableApp[]>(
+    () => scopedApps(catalog.data ?? [], scope.inScope, scope.projects).map((a) => ({ name: a.name, repo: appRepo(a, org), project: a.project })),
+    [catalog.data, scope.inScope, scope.projects, org],
+  )
 
   // `?doc=<id>` deep-links an open frame, so refresh / shared links land in the editor.
   const [docParam, setDocParam] = useUrlParam('doc')
+  const [detailParam, setDetailParam] = useUrlParam('wireframe')
   const editingId = docParam ?? null
   const setEditingId = (id: string | null) => setDocParam(id ?? undefined, { replace: id === null })
   const [createOpen, setCreateOpen] = useState(false)
+  const [aiCreate, setAiCreate] = useState(false)
   // `?new=1` (from the Design dashboard's "New" menu) opens the create flow once.
   const [newParam, setNewParam] = useUrlParam('new')
   useEffect(() => {
@@ -49,18 +66,17 @@ export function Wireframes() {
     setNewParam(undefined, { replace: true })
   }, [newParam, setNewParam])
 
-  const editing = useMemo(
-    () => list.find((f) => f.id === editingId) ?? null,
-    [list, editingId],
-  )
+  const editing = useMemo(() => all.items.find((f) => f.id === editingId) ?? null, [all.items, editingId])
+  const details = useMemo(() => all.items.find((f) => f.id === detailParam) ?? null, [all.items, detailParam])
 
   const flows = useMemo(() => {
-    const grouped: Record<string, Wireframe[]> = {}
+    const grouped: Record<string, Listed<Wireframe>[]> = {}
     for (const f of list) (grouped[f.flow] ??= []).push(f)
     for (const k of Object.keys(grouped)) grouped[k].sort((a, b) => a.order - b.order)
     return grouped
   }, [list])
   const flowKeys = Object.keys(flows).sort()
+  const inReview = list.filter((f) => f.review?.state === 'in-review').length
 
   if (editing) {
     return (
@@ -76,15 +92,36 @@ export function Wireframes() {
   if (error) return <ErrorBlock error={error} onRetry={refetch} />
   if (isLoading) return <LoadingBlock label="Loading wireframes…" />
 
+  const del = (f: Listed<Wireframe>) => {
+    const { _createdAt: _a, _updatedAt: _b, _updatedBy: _c, ...plain } = f
+    removeWf.mutate(f.id, {
+      onSuccess: () => {
+        if (detailParam === f.id) setDetailParam(undefined)
+        toast.success(`Deleted “${f.name}”`, {
+          action: { label: 'Undo', onClick: () => seed.mutate([plain as Wireframe], { onError: (e) => toast.error('Could not restore', { description: e.message }) }) },
+        })
+      },
+      onError: (e) => toast.error('Could not delete frame', { description: e.message }),
+    })
+  }
+
+  const createFrame = (next: Wireframe) =>
+    createWf.mutate({ ...scope.tag(), ...next }, {
+      onSuccess: (created) => setEditingId(created.id),
+      onError: (e) => toast.error('Could not create frame', { description: e.message }),
+    })
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <div className="text-[11px] text-content-muted">
-          {list.length} screen{list.length === 1 ? '' : 's'} across {flowKeys.length} flow
-          {flowKeys.length === 1 ? '' : 's'} · editing handled in the Visual Designer
+          {list.length} screen{list.length === 1 ? '' : 's'} across {flowKeys.length} flow{flowKeys.length === 1 ? '' : 's'}
+          {inReview ? ` · ${inReview} in review` : ''}
+          {all.items.length > list.length ? ` · ${all.items.length - list.length} outside ${scope.label}` : ''}
         </div>
-        <div className="ml-auto">
-          <Button size="sm" onClick={() => setCreateOpen(true)} leading={<IconPlus />}>
+        <div className="ml-auto flex items-center gap-2">
+          <AskAiButton onClick={() => { setAiCreate(true); setCreateOpen(true) }}>Describe a screen</AskAiButton>
+          <Button size="sm" variant="primary" onClick={() => { setAiCreate(false); setCreateOpen(true) }} leading={<IconPlus />}>
             New frame
           </Button>
         </div>
@@ -92,17 +129,15 @@ export function Wireframes() {
 
       {list.length === 0 ? (
         <EmptyState
-          title="No wireframes yet"
-          description="Sketch a screen — pick a template or start blank. Editing opens in the Visual Designer."
+          title={all.items.length ? `No wireframes in ${scope.label}` : 'No wireframes yet'}
+          description="Sketch a screen — pick a template, describe it to Adhar AI, or start blank. Editing opens in the Visual Designer."
           action={
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => seed.mutate(SEED_WIREFRAMES)}
-              disabled={seed.isPending}
-            >
-              {seed.isPending ? 'Loading…' : 'Load examples'}
-            </Button>
+            <div className="flex flex-wrap justify-center gap-2">
+              <Button size="sm" variant="primary" onClick={() => setCreateOpen(true)} leading={<IconPlus />}>New frame</Button>
+              {all.items.length === 0 ? (
+                <Button size="sm" onClick={() => seed.mutate(SEED_WIREFRAMES)} loading={seed.isPending}>Load examples</Button>
+              ) : null}
+            </div>
           }
         />
       ) : (
@@ -112,7 +147,9 @@ export function Wireframes() {
               key={flowKey}
               flowKey={flowKey}
               frames={flows[flowKey]}
-              onOpen={(id) => setEditingId(id)}
+              sharedLabel={!!scope.project}
+              onOpen={(id) => setDetailParam(id)}
+              onEdit={(id) => setEditingId(id)}
               onMove={(id, delta) => {
                 const sameFlow = (flows[flowKey] ?? []).slice().sort((a, b) => a.order - b.order)
                 const idx = sameFlow.findIndex((f) => f.id === id)
@@ -128,20 +165,12 @@ export function Wireframes() {
                 if (!src) return
                 const sameFlow = list.filter((f) => f.flow === src.flow)
                 const order = Math.max(...sameFlow.map((f) => f.order), 0) + 1
-                const clone: Wireframe = {
-                  ...src,
-                  id: newId('wf'),
-                  name: `${src.name} (copy)`,
-                  order,
-                  blocks: src.blocks.map((b) => ({ ...b })),
-                }
-                createWf.mutate(clone, { onSuccess: (created) => setEditingId(created.id) })
+                const { _createdAt: _a, _updatedAt: _b, _updatedBy: _c, planeLinks: _p, prs: _r, review: _v, ...plain } = src
+                createFrame({ ...plain, id: newId('wf'), name: `${src.name} (copy)`, order, blocks: src.blocks.map((b) => ({ ...b })) })
               }}
               onDelete={(id) => {
                 const f = list.find((x) => x.id === id)
-                if (!f) return
-                if (!confirm(`Delete frame "${f.name}"?`)) return
-                removeWf.mutate(id)
+                if (f) del(f)
               }}
             />
           ))}
@@ -150,22 +179,40 @@ export function Wireframes() {
 
       <CreateFrameModal
         open={createOpen}
+        ai={aiCreate}
         onClose={() => setCreateOpen(false)}
+        apps={apps}
         existingFlows={Array.from(new Set(list.map((f) => f.flow)))}
-        onCreate={({ name, flow, notes, templateId }) => {
+        onCreate={({ name, flow, notes, templateId, component, builder, blocks }) => {
           const orderInFlow = list.filter((f) => f.flow === flow).length + 1
           const tpl = FRAME_TEMPLATES.find((t) => t.id === templateId) ?? FRAME_TEMPLATES[0]
-          const next: Wireframe = {
+          createFrame({
             id: newId('wf'),
             name,
             flow,
             order: orderInFlow,
             notes: notes || tpl.notes,
-            blocks: tpl.build().map((b) => ({ ...b })),
-          }
-          createWf.mutate(next, { onSuccess: (created) => setEditingId(created.id) })
+            blocks: blocks ?? tpl.build().map((b) => ({ ...b })),
+            ...(builder ? { builder } : {}),
+            ...(component ? { component } : {}),
+          })
         }}
       />
+
+      {details ? (
+        <FrameDetails
+          key={details.id}
+          frame={details}
+          scope={scope}
+          apps={apps}
+          onClose={() => setDetailParam(undefined)}
+          onEdit={() => {
+            setDetailParam(undefined)
+            setEditingId(details.id)
+          }}
+          onSave={(next) => updateWf.mutateAsync(next)}
+        />
+      ) : null}
     </div>
   )
 }
@@ -175,14 +222,18 @@ export function Wireframes() {
 function FlowSection({
   flowKey,
   frames,
+  sharedLabel,
   onOpen,
+  onEdit,
   onMove,
   onDuplicate,
   onDelete,
 }: {
   flowKey: string
-  frames: Wireframe[]
+  frames: Listed<Wireframe>[]
+  sharedLabel: boolean
   onOpen(id: string): void
+  onEdit(id: string): void
   onMove(id: string, delta: -1 | 1): void
   onDuplicate(id: string): void
   onDelete(id: string): void
@@ -201,7 +252,9 @@ function FlowSection({
             <div key={f.id} className="flex items-stretch gap-4">
               <FrameCard
                 frame={f}
+                shared={sharedLabel && !f.project}
                 onOpen={() => onOpen(f.id)}
+                onEdit={() => onEdit(f.id)}
                 onMoveLeft={i > 0 ? () => onMove(f.id, -1) : undefined}
                 onMoveRight={i < frames.length - 1 ? () => onMove(f.id, 1) : undefined}
                 onDuplicate={() => onDuplicate(f.id)}
@@ -218,49 +271,67 @@ function FlowSection({
 
 function FrameCard({
   frame,
+  shared,
   onOpen,
+  onEdit,
   onMoveLeft,
   onMoveRight,
   onDuplicate,
   onDelete,
 }: {
-  frame: Wireframe
+  frame: Listed<Wireframe>
+  shared: boolean
   onOpen(): void
+  onEdit(): void
   onMoveLeft?(): void
   onMoveRight?(): void
   onDuplicate(): void
   onDelete(): void
 }) {
+  const items = (frame.planeLinks ?? []).length
+  const lastPr = frame.prs?.[0]
   return (
-    <Card className="group relative w-85 shrink-0">
-      <button type="button" onClick={onOpen} className="block w-full text-left" aria-label={`Edit ${frame.name}`}>
+    <Card className="group relative w-[min(21rem,calc(100vw-3rem))] shrink-0">
+      <button type="button" onClick={onOpen} className="block w-full text-left" aria-label={`Open ${frame.name}`}>
         <CardHeader className="py-3!">
           <div className="flex items-center justify-between gap-2">
-            <div>
+            <div className="min-w-0">
               <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-content-subtle">
                 Step {frame.order}
               </div>
-              <div className="text-sm font-semibold text-content">{frame.name}</div>
+              <div className="flex items-center gap-1.5">
+                <span className="truncate text-sm font-semibold text-content">{frame.name}</span>
+                {shared ? <SharedChip /> : null}
+              </div>
             </div>
-            <StatusBadge kind="unknown">low-fi</StatusBadge>
+            <ReviewBadge review={frame.review} />
           </div>
         </CardHeader>
         <CardBody className="p-3!">
           <FrameCanvas blocks={frame.blocks} />
           {frame.notes ? (
-            <p className="mt-3 line-clamp-3 text-[11px] leading-relaxed text-content-muted">
-              {frame.notes}
-            </p>
+            <p className="mt-3 line-clamp-2 text-[11px] leading-relaxed text-content-muted">{frame.notes}</p>
           ) : null}
-          <div className="mt-3 flex items-center justify-between text-[11px]">
-            <span className="inline-flex items-center gap-1 text-content-muted">
-              <IconBuilder /> Open in Builder
-            </span>
-            <span className="font-mono text-[10px] text-content-subtle">{frame.blocks.length} blocks</span>
+          <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px] text-content-muted">
+            {frame.component ? (
+              <span className="inline-flex items-center rounded bg-teal-50 px-1.5 py-0.5 text-[10px] text-teal-800 dark:bg-teal-500/10 dark:text-teal-200">{frame.component.name}</span>
+            ) : (
+              <span className="text-content-subtle">No component</span>
+            )}
+            {items ? <span>{items} work item{items === 1 ? '' : 's'}</span> : null}
+            <span className="ml-auto font-mono text-[10px] text-content-subtle">{frame.blocks.length} blocks</span>
           </div>
         </CardBody>
       </button>
-      <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-lg border border-edge-default bg-surface-raised/95 p-0.5 opacity-0 shadow-sm backdrop-blur transition-opacity group-hover:opacity-100">
+      {lastPr ? (
+        <div className="flex items-center gap-1.5 border-t border-edge-subtle px-3 py-1.5 text-[11px] text-content-subtle">
+          Pull request <PrBadge pr={lastPr} />
+        </div>
+      ) : null}
+      <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-lg border border-edge-default bg-surface-raised/95 p-0.5 opacity-0 shadow-sm backdrop-blur transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        <ActionBtn onClick={onEdit} label="Edit design">
+          <IconBuilder />
+        </ActionBtn>
         {onMoveLeft ? (
           <ActionBtn onClick={onMoveLeft} label="Move left">
             <IconArrowLeft />
@@ -291,7 +362,7 @@ function ActionBtn({
   onClick(): void
   label: string
   tone?: 'neutral' | 'danger'
-  children: React.ReactNode
+  children: ReactNode
 }) {
   return (
     <button
@@ -302,9 +373,10 @@ function ActionBtn({
       }}
       aria-label={label}
       title={label}
-      className={`flex h-7 w-7 items-center justify-center rounded-md text-content-subtle transition-colors ${
-        tone === 'danger' ? 'hover:bg-rose-50 hover:text-rose-700' : 'hover:bg-surface-sunken hover:text-content'
-      }`}
+      className={cn(
+        'flex h-7 w-7 items-center justify-center rounded-md text-content-subtle transition-colors',
+        tone === 'danger' ? 'hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-500/10 dark:hover:text-rose-300' : 'hover:bg-surface-sunken hover:text-content',
+      )}
     >
       {children}
     </button>
@@ -432,34 +504,81 @@ const FRAME_TEMPLATES: {
 
 /* ─────────── Create modal ─────────── */
 
+interface CreateInput {
+  name: string
+  flow: string
+  notes: string
+  templateId: string
+  component?: ComponentLink
+  /** Adhar AI draft: a builder project and its thumbnail blocks. */
+  builder?: unknown
+  blocks?: WireframeBlock[]
+}
+
 function CreateFrameModal({
   open,
+  ai,
   onClose,
+  apps,
   existingFlows,
   onCreate,
 }: {
   open: boolean
+  ai: boolean
   onClose(): void
+  apps: PickableApp[]
   existingFlows: string[]
-  onCreate(input: { name: string; flow: string; notes: string; templateId: string }): void
+  onCreate(input: CreateInput): void
 }) {
+  const toast = useToast()
   const [name, setName] = useState('')
   const [flow, setFlow] = useState(existingFlows[0] ?? 'onboarding')
   const [notes, setNotes] = useState('')
   const [templateId, setTemplateId] = useState('blank')
+  const [component, setComponent] = useState<ComponentLink | undefined>()
+  const [mode, setMode] = useState<'template' | 'ai'>('template')
+  const [describe, setDescribe] = useState('')
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     if (!open) return
     setName('')
     setNotes('')
+    setDescribe('')
     setTemplateId('blank')
+    setComponent(undefined)
+    setMode(ai ? 'ai' : 'template')
     setFlow(existingFlows[0] ?? 'onboarding')
-  }, [open, existingFlows])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, ai])
 
-  const submit = () => {
+  const submit = async () => {
     if (!name.trim()) return
-    onCreate({ name: name.trim(), flow: flow.trim(), notes, templateId })
-    onClose()
+    const base = { name: name.trim(), flow: flow.trim() || 'flow', notes, templateId, component }
+    if (mode === 'template') {
+      onCreate(base)
+      onClose()
+      return
+    }
+    // The Visual Designer's own AI path: Adhar AI drafts the page as HTML,
+    // which becomes canvas nodes; the frame opens in the designer to refine.
+    setBusy(true)
+    try {
+      const reply = await askAdharAi({
+        prompt: `${PAGE_INSTRUCTIONS}\n\nScreen: ${name.trim()}.\n${describe.trim()}`,
+        context: component ? [{ description: 'Application', value: component.name }] : [],
+      })
+      const html = extractFence(reply, ['html']) ?? reply
+      const nodes = htmlToNodes(html)
+      if (!nodes.length) throw new Error('The draft had no usable markup — try describing the screen differently.')
+      const project = projectWithNodes(defaultProjectFor('visual', base.name), base.name, nodes)
+      onCreate({ ...base, notes: notes || describe.trim(), builder: project, blocks: projectToBlocks(project) })
+      onClose()
+    } catch (e) {
+      toast.error('Adhar AI could not draft the screen', { description: (e as Error).message })
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -467,50 +586,46 @@ function CreateFrameModal({
       open={open}
       onClose={onClose}
       title="New frame"
-      description="Pick a template to seed the canvas, or start blank — opens directly in the Visual Designer."
-      branded
+      description="Start from a template or describe the screen to Adhar AI — it opens in the Visual Designer."
       width="lg"
       footer={
         <>
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={submit} disabled={!name.trim()}>
-            Create & open in Builder
+          <Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button size="sm" variant="primary" onClick={submit} disabled={!name.trim() || (mode === 'ai' && !describe.trim())} loading={busy} leading={mode === 'ai' ? <Spark /> : undefined}>
+            {mode === 'ai' ? 'Draft & open' : 'Create & open'}
           </Button>
         </>
       }
     >
       <div className="space-y-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Name">
-            <input
-              autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Sign up"
-              className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
-            />
+          <Field label="Name" required>
+            <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Sign up" />
           </Field>
           <Field label="Flow">
-            <input
-              value={flow}
-              onChange={(e) => setFlow(e.target.value.toLowerCase().replace(/\s+/g, '-'))}
-              list="flow-options"
-              className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
-            />
+            <Input value={flow} onChange={(e) => setFlow(e.target.value.toLowerCase().replace(/\s+/g, '-'))} list="flow-options" />
             <datalist id="flow-options">
-              {existingFlows.map((f) => (
-                <option key={f} value={f} />
-              ))}
+              {existingFlows.map((f) => <option key={f} value={f} />)}
             </datalist>
           </Field>
         </div>
-        <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">
-            Template
-          </div>
-          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <Field label="Catalog component" hint="The application this screen is for — enables “Implement in repo”.">
+          <ComponentSelect apps={apps} value={component} onChange={setComponent} />
+        </Field>
+        <div className="inline-flex rounded-lg border border-edge-default p-0.5 text-xs">
+          {(['template', 'ai'] as const).map((k) => (
+            <button key={k} type="button" onClick={() => setMode(k)} aria-pressed={mode === k}
+              className={cn('rounded-md px-2.5 py-1 font-medium', mode === k ? 'bg-surface-sunken text-content' : 'text-content-muted hover:text-content')}>
+              {k === 'template' ? 'From a template' : 'Describe with Adhar AI'}
+            </button>
+          ))}
+        </div>
+        {mode === 'ai' ? (
+          <Field label="Describe the screen">
+            <Textarea rows={4} value={describe} onChange={(e) => setDescribe(e.target.value)} placeholder="A settings page with a profile form, a notifications section with three toggles, and a danger zone to delete the account." />
+          </Field>
+        ) : (
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {FRAME_TEMPLATES.map((t) => {
               const on = templateId === t.id
               return (
@@ -518,43 +633,24 @@ function CreateFrameModal({
                   key={t.id}
                   type="button"
                   onClick={() => setTemplateId(t.id)}
-                  className={
-                    on
-                      ? 'rounded-lg border border-brand-400 bg-brand-50 p-3 text-left ring-2 ring-brand-400/20'
-                      : 'rounded-lg border border-edge-default bg-surface-raised p-3 text-left hover:border-edge-strong'
-                  }
+                  aria-pressed={on}
+                  className={cn(
+                    'rounded-lg border p-3 text-left',
+                    on ? 'border-brand-400 bg-brand-50 ring-2 ring-brand-400/20 dark:bg-brand-500/10' : 'border-edge-default bg-surface-raised hover:border-edge-strong',
+                  )}
                 >
                   <div className="text-sm font-semibold text-content">{t.label}</div>
-                  <div className="mt-1 text-[11px] leading-relaxed text-content-muted">
-                    {t.description}
-                  </div>
+                  <div className="mt-1 text-[11px] leading-relaxed text-content-muted">{t.description}</div>
                 </button>
               )
             })}
           </div>
-        </div>
+        )}
         <Field label="Notes (optional)">
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows={2}
-            placeholder="What does this screen need to communicate?"
-            className="block w-full resize-y rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
-          />
+          <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="What does this screen need to communicate?" />
         </Field>
       </div>
     </Modal>
-  )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="block text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">
-        {label}
-      </span>
-      <div className="mt-1.5">{children}</div>
-    </label>
   )
 }
 
@@ -600,7 +696,7 @@ function IconTrash() {
 }
 function IconBuilder() {
   return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <rect x="3" y="3" width="7" height="7" rx="1" />
       <rect x="14" y="3" width="7" height="7" rx="1" />
       <rect x="14" y="14" width="7" height="7" rx="1" />

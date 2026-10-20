@@ -10,6 +10,10 @@ import { Tokens } from './views/tokens.tsx'
 import { ApiSchemas } from './views/api-schemas.tsx'
 import { Catalog } from './views/catalog.tsx'
 import { Builder } from './views/builder.tsx'
+import { ScopePicker } from './components/scope-picker.tsx'
+
+/** Sections narrowed by the project scope (Org → Team → Project) — they show the picker. */
+const PROJECT_SCOPED = new Set<string>(['dashboard', 'personas', 'journeys', 'wireframes', 'tokens', 'catalog'])
 
 type Section =
   | 'dashboard'
@@ -27,7 +31,7 @@ type Section =
 const SECTIONS: Record<Section, { label: string; description: string }> = {
   dashboard: {
     label: 'Design Dashboard',
-    description: 'Workspace-level pulse — ADRs, diagrams, personas, journey maps, and design tokens at a glance.',
+    description: 'Design work per project — coverage of each application, reviews, Plane work items, pull requests and recent activity.',
   },
   adrs: {
     label: 'ADRs',
@@ -63,7 +67,7 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   },
   catalog: {
     label: 'Component Catalog',
-    description: 'Live reference for @adhar/shell-ui — examples, props and usage snippets.',
+    description: 'Live reference for @adhar/shell-ui, plus each project\'s own components discovered from its repositories.',
   },
   builder: {
     label: 'Visual Designer',
@@ -76,7 +80,7 @@ export default function DesignHome({ section }: { section?: string } = {}) {
   const def = SECTIONS[active]
   return (
     <div className="space-y-6">
-      {active === 'builder' ? null : <PageHeader title={def.label} />}
+      {active === 'builder' ? null : <PageHeader title={def.label} actions={PROJECT_SCOPED.has(active) ? <ScopePicker /> : undefined} />}
       {active === 'dashboard' && <Dashboard />}
       {active === 'adrs' && <Adrs />}
       {active === 'diagrams' && <Diagrams />}

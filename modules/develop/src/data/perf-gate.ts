@@ -390,6 +390,8 @@ export function gateEnv(input: {
   commit?: string
   gate?: PerfGate
   baseline?: PerfBaseline
+  /** The application the test drives, for the result's label. */
+  application?: string
 }): string {
   const g = input.gate ?? DEFAULT_GATE
   const b = input.baseline
@@ -397,6 +399,7 @@ export function gateEnv(input: {
     ['PERF_TEST', shWord(input.test)],
     ['PERF_NAMESPACE', shWord(input.namespace)],
     ['PERF_COMMIT', shWord(input.commit).slice(0, 40)],
+    ['TARGET_APP', shWord(input.application)],
     ['GATE_P95_MS', shNum(g.p95Ms)],
     ['GATE_P99_MS', shNum(g.p99Ms)],
     ['GATE_AVG_MS', shNum(g.avgMs)],

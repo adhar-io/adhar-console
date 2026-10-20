@@ -31,6 +31,34 @@ export interface ShapeEl {
   fontSize?: number
   locked?: boolean
   author?: string
+  /** A read-only snapshot of a catalog entity or diagram embedded on the board. */
+  embed?: EmbedSnapshot
+  /** Plane work item this sticky became. */
+  work?: WorkLink
+}
+
+/** Read-only snapshot of live data, refreshed on demand. */
+export interface EmbedSnapshot {
+  type: 'entity' | 'diagram'
+  /** Entity ref or diagram id. */
+  ref: string
+  title: string
+  subtitle?: string
+  /** Entity facts, one per line. */
+  lines?: string[]
+  /** Diagram: rendered SVG as a data URI. */
+  image?: string
+  /** When the snapshot was taken. */
+  at: string
+  /** True when the source no longer exists. */
+  missing?: boolean
+}
+
+export interface WorkLink {
+  projectId: string
+  issueId: string
+  key?: string
+  at: string
 }
 
 export interface PenEl {
@@ -85,6 +113,12 @@ export type BoardDoc = WhiteboardBoard & {
   elements?: BoardEl[]
   camera?: Camera
   description?: string
+  /** Workspace project / owner team. */
+  project?: string
+  team?: string
+  /** Display name + user id of the last person who saved (envelope `_updatedBy` is an id). */
+  updated_by?: string
+  updated_by_id?: string
 }
 
 export interface Pt {
@@ -374,7 +408,9 @@ export function cloneElements(
         ep.id && map.has(ep.id) ? { id: map.get(ep.id), x: 0, y: 0 } : { x: p.x + dx, y: p.y + dy }
       return { ...e, id: map.get(e.id)!, from: end(e.from, a), to: end(e.to, b) }
     }
-    return { ...e, id: map.get(e.id)!, x: e.x + dx, y: e.y + dy } as BoardEl
+    // A copy is a new note: it has not become a work item.
+    const { work: _work, ...rest } = e as ShapeEl
+    return { ...(e.kind === 'pen' ? e : rest), id: map.get(e.id)!, x: e.x + dx, y: e.y + dy } as BoardEl
   })
 }
 
@@ -472,4 +508,44 @@ export function redo(h: History, current: BoardEl[]): { history: History; elemen
   if (!h.future.length) return null
   const [next, ...rest] = h.future
   return { history: { past: [...h.past, current].slice(-HISTORY_LIMIT), future: rest }, elements: next }
+}
+
+/* ───────── platform embeds + work items ───────── */
+
+export const EMBED_W = 300
+
+/** Facts shown on an embedded catalog entity card. */
+export function entityFacts(
+  e: { kind: string; name: string; title?: string; type?: string; lifecycle?: string; owner?: string; system?: string; project?: string; providesApis: string[]; consumesApis: string[]; dependsOn: string[]; description?: string },
+): { title: string; subtitle: string; lines: string[] } {
+  const short = (r: string) => r.replace(/^[a-z]+:(default\/)?/, '')
+  const lines: string[] = []
+  if (e.description) lines.push(e.description)
+  if (e.owner) lines.push(`Owner: ${short(e.owner)}`)
+  if (e.system) lines.push(`System: ${short(e.system)}`)
+  if (e.project) lines.push(`Project: ${e.project}`)
+  if (e.lifecycle) lines.push(`Lifecycle: ${e.lifecycle}`)
+  if (e.providesApis.length) lines.push(`Provides: ${e.providesApis.map(short).join(', ')}`)
+  if (e.consumesApis.length) lines.push(`Consumes: ${e.consumesApis.map(short).join(', ')}`)
+  if (e.dependsOn.length) lines.push(`Depends on: ${e.dependsOn.map(short).join(', ')}`)
+  return { title: e.title ?? e.name, subtitle: [e.kind, e.type].filter(Boolean).join(' · '), lines }
+}
+
+/** Height an entity card needs for its lines. */
+export function embedHeight(lines: number): number {
+  return Math.min(320, 64 + Math.max(1, lines) * 18)
+}
+
+/** Selected stickies with text that have not become work items yet. */
+export function stickiesForWork(elements: readonly BoardEl[], ids: ReadonlySet<string>): ShapeEl[] {
+  return elements.filter((e): e is ShapeEl => ids.has(e.id) && e.kind === 'sticky' && !!(e as ShapeEl).text?.trim() && !(e as ShapeEl).work)
+}
+
+/** Lay `n` new stickies out in a grid centred on `at`. */
+export function gridAround(at: Pt, n: number, w = STICKY_W, h = STICKY_H, gap = 20): Pt[] {
+  const cols = Math.max(1, Math.min(4, Math.ceil(Math.sqrt(n))))
+  const rows = Math.ceil(n / cols)
+  const x0 = at.x - (cols * (w + gap) - gap) / 2
+  const y0 = at.y - (rows * (h + gap) - gap) / 2
+  return Array.from({ length: n }, (_, i) => ({ x: x0 + (i % cols) * (w + gap), y: y0 + Math.floor(i / cols) * (h + gap) }))
 }

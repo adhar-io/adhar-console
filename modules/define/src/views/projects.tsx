@@ -1,27 +1,35 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Button,
-  Card,
+  type Column,
+  DataTable,
   EmptyState,
-  Spinner,
+  SearchInput,
+  Select,
   StatusBadge,
+  TeamScopeBar,
+  useTeamProjects,
 } from '@adhar/shell-ui'
-import { formatRelative } from '@adhar/utils'
-import {
-  memberDisplayName,
-  useDeleteProject,
-  useIssues,
-  useMembers,
-  useProjects,
-} from '../data/plane.ts'
+import { cn, formatRelative } from '@adhar/utils'
+import type { plane } from '@adhar/api-clients'
+import { useProjects } from '../data/plane.ts'
+import { usePortfolio } from '../data/planning-plane.ts'
+import { type ProjectMeta, useProjectMetas } from '../data/planning-store.ts'
+import { daysLeft, deriveHealth, effectiveHealth, type Health, isBugLabel, isOpen, isOverdue, toMs } from '../data/planning-model.ts'
+import { usePlanningParams, useSetPlanningParams } from '../data/planning-nav.ts'
 import { ProjectMark } from '../components/project-picker.tsx'
 import { CreateProjectModal } from '../components/create-forms.tsx'
+import { ProjectDetail } from '../components/project-detail.tsx'
+import { Avatar, HealthBadge, Loading, Meter, type Person, ProblemState, Segmented, usePeople } from '../components/planning-ui.tsx'
 
 /**
- * Projects landing — every Plane workspace project gets a card with live
- * issue counts, recent-activity sparkline (synthesised from creation rhythm),
- * lead avatar, and quick-stats. Click → switches the active project (handled
- * upstream by `home.tsx`).
+ * Projects — the portfolio. Every Plane project with derived health (overdue
+ * work, active-sprint pace; a manual override wins), lead, members, progress,
+ * active sprint, open bugs and last activity, as cards or a table.
+ *
+ * Tenancy: a Plane project can be linked to an Adhar project (and through it
+ * to teams) in its settings. When a team is active the list narrows to the
+ * projects linked to it, and says so.
  */
 
 interface Props {
@@ -30,361 +38,309 @@ interface Props {
   onOpenDetails?(id: string): void
 }
 
-export function Projects({ activeId, onPick, onOpenDetails }: Props) {
-  const projects = useProjects()
-  const members = useMembers()
-  const remove = useDeleteProject()
-  const [createOpen, setCreateOpen] = useState(false)
+export interface PortfolioRow {
+  project: plane.Project
+  health: Health
+  overridden: boolean
+  reasons: string[]
+  total: number
+  done: number
+  open: number
+  overdue: number
+  bugs: number
+  activeSprint?: plane.Cycle
+  lastActivity?: string
+  loaded: boolean
+}
 
-  if (projects.isLoading) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Loading projects…
-      </div>
-    )
-  }
-  if (projects.isError) {
-    return (
-      <EmptyState
-        title="Couldn't reach Plane"
-        description={projects.error instanceof Error ? projects.error.message : 'Unknown error.'}
-      />
-    )
-  }
-  const rows = projects.data ?? []
+export function Projects({ activeId, onPick }: Props) {
+  const projects = useProjects()
+  const metas = useProjectMetas()
+  const params = usePlanningParams()
+  const setParams = useSetPlanningParams()
+  const team = useTeamProjects()
+  const { people } = usePeople()
+  const [search, setSearch] = useState('')
+  const [createOpen, setCreateOpen] = useState(false)
+  const layout = params.layout === 'table' ? 'table' : 'cards'
+  const healthFilter = (params.health ?? 'all') as Health | 'all'
+
+  const all = useMemo(() => (projects.data ?? []).filter((p) => !p.archived_at), [projects.data])
+  const metaById = useMemo(() => new Map((metas.data ?? []).map((d) => [d.id, d.data] as const)), [metas.data])
+
+  // Team lens: projects linked to an Adhar project the active team owns, or to the team directly.
+  const teamScoped = useMemo(() => {
+    if (!team.filtering) return all
+    const slugs = new Set(team.projects.map((p) => p.slug))
+    return all.filter((p) => {
+      const m = metaById.get(p.id)
+      return (m?.adharProject && slugs.has(m.adharProject)) || (m?.teams ?? []).includes(team.team)
+    })
+  }, [all, team.filtering, team.projects, team.team, metaById])
+
+  const ids = useMemo(() => teamScoped.map((p) => p.id), [teamScoped])
+  const portfolio = usePortfolio(ids, { labels: true })
+
+  const rows: PortfolioRow[] = useMemo(() => teamScoped.map((p) => buildRow(p, portfolio, metaById.get(p.id))), [teamScoped, portfolio, metaById])
+  const f = search.trim().toLowerCase()
+  const shown = rows.filter((r) =>
+    (healthFilter === 'all' || r.health === healthFilter) &&
+    (!f || r.project.name.toLowerCase().includes(f) || r.project.identifier.toLowerCase().includes(f))
+  )
+  const counts = { 'on-track': 0, 'at-risk': 0, 'off-track': 0 } as Record<Health, number>
+  for (const r of rows) if (r.loaded) counts[r.health]++
+
+  if (projects.isLoading) return <Loading label="Loading projects…" />
+  if (projects.isError) return <ProblemState error={projects.error} onRetry={() => projects.refetch()} />
+
+  const open = (id: string) => setParams({ pd: id, ptab: undefined }, { push: true })
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-[11px] text-content-muted">
-          {rows.length} project{rows.length === 1 ? '' : 's'} in this workspace
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="min-w-0 flex-1 basis-56">
+          <SearchInput value={search} onChange={setSearch} placeholder="Search projects…" block />
         </div>
-        <Button size="sm" onClick={() => setCreateOpen(true)} leading={<IconPlus />}>
-          New project
-        </Button>
+        <Select
+          aria-label="Health"
+          value={healthFilter}
+          onChange={(e) => setParams({ health: e.target.value === 'all' ? undefined : e.target.value })}
+          options={[
+            { value: 'all', label: 'All health' },
+            { value: 'on-track', label: 'On track' },
+            { value: 'at-risk', label: 'At risk' },
+            { value: 'off-track', label: 'Off track' },
+          ]}
+        />
+        <Segmented
+          label="Layout"
+          value={layout}
+          onChange={(v) => setParams({ layout: v === 'cards' ? undefined : v })}
+          options={[{ value: 'cards', label: 'Cards' }, { value: 'table', label: 'Table' }]}
+        />
+        <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>New project</Button>
       </div>
 
-      {rows.length === 0 ? (
-        <EmptyState
-          title="No projects yet"
-          description="Click New project to scaffold the first one."
-        />
-      ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {rows.map((p) => (
-            <ProjectCard
-              key={p.id}
-              project={p}
-              active={p.id === activeId}
-              onPick={() => onPick(p.id)}
-              onOpenDetails={() => onOpenDetails?.(p.id)}
-              memberLookup={(id) => members.data?.find((m) => m.member?.id === id)}
-              onDelete={() => {
-                if (
-                  !confirm(
-                    `Delete "${p.name}"? Issues, cycles, modules, and pages will be archived.`,
-                  )
-                )
-                  return
-                remove.mutate(p.id)
-              }}
-            />
-          ))}
-        </div>
-      )}
+      <TeamScopeBar team={team.team} shown={teamScoped.length} total={all.length} noun="Plane projects" />
 
-      <CreateProjectModal
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        onCreated={(p) => onPick(p.id)}
-      />
+      {rows.length
+        ? (
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[12px] text-content-muted">
+            <span><b className="font-semibold tabular-nums text-content">{rows.length}</b> projects</span>
+            {(['on-track', 'at-risk', 'off-track'] as const).map((h) => (
+              <button
+                key={h}
+                type="button"
+                onClick={() => setParams({ health: healthFilter === h ? undefined : h })}
+                className={cn('inline-flex items-center gap-1.5 rounded-md px-1 hover:text-content', healthFilter === h && 'text-content underline underline-offset-4')}
+              >
+                <span className={cn('h-2 w-2 rounded-full', h === 'on-track' ? 'bg-emerald-500' : h === 'at-risk' ? 'bg-amber-500' : 'bg-rose-500')} />
+                <b className="font-semibold tabular-nums text-content">{counts[h]}</b> {h.replace('-', ' ')}
+              </button>
+            ))}
+            <span><b className="font-semibold tabular-nums text-content">{rows.filter((r) => r.activeSprint).length}</b> with an active sprint</span>
+            {portfolio.fetching ? <span className="text-content-subtle">refreshing…</span> : null}
+          </div>
+        )
+        : null}
+
+      {portfolio.error && !portfolio.loading ? <ProblemState compact error={portfolio.error} /> : null}
+
+      {all.length === 0
+        ? <EmptyState title="No projects yet" description="Create the first project to start planning work." action={<Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>New project</Button>} />
+        : teamScoped.length === 0
+        ? <EmptyState title={`No Plane projects linked to ${team.team}`} description="Link a Plane project to an Adhar project or team from its Settings tab, or show every project." />
+        : shown.length === 0
+        ? <EmptyState title="No matches" description="No project matches the search or health filter." />
+        : layout === 'table'
+        ? <PortfolioTable rows={shown} people={people} activeId={activeId} onOpen={open} />
+        : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {shown.map((r) => <ProjectCard key={r.project.id} row={r} lead={people.get(r.project.project_lead ?? '')} active={r.project.id === activeId} onOpen={() => open(r.project.id)} onPick={() => onPick(r.project.id)} />)}
+          </div>
+        )}
+
+      <CreateProjectModal open={createOpen} onClose={() => setCreateOpen(false)} onCreated={(p) => onPick(p.id)} />
+      {params.pd
+        ? (
+          <ProjectDetail
+            projectId={params.pd}
+            onClose={() => setParams({ pd: undefined, ptab: undefined })}
+            onSetActive={(id) => {
+              onPick(id)
+              setParams({ pd: undefined, ptab: undefined })
+            }}
+          />
+        )
+        : null}
     </div>
   )
 }
 
-function IconPlus() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" aria-hidden>
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  )
+export function buildRow(project: plane.Project, portfolio: ReturnType<typeof usePortfolio>, meta?: ProjectMeta | null, now = Date.now()): PortfolioRow {
+  const issues = portfolio.issues.get(project.id)
+  const cycles = portfolio.cycles.get(project.id) ?? []
+  const labels = portfolio.labels.get(project.id) ?? []
+  const bugLabels = new Set(labels.filter((l) => isBugLabel(l.name)).map((l) => l.id))
+  const items = issues ?? []
+  const live = items.filter((i) => i.state_group !== 'cancelled')
+  const done = live.filter((i) => i.state_group === 'completed').length
+  const openItems = live.filter((i) => isOpen(i))
+  const activeSprint = cycles.find((c) => c.status === 'current')
+  const derived = deriveHealth({
+    items: live,
+    activeSprint: activeSprint
+      ? { start_date: activeSprint.start_date, end_date: activeSprint.end_date, total: (activeSprint.total_issues ?? 0) - (activeSprint.cancelled_issues ?? 0), done: activeSprint.completed_issues ?? 0 }
+      : undefined,
+    now,
+  })
+  const eff = effectiveHealth(derived, meta?.healthOverride, now)
+  const last = items.reduce<number>((m, i) => Math.max(m, toMs(i.updated_at ?? i.created_at) ?? 0), 0)
+  return {
+    project,
+    health: eff.health,
+    overridden: eff.overridden,
+    reasons: eff.reasons,
+    total: live.length,
+    done,
+    open: openItems.length,
+    overdue: openItems.filter((i) => isOverdue(i, now)).length,
+    bugs: openItems.filter((i) => i.labels.some((l) => bugLabels.has(l))).length,
+    activeSprint,
+    lastActivity: last ? new Date(last).toISOString() : project.updated_at,
+    loaded: !!issues,
+  }
 }
 
-function ProjectCard({
-  project,
-  active,
-  onPick,
-  onOpenDetails,
-  memberLookup,
-  onDelete,
-}: {
-  project: ReturnType<typeof useProjects>['data'] extends (infer T)[] | undefined ? T : never
-  active: boolean
-  onPick(): void
-  onOpenDetails(): void
-  memberLookup(
-    id: string | null | undefined,
-  ): ReturnType<typeof useMembers>['data'] extends (infer T)[] | undefined ? T | undefined : undefined
-  onDelete(): void
-}) {
-  const issues = useIssues(project.id)
-  const list = issues.data ?? []
-  const open = list.filter((i) => !i.completed_at).length
-  const done = list.filter((i) => !!i.completed_at).length
-  const total = list.length
-  const closedPct = total > 0 ? Math.round((done / total) * 100) : 0
-
-  // 14-day "issues created" histogram drives the activity bar chart.
-  const series = (() => {
-    const now = Date.now()
-    const buckets = new Array(14).fill(0)
-    for (const i of list) {
-      const t = new Date(i.created_at).getTime()
-      const idx = 13 - Math.floor((now - t) / 86_400_000)
-      if (idx >= 0 && idx < 14) buckets[idx] += 1
-    }
-    return buckets
-  })()
-
-  const lead = memberLookup(project.project_lead)
+function ProjectCard({ row, lead, active, onOpen, onPick }: { row: PortfolioRow; lead?: Person; active: boolean; onOpen(): void; onPick(): void }) {
+  const p = row.project
+  const pct = row.total ? Math.round((row.done / row.total) * 100) : 0
+  const left = row.activeSprint ? daysLeft(row.activeSprint.end_date) : undefined
   return (
-    <Card
-      interactive
-      className={cardClass(active)}
-    >
-      <button
-        type="button"
-        onClick={(e) => {
-          if ((e.target as HTMLElement).closest('[data-card-action]')) return
-          onOpenDetails()
-        }}
-        className="block w-full p-5 text-left"
-        aria-pressed={active}
-      >
-        {/* hero header */}
+    <div className={cn('group relative rounded-xl border bg-surface-raised p-4 transition-shadow hover:shadow-md', active ? 'border-brand-400/70' : 'border-edge-default')}>
+      <button type="button" onClick={onOpen} className="absolute inset-0 z-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40" aria-label={`Open ${p.name}`} />
+      <div className="pointer-events-none relative z-10 space-y-3">
         <div className="flex items-start gap-3">
-          <ProjectMark project={project} />
+          <ProjectMark project={p} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between gap-2">
-              <span className="truncate text-sm font-semibold text-content">{project.name}</span>
-              {active ? <StatusBadge kind="healthy">active</StatusBadge> : null}
+              <span className="truncate text-sm font-semibold text-content">{p.name}</span>
+              {row.loaded ? <HealthBadge health={row.health} overridden={row.overridden} title={row.reasons.join(' · ')} /> : null}
             </div>
-            <div className="mt-0.5 flex items-center gap-1.5 text-[10px] font-mono font-semibold uppercase tracking-wider text-content-subtle">
-              <span className="rounded-md bg-surface-sunken px-1.5 py-0.5">
-                {project.identifier}
-              </span>
-              <span>·</span>
-              <span>{project.total_members ?? 0} members</span>
-            </div>
-            {project.description ? (
-              <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-content-muted">
-                {project.description}
-              </p>
-            ) : null}
-          </div>
-        </div>
-
-        {/* progress hero — ring + breakdown bar */}
-        <div className="mt-4 flex items-center gap-4 rounded-xl border border-edge-subtle bg-gradient-to-br from-brand-50/50 via-surface-raised to-surface-raised p-4">
-          <ProgressRing pct={closedPct} loading={issues.isLoading} />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-2xl font-semibold tabular-nums text-content">{done}</span>
-              <span className="text-xs text-content-muted">
-                of {total} {total === 1 ? 'issue' : 'issues'} closed
-              </span>
-            </div>
-            <BreakdownBar done={done} open={open} />
-            <div className="mt-1.5 flex items-center gap-3 text-[11px] text-content-muted">
-              <span className="inline-flex items-center gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-brand-500" />
-                {done} done
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                {open} open
-              </span>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-content-subtle">
+              <span className="font-mono">{p.identifier}</span>
+              <span>· {p.total_members ?? '—'} members</span>
+              {active ? <span>· active</span> : null}
             </div>
           </div>
         </div>
-
-        {/* activity bar chart */}
-        <div className="mt-4">
-          <div className="mb-1.5 flex items-baseline justify-between">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-content-subtle">
-              Activity · last 14 days
-            </span>
-            <span className="text-[11px] tabular-nums text-content-muted">
-              {series.reduce((a, b) => a + b, 0)} created
-            </span>
+        <div>
+          <div className="mb-1 flex items-baseline justify-between text-[11px] text-content-muted">
+            <span>{row.loaded ? `${row.done} of ${row.total} done` : 'Loading work items…'}</span>
+            <span className="tabular-nums text-content">{row.loaded ? `${pct}%` : ''}</span>
           </div>
-          <ActivityBars points={series} />
+          <Meter value={pct} label="Progress" />
         </div>
-
-        {/* footer */}
-        <div className="mt-4 flex items-center justify-between gap-3 border-t border-edge-subtle pt-3 text-[11px] text-content-muted">
-          {lead ? (
-            <span className="inline-flex items-center gap-2 truncate">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-50 text-[10px] font-semibold text-brand-700 ring-1 ring-inset ring-brand-200">
-                {memberDisplayName(lead).slice(0, 1).toUpperCase()}
+        <div className="grid grid-cols-3 gap-2 text-[11px]">
+          <Mini label="Open" value={row.loaded ? row.open : '—'} />
+          <Mini label="Overdue" value={row.loaded ? row.overdue : '—'} warn={row.overdue > 0} />
+          <Mini label="Open bugs" value={row.loaded ? row.bugs : '—'} warn={row.bugs > 0} />
+        </div>
+        <div className="rounded-lg bg-surface-sunken px-2.5 py-1.5 text-[11px] text-content-muted">
+          {row.activeSprint
+            ? (
+              <span className="flex items-center justify-between gap-2">
+                <span className="truncate"><span className="text-content">{row.activeSprint.name}</span> · {row.activeSprint.progress ?? 0}% done</span>
+                <span className="shrink-0 tabular-nums">{left === 0 ? 'ends today' : `${left}d left`}</span>
               </span>
-              <span className="truncate">Lead · {memberDisplayName(lead)}</span>
-            </span>
-          ) : (
-            <span>No lead assigned</span>
-          )}
-          <span className="shrink-0 text-content-subtle">
-            {project.created_at ? formatRelative(project.created_at) : null}
+            )
+            : 'No active sprint'}
+        </div>
+        <div className="flex items-center justify-between gap-2 text-[11px] text-content-muted">
+          <span className="inline-flex min-w-0 items-center gap-1.5">
+            {lead ? <Avatar person={lead} size={18} /> : null}
+            <span className="truncate">{lead ? lead.name : 'No lead'}</span>
           </span>
+          <span className="shrink-0 text-content-subtle">{row.lastActivity ? `active ${formatRelative(row.lastActivity)}` : ''}</span>
         </div>
-      </button>
-      <div className="absolute right-3 top-3 flex items-center gap-1">
-        {!active ? (
+      </div>
+      {!active
+        ? (
           <button
             type="button"
-            data-card-action
-            onClick={(e) => {
-              e.stopPropagation()
-              onPick()
-            }}
-            aria-label={`Set ${project.name} as active`}
-            className="rounded-md border border-edge-default bg-surface-raised/90 px-2 py-1 text-[11px] font-medium text-content opacity-0 shadow-sm transition-all hover:border-brand-400 hover:text-brand-700 group-hover:opacity-100 focus-visible:opacity-100"
+            onClick={onPick}
+            className="absolute bottom-3 right-3 z-20 rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-[11px] font-medium text-content opacity-0 shadow-sm transition-opacity hover:border-brand-400 focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
           >
             Set active
           </button>
-        ) : null}
-        <ProjectCardDeleteButton onDelete={onDelete} projectName={project.name} />
-      </div>
-    </Card>
-  )
-}
-
-function ProjectCardDeleteButton({
-  onDelete,
-  projectName,
-}: {
-  onDelete(): void
-  projectName: string
-}) {
-  return (
-    <button
-      type="button"
-      data-card-action
-      onClick={(e) => {
-        e.stopPropagation()
-        onDelete()
-      }}
-      aria-label={`Delete ${projectName}`}
-      className="flex h-7 w-7 items-center justify-center rounded-md text-content-subtle opacity-0 transition-all hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100 focus-visible:opacity-100"
-    >
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        <path d="M3 6h18" />
-        <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-      </svg>
-    </button>
-  )
-}
-
-function cardClass(active: boolean) {
-  return [
-    'group relative overflow-hidden transition-all duration-200',
-    active
-      ? 'ring-2 ring-brand-400/50 ring-offset-2 ring-offset-surface-app'
-      : 'hover:-translate-y-0.5 hover:shadow-md',
-  ].join(' ')
-}
-
-/**
- * Conic-gradient progress ring with the % rendered in the donut hole. No
- * SVG path math, no chart lib — just a CSS gradient under a centered chip.
- */
-function ProgressRing({ pct, loading }: { pct: number; loading: boolean }) {
-  const angle = Math.min(360, Math.max(0, pct * 3.6))
-  return (
-    <div
-      className="relative h-16 w-16 shrink-0 rounded-full"
-      style={{
-        backgroundImage: loading
-          ? 'conic-gradient(var(--color-edge-subtle) 0deg, var(--color-surface-sunken) 360deg)'
-          : `conic-gradient(var(--color-brand-500) 0deg, var(--color-brand-400) ${angle}deg, var(--color-surface-sunken) ${angle}deg, var(--color-surface-sunken) 360deg)`,
-      }}
-      aria-label={loading ? 'Loading progress' : `${pct}% complete`}
-    >
-      <div className="absolute inset-1.5 flex items-center justify-center rounded-full bg-surface-raised shadow-inner">
-        {loading ? (
-          <Spinner size={12} />
-        ) : (
-          <div className="text-center leading-none">
-            <div className="text-sm font-semibold tabular-nums text-content">{pct}%</div>
-            <div className="mt-0.5 text-[8px] font-semibold uppercase tracking-wider text-content-subtle">
-              done
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function BreakdownBar({ done, open }: { done: number; open: number }) {
-  const total = done + open
-  if (total === 0) {
-    return (
-      <div className="mt-2 flex h-2 items-center justify-center rounded-full bg-surface-sunken text-[10px] text-content-subtle" />
-    )
-  }
-  const donePct = (done / total) * 100
-  const openPct = 100 - donePct
-  return (
-    <div
-      className="mt-2 flex h-2 w-full overflow-hidden rounded-full bg-surface-sunken ring-1 ring-inset ring-edge-subtle"
-      role="progressbar"
-      aria-valuenow={donePct}
-      aria-valuemin={0}
-      aria-valuemax={100}
-    >
-      <div
-        className="h-full bg-gradient-to-r from-brand-500 to-brand-400 transition-[width] duration-500"
-        style={{ width: `${donePct}%` }}
-      />
-      <div
-        className="h-full bg-gradient-to-r from-amber-400 to-amber-300 transition-[width] duration-500"
-        style={{ width: `${openPct}%` }}
-      />
-    </div>
-  )
-}
-
-/**
- * 14-bar histogram of recent issue creation. Empty days drop to a thin
- * baseline so the chart still reads as a row even with sparse data.
- */
-function ActivityBars({ points }: { points: number[] }) {
-  const max = Math.max(1, ...points)
-  return (
-    <div className="flex h-10 items-end gap-[3px]">
-      {points.map((p, i) => {
-        const h = max > 0 ? (p / max) * 100 : 0
-        const empty = p === 0
-        return (
-          <div
-            key={i}
-            className="group/bar relative flex-1"
-            style={{ height: '100%' }}
-            title={`${i === 13 ? 'today' : `${13 - i}d ago`}: ${p} created`}
-          >
-            <div
-              className={
-                empty
-                  ? 'absolute bottom-0 left-0 right-0 h-[3px] rounded-full bg-edge-subtle'
-                  : 'absolute bottom-0 left-0 right-0 rounded-md bg-gradient-to-t from-brand-500 to-brand-300 shadow-[0_1px_0_rgba(255,255,255,0.4)_inset] transition-all group-hover/bar:from-brand-600 group-hover/bar:to-brand-400'
-              }
-              style={empty ? undefined : { height: `${Math.max(8, h)}%` }}
-            />
-          </div>
         )
-      })}
+        : null}
     </div>
+  )
+}
+
+function Mini({ label, value, warn }: { label: string; value: number | string; warn?: boolean }) {
+  return (
+    <div className="rounded-md border border-edge-subtle px-2 py-1">
+      <div className={cn('text-sm font-semibold tabular-nums', warn ? 'text-amber-700 dark:text-amber-300' : 'text-content')}>{value}</div>
+      <div className="text-[10px] uppercase tracking-wide text-content-subtle">{label}</div>
+    </div>
+  )
+}
+
+function PortfolioTable({ rows, people, activeId, onOpen }: { rows: PortfolioRow[]; people: Map<string, Person>; activeId?: string; onOpen(id: string): void }) {
+  const HEALTH_ORDER: Record<Health, number> = { 'off-track': 0, 'at-risk': 1, 'on-track': 2 }
+  const columns: Column<PortfolioRow>[] = [
+    {
+      key: 'name',
+      header: 'Project',
+      pinned: true,
+      value: (r) => r.project.name,
+      cell: (r) => (
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate font-medium text-content">{r.project.name}</span>
+          <span className="font-mono text-[10px] text-content-subtle">{r.project.identifier}</span>
+          {r.project.id === activeId ? <StatusBadge kind="info">active</StatusBadge> : null}
+        </span>
+      ),
+    },
+    { key: 'health', header: 'Health', value: (r) => HEALTH_ORDER[r.health], cell: (r) => (r.loaded ? <HealthBadge health={r.health} overridden={r.overridden} title={r.reasons.join(' · ')} /> : '—') },
+    {
+      key: 'lead',
+      header: 'Lead',
+      value: (r) => people.get(r.project.project_lead ?? '')?.name ?? '',
+      cell: (r) => {
+        const l = people.get(r.project.project_lead ?? '')
+        return l ? <span className="inline-flex items-center gap-1.5"><Avatar person={l} size={18} />{l.name}</span> : <span className="text-content-subtle">—</span>
+      },
+    },
+    { key: 'members', header: 'Members', numeric: true, value: (r) => r.project.total_members ?? 0, cell: (r) => r.project.total_members ?? '—' },
+    {
+      key: 'progress',
+      header: 'Progress',
+      value: (r) => (r.total ? r.done / r.total : 0),
+      cell: (r) => (
+        <span className="flex items-center gap-2">
+          <Meter value={r.total ? (r.done / r.total) * 100 : 0} className="w-20" label="Progress" />
+          <span className="tabular-nums text-[11px] text-content-muted">{r.done}/{r.total}</span>
+        </span>
+      ),
+    },
+    { key: 'sprint', header: 'Active sprint', value: (r) => r.activeSprint?.name ?? '', cell: (r) => (r.activeSprint ? `${r.activeSprint.name} · ${r.activeSprint.progress ?? 0}%` : <span className="text-content-subtle">—</span>) },
+    { key: 'open', header: 'Open', numeric: true, value: (r) => r.open, cell: (r) => r.open },
+    { key: 'overdue', header: 'Overdue', numeric: true, value: (r) => r.overdue, cell: (r) => r.overdue },
+    { key: 'bugs', header: 'Open bugs', numeric: true, value: (r) => r.bugs, cell: (r) => r.bugs },
+    { key: 'activity', header: 'Last activity', value: (r) => r.lastActivity ?? '', cell: (r) => (r.lastActivity ? formatRelative(r.lastActivity) : '—') },
+  ]
+  return (
+    <DataTable
+      tableId="define-portfolio"
+      columns={columns}
+      rows={rows}
+      rowKey={(r) => r.project.id}
+      onRowClick={(r) => onOpen(r.project.id)}
+      features={{ columns: true, density: true, export: true }}
+      defaultSort={{ key: 'health', dir: 'asc' }}
+    />
   )
 }

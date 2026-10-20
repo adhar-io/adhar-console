@@ -1,5 +1,5 @@
 import { type K6Summary, parseK6Summary } from './k6-summary.ts'
-import { LABEL_COMMIT, LABEL_MANAGED, LABEL_TEST } from './perf-format.ts'
+import { LABEL_APPLICATION, LABEL_COMMIT, LABEL_MANAGED, LABEL_TEST } from './perf-format.ts'
 
 /**
  * Durable run results — the history every trend, baseline and gate is built on.
@@ -323,6 +323,8 @@ export interface RunRecord {
   commit?: string
   /** Highest non-zero runner exit code; 99 is k6's "thresholds crossed". */
   exitCode?: number
+  /** The application the test drives (`adhar.io/application`), when known. */
+  application?: string
   /** Verdict the runner script recorded when the run finished, if any. */
   recordedVerdict?: 'pass' | 'fail'
   recordedReasons?: string
@@ -367,6 +369,7 @@ export function recordFromConfigMap(cm: ConfigMapLike): RunRecord | null {
     trigger,
     schedule: labels[LABEL_SCHEDULE] || undefined,
     commit: labels[LABEL_COMMIT] || undefined,
+    application: labels[LABEL_APPLICATION] || undefined,
     exitCode: ann[ANN_EXIT] !== undefined && ann[ANN_EXIT] !== '' && Number.isFinite(exit) ? exit : undefined,
     recordedVerdict: verdict === 'pass' || verdict === 'fail' ? verdict : undefined,
     recordedReasons: ann[ANN_REASONS] || undefined,
@@ -398,6 +401,7 @@ export function resultConfigMap(input: {
   stage?: string
   exitCode?: number
   parallelism?: number
+  application?: string
 }) {
   const labels: Record<string, string> = {
     [LABEL_MANAGED]: 'adhar-console',
@@ -406,6 +410,7 @@ export function resultConfigMap(input: {
     [LABEL_TRIGGER]: input.trigger,
   }
   if (input.commit) labels[LABEL_COMMIT] = input.commit.slice(0, 63)
+  if (input.application) labels[LABEL_APPLICATION] = input.application
   const annotations: Record<string, string> = { [ANN_RUN]: input.run }
   if (input.startedAt) annotations[ANN_STARTED] = input.startedAt
   if (input.finishedAt) annotations[ANN_FINISHED] = input.finishedAt

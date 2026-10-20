@@ -55,6 +55,12 @@ export interface DesignParams {
   wireframe?: string
   /** Wireframes: the frame open in the editor. */
   doc?: string
+  /** Tenancy scope: the Adhar project (slug) the Design pages are narrowed to. */
+  project?: string
+  /** Visual Designer: repository / branch to open, and the wireframe to start from. */
+  repo?: string
+  branch?: string
+  from?: string
 }
 
 const KEYS = [
@@ -71,6 +77,10 @@ const KEYS = [
   'spec',
   'wireframe',
   'doc',
+  'project',
+  'repo',
+  'branch',
+  'from',
 ] as const
 
 function clean(o: Record<string, unknown>): Record<string, string> {
@@ -186,7 +196,9 @@ export function useGoDesign() {
   const router = useRouter({ warn: false })
   return useCallback(
     (section: DesignSection, params: DesignParams = {}) => {
-      const search = clean({ section, ...params })
+      // The project scope follows you between Design sections.
+      const carried = 'project' in params ? {} : { project: pick(readSearch()).project }
+      const search = clean({ section, ...carried, ...params })
       if (router) {
         void router.navigate({ to: '/design', search: search as never })
         return

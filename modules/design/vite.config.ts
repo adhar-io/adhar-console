@@ -6,5 +6,7 @@ export default defineRemoteConfig({
   moduleDir: import.meta.dirname!,
   exposes: {
     './Home': './src/home.tsx',
+    // Reusable "Decisions" panel for a catalog entity (ADRs linked to it).
+    './Decisions': './src/components/entity-decisions.tsx',
   },
 })

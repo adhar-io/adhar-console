@@ -124,3 +124,71 @@ export function projectToBlocks(project: BuilderProject, max = 40): WireframeBlo
   page.nodes.forEach(visit)
   return out
 }
+
+/* ── wireframe → a new page in a repository (Visual Designer "Implement in repo") ── */
+
+/** The canvas nodes a wireframe stands for: its designed page when edited, else its blocks. */
+export function wireframeNodes(wf: Wireframe): CanvasNode[] {
+  const stored = wf.builder as BuilderProject | undefined
+  const page = stored?.files ? firstPage(stored.files) : undefined
+  if (page?.nodes?.length) return page.nodes
+  return [...(wf.blocks ?? [])].sort((a, b) => a.y - b.y || a.x - b.x).map(blockToNode)
+}
+
+function pascalName(s: string): string {
+  const p = s.replace(/[^A-Za-z0-9]+(.)?/g, (_, c: string | undefined) => (c ? c.toUpperCase() : '')).replace(/^[a-z]/, (c) => c.toUpperCase())
+  return /^[A-Z]/.test(p) ? p : `Page${p}`
+}
+
+function kebab(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'page'
+}
+
+/** Does a page with this route or file name already exist? */
+function taken(files: ProjectFile[], name: string, route: string): boolean {
+  for (const f of files) {
+    if (f.type === 'file' && f.nodes !== undefined && (f.name === name || f.route === route)) return true
+    if (f.children && taken(f.children, name, route)) return true
+  }
+  return false
+}
+
+/** Insert `page` next to the project's first page (or at the root). */
+function insertBesideFirstPage(files: ProjectFile[], page: ProjectFile): { files: ProjectFile[]; done: boolean } {
+  const idx = files.findIndex((f) => f.type === 'file' && f.nodes !== undefined && !f.symbol)
+  if (idx >= 0) return { files: [...files.slice(0, idx + 1), page, ...files.slice(idx + 1)], done: true }
+  let done = false
+  const next = files.map((f) => {
+    if (done || !f.children) return f
+    const r = insertBesideFirstPage(f.children, page)
+    if (!r.done) return f
+    done = true
+    return { ...f, children: r.files }
+  })
+  return { files: next, done }
+}
+
+/**
+ * Add the wireframe as a NEW page to a repository project opened in the
+ * Visual Designer. The page has no `repoPath`, so "Review & commit" creates
+ * its file (and route) — existing pages are untouched. Returns the new page id.
+ */
+export function addWireframePage(project: BuilderProject, wf: Wireframe): { project: BuilderProject; pageId: string } {
+  let base = pascalName(wf.name)
+  let route = `/${kebab(wf.name)}`
+  for (let i = 2; taken(project.files, `${base}.tsx`, route); i++) {
+    base = `${pascalName(wf.name)}${i}`
+    route = `/${kebab(wf.name)}-${i}`
+  }
+  const pageId = `pg-new-${wf.id}`
+  const page: ProjectFile = { id: pageId, name: `${base}.tsx`, type: 'file', language: 'tsx', nodes: wireframeNodes(wf), route }
+  const r = insertBesideFirstPage(project.files, page)
+  return { project: { ...project, files: r.done ? r.files : [...project.files, page] }, pageId }
+}
+
+/** A builder project whose single page holds `nodes` (an Adhar AI page draft). */
+export function projectWithNodes(base: BuilderProject, name: string, nodes: CanvasNode[]): BuilderProject {
+  const pageName = `${name.replace(/[^A-Za-z0-9]+/g, '') || 'Frame'}.tsx`
+  const page: ProjectFile = { id: 'f_wireframe', name: pageName, type: 'file', language: 'tsx', nodes, home: true, route: '/' }
+  return { ...base, name, files: base.files.map((f) => replacePages(f, page)) }
+}

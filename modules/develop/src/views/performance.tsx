@@ -34,6 +34,7 @@ import { PerfDashboard } from './perf-dashboard.tsx'
 import { QuickTestModal } from './perf-quick.tsx'
 import { useDevelopParams, useSetDevelopParams } from '../data/nav.ts'
 import { ResultsView } from './perf-results.tsx'
+import { PerfReadiness } from './perf-readiness.tsx'
 import { SchedulesView } from './perf-schedules.tsx'
 import { harvestedRuns, useHarvester, usePerfInsights } from '../data/perf-automation.ts'
 import { DEFAULT_CONFIG, LABEL_COMMIT, LABEL_TEST } from '../data/perf-format.ts'
@@ -78,7 +79,7 @@ import {
  * it out of the logs. When there is no summary yet the page says so rather
  * than rendering empty tables that look like a test with no results.
  */
-type PerfTab = 'overview' | 'tests' | 'runs' | 'results' | 'schedules'
+type PerfTab = 'overview' | 'tests' | 'runs' | 'results' | 'schedules' | 'readiness'
 
 const PERF_TABS: Array<[PerfTab, string]> = [
   ['overview', 'Overview'],
@@ -86,6 +87,9 @@ const PERF_TABS: Array<[PerfTab, string]> = [
   ['runs', 'Runs'],
   ['results', 'Results'],
   ['schedules', 'Schedules'],
+  // Per-application reports: automated load + chaos, live SLOs, team gates
+  // and game days, as the scorecard grades them.
+  ['readiness', 'Readiness'],
 ]
 
 export function Performance() {
@@ -215,6 +219,8 @@ export function Performance() {
         ? <ResultsView key={resultsFor ?? 'all'} insights={insights} initialTest={resultsFor} />
         : tab === 'schedules'
         ? <SchedulesView key={scheduleFor ?? 'list'} insights={insights} presetTest={scheduleFor} />
+        : tab === 'readiness'
+        ? <PerfReadiness />
         : crdMissing
         ? (
           <CrdMissing

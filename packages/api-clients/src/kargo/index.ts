@@ -62,7 +62,14 @@ export const StageSchema = z.object({
   lastPromotionPhase: z.string().optional(),
   /** Latest verification (Argo Rollouts AnalysisRun) of the current freight. */
   verification: z
-    .object({ phase: z.string(), message: z.string().optional(), startTime: z.string().optional(), finishTime: z.string().optional() })
+    .object({
+      phase: z.string(),
+      message: z.string().optional(),
+      startTime: z.string().optional(),
+      finishTime: z.string().optional(),
+      /** The Argo Rollouts AnalysisRun behind it — a shared stage's run has per-app metrics (`<app>-…`). */
+      analysisRun: z.object({ name: z.string(), namespace: z.string() }).optional(),
+    })
     .optional(),
   /** Controller conditions that are not True (e.g. Reconciling, Healthy=False). */
   issues: z.array(z.string()).optional(),
@@ -160,7 +167,7 @@ export interface RawStage {
     currentFreight?: { name?: string; id?: string }
     freightHistory?: Array<{
       items?: Record<string, { name?: string; origin?: { kind?: string; name?: string } }>
-      verificationHistory?: Array<{ phase?: string; message?: string; startTime?: string; finishTime?: string }>
+      verificationHistory?: Array<{ phase?: string; message?: string; startTime?: string; finishTime?: string; analysisRun?: { name?: string; namespace?: string } }>
     }>
     lastPromotion?: { name?: string; finishedAt?: string; status?: { phase?: string }; freight?: { name?: string; origin?: { kind?: string; name?: string } } }
     currentPromotion?: { name?: string; freight?: { name?: string; origin?: { kind?: string; name?: string } } }
@@ -253,7 +260,15 @@ export function toStage(s: RawStage): Stage {
     ...(st.lastPromotion?.freight?.name ? { lastPromotionFreight: st.lastPromotion.freight.name } : {}),
     ...(st.lastPromotion?.freight?.origin?.name ? { lastPromotionOrigin: st.lastPromotion.freight.origin.name } : {}),
     verification: verification?.phase
-      ? { phase: verification.phase, message: verification.message, startTime: verification.startTime, finishTime: verification.finishTime }
+      ? {
+        phase: verification.phase,
+        message: verification.message,
+        startTime: verification.startTime,
+        finishTime: verification.finishTime,
+        ...(verification.analysisRun?.name
+          ? { analysisRun: { name: verification.analysisRun.name, namespace: verification.analysisRun.namespace ?? s.metadata.namespace ?? '' } }
+          : {}),
+      }
       : undefined,
     issues: issues.length ? [...new Set(issues)] : undefined,
   }

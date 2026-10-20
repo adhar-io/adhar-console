@@ -1,291 +1,364 @@
-import { useQuery, type UseQueryResult } from '@tanstack/react-query'
-import { argocd } from '@adhar/api-clients'
+import { useMemo } from 'react'
+import { useQueries, useQuery, type UseQueryResult } from '@tanstack/react-query'
+import { argocd, gitea, kargo } from '@adhar/api-clients'
+import { useGiteaOrg } from '@adhar/shell-ui'
+import { type BuildRun, type RawRun, toBuildRun } from './builds-model.ts'
+import {
+  breakdown,
+  type BreakdownRow,
+  bucketMs,
+  computeKeys,
+  type DeployEvent,
+  deployRestores,
+  envFromNamespace,
+  firingIntervals,
+  isProd,
+  type KeyMetrics,
+  type KeySeries,
+  keySeries,
+  type LeadTimeSample,
+  mergeDeploys,
+  normalizeEnv,
+  projectFromNamespace,
+  type RepoCommit,
+  type RestoreSample,
+} from './dora-model.ts'
+import {
+  argoEvents,
+  type ArgoAppLike,
+  changeRefFor,
+  type ChangeRef,
+  type FreightLike,
+  kargoEvents,
+  type PromotionLike,
+  resolveLeads,
+  type StageLike,
+} from './dora-sources.ts'
+import { client, GVR, isNotInstalled } from './k8s.ts'
+import { promRange } from './prom.ts'
+import type { DecideScope } from './scope.ts'
 
 /**
- * DORA metrics — REAL, derived from ArgoCD Application deploy history.
+ * DORA data hooks — every source the four keys need, read live:
  *
- * Source: `/api/svc/argocd/api/v1/applications` (through the console BFF proxy,
- * service-authenticated by the server). Each Application carries:
- *   • `status.history[]`      — real deployment events { id, revision, deployedAt }
- *   • `status.operationState` — the latest sync operation { phase, … }
- *   • `status.health.status`  — current health (Healthy / Degraded / …)
+ *   Argo CD    `/api/svc/argocd/api/v1/applications`        sync history
+ *   Kargo      `/api/k8s/apis/kargo.akuity.io/v1alpha1/…`    promotions, stages, freight
+ *   Tekton     `/api/k8s/apis/tekton.dev/v1/pipelineruns`    builds (commit ↔ image)
+ *   Gitea      `/api/svc/gitea/api/v1/repos/<o>/<r>/commits` commit times
+ *   Prometheus `/api/svc/prometheus` `ALERTS`                incidents for restore time
  *
- * What ArgoCD can and cannot tell us (NO fabricated numbers):
- *   • Deploy frequency   → FULLY DERIVED by bucketing `history[].deployedAt`.
- *   • Change-failure rate→ DERIVED (coarse) from the latest `operationState`
- *                          phase per app (`Failed` ⇒ a failed deploy).
- *   • Lead time          → NOT DERIVABLE — ArgoCD records deploy time, not the
- *                          source-commit time. Reported as `null` ("needs a
- *                          commit source / Four Keys") rather than invented.
- *   • MTTR               → NOT DERIVABLE from a point-in-time snapshot (no
- *                          degraded→healthy transition log). Reported as
- *                          `null` ("requires an incident source").
- *
- * Tier classification uses the standard DORA "four keys" benchmarks, applied to
- * the REAL computed values. Real `useQuery`: loading + error surfaced.
+ * Each source fails on its own; the page names what is missing rather than
+ * filling the gap.
  */
-
-export type DoraTier = 'Elite' | 'High' | 'Medium' | 'Low'
-
-export type DoraWindow = 30 | 90
-
-export interface ServiceDora {
-  /** ArgoCD Application name. */
-  service: string
-  /** ArgoCD project. */
-  project: string
-  /** Deploys per week (derived from the daily deploy series). */
-  deployFrequency: number
-  /** Total deploys across the window. */
-  deploysWindow: number
-  /** Change-failure rate as a fraction 0–1, or null if no operations seen. */
-  changeFailureRate: number | null
-  /** Lead time for changes — null: not derivable from ArgoCD. */
-  leadTimeHours: number | null
-  /** Mean time to restore — null: not derivable from ArgoCD. */
-  mttrHours: number | null
-  tier: DoraTier
-  /** Per-metric tiers; null where the metric can't be derived. */
-  tiers: {
-    deployFrequency: DoraTier
-    changeFailureRate: DoraTier | null
-    leadTime: DoraTier | null
-    mttr: DoraTier | null
-  }
-  /** Daily deploy counts over the window (oldest → newest). */
-  deployTrend: number[]
-}
-
-export interface DoraMetrics {
-  services: ServiceDora[]
-  /** Aggregate "All services" summary row. */
-  aggregate: ServiceDora
-  windowDays: DoraWindow
-  /** Metrics that ArgoCD cannot supply — surfaced so the UI can label them. */
-  unavailable: { leadTime: string; mttr: string }
-}
-
-/* ── ArgoCD wire types (superset of the typed client, incl. history) ──── */
-
-interface ArgoHistory {
-  id?: number
-  revision?: string
-  deployedAt?: string
-}
-
-interface ArgoApp {
-  metadata?: { name?: string; namespace?: string }
-  spec?: { project?: string }
-  status?: {
-    history?: ArgoHistory[]
-    operationState?: { phase?: string; finishedAt?: string }
-    health?: { status?: string }
-    sync?: { status?: string; revision?: string }
-  }
-}
 
 const argoClient = argocd.ArgoCDClient.auto({ tool: 'argocd' })
+const kargoClient = kargo.KargoClient.auto({ tool: 'kargo' })
+const giteaClient = gitea.GiteaClient.auto({ tool: 'gitea' })
 
-async function listApps(): Promise<ArgoApp[]> {
-  // The typed client returns the raw `items` untouched (no zod strip), so
-  // `status.history` is present at runtime; widen the type to read it.
-  const apps = (await argoClient.listApplications()) as unknown as ArgoApp[]
-  return apps ?? []
+const STALE = 60_000
+const REFRESH = 120_000
+const DAY = 86_400_000
+
+export type SourceState = 'ok' | 'empty' | 'missing' | 'error' | 'loading'
+
+export interface SourceStatus {
+  id: string
+  label: string
+  state: SourceState
+  detail: string
 }
 
-/* ── DORA tier thresholds (Four Keys benchmark) ───────────────────────── */
-
-const HOURS_PER_DAY = 24
-const HOURS_PER_WEEK = 24 * 7
-const HOURS_PER_MONTH = 24 * 30
-
-const TIER_SCORE: Record<DoraTier, number> = { Elite: 4, High: 3, Medium: 2, Low: 1 }
-const SCORE_TIER: DoraTier[] = ['Low', 'Low', 'Medium', 'High', 'Elite']
-
-/** Deploy frequency in deploys/day → tier. */
-export function tierForDeployFrequency(perDay: number): DoraTier {
-  if (perDay >= 1) return 'Elite' // on-demand, multiple per day
-  if (perDay >= 1 / 7) return 'High' // ≥ weekly
-  if (perDay >= 1 / 30) return 'Medium' // ≥ monthly
-  return 'Low'
-}
-
-/** Lead time for changes in hours → tier. */
-export function tierForLeadTime(hours: number): DoraTier {
-  if (hours < HOURS_PER_DAY) return 'Elite' // < 1 day
-  if (hours < HOURS_PER_WEEK) return 'High' // < 1 week
-  if (hours < HOURS_PER_MONTH) return 'Medium' // < 1 month
-  return 'Low'
-}
-
-/** Change-failure rate as a fraction → tier. */
-export function tierForChangeFailureRate(cfr: number): DoraTier {
-  if (cfr <= 0.05) return 'Elite'
-  if (cfr <= 0.1) return 'High'
-  if (cfr <= 0.15) return 'Medium'
-  return 'Low'
-}
-
-/** Mean time to restore in hours → tier. */
-export function tierForMttr(hours: number): DoraTier {
-  if (hours < 1) return 'Elite' // < 1 hour
-  if (hours < HOURS_PER_DAY) return 'High' // < 1 day
-  if (hours < HOURS_PER_WEEK) return 'Medium' // < 1 week
-  return 'Low'
-}
-
-/** Overall tier from the derivable metrics only (null tiers are ignored). */
-function overallTier(tiers: ServiceDora['tiers']): DoraTier {
-  const present = [tiers.deployFrequency, tiers.changeFailureRate, tiers.leadTime, tiers.mttr].filter(
-    (t): t is DoraTier => t != null,
-  )
-  if (present.length === 0) return 'Medium'
-  const avg = present.reduce((a, t) => a + TIER_SCORE[t], 0) / present.length
-  return SCORE_TIER[Math.round(avg)] ?? 'Medium'
-}
-
-/* ── builders (from real ArgoCD data) ─────────────────────────────────── */
-
-/** Bucket real deploy events into `windowDays` daily counts (oldest → newest). */
-function deployBuckets(history: ArgoHistory[], windowDays: number, now: number): number[] {
-  const buckets = new Array(windowDays).fill(0)
-  const dayMs = 24 * 60 * 60 * 1000
-  for (const h of history) {
-    if (!h.deployedAt) continue
-    const t = new Date(h.deployedAt).getTime()
-    if (!Number.isFinite(t)) continue
-    const ageDays = Math.floor((now - t) / dayMs)
-    if (ageDays < 0 || ageDays >= windowDays) continue
-    // index 0 = oldest day in the window, windowDays-1 = today
-    buckets[windowDays - 1 - ageDays] += 1
+function status(id: string, label: string, q: UseQueryResult<unknown[]>, what: string): SourceStatus {
+  if (q.isLoading) return { id, label, state: 'loading', detail: 'Loading…' }
+  if (q.error && !q.data) {
+    if (isNotInstalled(q.error)) return { id, label, state: 'missing', detail: `${label} is not installed on this cluster.` }
+    return { id, label, state: 'error', detail: `${label} unreachable — ${(q.error as Error).message}` }
   }
-  return buckets
+  const n = q.data?.length ?? 0
+  return n ? { id, label, state: 'ok', detail: `${n} ${what}` } : { id, label, state: 'empty', detail: `No ${what} yet.` }
 }
 
-function buildService(app: ArgoApp, windowDays: DoraWindow, now: number): ServiceDora {
-  const history = app.status?.history ?? []
-  const deployTrend = deployBuckets(history, windowDays, now)
-  const deploysWindow = deployTrend.reduce((a, v) => a + v, 0)
-  const deployFrequency = Number(((deploysWindow / windowDays) * 7).toFixed(1))
+/* ─────────── raw sources (shared cache across pages) ─────────── */
 
-  // Change-failure rate: real, from the latest sync operation phase. One
-  // observed operation per app ⇒ 0 or 1; aggregated across apps this yields a
-  // real failure proportion.
-  const phase = app.status?.operationState?.phase
-  const changeFailureRate = phase ? (phase === 'Failed' ? 1 : 0) : null
-
-  const tiers = {
-    deployFrequency: tierForDeployFrequency(deploysWindow / windowDays),
-    changeFailureRate: changeFailureRate == null ? null : tierForChangeFailureRate(changeFailureRate),
-    leadTime: null,
-    mttr: null,
-  }
-
-  return {
-    service: app.metadata?.name ?? 'unknown',
-    project: app.spec?.project ?? '—',
-    deployFrequency,
-    deploysWindow,
-    changeFailureRate,
-    leadTimeHours: null,
-    mttrHours: null,
-    tier: overallTier(tiers),
-    tiers,
-    deployTrend,
-  }
-}
-
-function buildAggregate(
-  services: ServiceDora[],
-  apps: ArgoApp[],
-  windowDays: DoraWindow,
-): ServiceDora {
-  const deployTrend = new Array(windowDays).fill(0)
-  for (const s of services) {
-    for (let i = 0; i < windowDays; i++) deployTrend[i] += s.deployTrend[i] ?? 0
-  }
-  const deploysWindow = deployTrend.reduce((a, v) => a + v, 0)
-  const deployFrequency = Number(((deploysWindow / windowDays) * 7).toFixed(1))
-
-  // Aggregate CFR: failed operations / total observed operations (real).
-  const withOps = apps.filter((a) => a.status?.operationState?.phase)
-  const failed = withOps.filter((a) => a.status?.operationState?.phase === 'Failed').length
-  const changeFailureRate = withOps.length
-    ? Number((failed / withOps.length).toFixed(4))
-    : null
-
-  const tiers = {
-    deployFrequency: tierForDeployFrequency(deploysWindow / windowDays),
-    changeFailureRate: changeFailureRate == null ? null : tierForChangeFailureRate(changeFailureRate),
-    leadTime: null,
-    mttr: null,
-  }
-
-  return {
-    service: 'All services',
-    project: 'Platform-wide',
-    deployFrequency,
-    deploysWindow,
-    changeFailureRate,
-    leadTimeHours: null,
-    mttrHours: null,
-    tier: overallTier(tiers),
-    tiers,
-    deployTrend,
-  }
-}
-
-function buildDoraMetrics(apps: ArgoApp[], windowDays: DoraWindow): DoraMetrics {
-  const now = Date.now()
-  const services = apps
-    .map((a) => buildService(a, windowDays, now))
-    .sort((a, b) => b.deploysWindow - a.deploysWindow)
-  return {
-    services,
-    aggregate: buildAggregate(services, apps, windowDays),
-    windowDays,
-    unavailable: {
-      leadTime: 'needs a commit source (Four Keys)',
-      mttr: 'requires an incident source',
-    },
-  }
-}
-
-/**
- * Per-service DORA metrics + a platform-wide aggregate over a 30- or 90-day
- * window, derived from real ArgoCD deploy history. Real `useQuery`: loading and
- * error are surfaced. Lead time & MTTR are reported as `null` (not derivable
- * from ArgoCD) rather than fabricated.
- */
-export function useDoraMetrics(windowDays: DoraWindow = 30): UseQueryResult<DoraMetrics> {
+export function useArgoApps() {
   return useQuery({
-    queryKey: ['argocd', 'dora', windowDays],
-    queryFn: async () => buildDoraMetrics(await listApps(), windowDays),
-    staleTime: 30_000,
+    queryKey: ['decide', 'argocd', 'apps'],
+    queryFn: async () => (await argoClient.listApplications()) as unknown as Array<ArgoAppLike & argocd.Application>,
+    staleTime: STALE,
+    refetchInterval: REFRESH,
     retry: false,
   })
 }
 
-/* ── formatting helpers ───────────────────────────────────────────────── */
+export function usePromotions() {
+  return useQuery({
+    queryKey: ['decide', 'kargo', 'promotions'],
+    queryFn: async () =>
+      (await client.listGeneric(undefined, GVR.promotions)).map((p) => kargo.toPromotion(p as unknown as kargo.RawPromotion)) as PromotionLike[],
+    staleTime: STALE,
+    refetchInterval: REFRESH,
+    retry: false,
+  })
+}
 
-export function formatLeadTime(hours: number): string {
-  if (hours < 1) return `${Math.round(hours * 60)} min`
-  if (hours < 24) {
-    const h = Math.floor(hours)
-    const m = Math.round((hours - h) * 60)
-    return m ? `${h}h ${m}m` : `${h}h`
+export function useStages() {
+  return useQuery({
+    queryKey: ['decide', 'kargo', 'stages'],
+    queryFn: async () =>
+      (await client.listGeneric(undefined, GVR.stages)).map((s): StageLike => ({
+        name: s.metadata.name,
+        project: s.metadata.namespace ?? '',
+        labels: s.metadata.labels,
+      })),
+    staleTime: STALE,
+    retry: false,
+  })
+}
+
+export function useFreight() {
+  return useQuery({
+    queryKey: ['decide', 'kargo', 'freight'],
+    queryFn: async () => (await kargoClient.listFreight('')) as FreightLike[],
+    staleTime: STALE,
+    retry: false,
+  })
+}
+
+export function useBuildRuns() {
+  return useQuery({
+    queryKey: ['decide', 'tekton', 'pipelineruns'],
+    queryFn: async () => (await client.listGeneric(undefined, GVR.pipelineRuns)).map((r) => toBuildRun(r as unknown as RawRun)),
+    staleTime: STALE,
+    refetchInterval: REFRESH,
+    retry: false,
+  })
+}
+
+/** Newest-first commits for each `org/repo`, two pages (≤100). */
+function useRepoCommits(repos: string[]) {
+  const qs = useQueries({
+    queries: repos.map((repo) => ({
+      queryKey: ['decide', 'gitea', 'commits', repo],
+      queryFn: async (): Promise<RepoCommit[]> => {
+        const [org, name] = repo.split('/')
+        const first = await giteaClient.listCommits(org, name, '', 50)
+        const second = first.length === 50 ? await giteaClient.listCommits(org, name, '', 50, { page: 2 }).catch(() => []) : []
+        return [...first, ...second]
+          .map((c) => ({ sha: c.sha.toLowerCase(), at: Date.parse(c.created) }))
+          .filter((c) => Number.isFinite(c.at))
+      },
+      staleTime: 5 * 60_000,
+      retry: false,
+    })),
+  })
+  const key = qs.map((q) => q.dataUpdatedAt).join(',')
+  return useMemo(() => {
+    const map = new Map<string, RepoCommit[]>()
+    let failed = 0
+    qs.forEach((q, i) => {
+      if (q.data) map.set(repos[i], q.data)
+      else if (q.error) failed++
+    })
+    return { map, failed, loading: qs.some((q) => q.isLoading) }
+  }, [key, repos.join(',')])
+}
+
+/** Critical alert firing intervals over [from, to). */
+function useAlertIntervals(from: number, to: number) {
+  return useQuery({
+    queryKey: ['decide', 'prom', 'alerts', Math.floor(from / 600_000), Math.floor(to / 600_000)],
+    queryFn: async () => {
+      const step = 300
+      const res = await promRange(
+        'max by (alertname, namespace, severity) (ALERTS{alertstate="firing", severity=~"critical|page|error"})',
+        from,
+        to,
+        step,
+      )
+      const realStep = Math.max(step, Math.ceil((to - from) / 1000 / 10_000)) * 1000
+      return res.flatMap((s) =>
+        firingIntervals(s.values.map(([t, v]) => [t * 1000, Number(v)]), realStep, to).map((iv) => ({ ...iv, metric: s.metric }))
+      )
+    },
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+}
+
+/* ─────────── the assembled dataset ─────────── */
+
+export interface DoraDataset {
+  now: number
+  from: number
+  to: number
+  prevFrom: number
+  env: string
+  current: KeyMetrics
+  previous: KeyMetrics
+  series: KeySeries
+  bucket: number
+  /** In-scope deploys (every env) — throughput views. */
+  allDeploys: DeployEvent[]
+  /** In-scope deploys to the measured env over the whole fetched span. */
+  envDeploys: DeployEvent[]
+  leads: LeadTimeSample[]
+  restores: RestoreSample[]
+  openIncidents: Array<{ app: string; project: string; since: number; label: string; source: 'deploy' | 'alert' }>
+  byTeam: BreakdownRow[]
+  byProject: BreakdownRow[]
+  byApp: BreakdownRow[]
+  sources: SourceStatus[]
+  quality: {
+    deploys: number
+    resolved: number
+    via: Record<LeadTimeSample['via'], number>
+    unresolved: number
+    reposFailed: number
+    deploySource: { kargo: number; argocd: number }
   }
-  const days = Math.floor(hours / 24)
-  const h = Math.round(hours - days * 24)
-  return h ? `${days}d ${h}h` : `${days}d`
+  runs: BuildRun[]
+  loading: boolean
+  /** No deploy source answered at all. */
+  noSources: boolean
 }
 
-export function formatMttr(hours: number): string {
-  return formatLeadTime(hours)
-}
+export function useDora(scope: DecideScope, envParam?: string): DoraDataset {
+  const org = useGiteaOrg()
+  const env = normalizeEnv(envParam) || 'prod'
+  const days = scope.range.days
+  // A minute-stable clock keeps memoised windows from shifting every render.
+  const now = Math.floor(Date.now() / 60_000) * 60_000
+  const to = now
+  const from = now - days * DAY
+  const prevFrom = from - days * DAY
 
-export function formatDeployFreq(perWeek: number): string {
-  if (perWeek >= 7) return `${(perWeek / 7).toFixed(1)}/day`
-  if (perWeek >= 1) return `${perWeek.toFixed(1)}/wk`
-  return `${(perWeek * 4.3).toFixed(1)}/mo`
+  const apps = useArgoApps()
+  const promotions = usePromotions()
+  const stages = useStages()
+  const freight = useFreight()
+  const runs = useBuildRuns()
+  const alerts = useAlertIntervals(prevFrom, to)
+
+  const base = useMemo(() => {
+    const argo = argoEvents(apps.data ?? [], scope.refs)
+    const kg = kargoEvents(promotions.data ?? [], stages.data ?? [], freight.data ?? [])
+    const merged = mergeDeploys(argo, kg)
+    // repo/app name → project, so builds without a project label can be scoped.
+    const appProject = new Map<string, string>()
+    for (const e of merged) if (e.app && e.project && !appProject.has(e.app)) appProject.set(e.app, e.project)
+    const all = merged.filter((e) => scope.matches(e.project) && e.at >= prevFrom)
+    const freightById = new Map((freight.data ?? []).map((f) => [f.id, f]))
+    const argoRepo = new Map((apps.data ?? []).map((a) => [a.metadata.name, a.spec.source?.repoURL ?? a.spec.sources?.[0]?.repoURL]))
+    const envDeploys = all.filter((e) => (env === 'prod' ? isProd(e.env) : e.env === env))
+    const refs = new Map<string, ChangeRef>()
+    for (const d of envDeploys) {
+      const r = changeRefFor(d, { freightById, runs: runs.data ?? [], org, argoRepo: argoRepo.get(d.name) })
+      if (r) refs.set(d.id, r)
+    }
+    const scopedRuns = (runs.data ?? []).filter((r) => {
+      if (!scope.inScope) return true
+      const p = r.project ?? (r.repo ? appProject.get(r.repo) : undefined)
+      return !!p && scope.matches(p)
+    })
+    return { all, envDeploys, refs, scopedRuns }
+  }, [apps.data, promotions.data, stages.data, freight.data, runs.data, scope, env, prevFrom, org])
+
+  const repos = useMemo(() => [...new Set([...base.refs.values()].map((r) => r.repo))].sort().slice(0, 30), [base.refs])
+  const commits = useRepoCommits(repos)
+
+  return useMemo((): DoraDataset => {
+    const { all, envDeploys, refs } = base
+    const leads = resolveLeads(envDeploys, refs, commits.map)
+    const fromDeploys = deployRestores(envDeploys)
+    const alertRestores: RestoreSample[] = []
+    const openAlerts: DoraDataset['openIncidents'] = []
+    for (const iv of alerts.data ?? []) {
+      const ns = iv.metric.namespace ?? ''
+      const project = projectFromNamespace(ns)
+      const aEnv = envFromNamespace(ns, project)
+      // Restores are about the measured environment; an alert with no project
+      // (platform namespaces) only counts in the unscoped view.
+      if (project ? !scope.matches(project) || (env === 'prod' ? !isProd(aEnv) : aEnv !== env) : !!scope.inScope) continue
+      const label = `${iv.metric.alertname ?? 'alert'}${ns ? ` · ${ns}` : ''}`
+      if (iv.open) {
+        openAlerts.push({ app: iv.metric.alertname ?? '', project, since: iv.start, label, source: 'alert' })
+        continue
+      }
+      alertRestores.push({
+        app: iv.metric.alertname ?? 'alert',
+        project,
+        env: aEnv,
+        start: iv.start,
+        end: iv.end,
+        hours: (iv.end - iv.start) / 3_600_000,
+        source: 'alert',
+        label,
+      })
+    }
+    const restores = [...fromDeploys.restores, ...alertRestores].sort((a, b) => b.end - a.end)
+    const input = { deploys: envDeploys, leads, restores }
+    const bucket = bucketMs(days)
+    const teamsOf = (x: { project: string }) => {
+      const t = scope.teamsOf(x.project)
+      return t.length ? t : ['(no team)']
+    }
+    const inWin = envDeploys.filter((d) => d.at >= from)
+    const via = { 'freight-commit': 0, 'image-tag': 0, 'argo-revision': 0, 'build-start': 0 } as Record<LeadTimeSample['via'], number>
+    const okDeploys = inWin.filter((d) => d.outcome === 'succeeded' && !d.rollback)
+    for (const d of okDeploys) {
+      const r = refs.get(d.id)
+      if (r) via[r.via]++
+    }
+    const resolved = okDeploys.filter((d) => refs.has(d.id)).length
+    const sources: SourceStatus[] = [
+      status('argocd', 'Argo CD', apps as UseQueryResult<unknown[]>, 'applications'),
+      status('kargo', 'Kargo', promotions as UseQueryResult<unknown[]>, 'promotions'),
+      status('tekton', 'Tekton', runs as UseQueryResult<unknown[]>, 'pipeline runs'),
+      repos.length
+        ? {
+          id: 'gitea',
+          label: 'Gitea',
+          state: commits.loading ? 'loading' : commits.failed === repos.length ? 'error' : 'ok',
+          detail: commits.failed
+            ? `${repos.length - commits.failed} of ${repos.length} repositories readable`
+            : `${repos.length} ${repos.length === 1 ? 'repository' : 'repositories'}`,
+        }
+        : { id: 'gitea', label: 'Gitea', state: 'empty', detail: 'No deploy could be traced to a source repository.' },
+      status('prometheus', 'Prometheus alerts', alerts as UseQueryResult<unknown[]>, 'firing intervals'),
+    ]
+    return {
+      now,
+      from,
+      to,
+      prevFrom,
+      env,
+      current: computeKeys(input, from, to),
+      previous: computeKeys(input, prevFrom, from),
+      series: keySeries(input, from, to, bucket),
+      bucket,
+      allDeploys: all,
+      envDeploys,
+      leads,
+      restores,
+      openIncidents: [
+        ...fromDeploys.open.map((d) => ({ app: d.app, project: d.project, since: d.at, label: `${d.name} ${d.outcome === 'rolled-back' ? 'rolled back' : 'failed'}`, source: 'deploy' as const })),
+        ...openAlerts,
+      ],
+      byTeam: breakdown(input, from, to, teamsOf),
+      byProject: breakdown(input, from, to, (x) => [x.project || '(unassigned)']),
+      byApp: breakdown(input, from, to, (x) => [`${x.project ? `${x.project}/` : ''}${x.app || '(unknown)'}`]),
+      sources,
+      quality: {
+        deploys: okDeploys.length,
+        resolved,
+        via,
+        unresolved: okDeploys.length - resolved,
+        reposFailed: commits.failed,
+        deploySource: { kargo: inWin.filter((d) => d.source === 'kargo').length, argocd: inWin.filter((d) => d.source === 'argocd').length },
+      },
+      runs: base.scopedRuns,
+      loading: apps.isLoading || promotions.isLoading,
+      noSources: !!apps.error && !!promotions.error && !apps.data && !promotions.data,
+    }
+  }, [base, commits, alerts.data, alerts.status, apps.status, promotions.status, runs.status, from, days])
 }

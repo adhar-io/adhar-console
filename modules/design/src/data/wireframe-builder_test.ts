@@ -29,3 +29,16 @@ Deno.test('input blocks keep their label as a placeholder', () => {
   assertEquals(n.type, 'input')
   assertEquals(n.props.placeholder, 'Email')
 })
+
+Deno.test('a wireframe becomes a new page beside the repo pages, with a free route', async () => {
+  const { addWireframePage, wireframeNodes } = await import('./wireframe-builder.ts')
+  const project = defaultProjectFor('visual', 'repo')
+  const pagesBefore = JSON.stringify(project.files).match(/"nodes"/g)?.length ?? 0
+  const { project: next, pageId } = addWireframePage(project, { ...wf, name: 'Home' })
+  const json = JSON.stringify(next.files)
+  assertEquals((json.match(/"nodes"/g)?.length ?? 0), pagesBefore + 1)
+  assert(json.includes(pageId))
+  // Default project already has Home.tsx → the new page gets a free name/route.
+  assert(json.includes('"Home2.tsx"') && json.includes('"/home-2"'))
+  assertEquals(wireframeNodes(wf).length, 3)
+})

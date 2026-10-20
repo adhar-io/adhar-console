@@ -3,14 +3,16 @@ import { Button, Card, CardBody, CardHeader, Spinner, useToast } from '@adhar/sh
 import { cn, formatRelative } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
 import { planeError, useStickies, useStickyMutations } from '../data/plane.ts'
+import { classifyError } from '../data/insights-data.ts'
+import { SourceNote } from './insights-ui.tsx'
 
 /**
  * Team notes — Plane's workspace stickies, on the Define dashboard.
  *
  * Stickies belong to the account behind the console's Plane API key, which
- * every console user shares, so these read as one shared board of short
- * notes: a release checklist, this quarter's focus, a phone number. Edits
- * save when the note loses focus.
+ * every console user shares, so these are ONE board shared with the whole
+ * workspace (labelled that way): a release checklist, this quarter's focus,
+ * a phone number. Edits save when the note loses focus (or ⌘/Ctrl+Enter).
  */
 
 const COLORS: Array<{ id: string; swatch: string; card: string }> = [
@@ -27,17 +29,28 @@ export function StickyNotes() {
   const q = useStickies()
   const m = useStickyMutations()
   const toast = useToast()
-  // Plane may not expose stickies on older builds; the widget just steps aside.
-  if (q.isError) return null
-  const notes = [...(q.data ?? [])].sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''))
+  const [filter, setFilter] = useState('')
+  const all = [...(q.data ?? [])]
+  const f = filter.trim().toLowerCase()
+  const notes = all
+    .filter((n) => !f || `${n.name ?? ''} ${n.description_stripped ?? htmlToText(n.description_html)}`.toLowerCase().includes(f))
+    .sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''))
+  const err = q.error ? classifyError(q.error) : null
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold text-content">Team notes</div>
-            <div className="text-[11px] text-content-subtle">Plane stickies — shared by everyone using this console</div>
+            <div className="flex items-center gap-2 text-sm font-semibold text-content">
+              Team notes
+              <span className="rounded-full border border-edge-default bg-surface-sunken px-2 py-0.5 text-[10px] font-medium text-content-muted" title="Saved as Plane stickies under the platform's shared Plane account, so everyone using this console sees and edits the same notes.">Shared with workspace</span>
+            </div>
+            <div className="text-[11px] text-content-subtle">Plane stickies — everyone using this console sees and edits these.</div>
           </div>
+          <div className="flex items-center gap-2">
+          {all.length > 4
+            ? <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter notes…" aria-label="Filter notes" className="h-8 w-36 rounded-md border border-edge-default bg-surface-raised px-2 text-[12px] text-content placeholder:text-content-subtle focus:outline-none focus:ring-2 focus:ring-brand-500/30" />
+            : null}
           <Button
             size="sm"
             variant="primary"
@@ -46,13 +59,16 @@ export function StickyNotes() {
           >
             + Note
           </Button>
+          </div>
         </div>
       </CardHeader>
       <CardBody>
-        {q.isLoading ? (
+        {err ? (
+          <SourceNote kind={err.kind} message={err.kind === 'other' && (q.error as { status?: number })?.status === 404 ? 'This Plane build does not expose stickies through its API.' : err.message} />
+        ) : q.isLoading ? (
           <div className="flex items-center gap-2 text-[12px] text-content-muted"><Spinner size={12} /> Loading notes…</div>
         ) : notes.length === 0 ? (
-          <p className="text-[12px] text-content-subtle">No notes yet — add a release checklist, this cycle's focus, or anything the team should see.</p>
+          <p className="text-[12px] text-content-subtle">{f ? 'No note matches that filter.' : "No notes yet — add a release checklist, this cycle's focus, or anything the team should see."}</p>
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {notes.map((n) => <Note key={n.id} note={n} />)}
@@ -78,10 +94,15 @@ function Note({ note: n }: { note: plane.Sticky }) {
     if (!n.name && !htmlToText(n.description_html)) ref.current?.focus()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  const [saving, setSaving] = useState(false)
   const save = () => {
     const html = textToHtml(body)
     if (name === (n.name ?? '') && html === textToHtml(htmlToText(n.description_html))) return
-    m.update.mutate({ id: n.id, patch: { name, description_html: html } }, { onError: (e) => toast.error(planeError(e, "Couldn't save the note.")) })
+    setSaving(true)
+    m.update.mutate({ id: n.id, patch: { name, description_html: html } }, {
+      onError: (e) => toast.error(planeError(e, "Couldn't save the note.")),
+      onSettled: () => setSaving(false),
+    })
   }
   const st = style(n.background_color)
   return (
@@ -99,6 +120,12 @@ function Note({ note: n }: { note: plane.Sticky }) {
         value={body}
         onChange={(e) => setBody(e.target.value)}
         onBlur={save}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault()
+            save()
+          }
+        }}
         placeholder="Write a note…"
         aria-label="Note"
         rows={4}
@@ -114,7 +141,7 @@ function Note({ note: n }: { note: plane.Sticky }) {
             className={cn('h-3.5 w-3.5 rounded-full ring-1 ring-black/10 transition-transform hover:scale-110', c.swatch, (n.background_color ?? 'yellow') === c.id && 'ring-2 ring-content')}
           />
         ))}
-        <span className="ml-auto text-[10px] text-content-subtle">{n.updated_at ? formatRelative(n.updated_at) : ''}</span>
+        <span className="ml-auto text-[10px] text-content-subtle">{saving ? 'Saving…' : n.updated_at ? formatRelative(n.updated_at) : ''}</span>
         <button
           type="button"
           onClick={() => {

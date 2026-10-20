@@ -4,7 +4,7 @@
  * is unit-tested in `adr_test.ts`.
  */
 
-import type { Adr, AdrStatus } from './types.ts'
+import type { Adr, AdrStatus, PlaneLink } from './types.ts'
 
 export interface AdrEvent {
   at: string
@@ -17,9 +17,50 @@ export interface AdrGitLink {
   repo: string
   branch: string
   path: string
+  /** Commit sha of the last sync. */
   sha?: string
+  /** Blob sha of the file as last synced — tells a repo edit from a local one. */
+  blob?: string
   at: string
 }
+
+/** A pull request opened from the console for this ADR. */
+export interface AdrPullRequest {
+  repo: string
+  number: number
+  branch: string
+  base: string
+  at: string
+}
+
+export type ReviewVerdict = 'approve' | 'changes' | 'reject' | 'comment'
+
+export interface AdrReviewer {
+  /** Workspace member id (Keycloak subject). */
+  id: string
+  name: string
+  email?: string
+}
+
+export interface AdrReviewEntry {
+  at: string
+  by: string
+  byId?: string
+  verdict: ReviewVerdict
+  comment?: string
+}
+
+/** The review round of a proposed decision. */
+export interface AdrReview {
+  requestedAt: string
+  requestedBy: string
+  reviewers: AdrReviewer[]
+  entries: AdrReviewEntry[]
+  /** Set when the decision was accepted or rejected. */
+  closedAt?: string
+  outcome?: 'accepted' | 'rejected'
+}
+
 
 /** Stored ADR plus the optional MADR fields this editor adds. */
 export type AdrDoc = Adr & {
@@ -40,6 +81,15 @@ export type AdrDoc = Adr & {
   related?: string[]
   history?: AdrEvent[]
   git?: AdrGitLink
+  /** Workspace project / team the decision belongs to. */
+  project?: string
+  team?: string
+  /** Catalog entities this decision is about (canonical refs). */
+  entities?: string[]
+  review?: AdrReview
+  pr?: AdrPullRequest
+  /** Plane work items tracking follow-ups (shared `PlaneLink` shape). */
+  workItems?: PlaneLink[]
 }
 
 export const STATUSES: AdrStatus[] = ['proposed', 'accepted', 'deprecated', 'superseded', 'rejected']

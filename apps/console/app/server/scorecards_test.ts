@@ -14,7 +14,12 @@ const summary = {
       health: 'Healthy', sync: 'Synced', stateful: false,
       categories: { reliability: 100, security: 100, observability: 100, operations: 100, performance: 66, resilience: 87 },
       environments: [{ name: 'dev', namespace: 'dev', health: 'Healthy', sync: 'Synced', argocdApp: 'adhar-shop-dev' }],
-      evidence: { environment: 'test', performance: { status: 'passed', p95Ms: 120 }, chaos: { status: 'passed', probeSuccessPercentage: 100 } },
+      evidence: {
+        environment: 'test', performance: { status: 'passed', p95Ms: 120 }, chaos: { status: 'passed', probeSuccessPercentage: 100 },
+        chaosSuite: { 'pod-cpu-hog': { status: 'failed' } },
+      },
+      perfCenter: { count: 2, tests: ['shop-load'], latest: { test: 'shop-load', verdict: 'pass' } },
+      gameDays: { count: 1, experiments: ['pod-network-loss'], latest: { experiment: 'pod-network-loss', verdict: 'Pass' } },
       signals: [{ name: 'chaos_pod_delete', category: 'resilience', applicable: true, score: 1, detail: 'passed: kept answering' }],
     },
     {
@@ -36,6 +41,10 @@ Deno.test('the scorer\'s performance and resilience categories reach the console
   assertEquals(shop.signals[0].detail, 'passed: kept answering')
   assertEquals(shop.environments?.[0].argocdApp, 'adhar-shop-dev')
   assertEquals(shop.evidence?.chaos?.probeSuccessPercentage, 100)
+  // The Performance Center readiness report reads these three through this API.
+  assertEquals(shop.evidence?.chaosSuite?.['pod-cpu-hog']?.status, 'failed')
+  assertEquals((shop.perfCenter as { count: number }).count, 2)
+  assertEquals((shop.gameDays as { latest: { verdict: string } }).latest.verdict, 'Pass')
 })
 
 Deno.test('a category nothing applies to is n/a, never a zero', () => {

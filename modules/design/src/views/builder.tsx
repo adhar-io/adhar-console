@@ -5,9 +5,12 @@ import { cn, formatRelative } from '@adhar/utils'
 import { BuilderApp, defaultProjectFor, normalizeProject, type BuilderController, type BuilderSaveEvent, type ThemePreset } from '@adhar/builder'
 import type { BuilderProject } from '@adhar/builder/project'
 import { isEditable, loadCanvasCss, loadParser, openRepo, previewFile, type ParseFn } from '@adhar/builder/code'
-import { KIND, TOKEN_SET_ID, useDoc } from '../data/store.ts'
-import type { TokenSet, Wireframe } from '../data/types.ts'
-import { projectToBlocks, wireframeToProject } from '../data/wireframe-builder.ts'
+import { KIND, useCollection, useUpdate } from '../data/store.ts'
+import type { Wireframe } from '../data/types.ts'
+import { addWireframePage, projectToBlocks, wireframeToProject } from '../data/wireframe-builder.ts'
+import { useEffectiveTokens } from '../data/token-scope.ts'
+import { useDesignScope } from '../data/design-scope.ts'
+import { appProjectSlug } from '../data/designer-catalog.ts'
 import { themeFromTokenSet, WORKSPACE_THEME_ID } from '../data/builder-theme.ts'
 import { useUrlParams } from '../data/builder-nav.ts'
 import { matchApps, repoApi, useCatalogApps, useDesignerRepos, useLastCommit, useRepoBranches, useRepoFramework } from '../data/designer-repos.ts'
@@ -27,11 +30,19 @@ import { ReviewChanges } from '../components/review-changes.tsx'
  *     branch + pull request (default) or commits to the branch.
  *   • URL:     `?section=builder&repo=<owner/name>&branch=<b>&page=<path>`.
  */
-const PARAMS = ['repo', 'branch', 'page', 'new'] as const
+const PARAMS = ['repo', 'branch', 'page', 'new', 'from'] as const
 
 export function Builder() {
   const [params, setParams] = useUrlParams(PARAMS)
-  const workspaceTheme = useWorkspaceTheme()
+  const apps = useCatalogApps()
+  const scope = useDesignScope()
+  // The open repository's project (via the catalog application that deploys
+  // it) decides which token set the canvas theme follows.
+  const repoName = params.repo?.split('/').pop()
+  const repoOwner = params.repo?.includes('/') ? params.repo.split('/')[0] : undefined
+  const app = repoName ? matchApps(apps.data ?? [], { name: repoName, owner: repoOwner })[0] : undefined
+  const project = app ? appProjectSlug(app, scope.projects) : undefined
+  const workspaceTheme = useWorkspaceTheme(project)
 
   // The Design dashboard's old "New → Visual designer" link: there's nothing
   // to create here any more — apps come from repositories. Drop the flag.
@@ -42,24 +53,35 @@ export function Builder() {
   if (params.repo) {
     return (
       <RepoEditor
-        key={`${params.repo}@${params.branch ?? ''}`}
+        key={`${params.repo}@${params.branch ?? ''}@${params.from ?? ''}`}
         fullName={params.repo}
         branch={params.branch}
         page={params.page}
+        fromWireframe={params.from}
+        onWireframeDone={() => setParams({ from: undefined }, { replace: true })}
         workspaceTheme={workspaceTheme}
         onBranch={(b) => setParams({ branch: b, page: undefined })}
         onPage={(p) => setParams({ page: p }, { replace: true })}
-        onBack={() => setParams({ repo: undefined, branch: undefined, page: undefined })}
+        onBack={() => setParams({ repo: undefined, branch: undefined, page: undefined, from: undefined })}
       />
     )
   }
   return <RepoLibrary onOpen={(repo, branch) => setParams({ repo, branch, page: undefined })} />
 }
 
-/** The workspace token set as a builder theme; null until/unless it has colours. */
-function useWorkspaceTheme(): ThemePreset | null {
-  const { data } = useDoc<TokenSet>(KIND.tokenSet, TOKEN_SET_ID)
-  return useMemo(() => themeFromTokenSet(data ?? null), [data])
+/**
+ * The design-token set as a builder theme — the project's set (workspace +
+ * project overrides) when the app belongs to a project, else the workspace
+ * set; null until/unless it has colours. Edits on Design Tokens re-theme the
+ * canvas on the next read.
+ */
+function useWorkspaceTheme(project?: string): ThemePreset | null {
+  const { effective, workspaceStored, overrideCount } = useEffectiveTokens(project)
+  return useMemo(() => {
+    if (!workspaceStored && !overrideCount) return null
+    const t = themeFromTokenSet(effective)
+    return t && project && overrideCount ? { ...t, name: `Project · ${project}` } : t
+  }, [effective, workspaceStored, overrideCount, project])
 }
 
 /* ───────────────────────────── library ───────────────────────────── */
@@ -177,10 +199,13 @@ function Chip({ tone, children }: { tone: 'brand' | 'slate'; children: ReactNode
 
 /* ───────────────────────────── editor ───────────────────────────── */
 
-function RepoEditor({ fullName, branch: branchParam, page, workspaceTheme, onBranch, onPage, onBack }: {
+function RepoEditor({ fullName, branch: branchParam, page, fromWireframe, onWireframeDone, workspaceTheme, onBranch, onPage, onBack }: {
   fullName: string
   branch?: string
   page?: string
+  /** Wireframe id to add as a new page ("Implement in repo"). */
+  fromWireframe?: string
+  onWireframeDone(): void
   workspaceTheme: ThemePreset | null
   onBranch(branch: string): void
   onPage(path: string | undefined): void
@@ -196,18 +221,27 @@ function RepoEditor({ fullName, branch: branchParam, page, workspaceTheme, onBra
   const branch = branchParam ?? repo?.default_branch
   const head = branches.data?.find((b) => b.name === branch)?.commit.id
   const api = useMemo(() => repoApi(owner, name, head), [owner, name, head])
+  const wireframes = useCollection<Wireframe>(KIND.wireframe)
+  const updateWf = useUpdate<Wireframe>(KIND.wireframe)
+  const wf = fromWireframe ? wireframes.items.find((w) => w.id === fromWireframe) ?? null : null
+  const waitingForWf = !!fromWireframe && wireframes.isLoading
 
   const opened = useQuery({
-    queryKey: ['designer', 'session', owner, name, branch, head],
+    queryKey: ['designer', 'session', owner, name, branch, head, wf?.id ?? ''],
     queryFn: async () => {
       const parse = await loadParser()
       const { session, project } = await openRepo(api, parse, name, branch!)
       project.source = { repo: `${owner}/${name}`, branch: branch!, commit: head }
       if (!session.meta.theme && workspaceTheme && !session.framework.tailwind) project.settings = { ...project.settings, theme: WORKSPACE_THEME_ID }
       const canvasCss = session.framework.tailwind ? await loadCanvasCss(session.appCss?.content ?? null).catch(() => null) : null
-      return { session, project, parse, canvasCss }
+      // "Implement in repo": the wireframe starts a NEW page; existing pages are untouched.
+      if (wf && session.editable) {
+        const added = addWireframePage(project, wf)
+        return { session, project: added.project, parse, canvasCss, newPage: added.pageId }
+      }
+      return { session, project, parse, canvasCss, newPage: undefined as string | undefined }
     },
-    enabled: !!branch && !!branches.data,
+    enabled: !!branch && !!branches.data && !waitingForWf,
     staleTime: Infinity,
     gcTime: 0,
     retry: false,
@@ -221,7 +255,13 @@ function RepoEditor({ fullName, branch: branchParam, page, workspaceTheme, onBra
 
   const [review, setReview] = useState<BuilderController | null>(null)
   const themes = useMemo(() => (workspaceTheme ? [workspaceTheme] : []), [workspaceTheme])
-  const docId = `repo.${owner}.${name}.${branch ?? ''}`.replace(/[^A-Za-z0-9._-]/g, '-')
+  // A wireframe-started session keeps its own draft so it never mixes with a plain one.
+  const docId = `repo.${owner}.${name}.${branch ?? ''}${wf ? `.wf-${wf.id}` : ''}`.replace(/[^A-Za-z0-9._-]/g, '-')
+  useEffect(() => {
+    if (opened.data?.newPage && wf) toast.info(`Added “${wf.name}” as a new page`, { description: 'Review & commit opens a pull request that creates it.' })
+    // Once per load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opened.data?.newPage])
 
   const reload = useCallback(() => {
     try { localStorage.removeItem(`adhar.builder.draft:${docId}`) } catch { /* ignore */ }
@@ -244,7 +284,7 @@ function RepoEditor({ fullName, branch: branchParam, page, workspaceTheme, onBra
     </span>
   )
 
-  if (repos.isLoading || branches.isLoading || (opened.isLoading && !!branch)) {
+  if (repos.isLoading || branches.isLoading || waitingForWf || (opened.isLoading && !!branch)) {
     return (
       <div className='space-y-4'>
         <PageHeader compact title={<span className='flex items-center gap-2'><BackButton onClick={onBack} />{name}</span>} />
@@ -288,7 +328,7 @@ function RepoEditor({ fullName, branch: branchParam, page, workspaceTheme, onBra
         titleExtra={branchPicker}
         saveLabel='Review & commit'
         onSaveRequest={(ctl) => setReview(ctl)}
-        initialFileId={page ? `pg:${page}` : undefined}
+        initialFileId={data.newPage ?? (page ? `pg:${page}` : undefined)}
         onActiveFileChange={(id) => onPage(id?.startsWith('pg:') ? id.slice(3).replace(/#.*$/, '') : undefined)}
         previewCode={(fileId, project: BuilderProject) => previewFile(data.session, project, fileId, data.parse as ParseFn)}
         canvasCss={data.canvasCss}
@@ -308,6 +348,14 @@ function RepoEditor({ fullName, branch: branchParam, page, workspaceTheme, onBra
           onCommitted={(res) => {
             review.markSaved()
             setReview(null)
+            // Surface the PR on the wireframe it came from (Wireframes + dashboard).
+            if (wf && res.pr) {
+              const pr = { repo: `${owner}/${name}`, number: res.pr, branch: res.branch, base: branch, createdAt: new Date().toISOString() }
+              updateWf.mutate({ ...wf, prs: [pr, ...(wf.prs ?? [])] }, {
+                onError: (e) => toast.error('Could not link the pull request to the wireframe', { description: e.message }),
+              })
+              onWireframeDone()
+            }
             void qc.invalidateQueries({ queryKey: ['gitea', 'branches', org, name] })
             void qc.invalidateQueries({ queryKey: ['gitea', 'commits', org, name] })
             if (res.branch !== branch) onBranch(res.branch)
@@ -342,7 +390,8 @@ export interface BuilderEmbedProps {
 
 /** Edit one wireframe in the Visual Designer; Save writes the project back onto it. */
 export function BuilderEmbed({ doc, onSave, onBack, title }: BuilderEmbedProps) {
-  const workspaceTheme = useWorkspaceTheme()
+  // A project's wireframe is themed with the project's token set.
+  const workspaceTheme = useWorkspaceTheme(doc.project)
   const themes = useMemo(() => (workspaceTheme ? [workspaceTheme] : []), [workspaceTheme])
   const initialProject = useMemo(() => {
     const stored = normalizeProject(doc.builder, doc.name)

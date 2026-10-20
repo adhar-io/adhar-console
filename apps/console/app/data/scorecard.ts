@@ -590,6 +590,10 @@ const PLATFORM_SIGNAL_LABEL: Record<string, string> = {
   error_budget: 'Live 5xx ratio within the availability SLO (24 h)',
   // Resilience — automated Litmus chaos, plus how the workload is built.
   chaos_pod_delete: 'Keeps serving while a pod is killed (automated chaos)',
+  chaos_network_latency: 'Keeps serving on a slow network (automated chaos)',
+  chaos_cpu_stress: 'Keeps serving with its CPU saturated (automated chaos)',
+  chaos_gameday: 'Latest game day against it passed',
+  perf_center_gate: 'Latest Performance Center gate passed',
   recovery_time: 'Back to full readiness quickly after chaos',
   replicas_ha: 'At least two replicas',
   pod_disruption_budget: 'PodDisruptionBudget protects it during drains',

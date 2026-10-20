@@ -13,6 +13,8 @@ const db = () => import('@adhar/db')
 const SCOPE_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
 /** Collection namespace, e.g. `okr.objective`, `design.adr`, `workspace.webhook`. */
 const KIND_RE = /^[a-z0-9][a-z0-9.-]{0,63}$/
+/** Kinds only server handlers may touch (see `scan-waivers.ts`). */
+const RESERVED_KIND = /^security\./
 /** Document id — client-chosen slug/uuid. */
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 
@@ -75,6 +77,11 @@ export async function handleDocuments(
   id?: string,
 ): Promise<Response> {
   if (!KIND_RE.test(kind)) return Response.json({ error: 'invalid_kind' }, { status: 400 })
+  // Server-owned collections: scan waivers carry approvals the CI enforces, so
+  // they are only ever written by /api/security/* behind its role checks.
+  if (RESERVED_KIND.test(kind)) {
+    return Response.json({ error: 'reserved_kind', detail: `${kind} is managed by the console server and cannot be read or written through /api/store.` }, { status: 403 })
+  }
   if (id !== undefined && !ID_RE.test(id)) {
     return Response.json({ error: 'invalid_id' }, { status: 400 })
   }

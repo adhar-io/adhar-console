@@ -24,6 +24,10 @@ import { PERSONA_TEMPLATES, SEED_PERSONAS } from '../data/seed.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import type { Journey, Persona } from '../data/types.ts'
 import { designHref, useDesignParams, useGoDesign, useSetDesignParams } from '../data/nav.ts'
+import { type DesignScope, useDesignScope } from '../data/design-scope.ts'
+import { PersonaAiModal, PersonaEvidence, PersonaWorkItems, ProjectTagSelect } from '../components/ux-integrations.tsx'
+import { AskAiButton } from '../components/integrations.tsx'
+import { SharedChip } from '../components/scope-picker.tsx'
 import {
   personaCompleteness,
   personaMatches,
@@ -70,7 +74,12 @@ const MAX_COMPARE = 4
  * set live in the URL (`?persona=…`, `?compare=a,b`) so either can be shared.
  */
 export function Personas() {
-  const { items, isLoading, error, refetch } = useCollection<Persona>(KIND.persona)
+  const scope = useDesignScope()
+  const all = useCollection<Persona>(KIND.persona)
+  const { isLoading, error, refetch } = all
+  // Personas in the active Org → Team → Project scope (workspace-wide ones always).
+  const items = useMemo(() => all.items.filter((p) => scope.matches(p)), [all.items, scope])
+  const hidden = all.items.length - items.length
   const { items: journeys } = useCollection<Journey>(KIND.journey)
   const create = useCreate<Persona>(KIND.persona)
   const remove = useRemove(KIND.persona)
@@ -83,6 +92,7 @@ export function Personas() {
   const [tag, setTag] = useState<string | null>(null)
   const [sort, setSort] = useState<Sort>('name')
   const [templatesOpen, setTemplatesOpen] = useState(false)
+  const [aiOpen, setAiOpen] = useState(false)
 
   const compareIds = useMemo(() => (params.compare ? params.compare.split(',').filter(Boolean) : []), [params.compare])
   const view: 'grid' | 'compare' = params.tab === 'compare' ? 'compare' : 'grid'
@@ -115,7 +125,8 @@ export function Personas() {
     })
   }, [items, q, tag, sort])
 
-  const open = items.find((p) => p.id === params.persona) ?? null
+  // A deep link may name a persona outside the scope — still open it.
+  const open = all.items.find((p) => p.id === params.persona) ?? null
 
   const toggleCompare = (id: string) => {
     const has = compareIds.includes(id)
@@ -130,7 +141,9 @@ export function Personas() {
   const createFrom = async (base: Omit<Persona, 'id'>) => {
     setTemplatesOpen(false)
     try {
-      const created = await create.mutateAsync({ id: '', ...base } as Persona)
+      // New personas belong to the active project / team.
+      const created = await create.mutateAsync({ id: '', ...scope.tag(), ...base } as Persona)
+      setAiOpen(false)
       setParams({ persona: created.id })
       toast.success('Persona created', { description: 'Fill in the profile — changes save automatically.' })
     } catch (e) {
@@ -139,7 +152,7 @@ export function Personas() {
   }
 
   const duplicate = async (p: Persona) => {
-    const { id: _id, ...rest } = stripMeta(p)
+    const { id: _id, planeLinks: _links, ...rest } = stripMeta(p)
     await createFrom({ ...rest, name: `${p.name} (copy)` })
   }
 
@@ -211,11 +224,22 @@ export function Personas() {
               Export
             </Button>
           ) : null}
+          <AskAiButton onClick={() => setAiOpen(true)}>Draft with AI</AskAiButton>
           <Button size="sm" variant="primary" onClick={() => setTemplatesOpen(true)} leading={<IconPlus size={12} />}>
             New persona
           </Button>
         </div>
       </div>
+      {hidden > 0 ? (
+        <p className="text-[11px] text-content-subtle">
+          Showing {items.length} of {all.items.length} personas — {scope.label}.{' '}
+          {scope.project ? (
+            <button type="button" className="text-brand-700 hover:underline dark:text-brand-300" onClick={() => scope.setProject(undefined)}>
+              Show all projects
+            </button>
+          ) : null}
+        </p>
+      ) : null}
 
       {tags.length ? (
         <div className="flex flex-wrap items-center gap-1.5">
@@ -231,7 +255,7 @@ export function Personas() {
 
       {items.length === 0 ? (
         <EmptyState
-          title="No personas yet"
+          title={all.items.length ? `No personas in ${scope.label}` : 'No personas yet'}
           description="Personas keep the whole team designing for real people. Start from a template, or load three worked examples to see what a complete profile looks like."
           action={
             <div className="flex flex-wrap justify-center gap-2">
@@ -277,6 +301,7 @@ export function Personas() {
             <PersonaCard
               key={p.id}
               p={p}
+              shared={!!scope.project && !p.project}
               journeys={journeyCount.get(p.id) ?? 0}
               comparing={compareIds.includes(p.id)}
               onToggleCompare={() => toggleCompare(p.id)}
@@ -287,12 +312,14 @@ export function Personas() {
       )}
 
       <TemplatePicker open={templatesOpen} onClose={() => setTemplatesOpen(false)} onPick={createFrom} busy={create.isPending} />
+      <PersonaAiModal open={aiOpen} onClose={() => setAiOpen(false)} onCreate={createFrom} busy={create.isPending} />
 
       {open ? (
         <PersonaDrawer
           key={open.id}
           persona={open}
           journeys={journeys}
+          scope={scope}
           onClose={() => setParams({ persona: undefined })}
           onDuplicate={() => duplicate(open)}
           onDelete={() => del(open)}
@@ -319,8 +346,10 @@ function PersonaCard({
   comparing,
   onToggleCompare,
   onOpen,
+  shared,
 }: {
   p: Listed<Persona>
+  shared?: boolean
   journeys: number
   comparing: boolean
   onToggleCompare(): void
@@ -342,7 +371,10 @@ function PersonaCard({
         <div className="flex items-start gap-3 pr-16">
           <PersonaAvatar name={p.name} avatar={p.avatar} color={p.color} size={48} />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold text-content">{p.name}</div>
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-sm font-semibold text-content">{p.name}</span>
+              {shared ? <SharedChip /> : null}
+            </div>
             <div className="mt-0.5 truncate text-xs text-content-muted">
               {p.role}
               {p.location ? ` · ${p.location}` : ''}
@@ -368,6 +400,12 @@ function PersonaCard({
             <Stat label="Pains" value={p.frustrations.length} />
             <Stat label="Journeys" value={journeys} />
           </dl>
+          {p.planeLinks?.length || p.evidence?.cohortName ? (
+            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-content-subtle">
+              {p.planeLinks?.length ? <span>{p.planeLinks.filter((l) => !l.parent).length} work items in Plane</span> : null}
+              {p.evidence?.cohortName ? <span className="truncate">Cohort · {p.evidence.cohortName}</span> : null}
+            </div>
+          ) : null}
           <div className="mt-3 flex items-center gap-2" title={`Profile ${Math.round(complete * 100)}% complete`}>
             <div className="h-1 flex-1 overflow-hidden rounded-full bg-surface-sunken">
               <div className="h-full rounded-full bg-brand-500" style={{ width: `${complete * 100}%` }} />
@@ -480,12 +518,14 @@ function TemplateTile({
 function PersonaDrawer({
   persona,
   journeys,
+  scope,
   onClose,
   onDuplicate,
   onDelete,
 }: {
   persona: Listed<Persona>
   journeys: Journey[]
+  scope: DesignScope
   onClose(): void
   onDuplicate(): void
   onDelete(): void
@@ -549,7 +589,7 @@ function PersonaDrawer({
               />
             </div>
             <div className="px-1.5 text-[11px] text-content-subtle">
-              {persona._updatedAt ? `Edited ${formatRelative(persona._updatedAt)}` : null}
+              {persona._updatedAt ? `Edited ${formatRelative(persona._updatedAt)}${persona._updatedBy ? ` by ${persona._updatedBy}` : ''}` : null}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
@@ -624,6 +664,17 @@ function PersonaDrawer({
             <p className="mb-1.5 text-[11px] text-content-subtle">“When …, I want to …, so I can …”</p>
             <ListEditor items={p.jobs ?? []} onChange={(jobs) => set({ jobs })} placeholder="Add a job…" dotClass="bg-brand-500" />
           </section>
+
+          <div className="grid grid-cols-1 gap-5 rounded-xl border border-edge-default bg-surface-raised p-4 lg:grid-cols-2">
+            <PersonaWorkItems persona={p} scope={scope} onLinks={(planeLinks) => set({ planeLinks })} />
+            <div className="space-y-5">
+              <PersonaEvidence persona={p} onChange={(evidence) => set({ evidence })} />
+              <section className="space-y-2">
+                <Label>Project</Label>
+                <ProjectTagSelect scope={scope} value={p.project} onChange={(project) => set({ project })} />
+              </section>
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
             <section>

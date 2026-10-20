@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query'
-import { gitea, harbor, k8s } from '@adhar/api-clients'
+import { gitea, harbor, k8s, type kargo } from '@adhar/api-clients'
 import type { KObj } from './catalog-composition-model.ts'
 import type { EntityRoute } from './catalog-routes.ts'
 
@@ -203,5 +203,31 @@ export function useWorkloads(namespaces: readonly string[], enabled = true) {
     staleTime: XR_MS,
     refetchInterval: enabled && namespaces.length ? XR_MS : false,
     placeholderData: keepPreviousData,
+  })
+}
+
+const ANALYSIS_RUN = { group: 'argoproj.io', version: 'v1alpha1', resource: 'analysisruns', namespaced: true } satisfies k8s.GVR
+
+/**
+ * The AnalysisRun behind a stage's latest verification. In a project's shared
+ * stage it is ONE `<env>-health` run whose metrics are per app (`<app>-…`);
+ * the caller reads this app's verdict out of it (`kargo.appVerification`).
+ */
+export function useAnalysisRun(ref: { name: string; namespace: string } | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['catalog', 'analysisrun', ref?.namespace ?? '', ref?.name ?? ''],
+    queryFn: async () => {
+      try {
+        return (await k8sClient.getGeneric(undefined, ANALYSIS_RUN, ref!.namespace, ref!.name)) as unknown as kargo.AnalysisRunLike
+      } catch (e) {
+        if (statusOf(e) === 404 || statusOf(e) === 403) return null
+        throw e
+      }
+    },
+    enabled: enabled && Boolean(ref?.name && ref.namespace),
+    staleTime: XR_MS,
+    refetchInterval: enabled && ref ? XR_MS : false,
+    placeholderData: keepPreviousData,
+    retry: 1,
   })
 }

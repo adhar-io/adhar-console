@@ -30,7 +30,7 @@ export interface RouteHint {
  * not, so the mapping is per-section rather than per-phase.
  */
 const REVIEW_SECTIONS = new Set(['prs', 'commits', 'branches', 'repos', 'issues'])
-const SECURITY_SECTIONS = new Set(['scans', 'policy', 'rbac', 'runtime'])
+const SECURITY_SECTIONS = new Set(['scans', 'scan-review', 'waivers', 'licenses', 'scan-policy', 'policy', 'rbac', 'runtime'])
 
 /**
  * The agent to open with, or null when the page suggests nothing in

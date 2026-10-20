@@ -4,6 +4,9 @@ import {
   appFreightInStage,
   appPromotions,
   appStage,
+  appVerification,
+  parsePromotionCommit,
+  projectApplications,
   argoAppFor,
   type ArgoAppLike,
   authorizedStageProblem,
@@ -283,4 +286,37 @@ Deno.test('authorizedStageProblem: both forms pass, a wrong or missing one is na
   assert(authorizedStageProblem(argo('cart', 'test', { annotations: { 'kargo.akuity.io/authorized-stage': 'shop:cart-dev' } }), ctxNew)?.includes('not shop:test'))
   assert(authorizedStageProblem(argo('cart', 'test', { annotations: {} }), ctxNew)?.includes('missing'))
   assertEquals(authorizedStageProblem(argo('cart', 'test'), ctxNew), undefined, 'annotations not read')
+})
+
+Deno.test('parsePromotionCommit: the shared form names the app; the per-app form does not', () => {
+  assertEquals(parsePromotionCommit('promote(test): cart sha256:abcdef0123456789 [skip ci]'), { env: 'test', app: 'cart', digest: 'sha256:abcdef0123456789' })
+  assertEquals(parsePromotionCommit('promote(prod): sha256:abc0123456789 [skip ci]'), { env: 'prod', digest: 'sha256:abc0123456789' })
+  assertEquals(parsePromotionCommit('fix: things'), undefined)
+})
+
+Deno.test('appVerification: one app\'s metrics from the environment\'s run, and who blocks it', () => {
+  const run = {
+    status: {
+      phase: 'Failed',
+      metricResults: [
+        { name: 'cart-rollout-healthy', phase: 'Successful' },
+        { name: 'cart-pods-ready', phase: 'Successful' },
+        { name: 'web-error-rate', phase: 'Failed', message: 'error rate 7%' },
+        { name: 'web-pods-ready', phase: 'Successful' },
+      ],
+    },
+  }
+  const cart = appVerification(run, 'cart')!
+  assertEquals([cart.phase, cart.runPhase, cart.blockedBy], ['Successful', 'Failed', ['web']])
+  assertEquals(cart.metrics.map((m) => m.name), ['rollout-healthy', 'pods-ready'])
+  assertEquals(appVerification(run, 'web')!.phase, 'Failed')
+  // A per-app run (current shape): every metric is the app's.
+  const own = appVerification({ status: { phase: 'Successful', metricResults: [{ name: 'error-rate', phase: 'Successful' }] } }, 'cart')!
+  assertEquals([own.phase, own.metrics.length, own.blockedBy], ['Successful', 1, []])
+})
+
+Deno.test('projectApplications and the published stage name', () => {
+  const p = { metadata: { name: 'shop' }, status: { applications: ['cart', { name: 'web' }], environments: [{ name: 'dev', stage: 'dev' }] } }
+  assertEquals(projectApplications(p), ['cart', 'web'])
+  assertEquals(projectEnvironments(p)[0].stage, 'dev')
 })

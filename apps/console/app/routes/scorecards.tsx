@@ -1427,6 +1427,16 @@ function PlatformPanel({ service, card }: { service: PlatformService; card: Scor
         </div>
 
         {service.evidence ? <EvidenceSummary evidence={service.evidence} /> : null}
+        {service.kind === 'application'
+          ? (
+            <a
+              className="inline-block text-[12px] font-medium text-brand-600 hover:underline"
+              href={`/deliver?section=performance&view=readiness&app=${encodeURIComponent(service.name)}`}
+            >
+              Open the performance & resilience report →
+            </a>
+          )
+          : null}
 
         {service.signals.length ? (
           <div className="divide-y divide-edge-subtle">

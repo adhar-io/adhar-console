@@ -40,8 +40,8 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
     description: 'Registered analytics databases with engine + schema/table counts.',
   },
   pulses: {
-    label: 'Pulses & Alerts',
-    description: 'Scheduled email / Slack pulses + threshold alerts driven by saved questions.',
+    label: 'Subscriptions & Alerts',
+    description: 'Dashboard subscriptions and question alerts — scheduled email / Slack delivery from Metabase.',
   },
   dora: {
     label: 'DORA',
@@ -58,7 +58,8 @@ export default function DecideHome({ section }: { section?: string } = {}) {
   const def = SECTIONS[active]
   return (
     <div className="space-y-6">
-      <PageHeader title={def.label} />
+      {/* Overview, DORA and Spend render their own PageHeader (with right-side actions). */}
+      {active !== 'dashboard' && active !== 'dora' && active !== 'spend' ? <PageHeader title={def.label} /> : null}
       {active === 'dashboard' && <Overview />}
       {active === 'dashboards' && <Dashboards />}
       {active === 'questions' && <Questions />}

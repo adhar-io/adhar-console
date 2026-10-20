@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { gitea, k8s } from '@adhar/api-clients'
 import { useGiteaOrg } from '@adhar/shell-ui'
 import { detectFramework, type RepoApi } from '@adhar/builder/code'
-import { matchApps, type CatalogApp } from './designer-catalog.ts'
+import { appProjectSlug, appRepo, matchApps, scopedApps, type CatalogApp } from './designer-catalog.ts'
 
 /**
  * Data for the repo-first Visual Designer: the org's repositories (Gitea, via
@@ -34,10 +34,13 @@ export function useCatalogApps() {
       try {
         const items = await k8sClient.listGeneric(undefined, APPLICATIONS, TENANCY_NAMESPACE)
         return items.map((x) => {
-          const p = (x.spec?.parameters ?? {}) as { displayName?: string; project?: string; source?: { repoURL?: string } }
+          const p = (x.spec?.parameters ?? {}) as { displayName?: string; description?: string; type?: string; project?: string; source?: { repoURL?: string } }
           const labels = x.metadata.labels ?? {}
           return {
             name: p.displayName || x.metadata.name,
+            id: x.metadata.name,
+            description: p.description,
+            type: p.type,
             project: p.project ?? labels['adhar.io/project'],
             team: labels['adhar.io/team'],
             repoUrl: p.source?.repoURL ?? '',
@@ -52,7 +55,7 @@ export function useCatalogApps() {
   })
 }
 
-export { matchApps }
+export { appProjectSlug, appRepo, matchApps, scopedApps }
 
 /** The framework a repo's root package.json declares (card badge; a full detection runs on open). */
 export function useRepoFramework(repo: string, ref?: string) {

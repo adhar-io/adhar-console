@@ -33,13 +33,23 @@ import {
   supersede,
   today,
 } from '../data/adr.ts'
-import { designLink, useDesignParams, useNewFlag, useSetDesignParams } from '../data/deep-link.ts'
+import { designHref, designLink, useDesignParams, useNewFlag, useOpenDesign, useSetDesignParams } from '../data/deep-link.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import { CommitToRepoModal, ImportFromRepoModal } from '../components/git-dialogs.tsx'
 import { copyText, downloadText, pickTextFile } from '../components/export.ts'
 import { useAutosave } from '../components/use-autosave.ts'
 import { Icon, Menu, SaveDot, SearchBox, TagInput, useConfirm } from '../components/ui-bits.tsx'
-import type { AdrStatus } from '../data/types.ts'
+import type { AdrStatus, Diagram } from '../data/types.ts'
+import { type AdrReviewer, type ReviewVerdict } from '../data/adr.ts'
+import { addReviewEntry, closeReview, inReview, type SyncRow } from '../data/adr-sync.ts'
+import { type DesignScope, notifyOrg, type PlatformCatalog, useDesignScope, usePlatformCatalog } from '../data/platform.ts'
+import { scopeFilter, type Scoped } from '../data/scope.ts'
+import { adrHref } from '../components/entity-decisions.tsx'
+import { AdrSyncModal, importFields, RequestReviewModal, ReviewPanel, VerdictModal } from '../components/adr-panels.tsx'
+import { AskAiModal, SparkIcon } from '../components/ai-draft.tsx'
+import { EntityChips, EntityPickerModal } from '../components/catalog-bits.tsx'
+import { CreateWorkItemsModal, PrBadge, WorkItems } from '../components/work-bits.tsx'
+import { DesignScopeBar, ScopeChip, ScopeFields, ScopeModal } from '../components/scope-bits.tsx'
 
 /**
  * Architecture Decision Records — MADR-style decisions with a real lifecycle.
@@ -98,7 +108,13 @@ export function Adrs() {
   const [importOpen, setImportOpen] = useState(false)
   const [repoImportOpen, setRepoImportOpen] = useState(false)
   const [commitAllOpen, setCommitAllOpen] = useState(false)
+  const [syncOpen, setSyncOpen] = useState(false)
+  const [aiOpen, setAiOpen] = useState(false)
+  const scope = useDesignScope()
+  const catalog = usePlatformCatalog()
+  const { items: diagrams } = useCollection<Diagram & { adrs?: string[] }>(KIND.diagram)
   useNewFlag(() => setCreateOpen(true), !isLoading)
+  const scoped = useMemo(() => scopeFilter(adrs, scope.lens).shown, [adrs, scope.lens])
 
   const byId = useMemo(() => new Map(adrs.map((a) => [a.id, a])), [adrs])
   const lookup = useCallback((id: string) => byId.get(id), [byId])
@@ -107,20 +123,20 @@ export function Adrs() {
 
   const allTags = useMemo(() => Array.from(new Set(adrs.flatMap((a) => a.tags ?? []))).sort(), [adrs])
   const counts = useMemo(() => {
-    const out: Record<string, number> = { all: adrs.length }
-    for (const s of STATUSES) out[s] = adrs.filter((a) => a.status === s).length
+    const out: Record<string, number> = { all: scoped.length }
+    for (const s of STATUSES) out[s] = scoped.filter((a) => a.status === s).length
     return out
-  }, [adrs])
+  }, [scoped])
 
   const filtered = useMemo(() => {
-    const out = filterAdrs(adrs, { q: search, status, tag })
+    const out = filterAdrs(scoped, { q: search, status, tag })
     const cmp: Record<SortKey, (a: Doc, b: Doc) => number> = {
       'number-desc': (a, b) => b.number - a.number,
       'number-asc': (a, b) => a.number - b.number,
       updated: (a, b) => (b._updatedAt ?? b.updated_at ?? '').localeCompare(a._updatedAt ?? a.updated_at ?? ''),
     }
     return out.sort(cmp[sort])
-  }, [adrs, search, status, tag, sort])
+  }, [scoped, search, status, tag, sort])
 
   const lastGit = useMemo(
     () => [...adrs].filter((a) => a.git).sort((a, b) => (b.git!.at).localeCompare(a.git!.at))[0]?.git,
@@ -151,6 +167,7 @@ export function Adrs() {
       consequences: '',
       tags: [],
       date: today(),
+      ...scope.initial,
       ...fields,
       number,
       updated_at: at,
@@ -191,6 +208,45 @@ export function Adrs() {
     ).catch(() => {})
   }
 
+  const importRows = async (rows: SyncRow[], target: { repo: string; branch: string }) => {
+    const at = new Date().toISOString()
+    const taken = new Set(adrs.map((a) => a.number))
+    for (const r of rows) {
+      const fields = importFields(r, target)
+      if (r.adr) {
+        await updateAdr.mutateAsync(appendHistory({ ...r.adr, ...fields, updated_at: at }, { at, by: me, action: 'Imported', detail: `${target.repo}/${r.file?.path}` }))
+      } else {
+        const number = fields.number && !taken.has(fields.number) ? fields.number : Math.max(0, ...taken) + 1
+        taken.add(number)
+        await createAdr.mutateAsync({
+          id: newId('adr'),
+          title: 'Imported decision',
+          status: 'proposed',
+          authors: [],
+          context: '',
+          decision: '',
+          consequences: '',
+          tags: [],
+          ...scope.initial,
+          ...fields,
+          repo: target.repo,
+          number,
+          updated_at: at,
+          history: [{ at, by: me, action: 'Imported', detail: `${target.repo}/${r.file?.path}` }],
+        } as AdrDoc)
+      }
+    }
+  }
+
+  const aiContext = [
+    { description: 'Existing decisions', value: adrs.slice(0, 40).map((a) => `${formatAdrNumber(a.number)} ${a.title} (${a.status})`).join('\n') || 'none' },
+    {
+      description: 'Service catalog',
+      value: catalog.entities.slice(0, 80).map((e) => `${e.kind} ${e.name}${e.project ? ` [project ${e.project}]` : ''}${e.description ? ` — ${e.description}` : ''}`).join('\n') || 'empty',
+    },
+    { description: 'Platform defaults', value: 'CI: Tekton. CD: Argo CD (apps <project>-<app>-<env>, environments dev → test → prod, promoted with Kargo). Workflows: Argo Workflows. Tenancy: Organisation → Teams → Projects → Apps.' },
+  ]
+
   if (error) return <ErrorBlock error={error} onRetry={refetch} />
   if (isLoading) return <LoadingBlock label="Loading decisions…" />
 
@@ -229,6 +285,8 @@ export function Adrs() {
               },
             },
             { label: 'From a Gitea repository…', onSelect: () => setRepoImportOpen(true) },
+            'separator',
+            { label: 'Sync with a repository (docs/adr)…', onSelect: () => setSyncOpen(true) },
           ]}
         />
         <Menu
@@ -236,7 +294,7 @@ export function Adrs() {
           icon={<Icon name="download" />}
           items={[
             {
-              label: 'Commit all to Gitea…',
+              label: 'Open a PR with all ADRs…',
               onSelect: () => setCommitAllOpen(true),
               disabled: !adrs.length,
             },
@@ -247,6 +305,9 @@ export function Adrs() {
             },
           ]}
         />
+        <Button size="sm" leading={<SparkIcon />} onClick={() => setAiOpen(true)}>
+          Ask Adhar AI
+        </Button>
         <Button size="sm" variant="primary" leading={<Icon name="plus" />} onClick={() => setCreateOpen(true)}>
           New ADR
         </Button>
@@ -261,6 +322,7 @@ export function Adrs() {
         onClose={() => setCreateOpen(false)}
         nextNumber={nextAdrNumber(adrs)}
         tagSuggestions={allTags}
+        scope={scope}
         busy={createAdr.isPending}
         onCreate={(fields) =>
           createFrom(fields, { edit: true }).then(() => setCreateOpen(false)).catch(() => {})}
@@ -283,8 +345,8 @@ export function Adrs() {
       <CommitToRepoModal
         open={commitAllOpen}
         onClose={() => setCommitAllOpen(false)}
-        title="Commit all ADRs to Gitea"
-        description="Writes every ADR as MADR markdown plus a README index, in one commit."
+        title="Open a PR with all ADRs"
+        description="Writes every ADR as MADR markdown plus a README index, in one commit — a pull request by default."
         initial={lastGit ? { repo: lastGit.repo, branch: lastGit.branch, folder: lastGit.path.split('/').slice(0, -1).join('/') } : undefined}
         defaultFolder="docs/adr"
         defaultMessage={`docs(adr): sync ${adrs.length} architecture decision records`}
@@ -296,9 +358,54 @@ export function Adrs() {
           const at = new Date().toISOString()
           for (const a of adrs) {
             const path = `${t.folder.replace(/^\/+|\/+$/g, '')}/${adrFileName(a)}`.replace(/^\//, '')
-            void save({ ...a, repo: t.repo, git: { repo: t.repo, branch: t.branch, path, sha: t.sha, at } })
+            void save({
+              ...a,
+              repo: t.repo,
+              git: { repo: t.repo, branch: t.branch, path, sha: t.sha, blob: t.blobs[path], at },
+              ...(t.pr ? { pr: { repo: t.repo, number: t.pr.number, branch: t.pr.branch, base: t.branch, at } } : {}),
+            })
           }
         }}
+      />
+      <AdrSyncModal
+        open={syncOpen}
+        onClose={() => setSyncOpen(false)}
+        adrs={adrs}
+        lookup={lookup}
+        initial={lastGit ? { repo: lastGit.repo, branch: lastGit.branch, folder: lastGit.path.split('/').slice(0, -1).join('/') } : undefined}
+        onImport={importRows}
+        onExported={(list, t) => {
+          const at = new Date().toISOString()
+          for (const a of list) {
+            const path = `${t.folder.replace(/^\/+|\/+$/g, '')}/${adrFileName(a)}`.replace(/^\//, '')
+            void save(
+              {
+                ...a,
+                repo: t.repo,
+                git: { repo: t.repo, branch: t.branch, path, sha: t.sha, blob: t.blobs[path], at },
+                ...(t.pr ? { pr: { repo: t.repo, number: t.pr.number, branch: t.pr.branch, base: t.branch, at } } : {}),
+              },
+              { action: t.pr ? 'Pull request opened' : 'Committed', detail: t.pr ? `${t.repo}#${t.pr.number}` : `${t.repo}@${t.branch}` },
+            )
+          }
+        }}
+      />
+      <AskAiModal
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        kind="adr"
+        title="Draft an ADR with Adhar AI"
+        description="Describe the decision; Adhar AI drafts it in MADR format, grounded in your catalog and existing decisions. It starts as proposed."
+        placeholder="We need to choose how services authenticate to each other inside the cluster…"
+        context={aiContext}
+        fence={['markdown', 'md']}
+        applyLabel="Create ADR from draft"
+        renderPreview={(text) => (
+          <div className="max-h-[42vh] overflow-auto rounded-lg border border-edge-default bg-surface-raised p-4">
+            <Markdown text={text} className="text-[13px] leading-relaxed text-content" />
+          </div>
+        )}
+        onApply={(md) => importMarkdown(md, 'Adhar AI')}
       />
       {confirmDialog}
     </>
@@ -338,6 +445,7 @@ export function Adrs() {
   return (
     <div className="space-y-4">
       {toolbar}
+      <DesignScopeBar scope={scope} shown={scoped.length} total={adrs.length} noun="decisions" />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
         <aside className={`${selected ? 'hidden lg:block' : ''} min-w-0`}>
           <div className="mb-2 flex items-center gap-2">
@@ -380,15 +488,17 @@ export function Adrs() {
                         <span className="font-mono text-[10.5px] font-semibold text-content-subtle">{formatAdrNumber(a.number)}</span>
                         <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[a.status]}`} title={STATUS_LABEL[a.status]} />
                         <span className="text-[10.5px] text-content-subtle">{STATUS_LABEL[a.status]}</span>
+                        {inReview(a) ? <span className="rounded-full bg-sky-50 px-1.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">In review</span> : null}
                         <span className="ml-auto text-[10.5px] text-content-subtle">{formatRelative(a._updatedAt ?? a.updated_at)}</span>
                       </div>
                       <div className={`mt-0.5 line-clamp-2 text-[13px] font-medium ${a.status === 'superseded' || a.status === 'rejected' ? 'text-content-muted line-through decoration-content-subtle/50' : 'text-content'}`}>
                         {a.title}
                       </div>
-                      {a.tags?.length
+                      {a.tags?.length || a.team || a.project
                         ? (
                           <div className="mt-1 flex flex-wrap gap-1">
-                            {a.tags.slice(0, 4).map((t) => (
+                            <ScopeChip item={a} scope={scope} />
+                            {(a.tags ?? []).slice(0, 4).map((t) => (
                               <span key={t} className="rounded-full bg-surface-sunken px-1.5 py-0.5 text-[10px] text-content-muted">#{t}</span>
                             ))}
                           </div>
@@ -413,6 +523,7 @@ export function Adrs() {
                     lookup={lookup}
                     tagSuggestions={allTags}
                     me={me}
+                    aiContext={aiContext}
                     onDone={() => setParams({ mode: undefined })}
                   />
                 )
@@ -422,6 +533,11 @@ export function Adrs() {
                     all={adrs}
                     lookup={lookup}
                     lastGit={lastGit}
+                    me={me}
+                    meId={user?.id}
+                    scope={scope}
+                    catalog={catalog}
+                    diagrams={diagrams.filter((d) => (d.adrs ?? []).includes(selected.id))}
                     onBack={() => select(undefined)}
                     onOpen={(id) => select(id)}
                     onEdit={() => setParams({ mode: 'edit' })}
@@ -531,6 +647,11 @@ function AdrView({
   all,
   lookup,
   lastGit,
+  me,
+  meId,
+  scope,
+  catalog,
+  diagrams,
   onBack,
   onOpen,
   onEdit,
@@ -543,6 +664,11 @@ function AdrView({
   all: Doc[]
   lookup(id: string): Doc | undefined
   lastGit?: AdrDoc['git']
+  me: string
+  meId?: string
+  scope: DesignScope
+  catalog: PlatformCatalog
+  diagrams: (Diagram & { adrs?: string[] })[]
   onBack(): void
   onOpen(id: string): void
   onEdit(): void
@@ -552,16 +678,73 @@ function AdrView({
   onDelete(): void
 }) {
   const toast = useToast()
+  const openDesign = useOpenDesign()
   const [supersedeOpen, setSupersedeOpen] = useState(false)
   const [commitOpen, setCommitOpen] = useState(false)
+  const [reviewOpen, setReviewOpen] = useState(false)
+  const [verdict, setVerdict] = useState<ReviewVerdict | 'accept' | 'decline' | null>(null)
+  const [entityOpen, setEntityOpen] = useState(false)
+  const [workOpen, setWorkOpen] = useState(false)
+  const [scopeOpen, setScopeOpen] = useState(false)
   const md = useMemo(() => adrToMarkdown(adr, lookup), [adr, lookup])
   const refs = useMemo(() => backlinks(all, adr.id), [all, adr.id])
   const supersededBy = adr.supersededBy ? lookup(adr.supersededBy) : undefined
+  const reviewing = inReview(adr)
+  const label = `${formatAdrNumber(adr.number)} ${adr.title}`
 
-  const setStatus = (s: AdrStatus) =>
-    onSave({ ...adr, status: s, date: s === 'accepted' ? today() : adr.date }, { action: STATUS_LABEL[s], detail: `${STATUS_LABEL[adr.status]} → ${STATUS_LABEL[s]}` })
-      .then(() => toast.success(`${formatAdrNumber(adr.number)} ${STATUS_LABEL[s].toLowerCase()}`))
+  const setStatus = (s: AdrStatus, comment?: string) => {
+    const at = new Date().toISOString()
+    const closing = adr.status === 'proposed' && (s === 'accepted' || s === 'rejected')
+    const review = closing && adr.review
+      ? closeReview(comment ? addReviewEntry(adr.review, { at, by: me, byId: meId, verdict: s === 'accepted' ? 'approve' : 'reject', comment }) : adr.review, s === 'accepted' ? 'accepted' : 'rejected', at)
+      : adr.review
+    return onSave(
+      { ...adr, status: s, date: s === 'accepted' ? today() : adr.date, review },
+      { action: STATUS_LABEL[s], detail: comment ? comment.slice(0, 120) : `${STATUS_LABEL[adr.status]} → ${STATUS_LABEL[s]}` },
+    )
+      .then(() => {
+        toast.success(`${formatAdrNumber(adr.number)} ${STATUS_LABEL[s].toLowerCase()}`)
+        if (closing && adr.review) {
+          void notifyOrg({
+            title: `${label} ${STATUS_LABEL[s].toLowerCase()}`,
+            description: `${me} closed the review${comment ? `: ${comment.slice(0, 300)}` : '.'}`,
+            href: adrHref(adr.id),
+            key: `design-adr-${adr.id}-${s}-${at}`,
+            kind: s === 'accepted' ? 'success' : 'warning',
+          })
+        }
+      })
       .catch((e: Error) => toast.error('Could not update status', { description: e.message }))
+  }
+
+  const requestReview = (reviewers: AdrReviewer[], note: string) => {
+    const at = new Date().toISOString()
+    return onSave(
+      {
+        ...adr,
+        review: { requestedAt: at, requestedBy: me, reviewers, entries: note ? [{ at, by: me, byId: meId, verdict: 'comment', comment: note }] : [] },
+      },
+      { action: 'Review requested', detail: reviewers.map((r) => r.name).join(', ') },
+    ).then(async () => {
+      const posted = await notifyOrg({
+        title: `Review requested: ${label}`,
+        description: `${me} asked ${reviewers.map((r) => r.name).join(', ')} to review this decision.${note ? ` “${note.slice(0, 300)}”` : ''}`,
+        href: adrHref(adr.id),
+        key: `design-adr-review-${adr.id}-${at}`,
+      })
+      toast.success('Review requested', { description: posted ? 'Posted to the organisation’s notifications.' : 'Saved — the notification feed is unavailable.' })
+    }).catch((e: Error) => toast.error('Could not request review', { description: e.message }))
+  }
+
+  const giveVerdict = (v: ReviewVerdict, comment: string) => {
+    if (!adr.review) return Promise.resolve()
+    const at = new Date().toISOString()
+    return onSave(
+      { ...adr, review: addReviewEntry(adr.review, { at, by: me, byId: meId, verdict: v, comment: comment || undefined }) },
+      { action: v === 'approve' ? 'Approved' : v === 'changes' ? 'Changes requested' : v === 'reject' ? 'Rejected in review' : 'Commented', detail: comment ? comment.slice(0, 120) : undefined },
+    ).then(() => toast.success(v === 'comment' ? 'Comment added' : 'Review recorded'))
+      .catch((e: Error) => toast.error('Could not record review', { description: e.message }))
+  }
 
   const next = NEXT_STATUS[adr.status]
   const body = md.replace(/^---[\s\S]*?---\n+/, '').replace(/^# .*\n+/, '')
@@ -569,7 +752,7 @@ function AdrView({
   return (
     <article className="space-y-4">
       <div className="flex flex-wrap items-start gap-3">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[min(100%,18rem)] flex-1">
           <button type="button" onClick={onBack} className="mb-1 inline-flex items-center gap-1 text-[12px] text-content-muted hover:text-content lg:hidden">
             <Icon name="back" size={12} /> All decisions
           </button>
@@ -578,13 +761,23 @@ function AdrView({
               {formatAdrNumber(adr.number)}
             </span>
             <StatusBadge kind={STATUS_KIND[adr.status]}>{STATUS_LABEL[adr.status]}</StatusBadge>
+            {reviewing ? <StatusBadge kind="progressing">In review</StatusBadge> : null}
+            <ScopeChip item={adr} scope={scope} />
             {adr.date ? <span className="text-[11.5px] text-content-subtle">Decided {adr.date}</span> : null}
           </div>
           <h2 className="mt-1.5 text-xl font-semibold tracking-tight text-content">{adr.title}</h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {adr.status === 'proposed' && !reviewing
+            ? <Button size="sm" onClick={() => setReviewOpen(true)}>Request review…</Button>
+            : null}
           {next.map((s) => (
-            <Button key={s} size="sm" variant={s === 'accepted' ? 'primary' : 'secondary'} onClick={() => setStatus(s)}>
+            <Button
+              key={s}
+              size="sm"
+              variant={s === 'accepted' ? 'primary' : 'secondary'}
+              onClick={() => (adr.status === 'proposed' && (s === 'accepted' || s === 'rejected') ? setVerdict(s === 'accepted' ? 'accept' : 'decline') : setStatus(s))}
+            >
               {s === 'accepted' ? 'Accept' : s === 'rejected' ? 'Reject' : s === 'deprecated' ? 'Deprecate' : s === 'proposed' ? 'Re-propose' : STATUS_LABEL[s]}
             </Button>
           ))}
@@ -596,7 +789,10 @@ function AdrView({
             ariaLabel="More actions"
             icon={<Icon name="more" />}
             items={[
-              { label: 'Commit to Gitea…', onSelect: () => setCommitOpen(true) },
+              { label: 'Open a pull request…', onSelect: () => setCommitOpen(true) },
+              { label: 'Create follow-up in Plane…', onSelect: () => setWorkOpen(true) },
+              { label: 'Link catalog entities…', onSelect: () => setEntityOpen(true) },
+              { label: 'Change project / owner…', onSelect: () => setScopeOpen(true) },
               { label: 'Download markdown', onSelect: () => downloadText(md, adrFileName(adr), 'text/markdown') },
               {
                 label: 'Copy markdown',
@@ -656,6 +852,55 @@ function AdrView({
                 <div className="flex flex-wrap gap-1">
                   {adr.tags.map((t) => <span key={t} className="rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] text-content-muted">#{t}</span>)}
                 </div>
+              </Meta>
+            )
+            : null}
+          {adr.review
+            ? (
+              <Meta label="Review">
+                <ReviewPanel adr={adr} onVerdict={(v) => setVerdict(v)} />
+              </Meta>
+            )
+            : null}
+          <Meta label="Catalog entities">
+            {(adr.entities ?? []).length
+              ? <EntityChips refs={adr.entities ?? []} entities={catalog.entities} loaded={catalog.settled} onChange={(entities) => void onSave({ ...adr, entities }, { action: 'Unlinked entity' })} />
+              : <span className="text-[12px] text-content-subtle">Not linked to the catalog.</span>}
+            <button type="button" onClick={() => setEntityOpen(true)} className="mt-1 block text-[11.5px] text-brand-700 hover:underline dark:text-brand-300">Link entities…</button>
+          </Meta>
+          {diagrams.length
+            ? (
+              <Meta label="Diagrams">
+                <ul className="space-y-1">
+                  {diagrams.map((d) => (
+                    <li key={d.id}>
+                      <a
+                        href={designHref('diagrams', { diagram: d.id })}
+                        onClick={(e) => {
+                          e.preventDefault()
+                          openDesign('diagrams', { diagram: d.id })
+                        }}
+                        className="text-[12px] text-brand-700 hover:underline dark:text-brand-300"
+                      >
+                        {d.title}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </Meta>
+            )
+            : null}
+          <Meta label="Work items">
+            {(adr.workItems ?? []).length
+              ? <WorkItems links={adr.workItems ?? []} />
+              : <span className="text-[12px] text-content-subtle">No follow-ups tracked.</span>}
+            <button type="button" onClick={() => setWorkOpen(true)} className="mt-1 block text-[11.5px] text-brand-700 hover:underline dark:text-brand-300">Create in Plane…</button>
+          </Meta>
+          {adr.pr
+            ? (
+              <Meta label="Pull request">
+                <PrBadge repo={adr.pr.repo} number={adr.pr.number} />
+                <div className="text-[11px] text-content-subtle">{adr.pr.branch} → {adr.pr.base} · {formatRelative(adr.pr.at)}</div>
               </Meta>
             )
             : null}
@@ -725,15 +970,70 @@ function AdrView({
           : undefined}
         defaultFolder="docs/adr"
         defaultMessage={`docs(adr): ${formatAdrNumber(adr.number).toLowerCase()} ${adr.title} (${adr.status})`}
+        prBody={`${label} — ${STATUS_LABEL[adr.status]}.\n\nOpened from Adhar Console → Design → ADRs.`}
         buildFiles={() => [
           { path: adrFileName(adr), content: md },
           { path: 'README.md', content: adrIndexMarkdown(all) },
         ]}
-        onCommitted={(t) =>
+        onCommitted={(t) => {
+          const at = new Date().toISOString()
           void onSave(
-            { ...adr, repo: t.repo, git: { repo: t.repo, branch: t.branch, path: t.paths[0], sha: t.sha, at: new Date().toISOString() } },
-            { action: 'Committed', detail: `${t.repo}@${t.branch}` },
-          )}
+            {
+              ...adr,
+              repo: t.repo,
+              git: { repo: t.repo, branch: t.branch, path: t.paths[0], sha: t.sha, blob: t.blobs[t.paths[0]], at },
+              ...(t.pr ? { pr: { repo: t.repo, number: t.pr.number, branch: t.pr.branch, base: t.branch, at } } : {}),
+            },
+            { action: t.pr ? 'Pull request opened' : 'Committed', detail: t.pr ? `${t.repo}#${t.pr.number}` : `${t.repo}@${t.branch}` },
+          )
+        }}
+      />
+      <RequestReviewModal open={reviewOpen} onClose={() => setReviewOpen(false)} adr={adr} onRequest={requestReview} />
+      <VerdictModal
+        open={verdict !== null}
+        onClose={() => setVerdict(null)}
+        verdict={verdict ?? 'comment'}
+        adr={adr}
+        onSubmit={(comment) =>
+          verdict === 'accept' ? setStatus('accepted', comment) : verdict === 'decline' ? setStatus('rejected', comment) : giveVerdict(verdict ?? 'comment', comment)}
+      />
+      <EntityPickerModal
+        open={entityOpen}
+        onClose={() => setEntityOpen(false)}
+        entities={catalog.entities}
+        sources={catalog.sources}
+        selected={adr.entities ?? []}
+        title={`Link ${formatAdrNumber(adr.number)} to the catalog`}
+        onSave={(entities) => {
+          setEntityOpen(false)
+          void onSave({ ...adr, entities }, { action: 'Linked entities', detail: `${entities.length} entit${entities.length === 1 ? 'y' : 'ies'}` })
+            .then(() => toast.success('Catalog links saved', { description: 'The decision now shows under each entity’s Decisions.' }))
+        }}
+      />
+      <CreateWorkItemsModal
+        open={workOpen}
+        onClose={() => setWorkOpen(false)}
+        title={`Follow-up for ${formatAdrNumber(adr.number)}`}
+        description="Creates a work item in Plane that links back to this decision."
+        items={[{ source: `adr:${adr.id}:follow-up:${(adr.workItems ?? []).length}`, name: `Follow-up: ${label}`, description: `Implement ${label}.\n\nDecision: ${adr.decision.slice(0, 1200)}`, context: formatAdrNumber(adr.number) }]}
+        scope={adr.project ? { slug: adr.project, name: scope.projectName(adr.project) } : undefined}
+        backLink={designLink({ adr: adr.id, mode: undefined })}
+        onCreated={(links) => {
+          void onSave(
+            { ...adr, workItems: [...(adr.workItems ?? []), ...links] },
+            { action: 'Work item created', detail: links.map((c) => c.key ?? c.name).join(', ') },
+          )
+        }}
+      />
+      <ScopeModal
+        open={scopeOpen}
+        onClose={() => setScopeOpen(false)}
+        value={{ project: adr.project, team: adr.team }}
+        scope={scope}
+        onSave={(v) => {
+          setScopeOpen(false)
+          void onSave({ ...adr, project: v.project, team: v.team }, { action: 'Scope changed', detail: [v.team, v.project].filter(Boolean).join(' · ') || 'workspace-wide' })
+        }}
       />
     </article>
   )
@@ -850,6 +1150,7 @@ function AdrEditor({
   lookup,
   tagSuggestions,
   me,
+  aiContext,
   onDone,
 }: {
   adr: Doc
@@ -857,12 +1158,14 @@ function AdrEditor({
   lookup(id: string): Doc | undefined
   tagSuggestions: string[]
   me: string
+  aiContext: { description: string; value: string }[]
   onDone(): void
 }) {
   const update = useUpdate<AdrDoc>(KIND.adr)
   const toast = useToast()
   const [draft, setDraft] = useState<AdrDoc>(() => ({ ...adr }))
   const [tab, setTab] = useState<'write' | 'preview'>('write')
+  const [aiOpen, setAiOpen] = useState(false)
   const latest = useRef(adr)
   latest.current = adr
 
@@ -929,6 +1232,7 @@ function AdrEditor({
               </button>
             ))}
           </div>
+          <Button size="sm" leading={<SparkIcon />} onClick={() => setAiOpen(true)}>Improve with AI</Button>
           <Button
             size="sm"
             variant="primary"
@@ -1030,6 +1334,36 @@ function AdrEditor({
           </div>
         </div>
       </div>
+      <AskAiModal
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        kind="adr-improve"
+        title="Improve this ADR with Adhar AI"
+        description="Adhar AI revises the current draft; your fields are replaced only when you apply (undo by editing back — autosave keeps history)."
+        initialRequest="Tighten the wording, make the drivers and options concrete, and list open questions under More Information."
+        context={[{ description: 'Current ADR', value: md }, ...aiContext]}
+        fence={['markdown', 'md']}
+        applyLabel="Apply to draft"
+        renderPreview={(text) => (
+          <div className="max-h-[42vh] overflow-auto rounded-lg border border-edge-default bg-surface-raised p-4">
+            <Markdown text={text} className="text-[13px] leading-relaxed text-content" />
+          </div>
+        )}
+        onApply={(text) => {
+          const p = markdownToAdr(text)
+          setDraft((d) => ({
+            ...d,
+            title: p.title ?? d.title,
+            context: p.context ?? d.context,
+            drivers: p.drivers ?? d.drivers,
+            options: p.options ?? d.options,
+            decision: p.decision ?? d.decision,
+            consequences: p.consequences ?? d.consequences,
+            notes: p.notes ?? d.notes,
+          }))
+          toast.success('AI revision applied', { description: 'Review it before marking the decision accepted.' })
+        }}
+      />
     </div>
   )
 }
@@ -1053,6 +1387,7 @@ function CreateAdrModal({
   onClose,
   nextNumber,
   tagSuggestions,
+  scope,
   busy,
   onCreate,
 }: {
@@ -1060,23 +1395,27 @@ function CreateAdrModal({
   onClose(): void
   nextNumber: number
   tagSuggestions: string[]
+  scope: DesignScope
   busy: boolean
   onCreate(fields: Partial<AdrDoc>): void
 }) {
   const [title, setTitle] = useState('')
   const [tags, setTags] = useState<string[]>([])
   const [tpl, setTpl] = useState<AdrTemplateId>('madr')
+  const [scoped, setScoped] = useState<Scoped>({})
   useEffect(() => {
     if (open) {
       setTitle('')
       setTags([])
       setTpl('madr')
+      setScoped(scope.initial)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
   const submit = () => {
     if (!title.trim()) return
     const t = ADR_TEMPLATES.find((x) => x.id === tpl)!
-    onCreate({ ...t.fields, title: title.trim(), tags })
+    onCreate({ ...t.fields, title: title.trim(), tags, project: scoped.project, team: scoped.team })
   }
   return (
     <Modal
@@ -1109,6 +1448,7 @@ function CreateAdrModal({
         <FieldLabel label="Tags">
           <TagInput value={tags} onChange={setTags} suggestions={tagSuggestions} />
         </FieldLabel>
+        <ScopeFields value={scoped} onChange={setScoped} scope={scope} />
         <div>
           <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">Template</span>
           <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-3">

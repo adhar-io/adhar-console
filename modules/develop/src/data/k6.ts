@@ -3,6 +3,7 @@ import { useLiveRefetch } from '@adhar/shell-ui'
 import { k8s } from '@adhar/api-clients'
 import { kube } from '@adhar/api-clients/k8s'
 import { rerunName } from './k6-summary.ts'
+import { withPinnedImages } from './k6-images.ts'
 
 // The pure half — parser, naming, formatting — lives next door so it can be
 // tested without React. Re-exported here so views have one import.
@@ -282,7 +283,7 @@ export function createTestRun(input: NewTestRun): Promise<TestRun> {
       namespace: input.namespace,
       labels: { 'app.kubernetes.io/managed-by': 'adhar-console' },
     },
-    spec: {
+    spec: withPinnedImages({
       parallelism: input.parallelism,
       script: { configMap: { name: input.configMap, file: input.file } },
       ...(input.arguments ? { arguments: input.arguments } : {}),
@@ -293,7 +294,7 @@ export function createTestRun(input: NewTestRun): Promise<TestRun> {
       // Without this the Jobs and their pods linger after the run, and the
       // pod list for the next run is full of the last one's corpses.
       cleanup: 'post',
-    },
+    }),
   })
 }
 
@@ -323,7 +324,9 @@ export function rerunTestRun(run: TestRun): Promise<TestRun> {
     },
     // "Run again" means run it, so a rerun of a paused run starts. Copying
     // the spec verbatim reproduced the pause along with everything else.
-    spec: { ...(run.spec ?? {}), paused: 'false' },
+    // Re-pinned, so a rerun of a run created before images were pinned does
+    // not repeat its `:latest` denial (k6-images.ts).
+    spec: withPinnedImages({ ...(run.spec ?? {}), paused: 'false' }),
   })
 }
 /* ─────────── derivations ─────────── */

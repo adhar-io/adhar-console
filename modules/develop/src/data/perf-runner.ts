@@ -1,4 +1,5 @@
 import { gateEnv } from './perf-gate.ts'
+import { withPinnedImages } from './k6-images.ts'
 import {
   LABEL_COMMIT,
   LABEL_APPLICATION,
@@ -313,14 +314,14 @@ export function testRunTemplate(input: { test: string; config: PerfTestConfig; c
         ...(targetApplication(config) ? { [LABEL_APPLICATION]: targetApplication(config)! } : {}),
       },
     },
-    spec: {
+    spec: withPinnedImages({
       parallelism: config.parallelism,
       script: { configMap: { name: artefactName(test), file: SCRIPT_FILE } },
       // The CRD defaults `paused` to the STRING "true".
       paused: 'false',
       ...(config.arguments ? { arguments: config.arguments } : {}),
       ...(env.length ? { runner: { env: env.map(([name, value]) => ({ name, value })) } } : {}),
-    },
+    }),
   }
 }
 

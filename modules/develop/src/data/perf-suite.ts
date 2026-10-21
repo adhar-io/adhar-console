@@ -3,6 +3,7 @@ import { useGiteaOrg } from '@adhar/shell-ui'
 import { kube } from '@adhar/api-clients/k8s'
 import { giteaClient } from './git.ts'
 import { artefactConfigMap, artefactName } from './perf-runner.ts'
+import { withPinnedImages } from './k6-images.ts'
 import { LABEL_TRIGGER } from './perf-results.ts'
 import {
   CONFIG_FILE,
@@ -357,7 +358,7 @@ export function useRunPerfTest() {
             ...(commit ? { [LABEL_COMMIT]: commit.slice(0, 63) } : {}),
           },
         },
-        spec: {
+        spec: withPinnedImages({
           parallelism: test.config.parallelism,
           script: { configMap: { name: cmName, file: SCRIPT_FILE } },
           // The CRD defaults `paused` to the STRING "true", so a TestRun
@@ -378,7 +379,7 @@ export function useRunPerfTest() {
               },
             }
             : {}),
-        },
+        }),
       })
       return run
     },

@@ -9,9 +9,17 @@ import type { Entity, Lifecycle } from './catalog.ts'
  * from the Argo CD applications the control plane composes for it — one per
  * environment, labelled `adhar.io/application` and `adhar.io/environment`:
  *
- *   - Synced + Healthy in a production environment → `production`
- *   - otherwise Synced + Healthy in a pre-production one → `staging`
+ *   - Synced + Healthy in a production environment, running a RELEASED image
+ *     → `production`
+ *   - otherwise the same in a pre-production one → `staging`
  *   - otherwise the declared lifecycle stands.
+ *
+ * "Released" matters because every environment overlay starts on the
+ * template's `:latest` placeholder: test and prod came up Synced + Healthy on
+ * it as soon as the first build existed, before anyone had promoted anything,
+ * so health alone would have called an unpromoted app production. A Kargo
+ * promotion pins a digest (`app@sha256:…`) or a release tag (`app:1.4.2`);
+ * Argo CD reports the placeholder as `app:latest@sha256:…`.
  *
  * Two declarations always win, because they are decisions rather than
  * observations: `deprecated` (a team retiring the app), and a declared
@@ -22,14 +30,28 @@ import type { Entity, Lifecycle } from './catalog.ts'
 /** The fields of an Argo CD Application this needs. */
 export interface DeployedApp {
   metadata: { labels?: Record<string, string> }
-  status?: { sync?: { status?: string }; health?: { status?: string } }
+  status?: { sync?: { status?: string }; health?: { status?: string }; images?: string[] }
 }
 
 const PRODUCTION_ENVS = new Set(['prod', 'production', 'live'])
 const PRE_PRODUCTION_ENVS = new Set(['test', 'staging', 'stage', 'qa', 'uat', 'preprod'])
 
+/** Whether an image reference is a release rather than the `:latest` placeholder. */
+export function isReleasedImage(ref: string): boolean {
+  const [name, digest] = ref.split('@', 2)
+  const slash = name.lastIndexOf('/')
+  const colon = name.lastIndexOf(':')
+  const tag = colon > slash ? name.slice(colon + 1) : ''
+  if (tag === 'latest') return false
+  return tag !== '' || Boolean(digest)
+}
+
 function running(app: DeployedApp): boolean {
-  return app.status?.sync?.status === 'Synced' && app.status?.health?.status === 'Healthy'
+  const images = app.status?.images ?? []
+  return app.status?.sync?.status === 'Synced' &&
+    app.status?.health?.status === 'Healthy' &&
+    images.length > 0 &&
+    images.every(isReleasedImage)
 }
 
 /** The lifecycle an application has earned from its deployments. */

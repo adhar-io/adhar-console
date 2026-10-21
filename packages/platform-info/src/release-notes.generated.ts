@@ -4,6 +4,16 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.146",
+    "date": "2026-10-21",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Fix perf center issues and catalog improvements"
+      }
+    ]
+  },
+  {
     "version": "0.1.145",
     "date": "2026-10-21",
     "changes": [
@@ -824,17 +834,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "fix",
         "scope": "ai",
         "text": "Import the hook the read-aloud rewrite started using"
-      }
-    ]
-  },
-  {
-    "version": "0.1.106",
-    "date": "2026-10-03",
-    "changes": [
-      {
-        "type": "fix",
-        "scope": "ci",
-        "text": "Drop Monaco's worker bundling, which the pinned Deno cannot build"
       }
     ]
   }

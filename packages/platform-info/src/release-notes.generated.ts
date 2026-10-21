@@ -4,6 +4,16 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.144",
+    "date": "2026-10-21",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Catalog fixes"
+      }
+    ]
+  },
+  {
     "version": "0.1.143",
     "date": "2026-10-21",
     "changes": [
@@ -835,75 +845,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "feature",
         "scope": "develop",
         "text": "Repositories read as owner/name, and section by owner"
-      }
-    ]
-  },
-  {
-    "version": "0.1.104",
-    "date": "2026-10-03",
-    "changes": [
-      {
-        "type": "fix",
-        "text": "UI fixes"
-      },
-      {
-        "type": "feature",
-        "text": "Drop Argo Workflows from the platform surface"
-      },
-      {
-        "type": "feature",
-        "scope": "catalog",
-        "text": "Own new services with your own organisation's teams"
-      },
-      {
-        "type": "fix",
-        "scope": "ui",
-        "text": "White text on solid links was being overridden to body colour"
-      },
-      {
-        "type": "fix",
-        "scope": "ui",
-        "text": "Remove the page background that was never on screen"
-      },
-      {
-        "type": "feature",
-        "scope": "ui",
-        "text": "Drop the explanatory sentence under every page title"
-      },
-      {
-        "type": "fix",
-        "scope": "ui",
-        "text": "Make the console usable with a thumb"
-      },
-      {
-        "type": "fix",
-        "scope": "ai",
-        "text": "Choose the voice instead of letting the system choose"
-      },
-      {
-        "type": "fix",
-        "scope": "ui",
-        "text": "Keyboard focus, half-pixel type, and a stray grey ramp"
-      },
-      {
-        "type": "fix",
-        "scope": "ai",
-        "text": "One thinking indicator, not three"
-      },
-      {
-        "type": "feature",
-        "scope": "ai",
-        "text": "Give the landing a way out of itself"
-      },
-      {
-        "type": "fix",
-        "scope": "ui",
-        "text": "Icons at one optical weight, not one nominal weight"
-      },
-      {
-        "type": "feature",
-        "scope": "ui",
-        "text": "A real elevation system, and text that clears AA"
       }
     ]
   }

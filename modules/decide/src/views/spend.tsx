@@ -366,12 +366,12 @@ function Kpis({ loading, mtd, prev, forecast, idle, idleBase, eff, rangeLabel, r
       <Tile
         label="Idle capacity"
         value={idle == null || !idleBase ? '—' : `${((idle / idleBase) * 100).toFixed(0)}%`}
-        sub={idle == null ? (scoped ? 'cluster-wide only' : 'not reported') : `${formatUsd(idle)} of ${formatUsd(idleBase)} · ${rangeLabel.toLowerCase()}`}
+        sub={idle == null ? (scoped ? 'cluster-wide only' : 'not reported') : !idleBase ? 'no allocation in range' : `${formatUsd(idle)} of ${formatUsd(idleBase)} · ${rangeLabel.toLowerCase()}`}
       />
       <Tile
         label="Efficiency"
         value={eff == null ? '—' : `${Math.round(eff * 100)}%`}
-        sub={rangeTotal == null ? 'no allocation data' : `of CPU + memory spend used · ${formatUsd(rangeTotal)} allocated`}
+        sub={rangeTotal == null || (eff == null && !rangeTotal) ? 'no allocation data' : `of CPU + memory spend used · ${formatUsd(rangeTotal)} allocated`}
         footer={eff == null ? null : <StatusText tone={eff >= 0.6 ? 'good' : eff >= 0.35 ? 'warn' : 'bad'}>{eff >= 0.6 ? 'Healthy' : eff >= 0.35 ? 'Over-provisioned' : 'Mostly unused'}</StatusText>}
       />
     </div>

@@ -186,9 +186,11 @@ function KeyCards({ data, metric, onPick }: { data: DoraDataset; metric: MetricI
   const cards: Array<{ id: MetricId; value: string; band: KeyMetrics['deployBand']; sub: string; delta: ReactNode; bench: Record<string, string>; spark: Array<[number, number]> }> = [
     {
       id: 'deploys',
-      value: c.deploys ? formatPerDay(c.perDay) : '0',
+      // With no deploy source answering, "0 deploys" would be a measurement
+      // nobody took — the count is unknown.
+      value: data.noSources ? '—' : c.deploys ? formatPerDay(c.perDay) : '0',
       band: c.deployBand,
-      sub: `${c.deploys - c.failed} successful deploys`,
+      sub: data.noSources ? 'no deploy source answered' : `${c.deploys - c.failed} successful deploys`,
       delta: <Delta current={c.deploys ? c.perDay : null} previous={p.deploys ? p.perDay : null} goodWhenUp />,
       bench: BENCHMARKS.deployFrequency,
       spark: data.series.deploys,

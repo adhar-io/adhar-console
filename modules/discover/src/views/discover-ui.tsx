@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { useOverlayDismiss } from '@adhar/shell-ui'
+import { DrawerWidenButton, useDrawerWidth, useOverlayDismiss } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 
 /**
@@ -56,6 +56,7 @@ export function Drawer({
   badges,
   actions,
   width = 'max-w-4xl',
+  widthId = 'discover.drawer',
   children,
 }: {
   open: boolean
@@ -64,15 +65,19 @@ export function Drawer({
   subtitle?: ReactNode
   badges?: ReactNode
   actions?: ReactNode
+  /** The standard max width (`max-w-*`, no lg+ breakpoints). */
   width?: string
+  /** Key the remembered wide-mode preference is stored under. */
+  widthId?: string
   children: ReactNode
 }) {
   useOverlayDismiss(open, onClose)
+  const wide = useDrawerWidth(widthId, { base: width })
   if (!open || typeof document === 'undefined') return null
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px] dark:bg-black/60" onClick={onClose} />
-      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width)}>
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', wide.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-5 py-4">
           <div className="min-w-0">
             {badges ? <div className="flex flex-wrap items-center gap-2">{badges}</div> : null}
@@ -81,6 +86,7 @@ export function Drawer({
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             {actions}
+            <DrawerWidenButton wide={wide.wide} onToggle={wide.toggle} />
             <button
               type="button"
               onClick={onClose}

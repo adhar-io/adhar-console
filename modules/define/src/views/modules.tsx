@@ -5,12 +5,12 @@ import { planeError, useArchivedModules, useDeleteModule, useModuleLifecycle, us
 import { toWorkItem, useEpicActions, useModulesIssueIds, usePlanIssues } from '../data/planning-plane.ts'
 import { storeError, toReleases, useEpicMetas, useIssuePoints, useOkrRefs, usePatchEpicMeta, useProjectMeta, useReleaseDocs } from '../data/planning-store.ts'
 import { burnupByCreation, isDone, toMs, wallItems, wallNow } from '../data/planning-model.ts'
-import { planningHref, planningLink, usePlanningParams, useSetPlanningParams } from '../data/planning-nav.ts'
+import { planningHref, usePlanningParams, useSetPlanningParams } from '../data/planning-nav.ts'
 import { ArchivedSection } from '../components/archived-section.tsx'
 import { CreateModuleModal } from '../components/create-forms.tsx'
 import { ItemList, PickItemsModal } from '../components/cycle-detail.tsx'
 import { IssueDrawer } from '../components/issue-drawer.tsx'
-import { Avatar, DayLineChart, fmtDate, fmtRange, IconLink, Loading, Meter, Notice, ProblemState, SectionTitle, SidePanel, Stat, usePeople, useSeriesColor } from '../components/planning-ui.tsx'
+import { Avatar, DayLineChart, fmtDate, fmtRange, Loading, Meter, Notice, ProblemState, SectionTitle, SidePanel, Stat, usePeople, useSeriesColor } from '../components/planning-ui.tsx'
 
 /**
  * Epics (Plane modules): progress, target dates, lead, status, child work
@@ -197,23 +197,13 @@ function EpicDetail({ projectId, epic, okrs, okrsError, meta, releases, onClose 
 
   return (
     <SidePanel
+      widthId="define.epic"
       onClose={onClose}
       eyebrow={<>Epic <StatusBadge kind={EPIC_STATUS[epic.status]?.kind ?? 'unknown'}>{EPIC_STATUS[epic.status]?.label ?? epic.status}</StatusBadge></>}
       title={epic.name}
       meta={<span>{fmtRange(epic.start_date, epic.target_date)}{epic.description ? ` · ${epic.description}` : ''}</span>}
       actions={
         <>
-          <Button
-            size="sm"
-            variant="ghost"
-            leading={<IconLink />}
-            onClick={() => {
-              void navigator.clipboard?.writeText(planningLink({ epic: epic.id }))
-              toast.success('Link copied')
-            }}
-          >
-            Copy link
-          </Button>
           <Button
             size="sm"
             loading={life.archive.isPending}

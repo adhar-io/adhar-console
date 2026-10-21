@@ -15,6 +15,8 @@ import {
   useToolPublicUrl,
   type Column,
   type StatusKind,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
 import type { harbor, nexus } from '@adhar/api-clients'
@@ -613,6 +615,7 @@ function ArtifactDrawer({
   onClose(): void
   onCopy(text: string): void
 }) {
+  const width = useDrawerWidth('deliver.artifact', { base: 'max-w-4xl' })
   const [tab, setTab] = useState<DrawerTab>('overview')
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -635,7 +638,7 @@ function ArtifactDrawer({
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Artifact detail">
       <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px] dark:bg-black/60" />
-      <aside className="relative flex h-full w-full max-w-4xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
@@ -647,7 +650,10 @@ function ArtifactDrawer({
                 {a.digest}
               </button>
             </div>
-            <button type="button" onClick={onClose} aria-label="Close" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content">✕</button>
+            <div className="flex shrink-0 items-center gap-1">
+              <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
+              <button type="button" onClick={onClose} aria-label="Close" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content">✕</button>
+            </div>
           </div>
           <div className="mt-3 flex flex-wrap gap-1.5">
             {tabs.map((t) => (
@@ -1481,6 +1487,7 @@ function NexusComponentsPane({
 }
 
 function NexusComponentDrawer({ component: c, onClose }: { component: nexus.NexusComponent; onClose(): void }) {
+  const width = useDrawerWidth('deliver.package', { base: 'max-w-3xl' })
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     globalThis.addEventListener('keydown', onKey)
@@ -1490,14 +1497,17 @@ function NexusComponentDrawer({ component: c, onClose }: { component: nexus.Nexu
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Package detail">
       <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px] dark:bg-black/60" />
-      <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-content-subtle">{c.format} package</div>
             <h2 className="mt-1 truncate font-mono text-base font-semibold text-content">{c.group ? `${c.group}:` : ''}{c.name}{c.version ? `:${c.version}` : ''}</h2>
             <div className="mt-1 text-[11px] text-content-subtle">in {c.repository}</div>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content">✕</button>
+          <div className="flex shrink-0 items-center gap-1">
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
+            <button type="button" onClick={onClose} aria-label="Close" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content">✕</button>
+          </div>
         </header>
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
           <Section title="Assets" source="Nexus GET /service/rest/v1/components — one entry per uploaded file">

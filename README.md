@@ -27,8 +27,7 @@
 
 Adhar Console is the single pane of glass for the Adhar platform. It doesn't
 replace any of the open-source tools underneath — it brings them together into one
-coherent, tenant-aware experience (**Organisation → Teams → Projects → Apps**)
-that follows the **6D** software lifecycle:
+coherent, tenant-aware experience that follows the **6D** software lifecycle:
 
 | Phase        | What happens here                                                        | Backed by                                                        |
 | ------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------- |
@@ -495,31 +494,6 @@ Hub is an optional mirror, enabled only when its secrets are present.
 > under the org's **Packages** settings, or configure an `imagePullSecret`.
 
 Both build jobs check out `adhar-io/adhar-ui` as a sibling for the Docker build context.
-
----
-
-## 📖 Documentation
-
-| Guide | What it covers |
-|---|---|
-| 🚀 **[Getting Started](./docs/getting-started.md)** | The long form of the three paths above, with every variable explained |
-| 🏛️ **[Architecture](./docs/architecture/overview.md)** | How the SPA, the federated remotes and the BFF fit together |
-| 🧩 **[Module Federation](./docs/architecture/module-federation.md)** | How a phase is built, loaded and owned independently |
-| 🔌 **[BFF](./docs/architecture/bff.md)** | Every `/api/*` surface and the token-injecting proxy |
-| 🔐 **[Auth](./docs/architecture/auth.md)** | The confidential OIDC client, sessions, and per-user cluster impersonation |
-| 🏢 **[Tenancy](./docs/architecture/tenancy.md)** | Tenant scoping and what is shared across an organisation |
-| 🚢 **[Deploy](./docs/architecture/deploy.md)** · **[Observability](./docs/architecture/observability.md)** | Shipping it, and watching it once shipped |
-| ☸️ **[Kubernetes setup](./docs/guides/kubernetes-setup.md)** | Wiring the apiserver, OIDC audience and RBAC the console expects |
-| 🤝 **[Contributing](./CONTRIBUTING.md)** · **[Security](./SECURITY.md)** · **[Changelog](./CHANGELOG.md)** | Working on it, reporting issues, what changed |
-
-**Per phase:** [Define](./docs/phases/define.md) · [Design](./docs/phases/design.md) ·
-[Develop](./docs/phases/develop.md) · [Deliver](./docs/phases/deliver.md) ·
-[Discover](./docs/phases/discover.md) · [Decide](./docs/phases/decide.md) ·
-[Platform](./docs/phases/platform.md) · [Workspace](./docs/phases/workspace.md)
-
-**Related repos:** [adhar](https://github.com/adhar-io/adhar) (the platform) ·
-[adhar-ai](https://github.com/adhar-io/adhar-ai) (the agentic layer) ·
-[adhar-ui](https://github.com/adhar-io/adhar-ui) (the design system)
 
 ---
 

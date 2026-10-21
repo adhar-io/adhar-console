@@ -234,6 +234,7 @@ export function FindingDrawer({ finding: f, model, onClose }: { finding: Finding
 
   return (
     <Drawer
+      widthId="deliver.security-finding"
       onClose={onClose}
       eyebrow="Vulnerability"
       title={<span className="font-mono">{f.id}</span>}

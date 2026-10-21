@@ -3,10 +3,12 @@ import { createPortal } from 'react-dom'
 import {
   Button,
   Card,
+  DrawerWidenButton,
   EmptyState,
   Modal,
   SearchInput,
   Select,
+  useDrawerWidth,
   useOverlayDismiss,
   useToast,
 } from '@adhar/shell-ui'
@@ -23,7 +25,7 @@ import {
 import { PERSONA_TEMPLATES } from '../data/persona-templates.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import type { Journey, Persona } from '../data/types.ts'
-import { designHref, useDesignParams, useGoDesign, useSetDesignParams } from '../data/nav.ts'
+import { useDesignParams, useGoDesign, useSetDesignParams } from '../data/nav.ts'
 import { type DesignScope, useDesignScope } from '../data/design-scope.ts'
 import { PersonaAiModal, PersonaEvidence, PersonaWorkItems, ProjectTagSelect } from '../components/ux-integrations.tsx'
 import { AskAiButton } from '../components/integrations.tsx'
@@ -49,7 +51,6 @@ import {
   IconDownload,
   IconDuplicate,
   IconGridView,
-  IconLink,
   IconPlus,
   IconTrash,
   IconX,
@@ -520,6 +521,7 @@ function PersonaDrawer({
   const update = useUpdate<Persona>(KIND.persona)
   const toast = useToast()
   const go = useGoDesign()
+  const width = useDrawerWidth('design.persona', { base: 'max-w-3xl' })
   useOverlayDismiss(true, onClose)
 
   const { draft, update: edit, flush } = useDraft<Persona>(persona, (next) =>
@@ -539,7 +541,7 @@ function PersonaDrawer({
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={p.name}>
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={close} />
-      <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl', width.className)}>
         <header className="flex items-start gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="relative">
             <button
@@ -581,16 +583,6 @@ function PersonaDrawer({
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <IconBtn
-              label="Copy link"
-              onClick={() =>
-                copyText(`${location.origin}${designHref('personas', { persona: p.id })}`).then(
-                  () => toast.success('Link copied'),
-                  () => toast.error('Could not copy link'),
-                )}
-            >
-              <IconLink />
-            </IconBtn>
-            <IconBtn
               label="Export as Markdown"
               onClick={() => {
                 downloadText(`${fileSlug(p.name)}.md`, personaToMarkdown(p, journeys), 'text/markdown')
@@ -615,6 +607,7 @@ function PersonaDrawer({
             <IconBtn label="Delete" onClick={onDelete} danger>
               <IconTrash />
             </IconBtn>
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <IconBtn label="Close" onClick={close}>
               <IconX />
             </IconBtn>

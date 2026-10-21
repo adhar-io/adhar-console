@@ -13,6 +13,8 @@ import {
   Tabs,
   useOverlayDismiss,
   useToast,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { kube } from '@adhar/api-clients/k8s'
@@ -634,6 +636,7 @@ function DrawerFrame({
   deleteNote: string
   children: React.ReactNode
 }) {
+  const width = useDrawerWidth('platform.quota', { base: 'max-w-2xl' })
   const qc = useQueryClient()
   const toast = useToast()
   const [confirming, setConfirming] = useState(false)
@@ -651,7 +654,7 @@ function DrawerFrame({
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
-      <aside className="relative flex h-full w-full max-w-2xl flex-col border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">{kind}</div>
@@ -662,6 +665,7 @@ function DrawerFrame({
             {badge}
             {canEdit ? <Button size="sm" variant="secondary" onClick={onEdit}>Edit</Button> : null}
             {canDelete ? <Button size="sm" variant="danger" onClick={() => setConfirming(true)}>Delete</Button> : null}
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <button type="button" onClick={onClose} className="rounded-md p-1 text-content-muted hover:bg-surface-sunken hover:text-content" aria-label="Close">✕</button>
           </div>
         </header>

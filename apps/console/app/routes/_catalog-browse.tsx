@@ -8,6 +8,7 @@ import {
   Card,
   DonutGauge,
   CardBody,
+  DrawerWidenButton,
   CardHeader,
   EmptyState,
   Field as FormField,
@@ -21,6 +22,7 @@ import {
   type TabDef,
   Textarea,
   useAi,
+  useDrawerWidth,
   usePublicUrl,
   useToast,
   useToolPublicUrl,
@@ -70,6 +72,7 @@ import { CompositionTab, compositionBadge } from './_catalog-composition.tsx'
 import { RawTab } from './_catalog-raw.tsx'
 import { ResourcesTab } from './_catalog-resources.tsx'
 import { CatalogDeleteDialog, useEntityDeleteMode } from '~/components/catalog-delete-app.tsx'
+import { loadGiteaTemplates } from '~/data/catalog-templates.ts'
 import {
   CATEGORY_LABEL,
   type Check,
@@ -557,7 +560,10 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
 
       {catalogEmpty ? <CatalogEmpty sources={q.sources} onRegister={() => setRegisterOpen(true)} /> : (
       <>
-      <CoveragePanel coverage={coverage} stars={stars.length} attention={attentionCount} />
+      {/* Coverage of nothing is not a measurement: while the first load is in
+          flight the list is empty, and the tiles read "0%" and "All key signals
+          present" about entities that have not arrived yet. */}
+      {list.length > 0 ? <CoveragePanel coverage={coverage} stars={stars.length} attention={attentionCount} /> : null}
 
       {!isFiltering && starredEntities.length > 0 ? (
         <StarredRow entities={starredEntities} onPick={openEntity} />
@@ -723,6 +729,10 @@ function CatalogHeader({ onRegister }: { onRegister(): void }) {
         <Link
           to="/catalog"
           search={{ section: 'create' } as never}
+          // Start reading the templates from Gitea on intent, so Create New
+          // usually opens on a list rather than a loading state.
+          onMouseEnter={() => void loadGiteaTemplates()}
+          onFocus={() => void loadGiteaTemplates()}
           // A link that looks and behaves like the page's primary button, so it
           // takes the button's touch floor too — the base rule leaves bare
           // `a[href]` alone, because a link inside a sentence is not a control.
@@ -2824,6 +2834,18 @@ function EntityCard({
           .catch(() => toast.error('Could not copy', { description: ref }))
       },
     },
+    {
+      // The drawer header's copy-link icon gave way to the widen toggle; the
+      // link to an entity is still one click away here.
+      label: 'Copy link',
+      onSelect: () => {
+        const url = `${globalThis.location.origin}/catalog?entity=${encodeURIComponent(ref)}`
+        navigator.clipboard
+          ?.writeText(url)
+          .then(() => toast.success('Link copied', { description: url }))
+          .catch(() => toast.error('Could not copy link', { description: url }))
+      },
+    },
     { label: starred ? 'Unstar' : 'Star', onSelect: () => toggleStar(ref) },
     'sep',
     { label: 'Delete…', tone: 'danger', onSelect: onDelete },
@@ -3517,7 +3539,6 @@ function EntityDrawer({
   // environment. The service runs once per environment, so the tab must say
   // which one it is charting and let you pick another.
   const [metricsEnvKey, setMetricsEnvKey] = useState<string | undefined>(undefined)
-  const toast = useToast()
   const ai = useAi()
   // XR-backed apps get "Delete application…" (role-gated); others the teardown.
   const deleteMode = useEntityDeleteMode(entity)
@@ -3604,12 +3625,12 @@ function EntityDrawer({
   // `resources` was its own tab until its view moved into Deployment; a link
   // or bookmark that still names it lands on Deployment.
   const [tab, setTab] = useState<DrawerTab>(((initialTab as string) === 'resources' ? 'deploy' : initialTab) ?? 'overview')
-  // TechDocs can widen the drawer for reading; the choice is remembered.
-  const [docsWide, setDocsWide] = useState(() => readDocsLayout().wide ?? false)
-  const setWide = (next: boolean) => {
-    setDocsWide(next)
-    writeDocsLayout({ wide: next })
-  }
+  // Wide mode: the header toggle (shared by every side drawer) and the
+  // TechDocs "Wide view" button drive the same remembered preference. The
+  // older TechDocs-only key seeds it the first time.
+  const width = useDrawerWidth('catalog.entity', { base: 'max-w-4xl', legacy: () => readDocsLayout().wide })
+  const docsWide = width.wide
+  const setWide = width.setWide
   // A menu action on another card while this drawer is open asks for a tab;
   // plain navigation between entities keeps the tab you were on.
   useEffect(() => {
@@ -3746,14 +3767,6 @@ function EntityDrawer({
     : entity.spec.owner
       ? parseRef(entity.spec.owner).name
       : undefined
-  const copyLink = () => {
-    const url = `${globalThis.location.origin}/catalog?entity=${encodeURIComponent(ref)}`
-    navigator.clipboard
-      ?.writeText(url)
-      .then(() => toast.success('Link copied', { description: url }))
-      .catch(() => toast.error('Could not copy link', { description: url }))
-  }
-
   if (typeof document === 'undefined') return null
 
   return createPortal(
@@ -3766,10 +3779,10 @@ function EntityDrawer({
       />
       <aside
         className={cn(
-          'relative flex h-full w-full flex-col overflow-hidden shadow-2xl transition-[max-width] duration-200 ease-out sm:border-l sm:border-edge-default',
+          'relative flex h-full w-full flex-col overflow-hidden shadow-2xl sm:border-l sm:border-edge-default',
           // Raw reads as a document: white, not the tinted canvas the other tabs' cards sit on.
           effectiveTab === 'raw' ? 'bg-surface-raised' : 'bg-surface-canvas',
-          effectiveTab === 'docs' && docsWide ? 'max-w-[min(100rem,calc(100vw-3rem))]' : 'max-w-4xl',
+          width.className,
         )}
       >
         {/*
@@ -3855,15 +3868,6 @@ function EntityDrawer({
               </button>
               <button
                 type="button"
-                onClick={copyLink}
-                aria-label="Copy link to this entity"
-                title="Copy link"
-                className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content"
-              >
-                <IconLink />
-              </button>
-              <button
-                type="button"
                 onClick={() => toggleStar(ref)}
                 aria-label={starred ? 'Unstar' : 'Star'}
                 title={starred ? 'Remove from starred' : 'Add to starred'}
@@ -3887,6 +3891,7 @@ function EntityDrawer({
                   <IconTrash />
                 </button>
               ) : null}
+              <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
               <button
                 ref={closeBtnRef}
                 type="button"
@@ -5598,7 +5603,7 @@ function ApiDefinitionCard({ api }: { api: ParsedApi }) {
   )
 }
 
-/* ─────────── activity (synthetic timeline) ─────────── */
+/* ─────────── activity (from the entity's own timestamps) ─────────── */
 
 interface Activity {
   at: string
@@ -5608,9 +5613,11 @@ interface Activity {
 }
 
 /**
- * Build a believable activity timeline from the entity's metadata. Real
- * events should come from the BFF (Argo CD, ArgoCD, GitHub, Pager) — for v1
- * we synthesise a plausible chronology so the section feels alive.
+ * The activity the entity's own metadata can vouch for: when it was registered
+ * and when its manifest last changed. This used to synthesise "Deployed 1.4.2 /
+ * Auto-promoted from staging" events between those two dates so the section
+ * "felt alive" — invented history that read as real. Deployments live on the
+ * Deployments tab, which reads Argo CD.
  */
 function buildActivity(e: Entity): Activity[] {
   const out: Activity[] = []
@@ -5624,27 +5631,9 @@ function buildActivity(e: Entity): Activity[] {
       kind: 'created',
     })
   }
-  // Synthesise 2–3 deploy events between created and updated for components.
-  if (e.kind === 'Component' && created && updated && created !== updated) {
-    const start = new Date(created).getTime()
-    const end = new Date(updated).getTime()
-    if (end > start) {
-      const span = end - start
-      const versions = ['1.4.2', '1.4.3', '1.5.0']
-      for (let i = 0; i < 3; i++) {
-        const at = new Date(start + (span * (i + 1)) / 4).toISOString()
-        out.push({
-          at,
-          title: `Deployed ${versions[i]}`,
-          detail: i === 1 ? 'Auto-promoted from staging' : undefined,
-          kind: 'deployed',
-        })
-      }
-    }
-  }
-  if (e.spec.lifecycle === 'deprecated') {
+  if (e.spec.lifecycle === 'deprecated' && updated) {
     out.push({
-      at: updated ?? new Date().toISOString(),
+      at: updated,
       title: 'Marked deprecated',
       detail: 'Schedule retirement and plan migration',
       kind: 'incident',
@@ -6929,15 +6918,6 @@ function IconSearchLg() {
     >
       <circle cx="11" cy="11" r="7" />
       <path d="m21 21-4.35-4.35" />
-    </svg>
-  )
-}
-
-function IconLink() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" />
-      <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" />
     </svg>
   )
 }

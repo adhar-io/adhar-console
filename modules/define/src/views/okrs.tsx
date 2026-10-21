@@ -194,7 +194,7 @@ export function Okrs({ projectId }: { projectId?: string }) {
           <>
             <div className='grid grid-cols-2 gap-2 sm:grid-cols-5'>
               <Stat label='Objectives' value={visible.length} />
-              <Stat label='Avg progress' value={`${summary.avg}%`} />
+              <Stat label='Avg progress' value={visible.length ? `${summary.avg}%` : '—'} />
               <Stat label='On track' value={summary.on} />
               <Stat label='At risk' value={summary.risk} tone={summary.risk ? 'warn' : undefined} />
               <Stat

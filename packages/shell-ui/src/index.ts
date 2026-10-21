@@ -109,6 +109,14 @@ export {
 export { StatusBadge, type StatusKind } from './status-badge.tsx'
 export { AssistHost, CommandPalette, type AssistHostProps, type CommandItem } from './command-palette.tsx'
 export { Modal } from './modal.tsx'
+export { DrawerWidenButton, useDrawerWidth, type DrawerWidth } from './drawer-width.tsx'
+export {
+  DRAWER_TRANSITION_CLASS,
+  DRAWER_WIDE_CLASS,
+  drawerWidthClass,
+  readDrawerWide,
+  writeDrawerWide,
+} from './drawer-width-store.ts'
 export {
   applyColorMode,
   applyTheme,

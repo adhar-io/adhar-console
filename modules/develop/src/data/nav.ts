@@ -87,11 +87,23 @@ function encode(v: string): string {
   }
 }
 
-function readSearch(): Record<string, string> {
-  if (typeof location === 'undefined') return {};
+function readSearch(search?: string): Record<string, string> {
+  if (search === undefined && typeof location === 'undefined') return {};
   const out: Record<string, string> = {};
-  for (const [k, v] of new URLSearchParams(location.search)) out[k] = decode(v);
+  for (const [k, v] of new URLSearchParams(search ?? location.search)) out[k] = decode(v);
   return out;
+}
+
+/**
+ * The search string of the location the app is on *now*. TanStack's browser
+ * history notifies subscribers as soon as a navigation is committed but
+ * writes `window.history` in a later flush — reading `location.search` from
+ * the subscriber sees the previous URL, so a param change would never reach
+ * the views. The router's own history location is current.
+ */
+function currentSearch(router: { history?: { location?: { search?: string } } } | null | undefined): string | undefined {
+  const s = router?.history?.location?.search;
+  return typeof s === 'string' ? s : undefined;
 }
 
 function pick(s: Record<string, unknown>): DevelopParams {
@@ -113,10 +125,10 @@ function writeUrl(path: string, search: Record<string, string>, replace: boolean
 /** The Develop deep-link params on the current URL. */
 export function useDevelopParams(): DevelopParams {
   const router = useRouter({ warn: false });
-  const [params, setParams] = useState<DevelopParams>(() => pick(readSearch()));
+  const [params, setParams] = useState<DevelopParams>(() => pick(readSearch(currentSearch(router))));
   useEffect(() => {
     const sync = () => setParams((cur) => {
-      const next = pick(readSearch());
+      const next = pick(readSearch(currentSearch(router)));
       return JSON.stringify(cur) === JSON.stringify(next) ? cur : next;
     });
     sync();
@@ -135,8 +147,9 @@ export function useDevelopParams(): DevelopParams {
  * phases (the Performance Center lives under /deliver), so in-place param
  * updates must stay on the current path rather than jump to /develop.
  */
-function currentPath(): string {
-  return typeof location !== 'undefined' && location.pathname !== '/' ? location.pathname : '/develop';
+function currentPath(router?: { history?: { location?: { pathname?: string } } } | null): string {
+  const p = router?.history?.location?.pathname ?? (typeof location !== 'undefined' ? location.pathname : undefined);
+  return p && p !== '/' ? p : '/develop';
 }
 
 /** Patch the params of the current page in place (no new history entry). */
@@ -146,7 +159,7 @@ export function useSetDevelopParams() {
     (patch: DevelopParams) => {
       if (router) {
         void router.navigate({
-          to: currentPath(),
+          to: currentPath(router),
           search: ((prev: Record<string, unknown>) => clean({ ...prev, ...patch })) as never,
           replace: true,
         });

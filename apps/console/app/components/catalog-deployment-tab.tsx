@@ -1819,7 +1819,7 @@ function MonitoringSection({
                     <span className="font-medium text-content">{al.name}</span>
                     <span className="text-[10px] uppercase tracking-wider text-content-subtle">{al.severity} · {al.state}</span>
                     {al.labels.namespace ? <span className="font-mono text-[10px] text-content-subtle">{al.labels.namespace}</span> : null}
-                    <span className="text-[10px] text-content-subtle">since {ago(al.startsAt)}</span>
+                    <span className="text-[10px] text-content-subtle">since {ago(al.startsAt) || '—'}</span>
                   </div>
                   {al.summary || al.description ? <div className="mt-0.5 text-[11px] leading-relaxed text-content-muted">{al.summary ?? al.description}</div> : null}
                 </div>

@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Button, EmptyState, PageHeader } from '@adhar/shell-ui';
 import { formatRelative } from '@adhar/utils';
-import { type RepoPull, useOrgPullRequests, useRepos } from '../data/git.ts';
+import { type RepoPull, useOrgPullRequests, useOrgPullSearch, useRepos } from '../data/git.ts';
 import { itemRef, parseItemRef, useDevelopParams, useGoDevelop, useSetDevelopParams } from '../data/nav.ts';
 import { IconPlus, IconRefresh } from '../components/repo-bits.tsx';
 import {
@@ -15,6 +15,7 @@ import {
   IconComment,
   IconFilter,
   LabelPill,
+  GiteaError,
   LoadingBlock,
   Popover,
   prState,
@@ -25,6 +26,7 @@ import {
   type SortDef,
   SortMenu,
   StatTile,
+  SwapFrame,
   ToolbarBtn,
 } from '../components/list-kit.tsx';
 import { PrDrawer } from '../components/pr-drawer.tsx';
@@ -69,12 +71,23 @@ export function PullRequestList() {
   const setParams = useSetDevelopParams();
   const go = useGoDevelop();
   const repos = useRepos();
+  // Counts come from org-wide queries that wait on the repository list: without
+  // it they are idle, so a tile must say loading/unknown rather than 0.
+  const repoGate = repos.data ? null : repos.isError ? '—' : repos.isLoading ? '…' : null;
   const view = (['open', 'merged', 'closed', 'all'].includes(params.state ?? '') ? params.state : 'open') as View;
   const repo = params.repo && repos.data?.some((r) => r.name === params.repo) ? params.repo : undefined;
 
   const openQ = useOrgPullRequests('open', repo);
   // Closed history is only fetched when it is being looked at, or to count it.
   const closedQ = useOrgPullRequests('closed', repo);
+  // Org-wide, the full lists take one request per repository with PRs; the
+  // cross-repo search answers in one or two. Its rows show first (without
+  // branch, mergeability and size) and the full rows replace them.
+  const quickOpen = useOrgPullSearch('open', !repo && !openQ.data);
+  const quickClosed = useOrgPullSearch('closed', !repo && !closedQ.data);
+  const openRows = openQ.data ?? (repo ? undefined : quickOpen.data);
+  const closedRows = closedQ.data ?? (repo ? undefined : quickClosed.data);
+  const openPartial = !openQ.data && !!openRows;
 
   const [search, setSearch] = useState('');
   const [author, setAuthor] = useState('all');
@@ -88,7 +101,7 @@ export function PullRequestList() {
 
   useSlashFocus(searchRef);
 
-  const all = useMemo(() => [...(openQ.data ?? []), ...(closedQ.data ?? [])], [openQ.data, closedQ.data]);
+  const all = useMemo(() => [...(openRows ?? []), ...(closedRows ?? [])], [openRows, closedRows]);
   const counts = useMemo(() => {
     const c = { open: 0, draft: 0, merged: 0, closed: 0, conflicts: 0 };
     for (const p of all) {
@@ -165,8 +178,18 @@ export function PullRequestList() {
     setOnlyConflicts(false);
   };
 
-  const loading = openQ.isLoading || (view !== 'open' && closedQ.isLoading);
-  const error = openQ.error ?? (view !== 'open' ? closedQ.error : null);
+  // The org-wide queries wait on the repository list; while it loads (or after
+  // it fails) they are idle, which must not read as "no pull requests".
+  const loading = (!repos.data && repos.isLoading) || (openQ.isLoading && !openRows) || (view !== 'open' && closedQ.isLoading && !closedRows);
+  // Spins only for a refresh the user asked for; background refetches are silent.
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = () => {
+    setRefreshing(true);
+    void Promise.all([openQ.refetch(), closedQ.refetch()]).finally(() => setRefreshing(false));
+  };
+  // Only a failure with nothing to show is an error state; a failed background
+  // refetch keeps the list that is already there.
+  const error = (repos.data ? null : repos.error) ?? (openQ.data ? null : openQ.error) ?? (view !== 'open' && !closedQ.data ? closedQ.error : null);
 
   return (
     <div className='space-y-4'>
@@ -174,8 +197,8 @@ export function PullRequestList() {
         title='Pull Requests'
         actions={
           <>
-            <Button size='sm' variant='secondary' onClick={() => { openQ.refetch(); closedQ.refetch(); }} aria-label='Refresh' title='Refresh'>
-              <IconRefresh />
+            <Button size='sm' variant='secondary' onClick={refresh} loading={refreshing} aria-label='Refresh' title='Refresh'>
+              {refreshing ? null : <IconRefresh />}
             </Button>
             <Button variant='primary' size='sm' onClick={() => setCreating(true)}><IconPlus /> New pull request</Button>
           </>
@@ -183,11 +206,11 @@ export function PullRequestList() {
       />
 
       <div className='grid grid-cols-2 gap-2 sm:grid-cols-5'>
-        <StatTile label='Open' value={openQ.isLoading ? '…' : openQ.isError ? '—' : counts.open} tone='emerald' hint={counts.draft ? `${counts.draft} draft` : 'ready for review'} on={view === 'open' && !onlyConflicts} onClick={() => { setOnlyConflicts(false); setParams({ state: 'open' }); }} />
-        <StatTile label='Conflicts' value={openQ.isLoading ? '…' : openQ.isError ? '—' : counts.conflicts} tone={counts.conflicts ? 'amber' : 'slate'} hint='need a rebase' on={onlyConflicts} onClick={() => { setParams({ state: 'open' }); setOnlyConflicts((x) => !x); }} />
-        <StatTile label='Merged' value={closedQ.isLoading ? '…' : closedQ.isError ? '—' : counts.merged} tone='violet' hint='recent history' on={view === 'merged'} onClick={() => setParams({ state: 'merged' })} />
-        <StatTile label='Closed' value={closedQ.isLoading ? '…' : closedQ.isError ? '—' : counts.closed} tone='slate' hint='without merging' on={view === 'closed'} onClick={() => setParams({ state: 'closed' })} />
-        <StatTile label='All' value={closedQ.isLoading || openQ.isLoading ? '…' : openQ.isError || closedQ.isError ? '—' : all.length} hint={repo ? repo : `${repos.data?.filter((r) => !r.archived).length ?? 0} repositories`} on={view === 'all'} onClick={() => setParams({ state: 'all' })} />
+        <StatTile label='Open' value={repoGate ?? (!openRows ? (openQ.isError ? '—' : '…') : counts.open)} tone='emerald' hint={counts.draft ? `${counts.draft} draft` : 'ready for review'} on={view === 'open' && !onlyConflicts} onClick={() => { setOnlyConflicts(false); setParams({ state: 'open' }); }} />
+        <StatTile label='Conflicts' value={repoGate ?? (openQ.isLoading ? '…' : openQ.isError && !openQ.data ? '—' : counts.conflicts)} tone={counts.conflicts ? 'amber' : 'slate'} hint='need a rebase' on={onlyConflicts} onClick={() => { setParams({ state: 'open' }); setOnlyConflicts((x) => !x); }} />
+        <StatTile label='Merged' value={repoGate ?? (!closedRows ? (closedQ.isError ? '—' : '…') : counts.merged)} tone='violet' hint='recent history' on={view === 'merged'} onClick={() => setParams({ state: 'merged' })} />
+        <StatTile label='Closed' value={repoGate ?? (!closedRows ? (closedQ.isError ? '—' : '…') : counts.closed)} tone='slate' hint='without merging' on={view === 'closed'} onClick={() => setParams({ state: 'closed' })} />
+        <StatTile label='All' value={repoGate ?? (!closedRows || !openRows ? (openQ.isError || closedQ.isError ? '—' : '…') : all.length)} hint={repo ? repo : `${repos.data?.filter((r) => !r.archived).length ?? 0} repositories`} on={view === 'all'} onClick={() => setParams({ state: 'all' })} />
       </div>
 
       <div className='rounded-xl border border-edge-default bg-surface-raised p-2 shadow-sm'>
@@ -220,7 +243,7 @@ export function PullRequestList() {
       {loading
         ? <LoadingBlock label='Loading pull requests…' />
         : error
-        ? <EmptyState title="Couldn't reach Gitea" description={error instanceof Error ? error.message : String(error)} action={<Button size='sm' variant='secondary' onClick={() => openQ.refetch()}>Retry</Button>} />
+        ? <GiteaError what='pull requests' error={error} onRetry={() => { if (!repos.data) repos.refetch(); openQ.refetch(); closedQ.refetch(); }} retrying={repos.isFetching || openQ.isFetching || closedQ.isFetching} />
         : list.length === 0
         ? (
           <EmptyState
@@ -232,6 +255,10 @@ export function PullRequestList() {
           />
         )
         : (
+          <SwapFrame
+            pending={openQ.isPlaceholderData || (view !== 'open' && closedQ.isPlaceholderData)}
+            streaming={openPartial || (view !== 'open' && !closedQ.data && !!closedRows)}
+          >
           <ul className='divide-y divide-edge-subtle overflow-hidden rounded-xl border border-edge-default bg-surface-raised'>
             {list.map((p) => (
               <PrRow
@@ -245,6 +272,7 @@ export function PullRequestList() {
               />
             ))}
           </ul>
+          </SwapFrame>
         )}
 
       {ref

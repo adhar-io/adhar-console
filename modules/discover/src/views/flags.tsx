@@ -211,6 +211,7 @@ function FlagDrawer({ p, exps, onClose, onEdit, onToggle }: { p: ParsedFlag; exp
   const totalEvals = (usage.data ?? []).reduce((a, r) => a + Number(r.evaluations), 0)
   return (
     <Drawer
+      widthId="discover.flag"
       open
       onClose={onClose}
       title={p.key}

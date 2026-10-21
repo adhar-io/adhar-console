@@ -11,6 +11,8 @@ import {
   StatusBadge,
   useToast,
   type StatusKind,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
 import { kargo } from '@adhar/api-clients'
@@ -857,6 +859,7 @@ function StageDetailPanel({
   const mine = promotions.filter((p) => p.stage === s.name)
   const last = mine[0]
   const busy = isBusy(s)
+  const width = useDrawerWidth('deliver.stage', { base: 'max-w-[420px]' })
   return (
     // Portalled to <body> at z-[60]: inside the page the panel sat in the
     // content column's isolated stacking context, so the sticky top bar
@@ -865,7 +868,7 @@ function StageDetailPanel({
     <div className="fixed inset-0 z-[60]" role="dialog" aria-modal="false" aria-label={`Stage ${s.name}`}>
       {/* Click-away. The panel is non-modal, so this only closes it. */}
       <button type="button" aria-label="Close stage details" onClick={onClose} className="absolute inset-0 h-full w-full cursor-default bg-scrim/40 backdrop-blur-[2px] dark:bg-scrim/40" />
-      <aside className="absolute inset-y-0 right-0 flex w-full max-w-[420px] flex-col border-l border-edge-default bg-surface-raised shadow-2xl">
+      <aside className={cn('absolute inset-y-0 right-0 flex w-full flex-col border-l border-edge-default bg-surface-raised shadow-2xl', width.className)}>
         <header className="relative shrink-0 border-b border-edge-default px-5 py-3">
           <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: HEALTH_HEX[s.health ?? 'Unknown'] }} />
           <div className="flex items-start justify-between gap-3">
@@ -873,7 +876,10 @@ function StageDetailPanel({
               <div className="truncate text-sm font-semibold text-content">{s.name}</div>
               <div className="truncate text-[11px] text-content-subtle">{s.project}</div>
             </div>
-            <button type="button" onClick={onClose} aria-label="Close (Esc)" className="-mr-1 rounded px-1.5 py-0.5 text-content-muted hover:bg-surface-sunken hover:text-content">✕</button>
+            <div className="-mr-1 flex shrink-0 items-center gap-0.5">
+              <DrawerWidenButton wide={width.wide} onToggle={width.toggle} size="sm" />
+              <button type="button" onClick={onClose} aria-label="Close (Esc)" className="flex h-7 w-7 items-center justify-center rounded-md text-content-muted hover:bg-surface-sunken hover:text-content">✕</button>
+            </div>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {/* One badge. `stageStatus` already prefers health over the

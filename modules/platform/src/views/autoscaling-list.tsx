@@ -14,7 +14,10 @@ import {
   Select,
   StatusBadge,
   useOverlayDismiss,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { kube } from '@adhar/api-clients/k8s'
 import type { KubeObject } from '@adhar/api-clients/k8s'
 import { GVRS } from '../data/gvr.ts'
@@ -309,6 +312,7 @@ function HpaStatusBadge({ hpa }: { hpa: Hpa }) {
 /* ── drawer ────────────────────────────────────────────────────────────── */
 
 function HpaDrawer({ hpa, onClose }: { hpa: Hpa; onClose(): void }) {
+  const width = useDrawerWidth('platform.hpa', { base: 'max-w-2xl' })
   const canWrite = useHasK8sPermission('workloads.write')
   const canDelete = useHasK8sPermission('workloads.delete')
   const [editing, setEditing] = useState(false)
@@ -332,7 +336,7 @@ function HpaDrawer({ hpa, onClose }: { hpa: Hpa; onClose(): void }) {
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
-      <aside className="relative flex h-full w-full max-w-2xl flex-col border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">
@@ -366,6 +370,7 @@ function HpaDrawer({ hpa, onClose }: { hpa: Hpa; onClose(): void }) {
                 Delete <K8sRolePill perm="workloads.delete" />
               </span>
             )}
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <button
               type="button"
               onClick={onClose}

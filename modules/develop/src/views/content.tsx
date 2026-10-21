@@ -11,6 +11,8 @@ import {
   useToolPublicUrl,
   type Column,
   type StatusKind,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import {
@@ -389,6 +391,7 @@ function EntryEditor({
   inline?: boolean
   onClose(): void
 }) {
+  const width = useDrawerWidth('develop.content-entry', { base: 'max-w-2xl' })
   const single = ct.schema.kind === 'singleType'
   const isNew = !single && !documentId
   const entry = useEntry(ct, documentId)
@@ -552,7 +555,7 @@ function EntryEditor({
   return createPortal(
     <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true" aria-label={`${ct.schema.displayName} entry`}>
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-3 border-b border-edge-default bg-surface-raised px-5 py-4">
           <div className="min-w-0">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-content-subtle">{ct.schema.displayName}</div>
@@ -564,9 +567,12 @@ function EntryEditor({
               })()}
             </div>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content">
-            ✕
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
+            <button type="button" onClick={onClose} aria-label="Close" className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content">
+              ✕
+            </button>
+          </div>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto">{body}</div>
         {footer}

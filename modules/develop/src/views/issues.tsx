@@ -14,12 +14,14 @@ import {
   IconFilter,
   IssueStateIcon,
   LabelPill,
+  GiteaError,
   LoadingBlock,
   Popover,
   SearchField,
   type SortDef,
   SortMenu,
   StatTile,
+  SwapFrame,
   ToolbarBtn,
 } from '../components/list-kit.tsx';
 import { IssueDrawer } from '../components/issue-drawer.tsx';
@@ -50,6 +52,9 @@ export function Issues() {
   const setParams = useSetDevelopParams();
   const go = useGoDevelop();
   const repos = useRepos();
+  // Counts come from org-wide queries that wait on the repository list: without
+  // it they are idle, so a tile must say loading/unknown rather than 0.
+  const repoGate = repos.data ? null : repos.isError ? '—' : repos.isLoading ? '…' : null;
   const view = (['open', 'closed', 'all'].includes(params.state ?? '') ? params.state : 'open') as View;
   const repo = params.repo && repos.data?.some((r) => r.name === params.repo) ? params.repo : undefined;
 
@@ -136,8 +141,18 @@ export function Issues() {
     setQuick('none');
   };
 
-  const loading = openQ.isLoading || (view !== 'open' && closedQ.isLoading);
-  const error = openQ.error ?? (view !== 'open' ? closedQ.error : null);
+  // The org-wide queries wait on the repository list; while it loads (or after
+  // it fails) they are idle, which must not read as "no issues".
+  const loading = (!repos.data && repos.isLoading) || openQ.isLoading || (view !== 'open' && closedQ.isLoading);
+  // Spins only for a refresh the user asked for; background refetches are silent.
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = () => {
+    setRefreshing(true);
+    void Promise.all([openQ.refetch(), closedQ.refetch()]).finally(() => setRefreshing(false));
+  };
+  // Only a failure with nothing to show is an error state; a failed background
+  // refetch keeps the list that is already there.
+  const error = (repos.data ? null : repos.error) ?? (openQ.data ? null : openQ.error) ?? (view !== 'open' && !closedQ.data ? closedQ.error : null);
 
   return (
     <div className='space-y-4'>
@@ -145,24 +160,24 @@ export function Issues() {
         title='Issues'
         actions={
           <>
-            <Button size='sm' variant='secondary' onClick={() => { openQ.refetch(); closedQ.refetch(); }} aria-label='Refresh' title='Refresh'><IconRefresh /></Button>
+            <Button size='sm' variant='secondary' onClick={refresh} loading={refreshing} aria-label='Refresh' title='Refresh'>{refreshing ? null : <IconRefresh />}</Button>
             <Button variant='primary' size='sm' onClick={() => setCreating(true)}><IconPlus /> New issue</Button>
           </>
         }
       />
 
       <div className='grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6'>
-        <StatTile label='Open' value={openQ.isLoading ? '…' : openQ.isError ? '—' : counts.open} tone='emerald' on={view === 'open' && quick === 'none'} hint='need attention' onClick={() => { setQuick('none'); setParams({ state: 'open' }); }} />
-        <StatTile label='Unassigned' value={openQ.isLoading ? '…' : openQ.isError ? '—' : counts.unassigned} tone={counts.unassigned ? 'amber' : 'slate'} on={quick === 'unassigned'} hint='nobody owns these' onClick={() => setQuickOpen('unassigned')} />
-        <StatTile label='Stale' value={openQ.isLoading ? '…' : openQ.isError ? '—' : counts.stale} tone={counts.stale ? 'amber' : 'slate'} on={quick === 'stale'} hint='quiet 30+ days' onClick={() => setQuickOpen('stale')} />
-        <StatTile label='Unlabelled' value={openQ.isLoading ? '…' : openQ.isError ? '—' : counts.unlabelled} tone='info' on={quick === 'unlabelled'} hint='need triage' onClick={() => setQuickOpen('unlabelled')} />
-        <StatTile label='Closed' value={closedQ.isLoading ? '…' : closedQ.isError ? '—' : counts.closed} tone='violet' on={view === 'closed'} hint='recent history' onClick={() => { setQuick('none'); setParams({ state: 'closed' }); }} />
-        <StatTile label='All' value={openQ.isLoading || closedQ.isLoading ? '…' : openQ.isError || closedQ.isError ? '—' : all.length} on={view === 'all'} hint={repo ?? 'across the org'} onClick={() => { setQuick('none'); setParams({ state: 'all' }); }} />
+        <StatTile label='Open' value={repoGate ?? (openQ.isLoading ? '…' : openQ.isError ? '—' : counts.open)} tone='emerald' on={view === 'open' && quick === 'none'} hint='need attention' onClick={() => { setQuick('none'); setParams({ state: 'open' }); }} />
+        <StatTile label='Unassigned' value={repoGate ?? (openQ.isLoading ? '…' : openQ.isError ? '—' : counts.unassigned)} tone={counts.unassigned ? 'amber' : 'slate'} on={quick === 'unassigned'} hint='nobody owns these' onClick={() => setQuickOpen('unassigned')} />
+        <StatTile label='Stale' value={repoGate ?? (openQ.isLoading ? '…' : openQ.isError ? '—' : counts.stale)} tone={counts.stale ? 'amber' : 'slate'} on={quick === 'stale'} hint='quiet 30+ days' onClick={() => setQuickOpen('stale')} />
+        <StatTile label='Unlabelled' value={repoGate ?? (openQ.isLoading ? '…' : openQ.isError ? '—' : counts.unlabelled)} tone='info' on={quick === 'unlabelled'} hint='need triage' onClick={() => setQuickOpen('unlabelled')} />
+        <StatTile label='Closed' value={repoGate ?? (closedQ.isLoading ? '…' : closedQ.isError ? '—' : counts.closed)} tone='violet' on={view === 'closed'} hint='recent history' onClick={() => { setQuick('none'); setParams({ state: 'closed' }); }} />
+        <StatTile label='All' value={repoGate ?? (openQ.isLoading || closedQ.isLoading ? '…' : openQ.isError || closedQ.isError ? '—' : all.length)} on={view === 'all'} hint={repo ?? 'across the org'} onClick={() => { setQuick('none'); setParams({ state: 'all' }); }} />
       </div>
 
       <div className='rounded-xl border border-edge-default bg-surface-raised p-2 shadow-sm'>
         <div className='flex flex-wrap items-center gap-2'>
-          <SearchField ref={searchRef} value={search} onChange={setSearch} placeholder='Search title, number, label, author…' slashHint />
+          <SearchField ref={searchRef} value={repoGate ?? (search)} onChange={setSearch} placeholder='Search title, number, label, author…' slashHint />
           <RepoFilter value={repo} onChange={(r) => setParams({ repo: r })} />
           <IssueFilters
             count={chips.length - (quick !== 'none' ? 1 : 0)}
@@ -194,7 +209,7 @@ export function Issues() {
       {loading
         ? <LoadingBlock label='Loading issues…' />
         : error
-        ? <EmptyState title="Couldn't reach Gitea" description={error instanceof Error ? error.message : String(error)} action={<Button size='sm' variant='secondary' onClick={() => openQ.refetch()}>Retry</Button>} />
+        ? <GiteaError what='issues' error={error} onRetry={() => { if (!repos.data) repos.refetch(); openQ.refetch(); closedQ.refetch(); }} retrying={repos.isFetching || openQ.isFetching || closedQ.isFetching} />
         : list.length === 0
         ? (
           <EmptyState
@@ -206,6 +221,7 @@ export function Issues() {
           />
         )
         : (
+          <SwapFrame pending={openQ.isPlaceholderData || (view !== 'open' && closedQ.isPlaceholderData)}>
           <ul className='divide-y divide-edge-subtle overflow-hidden rounded-xl border border-edge-default bg-surface-raised'>
             {list.map((i) => (
               <IssueRow
@@ -219,6 +235,7 @@ export function Issues() {
               />
             ))}
           </ul>
+          </SwapFrame>
         )}
 
       {ref ? <IssueDrawer key={params.issue} seed={seed} repo={ref.repo} index={ref.index} onClose={() => setParams({ issue: undefined })} /> : null}

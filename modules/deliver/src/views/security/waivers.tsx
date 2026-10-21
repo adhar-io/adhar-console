@@ -207,6 +207,7 @@ export function WaiverDrawer({ waiver: w, model, onClose }: { waiver: Waiver; mo
 
   return (
     <Drawer
+      widthId="deliver.security-waiver"
       onClose={onClose}
       eyebrow={`${w.kind === 'license' ? 'License' : w.kind === 'vuln' ? 'Vulnerability' : w.kind} waiver · ${w.id}`}
       title={<span className="font-mono">{w.findingId}</span>}

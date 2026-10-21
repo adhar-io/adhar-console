@@ -12,6 +12,8 @@ import {
   Spinner,
   StatusBadge,
   Textarea,
+  useGiteaOrg,
+  useToolPublicUrl,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { useRegisterEntity, useCatalog, type Entity } from '~/data/catalog.ts'
@@ -159,7 +161,7 @@ export function CatalogTemplates({ onCreated }: { onCreated(): void }) {
       <div className="space-y-6">
         <Header onRegister={() => setRegisterOpen(true)} />
         {gitea.loading || !gitea.loaded ? (
-          <TemplatesLoading />
+          <TemplatesLoading gitea={gitea} onRetry={() => loadGiteaTemplates(true)} />
         ) : (
           <TemplatesEmpty gitea={gitea} onRetry={() => loadGiteaTemplates(true)} onRegister={() => setRegisterOpen(true)} />
         )}
@@ -280,31 +282,71 @@ function Header({ onRegister }: { onRegister(): void }) {
 
 /* ─────────── template list (left pane) ─────────── */
 
+/** Where the templates are read from — `org/repo`, before the BFF has answered too. */
+function useTemplatesSource(gitea: GiteaTemplateStatus): string {
+  const org = useGiteaOrg()
+  return gitea.source ?? `${org}/adhar-templates`
+}
+
+/** Seconds since `since`, ticking while `active`. */
+function useElapsed(since: number | undefined, active: boolean): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    setNow(Date.now())
+    const t = setInterval(() => setNow(Date.now()), 500)
+    return () => clearInterval(t)
+  }, [active, since])
+  return since ? Math.max(0, Math.floor((now - since) / 1000)) : 0
+}
+
+/** Indeterminate brand sweep along the bottom edge of its (relative) container. */
+function SweepBar() {
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden">
+      <div className="nav-progress-sweep h-full w-full bg-linear-to-r from-brand-500 via-accent-500 to-brand-500" />
+    </div>
+  )
+}
+
 /** Thin provenance row under the search bar: where the templates came from. */
 function GiteaStatusRow({ gitea }: { gitea: GiteaTemplateStatus }) {
+  const source = useTemplatesSource(gitea)
   let label: ReactNode = null
   if (gitea.loading) {
     label = (
       <>
-        <Spinner size={12} /> Loading templates from Gitea…
+        <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-brand-500" />
+        Reading templates from <span className="font-mono">{source}</span>…
+      </>
+    )
+  } else if (gitea.error) {
+    label = (
+      <>
+        <span className="inline-block h-1.5 w-1.5 rounded-full bg-rose-500" />
+        Couldn't read <span className="font-mono">{source}</span> in Gitea — showing your registered templates.
+        <button type="button" onClick={() => void loadGiteaTemplates(true)} className="ml-auto font-medium text-brand-700 hover:underline dark:text-brand-300">
+          Retry
+        </button>
       </>
     )
   } else if (gitea.configured && gitea.count > 0) {
     label = (
       <>
         <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
-        {gitea.count} template{gitea.count === 1 ? '' : 's'} from Gitea
+        {gitea.count} template{gitea.count === 1 ? '' : 's'} from <span className="font-mono">{source}</span>
       </>
     )
   } else if (gitea.loaded && gitea.configured && gitea.count === 0) {
-    label = <>No template repositories found in Gitea.</>
+    label = <>No templates in <span className="font-mono">{source}</span> yet.</>
   } else if (gitea.loaded && !gitea.configured) {
     label = <>Gitea not connected — showing your registered templates only.</>
   }
   if (!label) return null
   return (
-    <div className="flex items-center gap-1.5 border-b border-edge-subtle px-3 py-1.5 text-[11px] text-content-subtle">
+    <div className="relative flex items-center gap-1.5 border-b border-edge-subtle px-3 py-1.5 text-[11px] text-content-subtle">
       {label}
+      {gitea.loading ? <SweepBar /> : null}
     </div>
   )
 }
@@ -944,47 +986,126 @@ function NoSelection() {
 
 /* ─────────── whole-page loading / empty states (no seed fallback) ─────────── */
 
-/** Skeleton shown while Gitea templates are still being fetched. */
-function TemplatesLoading() {
+/**
+ * While the templates are read from Gitea: a status card that says exactly
+ * what is happening (which repository, how long so far), over a skeleton of
+ * the page it will become — the template list and the detail pane — so
+ * nothing jumps when they land. Past 3 s it reassures; past 12 s it offers to
+ * try again.
+ */
+function TemplatesLoading({ gitea, onRetry }: { gitea: GiteaTemplateStatus; onRetry(): void }) {
+  const source = useTemplatesSource(gitea)
+  const elapsed = useElapsed(gitea.startedAt, true)
+  const slow = elapsed >= 3
+  const stuck = elapsed >= 12
   return (
-    <div className="grid grid-cols-1 gap-5 lg:grid-cols-[22rem_1fr]" aria-busy="true">
-      <aside className="flex flex-col gap-3 rounded-2xl border border-edge-default bg-surface-raised p-3 shadow-sm">
-        <div className="h-9 animate-pulse rounded-lg bg-surface-sunken" />
-        <div className="flex items-center gap-1.5 text-[11px] text-content-subtle">
-          <Spinner size={12} /> Loading templates from Gitea…
-        </div>
-        <ol className="mt-1 space-y-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <li key={i} className="flex items-center gap-3 px-1 py-1">
-              <span className="h-8 w-8 shrink-0 animate-pulse rounded-lg bg-surface-sunken" />
-              <div className="min-w-0 flex-1 space-y-1.5">
-                <div className="h-3 w-2/3 animate-pulse rounded bg-surface-sunken" />
-                <div className="h-2.5 w-1/2 animate-pulse rounded bg-surface-sunken" />
-              </div>
-            </li>
-          ))}
-        </ol>
-      </aside>
-      <div className="rounded-2xl border border-edge-default bg-surface-raised p-7 shadow-sm">
-        <div className="flex items-start gap-5">
-          <span className="h-16 w-16 shrink-0 animate-pulse rounded-2xl bg-surface-sunken" />
-          <div className="flex-1 space-y-2.5">
-            <div className="h-5 w-1/3 animate-pulse rounded bg-surface-sunken" />
-            <div className="h-3 w-3/4 animate-pulse rounded bg-surface-sunken" />
-            <div className="h-3 w-2/3 animate-pulse rounded bg-surface-sunken" />
+    <div className="space-y-4 motion-safe:animate-[adhar-fade-in_180ms_ease-out]">
+      <div
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+        className="relative overflow-hidden rounded-2xl border border-edge-default bg-surface-raised px-4 py-3.5 shadow-sm"
+      >
+        <div className="flex flex-wrap items-start gap-3 sm:flex-nowrap sm:items-center">
+          <span className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-500/15 dark:bg-brand-500/10 dark:text-brand-300">
+            <IconRepoBook />
+            <span aria-hidden className="pulse-ring absolute inset-0 rounded-xl" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] font-semibold text-content">
+              Reading templates from{' '}
+              <span className="rounded bg-surface-sunken px-1 py-0.5 font-mono text-[12px] font-medium break-all">{source}</span>{' '}
+              in Gitea…
+            </div>
+            <div className="mt-0.5 text-[12px] leading-relaxed text-content-muted">
+              {stuck
+                ? 'Still waiting on Gitea — it may be busy or restarting. You can keep waiting or try again.'
+                : slow
+                ? 'This is taking longer than usual. Each template.yaml is read and turned into a form — larger collections take a few seconds.'
+                : 'Finding each template.yaml and its parameters.'}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2 max-sm:w-full max-sm:justify-between max-sm:pl-[52px]">
+            {slow ? <span className="font-mono text-[11px] tabular-nums text-content-subtle">{elapsed}s</span> : null}
+            {stuck ? (
+              <Button size="sm" variant="secondary" onClick={onRetry}>
+                Try again
+              </Button>
+            ) : null}
           </div>
         </div>
-        <div className="mt-6 space-y-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-3 w-1/2 animate-pulse rounded bg-surface-sunken" />
+        <SweepBar />
+      </div>
+
+      <div aria-hidden className="grid grid-cols-1 gap-5 lg:grid-cols-[22rem_1fr]">
+        <aside className="flex flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm">
+          <div className="flex items-center gap-2 border-b border-edge-subtle p-3">
+            <span className="skeleton-shimmer block h-9 flex-1 rounded-lg" />
+            <span className="skeleton-shimmer block h-9 w-9 rounded-lg" />
+          </div>
+          {[3, 2].map((n, g) => (
+            <div key={g}>
+              <div className="px-3 pt-3 pb-1.5">
+                <span className="skeleton-shimmer block h-2 w-24 rounded" style={{ animationDelay: `${g * 120}ms` }} />
+              </div>
+              <ol>
+                {Array.from({ length: n }, (_, i) => (
+                  <li key={i} className="flex items-center gap-3 px-3 py-2">
+                    <span className="skeleton-shimmer h-8 w-8 shrink-0 rounded-lg" style={{ animationDelay: `${(g * 3 + i) * 70}ms` }} />
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <span className="skeleton-shimmer block h-3 rounded" style={{ width: `${[68, 52, 60, 46, 58][(g * 3 + i) % 5]}%`, animationDelay: `${(g * 3 + i) * 70}ms` }} />
+                      <span className="skeleton-shimmer block h-2 w-1/3 rounded" style={{ animationDelay: `${(g * 3 + i) * 70 + 35}ms` }} />
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
           ))}
+          <div className="mt-auto border-t border-edge-subtle bg-surface-sunken/40 px-3 py-2">
+            <span className="skeleton-shimmer block h-2.5 w-20 rounded" />
+          </div>
+        </aside>
+        <div className="hidden overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm sm:block">
+          <div className="border-b border-edge-subtle bg-surface-sunken/40 px-7 py-7">
+            <div className="flex items-start gap-5">
+              <span className="skeleton-shimmer h-16 w-16 shrink-0 rounded-2xl" />
+              <div className="min-w-0 flex-1 space-y-2.5">
+                <span className="skeleton-shimmer block h-5 w-2/5 rounded" />
+                <span className="skeleton-shimmer block h-2.5 w-1/4 rounded" />
+                <span className="skeleton-shimmer block h-3 w-4/5 rounded" />
+                <span className="skeleton-shimmer block h-3 w-3/5 rounded" />
+              </div>
+              <span className="skeleton-shimmer hidden h-9 w-32 rounded-md md:block" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 px-7 py-5 md:grid-cols-4">
+            {Array.from({ length: 4 }, (_, i) => (
+              <div key={i} className="space-y-1.5 rounded-xl border border-edge-subtle p-3">
+                <span className="skeleton-shimmer block h-2 w-12 rounded" />
+                <span className="skeleton-shimmer block h-4 w-10 rounded" />
+              </div>
+            ))}
+          </div>
+          <div className="space-y-2.5 px-7 pb-7">
+            {[56, 72, 48, 64].map((w, i) => (
+              <div key={i} className="flex items-center gap-2.5">
+                <span className="skeleton-shimmer h-4 w-4 shrink-0 rounded-full" />
+                <span className="skeleton-shimmer block h-3 rounded" style={{ width: `${w}%` }} />
+              </div>
+            ))}
+          </div>
         </div>
       </div>
+      <span className="sr-only">Reading templates from {source} in Gitea…</span>
     </div>
   )
 }
 
-/** Honest empty state once Gitea has loaded with zero templates. */
+/**
+ * Once Gitea has answered with nothing to show: an honest state for each
+ * reason — Gitea not connected, the read failed (named, with the cause and a
+ * retry), or the repository simply has no templates yet (with how to add one).
+ */
 function TemplatesEmpty({
   gitea,
   onRetry,
@@ -994,40 +1115,110 @@ function TemplatesEmpty({
   onRetry(): void
   onRegister(): void
 }) {
-  const detail = !gitea.configured
-    ? 'The Gitea templates repository is not reachable (configured: false). Check that the platform BFF is running and the adhar/adhar-templates repo is connected.'
+  const source = useTemplatesSource(gitea)
+  const giteaUrl = useToolPublicUrl('gitea')
+  const failed = !!gitea.error
+  const reason = gitea.error === 'gitea_unreachable'
+    ? 'Gitea did not answer the console.'
+    : gitea.error === 'timeout'
+    ? 'Gitea took too long to answer.'
+    : gitea.error === 'network_error'
+    ? 'The console could not reach its server.'
     : gitea.error
-      ? `Gitea responded, but no templates could be loaded: ${gitea.error}`
-      : 'No template repositories were found in Gitea. Add templates to the adhar/adhar-templates repo, or register one below.'
   return (
-    <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-edge-default bg-surface-raised p-12 text-center shadow-sm">
-      <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-surface-sunken text-content-subtle">
-        <IconInbox />
+    <div
+      role={failed ? 'alert' : undefined}
+      className={cn(
+        'flex flex-col items-center justify-center gap-4 rounded-2xl border bg-surface-raised p-6 text-center shadow-sm sm:p-12',
+        failed ? 'border-rose-200 dark:border-rose-500/30' : 'border-dashed border-edge-default',
+      )}
+    >
+      <span
+        className={cn(
+          'inline-flex h-12 w-12 items-center justify-center rounded-2xl',
+          failed ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300' : 'bg-surface-sunken text-content-subtle',
+        )}
+      >
+        {failed ? <IconAlert /> : <IconInbox />}
       </span>
-      <div className="space-y-1.5">
-        <h2 className="text-[15px] font-semibold text-content">No templates available</h2>
-        <p className="mx-auto max-w-md text-[13px] leading-relaxed text-content-muted">
-          Check that the Gitea templates repo is reachable. {detail}
-        </p>
-      </div>
+      {failed ? (
+        <div className="space-y-1.5">
+          <h2 className="text-[15px] font-semibold text-content">
+            Couldn't read templates from <span className="font-mono">{source}</span>
+          </h2>
+          <p className="mx-auto max-w-md text-[13px] leading-relaxed text-content-muted">
+            {reason} Check that Gitea is running and the <span className="font-mono">{source}</span> repository exists, then try again.
+          </p>
+          {gitea.detail ? (
+            <p className="mx-auto max-w-md break-words font-mono text-[11px] text-content-subtle">{gitea.detail}</p>
+          ) : null}
+        </div>
+      ) : !gitea.configured ? (
+        <div className="space-y-1.5">
+          <h2 className="text-[15px] font-semibold text-content">Gitea isn't connected</h2>
+          <p className="mx-auto max-w-md text-[13px] leading-relaxed text-content-muted">
+            Templates live in the <span className="font-mono">{source}</span> repository in Gitea, and the console
+            has no Gitea connection configured. Register a template below to use one meanwhile.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <h2 className="text-[15px] font-semibold text-content">
+              No templates in <span className="font-mono">{source}</span> yet
+            </h2>
+            <p className="mx-auto max-w-md text-[13px] leading-relaxed text-content-muted">
+              Add a Backstage Software Template to the repository and it appears here — every folder with a{' '}
+              <span className="font-mono">template.yaml</span> is one template.
+            </p>
+          </div>
+          <pre className="mx-auto w-full max-w-sm overflow-x-auto rounded-lg border border-edge-subtle bg-surface-sunken/60 px-3 py-2 text-left font-mono text-[11px] leading-relaxed text-content-muted">
+{`templates/
+  my-service/
+    template.yaml   # kind: Template
+    skeleton/       # files it renders`}
+          </pre>
+        </div>
+      )}
       <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
-        <button
-          type="button"
-          onClick={onRetry}
-          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 text-[12px] font-semibold text-content shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken"
-        >
-          Retry
-        </button>
-        <button
-          type="button"
-          onClick={onRegister}
-          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 text-[12px] font-medium text-content-muted shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken hover:text-content"
-        >
-          <IconUpload />
-          <span>Register template</span>
-        </button>
+        {gitea.configured || failed ? (
+          <Button size="sm" variant={failed ? 'primary' : 'secondary'} loading={gitea.loading} onClick={onRetry}>
+            {failed ? 'Try again' : 'Check again'}
+          </Button>
+        ) : null}
+        {giteaUrl && gitea.configured ? (
+          <a
+            href={`${giteaUrl}/${source}`}
+            target="_blank"
+            rel="noopener"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-2.5 text-[13px] font-medium text-content shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken"
+          >
+            Open {source} ↗
+          </a>
+        ) : null}
+        <Button size="sm" variant="secondary" onClick={onRegister} leading={<IconUpload />}>
+          Register template
+        </Button>
       </div>
     </div>
+  )
+}
+
+function IconRepoBook() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M4 19.5V5a2 2 0 0 1 2-2h13v15H6.5A2.5 2.5 0 0 0 4 20.5 2.5 2.5 0 0 0 6.5 23H19v-5" />
+      <path d="M9 7h6M9 11h4" />
+    </svg>
+  )
+}
+
+function IconAlert() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+      <path d="M12 9v4M12 17h.01" />
+    </svg>
   )
 }
 

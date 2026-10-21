@@ -1,13 +1,13 @@
 import { useMemo } from 'react'
-import { Button, Card, CardBody, CardHeader, EmptyState, Spinner, StatusBadge } from '@adhar/shell-ui'
+import { Button, Card, CardBody, CardHeader, EmptyState, StatusBadge } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import type { coder, gitea } from '@adhar/api-clients'
-import { type RepoIssue, type RepoPull, useOrgIssues, useOrgPullRequests, useRepos } from '../data/git.ts'
+import { type RepoIssue, type RepoPull, useOrgIssues, useOrgPullRequests, useOrgPullSearch, useRepos } from '../data/git.ts'
 import { type DevelopParams, type DevelopSection, itemRef, useGoDevelop } from '../data/nav.ts'
 import { useTemplates, useWorkspaces } from '../data/coder.ts'
 import { RepoMark } from '../components/repo-picker.tsx'
 import { langColor } from '../components/repo-bits.tsx'
-import { Avatar, DiffStat, IssueStateIcon, LabelPill, prState, PrStateIcon } from '../components/list-kit.tsx'
+import { Avatar, DiffStat, GiteaError, IssueStateIcon, LabelPill, ListSkeleton, prState, PrStateIcon } from '../components/list-kit.tsx'
 
 /**
  * Develop dashboard — the engineering pulse of the org: Gitea (repositories,
@@ -20,13 +20,16 @@ import { Avatar, DiffStat, IssueStateIcon, LabelPill, prState, PrStateIcon } fro
 export function Dashboard() {
   const repos = useRepos()
   const prs = useOrgPullRequests('open')
+  // The cross-repo search fills the review queue first; the full list follows.
+  const quickPrs = useOrgPullSearch('open', !prs.data)
   const issues = useOrgIssues('open')
   const workspaces = useWorkspaces()
   const templates = useTemplates()
   const go = useGoDevelop()
 
   const repoList = useMemo(() => (repos.data ?? []).filter((r) => !r.archived), [repos.data])
-  const prList = prs.data ?? []
+  const prList = prs.data ?? quickPrs.data ?? []
+  const prsShown = { isLoading: prs.isLoading && !quickPrs.data, isError: prs.isError && !prs.data && !quickPrs.data }
   const issueList = issues.data ?? []
   const wsList = workspaces.data ?? []
   const tplList = templates.data ?? []
@@ -45,19 +48,25 @@ export function Dashboard() {
 
   if (repos.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Loading workspace…
+      <div role="status" aria-busy="true" aria-label="Loading the Develop dashboard" className="space-y-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {Array.from({ length: 4 }, (_, i) => (
+            <div key={i} className="skeleton-shimmer h-20 rounded-xl" style={{ animationDelay: `${i * 80}ms` }} />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {Array.from({ length: 2 }, (_, i) => (
+            <div key={i} className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised">
+              <div className="border-b border-edge-subtle px-5 py-3"><span className="skeleton-shimmer block h-4 w-40 rounded" /></div>
+              <ListSkeleton rows={4} />
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
-  if (repos.isError) {
-    return (
-      <EmptyState
-        title="Couldn't reach Gitea"
-        description={repos.error instanceof Error ? repos.error.message : 'Unknown error.'}
-        action={<Button size="sm" variant="secondary" onClick={() => repos.refetch()}>Retry</Button>}
-      />
-    )
+  if (repos.isError && !repos.data) {
+    return <GiteaError what="repositories" error={repos.error} onRetry={() => repos.refetch()} retrying={repos.isFetching} />
   }
 
   const runningWs = wsList.filter((w) => w.latest_build.status === 'running').length
@@ -84,7 +93,7 @@ export function Dashboard() {
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <HeroStat label="Repositories" value={repoList.length} tone="brand" icon={<IconBranch />} hint={`${activeRepos} active this week`} onClick={() => go('repos')} />
-        <HeroStat label="Open PRs" value={shown(prs, prList.length)} tone="amber" icon={<IconPr />} hint={prs.isError ? "couldn't load" : conflicts ? `${conflicts} with conflicts` : 'awaiting review'} onClick={() => go('prs', { state: 'open' })} />
+        <HeroStat label="Open PRs" value={shown(prsShown, prList.length)} tone="amber" icon={<IconPr />} hint={prs.isError ? "couldn't load" : conflicts ? `${conflicts} with conflicts` : 'awaiting review'} onClick={() => go('prs', { state: 'open' })} />
         <HeroStat label="Open issues" value={shown(issues, issueList.length)} tone="rose" icon={<IconBug />} hint={issues.isError ? "couldn't load" : `${unassigned} unassigned`} onClick={() => go('issues', { state: 'open' })} />
         <HeroStat label="Cloud envs" value={shown(workspaces, wsList.length)} tone="violet" icon={<IconCloud />} hint={workspaces.isError ? 'Coder unreachable' : `${runningWs} running${failedWs ? ` · ${failedWs} failed` : ''}`} onClick={() => go('environments')} />
         <HeroStat label="Env templates" value={shown(templates, tplList.length)} tone="sky" icon={<IconStack />} hint={templates.isError ? 'Coder unreachable' : 'reusable images'} onClick={() => go('environments')} />
@@ -129,7 +138,7 @@ export function Dashboard() {
           onAll={() => go('prs', { state: 'open' })}
           allLabel="All pull requests"
         >
-          {prs.isLoading ? <PanelLoading /> : prs.isError ? <SourceError what="pull requests from Gitea" error={prs.error} retry={() => prs.refetch()} /> : reviewQueue.length === 0 ? <EmptyState compact title="Nothing to review" description="No open pull requests." /> : (
+          {prsShown.isLoading ? <PanelLoading /> : prsShown.isError ? <SourceError what="pull requests from Gitea" error={prs.error} retry={() => prs.refetch()} /> : reviewQueue.length === 0 ? <EmptyState compact title="Nothing to review" description="No open pull requests." /> : (
             <ul className="divide-y divide-edge-subtle">
               {reviewQueue.map((p) => <PullRow key={`${p.repo}#${p.number}`} pr={p} go={go} />)}
             </ul>
@@ -143,7 +152,7 @@ export function Dashboard() {
           onAll={() => go('issues', { state: 'open' })}
           allLabel="All issues"
         >
-          {issues.isLoading ? <PanelLoading /> : issues.isError ? <SourceError what="issues from Gitea" error={issues.error} retry={() => issues.refetch()} /> : recentIssues.length === 0 ? <EmptyState compact title="No open issues" /> : (
+          {issues.isLoading ? <PanelLoading /> : issues.isError && !issues.data ? <SourceError what="issues from Gitea" error={issues.error} retry={() => issues.refetch()} /> : recentIssues.length === 0 ? <EmptyState compact title="No open issues" /> : (
             <ul className="divide-y divide-edge-subtle">
               {recentIssues.map((i) => <IssueRow key={`${i.repo}#${i.number}`} issue={i} go={go} />)}
             </ul>
@@ -229,7 +238,11 @@ function SourceError({ what, error, retry }: { what: string; error: unknown; ret
 }
 
 function PanelLoading() {
-  return <div className="flex items-center gap-2 px-5 py-4 text-sm text-content-muted"><Spinner size={12} /> Loading…</div>
+  return (
+    <div role="status" aria-busy="true" aria-label="Loading">
+      <ListSkeleton rows={3} />
+    </div>
+  )
 }
 
 function RepoTile({ repo, prs, border, onOpen }: { repo: gitea.Repo; prs: number; border: boolean; onOpen(params?: DevelopParams): void }) {

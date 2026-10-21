@@ -12,7 +12,10 @@ import {
   Tabs,
   type TabDef,
   useOverlayDismiss,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { kube } from '@adhar/api-clients/k8s'
 import { useNodes } from '../data/hooks.ts'
 import { GVRS } from '../data/gvr.ts'
@@ -231,6 +234,7 @@ function NodeDrawer({
   node: NonNullable<ReturnType<typeof useNodes>['data']>[number]
   onClose(): void
 }) {
+  const width = useDrawerWidth('platform.node', { base: 'max-w-2xl' })
   const canCordon = useHasK8sPermission('nodes.cordon')
   const canEvict = useHasK8sPermission('pods.delete')
   const canDrain = canCordon && canEvict
@@ -325,7 +329,7 @@ function NodeDrawer({
         onClick={onClose}
         aria-hidden
       />
-      <aside className="relative flex h-full w-full max-w-2xl flex-col border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">
@@ -384,6 +388,7 @@ function NodeDrawer({
                 Drain <K8sRolePill perm={canCordon ? 'pods.delete' : 'nodes.cordon'} />
               </span>
             )}
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <button
               type="button"
               onClick={onClose}

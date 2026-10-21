@@ -95,7 +95,6 @@ interface Submitted {
 }
 
 export function Traces() {
-  const toast = useToast()
   // Deep-link context from the dashboard / service map:
   // ?section=traces&service=<svc>&status=error&range=1h (and ?trace=<id>).
   const boot = useMemo(() => {
@@ -258,10 +257,6 @@ export function Traces() {
         traceID={openId}
         hint={hits.find((h) => h.traceID === openId)}
         onClose={() => open(null)}
-        onCopyLink={(id) => {
-          copyText(discoverUrl('traces', { trace: id }))
-          toast.success('Trace link copied')
-        }}
       />
       {comparing && picked.length === 2 ? (
         <CompareDrawer a={picked[0]} b={picked[1]} hits={hits} onClose={() => setComparing(false)} />
@@ -693,12 +688,10 @@ function TraceDrawer({
   traceID,
   hint,
   onClose,
-  onCopyLink,
 }: {
   traceID: string | null
   hint?: TraceHit
   onClose(): void
-  onCopyLink(id: string): void
 }) {
   const q = useTempoTrace(traceID)
   const spans = useMemo(() => q.data ?? [], [q.data])
@@ -720,6 +713,7 @@ function TraceDrawer({
     <Drawer
       open={!!traceID}
       onClose={onClose}
+      widthId="discover.trace"
       width="max-w-6xl"
       title={<span className="font-mono">{root ? `${root.serviceName} · ${root.name}` : hint ? `${hint.rootServiceName} · ${hint.rootTraceName}` : traceID}</span>}
       badges={
@@ -736,7 +730,6 @@ function TraceDrawer({
       actions={
         traceID ? (
           <>
-            <Button size="sm" variant="ghost" onClick={() => onCopyLink(traceID)} leading={<IconCopy />}>Link</Button>
             {spans.length ? (
               <Button
                 size="sm"
@@ -1143,7 +1136,7 @@ function CompareDrawer({ a, b, hits, onClose }: { a: string; b: string; hits: Tr
   const hb = hits.find((h) => h.traceID === b)
   const max = Math.max(0.001, ...rows.map((r) => Math.max(r.aMs, r.bMs)))
   return (
-    <Drawer open onClose={onClose} width="max-w-5xl" title="Compare traces" subtitle="Total span time per service · operation, A → B. Sorted by the size of the change.">
+    <Drawer open onClose={onClose} widthId="discover.trace-compare" width="max-w-5xl" title="Compare traces" subtitle="Total span time per service · operation, A → B. Sorted by the size of the change.">
       <div className="space-y-4 p-5">
         <div className="grid gap-3 sm:grid-cols-2">
           {([

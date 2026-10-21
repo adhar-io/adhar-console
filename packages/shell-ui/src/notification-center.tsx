@@ -89,6 +89,8 @@ export function NotificationCenter() {
   const total = feed.data?.total ?? 0
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const live = feed.data?.persisted !== false && !feed.isError
+  const statsKnown = live && !!feed.data
+  const statsGap = feed.isLoading ? 'loading' : 'feed unavailable'
 
   const grouped = useMemo(() => {
     const out = new Map<string, Notification[]>()
@@ -160,11 +162,13 @@ export function NotificationCenter() {
       ) : null}
 
       {/* stats — the same tile as the Scorecards page, and each one is a filter */}
+      {/* Counts of a feed that could not be read are unknown, not zero — and
+          "all caught up" would be a claim about notifications nobody saw. */}
       <section className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Unread" value={api.unreadCount} sub={api.unreadCount ? 'waiting for you' : 'all caught up'} tone={api.unreadCount ? 'brand' : undefined} onClick={() => setUnread((u) => !u)} active={unread} />
-        <Stat label="Insights" value={insightCount} sub="from the latest 50" tone="violet" onClick={() => setKind(kind === 'insight' ? '' : 'insight')} active={kind === 'insight'} />
-        <Stat label="Errors & warnings" value={problemCount} sub="from the latest 50" tone={problemCount ? 'rose' : undefined} onClick={() => setKind(kind === 'error' ? '' : 'error')} active={kind === 'error'} />
-        <Stat label="Sources" value={new Set(api.items.map((n) => n.source ?? 'system')).size} sub="active producers" />
+        <Stat label="Unread" value={statsKnown ? api.unreadCount : '—'} sub={!statsKnown ? statsGap : api.unreadCount ? 'waiting for you' : 'all caught up'} tone={statsKnown && api.unreadCount ? 'brand' : undefined} onClick={() => setUnread((u) => !u)} active={unread} />
+        <Stat label="Insights" value={statsKnown ? insightCount : '—'} sub={statsKnown ? 'from the latest 50' : statsGap} tone="violet" onClick={() => setKind(kind === 'insight' ? '' : 'insight')} active={kind === 'insight'} />
+        <Stat label="Errors & warnings" value={statsKnown ? problemCount : '—'} sub={statsKnown ? 'from the latest 50' : statsGap} tone={statsKnown && problemCount ? 'rose' : undefined} onClick={() => setKind(kind === 'error' ? '' : 'error')} active={kind === 'error'} />
+        <Stat label="Sources" value={statsKnown ? new Set(api.items.map((n) => n.source ?? 'system')).size : '—'} sub={statsKnown ? 'active producers' : statsGap} />
       </section>
 
       <FilterBar
@@ -195,6 +199,12 @@ export function NotificationCenter() {
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="flex gap-3 px-4 py-3"><div className="skeleton-shimmer h-8 w-8 rounded-lg" /><div className="flex-1 space-y-1.5"><div className="skeleton-shimmer h-3 w-1/2 rounded" /><div className="skeleton-shimmer h-2.5 w-3/4 rounded" /></div></div>
             ))}
+          </div>
+        ) : feed.isError && !feed.data ? (
+          // The banner above names the failure; an empty list here would claim
+          // there is nothing to read.
+          <div className="p-10">
+            <EmptyState title="Notifications unavailable" description="The feed could not be read, so nothing is listed. Retry from the banner above." />
           </div>
         ) : items.length === 0 ? (
           <div className="p-10">

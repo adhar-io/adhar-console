@@ -14,6 +14,8 @@ import {
   useLiveRefetch,
   useToast,
   type StatusKind,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui';
 import type { GatewayGVR as GVR, KubeObject } from '@adhar/api-clients/k8s';
 import { kube } from '@adhar/api-clients/k8s';
@@ -1502,6 +1504,7 @@ function PipelineRunDrawer(
     onReplace?(run: TektonRun): void;
   },
 ) {
+  const width = useDrawerWidth('platform.tekton-run', { base: 'max-w-5xl' });
   const { cluster } = useActiveCluster();
   const cp = clusterParam(cluster);
   const qc = useQueryClient();
@@ -1708,7 +1711,7 @@ function PipelineRunDrawer(
         className='absolute inset-0 bg-scrim/40 backdrop-blur-[2px]'
         onClick={onClose}
       />
-      <aside className='relative flex h-full w-full max-w-5xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl'>
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className='flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4'>
           <div className='min-w-0'>
             <div className='text-xs font-semibold uppercase tracking-wider text-content-subtle'>
@@ -1728,6 +1731,7 @@ function PipelineRunDrawer(
           </div>
           <div className='flex shrink-0 items-center gap-2'>
             <StatusBadge kind={kind}>{label}</StatusBadge>
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <button
               type='button'
               onClick={onClose}
@@ -2722,6 +2726,7 @@ function PipelineDrawer({
   onClose(): void;
   onRun(p: TektonPipelineObj): void;
 }) {
+  const width = useDrawerWidth('platform.tekton-pipeline', { base: 'max-w-3xl' });
   const canWrite = useHasK8sPermission('crds.write');
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2743,7 +2748,7 @@ function PipelineDrawer({
         className='absolute inset-0 bg-scrim/40 backdrop-blur-[2px]'
         onClick={onClose}
       />
-      <aside className='relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl'>
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className='flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4'>
           <div className='min-w-0'>
             <div className='text-xs font-semibold uppercase tracking-wider text-content-subtle'>
@@ -2766,6 +2771,7 @@ function PipelineDrawer({
                   Run <K8sRolePill perm='crds.write' />
                 </span>
               )}
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <button
               type='button'
               onClick={onClose}
@@ -3107,6 +3113,7 @@ export function TektonTasks({ namespace }: { namespace?: string }) {
 }
 
 function TaskDrawer({ task, onClose }: { task: TektonTaskObj; onClose(): void }) {
+  const width = useDrawerWidth('platform.tekton-task', { base: 'max-w-2xl' });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -3125,7 +3132,7 @@ function TaskDrawer({ task, onClose }: { task: TektonTaskObj; onClose(): void })
         className='absolute inset-0 bg-scrim/40 backdrop-blur-[2px]'
         onClick={onClose}
       />
-      <aside className='relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl'>
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className='flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4'>
           <div className='min-w-0'>
             <div className='text-xs font-semibold uppercase tracking-wider text-content-subtle'>
@@ -3135,14 +3142,17 @@ function TaskDrawer({ task, onClose }: { task: TektonTaskObj; onClose(): void })
               {task.metadata?.name}
             </h2>
           </div>
-          <button
-            type='button'
-            onClick={onClose}
-            aria-label='Close'
-            className='flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content'
-          >
-            <IconClose />
-          </button>
+          <div className='flex shrink-0 items-center gap-1'>
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
+            <button
+              type='button'
+              onClick={onClose}
+              aria-label='Close'
+              className='flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content'
+            >
+              <IconClose />
+            </button>
+          </div>
         </header>
         <div className='flex-1 space-y-5 overflow-y-auto px-6 py-5'>
           {spec?.description

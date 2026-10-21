@@ -407,6 +407,7 @@ function AlertDrawer({
   const annotations = Object.entries(a.annotations).filter(([k]) => !['summary', 'description', 'message'].includes(k))
   return (
     <Drawer
+      widthId="discover.alert"
       open
       onClose={onClose}
       width="max-w-3xl"

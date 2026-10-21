@@ -94,8 +94,10 @@ export function CloudProviders() {
         />
         <StatTile
           label="Monthly spend"
-          value={fmtMoney(totalSpend)}
-          hint="as reported by cost ingestion"
+          // `monthlySpend` stays 0 until cost ingestion reports it — 0 means
+          // "not reported", never a measured $0.
+          value={totalSpend > 0 ? fmtMoney(totalSpend) : '—'}
+          hint={totalSpend > 0 ? 'as reported by cost ingestion' : 'not reported yet'}
         />
       </div>
 
@@ -211,7 +213,7 @@ export function CloudProviders() {
               key: 'spend',
               header: 'Monthly',
               cell: (c) => (
-                <span className="font-mono tabular-nums">{fmtMoney(c.monthlySpend)}</span>
+                <span className="font-mono tabular-nums">{c.monthlySpend > 0 ? fmtMoney(c.monthlySpend) : '—'}</span>
               ),
               numeric: true,
             },

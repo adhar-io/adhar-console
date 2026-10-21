@@ -21,6 +21,8 @@ import {
   type LogLine,
   detectSeverity,
   type Severity,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import { coder } from '@adhar/api-clients'
@@ -703,6 +705,7 @@ function CreateWorkspaceModal({ open, initialTemplateId, onClose, templates, onC
 /* ─────────── drawer ─────────── */
 
 function WorkspaceDrawer({ workspace: w, dashboard, onClose, actions }: { workspace: coder.Workspace; dashboard: string; onClose(): void; actions: Actions }) {
+  const width = useDrawerWidth('develop.workspace', { base: 'max-w-3xl' })
   const s = status(w)
   const builds = useBuilds(w.id)
   const cancel = useCancelBuild()
@@ -736,7 +739,7 @@ function WorkspaceDrawer({ workspace: w, dashboard, onClose, actions }: { worksp
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -754,6 +757,7 @@ function WorkspaceDrawer({ workspace: w, dashboard, onClose, actions }: { worksp
             {s === 'running' && agent && code ? <Button size="sm" onClick={() => openIn(w, agent.name, { app: code.slug, label: 'VS Code' })}>VS Code</Button> : null}
             {s === 'running' && agent && jetbrains ? <Button size="sm" variant="secondary" title="Opens JetBrains Gateway on your machine" onClick={() => openIn(w, agent.name, { app: jetbrains.slug, label: 'IntelliJ IDEA' })}>IntelliJ</Button> : null}
             {dashboard ? <a href={coder.workspaceUrl(dashboard, w)} target="_blank" rel="noopener" className="inline-flex h-8 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-xs font-medium text-content hover:border-brand-400 hover:text-brand-700">Coder <IconExternal /></a> : null}
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <button type="button" onClick={onClose} aria-label="Close" className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"><IconClose /></button>
           </div>
         </header>

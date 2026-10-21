@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Button, DocStoreError, EmptyState, Spinner, StatusBadge, type StatusKind, useElementWidth } from '@adhar/shell-ui'
+import { Button, DocStoreError, DrawerWidenButton, EmptyState, Spinner, StatusBadge, type StatusKind, useDrawerWidth, useElementWidth } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
 import { memberDisplayName, memberInitials, useMembers } from '../data/plane.ts'
@@ -537,15 +537,19 @@ export function IconLink() {
  * Right-side sliding panel used by the planning detail views (sprint, epic,
  * release). Escape and the scrim close it.
  */
-export function SidePanel({ title, eyebrow, meta, actions, onClose, children, wide }: {
+export function SidePanel({ title, eyebrow, meta, actions, onClose, children, wide, widthId = 'define.panel' }: {
   title: ReactNode
   eyebrow?: ReactNode
   meta?: ReactNode
   actions?: ReactNode
   onClose(): void
   children: ReactNode
+  /** A roomier standard width (sprints). */
   wide?: boolean
+  /** Key the remembered wide-mode preference is stored under. */
+  widthId?: string
 }) {
+  const width = useDrawerWidth(widthId, { base: wide ? 'max-w-6xl' : 'max-w-5xl' })
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !document.querySelector('[role="dialog"][data-nested]')) onClose()
@@ -557,7 +561,7 @@ export function SidePanel({ title, eyebrow, meta, actions, onClose, children, wi
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} />
-      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', wide ? 'max-w-6xl' : 'max-w-5xl')}>
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="border-b border-edge-default bg-surface-raised px-4 py-4 sm:px-6">
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
@@ -566,9 +570,12 @@ export function SidePanel({ title, eyebrow, meta, actions, onClose, children, wi
               {meta ? <div className="mt-1 text-[12px] text-content-muted">{meta}</div> : null}
             </div>
             {actions ? <div className="hidden shrink-0 flex-wrap items-center justify-end gap-2 md:flex">{actions}</div> : null}
-            <IconButton label="Close" onClick={onClose}>
-              <IconClose />
-            </IconButton>
+            <div className="flex shrink-0 items-center gap-1">
+              <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
+              <IconButton label="Close" onClick={onClose}>
+                <IconClose />
+              </IconButton>
+            </div>
           </div>
           {/* Narrow screens: actions get their own row under the title. */}
           {actions ? <div className="mt-3 flex flex-wrap items-center gap-2 md:hidden">{actions}</div> : null}

@@ -35,11 +35,13 @@ export type CatalogSearch = z.infer<typeof SearchSchema>
 export const Route = createFileRoute('/catalog')({
   validateSearch: SearchSchema.parse,
   loader: () => getLayoutData(),
-  head: ({ search }) => ({
+  // `head` gets the match, not the search — `({ search })` was undefined and
+  // threw on every Catalog load.
+  head: ({ match }) => ({
     meta: [
       {
         title:
-          search.section === 'create'
+          match?.search?.section === 'create'
             ? 'Create New · Adhar Console'
             : 'Service Catalog · Adhar Console',
       },

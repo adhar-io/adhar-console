@@ -7,14 +7,13 @@ import { planeProblem, useSprintActions } from '../data/planning-plane.ts'
 import { useSprintData, useVelocityData } from '../data/planning-sprint.ts'
 import { type SprintMeta, storeError, useMemberMetas, usePatchSprintMeta, useSetIssuePoints } from '../data/planning-store.ts'
 import { capacityPlan, dayKey, daysLeft, daysOffIn, isDone, type Metric, pointsOf, scopeChanges, type SprintStatus, startOfDay, toMs, wallNow, workdays } from '../data/planning-model.ts'
-import { planningLink, usePlanningParams, useSetPlanningParams } from '../data/planning-nav.ts'
+import { usePlanningParams, useSetPlanningParams } from '../data/planning-nav.ts'
 import { IssueDrawer } from './issue-drawer.tsx'
 import {
   AvatarStack,
   DayLineChart,
   fmtDate,
   fmtRange,
-  IconLink,
   IDEAL_COLOR,
   Loading,
   Meter,
@@ -69,6 +68,7 @@ export function CycleDetail({ projectId, cycle, onClose }: { projectId: string; 
 
   return (
     <SidePanel
+      widthId="define.sprint"
       onClose={onClose}
       wide
       eyebrow={
@@ -87,17 +87,6 @@ export function CycleDetail({ projectId, cycle, onClose }: { projectId: string; 
       }
       actions={
         <>
-          <Button
-            size="sm"
-            variant="ghost"
-            leading={<IconLink />}
-            onClick={() => {
-              void navigator.clipboard?.writeText(planningLink({ sprint: cycle.id }))
-              toast.success('Link copied')
-            }}
-          >
-            Copy link
-          </Button>
           {status === 'upcoming' || status === 'draft' ? <Button size="sm" variant="primary" onClick={() => setStarting(true)}>Start sprint</Button> : null}
           {status === 'active' || (ended && !finalized && openIds.length > 0) ? <Button size="sm" variant="primary" onClick={() => setCompleting(true)}>Complete sprint</Button> : null}
           {ended

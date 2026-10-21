@@ -27,7 +27,7 @@ import {
   usePipelineRuns,
 } from '~/data/platform-signals.ts'
 import { type PromSample, scalar } from '~/data/prom-instant.ts'
-import { PanelCard, PanelEmpty, PanelError, PanelHead, PanelLoading, SignalTile, Stat } from './_overview-panels.tsx'
+import { gate, PanelCard, PanelEmpty, PanelHead, PanelLoading, SignalTile, Stat } from './_overview-panels.tsx'
 
 /**
  * Overview panels backed by the signals the platform stack really emits.
@@ -130,14 +130,6 @@ function Bar({ value, max, tone = 'brand' }: { value: number; max: number; tone?
   )
 }
 
-/** Uniform "can't show this" body for a query result. */
-function gate(q: { isLoading: boolean; isError: boolean; error?: unknown }, emptyWhen: boolean, emptyMessage: string) {
-  if (q.isLoading) return <PanelLoading />
-  if (q.isError) return <PanelError message={q.error instanceof Error ? q.error.message : undefined} />
-  if (emptyWhen) return <PanelEmpty message={emptyMessage} />
-  return null
-}
-
 const HUBBLE_L7_HINT =
   'Hubble records HTTP (L7) only for traffic through a Cilium L7 policy or the Gateway API proxy.'
 
@@ -222,35 +214,34 @@ export function TopErrorSourcesPanel() {
 export function SloPanel() {
   const q = useDiscoverSlos()
   const list = q.data ?? []
-  const head = <PanelHead title="SLO health" subtitle={list.length ? `${list.length} objectives` : 'Service-level objectives'} to="/discover?section=slos" />
-  const blocked = gate(q, list.length === 0, 'No SLOs defined yet. Define objectives under Discover → SLOs to track error budgets here.')
+  const head = <PanelHead title="SLO health" subtitle={list.length ? `${list.length} objective${list.length === 1 ? '' : 's'} defined` : 'Service-level objectives'} to="/discover?section=slos" />
+  const blocked = gate(q, list.length === 0, 'No SLOs defined yet. Define objectives under Discover → SLOs to track error budgets here.', 'SLO store')
   if (blocked) return <PanelCard>{head}{blocked}</PanelCard>
-  const meeting = list.filter((s) => s.current >= s.objective).length
-  const burning = list.filter((s) => s.errorBudgetRemaining < 0.5).length
-  const minBudget = Math.min(...list.map((s) => s.errorBudgetRemaining * 100))
+  // Definitions only: compliance and budget burn are evaluated live in
+  // Discover → SLOs. Showing a meeting/burning count here would mean
+  // re-implementing (or guessing) that evaluation.
+  const services = new Set(list.map((s) => s.service).filter(Boolean)).size
   return (
     <PanelCard>
       {head}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Stat label="Meeting" value={`${meeting}/${list.length}`} tone={meeting === list.length ? 'emerald' : 'amber'} />
-        <Stat label="Burning" value={burning} tone={burning ? 'rose' : 'slate'} />
-        <Stat label="Min budget" value={fmtPct(minBudget, 0)} tone={minBudget < 30 ? 'rose' : minBudget < 70 ? 'amber' : 'emerald'} />
+      <div className="grid grid-cols-2 gap-3">
+        <Stat label="Objectives" value={list.length} tone="brand" />
+        <Stat label="Services" value={services || '—'} tone="slate" />
       </div>
       <ul className="mt-3 space-y-1.5">
-        {list.slice(0, 4).map((s) => {
-          const ok = s.current >= s.objective
-          return (
-            <li key={s.name} className="rounded-md border border-edge-subtle bg-surface-sunken/40 px-2 py-1.5 text-[11px]">
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate font-medium text-content">{s.name}</span>
-                <span className={cn('font-mono tabular-nums', ok ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300')}>
-                  {s.current.toFixed(2)}% / {s.objective}%
-                </span>
-              </div>
-            </li>
-          )
-        })}
+        {list.slice(0, 4).map((s) => (
+          <li key={s.id} className="rounded-md border border-edge-subtle bg-surface-sunken/40 px-2 py-1.5 text-[11px]">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate font-medium text-content">{s.name}</span>
+              <span className="shrink-0 font-mono tabular-nums text-content-muted">
+                {fin(s.objective) ? `${s.objective}%` : '—'}
+                {fin(s.windowDays) ? ` · ${s.windowDays}d` : ''}
+              </span>
+            </div>
+          </li>
+        ))}
       </ul>
+      <div className="mt-2 text-[10px] text-content-subtle">Burn rate and remaining budget are evaluated live in Discover → SLOs.</div>
     </PanelCard>
   )
 }
@@ -274,7 +265,7 @@ export function RuntimePanel() {
   }
   const rules = (q.data?.topRules ?? []).map((s) => ({ rule: s.labels.rule ?? 'unknown', priority: s.labels.priority_raw ?? 'notice', n: s.value }))
   const head = <PanelHead title="Runtime threats" subtitle={`Falco · last 24h${fin(sensors) ? ` · ${sensors} sensors` : ''}`} to="/platform" />
-  const blocked = gate(q, !fin(sensors) && pr.size === 0, 'Falco is not reporting. Runtime threat detection needs the Falco DaemonSet and falcosidekick metrics.')
+  const blocked = gate(q, !fin(sensors) && pr.size === 0, 'Falco is not reporting. Runtime threat detection needs the Falco DaemonSet and falcosidekick metrics.', 'Prometheus')
   if (blocked) return <PanelCard>{head}{blocked}</PanelCard>
   return (
     <PanelCard>
@@ -316,7 +307,7 @@ export function TetragonPanel() {
     n: s.value,
   }))
   const head = <PanelHead title="Runtime enforcement" subtitle={`Tetragon eBPF · last 24h${fin(agents) ? ` · ${agents} agents` : ''}`} to="/platform" />
-  const blocked = gate(q, !fin(agents), 'Tetragon is not reporting. Install the Tetragon DaemonSet to observe and enforce process and file activity.')
+  const blocked = gate(q, !fin(agents), 'Tetragon is not reporting. Install the Tetragon DaemonSet to observe and enforce process and file activity.', 'Prometheus')
   if (blocked) return <PanelCard>{head}{blocked}</PanelCard>
   return (
     <PanelCard>
@@ -484,7 +475,7 @@ export function EngineeringVelocityPanel() {
   const q = useGiteaFlow(30)
   const f = q.data
   const head = <PanelHead title="Engineering velocity" subtitle="Gitea · last 30 days" to="/develop?section=prs" />
-  const blocked = gate(q, !f || (f.merged.length === 0 && f.commits.length === 0), 'No merged pull requests or commits in the last 30 days.')
+  const blocked = gate(q, !f || (f.merged.length === 0 && f.commits.length === 0), 'No merged pull requests or commits in the last 30 days.', 'Gitea')
   if (blocked || !f) return <PanelCard>{head}{blocked}</PanelCard>
   const cycle = median(f.merged.map((p) => Date.parse(p.merged_at ?? '') - Date.parse(p.created_at)).filter((n) => n >= 0))
   const authors = new Set(f.commits.map((c) => c.author.login)).size
@@ -507,6 +498,7 @@ export function EngineeringVelocityPanel() {
           'No pull requests closed · '
         )}
         {f.repos} repositories
+        {f.unreadableRepos ? ` · ${f.unreadableRepos} unreadable (excluded)` : ''}
       </div>
     </PanelCard>
   )
@@ -529,7 +521,7 @@ export function PrThroughputPanel() {
   }, [q.data])
   const head = <PanelHead title="PR throughput" subtitle="Merged per week · Gitea · 8 weeks" to="/develop?section=prs" />
   const totalMerged = weeks.reduce((a, w) => a + w.n, 0)
-  const blocked = gate(q, totalMerged === 0, 'No pull requests merged in the last 8 weeks.')
+  const blocked = gate(q, totalMerged === 0, 'No pull requests merged in the last 8 weeks.', 'Gitea')
   if (blocked) return <PanelCard>{head}{blocked}</PanelCard>
   const max = Math.max(...weeks.map((w) => w.n))
   return (
@@ -568,7 +560,7 @@ export function TeamActivityPanel() {
     return [...m.entries()].map(([who, r]) => ({ who, commits: r.commits, repos: r.repos.size })).sort((a, b) => b.commits - a.commits)
   }, [q.data])
   const head = <PanelHead title="Team activity" subtitle="Commits by author · Gitea · 30 days" to="/develop?section=commits" />
-  const blocked = gate(q, rows.length === 0, 'No commits in the last 30 days.')
+  const blocked = gate(q, rows.length === 0, 'No commits in the last 30 days.', 'Gitea')
   if (blocked) return <PanelCard>{head}{blocked}</PanelCard>
   const max = rows[0]?.commits ?? 1
   return (
@@ -819,42 +811,44 @@ export function DatabasePoolPanel() {
     return (q.data?.backends ?? [])
       .map((s) => {
         const key = k(s.labels)
-        const used = backends.get(key) ?? 0
-        const cap = maxC.get(key) ?? 0
+        // Missing series stay null ("—"): a cluster with no max_connections
+        // sample is not "used/0", and no lag sample is not "0.0s lag".
+        const used = backends.get(key) ?? null
+        const cap = maxC.get(key) ?? null
         return {
           key,
           name: cnpgCluster(s.labels),
           used,
           cap,
-          ratio: cap ? (used / cap) * 100 : 0,
+          ratio: used != null && cap ? (used / cap) * 100 : null,
           waiting: waiting.get(key) ?? 0,
-          lag: lag.get(key) ?? 0,
+          lag: lag.get(key) ?? null,
           replicas: replicas.get(key) ?? 0,
-          longest: longest.get(key) ?? 0,
+          longest: longest.get(key) ?? null,
         }
       })
-      .sort((a, b) => b.ratio - a.ratio)
+      .sort((a, b) => (b.ratio ?? -1) - (a.ratio ?? -1))
   }, [q.data])
   const head = <PanelHead title="Database connections" subtitle="CloudNativePG · backends vs max_connections" to="/platform" />
-  const blocked = gate(q, rows.length === 0, 'No CloudNativePG cluster is exporting metrics.')
+  const blocked = gate(q, rows.length === 0, 'No CloudNativePG cluster is exporting metrics.', 'Prometheus')
   if (blocked) return <PanelCard>{head}{blocked}</PanelCard>
   return (
     <PanelCard>
       {head}
       <ul className="flex-1 space-y-2.5 overflow-y-auto">
         {rows.map((r) => {
-          const tone = r.ratio >= 85 ? 'rose' : r.ratio >= 60 ? 'amber' : 'emerald'
+          const tone = r.ratio == null ? 'brand' : r.ratio >= 85 ? 'rose' : r.ratio >= 60 ? 'amber' : 'emerald'
           return (
             <li key={r.key}>
               <div className="flex items-baseline justify-between gap-2 text-[11px]">
                 <span className="truncate font-mono font-medium text-content">{r.name}</span>
                 <span className="font-mono tabular-nums text-content-muted">
-                  {r.used}/{r.cap}
+                  {r.used ?? '—'}/{r.cap ?? '—'}
                   {r.waiting ? <span className="ml-1.5 text-amber-700 dark:text-amber-300">{r.waiting} waiting</span> : null}
-                  {r.replicas ? <span className="ml-1.5" title="Streaming replicas · replication lag">{r.replicas}× · {r.lag.toFixed(1)}s lag</span> : null}
+                  {r.replicas ? <span className="ml-1.5" title="Streaming replicas · replication lag">{r.replicas}× · {fin(r.lag) ? `${r.lag.toFixed(1)}s` : '—'} lag</span> : null}
                 </span>
               </div>
-              <div className="mt-1"><Bar value={r.used} max={r.cap || 1} tone={tone} /></div>
+              {r.used != null && r.cap ? <div className="mt-1"><Bar value={r.used} max={r.cap} tone={tone} /></div> : null}
             </li>
           )
         })}

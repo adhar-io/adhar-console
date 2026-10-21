@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { LokiIcon, Spinner, StatusBadge, type StatusKind } from '@adhar/shell-ui'
+import { DrawerWidenButton, LokiIcon, Spinner, StatusBadge, type StatusKind, useDrawerWidth } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { lgtm } from '@adhar/api-clients'
 import {
@@ -356,6 +356,7 @@ export function LogDetailDrawer({
   onWindow(from: string, to: string): void
 }) {
   const [tab, setTab] = useState<'fields' | 'raw' | 'context'>('fields')
+  const width = useDrawerWidth('discover.log-line', { base: 'max-w-3xl' })
   const parsed = parseLine(entry)
   const traceId = findTraceId(entry.message, labelsOf(entry), parsed.fields)
   const lvl = levelOf(entry)
@@ -375,7 +376,7 @@ export function LogDetailDrawer({
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Log line details">
       <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px] dark:bg-black/60" />
-      <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="border-b border-edge-default bg-surface-raised px-5 py-4">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
@@ -403,6 +404,7 @@ export function LogDetailDrawer({
               ) : null}
               <IconBtn label="Copy line" onClick={() => copy(entry.message)}><IconCopy /></IconBtn>
               <IconBtn label="Copy as JSON" onClick={() => copy(JSON.stringify(entry, null, 2))}><IconBraces /></IconBtn>
+              <DrawerWidenButton wide={width.wide} onToggle={width.toggle} className="rounded-lg border border-edge-default bg-surface-raised text-content-muted hover:border-edge-strong hover:bg-surface-raised" />
               <IconBtn label="Close" onClick={onClose}><IconX /></IconBtn>
             </div>
           </div>

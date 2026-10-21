@@ -2,7 +2,6 @@ import { useQueries, useQuery } from '@tanstack/react-query'
 import {
   airbyte,
   argocd,
-  falco,
   gitea,
   lgtm,
   metabase,
@@ -10,7 +9,7 @@ import {
   posthog,
   trivy,
 } from '@adhar/api-clients'
-import { useArgocdProject, useGiteaOrg, usePlaneWorkspace } from '@adhar/shell-ui'
+import { docStore, useArgocdProject, useGiteaOrg, usePlaneWorkspace } from '@adhar/shell-ui'
 import { promRange } from './prom-instant.ts'
 
 /**
@@ -33,7 +32,6 @@ const lgtmClient = lgtm.LgtmClient.auto({ tool: 'lgtm' })
 const phClient = posthog.PostHogClient.auto({ tool: 'posthog' })
 const metabaseClient = metabase.MetabaseClient.auto({ tool: 'metabase' })
 const airbyteClient = airbyte.AirbyteClient.auto({ tool: 'airbyte' })
-const falcoClient = falco.FalcoClient.auto({ tool: 'falco' })
 
 const REFRESH_MS = 30_000
 
@@ -103,6 +101,8 @@ export interface GiteaFlow {
   closedUnmerged: number
   commits: Array<gitea.Commit & { repo: string }>
   repos: number
+  /** Repos whose PRs or commits could not be read — the totals exclude them. */
+  unreadableRepos: number
   windowStartMs: number
 }
 
@@ -110,25 +110,38 @@ const FLOW_REPO_CAP = 40
 
 export function useGiteaFlow(days = 30) {
   const ORG = useGiteaOrg()
-  const repos = useQuery({
-    queryKey: ['ov', 'gitea', 'repos', ORG],
-    queryFn: () => giteaClient.listRepos(ORG),
-    staleTime: REFRESH_MS,
-  })
+  // The repo list is read inside the same query (not a separate, gating
+  // `enabled` query): a disabled query has no error state, so an unreachable
+  // Gitea used to surface as "no activity in the last 30 days".
   return useQuery({
-    queryKey: ['ov', 'gitea', 'flow', ORG, days, repos.data?.length ?? 0],
+    queryKey: ['ov', 'gitea', 'flow', ORG, days],
     queryFn: async (): Promise<GiteaFlow> => {
       const windowStartMs = Date.now() - days * 86_400_000
-      const list = (repos.data ?? []).filter((r) => !r.archived && !r.empty).slice(0, FLOW_REPO_CAP)
+      const repos = await giteaClient.listRepos(ORG)
+      const list = repos.filter((r) => !r.archived && !r.empty).slice(0, FLOW_REPO_CAP)
+      // A repo whose reads fail is counted, not silently treated as "no
+      // activity". If every repo fails, Gitea itself is the problem — throw so
+      // the panels show "Gitea unreachable" instead of an empty week.
+      const failures: unknown[] = []
       const per = await Promise.all(
         list.map(async (r) => {
           const [prs, commits] = await Promise.all([
-            giteaClient.listPullRequests(ORG, r.name, 'closed').catch(() => [] as gitea.PullRequest[]),
-            giteaClient.listCommits(ORG, r.name, '', 50).catch(() => [] as gitea.Commit[]),
+            giteaClient.listPullRequests(ORG, r.name, 'closed').catch((err) => {
+              failures.push(err)
+              return null
+            }),
+            giteaClient.listCommits(ORG, r.name, '', 50).catch((err) => {
+              failures.push(err)
+              return null
+            }),
           ])
-          return { repo: r.name, prs, commits }
+          return { repo: r.name, prs: prs ?? [], commits: commits ?? [], failed: prs === null || commits === null }
         }),
       )
+      const unreadableRepos = per.filter((x) => x.failed).length
+      if (list.length > 0 && unreadableRepos === list.length) {
+        throw failures[0] instanceof Error ? failures[0] : new Error('Gitea unreachable')
+      }
       const inWindow = (iso?: string | null) => !!iso && Date.parse(iso) >= windowStartMs
       return {
         merged: per.flatMap((x) =>
@@ -140,10 +153,10 @@ export function useGiteaFlow(days = 30) {
         ),
         commits: per.flatMap((x) => x.commits.filter((c) => inWindow(c.created)).map((c) => ({ ...c, repo: x.repo }))),
         repos: list.length,
+        unreadableRepos,
         windowStartMs,
       }
     },
-    enabled: !!repos.data,
     staleTime: 5 * 60_000,
     retry: false,
   })
@@ -195,11 +208,40 @@ export function useDiscoverAlerts() {
   })
 }
 
+/**
+ * SLO definitions as Discover stores them: documents of kind `discover.slo`
+ * in the console document store (see modules/discover/src/data/slo-api.ts).
+ * `lgtmClient.listSlos()` is hardwired to `[]` (no Pyrra/Sloth proxy), so it
+ * would claim "no SLOs" on a workspace that has some.
+ *
+ * Only the definitions are read here — burn rates and budgets are evaluated
+ * live in Discover → SLOs from the PromQL each definition generates, and the
+ * Overview does not re-derive (or guess) them.
+ */
+export const SLO_COLLECTION = 'discover.slo'
+
+export interface OverviewSloDef {
+  id: string
+  name: string
+  service: string
+  /** Percent, e.g. 99.9 */
+  objective: number
+  windowDays: number
+}
+
 export function useDiscoverSlos() {
   return useQuery({
-    queryKey: ['ov', 'lgtm', 'slos'],
-    queryFn: () => lgtmClient.listSlos(),
-    refetchInterval: 60_000,
+    queryKey: ['ov', 'slo', 'defs'],
+    queryFn: async (): Promise<OverviewSloDef[]> =>
+      (await docStore.list<Partial<OverviewSloDef>>(SLO_COLLECTION)).map((d) => ({
+        id: d.id,
+        name: d.data.name ?? d.id,
+        service: d.data.service ?? '',
+        objective: Number(d.data.objective),
+        windowDays: Number(d.data.windowDays),
+      })),
+    staleTime: 60_000,
+    retry: false,
   })
 }
 
@@ -251,13 +293,10 @@ export function usePostHogActivity() {
   })
 }
 
-export function useFalcoEvents() {
-  return useQuery({
-    queryKey: ['ov', 'falco', 'events-6h'],
-    queryFn: () => falcoClient.listEvents({ sinceMs: 6 * 3600_000 }),
-    refetchInterval: REFRESH_MS,
-  })
-}
+// Runtime security on the Overview reads Falco's Prometheus metrics
+// (`useFalcoMetrics` in overview-metrics.ts). There is deliberately no
+// `/api/v1/falco/events` hook here: the BFF only proxies that path when
+// FALCO_URL is set, so it read as "no events" on every default install.
 
 /* ─────────── Decide · Metabase ─────────── */
 

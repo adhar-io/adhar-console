@@ -11,6 +11,8 @@ import {
   StatusBadge,
   useToast,
   type StatusKind,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
 import type { argocd } from '@adhar/api-clients'
@@ -838,6 +840,7 @@ function Select({ value, onChange, options, title }: { value: string; onChange(v
 
 function AppDetail({ app: a, onClose }: { app: argocd.Application; onClose(): void }) {
   const name = a.metadata.name
+  const width = useDrawerWidth('deliver.argo-app', { base: 'max-w-3xl' })
   const sync = useSyncApplication()
   const rollback = useRollbackApplication()
   const refresh = useRefreshApplication()
@@ -880,7 +883,7 @@ function AppDetail({ app: a, onClose }: { app: argocd.Application; onClose(): vo
         className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
-      <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
@@ -898,14 +901,17 @@ function AppDetail({ app: a, onClose }: { app: argocd.Application; onClose(): vo
                 </span>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
-            >
-              <IconClose />
-            </button>
+            <div className="flex shrink-0 items-center gap-1">
+              <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+              >
+                <IconClose />
+              </button>
+            </div>
           </div>
           {/* actions — title/description left, buttons right */}
           <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5">

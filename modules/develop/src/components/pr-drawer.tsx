@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Checkbox, EmptyState, Field, Input, Select, Spinner, Tabs, Textarea, useToast } from '@adhar/shell-ui';
+import { Button, Checkbox, EmptyState, Field, Input, Select, Tabs, Textarea, useToast } from '@adhar/shell-ui';
 import { cn, formatRelative } from '@adhar/utils';
 import type { gitea } from '@adhar/api-clients';
 import {
@@ -23,6 +23,8 @@ import {
   Drawer,
   IconBranchSmall,
   IconCommit,
+  ItemSkeleton,
+  LoadingBlock,
   prState,
   PrStateBadge,
   PrStateIcon,
@@ -64,10 +66,10 @@ export function PrDrawer({ seed, repo, index, onClose, onOpenCommit }: {
 
   if (!pr) {
     return (
-      <Drawer onClose={onClose} header={<div className='flex justify-between'><span className='text-sm text-content-muted'>{repo} #{index}</span><CloseButton onClick={onClose} /></div>}>
+      <Drawer onClose={onClose} widthId='develop.pr' header={<div className='flex justify-between'><span className='text-sm text-content-muted'>{repo} #{index}</span><CloseButton onClick={onClose} /></div>}>
         {q.isError
           ? <EmptyState compact title='Pull request not found' description={q.error instanceof Error ? q.error.message : ''} />
-          : <div className='flex items-center gap-2 text-sm text-content-muted'><Spinner size={12} /> Loading pull request…</div>}
+          : <ItemSkeleton label='Loading pull request' />}
       </Drawer>
     );
   }
@@ -79,6 +81,7 @@ export function PrDrawer({ seed, repo, index, onClose, onOpenCommit }: {
   return (
     <Drawer
       onClose={onClose}
+      widthId='develop.pr'
       width='max-w-5xl'
       header={
         <div className='flex items-start justify-between gap-4'>
@@ -242,7 +245,7 @@ function PrConversation({ pr, repo, index, state }: { pr: RepoPull; repo: string
       <aside className='space-y-3'>
         <SideSection title='Reviewers'>
           {reviews.isLoading
-            ? <Spinner size={12} />
+            ? <div aria-hidden className='space-y-1.5'><span className='skeleton-shimmer block h-3 w-3/4 rounded' /><span className='skeleton-shimmer block h-3 w-1/2 rounded' /></div>
             : latest.size || pr.requested_reviewers?.length
             ? (
               <ul className='space-y-1'>
@@ -428,7 +431,7 @@ function Check({ ok, warn, text }: { ok: boolean; warn?: boolean; text: string }
 /* ─────────── commits + files ─────────── */
 
 function PrCommits({ commits, loading, onOpen }: { commits?: gitea.Commit[]; loading: boolean; onOpen(sha: string): void }) {
-  if (loading) return <div className='flex items-center gap-2 text-sm text-content-muted'><Spinner size={12} /> Loading commits…</div>;
+  if (loading) return <LoadingBlock label='Loading commits' rows={4} />;
   if (!commits?.length) return <EmptyState compact title='No commits' />;
   return (
     <ul className='divide-y divide-edge-subtle overflow-hidden rounded-lg border border-edge-default bg-surface-raised'>

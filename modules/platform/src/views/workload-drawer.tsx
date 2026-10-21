@@ -11,6 +11,8 @@ import {
   useLiveRefetch,
   type StatusKind,
   type TabDef,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { k8s } from '@adhar/api-clients'
@@ -191,6 +193,7 @@ interface Props {
 }
 
 export function WorkloadDrawer({ kind, namespace, name, onClose }: Props) {
+  const width = useDrawerWidth('platform.workload', { base: 'max-w-4xl' })
   const gvr = KIND_GVR[kind]
   const wlKey = ['k8s', 'workload', kind, namespace, name]
   const wl = useQuery({
@@ -224,7 +227,7 @@ export function WorkloadDrawer({ kind, namespace, name, onClose }: Props) {
         onClick={onClose}
         aria-hidden
       />
-      <aside className="relative flex h-full w-full max-w-4xl flex-col border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">
@@ -237,6 +240,7 @@ export function WorkloadDrawer({ kind, namespace, name, onClose }: Props) {
           </div>
           <div className="flex items-center gap-2">
             {health ? <StatusBadge kind={health.kind}>{health.label}</StatusBadge> : null}
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
               ✕ <Kbd size="xs">esc</Kbd>
             </Button>

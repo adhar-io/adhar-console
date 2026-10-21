@@ -8,6 +8,8 @@ import {
   Tabs,
   useLiveRefetch,
   type TabDef,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { client, LOCAL_CLUSTER } from '../data/client.ts'
@@ -42,6 +44,7 @@ interface Props {
 }
 
 export function PodDrawer({ namespace, name, onClose }: Props) {
+  const width = useDrawerWidth('platform.pod', { base: 'max-w-4xl' })
   const qc = useQueryClient()
   const podKey = ['k8s', 'pod', namespace, name]
   const pod = useQuery({
@@ -85,7 +88,7 @@ export function PodDrawer({ namespace, name, onClose }: Props) {
         onClick={onClose}
         aria-hidden
       />
-      <aside className="relative flex h-full w-full max-w-4xl flex-col border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">
@@ -155,6 +158,7 @@ export function PodDrawer({ namespace, name, onClose }: Props) {
                 </span>
               )}
             </Button>
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
               ✕ <Kbd size="xs">esc</Kbd>
             </Button>

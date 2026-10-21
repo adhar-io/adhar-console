@@ -23,6 +23,9 @@ import {
   useToast,
   type Column,
   type StatusKind,
+  DrawerWidenButton,
+  useDrawerWidth,
+  type DrawerWidth,
 } from '@adhar/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
 import { CrdMissing } from '../components/crd-missing.tsx'
@@ -518,6 +521,7 @@ function RunDrawer({
   const [tab, setTab] = useState<'live' | 'summary' | 'report' | 'logs' | 'spec'>('live')
   const [stage, setStage] = useState<TestRunStage | null>(null)
   const [pod, setPod] = useState<string | null>(null)
+  const width = useDrawerWidth('develop.perf-run', { base: 'max-w-3xl' })
   useOverlayDismiss(true, onClose)
 
   const podList = pods.data ?? []
@@ -529,10 +533,10 @@ function RunDrawer({
   }, [defaultPod])
 
   const body = (
-    <div className="fixed inset-0 z-50 flex justify-end bg-scrim/60 backdrop-blur-[1px]">
+    <div className="fixed inset-0 z-50 flex justify-end bg-scrim/60 backdrop-blur-[1px]" role="dialog" aria-modal="true" aria-label="Test run">
       <button type="button" aria-label="Close" className="flex-1 cursor-default" onClick={onClose} />
-      <div className="flex h-full w-full max-w-3xl flex-col bg-surface-raised shadow-2xl sm:border-l sm:border-edge-default">
-        <DrawerHeader run={run.data} loading={run.isLoading} onClose={onClose} />
+      <div className={cn('flex h-full w-full flex-col bg-surface-raised shadow-2xl sm:border-l sm:border-edge-default', width.className)}>
+        <DrawerHeader run={run.data} loading={run.isLoading} onClose={onClose} width={width} />
 
         {/* shrink-0: the scrolling body is flex-1, and without this the header
             and tabs are squeezed below their content height — the subtitle
@@ -585,10 +589,12 @@ function DrawerHeader({
   run,
   loading,
   onClose,
+  width,
 }: {
   run: TestRun | undefined
   loading: boolean
   onClose(): void
+  width: DrawerWidth
 }) {
   const toast = useToast()
   const qc = useQueryClient()
@@ -660,6 +666,7 @@ function DrawerHeader({
         </div>
       ) : null}
 
+      <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
       <button
         type="button"
         onClick={onClose}

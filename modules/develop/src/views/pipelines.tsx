@@ -575,7 +575,7 @@ function ConnectionDrawer({ conn: c, loading, jobs, airbyteUrl, onClose }: {
   const [tab, setTab] = useState<'overview' | 'jobs' | 'streams'>('overview')
   if (!c) {
     return (
-      <Drawer onClose={onClose} header={<div className="flex justify-between"><span className="text-sm text-content-muted">Connection</span><CloseButton onClick={onClose} /></div>}>
+      <Drawer onClose={onClose} widthId="develop.connection" header={<div className="flex justify-between"><span className="text-sm text-content-muted">Connection</span><CloseButton onClick={onClose} /></div>}>
         {loading ? <div className="flex items-center gap-2 text-sm text-content-muted"><Spinner size={12} /> Loading…</div> : <EmptyState compact title="Connection not found" description="It may have been deleted." />}
       </Drawer>
     )
@@ -602,6 +602,7 @@ function ConnectionDrawerBody({ conn: c, jobs, airbyteUrl, onClose, tab, setTab 
   return (
     <Drawer
       onClose={onClose}
+      widthId="develop.connection"
       header={
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">

@@ -29,10 +29,16 @@ function SettingsPage() {
       crumbs={[{ label: 'Home', to: '/' }, { label: 'Settings' }]}
       contentWidth="full"
     >
-      <RemoteModule
-        loader={() => import('workspace/Home') as Promise<{ default: React.ComponentType }>}
-        componentProps={{ section }}
-      />
+      <RemoteModule loader={loadWorkspace} componentProps={{ section }} />
     </AppShell>
   )
+}
+
+/**
+ * Module-level so its identity is stable: `RemoteModule` memoises `React.lazy`
+ * on the loader, and an inline arrow remounted the whole Settings remote on
+ * every `?section=` change.
+ */
+function loadWorkspace(): Promise<{ default: React.ComponentType }> {
+  return import('workspace/Home') as Promise<{ default: React.ComponentType }>
 }

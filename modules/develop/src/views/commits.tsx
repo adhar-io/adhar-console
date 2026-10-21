@@ -7,7 +7,7 @@ import { useDevelopParams, useSetDevelopParams } from '../data/nav.ts';
 import { useScopedRepo } from '../components/repo-scope.tsx';
 import { RepoPicker } from '../components/repo-picker.tsx';
 import { copy, IconCopy, IconRefresh } from '../components/repo-bits.tsx';
-import { Avatar, ChipGroup, DiffStat, IconCommit, LoadingBlock, SearchField, StatTile } from '../components/list-kit.tsx';
+import { Avatar, ChipGroup, DiffStat, GiteaError, IconCommit, LoadingBlock, SearchField, StatTile, SwapFrame } from '../components/list-kit.tsx';
 import { useSlashFocus } from '../components/repo-filter.tsx';
 import { CommitDrawer } from '../components/commit-drawer.tsx';
 
@@ -21,8 +21,10 @@ import { CommitDrawer } from '../components/commit-drawer.tsx';
 export function Commits() {
   const { repo, setRepo, repos } = useScopedRepo();
   if (repos.isLoading) return <><PageHeader title='Commits' /><LoadingBlock label='Loading repositories…' /></>;
+  if (repos.isError && !repos.data) return <><PageHeader title='Commits' /><GiteaError what='repositories' error={repos.error} onRetry={() => repos.refetch()} retrying={repos.isFetching} /></>;
   if (!repos.data?.length || !repo) return <><PageHeader title='Commits' /><EmptyState title='No repositories' description='Create a repository first.' /></>;
-  return <CommitBrowser key={repo} repo={repo} picker={<RepoPicker value={repo} onChange={setRepo} />} />;
+  // Not keyed by repo: the previous history stays (dimmed) until the new one lands.
+  return <CommitBrowser repo={repo} picker={<RepoPicker value={repo} onChange={setRepo} />} />;
 }
 
 function CommitBrowser({ repo, picker }: { repo: string; picker: React.ReactNode }) {
@@ -30,8 +32,15 @@ function CommitBrowser({ repo, picker }: { repo: string; picker: React.ReactNode
   const setParams = useSetDevelopParams();
   const repos = useRepos();
   const branches = useBranches(repo);
-  const def = repos.data?.find((r) => r.name === repo)?.default_branch;
-  const branch = params.branch && branches.data?.some((b) => b.name === params.branch) ? params.branch : def ?? branches.data?.[0]?.name;
+  const meta = repos.data?.find((r) => r.name === repo);
+  const def = meta?.default_branch;
+  // Start on the default branch straight from the repo list rather than
+  // waiting for the branch list first (repos → branches → commits was three
+  // round trips in a row). A `?branch=` is trusted until the list proves it
+  // does not exist.
+  const branch = params.branch && (!branches.data || branches.isPlaceholderData || branches.data.some((b) => b.name === params.branch))
+    ? params.branch
+    : def ?? branches.data?.[0]?.name;
 
   const [pathInput, setPathInput] = useState('');
   const [path, setPath] = useState('');
@@ -40,11 +49,19 @@ function CommitBrowser({ repo, picker }: { repo: string; picker: React.ReactNode
     return () => globalThis.clearTimeout(t);
   }, [pathInput]);
 
-  const q = useCommitHistory(repo, branch, path || undefined);
+  const q = useCommitHistory(repo, meta?.empty ? undefined : branch, path || undefined);
   const [search, setSearch] = useState('');
   const [author, setAuthor] = useState('all');
   const searchRef = useRef<HTMLInputElement>(null);
   useSlashFocus(searchRef);
+  // Another repository: its authors and paths are not this one's.
+  const [shownRepo, setShownRepo] = useState(repo);
+  if (shownRepo !== repo) {
+    setShownRepo(repo);
+    setAuthor('all');
+    setPathInput('');
+    setPath('');
+  }
 
   const loaded = useMemo(() => q.data?.pages.flat() ?? [], [q.data]);
   const authors = useMemo(() => {
@@ -88,7 +105,7 @@ function CommitBrowser({ repo, picker }: { repo: string; picker: React.ReactNode
       <PageHeader
         title='Commits'
         badge={picker}
-        actions={<Button size='sm' variant='secondary' onClick={() => q.refetch()} aria-label='Refresh' title='Refresh'><IconRefresh /></Button>}
+        actions={<Button size='sm' variant='secondary' onClick={() => q.refetch()} loading={q.isRefetching && !q.isPlaceholderData && !q.isFetchingNextPage} aria-label='Refresh' title='Refresh'>{q.isRefetching && !q.isPlaceholderData && !q.isFetchingNextPage ? null : <IconRefresh />}</Button>}
       />
 
       <div className='grid grid-cols-2 gap-2 sm:grid-cols-4'>
@@ -129,16 +146,16 @@ function CommitBrowser({ repo, picker }: { repo: string; picker: React.ReactNode
           : null}
       </div>
 
-      {q.isLoading || branches.isLoading
-        ? <LoadingBlock label='Loading commits…' />
-        : q.isError
-        ? <EmptyState title="Couldn't load commits" description={q.error instanceof Error ? q.error.message : ''} action={<Button size='sm' variant='secondary' onClick={() => q.refetch()}>Retry</Button>} />
-        : !branches.data?.length
+      {meta?.empty || (branches.data && !branches.isPlaceholderData && !branches.data.length)
         ? <EmptyState title='No commits yet' description={`${repo} is empty — push a first commit to start its history.`} />
+        : q.isLoading || (!branch && branches.isLoading)
+        ? <LoadingBlock label='Loading commits…' rows={8} />
+        : q.isError && !q.data
+        ? <GiteaError what={`commits of ${repo}`} error={q.error} onRetry={() => q.refetch()} retrying={q.isFetching} />
         : list.length === 0
         ? <EmptyState title={loaded.length ? 'No matches' : 'No commits'} description={loaded.length ? 'Try another search or author.' : path ? `Nothing on ${branch} touched ${path}.` : `No commits on ${branch}.`} />
         : (
-          <div className='space-y-4'>
+          <SwapFrame pending={q.isPlaceholderData} className='space-y-4'>
             {days.map((g) => (
               <section key={g.day}>
                 <h2 className='mb-1.5 flex items-center gap-2 text-[12px] font-semibold text-content-muted'>
@@ -157,7 +174,7 @@ function CommitBrowser({ repo, picker }: { repo: string; picker: React.ReactNode
                 ? <Button size='sm' variant='secondary' loading={q.isFetchingNextPage} onClick={() => q.fetchNextPage()}>Load older commits</Button>
                 : <span className='text-[11px] text-content-subtle'>Beginning of history{path ? ` for ${path}` : ''}.</span>}
             </div>
-          </div>
+          </SwapFrame>
         )}
 
       {params.sha

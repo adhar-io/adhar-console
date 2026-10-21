@@ -11,6 +11,8 @@ import {
   useOverlayDismiss,
   useToast,
   type TabDef,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { kube, type DiscoveredResource, type GatewayGVR as GVR, type KubeObject } from '@adhar/api-clients/k8s'
@@ -58,6 +60,7 @@ interface Props {
 }
 
 export function ExploreDrawer({ kind, kinds, live, target, printer, onClose, onOpen, onFilterLabel }: Props) {
+  const width = useDrawerWidth('platform.explore', { base: 'max-w-3xl' })
   const toast = useToast()
   const qc = useQueryClient()
   const { cluster } = useActiveCluster()
@@ -126,7 +129,7 @@ export function ExploreDrawer({ kind, kinds, live, target, printer, onClose, onO
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={`${kind.kind} ${target.name}`}>
       <div className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
-      <aside className="relative flex h-full w-full max-w-3xl flex-col border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="border-b border-edge-default bg-surface-raised px-4 py-4 sm:px-6">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -145,6 +148,7 @@ export function ExploreDrawer({ kind, kinds, live, target, printer, onClose, onO
                   <StatusBadge kind={status.tone}>{status.text}</StatusBadge>
                 </span>
               ) : null}
+              <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
               <button
                 type="button"
                 onClick={onClose}

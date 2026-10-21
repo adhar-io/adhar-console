@@ -10,12 +10,14 @@ import {
   CardHeader,
   type Column,
   DataTable,
+  DrawerWidenButton,
   EmptyState,
   type Facet,
   type FacetValues,
   FilterBar,
   PageHeader,
   StatusBadge,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { PENDING_USER, useOptionalSession } from '@adhar/auth'
@@ -369,9 +371,9 @@ function ScorecardsDashboard() {
         />
         <SummaryTile
           label="Average score"
-          value={String(average)}
+          value={scorecards.length ? String(average) : '—'}
           sub={weakestCategory ? `Weakest: ${CATEGORY_LABEL[weakestCategory.cat]}` : '—'}
-          tone={scoreTextTone(average)}
+          tone={scorecards.length ? scoreTextTone(average) : undefined}
         />
         <SummaryTile
           label="Passing (A/B)"
@@ -709,6 +711,7 @@ function ScorecardDrawer({
   onClose(): void
 }) {
   const closeBtnRef = useRef<HTMLButtonElement>(null)
+  const width = useDrawerWidth('catalog.scorecard', { base: 'max-w-2xl' })
   const failing = card.checks.filter((c) => !c.pass)
   const topFixes = [...failing].sort((a, b) => b.weight - a.weight).slice(0, 3)
 
@@ -737,7 +740,7 @@ function ScorecardDrawer({
         className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
-      <aside className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="flex min-w-0 items-start gap-3">
             <GradeBadge grade={card.grade} size="lg" />
@@ -764,15 +767,18 @@ function ScorecardDrawer({
               </div>
             </div>
           </div>
-          <button
-            ref={closeBtnRef}
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
-          >
-            <IconClose />
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
+            <button
+              ref={closeBtnRef}
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+            >
+              <IconClose />
+            </button>
+          </div>
         </header>
 
         <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">

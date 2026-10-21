@@ -12,7 +12,10 @@ import {
   StatusBadge,
   type StatusKind,
   useOverlayDismiss,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { kube } from '@adhar/api-clients/k8s'
 import { GVRS } from '../data/gvr.ts'
 import { useDecodedRelease, useHelmReleases, type HelmRelease } from '../data/releases.ts'
@@ -177,6 +180,7 @@ function ChartCell({ release }: { release: HelmRelease }) {
 /* ── drawer ────────────────────────────────────────────────────────────── */
 
 function ReleaseDrawer({ release, onClose }: { release: HelmRelease; onClose(): void }) {
+  const width = useDrawerWidth('platform.helm-release', { base: 'max-w-2xl' })
   const canUninstall = useHasK8sPermission('secrets.write')
   const decoded = useDecodedRelease(release.latest.secret)
   const [confirming, setConfirming] = useState(false)
@@ -187,7 +191,7 @@ function ReleaseDrawer({ release, onClose }: { release: HelmRelease; onClose(): 
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
-      <aside className="relative flex h-full w-full max-w-2xl flex-col border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">Helm release</div>
@@ -207,6 +211,7 @@ function ReleaseDrawer({ release, onClose }: { release: HelmRelease; onClose(): 
                 Uninstall <K8sRolePill perm="secrets.write" />
               </span>
             )}
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <button
               type="button"
               onClick={onClose}

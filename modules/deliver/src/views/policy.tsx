@@ -11,8 +11,10 @@ import {
   StatusBadge,
   useLiveRefetch,
   type StatusKind,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
-import { formatRelative } from '@adhar/utils'
+import { cn, formatRelative } from '@adhar/utils'
 import type { kyverno } from '@adhar/api-clients'
 import { kyvernoClient as client } from '../data/kyverno-api.ts'
 import {
@@ -895,6 +897,7 @@ function PackDetail({
   onToggle(next: boolean): void
   onClose(): void
 }) {
+  const width = useDrawerWidth('deliver.policy-pack', { base: 'max-w-2xl' })
   const [showYaml, setShowYaml] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -925,7 +928,7 @@ function PackDetail({
         className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
-      <aside className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-[11px] text-content-subtle">
@@ -939,14 +942,17 @@ function PackDetail({
             </h2>
             <p className="mt-1 max-w-2xl text-xs text-content-muted">{pack.description}</p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
-          >
-            <IconClose />
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+            >
+              <IconClose />
+            </button>
+          </div>
         </header>
 
         <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
@@ -1124,6 +1130,7 @@ function downloadBundle(pack: CompliancePack) {
 /* ─────────── policy detail drawer ─────────── */
 
 function PolicyDetail({ policy: p, onClose }: { policy: kyverno.Policy; onClose(): void }) {
+  const width = useDrawerWidth('deliver.policy', { base: 'max-w-2xl' })
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -1141,7 +1148,7 @@ function PolicyDetail({ policy: p, onClose }: { policy: kyverno.Policy; onClose(
         className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
-      <aside className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-[11px] text-content-subtle">
@@ -1154,14 +1161,17 @@ function PolicyDetail({ policy: p, onClose }: { policy: kyverno.Policy; onClose(
               <p className="mt-1 max-w-2xl text-xs text-content-muted">{p.description}</p>
             ) : null}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
-          >
-            <IconClose />
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+            >
+              <IconClose />
+            </button>
+          </div>
         </header>
 
         <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">

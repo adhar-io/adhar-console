@@ -3,17 +3,19 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { createPortal } from 'react-dom'
 import {
   AppShell,
-  DEFAULT_APP_LINKS,
   DonutGauge,
+  DrawerWidenButton,
   Sparkline,
   StatusBadge,
+  useDrawerWidth,
   useNotifications,
-  type AppLink,
+  usePlatformApps,
+  type ResolvedApp,
   useOverlayDismiss,
 } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import { PENDING_USER, useOptionalSession } from '@adhar/auth'
-import { summarizeCluster, useClusterSignals } from '~/data/cluster-signals.ts'
+import { type SourceState, summarizeCluster, useClusterSignals } from '~/data/cluster-signals.ts'
 import { appWorkloads, useDoraApps } from '~/data/platform-signals.ts'
 import { useDoraLeadTime, useDoraOps } from '~/data/dora-ops.ts'
 import {
@@ -1005,7 +1007,7 @@ function HeroIllustration() {
     >
       <svg
         viewBox="0 0 440 280"
-        preserveAspectRatio="xMaxYEnd meet"
+        preserveAspectRatio="xMaxYMax meet"
         className="h-full w-full"
       >
         <defs>
@@ -1286,16 +1288,8 @@ function HeroTileContent({
             strokeDasharray={`${2 * Math.PI * r * 0.72} ${2 * Math.PI * r}`}
             transform={`rotate(-90 ${cx} ${cy})`}
           />
-          <text
-            x={cx}
-            y={cy + 2.5}
-            textAnchor="middle"
-            fontSize="7"
-            fontWeight="600"
-            fill="rgba(255,255,255,0.96)"
-          >
-            72%
-          </text>
+          {/* Abstract mark, not a figure — a number here read as a real metric. */}
+          <rect x={cx - 5} y={cy - 1.25} width="10" height="2.5" rx="1.25" fill="rgba(255,255,255,0.9)" />
         </g>
       )
     }
@@ -1418,15 +1412,48 @@ function ClusterSnapshotPanel() {
     setHistory((h) => ({
       pods: cap([...h.pods, s.pods.running]),
       nodes: cap([...h.nodes, s.nodes.ready]),
-      healthy: cap([...h.healthy, s.healthyDeploymentsPct]),
-      deploys: cap([...h.deploys, s.deployFrequencyPerWeek]),
+      // Only record real readings — an absent percentage is a gap, not a 0/100.
+      healthy:
+        s.healthyDeploymentsPct === null ? h.healthy : cap([...h.healthy, s.healthyDeploymentsPct]),
+      deploys: cap([...h.deploys, s.newDeployments7d]),
     }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [s.pods.running, s.nodes.ready, s.healthyDeploymentsPct, s.deployFrequencyPerWeek, connecting])
+  }, [s.pods.running, s.nodes.ready, s.healthyDeploymentsPct, s.newDeployments7d, connecting])
 
+  // Percentages only exist when the cluster answered and there is something to
+  // divide by — otherwise they are "—", never an invented 0 or 100.
   const nodePct =
-    s.nodes.total > 0 ? Math.round((s.nodes.ready / s.nodes.total) * 100) : 0
-  const podPct = s.pods.total > 0 ? Math.round((s.pods.running / s.pods.total) * 100) : 0
+    connected && !connecting && s.nodes.total > 0
+      ? Math.round((s.nodes.ready / s.nodes.total) * 100)
+      : null
+  const podPct =
+    connected && !connecting && s.pods.total > 0
+      ? Math.round((s.pods.running / s.pods.total) * 100)
+      : null
+  const live = connected && !connecting
+  const depPct = live ? s.healthyDeploymentsPct : null
+  const policyValue =
+    s.policy.state === 'loading'
+      ? '…'
+      : s.policy.state === 'error'
+        ? '—'
+        : s.policy.state === 'absent'
+          ? '—'
+          : s.policy.evaluated === 0
+            ? '—'
+            : s.policy.fail > 0
+              ? `${s.policy.fail} fail`
+              : `${Math.round((s.policy.pass / s.policy.evaluated) * 100)}%`
+  const policySub =
+    s.policy.state === 'loading'
+      ? 'loading'
+      : s.policy.state === 'error'
+        ? 'reports unreadable'
+        : s.policy.state === 'absent'
+          ? 'not installed'
+          : s.policy.evaluated === 0
+            ? 'no results yet'
+            : `${s.policy.pass} pass`
 
   return (
     <div className="flex h-full flex-col rounded-2xl border border-edge-default bg-surface-raised p-5 shadow-sm">
@@ -1475,24 +1502,36 @@ function ClusterSnapshotPanel() {
         {/* Left: Node readiness donut */}
         <div className="flex items-center justify-center rounded-xl border border-edge-subtle bg-surface-sunken/60 p-5">
           <DonutGauge
-            value={nodePct}
+            value={nodePct ?? 0}
             max={100}
             size={140}
             thickness={14}
             color={
-              nodePct === 100
-                ? 'var(--color-brand-500)'
-                : nodePct >= 50
-                  ? '#f59e0b'
-                  : '#f43f5e'
+              nodePct === null
+                ? 'var(--color-edge-default, #cbd5e1)'
+                : nodePct === 100
+                  ? 'var(--color-brand-500)'
+                  : nodePct >= 50
+                    ? '#f59e0b'
+                    : '#f43f5e'
             }
             label={
-              <span>
-                {nodePct}
-                <span className="text-sm font-normal text-content-muted">%</span>
-              </span>
+              nodePct === null ? (
+                <span className="text-content-muted">—</span>
+              ) : (
+                <span>
+                  {nodePct}
+                  <span className="text-sm font-normal text-content-muted">%</span>
+                </span>
+              )
             }
-            caption={`${s.nodes.ready}/${s.nodes.total} nodes`}
+            caption={
+              connecting
+                ? 'loading nodes'
+                : !connected
+                  ? 'cluster unreachable'
+                  : `${s.nodes.ready}/${s.nodes.total} nodes`
+            }
           />
         </div>
 
@@ -1500,43 +1539,57 @@ function ClusterSnapshotPanel() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatTile
             label="Pods"
-            value={`${s.pods.running}/${s.pods.total}`}
-            sub={s.pods.failing ? `${s.pods.failing} failing` : `${podPct}% running`}
-            tone={s.pods.failing ? 'rose' : 'emerald'}
+            value={live ? `${s.pods.running}/${s.pods.total}` : '—'}
+            sub={
+              !live
+                ? connecting ? 'loading' : 'unreachable'
+                : s.pods.failing
+                  ? `${s.pods.failing} failing`
+                  : podPct === null
+                    ? 'no pods'
+                    : `${podPct}% running`
+            }
+            tone={!live ? 'slate' : s.pods.failing ? 'rose' : 'emerald'}
             series={history.pods}
           />
           <StatTile
             label="Deployments"
-            value={`${s.healthyDeploymentsPct}%`}
-            sub={`${s.activeDeployments} / ${s.totalDeployments}`}
+            value={depPct === null ? '—' : `${depPct}%`}
+            sub={
+              !live
+                ? connecting ? 'loading' : 'unreachable'
+                : s.totalDeployments === 0
+                  ? 'no deployments'
+                  : `${s.activeDeployments} / ${s.totalDeployments}`
+            }
             tone={
-              s.healthyDeploymentsPct >= 95
-                ? 'emerald'
-                : s.healthyDeploymentsPct >= 75
-                  ? 'amber'
-                  : 'rose'
+              depPct === null
+                ? 'slate'
+                : depPct >= 95
+                  ? 'emerald'
+                  : depPct >= 75
+                    ? 'amber'
+                    : 'rose'
             }
             series={history.healthy}
           />
           <StatTile
-            label="Deploys / week"
-            value={String(s.deployFrequencyPerWeek)}
-            sub={s.deployFrequencyPerWeek > 0 ? 'live' : 'no recent'}
-            tone="emerald"
+            label="New Deployments (7d)"
+            value={live ? String(s.newDeployments7d) : '—'}
+            sub={!live ? (connecting ? 'loading' : 'unreachable') : 'created in last 7 days'}
+            tone={live ? 'emerald' : 'slate'}
             series={history.deploys}
           />
           <StatTile
             label="Policy"
-            value={
-              s.policy.installed
-                ? s.policy.fail === 0
-                  ? '100%'
-                  : `${s.policy.fail} fail`
-                : '—'
-            }
-            sub={s.policy.installed ? `${s.policy.pass} pass` : 'not installed'}
+            value={policyValue}
+            sub={policySub}
             tone={
-              !s.policy.installed ? 'slate' : s.policy.fail === 0 ? 'emerald' : 'rose'
+              s.policy.state !== 'ready' || s.policy.evaluated === 0
+                ? 'slate'
+                : s.policy.fail === 0
+                  ? 'emerald'
+                  : 'rose'
             }
           />
         </div>
@@ -1678,18 +1731,32 @@ function DoraPanel() {
       deltaTone: (stats.deltaPct ?? 0) >= 0 ? 'emerald' : 'rose',
       color: DORA_COLOR.emerald,
       series: stats.series14,
-      muted: loading ? undefined : stats.hasHistory ? undefined : 'no Argo CD deploy history',
+      muted: loading
+        ? undefined
+        : q.isError
+        ? 'Argo CD unreachable'
+        : stats.hasHistory
+        ? undefined
+        : 'no Argo CD deploy history',
     },
     {
       label: 'Change fail rate',
-      value: loading || ops.isLoading ? '···' : cfr.rate == null ? '—' : formatRate(cfr.rate),
+      // Without an answer from Prometheus there is no incident list to
+      // correlate against — the rate is unknown, not 0%.
+      value: loading || ops.isLoading
+        ? '···'
+        : q.isError || !ops.available || cfr.rate == null
+        ? '—'
+        : formatRate(cfr.rate),
       delta: '',
-      deltaTone: cfr.rate != null && cfr.rate > 0.15 ? 'rose' : 'amber',
+      deltaTone: ops.available && cfr.rate != null && cfr.rate > 0.15 ? 'rose' : 'amber',
       color: DORA_COLOR.amber,
       series: [],
       muted: loading || ops.isLoading
         ? undefined
-        : ops.isError
+        : q.isError
+        ? 'Argo CD unreachable'
+        : !ops.available
         ? 'Prometheus unreachable'
         : cfr.rate == null
         ? 'no deploys in the last 7 days'
@@ -1697,24 +1764,36 @@ function DoraPanel() {
     },
     {
       label: 'Lead time',
-      value: flow.isLoading ? '···' : flow.medianHours == null ? '—' : formatDuration(flow.medianHours),
+      // `flow` waits on the Argo CD list; until that arrives it is idle, not
+      // finished — "no deploys" would be a claim about data not yet read.
+      value: loading || flow.isLoading ? '···' : flow.medianHours == null ? '—' : formatDuration(flow.medianHours),
       delta: '',
       deltaTone: 'slate',
       color: DORA_COLOR.amber,
       series: [],
       // Commit → running, not PR cycle time: this platform pushes to `main`
       // and had zero merged PRs, so a PR-based figure would read "—" forever.
-      muted: flow.isLoading
+      muted: loading || flow.isLoading
         ? undefined
+        : q.isError
+        ? 'Argo CD unreachable'
         : flow.isError
         ? 'Gitea unreachable'
         : flow.medianHours == null
-        ? 'no deploys with a resolvable commit'
-        : `commit→live, ${flow.sampleSize} deploy${flow.sampleSize === 1 ? '' : 's'}`,
+        ? flow.unreadableRepos > 0
+          ? `${flow.unreadableRepos} repo${flow.unreadableRepos === 1 ? '' : 's'} unreadable in Gitea`
+          : 'no deploys with a resolvable commit'
+        : `commit→live, ${flow.sampleSize} deploy${flow.sampleSize === 1 ? '' : 's'}${
+          flow.unreadableRepos > 0 ? ` · ${flow.unreadableRepos} repo${flow.unreadableRepos === 1 ? '' : 's'} unreadable` : ''
+        }`,
     },
     {
       label: 'MTTR',
-      value: ops.isLoading ? '···' : mttr.medianHours == null ? '—' : formatDuration(mttr.medianHours),
+      value: ops.isLoading
+        ? '···'
+        : !ops.available || mttr.medianHours == null
+        ? '—'
+        : formatDuration(mttr.medianHours),
       delta: '',
       deltaTone: 'slate',
       color: DORA_COLOR.amber,
@@ -1723,7 +1802,7 @@ function DoraPanel() {
       // incidents are still open is not a number to draw conclusions from.
       muted: ops.isLoading
         ? undefined
-        : ops.isError
+        : !ops.available
         ? 'Prometheus unreachable'
         : mttr.medianHours == null
         ? mttr.ongoingCount > 0
@@ -1768,94 +1847,165 @@ function DoraPanel() {
 function CompliancePanel() {
   const data = useClusterSignals()
   const s = summarizeCluster(data)
-  const podPct = s.pods.total > 0 ? Math.round((s.pods.running / s.pods.total) * 100) : 100
-  const nodePct = s.nodes.total > 0 ? Math.round((s.nodes.ready / s.nodes.total) * 100) : 100
-  const deployHealthy =
-    s.totalDeployments > 0
-      ? Math.round((s.activeDeployments / s.totalDeployments) * 100)
-      : 100
+  const live = s.connected && !s.connecting
+  // No default percentages: without a reachable cluster (or with nothing to
+  // divide by) each card says so instead of claiming 100%.
+  const podPct = live && s.pods.total > 0 ? Math.round((s.pods.running / s.pods.total) * 100) : null
+  const nodePct = live && s.nodes.total > 0 ? Math.round((s.nodes.ready / s.nodes.total) * 100) : null
+  const deployHealthy = live ? s.healthyDeploymentsPct : null
+  const clusterBadge = s.connecting ? (
+    <StatusBadge kind="unknown">Loading…</StatusBadge>
+  ) : (
+    <StatusBadge kind="unknown">Cluster unreachable</StatusBadge>
+  )
+  const clusterDesc = s.connecting
+    ? 'Reading from the Kubernetes API…'
+    : 'The Kubernetes API did not answer — retrying automatically.'
+
+  /** Badge for an optional CRD-backed source that isn't `ready`. */
+  const sourceBadge = (state: SourceState, name: string) =>
+    state === 'loading' ? (
+      <StatusBadge kind="unknown">Loading…</StatusBadge>
+    ) : state === 'absent' ? (
+      <StatusBadge kind="unknown">{name} not installed</StatusBadge>
+    ) : (
+      <StatusBadge kind="degraded">{name} unreadable</StatusBadge>
+    )
+  const sourceDesc = (state: SourceState, name: string, install: string) =>
+    state === 'loading'
+      ? `Reading ${name} resources…`
+      : state === 'absent'
+        ? install
+        : `The Kubernetes API refused or failed the ${name} list — check RBAC or the CRD.`
+
+  const policyPct =
+    s.policy.evaluated > 0 ? Math.round((s.policy.pass / s.policy.evaluated) * 100) : null
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
       <ComplianceCard
         title="Policy compliance"
         badge={
-          s.policy.installed ? (
-            <StatusBadge kind={s.policy.fail === 0 ? 'healthy' : 'degraded'}>
-              {s.policy.fail === 0 ? '100% pass' : `${s.policy.fail} failing`}
-            </StatusBadge>
+          s.policy.state !== 'ready' ? (
+            sourceBadge(s.policy.state, 'Kyverno')
+          ) : policyPct === null ? (
+            <StatusBadge kind="unknown">No results yet</StatusBadge>
           ) : (
-            <StatusBadge kind="unknown">Kyverno not installed</StatusBadge>
+            <StatusBadge kind={s.policy.fail === 0 ? 'healthy' : 'degraded'}>
+              {s.policy.fail === 0 ? `${policyPct}% pass` : `${s.policy.fail} failing`}
+            </StatusBadge>
           )
         }
         description={
-          s.policy.installed
-            ? `${s.policy.fail} failing · ${s.policy.warn} warnings · ${s.policy.pass} passes`
-            : 'Install Kyverno to surface policy reports on this panel.'
+          s.policy.state !== 'ready'
+            ? sourceDesc(s.policy.state, 'PolicyReport', 'Install Kyverno to surface policy reports on this panel.')
+            : policyPct === null
+              ? 'No policy results yet — Kyverno has not evaluated any resources.'
+              : `${s.policy.fail} failing · ${s.policy.warn} warnings · ${s.policy.pass} passes`
         }
       />
       <ComplianceCard
         title="GitOps drift"
         badge={
-          s.argo.installed ? (
+          s.argo.state !== 'ready' ? (
+            sourceBadge(s.argo.state, 'Argo CD')
+          ) : s.argo.total === 0 ? (
+            <StatusBadge kind="unknown">No applications</StatusBadge>
+          ) : (
             <StatusBadge kind={s.argo.synced === s.argo.total ? 'healthy' : 'degraded'}>
               {s.argo.synced} / {s.argo.total} synced
             </StatusBadge>
-          ) : (
-            <StatusBadge kind="unknown">Argo CD not installed</StatusBadge>
           )
         }
         description={
-          s.argo.installed
-            ? `${s.argo.healthy} apps healthy · live across every namespace`
-            : 'Install Argo CD to track GitOps drift.'
+          s.argo.state !== 'ready'
+            ? sourceDesc(s.argo.state, 'Argo CD Application', 'Install Argo CD to track GitOps drift.')
+            : s.argo.total === 0
+              ? 'Argo CD has no Applications yet — deploy an app to track drift.'
+              : `${s.argo.healthy} apps healthy · live across every namespace`
         }
       />
       <ComplianceCard
         title="Rollouts healthy"
         badge={
-          s.rollouts.installed ? (
+          s.rollouts.state !== 'ready' ? (
+            sourceBadge(s.rollouts.state, 'Argo Rollouts')
+          ) : s.rollouts.total === 0 ? (
+            <StatusBadge kind="unknown">No rollouts</StatusBadge>
+          ) : (
             <StatusBadge kind={s.rollouts.healthy === s.rollouts.total ? 'healthy' : 'progressing'}>
               {s.rollouts.healthy} / {s.rollouts.total}
             </StatusBadge>
-          ) : (
-            <StatusBadge kind="unknown">Argo Rollouts not installed</StatusBadge>
           )
         }
-        description="Canary / blue-green progressive delivery status."
+        description={
+          s.rollouts.state !== 'ready'
+            ? sourceDesc(s.rollouts.state, 'Rollout', 'Install Argo Rollouts for canary / blue-green delivery.')
+            : 'Canary / blue-green progressive delivery status.'
+        }
       />
       <ComplianceCard
         title="Pod health"
         badge={
-          <StatusBadge kind={podPct >= 95 ? 'healthy' : podPct >= 80 ? 'progressing' : 'degraded'}>
-            {podPct}% running
-          </StatusBadge>
+          !live ? (
+            clusterBadge
+          ) : podPct === null ? (
+            <StatusBadge kind="unknown">No pods</StatusBadge>
+          ) : (
+            <StatusBadge kind={podPct >= 95 ? 'healthy' : podPct >= 80 ? 'progressing' : 'degraded'}>
+              {podPct}% running
+            </StatusBadge>
+          )
         }
-        description={`${s.pods.running} / ${s.pods.total} pods running · ${s.pods.failing} failing`}
+        description={
+          !live
+            ? clusterDesc
+            : `${s.pods.running} / ${s.pods.total} pods running · ${s.pods.failing} failing`
+        }
       />
       <ComplianceCard
         title="Node readiness"
         badge={
-          <StatusBadge kind={nodePct === 100 ? 'healthy' : nodePct >= 75 ? 'progressing' : 'degraded'}>
-            {s.nodes.ready} / {s.nodes.total} ready
-          </StatusBadge>
+          !live ? (
+            clusterBadge
+          ) : nodePct === null ? (
+            <StatusBadge kind="unknown">—</StatusBadge>
+          ) : (
+            <StatusBadge kind={nodePct === 100 ? 'healthy' : nodePct >= 75 ? 'progressing' : 'degraded'}>
+              {s.nodes.ready} / {s.nodes.total} ready
+            </StatusBadge>
+          )
         }
         description={
-          s.nodes.total > 0
-            ? s.nodes.total === s.nodes.ready
-              ? 'Every node is Ready.'
-              : `${s.nodes.total - s.nodes.ready} node${s.nodes.total - s.nodes.ready === 1 ? '' : 's'} not Ready`
-            : 'No nodes reported by the apiserver yet.'
+          !live
+            ? clusterDesc
+            : s.nodes.total > 0
+              ? s.nodes.total === s.nodes.ready
+                ? 'Every node is Ready.'
+                : `${s.nodes.total - s.nodes.ready} node${s.nodes.total - s.nodes.ready === 1 ? '' : 's'} not Ready`
+              : 'No nodes reported by the apiserver yet.'
         }
       />
       <ComplianceCard
         title="Deploy health"
         badge={
-          <StatusBadge kind={deployHealthy >= 95 ? 'healthy' : deployHealthy >= 80 ? 'progressing' : 'degraded'}>
-            {deployHealthy}% healthy
-          </StatusBadge>
+          !live ? (
+            clusterBadge
+          ) : deployHealthy === null ? (
+            <StatusBadge kind="unknown">No deployments</StatusBadge>
+          ) : (
+            <StatusBadge kind={deployHealthy >= 95 ? 'healthy' : deployHealthy >= 80 ? 'progressing' : 'degraded'}>
+              {deployHealthy}% healthy
+            </StatusBadge>
+          )
         }
-        description={`${s.activeDeployments} / ${s.totalDeployments} deployments at desired replicas`}
+        description={
+          !live
+            ? clusterDesc
+            : s.totalDeployments === 0
+              ? 'No Deployments in the cluster yet.'
+              : `${s.activeDeployments} / ${s.totalDeployments} deployments at desired replicas`
+        }
       />
     </div>
   )
@@ -1893,9 +2043,14 @@ const APP_TINT: Record<string, string> = {
 }
 
 function PinnedAppsPanel() {
+  // Resolved against the running cluster (`/api/config` + discovered routes),
+  // so each tile links where the app really lives — never the static dev
+  // hostnames in DEFAULT_APP_LINKS. Apps the cluster doesn't expose render
+  // dimmed as "Not set up" instead of a link to nowhere.
+  const { apps: resolved, loading } = usePlatformApps()
   const pinned = PINNED_APP_IDS
-    .map((id) => DEFAULT_APP_LINKS.find((a) => a.id === id))
-    .filter((a): a is AppLink => !!a)
+    .map((id) => resolved.find((a) => a.id === id))
+    .filter((a): a is ResolvedApp => !!a)
   return (
     <div className="flex h-full flex-col rounded-2xl border border-edge-default bg-surface-raised p-5 shadow-sm">
       <div className="mb-3 flex items-center justify-between">
@@ -1913,30 +2068,56 @@ function PinnedAppsPanel() {
         </Link>
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        {pinned.map((a) => {
-          const tint = APP_TINT[a.id] ?? 'from-surface-sunken to-surface-raised'
-          return (
-            <a
-              key={a.id}
-              href={a.url}
-              target="_blank"
-              rel="noreferrer"
-              className={`group relative flex flex-col items-center gap-2 overflow-hidden rounded-xl border border-edge-default bg-linear-to-br ${tint} p-4 text-center transition-all hover:-translate-y-0.5 hover:border-brand-200 dark:hover:border-brand-500/25 hover:shadow-md`}
-            >
-              <span
-                aria-hidden
-                className="absolute right-2 top-2 text-content-subtle opacity-0 transition-opacity group-hover:opacity-100"
+        {loading
+          ? PINNED_APP_IDS.map((id) => (
+            <div
+              key={id}
+              aria-hidden
+              className="h-[132px] animate-pulse rounded-xl border border-edge-subtle bg-surface-sunken/60"
+            />
+          ))
+          : pinned.map((a) => {
+            const tint = APP_TINT[a.id] ?? 'from-surface-sunken to-surface-raised'
+            const body = (
+              <>
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface-raised shadow-sm ring-1 ring-edge-subtle [&>svg]:h-7 [&>svg]:w-7">
+                  {a.icon}
+                </div>
+                <div className="text-sm font-semibold text-content">{a.name}</div>
+                <div className="truncate text-[11px] text-content-subtle">
+                  {a.configured ? a.description : 'Not set up on this cluster'}
+                </div>
+              </>
+            )
+            if (!a.configured) {
+              return (
+                <div
+                  key={a.id}
+                  title={`${a.name} is not exposed by this cluster`}
+                  className="flex flex-col items-center gap-2 overflow-hidden rounded-xl border border-dashed border-edge-default bg-surface-sunken/40 p-4 text-center opacity-60"
+                >
+                  {body}
+                </div>
+              )
+            }
+            return (
+              <a
+                key={a.id}
+                href={a.url}
+                target="_blank"
+                rel="noreferrer"
+                className={`group relative flex flex-col items-center gap-2 overflow-hidden rounded-xl border border-edge-default bg-linear-to-br ${tint} p-4 text-center transition-all hover:-translate-y-0.5 hover:border-brand-200 dark:hover:border-brand-500/25 hover:shadow-md`}
               >
-                <IconArrowUpRight />
-              </span>
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface-raised shadow-sm ring-1 ring-edge-subtle [&>svg]:h-7 [&>svg]:w-7">
-                {a.icon}
-              </div>
-              <div className="text-sm font-semibold text-content">{a.name}</div>
-              <div className="truncate text-[11px] text-content-subtle">{a.description}</div>
-            </a>
-          )
-        })}
+                <span
+                  aria-hidden
+                  className="absolute right-2 top-2 text-content-subtle opacity-0 transition-opacity group-hover:opacity-100"
+                >
+                  <IconArrowUpRight />
+                </span>
+                {body}
+              </a>
+            )
+          })}
       </div>
     </div>
   )
@@ -2106,6 +2287,7 @@ function CustomizeSheet({
   }
 
   const orderedIds = layout.order ?? layout.enabled
+  const width = useDrawerWidth('overview.customize', { base: 'max-w-md' })
 
   useOverlayDismiss(true, onClose)
 
@@ -2123,7 +2305,7 @@ function CustomizeSheet({
         role="dialog"
         aria-modal="true"
         aria-label="Customize overview"
-        className="relative flex h-full w-full max-w-md flex-col border-l border-edge-default bg-surface-raised shadow-2xl"
+        className={`relative flex h-full w-full flex-col border-l border-edge-default bg-surface-raised shadow-2xl ${width.className}`}
       >
         <header className="flex items-start justify-between gap-4 border-b border-edge-default px-5 py-4">
           <div>
@@ -2151,14 +2333,17 @@ function CustomizeSheet({
               </button>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
-          >
-            <IconClose />
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+            >
+              <IconClose />
+            </button>
+          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-5">
@@ -2176,7 +2361,7 @@ function CustomizeSheet({
                     {onCount}/{list.length}
                   </span>
                 </div>
-                <ul className="space-y-1.5">
+                <ul className={width.wide ? 'grid gap-1.5 lg:grid-cols-2 2xl:grid-cols-3' : 'space-y-1.5'}>
                   {list.map((def) => {
                     const id = def.id
                     const on = enabled.has(id)

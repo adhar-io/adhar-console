@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Button, EmptyState, Spinner, Textarea } from '@adhar/shell-ui';
+import { Button, EmptyState, Textarea } from '@adhar/shell-ui';
 import { formatRelative } from '@adhar/utils';
 import { type RepoIssue, useCreateComment, useIssue, useSetLabels, useUpdateIssue } from '../data/git.ts';
 import { IconExternal } from './repo-bits.tsx';
-import { CloseButton, Drawer, IssueStateBadge, IssueStateIcon } from './list-kit.tsx';
+import { CloseButton, Drawer, IssueStateBadge, IssueStateIcon, ItemSkeleton } from './list-kit.tsx';
 import { AssigneesEditor, Conversation, EditableTitle, LabelsEditor, SideSection, TimelineEvent, useAct } from './tracker-bits.tsx';
 
 /**
@@ -22,10 +22,10 @@ export function IssueDrawer({ seed, repo, index, onClose }: { seed?: RepoIssue; 
 
   if (!issue) {
     return (
-      <Drawer onClose={onClose} header={<div className='flex justify-between'><span className='text-sm text-content-muted'>{repo} #{index}</span><CloseButton onClick={onClose} /></div>}>
+      <Drawer onClose={onClose} widthId='develop.issue' header={<div className='flex justify-between'><span className='text-sm text-content-muted'>{repo} #{index}</span><CloseButton onClick={onClose} /></div>}>
         {q.isError
           ? <EmptyState compact title='Issue not found' description={q.error instanceof Error ? q.error.message : ''} />
-          : <div className='flex items-center gap-2 text-sm text-content-muted'><Spinner size={12} /> Loading issue…</div>}
+          : <ItemSkeleton label='Loading issue' />}
       </Drawer>
     );
   }
@@ -42,6 +42,7 @@ export function IssueDrawer({ seed, repo, index, onClose }: { seed?: RepoIssue; 
   return (
     <Drawer
       onClose={onClose}
+      widthId='develop.issue'
       header={
         <div className='flex items-start justify-between gap-4'>
           <div className='min-w-0 flex-1'>

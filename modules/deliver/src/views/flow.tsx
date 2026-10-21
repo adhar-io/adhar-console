@@ -10,6 +10,8 @@ import {
   useClickOutside,
   useTeamProjects,
   useToast,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui';
 import { cn } from '@adhar/utils';
 import { type argocd, kargo } from '@adhar/api-clients';
@@ -991,6 +993,7 @@ function StageDrawer(
     onClose(): void;
   },
 ) {
+  const width = useDrawerWidth('deliver.flow-stage', { base: 'max-w-lg' });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -1015,7 +1018,7 @@ function StageDrawer(
         className='absolute inset-0 bg-scrim/40 backdrop-blur-[2px]'
         onClick={onClose}
       />
-      <aside className='relative flex h-full w-full max-w-lg flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl'>
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl', width.className)}>
         <header className='flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-5 py-4'>
           <div className='min-w-0'>
             <div className='text-[11px] font-semibold uppercase tracking-wider text-content-subtle'>
@@ -1035,25 +1038,28 @@ function StageDrawer(
             </div>
             <p className='mt-1 text-[12px] text-content-muted'>{s.detail}</p>
           </div>
-          <button
-            type='button'
-            onClick={onClose}
-            aria-label='Close'
-            className='flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content'
-          >
-            <svg
-              width='14'
-              height='14'
-              viewBox='0 0 24 24'
-              fill='none'
-              stroke='currentColor'
-              strokeWidth='2.25'
-              strokeLinecap='round'
-              aria-hidden
+          <div className='flex shrink-0 items-center gap-1'>
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
+            <button
+              type='button'
+              onClick={onClose}
+              aria-label='Close'
+              className='flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content'
             >
-              <path d='M18 6 6 18M6 6l12 12' />
-            </svg>
-          </button>
+              <svg
+                width='14'
+                height='14'
+                viewBox='0 0 24 24'
+                fill='none'
+                stroke='currentColor'
+                strokeWidth='2.25'
+                strokeLinecap='round'
+                aria-hidden
+              >
+                <path d='M18 6 6 18M6 6l12 12' />
+              </svg>
+            </button>
+          </div>
         </header>
         <div className='flex-1 space-y-5 overflow-y-auto px-5 py-4'>
           {s.why.length

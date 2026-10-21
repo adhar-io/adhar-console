@@ -139,6 +139,7 @@ function SessionDrawer({ r, onClose }: { r: Recording; onClose(): void }) {
   const t0 = r.start ? new Date(r.start).getTime() : 0
   return (
     <Drawer
+      widthId="discover.session"
       open
       onClose={onClose}
       title={r.personName}

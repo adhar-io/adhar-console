@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { memo, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
   Checkbox,
@@ -7,24 +7,24 @@ import {
   Input,
   Modal,
   Select,
-  Spinner,
   Textarea,
-  useClickOutside,
+  useMediaQuery,
   useToast,
 } from '@adhar/shell-ui';
 import { cn, formatRelative } from '@adhar/utils';
 import type { gitea } from '@adhar/api-clients';
 import { groupByOwner, repoOwner } from '../data/repo-grouping.ts';
 import {
-  useAllOpenPullRequests,
   useCreateRepo,
   useDeleteRepo,
+  useOpenPrCounts,
+  usePrefetchRepo,
   useRepos,
   useUpdateRepo,
 } from '../data/git.ts';
 import { RepoMark } from '../components/repo-picker.tsx';
 import { useDevelopParams, useSetDevelopParams } from '../data/nav.ts';
-import { Chip, ChipGroup, FilterSection, I, IconFilter, IconRows, IconSort, LayoutBtn, MenuItem, Popover, Segmented, StatTile, ToolbarBtn } from '../components/list-kit.tsx';
+import { Chip, ChipGroup, FilterSection, GiteaError, IconFilter, IconRows, IconSort, LayoutBtn, MenuItem, Popover, Segmented, StatTile, ToolbarBtn } from '../components/list-kit.tsx';
 import { RepoDrawer } from '../components/repo-drawer.tsx';
 import { CloudEnvLaunch } from '../components/cloud-env-launch.tsx';
 import { copy, fmtKb, IconGrid, IconList, IconMore, IconPlus, IconRefresh, IconSearch, langColor, RepoBadges } from '../components/repo-bits.tsx';
@@ -83,11 +83,29 @@ const ACTIVITY_LABEL: Record<Activity, string> = {
 };
 
 const WEEK_MS = 7 * 86_400_000;
+
+/**
+ * Paint the first screenful of rows now and the rest right after, as a
+ * low-priority render — mounting 150 rows in one go held the first paint of
+ * the page (and of Back to it) for ~90 ms.
+ */
+function useProgressive(total: number, first = 30): number {
+  const [n, setN] = useState(first);
+  useEffect(() => {
+    if (n >= total) return;
+    const id = requestAnimationFrame(() => startTransition(() => setN(Number.POSITIVE_INFINITY)));
+    return () => cancelAnimationFrame(id);
+  }, [n, total]);
+  return Math.min(n, total);
+}
 const STALE_MS = 90 * 86_400_000;
 
 export function RepoList() {
   const q = useRepos();
-  const prs = useAllOpenPullRequests();
+  // Open PR counts come off the repo list itself (`open_pr_counter`): no
+  // per-repository requests competing with the clicks on this page.
+  const { counts: prCount, isLoading: prCountLoading } = useOpenPrCounts();
+  const prefetchRepo = usePrefetchRepo();
   const toast = useToast();
   const update = useUpdateRepo();
   const del = useDeleteRepo();
@@ -104,6 +122,10 @@ export function RepoList() {
   // and the other Develop pages can link straight to a repository's details.
   const openName = params.repo ?? null;
   const setOpenName = useCallback((name: string | null) => setParams({ repo: name ?? undefined, tab: undefined }), [setParams]);
+  // Typing stays at keyboard speed: the input updates now, the filtered and
+  // sorted list follows as a low-priority render.
+  const deferredSearch = useDeferredValue(search);
+  const [refreshing, setRefreshing] = useState(false);
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<gitea.Repo | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -130,11 +152,6 @@ export function RepoList() {
   }, []);
 
   const all = useMemo(() => q.data ?? [], [q.data]);
-  const prCount = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const p of prs.data ?? []) m.set(p.repo, (m.get(p.repo) ?? 0) + 1);
-    return m;
-  }, [prs.data]);
 
   const languages = useMemo(() => {
     const m = new Map<string, number>();
@@ -149,7 +166,7 @@ export function RepoList() {
 
   const now = Date.now();
   const list = useMemo(() => {
-    const f = search.trim().toLowerCase();
+    const f = deferredSearch.trim().toLowerCase();
     let out = all.filter((r) => {
       if (visibility === 'public' && r.private) return false;
       if (visibility === 'private' && !r.private) return false;
@@ -198,9 +215,15 @@ export function RepoList() {
     };
     out.sort((a, b) => sign * cmp(a, b) || a.name.localeCompare(b.name));
     return out;
-  }, [all, search, visibility, state, language, topic, activity, prefs.sort, prefs.dir, prCount, now]);
+  }, [all, deferredSearch, visibility, state, language, topic, activity, prefs.sort, prefs.dir, prCount, now]);
 
   const open = all.find((r) => r.name === openName) ?? null;
+  const shownCount = useProgressive(list.length);
+  // A nine-column table cannot fit a phone; there the table layout reads as
+  // the compact list (the preference itself is kept for wider screens).
+  const wide = useMediaQuery('(min-width: 640px)');
+  const layout: Layout = !wide && prefs.layout === 'table' ? 'compact' : prefs.layout;
+  const shown = useMemo(() => list.slice(0, shownCount), [list, shownCount]);
 
   const stats = useMemo(() => {
     const active = all.filter((r) => !r.archived);
@@ -220,14 +243,14 @@ export function RepoList() {
     };
   }, [all, prCount, now]);
 
-  const act = async (label: string, fn: () => Promise<unknown>) => {
+  const act = useCallback(async (label: string, fn: () => Promise<unknown>) => {
     try {
       await fn();
       toast.success(label);
     } catch (e) {
       toast.error(label, { description: e instanceof Error ? e.message : String(e) });
     }
-  };
+  }, [toast]);
 
   const setSort = (key: SortKey, dir?: Dir) =>
     setPrefs((p) => ({
@@ -252,27 +275,24 @@ export function RepoList() {
     setActivity('any');
   };
 
-  const menuFor = (r: gitea.Repo) => ({
-    onOpen: () => setOpenName(r.name),
-    onArchive: () => act(r.archived ? `Unarchived ${r.name}` : `Archived ${r.name}`, () => update.mutateAsync({ repo: r.name, body: { archived: !r.archived } })),
-    onDelete: () => setConfirmDelete(r),
-  });
+  // Stable row actions, so opening a drawer (a URL change that re-renders
+  // this page) does not re-render all the memoised rows.
+  const { mutateAsync: updateRepo } = update;
+  const actions = useMemo<RowActions>(() => ({
+    open: (r) => setOpenName(r.name),
+    archive: (r) => act(r.archived ? `Unarchived ${r.name}` : `Archived ${r.name}`, () => updateRepo({ repo: r.name, body: { archived: !r.archived } })),
+    remove: (r) => setConfirmDelete(r),
+    prefetch: prefetchRepo,
+  }), [setOpenName, act, updateRepo, prefetchRepo]);
 
-  if (q.isLoading) {
-    return (
-      <div className='flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm'>
-        <Spinner size={14} /> Loading repositories…
-      </div>
-    );
-  }
-  if (q.isError) {
-    return (
-      <EmptyState
-        title="Couldn't reach Gitea"
-        description={q.error instanceof Error ? q.error.message : 'Unknown error.'}
-        action={<Button size='sm' variant='secondary' onClick={() => q.refetch()}>Retry</Button>}
-      />
-    );
+  const refresh = () => {
+    setRefreshing(true);
+    void q.refetch().finally(() => setRefreshing(false));
+  };
+
+  if (q.isLoading) return <RepoListSkeleton layout={prefs.layout} />;
+  if (q.isError && !q.data) {
+    return <GiteaError what='repositories' error={q.error} onRetry={() => q.refetch()} retrying={q.isFetching} />;
   }
 
   const sortDef = SORTS.find((s) => s.key === prefs.sort) ?? SORTS[0];
@@ -285,7 +305,7 @@ export function RepoList() {
         <StatTile label='Private' value={stats.priv} tone='slate' on={visibility === 'private'} onClick={() => setVisibility(visibility === 'private' ? 'all' : 'private')} />
         <StatTile label='Public' value={stats.pub} tone='info' on={visibility === 'public'} onClick={() => setVisibility(visibility === 'public' ? 'all' : 'public')} />
         <StatTile label='Open issues' value={stats.issues} tone={stats.issues > 0 ? 'amber' : 'emerald'} on={activity === 'issues'} hint={activity === 'issues' ? 'showing those' : 'click to show'} onClick={() => setActivity(activity === 'issues' ? 'any' : 'issues')} />
-        <StatTile label='Open PRs' value={prs.isLoading ? '…' : stats.prs} tone={stats.prs > 0 ? 'brand' : 'slate'} on={activity === 'prs'} hint={activity === 'prs' ? 'showing those' : 'across the org'} onClick={() => setActivity(activity === 'prs' ? 'any' : 'prs')} />
+        <StatTile label='Open PRs' value={prCountLoading ? '…' : stats.prs} tone={stats.prs > 0 ? 'brand' : 'slate'} on={activity === 'prs'} hint={activity === 'prs' ? 'showing those' : 'across the org'} onClick={() => setActivity(activity === 'prs' ? 'any' : 'prs')} />
         <StatTile label='Active this week' value={stats.recent} tone='emerald' on={activity === 'recent'} hint='updated in 7 days' onClick={() => setActivity(activity === 'recent' ? 'any' : 'recent')} />
         <StatTile label='Templates' value={stats.templates} tone='violet' on={state === 'template'} hint={`${stats.archived} archived`} onClick={() => setState(state === 'template' ? 'active' : 'template')} />
         <StatTile label='Storage' value={fmtKb(stats.size)} hint={`${stats.stars} stars · ${stats.forks} forks`} />
@@ -334,8 +354,8 @@ export function RepoList() {
           </div>
 
           <div className='ml-auto flex items-center gap-1.5'>
-            <Button size='sm' variant='secondary' onClick={() => { q.refetch(); prs.refetch(); }} title='Refresh' aria-label='Refresh'>
-              <IconRefresh />
+            <Button size='sm' variant='secondary' onClick={refresh} loading={refreshing} title='Refresh' aria-label='Refresh'>
+              {refreshing ? null : <IconRefresh />}
             </Button>
             <Button size='sm' variant='primary' onClick={() => setCreating(true)}>
               <IconPlus /> New repository
@@ -367,34 +387,34 @@ export function RepoList() {
               ? 'Create the first repository in this org, or push one with git.'
               : 'Try a different search or clear the filters.'}
             action={all.length === 0
-              ? <Button size='sm' onClick={() => setCreating(true)}><IconPlus /> New repository</Button>
+              ? <Button variant='primary' size='sm' onClick={() => setCreating(true)}><IconPlus /> New repository</Button>
               : <Button size='sm' variant='secondary' onClick={clearAll}>Clear filters</Button>}
           />
         )
-        : prefs.layout === 'grid'
+        : layout === 'grid'
         ? (
           <div className='flex flex-col gap-4'>
-            {groupByOwner(list).map((g) => (
+            {groupByOwner(shown).map((g) => (
               <section key={g.owner || '_'}>
                 {g.owner ? <OwnerHeading owner={g.owner} count={g.repos.length} /> : null}
                 <div className='grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3'>
                   {g.repos.map((r) => (
-                    <RepoCard key={r.id} repo={r} prs={prCount.get(r.name) ?? 0} {...menuFor(r)} />
+                    <RepoCard key={r.id} repo={r} prs={prCount.get(r.name) ?? 0} selected={r.name === openName} actions={actions} />
                   ))}
                 </div>
               </section>
             ))}
           </div>
         )
-        : prefs.layout === 'compact'
+        : layout === 'compact'
         ? (
           <div className='flex flex-col gap-4'>
-            {groupByOwner(list).map((g) => (
+            {groupByOwner(shown).map((g) => (
               <section key={g.owner || '_'}>
                 {g.owner ? <OwnerHeading owner={g.owner} count={g.repos.length} /> : null}
                 <div className='divide-y divide-edge-subtle rounded-xl border border-edge-default bg-surface-raised'>
                   {g.repos.map((r) => (
-                    <RepoRow key={r.id} repo={r} prs={prCount.get(r.name) ?? 0} {...menuFor(r)} />
+                    <RepoRow key={r.id} repo={r} prs={prCount.get(r.name) ?? 0} selected={r.name === openName} actions={actions} />
                   ))}
                 </div>
               </section>
@@ -402,7 +422,7 @@ export function RepoList() {
           </div>
         )
         : (
-          <RepoTable rows={list} prCount={prCount} sort={prefs.sort} dir={prefs.dir} onSort={setSort} menuFor={menuFor} />
+          <RepoTable rows={shown} prCount={prCount} sort={prefs.sort} dir={prefs.dir} onSort={setSort} actions={actions} openName={openName} />
         )}
 
       {open ? <RepoDrawer repo={open} tab={params.tab} onTab={(t) => setParams({ tab: t === 'overview' ? undefined : t })} onClose={() => setOpenName(null)} onDeleted={() => setOpenName(null)} /> : null}
@@ -421,7 +441,7 @@ export function RepoList() {
             <Button
               variant='danger'
               size='sm'
-              disabled={del.isPending}
+              loading={del.isPending}
               onClick={() => {
                 const r = confirmDelete!;
                 act(`Deleted ${r.name}`, () => del.mutateAsync(r.name)).then(() => {
@@ -430,7 +450,7 @@ export function RepoList() {
                 });
               }}
             >
-              {del.isPending ? <Spinner size={12} /> : null} Delete repository
+              Delete repository
             </Button>
           </div>
         }
@@ -539,6 +559,36 @@ interface RepoActions {
   onDelete(): void;
 }
 
+/** Row actions shared by every layout — one stable object for the whole list. */
+interface RowActions {
+  open(r: gitea.Repo): void;
+  archive(r: gitea.Repo): void;
+  remove(r: gitea.Repo): void;
+  prefetch(r: gitea.Repo): void;
+}
+
+/**
+ * Hover / focus intent: warm the drawer's data once the pointer has rested on
+ * a row for a beat, so the click that usually follows is a cache hit. A
+ * pointer sweeping across the list fires nothing.
+ */
+function useIntent(r: gitea.Repo, prefetch: (r: gitea.Repo) => void) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancel = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+  }, []);
+  useEffect(() => cancel, [cancel]);
+  return useMemo(() => ({
+    onPointerEnter: () => {
+      cancel();
+      timer.current = setTimeout(() => prefetch(r), 120);
+    },
+    onPointerLeave: cancel,
+    onFocus: () => prefetch(r),
+  }), [r, prefetch, cancel]);
+}
+
 function RepoMenu({ repo: r, onOpen, onArchive, onDelete, align = 'right' }: { repo: gitea.Repo; align?: 'left' | 'right' } & RepoActions) {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
@@ -606,17 +656,23 @@ function OwnerHeading({ owner, count }: { owner: string; count: number }) {
   );
 }
 
-function RepoCard({ repo: r, prs, onOpen, onArchive, onDelete }: { repo: gitea.Repo; prs: number } & RepoActions) {
+const RepoCard = memo(function RepoCard({ repo: r, prs, selected, actions }: { repo: gitea.Repo; prs: number; selected: boolean; actions: RowActions }) {
   const topics = (r.topics ?? []).slice(0, 4);
+  const intent = useIntent(r, actions.prefetch);
+  const onOpen = () => actions.open(r);
+  const onArchive = () => actions.archive(r);
+  const onDelete = () => actions.remove(r);
   return (
     <div
       role='button'
       tabIndex={0}
+      aria-current={selected || undefined}
       onClick={onOpen}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
+      {...intent}
       className={cn(
-        'group relative flex h-full min-h-56 flex-col overflow-hidden rounded-xl border bg-surface-raised text-left shadow-sm transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500',
-        r.archived ? 'border-edge-subtle opacity-80' : 'border-edge-default',
+        'group relative flex h-full min-h-56 flex-col overflow-hidden rounded-xl border bg-surface-raised text-left shadow-sm transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500 active:translate-y-0 active:shadow-sm',
+        selected ? 'border-brand-400 ring-2 ring-brand-500/25' : r.archived ? 'border-edge-subtle opacity-80' : 'border-edge-default',
       )}
     >
       <span aria-hidden className='absolute inset-y-0 left-0 w-1' style={{ background: langColor(r.language) }} />
@@ -659,18 +715,24 @@ function RepoCard({ repo: r, prs, onOpen, onArchive, onDelete }: { repo: gitea.R
       </div>
     </div>
   );
-}
+});
 
 /* ─────────── compact rows ─────────── */
 
-function RepoRow({ repo: r, prs, onOpen, onArchive, onDelete }: { repo: gitea.Repo; prs: number } & RepoActions) {
+const RepoRow = memo(function RepoRow({ repo: r, prs, selected, actions }: { repo: gitea.Repo; prs: number; selected: boolean; actions: RowActions }) {
+  const intent = useIntent(r, actions.prefetch);
+  const onOpen = () => actions.open(r);
+  const onArchive = () => actions.archive(r);
+  const onDelete = () => actions.remove(r);
   return (
     <div
       role='button'
       tabIndex={0}
+      aria-current={selected || undefined}
       onClick={onOpen}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
-      className={cn('group flex items-center gap-3 px-3 py-2 transition-colors first:rounded-t-xl last:rounded-b-xl hover:bg-surface-sunken/50', r.archived && 'opacity-70')}
+      {...intent}
+      className={cn('group flex items-center gap-3 px-3 py-2 transition-colors first:rounded-t-xl last:rounded-b-xl hover:bg-surface-sunken/50 active:bg-surface-sunken', selected && 'bg-brand-50/70 dark:bg-brand-500/10', r.archived && 'opacity-70')}
     >
       <RepoMark name={r.name} />
       <div className='min-w-0 flex-1'>
@@ -691,7 +753,7 @@ function RepoRow({ repo: r, prs, onOpen, onArchive, onDelete }: { repo: gitea.Re
       <RepoMenu repo={r} onOpen={onOpen} onArchive={onArchive} onDelete={onDelete} />
     </div>
   );
-}
+});
 
 /* ─────────── table ─────────── */
 
@@ -699,80 +761,172 @@ const COLUMNS: Array<{ key: SortKey | 'language' | 'branch'; label: string; sort
   { key: 'name', label: 'Repository', sortable: true, className: 'min-w-0' },
   { key: 'language', label: 'Language', sortable: false, className: 'hidden md:table-cell w-32' },
   { key: 'branch', label: 'Branch', sortable: false, className: 'hidden xl:table-cell w-24' },
-  { key: 'issues', label: 'Issues', sortable: true, className: 'w-20', align: 'right' },
-  { key: 'prs', label: 'PRs', sortable: true, className: 'w-16', align: 'right' },
+  { key: 'issues', label: 'Issues', sortable: true, className: 'w-16 sm:w-20', align: 'right' },
+  { key: 'prs', label: 'PRs', sortable: true, className: 'hidden sm:table-cell w-16', align: 'right' },
   { key: 'stars', label: 'Stars', sortable: true, className: 'hidden lg:table-cell w-16', align: 'right' },
   { key: 'size', label: 'Size', sortable: true, className: 'hidden lg:table-cell w-20', align: 'right' },
-  { key: 'updated', label: 'Updated', sortable: true, className: 'w-28' },
+  { key: 'updated', label: 'Updated', sortable: true, className: 'hidden sm:table-cell w-28' },
 ];
 
-function RepoTable({ rows, prCount, sort, dir, onSort, menuFor }: {
+function RepoTable({ rows, prCount, sort, dir, onSort, actions, openName }: {
   rows: gitea.Repo[];
   prCount: Map<string, number>;
   sort: SortKey;
   dir: Dir;
   onSort(k: SortKey): void;
-  menuFor(r: gitea.Repo): RepoActions;
+  actions: RowActions;
+  openName: string | null;
 }) {
   return (
     <div className='overflow-hidden rounded-xl border border-edge-default bg-surface-raised'>
       <table className='w-full table-fixed text-left text-xs'>
-        <thead className='bg-surface-sunken/60 text-[10px] font-semibold uppercase tracking-wider text-content-subtle'>
-          <tr>
-            {COLUMNS.map((c) => {
-              const on = c.sortable && c.key === sort;
-              return (
-                <th key={c.key} scope='col' aria-sort={on ? (dir === 'asc' ? 'ascending' : 'descending') : undefined} className={cn('px-3 py-2', c.className, c.align === 'right' && 'text-right')}>
-                  {c.sortable ? (
-                    <button type='button' onClick={() => onSort(c.key as SortKey)} className={cn('inline-flex items-center gap-1 uppercase tracking-wider transition-colors hover:text-content', on && 'text-content')}>
-                      {c.label}
-                      <span className={cn('text-[9px]', on ? 'opacity-100' : 'opacity-0')}>{on && dir === 'asc' ? '↑' : '↓'}</span>
-                    </button>
-                  ) : c.label}
-                </th>
-              );
-            })}
-            <th scope='col' className='w-20 px-3 py-2 text-right'><span className='sr-only'>Actions</span></th>
-          </tr>
-        </thead>
+        <RepoTableHead sort={sort} dir={dir} onSort={onSort} />
         <tbody className='divide-y divide-edge-subtle'>
-          {rows.map((r) => {
-            const a = menuFor(r);
-            const prs = prCount.get(r.name) ?? 0;
-            return (
-              <tr key={r.id} className={cn('group cursor-pointer transition-colors hover:bg-surface-sunken/40', r.archived && 'opacity-70')} onClick={a.onOpen}>
-                <td className='px-3 py-2'>
-                  <div className='flex items-center gap-2.5'>
-                    <RepoMark name={r.name} />
-                    <div className='min-w-0'>
-                      <div className='flex flex-wrap items-center gap-1.5'>
-                        <RepoName repo={r} className='font-semibold text-content' />
-                        <RepoBadges repo={r} compact />
-                      </div>
-                      {r.description ? <div className='truncate text-[11px] text-content-muted'>{r.description}</div> : null}
-                    </div>
-                  </div>
-                </td>
-                <td className='hidden px-3 py-2 text-content-muted md:table-cell'>
-                  {r.language ? <span className='flex items-center gap-1.5 truncate'><i className='h-2 w-2 shrink-0 rounded-full' style={{ background: langColor(r.language) }} />{r.language}</span> : <span className='text-content-subtle'>—</span>}
-                </td>
-                <td className='hidden truncate px-3 py-2 font-mono text-[11px] text-content-muted xl:table-cell'>{r.default_branch}</td>
-                <td className={cn('px-3 py-2 text-right tabular-nums', r.open_issues_count > 0 ? 'font-medium text-amber-700 dark:text-amber-300' : 'text-content-subtle')}>{r.open_issues_count}</td>
-                <td className={cn('px-3 py-2 text-right tabular-nums', prs > 0 ? 'font-medium text-brand-700 dark:text-brand-300' : 'text-content-subtle')}>{prs}</td>
-                <td className='hidden px-3 py-2 text-right tabular-nums text-content-muted lg:table-cell'>{r.stars_count}</td>
-                <td className='hidden px-3 py-2 text-right font-mono text-[11px] text-content-subtle lg:table-cell'>{r.size !== undefined ? fmtKb(r.size) : '—'}</td>
-                <td className='truncate px-3 py-2 text-content-muted' title={r.updated_at}>{formatRelative(r.updated_at)}</td>
-                <td className='px-2 py-2' onClick={(e) => e.stopPropagation()}>
-                  <div className='flex items-center justify-end gap-0.5'>
-                    {r.empty || r.archived ? null : <CloudEnvLaunch repo={r.name} cloneUrl={r.clone_url ?? `${r.html_url}.git`} compact />}
-                    <RepoMenu repo={r} {...a} />
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
+          {rows.map((r) => <RepoTableRow key={r.id} repo={r} prs={prCount.get(r.name) ?? 0} selected={r.name === openName} actions={actions} />)}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function RepoTableHead({ sort, dir, onSort }: { sort: SortKey; dir: Dir; onSort(k: SortKey): void }) {
+  return (
+    <thead className='bg-surface-sunken/60 text-[10px] font-semibold uppercase tracking-wider text-content-subtle'>
+      <tr>
+        {COLUMNS.map((c) => {
+          const on = c.sortable && c.key === sort;
+          return (
+            <th key={c.key} scope='col' aria-sort={on ? (dir === 'asc' ? 'ascending' : 'descending') : undefined} className={cn('px-3 py-2', c.className, c.align === 'right' && 'text-right')}>
+              {c.sortable ? (
+                <button type='button' onClick={() => onSort(c.key as SortKey)} className={cn('inline-flex items-center gap-1 uppercase tracking-wider transition-colors hover:text-content', on && 'text-content')}>
+                  {c.label}
+                  <span className={cn('text-[9px]', on ? 'opacity-100' : 'opacity-0')}>{on && dir === 'asc' ? '↑' : '↓'}</span>
+                </button>
+              ) : c.label}
+            </th>
+          );
+        })}
+        <th scope='col' className='w-20 px-3 py-2 text-right'><span className='sr-only'>Actions</span></th>
+      </tr>
+    </thead>
+  );
+}
+
+/** One table row — memoised: a drawer opening re-renders the page, not 150 rows. */
+const RepoTableRow = memo(function RepoTableRow({ repo: r, prs, selected, actions }: { repo: gitea.Repo; prs: number; selected: boolean; actions: RowActions }) {
+  const intent = useIntent(r, actions.prefetch);
+  return (
+    <tr
+      aria-current={selected || undefined}
+      className={cn(
+        'group cursor-pointer transition-colors hover:bg-surface-sunken/40 active:bg-surface-sunken/70',
+        selected && 'bg-brand-50/70 hover:bg-brand-50 dark:bg-brand-500/10 dark:hover:bg-brand-500/15',
+        r.archived && 'opacity-70',
+      )}
+      onClick={() => actions.open(r)}
+      {...intent}
+    >
+      <td className='px-3 py-2'>
+        <div className='flex items-center gap-2.5'>
+          <RepoMark name={r.name} />
+          <div className='min-w-0'>
+            <div className='flex flex-wrap items-center gap-1.5'>
+              {/* A real control inside the row, so keyboard users can open it. */}
+              <button type='button' onClick={(e) => { e.stopPropagation(); actions.open(r); }} className='min-w-0 truncate text-left focus-visible:underline focus-visible:outline-none'>
+                <RepoName repo={r} className='font-semibold text-content' />
+              </button>
+              <RepoBadges repo={r} compact />
+            </div>
+            {r.description ? <div className='truncate text-[11px] text-content-muted'>{r.description}</div> : null}
+          </div>
+        </div>
+      </td>
+      <td className='hidden px-3 py-2 text-content-muted md:table-cell'>
+        {r.language ? <span className='flex items-center gap-1.5 truncate'><i className='h-2 w-2 shrink-0 rounded-full' style={{ background: langColor(r.language) }} />{r.language}</span> : <span className='text-content-subtle'>—</span>}
+      </td>
+      <td className='hidden truncate px-3 py-2 font-mono text-[11px] text-content-muted xl:table-cell'>{r.default_branch}</td>
+      <td className={cn('px-3 py-2 text-right tabular-nums', r.open_issues_count > 0 ? 'font-medium text-amber-700 dark:text-amber-300' : 'text-content-subtle')}>{r.open_issues_count}</td>
+      <td className={cn('hidden px-3 py-2 text-right tabular-nums sm:table-cell', prs > 0 ? 'font-medium text-brand-700 dark:text-brand-300' : 'text-content-subtle')}>{prs}</td>
+      <td className='hidden px-3 py-2 text-right tabular-nums text-content-muted lg:table-cell'>{r.stars_count}</td>
+      <td className='hidden px-3 py-2 text-right font-mono text-[11px] text-content-subtle lg:table-cell'>{r.size !== undefined ? fmtKb(r.size) : '—'}</td>
+      <td className='hidden truncate px-3 py-2 text-content-muted sm:table-cell' title={r.updated_at}>{formatRelative(r.updated_at)}</td>
+      <td className='px-2 py-2' onClick={(e) => e.stopPropagation()}>
+        <div className='flex items-center justify-end gap-0.5'>
+          {r.empty || r.archived ? null : <CloudEnvLaunch repo={r.name} cloneUrl={r.clone_url ?? `${r.html_url}.git`} compact />}
+          <RepoMenu repo={r} onOpen={() => actions.open(r)} onArchive={() => actions.archive(r)} onDelete={() => actions.remove(r)} />
+        </div>
+      </td>
+    </tr>
+  );
+});
+
+/**
+ * First paint while Gitea lists the org: the page's real frame — stat strip,
+ * toolbar and the rows of the chosen layout — in skeleton, so nothing jumps
+ * when the list lands.
+ */
+function RepoListSkeleton({ layout }: { layout: Layout }) {
+  return (
+    <div role='status' aria-busy='true' aria-label='Loading repositories from Gitea' className='space-y-4'>
+      <div className='grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8'>
+        {Array.from({ length: 8 }, (_, i) => (
+          <div key={i} className='flex h-[58px] flex-col justify-center gap-1.5 rounded-xl border border-edge-default bg-surface-raised px-3'>
+            <span className='skeleton-shimmer block h-2.5 w-16 rounded' style={{ animationDelay: `${i * 50}ms` }} />
+            <span className='skeleton-shimmer block h-4 w-10 rounded' style={{ animationDelay: `${i * 50 + 25}ms` }} />
+          </div>
+        ))}
+      </div>
+      <div className='rounded-xl border border-edge-default bg-surface-raised p-2 shadow-sm'>
+        <div className='flex flex-wrap items-center gap-2'>
+          <span className='skeleton-shimmer block h-9 min-w-0 flex-1 basis-64 rounded-lg' />
+          <span className='skeleton-shimmer block h-9 w-24 rounded-lg' />
+          <span className='skeleton-shimmer hidden h-9 w-36 rounded-lg sm:block' />
+          <span className='skeleton-shimmer ml-auto block h-8 w-36 rounded-md' />
+        </div>
+        <span className='skeleton-shimmer mt-2.5 block h-2.5 w-40 rounded' />
+      </div>
+      {layout === 'grid'
+        ? (
+          <div className='grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3'>
+            {Array.from({ length: 6 }, (_, i) => (
+              <div key={i} className='min-h-56 space-y-3 rounded-xl border border-edge-default bg-surface-raised p-4'>
+                <div className='flex items-center gap-3'>
+                  <span className='skeleton-shimmer block h-9 w-9 rounded-lg' />
+                  <div className='flex-1 space-y-1.5'>
+                    <span className='skeleton-shimmer block h-3.5 w-2/3 rounded' />
+                    <span className='skeleton-shimmer block h-2.5 w-1/3 rounded' />
+                  </div>
+                </div>
+                <span className='skeleton-shimmer block h-2.5 w-full rounded' />
+                <span className='skeleton-shimmer block h-2.5 w-4/5 rounded' />
+                <div className='grid grid-cols-4 gap-1.5 pt-2'>
+                  {Array.from({ length: 4 }, (_, k) => <span key={k} className='skeleton-shimmer block h-10 rounded-md' />)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+        : (
+          <div className='overflow-hidden rounded-xl border border-edge-default bg-surface-raised'>
+            <div className='h-8 border-b border-edge-subtle bg-surface-sunken/60' />
+            <ul className='divide-y divide-edge-subtle'>
+              {Array.from({ length: 10 }, (_, i) => (
+                <li key={i} className='flex items-center gap-3 px-3 py-2.5'>
+                  <span className='skeleton-shimmer block h-8 w-8 shrink-0 rounded-lg' style={{ animationDelay: `${i * 45}ms` }} />
+                  <div className='min-w-0 flex-1 space-y-1.5'>
+                    <span className='skeleton-shimmer block h-3 rounded' style={{ width: `${38 + ((i * 17) % 30)}%`, animationDelay: `${i * 45}ms` }} />
+                    <span className='skeleton-shimmer block h-2.5 rounded' style={{ width: `${50 + ((i * 11) % 25)}%`, animationDelay: `${i * 45 + 20}ms` }} />
+                  </div>
+                  <span className='skeleton-shimmer hidden h-3 w-16 rounded md:block' />
+                  <span className='skeleton-shimmer block h-3 w-8 rounded' />
+                  <span className='skeleton-shimmer block h-3 w-8 rounded' />
+                  <span className='skeleton-shimmer hidden h-3 w-16 rounded sm:block' />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      <span className='sr-only'>Loading repositories from Gitea…</span>
     </div>
   );
 }
@@ -839,15 +993,15 @@ function CreateRepoModal({ open, onClose, onCreated }: { open: boolean; onClose(
       footer={
         <div className='flex justify-end gap-2'>
           <Button variant='secondary' size='sm' onClick={onClose}>Cancel</Button>
-          <Button size='sm' disabled={!valid || create.isPending} onClick={submit}>
-            {create.isPending ? <Spinner size={12} /> : null} Create repository
+          <Button variant='primary' size='sm' disabled={!valid} loading={create.isPending} onClick={submit}>
+            Create repository
           </Button>
         </div>
       }
     >
       <div className='space-y-3'>
         <Field label='Name' required error={name && !valid ? 'Letters, digits, . _ - only' : undefined}>
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder='my-service' autoFocus onKeyDown={(e) => e.key === 'Enter' && submit()} />
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder='my-service' autoFocus onKeyDown={(e) => e.key === 'Enter' && !create.isPending && submit()} />
         </Field>
         <Field label='Description'>
           <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder='What lives here?' />

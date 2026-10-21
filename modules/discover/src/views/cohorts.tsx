@@ -149,6 +149,7 @@ function CohortDrawer({ c, onClose, onEdit }: { c: RawCohort; onClose(): void; o
   const s = trend.data?.[0]
   return (
     <Drawer
+      widthId="discover.cohort"
       open
       onClose={onClose}
       title={c.name}

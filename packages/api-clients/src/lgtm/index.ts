@@ -172,6 +172,10 @@ export const AlertSchema = z.object({
   description: z.string().optional(),
   runbook_url: z.string().optional(),
   labels: z.record(z.string(), z.string()),
+  /**
+   * ISO time the alert became active, or `''` when the source didn't report
+   * one. Renderers must show "—" for `''` — it is never defaulted to "now".
+   */
   startsAt: z.string(),
   endsAt: z.string().optional(),
   /** Last value of the alert expression. */
@@ -414,7 +418,9 @@ function mapPromAlert(a: PromAlert, expression?: string): Alert {
     description: ann.description,
     runbook_url: ann.runbook_url,
     labels,
-    startsAt: a.activeAt ?? new Date().toISOString(),
+    // Unknown stays unknown — inventing "now" would make a long-running alert
+    // read as just-fired.
+    startsAt: a.activeAt ?? '',
     value: value != null && Number.isFinite(value) ? value : undefined,
     expression,
   }

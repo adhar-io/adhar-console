@@ -8,6 +8,8 @@ import {
   Spinner,
   StatusBadge,
   type StatusKind,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { argocd } from '@adhar/api-clients'
@@ -473,6 +475,7 @@ function EnvDrawer({
   stage?: { name: string; phase: string; lastPromoted?: string }
   onClose: () => void
 }) {
+  const width = useDrawerWidth('deliver.environment', { base: 'max-w-2xl' })
   // Workloads are only readable on a cluster the gateway can reach.
   const live = cluster.local
   const deployments = useNamespaceWorkloads(env.namespace, live)
@@ -508,7 +511,7 @@ function EnvDrawer({
       {/* A real token (`surface-base` is not one — Tailwind emitted no rule and
           the panel rendered transparent). The tinted canvas, so the white
           cards inside read as cards; the header stays raised white. */}
-      <aside className='relative flex h-full w-full max-w-2xl flex-col border-l border-edge-default bg-surface-canvas shadow-2xl'>
+      <aside className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className='flex items-start gap-3 border-b border-edge-subtle bg-surface-raised px-5 py-4'>
           <div className='min-w-0 flex-1'>
             <div className='flex items-center gap-2 text-[11px] text-content-subtle'>
@@ -522,14 +525,17 @@ function EnvDrawer({
             </h2>
           </div>
           <StatusBadge kind={HEALTH_KIND[env.health]}>{HEALTH_LABEL[env.health]}</StatusBadge>
-          <button
-            type='button'
-            onClick={onClose}
-            aria-label='Close'
-            className='rounded-md p-1 text-content-muted hover:bg-surface-sunken hover:text-content'
-          >
-            <IconClose />
-          </button>
+          <div className='flex shrink-0 items-center gap-1'>
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
+            <button
+              type='button'
+              onClick={onClose}
+              aria-label='Close'
+              className='rounded-md p-1 text-content-muted hover:bg-surface-sunken hover:text-content'
+            >
+              <IconClose />
+            </button>
+          </div>
         </header>
 
         <div className='flex-1 space-y-5 overflow-y-auto px-5 py-4'>

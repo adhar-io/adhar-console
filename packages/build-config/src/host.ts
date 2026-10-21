@@ -78,6 +78,19 @@ export function defineHostConfig(opts: HostOpts) {
         mainFields: ['browser', 'module', 'jsnext:main', 'main'],
         conditions: ['browser', 'module', 'import', 'default'],
       },
+      build: {
+        rollupOptions: {
+          output: {
+            // Rollup hoists transitive imports into entry chunks as bare
+            // `import "./x.js"` lines. For the federation host that pulled the
+            // React loadShare chunk — which top-level-awaits the share-scope
+            // init — into `remoteEntry.js`, whose own `init()` is what resolves
+            // that await. The two waited on each other and the production
+            // build stayed on a blank page with no error (2026-10-21).
+            hoistTransitiveImports: false,
+          },
+        },
+      },
       server: {
         port: 5100,
         fs: { allow: ['..', adharUiPath] },

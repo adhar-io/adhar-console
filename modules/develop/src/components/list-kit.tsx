@@ -1,6 +1,6 @@
-import { forwardRef, useCallback, useRef, useState, type ReactNode } from 'react';
+import { createContext, forwardRef, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Spinner, useClickOutside, useOverlayDismiss } from '@adhar/shell-ui';
+import { Button, DrawerWidenButton, type DrawerWidth, useClickOutside, useDrawerWidth, useOverlayDismiss } from '@adhar/shell-ui';
 import { cn } from '@adhar/utils';
 
 /**
@@ -338,10 +338,122 @@ export function LabelPill({ name, color, onClick, on }: { name: string; color: s
 
 /* ─────────── states ─────────── */
 
-export function LoadingBlock({ label }: { label: string }) {
+/**
+ * First-load placeholder for a Develop list: skeleton rows shaped like the
+ * real rows (state icon, title, meta line, avatar), so the page keeps its
+ * layout while Gitea answers. `label` is announced to screen readers.
+ */
+export function LoadingBlock({ label, rows = 6 }: { label: string; rows?: number }) {
   return (
-    <div className='flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm'>
-      <Spinner size={14} /> {label}
+    <div role='status' aria-busy='true' aria-label={label} className='overflow-hidden rounded-xl border border-edge-default bg-surface-raised'>
+      <ListSkeleton rows={rows} />
+      <span className='sr-only'>{label}</span>
+    </div>
+  );
+}
+
+const SKELETON_WIDTHS = ['72%', '54%', '64%', '47%', '68%', '58%', '42%', '61%'];
+
+/** Skeleton rows without a frame — for inside cards and drawer sections. */
+export function ListSkeleton({ rows = 5, avatar = true, dense = false }: { rows?: number; avatar?: boolean; dense?: boolean }) {
+  return (
+    <ul aria-hidden className='divide-y divide-edge-subtle'>
+      {Array.from({ length: rows }, (_, i) => (
+        <li key={i} className={cn('flex items-start gap-3', dense ? 'px-0 py-2.5' : 'px-4 py-3')}>
+          <span className='skeleton-shimmer mt-0.5 h-4 w-4 shrink-0 rounded-full' style={{ animationDelay: `${i * 60}ms` }} />
+          <div className='min-w-0 flex-1 space-y-2'>
+            <span className='skeleton-shimmer block h-3.5 rounded' style={{ width: SKELETON_WIDTHS[i % SKELETON_WIDTHS.length], animationDelay: `${i * 60}ms` }} />
+            <span className='skeleton-shimmer block h-2.5 w-1/3 rounded' style={{ animationDelay: `${i * 60 + 30}ms` }} />
+          </div>
+          {avatar ? <span className='skeleton-shimmer hidden h-5 w-5 shrink-0 rounded-full sm:block' style={{ animationDelay: `${i * 60}ms` }} /> : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * Thin indeterminate bar pinned to the top of its (relative) container — the
+ * signal that newer data is on its way while the current content stays put.
+ */
+export function PendingBar({ active }: { active: boolean }) {
+  if (!active) return null;
+  return (
+    <div data-pending aria-hidden className='pointer-events-none absolute inset-x-0 -top-px z-10 h-0.5 overflow-hidden rounded-full'>
+      <div className='nav-progress-sweep h-full w-full bg-linear-to-r from-brand-500 via-accent-500 to-brand-500' />
+    </div>
+  );
+}
+
+/**
+ * Stale-while-revalidate frame: while `pending` (a new repo, branch or state
+ * is loading over the previous one) the previous content stays visible but
+ * dimmed and inert, under a {@link PendingBar} — instead of blanking to a
+ * spinner on every switch.
+ */
+export function SwapFrame({ pending, streaming = false, children, className }: {
+  pending: boolean;
+  /** First rows are shown and more detail is on its way: bar only, no dimming. */
+  streaming?: boolean;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className='relative' aria-busy={pending || streaming || undefined}>
+      <PendingBar active={pending || streaming} />
+      <div className={cn('transition-opacity duration-150', pending && 'pointer-events-none opacity-55', className)}>{children}</div>
+    </div>
+  );
+}
+
+/**
+ * A tracker item (PR, issue, commit) that is still loading: title, meta line
+ * and a conversation of skeleton cards — the drawer's own shape.
+ */
+export function ItemSkeleton({ label }: { label: string }) {
+  return (
+    <div role='status' aria-busy='true' aria-label={label} className='space-y-5'>
+      <div className='space-y-2.5'>
+        <span className='skeleton-shimmer block h-6 w-2/3 rounded' />
+        <div className='flex flex-wrap items-center gap-2'>
+          <span className='skeleton-shimmer block h-5 w-16 rounded-full' />
+          <span className='skeleton-shimmer block h-3 w-24 rounded' />
+          <span className='skeleton-shimmer block h-3 w-32 rounded' />
+        </div>
+      </div>
+      {[0, 1].map((i) => (
+        <div key={i} className='flex gap-3'>
+          <span className='skeleton-shimmer block h-8 w-8 shrink-0 rounded-full' style={{ animationDelay: `${i * 120}ms` }} />
+          <div className='min-w-0 flex-1 space-y-2 rounded-xl border border-edge-default bg-surface-raised p-4'>
+            <span className='skeleton-shimmer block h-3 w-1/4 rounded' />
+            <span className='skeleton-shimmer block h-2.5 w-full rounded' />
+            <span className='skeleton-shimmer block h-2.5 w-11/12 rounded' />
+            <span className='skeleton-shimmer block h-2.5 w-3/5 rounded' />
+          </div>
+        </div>
+      ))}
+      <span className='sr-only'>{label}</span>
+    </div>
+  );
+}
+
+/**
+ * An honest load failure: names Gitea and what could not be read, shows the
+ * reason, and retries in place.
+ */
+export function GiteaError({ what, error, onRetry, retrying = false, compact = false }: {
+  what: string;
+  error: unknown;
+  onRetry(): void;
+  retrying?: boolean;
+  compact?: boolean;
+}) {
+  const reason = error instanceof Error ? error.message : error ? String(error) : 'Gitea did not answer.';
+  return (
+    <div role='alert' className={cn('flex flex-col items-start gap-2 rounded-xl border border-rose-200 bg-rose-50/60 text-left dark:border-rose-500/30 dark:bg-rose-500/10', compact ? 'p-3' : 'p-5')}>
+      <div className='text-sm font-semibold text-rose-800 dark:text-rose-200'>Couldn't load {what} from Gitea</div>
+      <p className='max-w-prose break-words text-[12px] text-rose-900/80 dark:text-rose-200/80'>{reason}</p>
+      <Button size='xs' variant='secondary' loading={retrying} onClick={onRetry}>Retry</Button>
     </div>
   );
 }
@@ -379,20 +491,29 @@ export function DiffBar({ add = 0, del = 0 }: { add?: number; del?: number }) {
  * Right-hand detail drawer shared by the PR, issue and commit views.
  * Escape and the scrim close it; the body scrolls, header and footer stay.
  */
-export function Drawer({ onClose, header, footer, children, width = 'max-w-4xl' }: {
+/** The drawer's wide-mode state, so the header's CloseButton can put the widen toggle beside it. */
+const DrawerWidthCtx = createContext<DrawerWidth | null>(null);
+
+export function Drawer({ onClose, header, footer, children, width = 'max-w-4xl', widthId = 'develop.drawer' }: {
   onClose(): void;
   header: ReactNode;
   footer?: ReactNode;
   children: ReactNode;
+  /** The standard max width (`max-w-*`, no lg+ breakpoints). */
   width?: string;
+  /** Key the remembered wide-mode preference is stored under. */
+  widthId?: string;
 }) {
   useOverlayDismiss(true, onClose);
+  const wide = useDrawerWidth(widthId, { base: width });
   if (typeof document === 'undefined') return null;
   return createPortal(
     <div className='fixed inset-0 z-50 flex justify-end' role='dialog' aria-modal='true'>
       <button type='button' aria-label='Close' className='absolute inset-0 bg-scrim/40 backdrop-blur-[2px]' onClick={onClose} />
-      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl', width)}>
-        <header className='border-b border-edge-default bg-surface-raised px-5 py-4 sm:px-6'>{header}</header>
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl', wide.className)}>
+        <DrawerWidthCtx.Provider value={wide}>
+          <header className='border-b border-edge-default bg-surface-raised px-5 py-4 sm:px-6'>{header}</header>
+        </DrawerWidthCtx.Provider>
         <div className='flex-1 overflow-y-auto px-5 py-4 sm:px-6'>{children}</div>
         {footer ? <footer className='border-t border-edge-default bg-surface-raised px-5 py-3 sm:px-6'>{footer}</footer> : null}
       </aside>
@@ -401,11 +522,23 @@ export function Drawer({ onClose, header, footer, children, width = 'max-w-4xl' 
   );
 }
 
+/**
+ * The drawer header's Close. Inside a `Drawer` header it brings the widen
+ * toggle with it, so every Develop drawer ends [widen] [close].
+ */
 export function CloseButton({ onClick }: { onClick(): void }) {
-  return (
+  const wide = useContext(DrawerWidthCtx);
+  const close = (
     <button type='button' onClick={onClick} aria-label='Close' className='flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content'>
       <I size={14}><path d='M18 6 6 18' /><path d='m6 6 12 12' /></I>
     </button>
+  );
+  if (!wide) return close;
+  return (
+    <span className='flex shrink-0 items-center gap-1'>
+      <DrawerWidenButton wide={wide.wide} onToggle={wide.toggle} />
+      {close}
+    </span>
   );
 }
 

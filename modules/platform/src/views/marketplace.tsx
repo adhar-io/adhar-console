@@ -29,6 +29,8 @@ import {
   StatusBadge,
   TempoIcon,
   type StatusKind,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import {
@@ -800,6 +802,7 @@ function PlaneChip({ plane }: { plane: string }) {
 /* ─────────────────────────── detail drawer ─────────────────────────── */
 
 function AppDrawer({ app, onClose }: { app: MarketplaceApp; onClose(): void }) {
+  const width = useDrawerWidth('platform.marketplace-app', { base: 'max-w-2xl' })
   const toggle = useToggleApp()
   const chart = app.chart
   const panelRef = useRef<HTMLElement>(null)
@@ -833,7 +836,7 @@ function AppDrawer({ app, onClose }: { app: MarketplaceApp; onClose(): void }) {
         ref={panelRef}
         tabIndex={-1}
         aria-label={`${chart?.title ?? app.name} details`}
-        className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl outline-none"
+        className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl outline-none', width.className)}
       >
         <header className="border-b border-edge-default bg-surface-raised px-6 py-5">
           <div className="flex items-start justify-between gap-4">
@@ -859,14 +862,17 @@ function AppDrawer({ app, onClose }: { app: MarketplaceApp; onClose(): void }) {
                 </div>
               </div>
             </div>
-            <button
-              type="button"
-              aria-label="Close"
-              onClick={() => !toggle.isPending && onClose()}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
-            >
-              <IconClose />
-            </button>
+            <div className="flex shrink-0 items-center gap-1">
+              <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => !toggle.isPending && onClose()}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+              >
+                <IconClose />
+              </button>
+            </div>
           </div>
         </header>
 

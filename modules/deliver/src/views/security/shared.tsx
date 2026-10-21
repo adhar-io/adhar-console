@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { Spinner } from '@adhar/shell-ui'
+import { Spinner, DrawerWidenButton, useDrawerWidth } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { Severity } from '../../data/security-findings.ts'
 import type { GateState, WaiverStatus } from '../../data/security-types.ts'
@@ -151,14 +151,18 @@ export function Drawer({
   subtitle,
   actions,
   children,
+  widthId = 'deliver.security',
 }: {
   onClose(): void
+  /** Key the remembered wide-mode preference is stored under. */
+  widthId?: string
   eyebrow?: ReactNode
   title: ReactNode
   subtitle?: ReactNode
   actions?: ReactNode
   children: ReactNode
 }) {
+  const width = useDrawerWidth(widthId, { base: 'max-w-3xl' })
   useEffect(() => {
     const onKey = (k: KeyboardEvent) => {
       if (k.key === 'Escape') onClose()
@@ -170,7 +174,7 @@ export function Drawer({
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl', width.className)}>
         <header className="border-b border-edge-default bg-surface-raised px-4 py-4 sm:px-6">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -178,14 +182,17 @@ export function Drawer({
               <h2 className="mt-1 break-words text-lg font-semibold tracking-tight text-content">{title}</h2>
               {subtitle ? <div className="mt-1 text-[12px] text-content-muted">{subtitle}</div> : null}
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
-            >
-              ✕
-            </button>
+            <div className="flex shrink-0 items-center gap-1">
+              <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+              >
+                ✕
+              </button>
+            </div>
           </div>
           {actions ? <div className="mt-3 flex flex-wrap items-center gap-2">{actions}</div> : null}
         </header>

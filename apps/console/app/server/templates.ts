@@ -340,6 +340,87 @@ function joinPath(base: string, rest: string): string {
   return b ? `${b}/${rest}` : rest
 }
 
+/** How long a successful discovery is served from memory. */
+const DISCOVERY_TTL_MS = 60_000
+/** Concurrent `template.yaml` reads against Gitea. */
+const READ_CONCURRENCY = 6
+
+type Discovery =
+  | { ok: true; templates: Array<Record<string, unknown>> }
+  | { ok: false; detail: string }
+
+/**
+ * Successful discoveries, per templates location, for {@link DISCOVERY_TTL_MS}.
+ * The collection changes when someone pushes to the templates repo — rare —
+ * while the Create New page asks on every visit; each discovery is 2 + N
+ * Gitea reads, every one basic-auth hashed by Gitea. `?refresh=1` (the page's
+ * Retry) bypasses and replaces the entry. Failures are never cached.
+ */
+const discoveryCache = new Map<string, { at: number; templates: Array<Record<string, unknown>> }>()
+/** One discovery per location at a time — concurrent page loads share it. */
+const discoveryInFlight = new Map<string, Promise<Discovery>>()
+
+/** Drop cached discoveries (tests, or after the templates repo changes). */
+export function invalidateTemplateDiscovery(): void {
+  discoveryCache.clear()
+}
+
+async function discover(
+  api: Api,
+  org: string,
+  templatesRepo: string,
+  templatesPath: string,
+  browseBase: string,
+): Promise<Discovery> {
+  let targets: string[] = []
+  try {
+    // Directory enumeration and the curated list are independent — read both
+    // at once. The curated list is unioned in so it can still point outside
+    // the templates directory.
+    const [listed, ci] = await Promise.all([
+      listTargetsFromContents(api, org, templatesRepo, templatesPath),
+      api(
+        `/repos/${encodeURIComponent(org)}/${encodeURIComponent(templatesRepo)}/raw/${joinPath(templatesPath, 'catalog-info.yaml')}`,
+      ),
+    ])
+    targets = listed
+    if (ci.ok) {
+      const fromCi = extractTargets(parseYaml(await ci.text())).map((t) => joinPath(templatesPath, t))
+      targets = [...new Set([...targets, ...fromCi])]
+    } else {
+      await ci.body?.cancel()
+    }
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : String(e) }
+  }
+
+  // Every template.yaml at once (bounded), keeping discovery order. These
+  // used to be read one after another — N round trips in series.
+  const built: Array<Record<string, unknown> | null> = new Array(targets.length).fill(null)
+  let next = 0
+  const worker = async () => {
+    while (next < targets.length) {
+      const i = next++
+      const target = targets[i]
+      const dir = target.replace(/\/template\.yaml$/, '')
+      try {
+        const r = await api(
+          `/repos/${encodeURIComponent(org)}/${encodeURIComponent(templatesRepo)}/raw/${target}`,
+        )
+        if (!r.ok) {
+          await r.body?.cancel()
+          continue
+        }
+        built[i] = buildTemplate(parseYaml(await r.text()), dir, org, templatesRepo, browseBase)
+      } catch {
+        /* skip a single malformed template — the rest still list */
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(READ_CONCURRENCY, targets.length) }, worker))
+  return { ok: true, templates: built.filter((t): t is Record<string, unknown> => t !== null) }
+}
+
 export async function handleListTemplates(req: Request): Promise<Response> {
   const auth = await getRequestUser(req)
   if (!auth) return unauthorized()
@@ -354,32 +435,38 @@ export async function handleListTemplates(req: Request): Promise<Response> {
 
   const { org, repo: templatesRepo, path: templatesPath } = templatesLocation()
   const browseBase = getTool('gitea')?.baseUrl ?? ''
-  const api = giteaFetcher(conn)
+  const key = `${conn.base}\0${org}/${templatesRepo}/${templatesPath}`
+  const refresh = new URL(req.url).searchParams.has('refresh')
 
-  let targets: string[] = []
-  try {
-    // Directory enumeration first — a template registers by existing. The
-    // curated list is unioned on top so it can still point outside this path.
-    targets = await listTargetsFromContents(api, org, templatesRepo, templatesPath)
-    const ci = await api(
-      `/repos/${encodeURIComponent(org)}/${encodeURIComponent(templatesRepo)}/raw/${joinPath(templatesPath, 'catalog-info.yaml')}`,
-    )
-    if (ci.ok) {
-      const listed = extractTargets(parseYaml(await ci.text())).map((t) => joinPath(templatesPath, t))
-      targets = [...new Set([...targets, ...listed])]
-    } else {
-      await ci.body?.cancel()
+  const cached = discoveryCache.get(key)
+  let result: Discovery
+  if (!refresh && cached && Date.now() - cached.at < DISCOVERY_TTL_MS) {
+    result = { ok: true, templates: cached.templates }
+  } else {
+    let flight = discoveryInFlight.get(key)
+    if (!flight) {
+      flight = discover(giteaFetcher(conn), org, templatesRepo, templatesPath, browseBase)
+        .then((d) => {
+          if (d.ok) discoveryCache.set(key, { at: Date.now(), templates: d.templates })
+          return d
+        })
+        .finally(() => discoveryInFlight.delete(key))
+      discoveryInFlight.set(key, flight)
     }
-  } catch (e) {
+    result = await flight
+  }
+
+  if (!result.ok) {
     return withCookie(
       Response.json(
         {
           configured: true,
           source: 'gitea',
           org,
+          repo: templatesRepo,
           templates: [],
           error: 'gitea_unreachable',
-          detail: e instanceof Error ? e.message : String(e),
+          detail: result.detail,
         },
         { status: 502 },
       ),
@@ -387,23 +474,8 @@ export async function handleListTemplates(req: Request): Promise<Response> {
     )
   }
 
-  const templates: Array<Record<string, unknown>> = []
-  for (const target of targets) {
-    const dir = target.replace(/\/template\.yaml$/, '')
-    try {
-      const r = await api(
-        `/repos/${encodeURIComponent(org)}/${encodeURIComponent(templatesRepo)}/raw/${target}`,
-      )
-      if (!r.ok) continue
-      const built = buildTemplate(parseYaml(await r.text()), dir, org, templatesRepo, browseBase)
-      if (built) templates.push(built)
-    } catch {
-      /* skip a single malformed template — the rest still list */
-    }
-  }
-
   return withCookie(
-    Response.json({ configured: true, source: 'gitea', org, templates }),
+    Response.json({ configured: true, source: 'gitea', org, repo: templatesRepo, templates: result.templates }),
     auth.refreshedCookie,
   )
 }

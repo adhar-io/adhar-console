@@ -1,5 +1,5 @@
-import { useCallback } from 'react';
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useMemo } from 'react';
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { gitea } from '@adhar/api-clients';
 import { toPublicUrl, useGiteaOrg, usePublicBaseDomain, useToolPublicUrl } from '@adhar/shell-ui';
 
@@ -89,13 +89,20 @@ export function useRepo(repo?: string) {
   });
 }
 
-export function useBranches(repo?: string) {
+/**
+ * Branches of `repo`. Pass `enabled: false` to read whatever is cached without
+ * asking Gitea (tab badges that should not cost a request of their own).
+ * Switching repos keeps the previous list as placeholder until the new one
+ * lands, so views can dim it instead of blanking.
+ */
+export function useBranches(repo?: string, opts: { enabled?: boolean } = {}) {
   const org = useGiteaOrg();
   return useQuery({
     queryKey: ['gitea', 'branches', org, repo],
     queryFn: () => giteaClient.listBranches(org, repo!),
-    enabled: !!repo,
+    enabled: !!repo && (opts.enabled ?? true),
     staleTime: REFRESH_MS,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -106,6 +113,7 @@ export function useCommits(repo?: string, ref?: string, limit = 50) {
     queryFn: () => giteaClient.listCommits(org, repo!, ref, limit),
     enabled: !!repo,
     staleTime: REFRESH_MS,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -118,6 +126,7 @@ export function usePullRequests(repo?: string, state: 'open' | 'closed' | 'all' 
     select: useCallback((list: gitea.PullRequest[]) => list.map((p) => ({ ...p, html_url: pub(p.html_url)! })), [pub]),
     enabled: !!repo,
     staleTime: REFRESH_MS,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -126,12 +135,41 @@ export type RepoIssue = gitea.Issue & { repo: string };
 export type ListState = 'open' | 'closed' | 'all';
 
 /**
- * Run `fn` for every repo in parallel and flatten, tagging each row with its
+ * Run `fn` over `items` with at most `limit` calls in flight.
+ *
+ * Firing one request per repository all at once (150 repos → 150 requests)
+ * saturated the browser's per-origin connection pool and Gitea itself (the BFF
+ * authenticates every call with basic auth, which Gitea re-hashes per request),
+ * so every request a click made — the drawer's README, a tab's list — queued
+ * behind the storm for seconds. A small pool keeps the org views moving and
+ * leaves room for interactive requests.
+ */
+async function pool<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>): Promise<Array<PromiseSettledResult<R>>> {
+  const out: Array<PromiseSettledResult<R>> = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      try {
+        out[i] = { status: 'fulfilled', value: await fn(items[i]) };
+      } catch (reason) {
+        out[i] = { status: 'rejected', reason };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
+const FAN_OUT = 4;
+
+/**
+ * Run `fn` for every repo (bounded) and flatten, tagging each row with its
  * repo. A repo whose tracker is disabled answers 404 — it contributes nothing
  * rather than failing the whole org view.
  */
 async function acrossRepos<T>(names: string[], fn: (repo: string) => Promise<T[]>): Promise<Array<T & { repo: string }>> {
-  const settled = await Promise.allSettled(names.map(async (repo) => (await fn(repo)).map((x) => ({ ...x, repo }))));
+  const settled = await pool(names, FAN_OUT, async (repo) => (await fn(repo)).map((x) => ({ ...x, repo })));
   const ok = settled.filter((r): r is PromiseFulfilledResult<Array<T & { repo: string }>> => r.status === 'fulfilled');
   if (names.length && !ok.length) {
     const first = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected');
@@ -141,7 +179,29 @@ async function acrossRepos<T>(names: string[], fn: (repo: string) => Promise<T[]
 }
 
 /**
- * Whether Gitea will accept pull requests on this repository. A pull mirror
+ * Every issue (or PR issue) in the org matching `state`, through Gitea's
+ * cross-repo search: one request per 50 hits instead of one per repository.
+ * Pages after the first are fetched together once `X-Total-Count` says how
+ * many there are. Only hits in `names` (the org's active repos) are kept —
+ * an older Gitea that ignores `owner=` would otherwise leak other orgs in.
+ */
+async function searchOrg(org: string, type: 'issues' | 'pulls', state: ListState, names: Set<string>, maxPages: number) {
+  const first = await giteaClient.searchIssues({ owner: org, type, state, page: 1 });
+  const pages = first.total !== undefined ? Math.min(maxPages, Math.ceil(first.total / 50)) : first.items.length < 50 ? 1 : maxPages;
+  const rest = pages > 1
+    ? await pool(Array.from({ length: pages - 1 }, (_, i) => i + 2), FAN_OUT, (page) => giteaClient.searchIssues({ owner: org, type, state, page }))
+    : [];
+  const items = [first.items, ...rest.flatMap((r) => (r.status === 'fulfilled' ? [r.value.items] : []))].flat();
+  return items.filter((i) => {
+    const repo = i.repository;
+    if (!repo || !names.has(repo.name)) return false;
+    const owner = repo.owner ?? repo.full_name?.split('/')[0];
+    return !owner || owner === org;
+  });
+}
+
+/**
+ * Whether pull requests can be opened on this repository. A pull mirror
  * (its content is overwritten from upstream), an archived or empty repository,
  * or one with the Pull Requests unit switched off answers every PR call with
  * 404 — e.g. `POST /repos/adhar/adhar/pulls` on the platform's mirrored repo.
@@ -155,25 +215,101 @@ export function pullRequestsBlocked(r?: Pick<gitea.Repo, 'mirror' | 'archived' |
   return null;
 }
 
+/** Gitea ≥ 1.13 reports `open_pr_counter` on every repository in the org list. */
+function hasPrCounter(list: gitea.Repo[]): boolean {
+  return list.some((r) => typeof r.open_pr_counter === 'number');
+}
+
 function useRepoNames(only?: string, prs = false) {
   const repos = useRepos();
-  const names = only
-    ? [only]
-    : (repos.data ?? []).filter((r) => !r.archived && (!prs || !pullRequestsBlocked(r))).map((r) => r.name);
-  return { names, ready: !!only || !!repos.data, error: repos.error };
+  const list = useMemo(
+    () => (repos.data ?? []).filter((r) => !r.archived && (!prs || !pullRequestsBlocked(r))),
+    [repos.data, prs],
+  );
+  const names = useMemo(() => (only ? [only] : list.map((r) => r.name)), [only, list]);
+  // Repos that have open PRs right now — read off the repo list itself, so the
+  // org-wide open-PR view asks only the repositories that have any.
+  const withOpenPrs = useMemo(
+    () => (only || !hasPrCounter(list) ? null : list.filter((r) => (r.open_pr_counter ?? 0) > 0).map((r) => r.name)),
+    [only, list],
+  );
+  return { names, withOpenPrs, ready: !!only || !!repos.data, error: repos.error };
 }
 
 /** Pull requests across the org (or one repo when `repo` is set), tagged with their repo. */
-export function useOrgPullRequests(state: ListState = 'open', repo?: string) {
+export function useOrgPullRequests(state: ListState = 'open', repo?: string, opts: { enabled?: boolean } = {}) {
   const org = useGiteaOrg();
   const pub = usePublicGiteaUrl();
-  const { names, ready } = useRepoNames(repo, true);
+  const { names, withOpenPrs, ready } = useRepoNames(repo, true);
   return useQuery({
-    queryKey: ['gitea', 'prs-flat', org, state, names.join(',')],
-    queryFn: () => acrossRepos(names, (r) => giteaClient.listPullRequests(org, r, state)),
+    queryKey: ['gitea', 'prs-flat', org, state, repo ?? '*', names.length, withOpenPrs?.join(',') ?? ''],
+    queryFn: async () => {
+      if (repo) return acrossRepos(names, (r) => giteaClient.listPullRequests(org, r, state));
+      // Which repositories to ask. Open: the ones whose counter says they
+      // have open PRs. Closed history: the ones the org-wide search shows
+      // recent closed PRs in. Either falls back to every repo when Gitea
+      // cannot answer (an old version, search disabled).
+      let targets = names;
+      if (state === 'open' && withOpenPrs) targets = withOpenPrs;
+      else if (state !== 'open') {
+        try {
+          const hits = await searchOrg(org, 'pulls', 'closed', new Set(names), 4);
+          const recent = new Set(hits.map((h) => h.repository!.name));
+          if (state === 'all' && withOpenPrs) for (const n of withOpenPrs) recent.add(n);
+          targets = names.filter((n) => recent.has(n));
+          if (state === 'all' && !withOpenPrs) targets = names;
+        } catch {
+          targets = names;
+        }
+      }
+      return acrossRepos(targets, (r) => giteaClient.listPullRequests(org, r, state));
+    },
     select: useCallback((list: RepoPull[]) => list.map((p) => ({ ...p, html_url: pub(p.html_url)! })), [pub]),
-    enabled: ready,
+    enabled: ready && (opts.enabled ?? true),
     staleTime: REFRESH_MS,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * A fast first look at the org's pull requests: Gitea's cross-repo search
+ * answers in one or two requests, where the full list needs one request per
+ * repository. Search hits are issues, so branch names, mergeability and diff
+ * size are missing — views render these rows at once and swap in the full
+ * {@link useOrgPullRequests} rows when they land.
+ */
+export function useOrgPullSearch(state: 'open' | 'closed', enabled = true) {
+  const org = useGiteaOrg();
+  const pub = usePublicGiteaUrl();
+  const { names, ready } = useRepoNames(undefined, true);
+  return useQuery({
+    queryKey: ['gitea', 'prs-search', org, state, names.length],
+    queryFn: async (): Promise<RepoPull[]> => {
+      const hits = await searchOrg(org, 'pulls', state, new Set(names), state === 'open' ? 20 : 4);
+      return hits.map((h) => ({
+        id: h.id,
+        number: h.number,
+        title: h.title,
+        body: h.body,
+        state: h.state,
+        user: { login: h.user.login, avatar_url: h.user.avatar_url ?? '' },
+        labels: h.labels ?? [],
+        assignees: h.assignees,
+        created_at: h.created_at,
+        updated_at: h.updated_at,
+        closed_at: h.closed_at,
+        comments: h.comments,
+        html_url: h.html_url ?? '',
+        merged: !!h.pull_request?.merged,
+        merged_at: h.pull_request?.merged_at ?? null,
+        draft: h.pull_request?.draft,
+        repo: h.repository!.name,
+      }));
+    },
+    select: useCallback((list: RepoPull[]) => list.map((p) => ({ ...p, html_url: pub(p.html_url)! })), [pub]),
+    enabled: ready && enabled,
+    staleTime: REFRESH_MS,
+    retry: false,
   });
 }
 
@@ -182,17 +318,46 @@ export function useAllOpenPullRequests() {
   return useOrgPullRequests('open');
 }
 
+/**
+ * Open PR count per repository. Read straight off the repo list when Gitea
+ * reports `open_pr_counter` (no extra requests at all); otherwise counted from
+ * the org-wide open PR list.
+ */
+export function useOpenPrCounts(): { counts: Map<string, number>; isLoading: boolean } {
+  const repos = useRepos();
+  const counter = !!repos.data && hasPrCounter(repos.data);
+  const fallback = useOrgPullRequests('open', undefined, { enabled: !!repos.data && !counter });
+  const counts = useMemo(() => {
+    const m = new Map<string, number>();
+    if (counter) for (const r of repos.data ?? []) m.set(r.name, r.open_pr_counter ?? 0);
+    else for (const p of fallback.data ?? []) m.set(p.repo, (m.get(p.repo) ?? 0) + 1);
+    return m;
+  }, [counter, repos.data, fallback.data]);
+  return { counts, isLoading: repos.isLoading || (!counter && fallback.isLoading) };
+}
+
 /** Issues across the org (or one repo), tagged with their repo. */
 export function useOrgIssues(state: ListState = 'open', repo?: string) {
   const org = useGiteaOrg();
   const pub = usePublicGiteaUrl();
   const { names, ready } = useRepoNames(repo);
   return useQuery({
-    queryKey: ['gitea', 'issues-flat', org, state, names.join(',')],
-    queryFn: () => acrossRepos(names, (r) => giteaClient.listIssues(org, r, state)),
+    queryKey: ['gitea', 'issues-flat', org, state, repo ?? '*', names.length],
+    queryFn: async (): Promise<RepoIssue[]> => {
+      if (!repo) {
+        // One search instead of one request per repository; per-repo only if
+        // this Gitea cannot search.
+        try {
+          const hits = await searchOrg(org, 'issues', state, new Set(names), state === 'open' ? 20 : 4);
+          return hits.filter((h) => !h.pull_request).map(({ repository, pull_request: _pr, ...i }) => ({ ...i, labels: i.labels ?? [], repo: repository!.name }));
+        } catch { /* fall through to per-repo */ }
+      }
+      return acrossRepos(names, (r) => giteaClient.listIssues(org, r, state));
+    },
     select: useCallback((list: RepoIssue[]) => list.map((i) => ({ ...i, html_url: pub(i.html_url) })), [pub]),
     enabled: ready,
     staleTime: REFRESH_MS,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -203,6 +368,7 @@ export function useIssues(repo?: string, state: ListState = 'open') {
     queryFn: () => giteaClient.listIssues(org, repo!, state),
     enabled: !!repo,
     staleTime: REFRESH_MS,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -273,6 +439,7 @@ export function useCommitHistory(repo?: string, ref?: string, path?: string) {
     getNextPageParam: (last, pages) => (last.length < COMMIT_PAGE ? undefined : pages.length + 1),
     enabled: !!repo && !!ref,
     staleTime: REFRESH_MS,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -326,10 +493,8 @@ export function useAheadBehind(repo?: string, base?: string, head?: string, enab
 export function useTree(repo?: string, ref?: string, path = '') {
   const org = useGiteaOrg();
   return useQuery({
-    queryKey: ['gitea', 'tree', org, repo, ref, path],
-    queryFn: () => giteaClient.listTree(org, repo!, ref!, path),
+    ...treeQuery(org, repo!, ref!, path),
     enabled: !!repo && !!ref,
-    staleTime: REFRESH_MS,
   });
 }
 
@@ -503,8 +668,8 @@ export function useRepoTopics(repo?: string) {
 export function useBranchProtections(repo?: string) {
   return useRepoQuery('protections', repo, (o, r) => giteaClient.listBranchProtections(o, r));
 }
-export function useCollaborators(repo?: string) {
-  return useRepoQuery('collaborators', repo, (o, r) => giteaClient.listCollaborators(o, r));
+export function useCollaborators(repo?: string, enabled = true) {
+  return useRepoQuery('collaborators', repo, (o, r) => giteaClient.listCollaborators(o, r), enabled);
 }
 export function useReleases(repo?: string) {
   const org = useGiteaOrg();
@@ -520,29 +685,70 @@ export function useReleases(repo?: string) {
 export function useTags(repo?: string) {
   return useRepoQuery('tags', repo, (o, r) => giteaClient.listTags(o, r));
 }
-export function useWebhooks(repo?: string) {
-  return useRepoQuery('hooks', repo, (o, r) => giteaClient.listWebhooks(o, r));
+export function useWebhooks(repo?: string, enabled = true) {
+  return useRepoQuery('hooks', repo, (o, r) => giteaClient.listWebhooks(o, r), enabled);
 }
 export function useRepoLabels(repo?: string) {
   return useRepoQuery('labels', repo, (o, r) => giteaClient.listLabels(o, r));
 }
 
+const README_RE = /^readme(\.(md|markdown|txt|rst))?$/i;
+
+function treeQuery(org: string, repo: string, ref: string, path = '') {
+  return {
+    queryKey: ['gitea', 'tree', org, repo, ref, path],
+    queryFn: () => giteaClient.listTree(org, repo, ref, path),
+    staleTime: REFRESH_MS,
+  } as const;
+}
+
+async function readReadme(qc: ReturnType<typeof useQueryClient>, org: string, repo: string, ref: string) {
+  // The root listing and the likeliest README are asked for together — two
+  // round trips in sequence (list, then read) were most of the drawer's wait.
+  // The listing goes through the query cache, so the Files tab reuses it.
+  const guess = giteaClient.getFile(org, repo, ref, 'README.md').catch(() => null);
+  const root = await qc.fetchQuery(treeQuery(org, repo, ref));
+  const entry = root.find((e) => e.type === 'blob' && README_RE.test(e.path.split('/').pop() ?? ''));
+  if (!entry) return null;
+  const f = entry.path === 'README.md' ? (await guess) ?? await giteaClient.getFile(org, repo, ref, entry.path) : await giteaClient.getFile(org, repo, ref, entry.path);
+  const text = f.encoding === 'base64' ? decodeBase64(f.content) : f.content;
+  return { path: entry.path, text };
+}
+
 /** README at the repo root (any casing / extension), decoded to text. */
 export function useReadme(repo?: string, ref?: string) {
   const org = useGiteaOrg();
+  const qc = useQueryClient();
   return useQuery({
     queryKey: ['gitea', 'readme', org, repo, ref],
-    queryFn: async () => {
-      const root = await giteaClient.listTree(org, repo!, ref!, '');
-      const entry = root.find((e) => e.type === 'blob' && /^readme(\.(md|markdown|txt|rst))?$/i.test(e.path.split('/').pop() ?? ''));
-      if (!entry) return null;
-      const f = await giteaClient.getFile(org, repo!, ref!, entry.path);
-      const text = f.encoding === 'base64' ? decodeBase64(f.content) : f.content;
-      return { path: entry.path, text };
-    },
+    queryFn: () => readReadme(qc, org, repo!, ref!),
     enabled: !!repo && !!ref,
     staleTime: REFRESH_MS,
   });
+}
+
+/**
+ * Warm the cache for what opening a repository shows first — its README and
+ * the counts on the drawer's tabs — so a hover (or focus) before the click
+ * turns the click into a cache hit. Hover intent is the caller's job: this
+ * fires immediately and is cheap to call repeatedly (fresh data is skipped).
+ */
+export function usePrefetchRepo() {
+  const org = useGiteaOrg();
+  const qc = useQueryClient();
+  return useCallback((r: Pick<gitea.Repo, 'name' | 'default_branch' | 'empty'>) => {
+    if (r.empty) return;
+    void qc.prefetchQuery({
+      queryKey: ['gitea', 'readme', org, r.name, r.default_branch],
+      queryFn: () => readReadme(qc, org, r.name, r.default_branch),
+      staleTime: REFRESH_MS,
+    });
+    void qc.prefetchQuery({
+      queryKey: ['gitea', 'branches', org, r.name],
+      queryFn: () => giteaClient.listBranches(org, r.name),
+      staleTime: REFRESH_MS,
+    });
+  }, [org, qc]);
 }
 
 function decodeBase64(s: string): string {
@@ -694,7 +900,7 @@ export function useTestWebhook() {
 
 /* ─────────── pull requests + issues ─────────── */
 
-const PULL_KEYS = (repo: string): Array<[string, string?]> => [['prs', repo], ['prs-flat'], ['pull', repo], ['repos'], ['repo', repo]];
+const PULL_KEYS = (repo: string): Array<[string, string?]> => [['prs', repo], ['prs-flat'], ['prs-search'], ['pull', repo], ['repos'], ['repo', repo]];
 const ISSUE_KEYS = (repo: string): Array<[string, string?]> => [['issues', repo], ['issues-flat'], ['issue', repo], ['repos'], ['repo', repo]];
 
 export function useCreatePull() {
@@ -745,7 +951,7 @@ export function useSetLabels() {
 export function useCreateComment() {
   return useGiteaMutation(
     (org, v: { repo: string; index: number; body: string }) => giteaClient.createComment(org, v.repo, v.index, v.body),
-    (v) => [['comments', v.repo], ['issues-flat'], ['prs-flat']],
+    (v) => [['comments', v.repo], ['issues-flat'], ['prs-flat'], ['prs-search']],
   );
 }
 export function useDeleteComment() {

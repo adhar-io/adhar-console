@@ -8,6 +8,8 @@ import {
   StatusBadge,
   type AiContext,
   type StatusKind,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
 import type { KubeObject } from '@adhar/api-clients/k8s'
 import { cn } from '@adhar/utils'
@@ -75,6 +77,7 @@ export function ResourceDrawer<T extends Resource>({
   children: ReactNode
   onClose(): void
 }) {
+  const width = useDrawerWidth('platform.resource', { base: 'max-w-2xl' })
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -94,7 +97,7 @@ export function ResourceDrawer<T extends Resource>({
         className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
-      <aside className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">
@@ -130,6 +133,7 @@ export function ResourceDrawer<T extends Resource>({
               </>
             ) : null}
             {statusBadge}
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <button
               type="button"
               onClick={onClose}

@@ -12,6 +12,8 @@ import {
   Tabs,
   type StatusKind,
   type TabDef,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import {
@@ -735,6 +737,7 @@ function EventRow({ event: e, onOpen }: { event: RuntimeEvent; onOpen(): void })
 }
 
 function EventDrawer({ event: e, onClose }: { event: RuntimeEvent; onClose(): void }) {
+  const width = useDrawerWidth('deliver.runtime-event', { base: 'max-w-xl' })
   useEffect(() => {
     const onKey = (k: KeyboardEvent) => {
       if (k.key === 'Escape') onClose()
@@ -749,7 +752,7 @@ function EventDrawer({ event: e, onClose }: { event: RuntimeEvent; onClose(): vo
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
@@ -762,14 +765,17 @@ function EventDrawer({ event: e, onClose }: { event: RuntimeEvent; onClose(): vo
               </h2>
               <p className="mt-1 text-[12px] text-content-muted">{e.reason}</p>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
-            >
-              ✕
-            </button>
+            <div className="flex shrink-0 items-center gap-1">
+              <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+              >
+                ✕
+              </button>
+            </div>
           </div>
         </header>
 
@@ -980,6 +986,7 @@ function PoliciesTab({
 }
 
 function PolicyDrawer({ policy: p, onClose }: { policy: PolicyView; onClose(): void }) {
+  const width = useDrawerWidth('deliver.runtime-policy', { base: 'max-w-lg' })
   useEffect(() => {
     const onKey = (k: KeyboardEvent) => {
       if (k.key === 'Escape') onClose()
@@ -992,7 +999,7 @@ function PolicyDrawer({ policy: p, onClose }: { policy: PolicyView; onClose(): v
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-lg flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-content-subtle">
@@ -1005,14 +1012,17 @@ function PolicyDrawer({ policy: p, onClose }: { policy: PolicyView; onClose(): v
               </StatusBadge>
             </h2>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
-          >
-            ✕
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+            >
+              ✕
+            </button>
+          </div>
         </header>
         <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
           <dl className="space-y-1.5">

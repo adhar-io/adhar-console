@@ -945,6 +945,10 @@ function DiscoveryRail({
           <div className="min-h-0 flex-1 overflow-y-auto">
             {labels.isLoading ? (
               <div className="flex items-center gap-2 p-3 text-[11px] text-content-subtle"><Spinner size={11} /> loading labels…</div>
+            ) : labels.isError && !labels.data ? (
+              <p className="p-3 text-[11px] text-rose-700 dark:text-rose-300">
+                Couldn't read labels from Loki{labels.error instanceof Error ? ` — ${labels.error.message}` : ''}.
+              </p>
             ) : !labels.data?.length ? (
               <p className="p-3 text-[11px] text-content-subtle">Loki reported no labels for this window.</p>
             ) : (

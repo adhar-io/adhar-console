@@ -14,6 +14,8 @@ import {
   useCan,
   useToast,
   type StatusKind,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import {
@@ -395,6 +397,7 @@ function GameDayDrawer({ namespace, name, onClose }: { namespace: string; name: 
   const wf = useChaosWorkflow(namespace, name)
   const toast = useToast()
   const canManage = useCan('platform.manage')
+  const width = useDrawerWidth('platform.gameday', { base: 'max-w-2xl' })
 
   const phase = wf.data ? workflowPhase(wf.data) : 'pending'
   const steps = useMemo(() => orderSteps(wf.data), [wf.data])
@@ -402,7 +405,7 @@ function GameDayDrawer({ namespace, name, onClose }: { namespace: string; name: 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/50" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-2xl flex-col border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <div className="flex shrink-0 items-start gap-3 border-b border-edge-default bg-surface-raised px-5 py-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -435,6 +438,7 @@ function GameDayDrawer({ namespace, name, onClose }: { namespace: string; name: 
               </Button>
             )
             : null}
+          <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
           <button
             type="button"
             onClick={onClose}

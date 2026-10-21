@@ -57,7 +57,14 @@ export const STEP_MS = 5 * 60_000
 const REFRESH_MS = 60_000
 
 export interface DoraOps {
+  /**
+   * Incidents in the window. Empty while loading or on error — check
+   * `available` before deriving a rate from it: an unreachable Prometheus is
+   * "unknown", never "zero incidents".
+   */
   incidents: Incident[]
+  /** True only once Prometheus actually answered. */
+  available: boolean
   /** End of the queried window — what "still firing" is judged against. */
   windowEndMs: number
   isLoading: boolean
@@ -93,6 +100,7 @@ export function useDoraOps(): DoraOps {
 
   return {
     incidents,
+    available: q.data !== undefined && !q.isError,
     windowEndMs,
     isLoading: q.isLoading,
     isError: q.isError,
@@ -115,6 +123,9 @@ export function useDoraOps(): DoraOps {
 export function useDoraLeadTime(apps: DoraApp[] | undefined): LeadTimeSummary & {
   isLoading: boolean
   isError: boolean
+  error: Error | null
+  /** Repositories whose commits could not be read (partial result). */
+  unreadableRepos: number
 } {
   const sinceMs = Math.floor(Date.now() / STEP_MS) * STEP_MS - LEAD_TIME_WINDOW_DAYS * 24 * 3_600_000
 
@@ -137,6 +148,7 @@ export function useDoraLeadTime(apps: DoraApp[] | undefined): LeadTimeSummary & 
     enabled: repos.length > 0,
     queryFn: async () => {
       const map = new Map<string, number>()
+      const failures: unknown[] = []
       await Promise.all(
         repos.map(async (r) => {
           try {
@@ -145,21 +157,32 @@ export function useDoraLeadTime(apps: DoraApp[] | undefined): LeadTimeSummary & 
               const t = new Date(c.created).getTime()
               if (Number.isFinite(t)) map.set(c.sha.toLowerCase(), t)
             }
-          } catch {
-            // One unreadable repo must not blank the whole metric.
+          } catch (err) {
+            // One unreadable repo must not blank the whole metric — but it is
+            // counted, so the tile can say the result is partial.
+            failures.push(err)
           }
         }),
       )
-      return map
+      // Every repo failed: that is Gitea being unreachable, not "no commits".
+      if (repos.length > 0 && failures.length === repos.length) {
+        throw failures[0] instanceof Error ? failures[0] : new Error('Gitea unreachable')
+      }
+      return { map, unreadable: failures.length }
     },
     staleTime: 5 * REFRESH_MS,
     retry: false,
   })
 
-  const summary = leadTimeSummary(deploys, q.data ?? new Map())
+  const summary = leadTimeSummary(deploys, q.data?.map ?? new Map())
   return {
     ...summary,
+    // On error the summary was computed against no commits — blank it rather
+    // than report "no deploys with a resolvable commit".
+    ...(q.isError ? { medianHours: null } : {}),
     isLoading: repos.length > 0 && q.isLoading,
     isError: q.isError,
+    error: (q.error as Error | null) ?? null,
+    unreadableRepos: q.data?.unreadable ?? 0,
   }
 }

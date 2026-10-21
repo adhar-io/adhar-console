@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router'
 import {
   AreaChart,
   BarChart,
+  Button,
   HeatMap,
   Sparkline,
   Spinner,
@@ -10,7 +11,7 @@ import {
   useOrganizations,
 } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
-import { summarizeCluster, useClusterSignals } from '~/data/cluster-signals.ts'
+import { sourceState, summarizeCluster, useClusterSignals } from '~/data/cluster-signals.ts'
 import {
   useAirbyteConnections,
   useBiDashboards,
@@ -72,35 +73,45 @@ import type { Generic } from '@adhar/api-clients/k8s'
 export function DefineIssuesPanel() {
   const { projects, issues, cycles } = useDefineSignals()
   const project = projects.data?.[0]
+  const head = <PanelHead title="Define" subtitle={project?.name ?? 'Plane'} to="/define" />
+  const blocked =
+    gate(projects, !project, 'No Plane project yet — create one in Define to track issues here.', 'Plane') ??
+    gate(issues, false, '', 'Plane')
+  if (blocked) return <PanelCard>{head}{blocked}</PanelCard>
   const list = issues.data ?? []
   const open = list.filter((i) => !i.completed_at).length
   const done = list.filter((i) => !!i.completed_at).length
   const total = list.length
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0
+  // No issues → no ratio. "0%" would claim work exists and none is done.
+  const pct = total > 0 ? `${Math.round((done / total) * 100)}%` : '—'
   const active = (cycles.data ?? []).find((c) => c.status === 'current')
 
   return (
     <PanelCard>
-      <PanelHead title="Define" subtitle={project?.name ?? 'No project'} to="/define" />
+      {head}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Stat label="Open" value={open} tone="amber" />
         <Stat label="Done" value={done} tone="emerald" />
-        <Stat label="% done" value={`${pct}%`} tone="brand" />
+        <Stat label="% done" value={pct} tone="brand" />
       </div>
       {active ? (
         <div className="mt-3 rounded-lg border border-edge-subtle bg-surface-sunken/40 p-3">
           <div className="flex items-baseline justify-between">
             <span className="truncate text-xs font-medium text-content">{active.name}</span>
-            <StatusBadge kind="progressing">{active.progress ?? 0}%</StatusBadge>
+            <StatusBadge kind={active.progress == null ? 'unknown' : 'progressing'}>
+              {active.progress == null ? '—' : `${active.progress}%`}
+            </StatusBadge>
           </div>
           <div className="mt-2 flex h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
             <div className="h-full bg-brand-500" style={{ width: `${active.progress ?? 0}%` }} />
           </div>
           <div className="mt-1 text-[10px] text-content-subtle">
-            {active.completed_issues}/{active.total_issues} issues · ends{' '}
-            {active.end_date ? formatRelative(active.end_date) : '—'}
+            {active.completed_issues ?? '—'}/{active.total_issues ?? '—'} issues · ends{' '}
+            {relTime(active.end_date)}
           </div>
         </div>
+      ) : total === 0 ? (
+        <div className="mt-3 text-[11px] text-content-subtle">No issues in {project?.name ?? 'this project'} yet.</div>
       ) : null}
     </PanelCard>
   )
@@ -111,15 +122,22 @@ export function DefineIssuesPanel() {
 export function DevelopPRsPanel() {
   const prs = useDevelopPRs()
   const repos = useDevelopRepos()
+  const head = (
+    <PanelHead
+      title="Develop"
+      subtitle={repos.data && prs.data ? `${repos.data.length} repos · ${prs.data.length} open PRs` : 'Gitea'}
+      to="/develop"
+    />
+  )
+  const blocked =
+    gate(repos, (repos.data ?? []).length === 0, 'No repositories in Gitea yet — create one in Develop.', 'Gitea') ??
+    gate(prs, false, '', 'Gitea')
+  if (blocked) return <PanelCard>{head}{blocked}</PanelCard>
   const list = prs.data ?? []
   const conflicts = list.filter((p) => p.mergeable === false).length
   return (
     <PanelCard>
-      <PanelHead
-        title="Develop"
-        subtitle={`${repos.data?.length ?? 0} repos · ${list.length} open PRs`}
-        to="/develop"
-      />
+      {head}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Stat label="Open PRs" value={list.length} tone="amber" />
         <Stat label="Conflicts" value={conflicts} tone={conflicts ? 'rose' : 'slate'} />
@@ -137,12 +155,14 @@ export function DevelopPRsPanel() {
                 <span className="truncate text-content">{p.title}</span>
               </div>
               <div className="mt-0.5 text-content-subtle">
-                {p.user.login} · {formatRelative(p.created_at)}
+                {p.user.login} · {relTime(p.created_at)}
               </div>
             </li>
           ))}
         </ul>
-      ) : null}
+      ) : (
+        <div className="mt-3 text-[11px] text-content-subtle">No open pull requests.</div>
+      )}
     </PanelCard>
   )
 }
@@ -151,25 +171,26 @@ export function DevelopPRsPanel() {
 
 export function PipelinesPanel() {
   const q = useAirbyteConnections()
+  const head = <PanelHead title="Data pipelines" subtitle="Airbyte connections" to="/develop?pipelines" />
+  const blocked = gate(q, (q.data ?? []).length === 0, 'No Airbyte connections yet — set one up in Develop → Pipelines.', 'Airbyte')
+  if (blocked) return <PanelCard>{head}{blocked}</PanelCard>
   const list = q.data ?? []
   const running = list.filter((c) => c.last_sync_status === 'running').length
   const failed = list.filter((c) => c.last_sync_status === 'failed').length
   const succeeded = list.filter((c) => c.last_sync_status === 'succeeded').length
   return (
     <PanelCard>
-      <PanelHead title="Data pipelines" subtitle="Airbyte connections" to="/develop?pipelines" />
+      {head}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Stat label="Connections" value={list.length} tone="brand" />
         <Stat label="Running" value={running} tone={running ? 'amber' : 'slate'} />
         <Stat label="Failed" value={failed} tone={failed ? 'rose' : 'emerald'} />
       </div>
-      {list.length > 0 ? (
-        <div className="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-surface-sunken ring-1 ring-inset ring-edge-subtle">
-          <div className="h-full bg-emerald-500" style={{ width: `${(succeeded / list.length) * 100}%` }} />
-          <div className="h-full bg-amber-500" style={{ width: `${(running / list.length) * 100}%` }} />
-          <div className="h-full bg-rose-500" style={{ width: `${(failed / list.length) * 100}%` }} />
-        </div>
-      ) : null}
+      <div className="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-surface-sunken ring-1 ring-inset ring-edge-subtle">
+        <div className="h-full bg-emerald-500" style={{ width: `${(succeeded / list.length) * 100}%` }} />
+        <div className="h-full bg-amber-500" style={{ width: `${(running / list.length) * 100}%` }} />
+        <div className="h-full bg-rose-500" style={{ width: `${(failed / list.length) * 100}%` }} />
+      </div>
     </PanelCard>
   )
 }
@@ -178,12 +199,15 @@ export function PipelinesPanel() {
 
 export function DeliverAppsPanel() {
   const q = useDeliverApplications()
+  const head = <PanelHead title="Deliver · GitOps" subtitle="ArgoCD applications" to="/deliver?apps" />
+  const blocked = gate(q, (q.data ?? []).length === 0, 'No Argo CD applications yet — deploy an app from the Catalog.', 'Argo CD')
+  if (blocked) return <PanelCard>{head}{blocked}</PanelCard>
   const list = q.data ?? []
   const drift = list.filter((a) => a.status.sync.status === 'OutOfSync').length
   const degraded = list.filter((a) => a.status.health.status === 'Degraded').length
   return (
     <PanelCard>
-      <PanelHead title="Deliver · GitOps" subtitle="ArgoCD applications" to="/deliver?apps" />
+      {head}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Stat label="Apps" value={list.length} tone="brand" />
         <Stat label="Drift" value={drift} tone={drift ? 'amber' : 'slate'} />
@@ -221,6 +245,9 @@ export function DeliverAppsPanel() {
 
 export function VulnSummaryPanel() {
   const q = useTrivyReports()
+  const head = <PanelHead title="Vulnerabilities" subtitle="Trivy reports" to="/deliver?scans" />
+  const blocked = gate(q, (q.data ?? []).length === 0, 'No Trivy vulnerability reports yet — the operator writes one per scanned workload.', 'Trivy')
+  if (blocked) return <PanelCard>{head}{blocked}</PanelCard>
   const list = q.data ?? []
   const totals = list.reduce(
     (acc, r) => ({
@@ -231,22 +258,24 @@ export function VulnSummaryPanel() {
     }),
     { critical: 0, high: 0, medium: 0, low: 0 },
   )
-  const grand = totals.critical + totals.high + totals.medium + totals.low || 1
+  const grand = totals.critical + totals.high + totals.medium + totals.low
   return (
     <PanelCard>
-      <PanelHead title="Vulnerabilities" subtitle="Trivy reports" to="/deliver?scans" />
+      {head}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
         <SevTile label="Crit" value={totals.critical} tone="rose" />
         <SevTile label="High" value={totals.high} tone="amber" />
         <SevTile label="Med" value={totals.medium} tone="sky" />
         <SevTile label="Low" value={totals.low} tone="slate" />
       </div>
-      <div className="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-surface-sunken ring-1 ring-inset ring-edge-subtle">
-        <div className="h-full bg-rose-500" style={{ width: `${(totals.critical / grand) * 100}%` }} />
-        <div className="h-full bg-amber-500" style={{ width: `${(totals.high / grand) * 100}%` }} />
-        <div className="h-full bg-sky-500" style={{ width: `${(totals.medium / grand) * 100}%` }} />
-        <div className="h-full bg-slate-400" style={{ width: `${(totals.low / grand) * 100}%` }} />
-      </div>
+      {grand > 0 ? (
+        <div className="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-surface-sunken ring-1 ring-inset ring-edge-subtle">
+          <div className="h-full bg-rose-500" style={{ width: `${(totals.critical / grand) * 100}%` }} />
+          <div className="h-full bg-amber-500" style={{ width: `${(totals.high / grand) * 100}%` }} />
+          <div className="h-full bg-sky-500" style={{ width: `${(totals.medium / grand) * 100}%` }} />
+          <div className="h-full bg-slate-400" style={{ width: `${(totals.low / grand) * 100}%` }} />
+        </div>
+      ) : null}
       <div className="mt-2 text-[10px] text-content-muted">
         {list.length} reports across {new Set(list.map((r) => r.namespace)).size} namespaces
       </div>
@@ -258,17 +287,23 @@ export function VulnSummaryPanel() {
 
 export function AlertsPanel() {
   const q = useDiscoverAlerts()
+  const head = <PanelHead title="Alerts" subtitle="Prometheus rules · live" to="/discover?alerts" />
+  const blocked = gate(q, false, '', 'Prometheus')
+  if (blocked) return <PanelCard>{head}{blocked}</PanelCard>
   const list = q.data ?? []
   const firing = list.filter((a) => a.state === 'firing')
   const critical = firing.filter((a) => a.severity === 'critical').length
   return (
     <PanelCard>
-      <PanelHead title="Alerts" subtitle="Prometheus rules · live" to="/discover?alerts" />
+      {head}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Stat label="Firing" value={firing.length} tone={firing.length ? 'rose' : 'emerald'} />
         <Stat label="Critical" value={critical} tone={critical ? 'rose' : 'slate'} />
         <Stat label="Pending" value={list.filter((a) => a.state === 'pending').length} tone="amber" />
       </div>
+      {firing.length === 0 ? (
+        <div className="mt-3 text-[11px] text-content-subtle">No alerts firing.</div>
+      ) : null}
       <ul className="mt-3 space-y-1">
         {firing.slice(0, 3).map((a) => (
           <li
@@ -279,7 +314,7 @@ export function AlertsPanel() {
               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${a.severity === 'critical' ? 'bg-rose-500' : 'bg-amber-500'}`} />
               <span className="truncate font-semibold text-content">{a.name}</span>
               <span className="ml-auto text-[10px] text-content-muted">
-                {formatRelative(a.startsAt)}
+                {relTime(a.startsAt)}
               </span>
             </div>
             {a.summary ? (
@@ -297,16 +332,28 @@ export function AlertsPanel() {
 export function AnalyticsPanel() {
   const q = usePostHogActivity()
   const list = q.data ?? []
-  const dau = new Set(list.map((e) => e.distinct_id)).size
+  // PostHog's events endpoint returns ONE page (newest first, capped by the
+  // API), so these are counts over that sample — not a true 24h DAU / total.
+  // Labelled as such rather than presented as daily figures.
+  const head = (
+    <PanelHead
+      title="Product analytics"
+      subtitle={q.data ? `PostHog · last ${list.length} events (24h)` : 'PostHog · 24h'}
+      to="/discover?analytics"
+    />
+  )
+  const blocked = gate(q, list.length === 0, 'No PostHog events in the last 24h — instrument an app with the PostHog SDK.', 'PostHog')
+  if (blocked) return <PanelCard>{head}{blocked}</PanelCard>
+  const users = new Set(list.map((e) => e.distinct_id)).size
   const counts: Record<string, number> = {}
   for (const e of list) counts[e.event] = (counts[e.event] ?? 0) + 1
   const top = Object.entries(counts).sort(([, a], [, b]) => b - a).slice(0, 4)
   return (
     <PanelCard>
-      <PanelHead title="Product analytics" subtitle="PostHog · 24h" to="/discover?analytics" />
+      {head}
       <div className="grid grid-cols-2 gap-3">
-        <Stat label="DAU" value={dau} tone="brand" />
-        <Stat label="Events" value={list.length} tone="violet" />
+        <Stat label="Users in sample" value={users} tone="brand" />
+        <Stat label="Events sampled" value={list.length} tone="violet" />
       </div>
       {top.length > 0 ? (
         <div className="mt-3">
@@ -331,14 +378,32 @@ export function AnalyticsPanel() {
 
 export function BusinessKpisPanel() {
   const q = useBusinessKpis()
+  const head = <PanelHead title="Business KPIs" subtitle="Metabase" to="/decide?dashboards" />
+  const blocked = gate(q, (q.data ?? []).length === 0, 'No Metabase questions yet — create one in Decide.', 'Metabase')
+  if (blocked) return <PanelCard>{head}{blocked}</PanelCard>
   const all = q.data ?? []
-  const scalars = all.filter((q) => q.scalar != null && q.display === 'scalar').slice(0, 4)
+  // Metabase's /api/card list carries no computed values — a scalar only
+  // exists when a source supplies one. Never invent a number for a KPI.
+  const scalars = all.filter((x) => x.scalar != null && x.display === 'scalar').slice(0, 4)
+  if (scalars.length === 0) {
+    const named = all.filter((x) => x.display === 'scalar').length
+    return (
+      <PanelCard>
+        {head}
+        <PanelEmpty
+          message={named > 0
+            ? `${named} scalar question${named === 1 ? '' : 's'} in Metabase — values aren't computed on the Overview. Open them in Decide.`
+            : `${all.length} Metabase question${all.length === 1 ? '' : 's'}, none a single-number KPI. Add a "Number" question in Metabase to show it here.`}
+        />
+      </PanelCard>
+    )
+  }
   return (
     <PanelCard>
-      <PanelHead title="Business KPIs" subtitle="Metabase · live" to="/decide?dashboards" />
+      {head}
       <div className="grid grid-cols-2 gap-3">
-        {scalars.map((q) => (
-          <BusinessKpiTile key={q.id} q={q} />
+        {scalars.map((x) => (
+          <BusinessKpiTile key={x.id} q={x} />
         ))}
       </div>
     </PanelCard>
@@ -378,10 +443,13 @@ function BusinessKpiTile({
 
 export function BiDashboardsPanel() {
   const q = useBiDashboards()
+  const head = <PanelHead title="BI dashboards" subtitle="Metabase" to="/decide?dashboards" />
+  const blocked = gate(q, (q.data ?? []).length === 0, 'No Metabase dashboards yet — build one in Decide.', 'Metabase')
+  if (blocked) return <PanelCard>{head}{blocked}</PanelCard>
   const list = q.data ?? []
   return (
     <PanelCard>
-      <PanelHead title="BI dashboards" subtitle="Metabase" to="/decide?dashboards" />
+      {head}
       <ul className="space-y-1.5">
         {list.slice(0, 5).map((d) => (
           <li
@@ -390,8 +458,10 @@ export function BiDashboardsPanel() {
           >
             <span className="truncate font-medium text-content">{d.name}</span>
             <span className="ml-2 shrink-0 font-mono text-[10px] text-content-subtle">
-              {d.cards ? `${d.cards.length} cards · ` : ''}
-              {d.view_count ?? 0} views
+              {[
+                d.cards ? `${d.cards.length} cards` : null,
+                d.view_count != null ? `${d.view_count} views` : null,
+              ].filter(Boolean).join(' · ')}
             </span>
           </li>
         ))}
@@ -410,11 +480,11 @@ export function CostTrendPanel() {
   if (q.isLoading || q.isError || series.length === 0) {
     return (
       <PanelCard>
-        <PanelHead title="Cloud spend · 30 days" subtitle="All providers · USD" to="/settings?section=allocation" />
+        <PanelHead title="Cloud spend · 30 days" subtitle="OpenCost in-cluster allocation · USD" to="/settings?section=allocation" />
         {q.isLoading ? (
           <PanelLoading />
         ) : q.isError ? (
-          <PanelEmpty message="Requires an OpenCost metrics source" />
+          <PanelError message={`OpenCost unreachable${q.error instanceof Error ? ` — ${q.error.message}` : ''}`} onRetry={() => void q.refetch()} />
         ) : (
           <PanelEmpty message="No spend data available" />
         )}
@@ -426,7 +496,8 @@ export function CostTrendPanel() {
   const half = Math.floor(series.length / 2)
   const previousTotal = series.slice(0, half).reduce((s, v) => s + v, 0)
   const recentTotal = series.slice(half).reduce((s, v) => s + v, 0)
-  const delta = previousTotal === 0 ? 0 : (recentTotal - previousTotal) / previousTotal
+  // No prior spend → no comparison (a "▼ 0.0%" would be invented).
+  const delta = previousTotal === 0 ? null : (recentTotal - previousTotal) / previousTotal
   const peak = Math.max(...series)
   const peakIdx = series.indexOf(peak)
   const peakDate = relDay(series.length - 1 - peakIdx)
@@ -434,15 +505,19 @@ export function CostTrendPanel() {
   const share = (v: number) => Math.round((v / categoryTotal) * 100)
   return (
     <PanelCard>
-      <PanelHead title="Cloud spend · 30 days" subtitle="All providers · USD" to="/settings?section=allocation" />
+      <PanelHead title="Cloud spend · 30 days" subtitle="OpenCost in-cluster allocation · USD" to="/settings?section=allocation" />
       <div className="flex items-baseline justify-between gap-4">
         <div>
           <div className="text-2xl font-semibold tabular-nums tracking-tight text-content">
             ${(total / 1000).toFixed(1)}k
           </div>
-          <div className={cn('mt-0.5 text-[11px] font-medium', delta > 0 ? 'text-rose-700 dark:text-rose-300' : 'text-emerald-700 dark:text-emerald-300')}>
-            {delta > 0 ? '▲' : '▼'} {Math.abs(delta * 100).toFixed(1)}% vs prior 15d
-          </div>
+          {delta != null ? (
+            <div className={cn('mt-0.5 text-[11px] font-medium', delta > 0 ? 'text-rose-700 dark:text-rose-300' : 'text-emerald-700 dark:text-emerald-300')}>
+              {delta > 0 ? '▲' : '▼'} {Math.abs(delta * 100).toFixed(1)}% vs prior {half}d
+            </div>
+          ) : (
+            <div className="mt-0.5 text-[11px] text-content-subtle">no prior spend to compare</div>
+          )}
         </div>
         <div className="text-right">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">Peak</div>
@@ -503,7 +578,7 @@ export function DeployHeatmapPanel() {
   const WEEKS = 12
   const DAYS = WEEKS * 7
 
-  const { cells, total, peak, active } = useMemo(() => {
+  const { cells, total, peak, active, weeks } = useMemo(() => {
     const apps = q.data ?? []
     const counts = new Array<number>(DAYS).fill(0)
     const now = Date.now()
@@ -518,16 +593,23 @@ export function DeployHeatmapPanel() {
       }
     }
     const peak = Math.max(0, ...counts)
-    const cells = counts.map((c) => (peak > 0 ? c / peak : 0))
+    // HeatMap lays cells out column-major, row = index % 7. Pad the front so
+    // row 0 is always Monday — otherwise the Mon/Wed/Fri labels describe
+    // whatever weekday the window happened to start on.
+    const oldest = new Date(now - (DAYS - 1) * 86_400_000)
+    const pad = (oldest.getDay() + 6) % 7
+    const cells = [...new Array<number>(pad).fill(0), ...counts.map((c) => (peak > 0 ? c / peak : 0))]
     return {
       cells,
+      weeks: Math.ceil(cells.length / 7),
       total: counts.reduce((s, c) => s + c, 0),
       peak,
       active: counts.filter((c) => c > 0).length,
     }
   }, [q.data, DAYS])
 
-  const dayLabels = ['Mon', 'Wed', 'Fri']
+  // One label slot per row (cellSize 11 + gap 2 = 13px), Monday first.
+  const dayLabels = ['Mon', '', 'Wed', '', 'Fri', '', '']
 
   if (q.isLoading || q.isError || total === 0) {
     return (
@@ -536,7 +618,7 @@ export function DeployHeatmapPanel() {
         {q.isLoading ? (
           <PanelLoading />
         ) : q.isError ? (
-          <PanelEmpty message="Requires Argo CD deploy history" />
+          <PanelError message="Argo CD unreachable — deploy history unavailable" onRetry={() => void q.refetch()} />
         ) : (
           <PanelEmpty message="No deploy history in the last 12 weeks" />
         )}
@@ -571,12 +653,12 @@ export function DeployHeatmapPanel() {
         </div>
       </div>
       <div className="mt-3 flex items-start gap-2">
-        <div className="flex flex-col justify-between py-0.5 text-[9px] font-mono text-content-subtle" style={{ height: 7 * 13 - 2 }}>
-          {dayLabels.map((d) => (
-            <span key={d}>{d}</span>
+        <div className="flex flex-col text-[9px] font-mono text-content-subtle">
+          {dayLabels.map((d, i) => (
+            <span key={i} className="flex items-center" style={{ height: 13 }}>{d}</span>
           ))}
         </div>
-        <HeatMap cells={cells} weeks={12} cellSize={11} gap={2} color="var(--color-brand-500)" />
+        <HeatMap cells={cells} weeks={weeks} cellSize={11} gap={2} color="var(--color-brand-500)" />
       </div>
     </PanelCard>
   )
@@ -646,7 +728,7 @@ export function ServiceTopologyPanel() {
       {loading ? (
         <PanelLoading />
       ) : svc.isError ? (
-        <PanelError message="Could not reach the cluster" />
+        <PanelError message="Kubernetes API unreachable" onRetry={() => void svc.refetch()} />
       ) : nodes.length === 0 ? (
         <PanelEmpty message="No Services found in the cluster" />
       ) : (
@@ -765,7 +847,7 @@ export function RegionSpreadPanel() {
         {loading ? (
           <PanelLoading />
         ) : nodesQ.isError ? (
-          <PanelError message="Could not reach the cluster" />
+          <PanelError message="Kubernetes API unreachable" onRetry={() => void nodesQ.refetch()} />
         ) : (
           <PanelEmpty message="No nodes found" />
         )}
@@ -857,7 +939,7 @@ export function DoraRadarPanel() {
   // deliberately: the radar used to read lead time from PR cycle time and
   // change-fail rate from a point-in-time sync snapshot, so the two panels
   // sitting side by side could disagree about the same week.
-  const { metrics, tier, avgAvailable } = useMemo(() => {
+  const { metrics, tier, avgAvailable, availableCount } = useMemo(() => {
     const apps = q.data ?? []
     const now = Date.now()
     const windowDays = 30
@@ -899,18 +981,28 @@ export function DoraRadarPanel() {
         : {
             label: 'Lead time',
             value: 0,
-            raw: flow.isLoading ? '…' : 'no resolvable commits',
+            raw: flow.isLoading ? '…' : flow.isError ? 'Gitea unreachable' : 'no resolvable commits',
             target: 1,
             available: false,
           },
-      {
-        label: 'Change-fail rate',
-        value: cfr == null ? 0 : Math.max(0, Math.min(1, 1 - cfr / 0.3)),
-        raw: cfr == null ? 'no measurable deploys' : `${(cfr * 100).toFixed(1)}%`,
-        target: 1,
-        available: cfr != null,
-      },
-      mttr.medianHours != null
+      // Correlating deploys with incidents needs Prometheus to have answered:
+      // with no incident list the rate is unknown, never 0%.
+      ops.available && cfr != null
+        ? {
+            label: 'Change-fail rate',
+            value: Math.max(0, Math.min(1, 1 - cfr / 0.3)),
+            raw: `${(cfr * 100).toFixed(1)}%`,
+            target: 1,
+            available: true,
+          }
+        : {
+            label: 'Change-fail rate',
+            value: 0,
+            raw: ops.isLoading ? '…' : !ops.available ? 'Prometheus unreachable' : 'no measurable deploys',
+            target: 1,
+            available: false,
+          },
+      ops.available && mttr.medianHours != null
         ? {
             label: 'MTTR',
             // Elite restores service in under an hour; the score falls off
@@ -923,17 +1015,19 @@ export function DoraRadarPanel() {
         : {
             label: 'MTTR',
             value: 0,
-            raw: ops.isLoading ? '…' : ops.isError ? 'Prometheus unreachable' : 'no recoveries yet',
+            raw: ops.isLoading ? '…' : !ops.available ? 'Prometheus unreachable' : 'no recoveries yet',
             target: 1,
             available: false,
           },
     ]
+    // Unavailable axes are excluded from the average entirely — counting them
+    // as 0 would drag the tier down for a source that simply isn't answering.
     const avail = list.filter((m) => m.available)
-    const avgAvailable = avail.length ? avail.reduce((s, m) => s + m.value, 0) / avail.length : 0
-    const tier: 'Elite' | 'High' | 'Medium' =
-      avgAvailable >= 0.85 ? 'Elite' : avgAvailable >= 0.6 ? 'High' : 'Medium'
-    return { metrics: list, tier, avgAvailable }
-  }, [q.data, flow.medianHours, flow.isLoading, ops.incidents, ops.isLoading, ops.isError])
+    const avgAvailable = avail.length ? avail.reduce((s, m) => s + m.value, 0) / avail.length : null
+    const tier: 'Elite' | 'High' | 'Medium' | null =
+      avgAvailable == null ? null : avgAvailable >= 0.85 ? 'Elite' : avgAvailable >= 0.6 ? 'High' : 'Medium'
+    return { metrics: list, tier, avgAvailable, availableCount: avail.length }
+  }, [q.data, flow.medianHours, flow.isLoading, flow.isError, ops.incidents, ops.isLoading, ops.available])
 
   if (q.isLoading || q.isError) {
     return (
@@ -953,13 +1047,17 @@ export function DoraRadarPanel() {
             <span
               className={cn(
                 'rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 ring-inset',
-                tier === 'Elite' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200' : tier === 'High' ? 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 ring-sky-200' : 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-200',
+                tier === null
+                  ? 'bg-surface-sunken text-content-muted ring-edge-default'
+                  : tier === 'Elite' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200' : tier === 'High' ? 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 ring-sky-200' : 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-200',
               )}
             >
-              {tier}
+              {tier ?? '—'}
             </span>
             <span className="text-[11px] text-content-muted">
-              avg {(avgAvailable * 100).toFixed(0)}% of elite
+              {avgAvailable == null
+                ? 'no axis measurable yet'
+                : `avg ${(avgAvailable * 100).toFixed(0)}% of elite · ${availableCount} of ${metrics.length} axes`}
             </span>
           </div>
           {metrics.map((m) => (
@@ -986,7 +1084,7 @@ export function DoraRadarPanel() {
   )
 }
 
-interface RadarMetric { label: string; value: number; target: number }
+interface RadarMetric { label: string; value: number; target: number; available?: boolean }
 
 function Radar({ metrics }: { metrics: RadarMetric[] }) {
   const SIZE = 160
@@ -999,11 +1097,22 @@ function Radar({ metrics }: { metrics: RadarMetric[] }) {
     x: cx + Math.cos(angle(i)) * radius * v,
     y: cy + Math.sin(angle(i)) * radius * v,
   })
-  const valuePath = metrics.map((m, i) => point(m.value, i)).map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ') + ' Z'
+  // An unavailable axis has no vertex: the polygon is drawn through the
+  // measured axes only (a line for two, a dot for one), and the missing axis
+  // is shown dashed — never plotted as a 0 at the centre.
+  const isAvail = (m: RadarMetric) => m.available !== false
+  const measured = metrics
+    .map((m, i) => ({ m, i }))
+    .filter(({ m }) => isAvail(m))
+    .map(({ m, i }) => point(m.value, i))
+  const valuePath = measured.length >= 2
+    ? measured.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ') +
+      (measured.length >= 3 ? ' Z' : '')
+    : ''
   const targetPath = metrics.map((_, i) => point(1, i)).map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ') + ' Z'
   const labels = metrics.map((m, i) => {
     const p = point(1.18, i)
-    return { ...p, label: m.label }
+    return { ...p, label: m.label, available: isAvail(m) }
   })
   const rings = [0.25, 0.5, 0.75, 1]
   return (
@@ -1012,20 +1121,37 @@ function Radar({ metrics }: { metrics: RadarMetric[] }) {
       {rings.map((r) => (
         <circle key={r} cx={cx} cy={cy} r={radius * r} fill="none" stroke="rgba(15,23,42,0.07)" />
       ))}
-      {/* Axes */}
-      {metrics.map((_, i) => {
+      {/* Axes — dashed where the axis has no data */}
+      {metrics.map((m, i) => {
         const p = point(1, i)
-        return <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="rgba(15,23,42,0.08)" />
+        return (
+          <line
+            key={i}
+            x1={cx}
+            y1={cy}
+            x2={p.x}
+            y2={p.y}
+            stroke="rgba(100,116,139,0.35)"
+            strokeDasharray={isAvail(m) ? undefined : '2 3'}
+          />
+        )
       })}
       {/* Target / elite fill */}
       <path d={targetPath} fill="rgba(125,211,252,0.06)" stroke="rgba(125,211,252,0.4)" strokeDasharray="3 3" />
-      {/* Value polygon */}
-      <path d={valuePath} fill="rgba(99,102,241,0.22)" stroke="rgb(99,102,241)" strokeWidth="1.5" strokeLinejoin="round" />
+      {/* Value polygon (measured axes only) */}
+      {valuePath
+        ? (
+          <path
+            d={valuePath}
+            fill={measured.length >= 3 ? 'rgba(99,102,241,0.22)' : 'none'}
+            stroke="rgb(99,102,241)"
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+          />
+        )
+        : null}
       {/* Vertices */}
-      {metrics.map((m, i) => {
-        const p = point(m.value, i)
-        return <circle key={i} cx={p.x} cy={p.y} r="3" fill="rgb(99,102,241)" />
-      })}
+      {measured.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r="3" fill="rgb(99,102,241)" />)}
       {/* Labels around the perimeter */}
       {labels.map((l, i) => (
         <text
@@ -1037,7 +1163,8 @@ function Radar({ metrics }: { metrics: RadarMetric[] }) {
           fontFamily="ui-sans-serif, system-ui"
           fontSize="9"
           fontWeight="600"
-          fill="rgb(71 85 105)"
+          fill="rgb(100 116 139)"
+          opacity={l.available ? 1 : 0.5}
         >
           {l.label}
         </text>
@@ -1098,7 +1225,7 @@ export function StorageTreemapPanel() {
         {q.isLoading ? (
           <PanelLoading />
         ) : q.isError ? (
-          <PanelError message="Could not reach the cluster" />
+          <PanelError message="Kubernetes API unreachable" onRetry={() => void q.refetch()} />
         ) : (
           <PanelEmpty message="No PersistentVolumeClaims found" />
         )}
@@ -1227,24 +1354,28 @@ export function BudgetBulletPanel() {
       code: `${Math.round(n.share * 100)}%`,
       actual: n.actual,
       // Target: proportional slice of the configured budget (real share), or
-      // last-month spend as the baseline when no budget is configured.
-      target: budgetConfigured ? Math.max(1, data.budget! * n.share) : Math.max(1, n.prior),
+      // the prior 30 days' spend as the baseline when no budget is configured.
+      // No budget and no prior spend → no target (never an invented $1).
+      target: budgetConfigured
+        ? data.budget! * n.share > 0 ? data.budget! * n.share : null
+        : n.prior > 0 ? n.prior : null,
       prior: n.prior,
     }))
+    // OpenCost's window is a trailing 30 days, not month-to-date.
     const subtitle = budgetConfigured
-      ? 'Namespace spend vs budget · USD'
-      : 'Namespace spend vs last month · USD (budget not configured)'
+      ? 'Namespace spend, last 30 days vs budget · USD'
+      : 'Namespace spend, last 30 days vs prior 30 days · USD (budget not configured)'
     return { items, subtitle }
   }, [q.data])
 
   if (q.isLoading || q.isError || items.length === 0) {
     return (
       <PanelCard>
-        <PanelHead title="Budget · MTD vs target" subtitle="Cost center performance · USD" to="/settings?section=budgets" />
+        <PanelHead title="Budget · last 30 days vs target" subtitle="Cost center performance · USD" to="/settings?section=budgets" />
         {q.isLoading ? (
           <PanelLoading />
         ) : q.isError ? (
-          <PanelEmpty message="Requires an OpenCost metrics source" />
+          <PanelError message={`OpenCost unreachable${q.error instanceof Error ? ` — ${q.error.message}` : ''}`} onRetry={() => void q.refetch()} />
         ) : (
           <PanelEmpty message="No cost allocation data available" />
         )}
@@ -1253,7 +1384,7 @@ export function BudgetBulletPanel() {
   }
   return (
     <PanelCard>
-      <PanelHead title="Budget · MTD vs target" subtitle={subtitle} to="/settings?section=budgets" />
+      <PanelHead title="Budget · last 30 days vs target" subtitle={subtitle} to="/settings?section=budgets" />
       <div className="space-y-3">
         {items.map((it) => (
           <Bullet key={it.label} item={it} />
@@ -1264,7 +1395,7 @@ export function BudgetBulletPanel() {
           <span className="h-2 w-2 rounded-sm bg-brand-500" /> actual
         </span>
         <span className="inline-flex items-center gap-1">
-          <span className="h-2.5 w-0.5 bg-content" /> prior month
+          <span className="h-2.5 w-0.5 bg-content" /> prior 30 days
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="h-1.5 w-3 rounded bg-edge-strong" /> safe
@@ -1280,18 +1411,21 @@ export function BudgetBulletPanel() {
   )
 }
 
-interface BulletItem { label: string; code: string; actual: number; target: number; prior: number }
+interface BulletItem { label: string; code: string; actual: number; target: number | null; prior: number }
 
 function Bullet({ item }: { item: BulletItem }) {
-  const max = item.target * 1.15 // headroom past target so "over" is visible
+  // Without a target the bar is scaled to actual spend and shows no ratio.
+  const tgt = item.target
+  const max = (tgt ?? Math.max(item.actual, item.prior)) * 1.15 || 1 // headroom past target so "over" is visible
   const actualPct = (item.actual / max) * 100
   const priorPct = (item.prior / max) * 100
-  const safe = (item.target * 0.7) / max * 100
-  const warn = (item.target * 0.9) / max * 100
-  const target = (item.target / max) * 100
-  const ratio = item.actual / item.target
-  const tone =
-    ratio > 1 ? 'text-rose-700 dark:text-rose-300' : ratio > 0.9 ? 'text-amber-700 dark:text-amber-300' : 'text-content-muted'
+  const safe = tgt != null ? (tgt * 0.7) / max * 100 : 0
+  const warn = tgt != null ? (tgt * 0.9) / max * 100 : 0
+  const target = tgt != null ? (tgt / max) * 100 : null
+  const ratio = tgt != null ? item.actual / tgt : null
+  const tone = ratio == null
+    ? 'text-content-muted'
+    : ratio > 1 ? 'text-rose-700 dark:text-rose-300' : ratio > 0.9 ? 'text-amber-700 dark:text-amber-300' : 'text-content-muted'
   return (
     <div>
       <div className="flex items-baseline justify-between text-[11px]">
@@ -1301,11 +1435,11 @@ function Bullet({ item }: { item: BulletItem }) {
         </span>
         <span className={cn('font-mono tabular-nums', tone)}>
           ${(item.actual / 1000).toFixed(1)}k
-          <span className="text-content-subtle"> / ${(item.target / 1000).toFixed(1)}k</span>
-          <span className={cn('ml-1.5 font-semibold', tone)}>{Math.round(ratio * 100)}%</span>
+          <span className="text-content-subtle"> / {tgt != null ? `$${(tgt / 1000).toFixed(1)}k` : 'no target'}</span>
+          <span className={cn('ml-1.5 font-semibold', tone)}>{ratio != null ? `${Math.round(ratio * 100)}%` : '—'}</span>
         </span>
       </div>
-      <div className="relative mt-1 h-2.5 overflow-hidden rounded-full bg-rose-100 dark:bg-rose-500/15">
+      <div className={cn('relative mt-1 h-2.5 overflow-hidden rounded-full', target != null ? 'bg-rose-100 dark:bg-rose-500/15' : 'bg-surface-sunken')}>
         {/* warn band */}
         <div className="absolute inset-y-0 left-0 bg-amber-100 dark:bg-amber-500/15" style={{ width: `${warn}%` }} />
         {/* safe band */}
@@ -1315,19 +1449,23 @@ function Bullet({ item }: { item: BulletItem }) {
           className="absolute inset-y-[3px] left-0 rounded-full bg-linear-to-r from-brand-500 to-brand-400 transition-[width] duration-500"
           style={{ width: `${Math.min(99, actualPct)}%`, height: '6px', top: '5px' }}
         />
-        {/* prior-month tick */}
-        <span
-          aria-hidden
-          className="absolute inset-y-0 w-0.5 bg-content"
-          style={{ left: `${priorPct}%` }}
-          title={`Prior: $${item.prior.toLocaleString()}`}
-        />
+        {/* prior-30-days tick (only when there was prior spend) */}
+        {item.prior > 0 ? (
+          <span
+            aria-hidden
+            className="absolute inset-y-0 w-0.5 bg-content"
+            style={{ left: `${priorPct}%` }}
+            title={`Prior 30 days: $${item.prior.toLocaleString()}`}
+          />
+        ) : null}
         {/* target marker */}
-        <span
-          aria-hidden
-          className="absolute -inset-y-0.5 w-[3px] rounded-full bg-content shadow-sm"
-          style={{ left: `${target}%` }}
-        />
+        {target != null ? (
+          <span
+            aria-hidden
+            className="absolute -inset-y-0.5 w-[3px] rounded-full bg-content shadow-sm"
+            style={{ left: `${target}%` }}
+          />
+        ) : null}
       </div>
     </div>
   )
@@ -1456,12 +1594,57 @@ export function PanelLoading() {
   )
 }
 
-export function PanelError({ message }: { message?: string }) {
+export function PanelError({ message, onRetry }: { message?: string; onRetry?: () => void }) {
   return (
     <PanelMessage>
-      <span className="text-rose-700 dark:text-rose-300">{message ?? 'Failed to load'}</span>
+      <span className="flex flex-col items-center gap-2">
+        <span className="text-rose-700 dark:text-rose-300">{message ?? 'Failed to load'}</span>
+        {onRetry
+          ? (
+            <Button size="xs" variant="secondary" onClick={() => onRetry()}>
+              Retry
+            </Button>
+          )
+          : null}
+      </span>
     </PanelMessage>
   )
+}
+
+/** Minimal query shape `gate` needs — satisfied by any TanStack Query result. */
+export interface GateQuery {
+  isLoading: boolean
+  isError: boolean
+  error?: unknown
+  refetch?: () => unknown
+}
+
+/**
+ * Uniform "can't show this" body for a query result: loading → spinner,
+ * error → a message naming the source (+ Retry), empty → the honest empty
+ * state. Returns null when the panel has real data to render.
+ *
+ * `source` names the backend in the error ("Plane unreachable: …") so a
+ * failure is never mistaken for "no data".
+ */
+export function gate(q: GateQuery, emptyWhen: boolean, emptyMessage: string, source?: string) {
+  if (q.isLoading) return <PanelLoading />
+  if (q.isError) {
+    const detail = q.error instanceof Error ? q.error.message : undefined
+    const message = source
+      ? `${source} unreachable${detail ? ` — ${detail}` : ''}`
+      : detail
+    return <PanelError message={message} onRetry={q.refetch ? () => void q.refetch!() : undefined} />
+  }
+  if (emptyWhen) return <PanelEmpty message={emptyMessage} />
+  return null
+}
+
+/** Relative time for an ISO string, or "—" when it is missing / unparseable. */
+export function relTime(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const t = Date.parse(iso)
+  return Number.isFinite(t) ? formatRelative(t) : '—'
 }
 
 export function PanelEmpty({ message }: { message: string }) {
@@ -1822,7 +2005,8 @@ export function ResourceUtilizationPanel() {
     const out: Array<{
       key: string
       label: string
-      value: number
+      /** null when the denominator is unknown — rendered "—", never 0%. */
+      value: number | null
       used: string
       total: string
       hint?: string
@@ -1899,7 +2083,7 @@ export function ResourceUtilizationPanel() {
       out.push({
         key: 'storage',
         label: 'Storage',
-        value: nodeDisk > 0 ? pct(provisioned, nodeDisk) : 0,
+        value: nodeDisk > 0 ? pct(provisioned, nodeDisk) : null,
         used: formatStorage(provisioned),
         total: nodeDisk > 0 ? formatStorage(nodeDisk) : '—',
         hint: `${volumes} · allocated, not measured`,
@@ -1922,7 +2106,7 @@ export function ResourceUtilizationPanel() {
       {loading ? (
         <PanelLoading />
       ) : nodesQ.isError && pvcsQ.isError ? (
-        <PanelError message="Could not reach the cluster" />
+        <PanelError message="Kubernetes API unreachable" onRetry={() => { void nodesQ.refetch(); void pvcsQ.refetch() }} />
       ) : gauges.length === 0 ? (
         <PanelEmpty message="Requires metrics-server (metrics.k8s.io) or Prometheus node and volume metrics" />
       ) : (
@@ -1964,14 +2148,14 @@ function ResourceGauge({
   icon,
 }: {
   label: string
-  value: number
+  value: number | null
   used: string
   total: string
   hint?: string
   detail?: string
   icon: React.ReactNode
 }) {
-  const tone = value >= 85 ? 'rose' : value >= 70 ? 'amber' : 'emerald'
+  const tone = value == null ? 'emerald' : value >= 85 ? 'rose' : value >= 70 ? 'amber' : 'emerald'
   const ringClass = {
     emerald: 'stroke-emerald-500',
     amber: 'stroke-amber-500',
@@ -1985,7 +2169,7 @@ function ResourceGauge({
   const r = 44
   const stroke = 9
   const c = 2 * Math.PI * r
-  const offset = c - (Math.max(0, Math.min(100, value)) / 100) * c
+  const offset = c - (Math.max(0, Math.min(100, value ?? 0)) / 100) * c
   return (
     <div title={detail} className="flex flex-col items-center rounded-xl border border-edge-subtle bg-surface-sunken/30 p-3">
       <div className="relative h-28 w-28">
@@ -2006,8 +2190,14 @@ function ResourceGauge({
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <div className="font-mono text-2xl font-semibold tabular-nums tracking-tight text-content">
-            {value}
-            <span className="text-sm font-normal text-content-subtle">%</span>
+            {value == null ? (
+              <span className="text-content-subtle">—</span>
+            ) : (
+              <>
+                {value}
+                <span className="text-sm font-normal text-content-subtle">%</span>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -2042,26 +2232,31 @@ export function IncidentTimelinePanel() {
   const list = alerts.data ?? []
 
   const items = useMemo(() => {
-    return list.slice(0, 5).map((a, i) => {
-      const labels = (a.labels ?? {}) as Record<string, string>
-      const annotations = (a.annotations ?? {}) as Record<string, string>
-      const sev = (labels.severity ?? '').toLowerCase()
-      const severity =
-        sev.includes('crit') || sev === 'sev1'
-          ? ('sev1' as const)
-          : sev.includes('warn') || sev === 'sev2' || sev === 'high'
-            ? ('sev2' as const)
-            : sev === 'sev3' || sev === 'medium'
-              ? ('sev3' as const)
-              : ('info' as const)
-      return {
-        id: `${labels.alertname ?? 'alert'}-${i}`,
-        title: labels.alertname ?? annotations.summary ?? 'Alert',
-        severity,
-        message: annotations.description ?? annotations.summary ?? '—',
-        ts: a.startsAt,
-      }
-    })
+    // The mapped lgtm Alert already carries name / severity / summary /
+    // description (annotations are flattened by the client) — read those, not
+    // a raw `annotations` field the type doesn't have.
+    return [...list]
+      // Newest first; alerts with no reported start sort last.
+      .sort((x, y) => (y.startsAt || '').localeCompare(x.startsAt || ''))
+      .slice(0, 5)
+      .map((a, i) => {
+        const sev = (a.labels?.severity ?? a.severity ?? '').toLowerCase()
+        const severity =
+          sev.includes('crit') || sev === 'sev1'
+            ? ('sev1' as const)
+            : sev.includes('warn') || sev === 'sev2' || sev === 'high'
+              ? ('sev2' as const)
+              : sev === 'sev3' || sev === 'medium'
+                ? ('sev3' as const)
+                : ('info' as const)
+        return {
+          id: `${a.fingerprint || a.name}-${i}`,
+          title: a.name || a.summary || 'Alert',
+          severity,
+          message: a.description ?? a.summary ?? '',
+          ts: a.startsAt,
+        }
+      })
   }, [list])
 
   if (alerts.isLoading || alerts.isError || items.length === 0) {
@@ -2071,7 +2266,7 @@ export function IncidentTimelinePanel() {
         {alerts.isLoading ? (
           <PanelLoading />
         ) : alerts.isError ? (
-          <PanelError message="Prometheus alerts are not reachable" />
+          <PanelError message="Prometheus unreachable — alerts unavailable" onRetry={() => void alerts.refetch()} />
         ) : (
           <PanelEmpty message="No alerts firing or pending" />
         )}
@@ -2098,7 +2293,7 @@ export function IncidentTimelinePanel() {
             <div className="flex flex-wrap items-center gap-2">
               <SeverityPill sev={it.severity} />
               <span className="text-[10px] uppercase tracking-wider text-content-subtle">
-                {formatRelative(it.ts)}
+                {relTime(it.ts)}
               </span>
             </div>
             <div className="mt-0.5 truncate text-[13px] font-medium text-content">{it.title}</div>
@@ -2297,7 +2492,7 @@ export function PodRestartsPanel() {
         {q.isLoading ? (
           <PanelLoading />
         ) : q.isError ? (
-          <PanelError message="Could not reach the cluster" />
+          <PanelError message="Kubernetes API unreachable" onRetry={() => void q.refetch()} />
         ) : (
           <PanelEmpty message="No pod restarts" />
         )}
@@ -2729,19 +2924,23 @@ export function K8sEventsPanel() {
       type: 'Normal' | 'Warning'
       reason: string
       message: string
-      lastTimestamp?: string
+      lastTimestamp?: string | null
+      /** events.k8s.io-style micro-time; newer emitters set only this. */
+      eventTime?: string | null
+      series?: { lastObservedTime?: string }
       involvedObject: { kind: string; name: string; namespace?: string }
     }>
     return raw
       .map((e) => ({
-        at: e.lastTimestamp ?? e.metadata.creationTimestamp ?? new Date().toISOString(),
+        // Unknown time stays unknown ('' → "—"); never stamped "now".
+        at: e.lastTimestamp || e.series?.lastObservedTime || e.eventTime || e.metadata.creationTimestamp || '',
         type: e.type,
         reason: e.reason,
         object: `${e.involvedObject.kind.toLowerCase()}/${e.involvedObject.name}`,
         namespace: e.involvedObject.namespace ?? e.metadata.namespace ?? '—',
         message: e.message,
       }))
-      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+      .sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0))
       .slice(0, 12)
   }, [q.data])
 
@@ -2754,7 +2953,7 @@ export function K8sEventsPanel() {
         {q.isLoading ? (
           <PanelLoading />
         ) : q.isError ? (
-          <PanelError message="Could not reach the cluster" />
+          <PanelError message="Kubernetes API unreachable" onRetry={() => void q.refetch()} />
         ) : (
           <PanelEmpty message="No recent events" />
         )}
@@ -2794,7 +2993,7 @@ export function K8sEventsPanel() {
                   <span className="truncate font-mono text-content">{e.object}</span>
                 </div>
                 <span className="flex-none tabular-nums text-content-subtle">
-                  {formatRelative(e.at)}
+                  {relTime(e.at)}
                 </span>
               </div>
               <div className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-content-muted">
@@ -3216,19 +3415,19 @@ export function TenantOverviewPanel() {
           <QuotaBar
             label="CPU"
             usedLabel={`${agg.cpuUsed.toFixed(1)} / ${agg.cpuHard.toFixed(0)} cores`}
-            pct={pct(agg.cpuUsed, agg.cpuHard)}
+            pct={pctOrNull(agg.cpuUsed, agg.cpuHard)}
             fill="bg-sky-500"
           />
           <QuotaBar
             label="Memory"
             usedLabel={`${formatStorage(agg.memUsed)} / ${formatStorage(agg.memHard)}`}
-            pct={pct(agg.memUsed, agg.memHard)}
+            pct={pctOrNull(agg.memUsed, agg.memHard)}
             fill="bg-violet-500"
           />
           <QuotaBar
             label="Storage"
             usedLabel={`${formatStorage(agg.storageUsed)} / ${formatStorage(agg.storageHard)}`}
-            pct={pct(agg.storageUsed, agg.storageHard)}
+            pct={pctOrNull(agg.storageUsed, agg.storageHard)}
             fill="bg-emerald-500"
           />
           <div className="border-t border-edge-subtle pt-2 text-[10px] text-content-subtle">
@@ -3257,21 +3456,22 @@ function QuotaBar({
 }: {
   label: string
   usedLabel: string
-  pct: number
+  /** null when no hard limit is set for this resource. */
+  pct: number | null
   fill: string
 }) {
-  const tone = p >= 90 ? 'bg-rose-500' : p >= 75 ? 'bg-amber-500' : fill
+  const tone = p == null ? fill : p >= 90 ? 'bg-rose-500' : p >= 75 ? 'bg-amber-500' : fill
   return (
     <div>
       <div className="flex items-baseline justify-between text-[11px]">
         <span className="font-medium text-content">{label}</span>
         <span className="tabular-nums text-content-muted">
           {usedLabel}
-          <span className="ml-1.5 font-semibold text-content">{p}%</span>
+          <span className="ml-1.5 font-semibold text-content">{p == null ? 'no limit' : `${p}%`}</span>
         </span>
       </div>
       <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
-        <div className={cn('h-full rounded-full', tone)} style={{ width: `${Math.min(100, p)}%` }} />
+        <div className={cn('h-full rounded-full', tone)} style={{ width: `${Math.min(100, p ?? 0)}%` }} />
       </div>
     </div>
   )
@@ -3280,42 +3480,42 @@ function QuotaBar({
 /* ───── Sprint progress (active cycle burndown) ───── */
 
 export function SprintProgressPanel() {
-  const { issues, cycles } = useDefineSignals()
-  const cycleList = cycles.data ?? []
-  const issueList = issues.data ?? []
-  const active = cycleList.find((c) => c.status === 'current')
-  const total = active?.total_issues ?? issueList.length
-  const completed = active?.completed_issues ?? issueList.filter((i) => !!i.completed_at).length
-  const progress = active?.progress ?? (total > 0 ? Math.round((completed / total) * 100) : 0)
-  const started = active?.started_issues ?? 0
-  const backlog = active?.backlog_issues ?? 0
-  const remaining = total - completed
-  const endLabel = active?.end_date ? formatRelative(active.end_date) : '—'
+  const { projects, cycles } = useDefineSignals()
+  const active = (cycles.data ?? []).find((c) => c.status === 'current')
+  const head = <PanelHead title="Sprint progress" subtitle={active?.name ?? 'Active cycle · Plane'} to="/define" />
+  // Only an active cycle has a burndown. Without one the panel says so —
+  // it never falls back to "all issues" and calls that a sprint.
+  const blocked =
+    gate(projects, !projects.data?.[0], 'No Plane project yet — create one in Define to plan cycles.', 'Plane') ??
+    gate(cycles, !active, 'No active cycle — start a cycle in Define to track sprint progress.', 'Plane')
+  if (blocked || !active) return <PanelCard>{head}{blocked}</PanelCard>
+
+  const n = (v: number | undefined) => (v == null ? '—' : v)
+  const total = active.total_issues
+  const completed = active.completed_issues
+  const progress = active.progress ?? (total && completed != null ? Math.round((completed / total) * 100) : null)
+  const remaining = total != null && completed != null ? total - completed : null
 
   return (
     <PanelCard>
-      <PanelHead
-        title="Sprint progress"
-        subtitle={active?.name ?? 'No active cycle'}
-        to="/define"
-      />
+      {head}
       <div className="mb-3 grid grid-cols-2 lg:grid-cols-4 gap-2">
-        <Stat label="Total" value={total} tone="brand" />
-        <Stat label="Done" value={completed} tone="emerald" />
-        <Stat label="In-flight" value={started} tone="amber" />
-        <Stat label="Backlog" value={backlog} tone="slate" />
+        <Stat label="Total" value={n(total)} tone="brand" />
+        <Stat label="Done" value={n(completed)} tone="emerald" />
+        <Stat label="In-flight" value={n(active.started_issues)} tone="amber" />
+        <Stat label="Backlog" value={n(active.backlog_issues)} tone="slate" />
       </div>
 
-      <div className="mb-3 flex items-baseline justify-between text-[10px]">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-2 text-[10px]">
         <span className="font-semibold uppercase tracking-wider text-content-subtle">Progress</span>
         <span className="tabular-nums text-content-muted">
-          {progress}% complete · {remaining} remaining · ends {endLabel}
+          {progress == null ? '—' : `${progress}%`} complete · {remaining ?? '—'} remaining · ends {relTime(active.end_date)}
         </span>
       </div>
 
       <div className="flex-1">
         <div className="h-2 w-full overflow-hidden rounded-full bg-surface-sunken">
-          <div className="h-full rounded-full bg-brand-500" style={{ width: `${progress}%` }} />
+          <div className="h-full rounded-full bg-brand-500" style={{ width: `${progress ?? 0}%` }} />
         </div>
       </div>
     </PanelCard>
@@ -3325,7 +3525,7 @@ export function SprintProgressPanel() {
 /* ───── Issue backlog (priority + aging) ───── */
 
 export function IssueBacklogPanel() {
-  const { issues } = useDefineSignals()
+  const { projects, issues } = useDefineSignals()
   const list = issues.data ?? []
   const open = list.filter((i) => !i.completed_at)
 
@@ -3382,17 +3582,16 @@ export function IssueBacklogPanel() {
     stale: 'text-rose-700 dark:text-rose-300',
   }[groomingHealth]
 
-  if (issues.isLoading || issues.isError || totalOpen === 0) {
+  // `issues` stays disabled until the project list arrives — idle is not
+  // "no open issues". Gate on the project query first, like the Define panel.
+  const blocked =
+    gate(projects, !projects.data?.[0], 'No Plane project yet — create one in Define to track issues here.', 'Plane') ??
+    gate(issues, totalOpen === 0, 'No open issues', 'Plane')
+  if (blocked) {
     return (
       <PanelCard>
         <PanelHead title="Issue backlog" subtitle="Open issues by priority & age" to="/define" />
-        {issues.isLoading ? (
-          <PanelLoading />
-        ) : issues.isError ? (
-          <PanelEmpty message="Requires a Plane source" />
-        ) : (
-          <PanelEmpty message="No open issues" />
-        )}
+        {blocked}
       </PanelCard>
     )
   }
@@ -3553,7 +3752,7 @@ export function TenantUsagePanel() {
         {loading ? (
           <PanelLoading />
         ) : q.isError ? (
-          <PanelError message="Could not reach the cluster" />
+          <PanelError message="Kubernetes API unreachable" onRetry={() => void q.refetch()} />
         ) : (
           <PanelEmpty message="No tenants / no quotas configured" />
         )}
@@ -3578,10 +3777,12 @@ export function TenantUsagePanel() {
       </div>
       <div className="flex-1 space-y-1.5 overflow-y-auto">
         {tenants.map((t) => {
-          const cpuPct = pct(t.cpu, t.cpuLimit)
-          const memPct = pct(t.memGb, t.memLimit)
-          const storagePct = pct(t.storageGb, t.storageLimit)
-          const hot = Math.max(cpuPct, memPct, storagePct)
+          // A dimension with no limit has no percentage — not 0%.
+          const cpuPct = pctOrNull(t.cpu, t.cpuLimit)
+          const memPct = pctOrNull(t.memGb, t.memLimit)
+          const storagePct = pctOrNull(t.storageGb, t.storageLimit)
+          const known = [cpuPct, memPct, storagePct].filter((v): v is number => v != null)
+          const hot = known.length ? Math.max(...known) : null
           return (
             <div
               key={t.tenant}
@@ -3602,10 +3803,10 @@ export function TenantUsagePanel() {
                 <span
                   className={cn(
                     'flex-none text-[10px] font-medium tabular-nums',
-                    hot >= 90 ? 'text-rose-700 dark:text-rose-300' : hot >= 75 ? 'text-amber-700 dark:text-amber-300' : 'text-content-muted',
+                    hot == null ? 'text-content-subtle' : hot >= 90 ? 'text-rose-700 dark:text-rose-300' : hot >= 75 ? 'text-amber-700 dark:text-amber-300' : 'text-content-muted',
                   )}
                 >
-                  {hot}%
+                  {hot == null ? '—' : `${hot}%`}
                 </span>
               </div>
               <div className="mt-1.5 grid grid-cols-1 sm:grid-cols-3 gap-1.5">
@@ -3621,16 +3822,16 @@ export function TenantUsagePanel() {
   )
 }
 
-function UsageBar({ label, pct: p, fill }: { label: string; pct: number; fill: string }) {
-  const tone = p >= 90 ? 'bg-rose-500' : p >= 75 ? 'bg-amber-500' : fill
+function UsageBar({ label, pct: p, fill }: { label: string; pct: number | null; fill: string }) {
+  const tone = p == null ? fill : p >= 90 ? 'bg-rose-500' : p >= 75 ? 'bg-amber-500' : fill
   return (
     <div>
       <div className="flex items-baseline justify-between text-[10px]">
         <span className="text-content-subtle">{label}</span>
-        <span className="tabular-nums text-content-muted">{p}%</span>
+        <span className="tabular-nums text-content-muted">{p == null ? '—' : `${p}%`}</span>
       </div>
       <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-surface-raised">
-        <div className={cn('h-full rounded-full', tone)} style={{ width: `${Math.min(100, p)}%` }} />
+        <div className={cn('h-full rounded-full', tone)} style={{ width: `${Math.min(100, p ?? 0)}%` }} />
       </div>
     </div>
   )
@@ -3675,7 +3876,9 @@ export function AuditLogPanel() {
       type: 'Normal' | 'Warning'
       reason: string
       message: string
-      lastTimestamp?: string
+      lastTimestamp?: string | null
+      eventTime?: string | null
+      series?: { lastObservedTime?: string }
       involvedObject: { kind: string; name: string; namespace?: string }
       source?: { component?: string }
       reportingComponent?: string
@@ -3689,15 +3892,16 @@ export function AuditLogPanel() {
             ? 'warning'
             : 'info'
         return {
-          at: e.lastTimestamp ?? e.metadata.creationTimestamp ?? new Date().toISOString(),
-          actor: e.source?.component ?? e.reportingComponent ?? 'system',
+          // Unknown time / actor stay unknown — never "now" or a made-up "system".
+          at: e.lastTimestamp || e.series?.lastObservedTime || e.eventTime || e.metadata.creationTimestamp || '',
+          actor: e.source?.component || e.reportingComponent || '—',
           action: e.reason,
           resource: `${e.involvedObject.kind.toLowerCase()}/${e.involvedObject.name}`,
           tenant: e.involvedObject.namespace ?? e.metadata.namespace ?? '—',
           severity,
         }
       })
-      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+      .sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0))
       .slice(0, 12)
   }, [q.data])
 
@@ -3717,7 +3921,7 @@ export function AuditLogPanel() {
         {q.isLoading ? (
           <PanelLoading />
         ) : q.isError ? (
-          <PanelError message="Could not reach the cluster" />
+          <PanelError message="Kubernetes API unreachable" onRetry={() => void q.refetch()} />
         ) : (
           <PanelEmpty message="No audit events" />
         )}
@@ -3757,7 +3961,7 @@ export function AuditLogPanel() {
                 {e.severity}
               </span>
               <span className="ml-auto flex-none tabular-nums text-content-subtle">
-                {formatRelative(e.at)}
+                {relTime(e.at)}
               </span>
             </div>
             <div className="mt-0.5 truncate text-[11px] text-content-muted">{e.resource}</div>
@@ -3779,7 +3983,8 @@ interface BackupRow {
   scope: string
   finishedAt: string
   durationMin: number | null
-  status: 'completed' | 'in-progress' | 'failed' | 'partial'
+  /** `unknown` = a phase we don't recognise (or none yet) — shown neutrally, never as failed. */
+  status: 'completed' | 'in-progress' | 'failed' | 'partial' | 'unknown'
 }
 
 function durationMinutes(start?: string, end?: string): number | null {
@@ -3806,22 +4011,29 @@ export function BackupStatusPanel() {
         status?: { phase?: string; startedAt?: string; stoppedAt?: string }
       }
     >
+    // Velero phases: New, InProgress, WaitingForPluginOperations*,
+    // Finalizing*, Completed, PartiallyFailed, Failed, FailedValidation,
+    // Deleting. Anything else (or no phase yet) is unknown, not failed.
     const veleroStatus = (p?: string): BackupRow['status'] =>
       p === 'Completed'
         ? 'completed'
-        : p === 'InProgress' || p === 'New'
+        : p === 'InProgress' || p === 'New' || /^(WaitingForPluginOperations|Finalizing)/.test(p ?? '')
           ? 'in-progress'
-          : /partial/i.test(p ?? '')
+          : p === 'PartiallyFailed'
             ? 'partial'
-            : 'failed'
+            : p === 'Failed' || p === 'FailedValidation'
+              ? 'failed'
+              : 'unknown'
+    // CNPG phases: pending, started, running, finalizing, completed, failed,
+    // walArchivingFailing. Unknown / empty stays unknown, not "partial".
     const cnpgStatus = (p?: string): BackupRow['status'] =>
       p === 'completed'
         ? 'completed'
-        : p === 'running' || p === 'started'
+        : p === 'running' || p === 'started' || p === 'pending' || p === 'finalizing'
           ? 'in-progress'
-          : p === 'failed'
+          : p === 'failed' || p === 'walArchivingFailing'
             ? 'failed'
-            : 'partial'
+            : 'unknown'
     const rows: BackupRow[] = [
       ...velero.map((b) => ({
         name: b.metadata.name,
@@ -3841,7 +4053,7 @@ export function BackupStatusPanel() {
       })),
     ]
     return rows
-      .sort((a, b) => new Date(b.finishedAt).getTime() - new Date(a.finishedAt).getTime())
+      .sort((a, b) => (Date.parse(b.finishedAt) || 0) - (Date.parse(a.finishedAt) || 0))
       .slice(0, 8)
   }, [veleroQ.data, cnpgQ.data])
 
@@ -3855,8 +4067,17 @@ export function BackupStatusPanel() {
     'in-progress': { dot: 'bg-sky-500', pill: 'border-sky-200 dark:border-sky-500/25 bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300', label: 'Running' },
     failed: { dot: 'bg-rose-500', pill: 'border-rose-200 dark:border-rose-500/25 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300', label: 'Failed' },
     partial: { dot: 'bg-amber-500', pill: 'border-amber-200 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300', label: 'Partial' },
+    unknown: { dot: 'bg-slate-400', pill: 'border-edge-default bg-surface-sunken text-content-muted', label: 'Unknown' },
   }
 
+  // A 404 means the CRD isn't installed (honest "not set up"); any other error
+  // means the list couldn't be read and must say so, not read as "no backups".
+  const veleroState = sourceState(veleroQ)
+  const cnpgState = sourceState(cnpgQ)
+  const unreadable = [
+    veleroState === 'error' ? 'Velero' : null,
+    cnpgState === 'error' ? 'CloudNativePG' : null,
+  ].filter((x): x is string => !!x)
   const loading = veleroQ.isLoading || cnpgQ.isLoading
   if (loading || backups.length === 0) {
     return (
@@ -3864,8 +4085,15 @@ export function BackupStatusPanel() {
         <PanelHead title="Backup status" subtitle="Velero + CloudNativePG" to="/platform" />
         {loading ? (
           <PanelLoading />
+        ) : unreadable.length > 0 ? (
+          <PanelError
+            message={`${unreadable.join(' and ')} backups unreadable from the Kubernetes API`}
+            onRetry={() => { void veleroQ.refetch(); void cnpgQ.refetch() }}
+          />
+        ) : veleroState === 'absent' && cnpgState === 'absent' ? (
+          <PanelEmpty message="Neither Velero nor CloudNativePG is installed — install one to back up this cluster." />
         ) : (
-          <PanelEmpty message="No backups found (requires Velero or CloudNativePG)" />
+          <PanelEmpty message="No backups have run yet." />
         )}
       </PanelCard>
     )
@@ -3874,7 +4102,7 @@ export function BackupStatusPanel() {
     <PanelCard>
       <PanelHead
         title="Backup status"
-        subtitle={`Velero + CloudNativePG · ${scheduleCount} schedule${scheduleCount === 1 ? '' : 's'}`}
+        subtitle={`Velero + CloudNativePG · ${cnpgSchedQ.data ? `${scheduleCount} CNPG schedule${scheduleCount === 1 ? '' : 's'}` : 'schedules unknown'}${unreadable.length ? ` · ${unreadable.join(', ')} unreadable` : ''}`}
         to="/platform"
       />
       <div className="mb-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -3914,7 +4142,7 @@ export function BackupStatusPanel() {
                   </>
                 ) : null}
                 <span className="ml-auto text-content-subtle">
-                  {b.finishedAt ? formatRelative(b.finishedAt) : '—'}
+                  {relTime(b.finishedAt)}
                 </span>
               </div>
             </li>
@@ -3948,4 +4176,9 @@ interface Template {
 
 function pct(part: number, total: number): number {
   return total > 0 ? Math.round((part / total) * 100) : 0
+}
+
+/** Like `pct`, but null when there is no denominator (no limit / no data). */
+function pctOrNull(part: number, total: number): number | null {
+  return total > 0 ? Math.round((part / total) * 100) : null
 }

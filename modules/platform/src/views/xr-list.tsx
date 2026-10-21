@@ -13,6 +13,8 @@ import {
   useToast,
   type StatusKind,
   type Column,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
 import { k8s } from '@adhar/api-clients'
 import { kube } from '@adhar/api-clients/k8s'
@@ -1892,6 +1894,7 @@ function XrDrawer({
   /** Opens the provisioning form pre-filled from this resource. */
   onClone?(xr: XR): void
 }) {
+  const width = useDrawerWidth('platform.xr', { base: 'max-w-2xl' })
   const { cluster } = useActiveCluster()
   const cp = clusterParam(cluster)
   const canMutate = useHasK8sPermission('crds.write')
@@ -1953,7 +1956,7 @@ function XrDrawer({
         className="absolute inset-0 bg-slate-900/35 backdrop-blur-[2px]"
         onClick={onClose}
       />
-      <aside className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">
@@ -1988,6 +1991,7 @@ function XrDrawer({
                 Edit
               </Button>
             ) : null}
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <button
               type="button"
               onClick={onClose}

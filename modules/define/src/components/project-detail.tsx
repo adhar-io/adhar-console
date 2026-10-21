@@ -47,6 +47,7 @@ export function ProjectDetail({
 
   return (
     <SidePanel
+      widthId="define.project"
       onClose={onClose}
       eyebrow={
         <>

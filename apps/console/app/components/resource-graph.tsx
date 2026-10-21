@@ -1,6 +1,6 @@
 import { type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { type StatusKind, useToast } from '@adhar/shell-ui'
+import { DrawerWidenButton, type StatusKind, useDrawerWidth, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { IconBtn } from './code-viewer.tsx'
 import {
@@ -1105,6 +1105,7 @@ export function NodeSidePanel<T extends string>({ node, tabs, tab, onTab, onClos
   wide?: boolean
 }) {
   const toast = useToast()
+  const width = useDrawerWidth('graph.node', { base: wide ? 'sm:max-w-205' : 'sm:max-w-150' })
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
@@ -1122,7 +1123,7 @@ export function NodeSidePanel<T extends string>({ node, tabs, tab, onTab, onClos
     // Above the drawer (z-50) and its own overlays; below toasts.
     <div className="fixed inset-0 z-60 flex justify-end" role="dialog" aria-modal="true" aria-label={`${node.kind} ${node.name}`}>
       <button type="button" className="absolute inset-0 bg-slate-950/25 backdrop-blur-[1px] dark:bg-black/50" aria-label="Close details" onClick={onClose} />
-      <div className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', wide ? 'sm:max-w-205' : 'sm:max-w-150')}>
+      <div className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="border-b border-edge-default bg-surface-raised px-4 pt-3">
           <div className="flex items-start gap-3">
             <KindIcon node={node} className="h-9 w-9" />
@@ -1138,6 +1139,7 @@ export function NodeSidePanel<T extends string>({ node, tabs, tab, onTab, onClos
                 {node.namespace ? ` · ${node.namespace}` : ''}
               </div>
             </div>
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} size="sm" />
             <IconBtn label="Close (Esc)" onClick={onClose}>
               <path d="M6.4 5L5 6.4 10.6 12 5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6L19 6.4 17.6 5 12 10.6z" />
             </IconBtn>

@@ -83,18 +83,54 @@ export function useClusterSignals() {
   return { nodes, deployments, pods, argoApps, rollouts, policyReports, clusterPolicyReports }
 }
 
+/**
+ * Where an optional CRD-backed source stands. `installed` on each block below
+ * is only true when the list actually came back (`ready`) — a loading query or
+ * a 403/500 must never read as "installed with 0 items".
+ */
+export type SourceState = 'loading' | 'ready' | 'absent' | 'error'
+
 export interface ClusterSummary {
   connected: boolean
   connecting: boolean
+  /** Deployments whose creationTimestamp is within the last 7 days (not a deploy-event count). */
+  newDeployments7d: number
+  /** @deprecated alias of `newDeployments7d` — kept for older callers. */
   deployFrequencyPerWeek: number
   activeDeployments: number
   totalDeployments: number
-  healthyDeploymentsPct: number
+  /** null when there are no deployments (or the list hasn't loaded) — never a default 100. */
+  healthyDeploymentsPct: number | null
   nodes: { ready: number; total: number }
   pods: { running: number; failing: number; total: number }
-  argo: { installed: boolean; synced: number; total: number; healthy: number }
-  rollouts: { installed: boolean; healthy: number; total: number }
-  policy: { installed: boolean; pass: number; fail: number; warn: number }
+  argo: { state: SourceState; installed: boolean; synced: number; total: number; healthy: number }
+  rollouts: { state: SourceState; installed: boolean; healthy: number; total: number }
+  policy: {
+    state: SourceState
+    installed: boolean
+    pass: number
+    fail: number
+    warn: number
+    /** pass + fail + warn — 0 means no policy results yet. */
+    evaluated: number
+  }
+}
+
+type QueryLike = { isLoading?: boolean; isError?: boolean; error?: unknown; data?: unknown }
+
+/** Classify a CRD list query: 404 ⇒ CRD absent; any other error ⇒ error; no data yet ⇒ loading. */
+export function sourceState(q: QueryLike): SourceState {
+  if (q.isError || q.error) return isNotFound(q.error) ? 'absent' : 'error'
+  if (q.isLoading || q.data === undefined) return 'loading'
+  return 'ready'
+}
+
+/** Combine the two policy report lists — ready if either answered, absent if both 404. */
+function combinePolicy(a: SourceState, b: SourceState): SourceState {
+  if (a === 'ready' || b === 'ready') return 'ready'
+  if (a === 'loading' || b === 'loading') return 'loading'
+  if (a === 'absent' && b === 'absent') return 'absent'
+  return 'error'
 }
 
 export function summarizeCluster(
@@ -126,19 +162,21 @@ export function summarizeCluster(
     (n.status?.conditions ?? []).some((c) => c.type === 'Ready' && c.status === 'True'),
   ).length
 
-  const argoInstalled = !isNotFound(data.argoApps.error)
+  const argoState = sourceState(data.argoApps)
   const argoApps = (data.argoApps.data ?? []) as Array<{
     status?: { sync?: { status?: string }; health?: { status?: string } }
   }>
   const synced = argoApps.filter((a) => a.status?.sync?.status === 'Synced').length
   const healthyArgo = argoApps.filter((a) => a.status?.health?.status === 'Healthy').length
 
-  const rolloutsInstalled = !isNotFound(data.rollouts.error)
+  const rolloutsState = sourceState(data.rollouts)
   const rollouts = (data.rollouts.data ?? []) as Array<{ status?: { phase?: string } }>
   const healthyRollouts = rollouts.filter((r) => r.status?.phase === 'Healthy').length
 
-  const policyInstalled =
-    !isNotFound(data.policyReports.error) || !isNotFound(data.clusterPolicyReports.error)
+  const policyState = combinePolicy(
+    sourceState(data.policyReports),
+    sourceState(data.clusterPolicyReports),
+  )
   const reports = [
     ...((data.policyReports.data ?? []) as Array<{
       summary?: { pass?: number; fail?: number; warn?: number }
@@ -154,17 +192,36 @@ export function summarizeCluster(
   return {
     connected: !data.nodes.isError,
     connecting: data.nodes.isLoading,
+    newDeployments7d: recent,
     deployFrequencyPerWeek: recent,
     activeDeployments: healthyDeps,
     totalDeployments: deployments.length,
     healthyDeploymentsPct: deployments.length
       ? Math.round((healthyDeps / deployments.length) * 100)
-      : 100,
+      : null,
     nodes: { ready, total: nodes.length },
     pods: { running, failing, total: pods.length },
-    argo: { installed: argoInstalled, synced, total: argoApps.length, healthy: healthyArgo },
-    rollouts: { installed: rolloutsInstalled, healthy: healthyRollouts, total: rollouts.length },
-    policy: { installed: policyInstalled, pass, fail, warn },
+    argo: {
+      state: argoState,
+      installed: argoState === 'ready',
+      synced,
+      total: argoApps.length,
+      healthy: healthyArgo,
+    },
+    rollouts: {
+      state: rolloutsState,
+      installed: rolloutsState === 'ready',
+      healthy: healthyRollouts,
+      total: rollouts.length,
+    },
+    policy: {
+      state: policyState,
+      installed: policyState === 'ready',
+      pass,
+      fail,
+      warn,
+      evaluated: pass + fail + warn,
+    },
   }
 }
 

@@ -76,7 +76,18 @@ export function Conversation({ repo, index, author, opened, body, extras = [], c
   return (
     <div className='space-y-3'>
       <PostCard login={author.login} avatar={author.avatar_url} at={opened} verb='opened this' body={body} empty='No description provided.' />
-      {comments.isLoading ? <div className='flex items-center gap-2 pl-10 text-[12px] text-content-muted'><Spinner size={12} /> Loading comments…</div> : null}
+      {comments.isLoading
+        ? (
+          <div role='status' aria-busy='true' aria-label='Loading comments' className='flex gap-3'>
+            <span className='skeleton-shimmer block h-8 w-8 shrink-0 rounded-full' />
+            <div className='min-w-0 flex-1 space-y-2 rounded-lg border border-edge-default bg-surface-raised p-3'>
+              <span className='skeleton-shimmer block h-3 w-1/4 rounded' />
+              <span className='skeleton-shimmer block h-2.5 w-11/12 rounded' />
+              <span className='skeleton-shimmer block h-2.5 w-2/3 rounded' />
+            </div>
+          </div>
+        )
+        : null}
       {items.map((it) => <div key={it.key}>{it.node}</div>)}
 
       <div className='rounded-lg border border-edge-default bg-surface-raised p-3'>

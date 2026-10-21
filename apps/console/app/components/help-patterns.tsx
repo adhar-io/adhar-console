@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Markdown, useOverlayDismiss, useToast } from '@adhar/shell-ui'
+import { DrawerWidenButton, Markdown, useDrawerWidth, useOverlayDismiss, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { CATEGORIES, CATEGORY_BLURB, type Category, matchesPattern, type Pattern } from '~/data/patterns.ts'
 import { PATTERNS } from '~/data/patterns-content.ts'
@@ -152,6 +152,11 @@ function PatternReader({ pattern: p, list, onOpen }: { pattern: Pattern; list: P
   const close = () => onOpen(undefined)
   useOverlayDismiss(true, close)
   const toast = useToast()
+  const width = useDrawerWidth('help.pattern', { base: 'max-w-2xl' })
+  const copyLink = () => {
+    const url = `${location.origin}/help?pattern=${p.slug}`
+    navigator.clipboard?.writeText(url).then(() => toast.success('Link copied', { description: url }), () => toast.error('Clipboard unavailable'))
+  }
   const st = CAT_STYLE[p.category]
   const i = list.findIndex((x) => x.slug === p.slug)
   const prev = i > 0 ? list[i - 1] : undefined
@@ -174,23 +179,14 @@ function PatternReader({ pattern: p, list, onOpen }: { pattern: Pattern; list: P
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={p.title}>
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={close} />
-      <article className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl">
+      <article className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl', width.className)}>
         <header className="border-b border-edge-default bg-surface-raised px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold', st.chip)}>
               <CatIcon category={p.category} size={12} /> {p.category} · {p.minutes} min read
             </span>
             <div className="-mr-2 -mt-1 flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => {
-                  const url = `${location.origin}/help?pattern=${p.slug}`
-                  navigator.clipboard?.writeText(url).then(() => toast.success('Link copied', { description: url }), () => toast.error('Clipboard unavailable'))
-                }}
-                className="rounded-md px-2 py-1 text-[12px] font-medium text-content-muted hover:bg-surface-sunken hover:text-content"
-              >
-                Copy link
-              </button>
+              <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
               <button type="button" onClick={close} aria-label="Close" className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content">✕</button>
             </div>
           </div>
@@ -227,6 +223,9 @@ function PatternReader({ pattern: p, list, onOpen }: { pattern: Pattern; list: P
             ← {prev?.title}
           </button>
           <span className="shrink-0 text-[11px] tabular-nums text-content-subtle">{i + 1} / {list.length}</span>
+          <button type="button" onClick={copyLink} className="shrink-0 rounded-md px-2 py-1 text-[11px] font-medium text-content-muted hover:bg-surface-sunken hover:text-content">
+            Copy link
+          </button>
           <button type="button" disabled={!next} onClick={() => next && onOpen(next.slug)} className="min-w-0 flex-1 truncate rounded-lg px-2 py-1.5 text-right text-[12px] text-content-muted hover:bg-surface-sunken hover:text-content disabled:invisible">
             {next?.title} →
           </button>

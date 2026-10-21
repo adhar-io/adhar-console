@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import {
   Button,
@@ -12,12 +13,13 @@ import {
   Input,
   Modal,
   Select,
-  Spinner,
   StatusBadge,
   Tabs,
   Textarea,
   useGiteaOrg,
   useToast,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui';
 import { dirOf, resolveReadmeImage } from '../data/readme-assets.ts';
 import { cn, formatRelative } from '@adhar/utils';
@@ -60,6 +62,7 @@ import { FileBrowser } from './file-browser.tsx';
 import { CloudEnvLaunch } from './cloud-env-launch.tsx'
 import { NewIssueModal, NewPullModal } from './tracker-modals.tsx';
 import { itemRef, useGoDevelop } from '../data/nav.ts';
+import { GiteaError, ListSkeleton, SwapFrame } from './list-kit.tsx';
 import { copy, fmtKb, IconBranch, IconClose, IconCopy, IconExternal, IconPlus, IconShield, IconTag, IconTrash, IconUsers, IconWebhook, langColor, RepoBadges } from './repo-bits.tsx';
 
 export type TabId = 'overview' | 'files' | 'branches' | 'commits' | 'pulls' | 'issues' | 'releases' | 'people' | 'hooks' | 'settings';
@@ -77,26 +80,34 @@ export function RepoDrawer({ repo: r, onClose, onDeleted, tab: tabProp, onTab }:
   tab?: string;
   onTab?(t: TabId): void;
 }) {
+  const width = useDrawerWidth('develop.repo', { base: 'max-w-4xl' });
   const [tabState, setTabState] = useState<TabId>('overview');
   const tab = (tabProp && TAB_IDS.includes(tabProp as TabId) ? tabProp : tabState) as TabId;
   const setTab = (t: TabId) => {
     setTabState(t);
     onTab?.(t);
   };
-  const branches = useBranches(r.name);
-  const prs = usePullRequests(r.name, 'open');
-  const issues = useIssues(r.name, 'open');
-  const releases = useReleases(r.name);
-  const hooks = useWebhooks(r.name);
-  const people = useCollaborators(r.name);
+  // Tab badges must not cost a request each: opening the drawer used to fire
+  // six list calls just for the counts, and the README (what the user is
+  // looking at) queued behind them. PR / issue / release counts come off the
+  // repository itself; branches, people and webhooks show once their tab (or
+  // a hover prefetch) has loaded them.
+  const prs = usePullRequests(r.open_pr_counter === undefined ? r.name : undefined, 'open');
+  const branches = useBranches(r.name, { enabled: false });
+  const hooks = useWebhooks(r.name, false);
+  const people = useCollaborators(r.name, false);
+  const releases = useReleases(r.release_counter === undefined ? r.name : undefined);
+  const prCount = r.open_pr_counter ?? prs.data?.length ?? 0;
+  const issueCount = r.open_issues_count;
+  const releaseCount = r.release_counter ?? releases.data?.length ?? 0;
   const toast = useToast();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    globalThis.addEventListener('keydown', onKey);
+    return () => globalThis.removeEventListener('keydown', onKey);
   }, [onClose]);
 
   if (typeof document === 'undefined') return null;
@@ -106,7 +117,7 @@ export function RepoDrawer({ repo: r, onClose, onDeleted, tab: tabProp, onTab }:
   return createPortal(
     <div className='fixed inset-0 z-50 flex justify-end' role='dialog' aria-modal='true'>
       <button type='button' aria-label='Close' className='absolute inset-0 bg-scrim/40 backdrop-blur-[2px]' onClick={onClose} />
-      <aside className='relative flex h-full w-full max-w-4xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl'>
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className='flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4'>
           <div className='flex min-w-0 items-start gap-3'>
             <RepoMark name={r.name} />
@@ -137,6 +148,7 @@ export function RepoDrawer({ repo: r, onClose, onDeleted, tab: tabProp, onTab }:
             >
               Gitea <IconExternal />
             </a>
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <button type='button' onClick={onClose} aria-label='Close' className='flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content'>
               <IconClose />
             </button>
@@ -153,9 +165,9 @@ export function RepoDrawer({ repo: r, onClose, onDeleted, tab: tabProp, onTab }:
               { id: 'files', label: 'Files' },
               { id: 'branches', label: 'Branches', badge: branches.data?.length ? { kind: 'unknown', value: branches.data.length } : undefined },
               { id: 'commits', label: 'Commits' },
-              { id: 'pulls', label: 'PRs', badge: prs.data?.length ? { kind: 'info', value: prs.data.length } : undefined },
-              { id: 'issues', label: 'Issues', badge: issues.data?.length ? { kind: 'degraded', value: issues.data.length } : undefined },
-              { id: 'releases', label: 'Releases', badge: releases.data?.length ? { kind: 'unknown', value: releases.data.length } : undefined },
+              { id: 'pulls', label: 'PRs', badge: prCount ? { kind: 'info', value: prCount } : undefined },
+              { id: 'issues', label: 'Issues', badge: issueCount ? { kind: 'degraded', value: issueCount } : undefined },
+              { id: 'releases', label: 'Releases', badge: releaseCount ? { kind: 'unknown', value: releaseCount } : undefined },
               { id: 'people', label: 'People', badge: people.data?.length ? { kind: 'unknown', value: people.data.length } : undefined },
               { id: 'hooks', label: 'Webhooks', badge: hooks.data?.length ? { kind: 'unknown', value: hooks.data.length } : undefined },
               { id: 'settings', label: 'Settings' },
@@ -163,7 +175,7 @@ export function RepoDrawer({ repo: r, onClose, onDeleted, tab: tabProp, onTab }:
           >
             {(active) => (
               <div className='pt-4'>
-                {active === 'overview' && <OverviewTab repo={r} prs={prs.data?.length ?? 0} onGo={setTab} />}
+                {active === 'overview' && <OverviewTab repo={r} prs={prCount} onGo={setTab} />}
                 {active === 'files' && <FileBrowser repo={r} />}
                 {active === 'branches' && <BranchesTab repo={r} />}
                 {active === 'commits' && <CommitsTab repo={r} />}
@@ -206,15 +218,19 @@ function FullView({ onClick, label = 'Open full view' }: { onClick(): void; labe
   );
 }
 
+/** A drawer card. While `loading`, the count is a skeleton chip (the body shows row skeletons). */
 function Section({ title, count, loading, actions, children }: { title: string; count?: number; loading?: boolean; actions?: React.ReactNode; children: React.ReactNode }) {
   return (
     <Card>
       <CardHeader>
-        <div className='flex items-center justify-between gap-2'>
+        <div className='flex flex-wrap items-center justify-between gap-2'>
           <div className='flex items-center gap-2 text-sm font-semibold text-content'>
             {title}
-            {count !== undefined ? <span className='rounded-md bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium text-content-muted'>{count}</span> : null}
-            {loading ? <Spinner size={10} /> : null}
+            {loading
+              ? <span aria-hidden className='skeleton-shimmer inline-block h-4 w-6 rounded-md' />
+              : count !== undefined
+              ? <span className='rounded-md bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium text-content-muted'>{count}</span>
+              : null}
           </div>
           {actions}
         </div>
@@ -232,6 +248,28 @@ function Tile({ label, value, onClick }: { label: string; value: string | number
       <div className='text-[10px] font-semibold uppercase tracking-wider text-content-subtle'>{label}</div>
     </Tag>
   );
+}
+
+/**
+ * The body of a drawer list: skeleton rows on first load, an honest Gitea
+ * error with retry, then the content — dimmed under a progress bar while a
+ * switch (state, branch) loads over the previous list.
+ */
+function ListBody({ q, what, rows = 4, children }: {
+  q: { isLoading: boolean; isError: boolean; error: unknown; data?: unknown; isPlaceholderData?: boolean; isFetching: boolean; refetch(): unknown };
+  what: string;
+  rows?: number;
+  children: React.ReactNode;
+}) {
+  if (q.isLoading) {
+    return (
+      <div role='status' aria-busy='true' aria-label={`Loading ${what}`}>
+        <ListSkeleton rows={rows} dense />
+      </div>
+    );
+  }
+  if (q.isError && !q.data) return <GiteaError compact what={what} error={q.error} onRetry={() => q.refetch()} retrying={q.isFetching} />;
+  return <SwapFrame pending={!!q.isPlaceholderData}>{children}</SwapFrame>;
 }
 
 /* ─────────── overview ─────────── */
@@ -259,8 +297,19 @@ function OverviewTab({ repo: r, prs, onGo }: { repo: gitea.Repo; prs: number; on
       </div>
 
       <div className='grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]'>
-        <Section title={readme.data ? readme.data.path : 'README'} loading={readme.isLoading}>
-          {readme.data
+        <Section title={readme.data ? readme.data.path : 'README'}>
+          {readme.isLoading
+            ? (
+              <div role='status' aria-busy='true' aria-label='Loading README' className='space-y-2.5'>
+                <span className='skeleton-shimmer block h-5 w-1/3 rounded' />
+                {['92%', '86%', '74%', '0', '88%', '64%', '0', '40%', '82%'].map((w, i) =>
+                  w === '0' ? <span key={i} className='block h-1.5' /> : <span key={i} className='skeleton-shimmer block h-3 rounded' style={{ width: w, animationDelay: `${i * 50}ms` }} />
+                )}
+              </div>
+            )
+            : readme.isError && !readme.data
+            ? <GiteaError compact what='the README' error={readme.error} onRetry={() => readme.refetch()} retrying={readme.isFetching} />
+            : readme.data
             ? (
               <Markdown
                 text={readme.data.text}
@@ -275,8 +324,6 @@ function OverviewTab({ repo: r, prs, onGo }: { repo: gitea.Repo; prs: number; on
                   })}
               />
             )
-            : readme.isLoading
-            ? null
             : (
               <EmptyState
                 compact
@@ -300,7 +347,8 @@ function OverviewTab({ repo: r, prs, onGo }: { repo: gitea.Repo; prs: number; on
                     <Button size='xs' variant='secondary' onClick={() => setEditingTopics(null)}>Cancel</Button>
                     <Button
                       size='xs'
-                      disabled={setTopics.isPending}
+                      variant='primary'
+                      loading={setTopics.isPending}
                       onClick={() => {
                         const list = [...new Set(editingTopics.split(/[,\s]+/).map((t) => t.trim().toLowerCase()).filter(Boolean))].slice(0, 25);
                         act('Topics updated', () => setTopics.mutateAsync({ repo: r.name, topics: list }), () => setEditingTopics(null));
@@ -312,6 +360,12 @@ function OverviewTab({ repo: r, prs, onGo }: { repo: gitea.Repo; prs: number; on
                   <p className='text-[10px] text-content-subtle'>Lowercase, up to 25 topics, 35 chars each.</p>
                 </div>
               )
+              : topics.isLoading
+              ? (
+                <div aria-hidden className='flex flex-wrap gap-1'>
+                  {[56, 72, 48].map((w, i) => <span key={i} className='skeleton-shimmer block h-5 rounded-full' style={{ width: w }} />)}
+                </div>
+              )
               : (topics.data?.length
                 ? (
                   <div className='flex flex-wrap gap-1'>
@@ -321,8 +375,15 @@ function OverviewTab({ repo: r, prs, onGo }: { repo: gitea.Repo; prs: number; on
                 : <p className='text-xs text-content-subtle'>No topics yet.</p>)}
           </Section>
 
-          <Section title='Languages' loading={langs.isLoading}>
-            {langRows.length
+          <Section title='Languages'>
+            {langs.isLoading
+              ? (
+                <div role='status' aria-busy='true' aria-label='Loading languages' className='space-y-2'>
+                  <span className='skeleton-shimmer block h-2 w-full rounded-full' />
+                  {[70, 52, 38].map((w, i) => <span key={i} className='skeleton-shimmer block h-2.5 rounded' style={{ width: `${w}%` }} />)}
+                </div>
+              )
+              : langRows.length
               ? (
                 <div className='space-y-2'>
                   <div className='flex h-2 overflow-hidden rounded-full bg-surface-sunken'>
@@ -402,15 +463,18 @@ function BranchesTab({ repo: r }: { repo: gitea.Repo }) {
           </Field>
           <Button
             size='sm'
-            disabled={!newName.trim() || create.isPending}
+            variant='primary'
+            disabled={!newName.trim()}
+            loading={create.isPending}
             onClick={() => act(`Created ${newName}`, () => create.mutateAsync({ repo: r.name, name: newName.trim(), from }), () => setNewName(''))}
           >
-            <IconPlus /> Create
+            {create.isPending ? null : <IconPlus />} Create
           </Button>
         </div>
       </Section>
 
-      <Section title='Branches' count={list.length} loading={branches.isLoading || protections.isLoading} actions={<FullView onClick={() => go('branches', { repo: r.name })} />}>
+      <Section title='Branches' count={list.length} loading={branches.isLoading} actions={<FullView onClick={() => go('branches', { repo: r.name })} />}>
+        <ListBody q={branches} what='branches'>
         {list.length
           ? (
             <ul className='divide-y divide-edge-subtle'>
@@ -444,6 +508,7 @@ function BranchesTab({ repo: r }: { repo: gitea.Repo }) {
             </ul>
           )
           : <EmptyState compact title='No branches' description='Push a commit to create the first branch.' />}
+        </ListBody>
       </Section>
 
       <Modal
@@ -455,7 +520,7 @@ function BranchesTab({ repo: r }: { repo: gitea.Repo }) {
         footer={
           <div className='flex justify-end gap-2'>
             <Button size='sm' variant='secondary' onClick={() => setConfirm(null)}>Cancel</Button>
-            <Button size='sm' variant='danger' disabled={del.isPending} onClick={() => act(`Deleted ${confirm}`, () => del.mutateAsync({ repo: r.name, name: confirm! }), () => setConfirm(null))}>Delete branch</Button>
+            <Button size='sm' variant='danger' loading={del.isPending} onClick={() => act(`Deleted ${confirm}`, () => del.mutateAsync({ repo: r.name, name: confirm! }), () => setConfirm(null))}>Delete branch</Button>
           </div>
         }
       >
@@ -473,7 +538,8 @@ function BranchesTab({ repo: r }: { repo: gitea.Repo }) {
             <Button size='sm' variant='secondary' onClick={() => setProtecting(null)}>Cancel</Button>
             <Button
               size='sm'
-              disabled={protect.isPending}
+              variant='primary'
+              loading={protect.isPending}
               onClick={() =>
                 act(`Protected ${protecting}`, () =>
                   protect.mutateAsync({
@@ -520,6 +586,7 @@ function CommitsTab({ repo: r }: { repo: gitea.Repo }) {
         </div>
       }
     >
+      <ListBody q={commits} what='commits' rows={6}>
       {commits.data?.length
         ? (
           <>
@@ -544,19 +611,34 @@ function CommitsTab({ repo: r }: { repo: gitea.Repo }) {
             {commits.data.length >= limit ? <Button size='xs' variant='ghost' className='mt-2' onClick={() => setLimit((n) => n + 30)}>Load more</Button> : null}
           </>
         )
-        : commits.isLoading
-        ? <div className='flex items-center gap-2 py-6 text-xs text-content-muted'><Spinner size={12} /> Loading history…</div>
         : <EmptyState compact title='No commits' />}
+      </ListBody>
     </Section>
   );
 }
 
 /* ─────────── pulls / issues ─────────── */
 
+/**
+ * Seed the item's own query from the row the user clicked, so the PR / issue
+ * drawer on the next page opens with its header filled instead of a spinner.
+ */
+function useSeedItem() {
+  const qc = useQueryClient();
+  const org = useGiteaOrg();
+  return (kind: 'pull' | 'issue', repo: string, item: { number: number }) => {
+    const key = ['gitea', kind, org, repo, item.number];
+    // `updatedAt: 0` marks it stale: the drawer shows it at once and still
+    // re-reads the item (merge state, counters) in the background.
+    if (qc.getQueryData(key) === undefined) qc.setQueryData(key, { ...item, repo }, { updatedAt: 0 });
+  };
+}
+
 function PullsTab({ repo: r }: { repo: gitea.Repo }) {
   const [state, setState] = useState<'open' | 'closed' | 'all'>('open');
   const prs = usePullRequests(r.name, state);
   const go = useGoDevelop();
+  const seed = useSeedItem();
   const [creating, setCreating] = useState(false);
   return (
     <Section
@@ -578,13 +660,14 @@ function PullsTab({ repo: r }: { repo: gitea.Repo }) {
         onCreated={(pr) => go('prs', { repo: r.name, pr: itemRef(r.name, pr.number) })}
       />
       {pullRequestsBlocked(r) ? <p className='mb-2 rounded-md bg-amber-50 px-2.5 py-1.5 text-[12px] text-amber-900 dark:bg-amber-500/10 dark:text-amber-200'>{pullRequestsBlocked(r)}</p> : null}
+      <ListBody q={prs} what='pull requests'>
       {prs.data?.length
         ? (
           <ul className='divide-y divide-edge-subtle'>
             {prs.data.map((p) => (
               <li key={p.id} className='flex items-center gap-2 py-2 text-sm'>
                 <code className='font-mono text-[10px] text-content-muted'>#{p.number}</code>
-                <button type='button' onClick={() => go('prs', { repo: r.name, state, pr: itemRef(r.name, p.number) })} className='min-w-0 flex-1 truncate text-left text-content hover:text-brand-700 hover:underline dark:hover:text-brand-300'>{p.title}</button>
+                <button type='button' onClick={() => { seed('pull', r.name, p); go('prs', { repo: r.name, state, pr: itemRef(r.name, p.number) }); }} className='min-w-0 flex-1 truncate text-left text-content hover:text-brand-700 hover:underline dark:hover:text-brand-300'>{p.title}</button>
                 {p.merged ? <StatusBadge kind='healthy'>merged</StatusBadge> : p.state === 'closed' ? <StatusBadge kind='unknown'>closed</StatusBadge> : p.mergeable === false ? <StatusBadge kind='degraded'>conflicts</StatusBadge> : null}
                 {p.head ? <span className='hidden font-mono text-[10px] text-content-subtle sm:inline'>{p.head.ref} → {p.base?.ref ?? r.default_branch}</span> : null}
                 <span className='text-[11px] text-content-subtle'>{formatRelative(p.updated_at ?? p.created_at)}</span>
@@ -594,6 +677,7 @@ function PullsTab({ repo: r }: { repo: gitea.Repo }) {
           </ul>
         )
         : <EmptyState compact title={`No ${state === 'all' ? '' : state} pull requests`} />}
+      </ListBody>
     </Section>
   );
 }
@@ -602,6 +686,7 @@ function IssuesTab({ repo: r }: { repo: gitea.Repo }) {
   const [state, setState] = useState<'open' | 'closed' | 'all'>('open');
   const issues = useIssues(r.name, state);
   const go = useGoDevelop();
+  const seed = useSeedItem();
   const [creating, setCreating] = useState(false);
   return (
     <Section
@@ -622,13 +707,14 @@ function IssuesTab({ repo: r }: { repo: gitea.Repo }) {
         defaultRepo={r.name}
         onCreated={(i) => go('issues', { repo: r.name, issue: itemRef(r.name, i.number) })}
       />
+      <ListBody q={issues} what='issues'>
       {issues.data?.length
         ? (
           <ul className='divide-y divide-edge-subtle'>
             {issues.data.map((it) => (
               <li key={it.id} className='flex items-center gap-2 py-2 text-sm'>
                 <code className='font-mono text-[10px] text-content-muted'>#{it.number}</code>
-                <button type='button' onClick={() => go('issues', { repo: r.name, state, issue: itemRef(r.name, it.number) })} className='min-w-0 flex-1 truncate text-left text-content hover:text-brand-700 hover:underline dark:hover:text-brand-300'>{it.title}</button>
+                <button type='button' onClick={() => { seed('issue', r.name, it); go('issues', { repo: r.name, state, issue: itemRef(r.name, it.number) }); }} className='min-w-0 flex-1 truncate text-left text-content hover:text-brand-700 hover:underline dark:hover:text-brand-300'>{it.title}</button>
                 <div className='flex flex-wrap gap-1'>
                   {it.labels.map((l) => (
                     <span key={l.name} className='rounded-full px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset' style={{ color: `#${l.color}`, borderColor: `#${l.color}66` }}>{l.name}</span>
@@ -641,6 +727,7 @@ function IssuesTab({ repo: r }: { repo: gitea.Repo }) {
           </ul>
         )
         : <EmptyState compact title={`No ${state === 'all' ? '' : state} issues`} />}
+      </ListBody>
     </Section>
   );
 }
@@ -693,8 +780,9 @@ function ReleasesTab({ repo: r }: { repo: gitea.Repo }) {
         title='Releases'
         count={releases.data?.length}
         loading={releases.isLoading}
-        actions={<Button size='xs' onClick={() => setCreating('release')}><IconPlus size={12} /> New release</Button>}
+        actions={<Button size='xs' variant='primary' onClick={() => setCreating('release')}><IconPlus size={12} /> New release</Button>}
       >
+        <ListBody q={releases} what='releases' rows={3}>
         {releases.data?.length
           ? (
             <ul className='divide-y divide-edge-subtle'>
@@ -726,6 +814,7 @@ function ReleasesTab({ repo: r }: { repo: gitea.Repo }) {
             </ul>
           )
           : <EmptyState compact title='No releases' description='Cut a release from a tag or a branch to publish artefacts and notes.' />}
+        </ListBody>
       </Section>
 
       <Section
@@ -734,6 +823,7 @@ function ReleasesTab({ repo: r }: { repo: gitea.Repo }) {
         loading={tags.isLoading}
         actions={<Button size='xs' variant='secondary' onClick={() => setCreating('tag')}><IconPlus size={12} /> New tag</Button>}
       >
+        <ListBody q={tags} what='tags' rows={3}>
         {tags.data?.length
           ? (
             <ul className='divide-y divide-edge-subtle'>
@@ -750,6 +840,7 @@ function ReleasesTab({ repo: r }: { repo: gitea.Repo }) {
             </ul>
           )
           : <EmptyState compact title='No tags' />}
+        </ListBody>
       </Section>
 
       <Modal
@@ -763,7 +854,9 @@ function ReleasesTab({ repo: r }: { repo: gitea.Repo }) {
             <Button size='sm' variant='secondary' onClick={reset}>Cancel</Button>
             <Button
               size='sm'
-              disabled={!tagName.trim() || createRel.isPending || createTag.isPending}
+              variant='primary'
+              disabled={!tagName.trim()}
+              loading={createRel.isPending || createTag.isPending}
               onClick={() =>
                 creating === 'tag'
                   ? act(`Tagged ${tagName}`, () => createTag.mutateAsync({ repo: r.name, body: { tag_name: tagName.trim(), target, message: notes || undefined } }), reset)
@@ -816,7 +909,7 @@ function ReleasesTab({ repo: r }: { repo: gitea.Repo }) {
             <Button
               size='sm'
               variant='danger'
-              disabled={delRel.isPending || delTag.isPending}
+              loading={delRel.isPending || delTag.isPending}
               onClick={() =>
                 confirm?.kind === 'tag'
                   ? act(`Deleted tag ${confirm.tag}`, () => delTag.mutateAsync({ repo: r.name, tag: confirm.tag }), () => setConfirm(null))
@@ -858,8 +951,8 @@ function PeopleTab({ repo: r }: { repo: gitea.Repo }) {
           <Field label='Permission'>
             <Select value={perm} onChange={(e) => setPerm(e.target.value as gitea.CollaboratorPermission)} options={PERMS.map(([v, l]) => ({ value: v, label: l }))} />
           </Field>
-          <Button size='sm' disabled={!q.trim() || add.isPending} onClick={() => act(`Added ${q.trim()}`, () => add.mutateAsync({ repo: r.name, user: q.trim(), permission: perm }), () => setQ(''))}>
-            <IconPlus /> Add
+          <Button size='sm' variant='primary' disabled={!q.trim()} loading={add.isPending} onClick={() => act(`Added ${q.trim()}`, () => add.mutateAsync({ repo: r.name, user: q.trim(), permission: perm }), () => setQ(''))}>
+            {add.isPending ? null : <IconPlus />} Add
           </Button>
         </div>
         {candidates.length
@@ -877,6 +970,7 @@ function PeopleTab({ repo: r }: { repo: gitea.Repo }) {
       </Section>
 
       <Section title='Collaborators' count={people.data?.length} loading={people.isLoading}>
+        <ListBody q={people} what='collaborators' rows={3}>
         {people.data?.length
           ? (
             <ul className='divide-y divide-edge-subtle'>
@@ -902,6 +996,7 @@ function PeopleTab({ repo: r }: { repo: gitea.Repo }) {
             </ul>
           )
           : <EmptyState compact title='No direct collaborators' description='Org members inherit access through teams; add people here for per-repo access.' />}
+        </ListBody>
       </Section>
     </div>
   );
@@ -939,8 +1034,9 @@ function HooksTab({ repo: r }: { repo: gitea.Repo }) {
         title='Webhooks'
         count={hooks.data?.length}
         loading={hooks.isLoading}
-        actions={<Button size='xs' onClick={() => setCreating(true)}><IconPlus size={12} /> Add webhook</Button>}
+        actions={<Button size='xs' variant='primary' onClick={() => setCreating(true)}><IconPlus size={12} /> Add webhook</Button>}
       >
+        <ListBody q={hooks} what='webhooks' rows={2}>
         {hooks.data?.length
           ? (
             <ul className='divide-y divide-edge-subtle'>
@@ -960,6 +1056,7 @@ function HooksTab({ repo: r }: { repo: gitea.Repo }) {
             </ul>
           )
           : <EmptyState compact title='No webhooks' description='Trigger CI (Tekton) or chat notifications on repository events.' />}
+        </ListBody>
       </Section>
 
       <Modal
@@ -973,7 +1070,9 @@ function HooksTab({ repo: r }: { repo: gitea.Repo }) {
             <Button size='sm' variant='secondary' onClick={reset}>Cancel</Button>
             <Button
               size='sm'
-              disabled={!/^https?:\/\//.test(url) || create.isPending}
+              variant='primary'
+              disabled={!/^https?:\/\//.test(url)}
+              loading={create.isPending}
               onClick={() =>
                 act('Webhook added', () =>
                   create.mutateAsync({
@@ -1020,7 +1119,7 @@ function HooksTab({ repo: r }: { repo: gitea.Repo }) {
         footer={
           <div className='flex justify-end gap-2'>
             <Button size='sm' variant='secondary' onClick={() => setConfirm(null)}>Cancel</Button>
-            <Button size='sm' variant='danger' disabled={del.isPending} onClick={() => act('Webhook deleted', () => del.mutateAsync({ repo: r.name, id: confirm!.id }), () => setConfirm(null))}>Delete</Button>
+            <Button size='sm' variant='danger' loading={del.isPending} onClick={() => act('Webhook deleted', () => del.mutateAsync({ repo: r.name, id: confirm!.id }), () => setConfirm(null))}>Delete</Button>
           </div>
         }
       >
@@ -1060,6 +1159,8 @@ function SettingsTab({ repo: r, onDeleted }: { repo: gitea.Repo; onDeleted(): vo
     default_delete_branch_after_merge: r.default_delete_branch_after_merge ?? false,
   });
   const [confirmDelete, setConfirmDelete] = useState('');
+  // Which save is in flight — the three cards share one mutation.
+  const [saving, setSaving] = useState<'general' | 'features' | 'merge' | 'archive' | null>(null);
 
   useEffect(() => {
     setName(r.name);
@@ -1071,14 +1172,14 @@ function SettingsTab({ repo: r, onDeleted }: { repo: gitea.Repo; onDeleted(): vo
 
   const dirtyGeneral = name !== r.name || description !== (r.description ?? '') || website !== (r.website ?? '') || priv !== r.private || template !== !!r.template;
 
+  const save = (which: NonNullable<typeof saving>, label: string, body: gitea.UpdateRepoBody) => {
+    setSaving(which);
+    void act(label, () => update.mutateAsync({ repo: r.name, body })).finally(() => setSaving(null));
+  };
   const saveGeneral = () =>
-    act('Settings saved', () =>
-      update.mutateAsync({
-        repo: r.name,
-        body: { ...(name !== r.name ? { name } : {}), description, website, private: priv, template },
-      }));
-  const saveFeatures = () => act('Features saved', () => update.mutateAsync({ repo: r.name, body: features }));
-  const saveMerge = () => act('Merge settings saved', () => update.mutateAsync({ repo: r.name, body: merge }));
+    save('general', 'Settings saved', { ...(name !== r.name ? { name } : {}), description, website, private: priv, template });
+  const saveFeatures = () => save('features', 'Features saved', features);
+  const saveMerge = () => save('merge', 'Merge settings saved', merge);
 
   const FEATURES: Array<[keyof typeof features, string, string]> = [
     ['has_issues', 'Issues', 'Built-in issue tracker.'],
@@ -1092,7 +1193,7 @@ function SettingsTab({ repo: r, onDeleted }: { repo: gitea.Repo; onDeleted(): vo
 
   return (
     <div className='space-y-4'>
-      <Section title='General' actions={<Button size='xs' disabled={!dirtyGeneral || update.isPending} onClick={saveGeneral}>Save</Button>}>
+      <Section title='General' actions={<Button size='xs' variant='primary' disabled={!dirtyGeneral || (update.isPending && saving !== 'general')} loading={saving === 'general'} onClick={saveGeneral}>Save</Button>}>
         <div className='space-y-3'>
           <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
             <Field label='Name'>
@@ -1112,7 +1213,7 @@ function SettingsTab({ repo: r, onDeleted }: { repo: gitea.Repo; onDeleted(): vo
         </div>
       </Section>
 
-      <Section title='Features' actions={<Button size='xs' disabled={update.isPending} onClick={saveFeatures}>Save</Button>}>
+      <Section title='Features' actions={<Button size='xs' variant='primary' disabled={update.isPending && saving !== 'features'} loading={saving === 'features'} onClick={saveFeatures}>Save</Button>}>
         <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
           {FEATURES.map(([k, label, desc]) => (
             <Checkbox key={k} label={label} description={desc} checked={features[k]} onChange={(e) => setFeatures((f) => ({ ...f, [k]: e.target.checked }))} />
@@ -1120,7 +1221,7 @@ function SettingsTab({ repo: r, onDeleted }: { repo: gitea.Repo; onDeleted(): vo
         </div>
       </Section>
 
-      <Section title='Pull request merges' actions={<Button size='xs' disabled={update.isPending} onClick={saveMerge}>Save</Button>}>
+      <Section title='Pull request merges' actions={<Button size='xs' variant='primary' disabled={update.isPending && saving !== 'merge'} loading={saving === 'merge'} onClick={saveMerge}>Save</Button>}>
         <div className='space-y-3'>
           <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
             <Checkbox label='Merge commits' checked={merge.allow_merge_commits} onChange={(e) => setMerge((m) => ({ ...m, allow_merge_commits: e.target.checked }))} />
@@ -1146,7 +1247,7 @@ function SettingsTab({ repo: r, onDeleted }: { repo: gitea.Repo; onDeleted(): vo
               <div className='text-sm font-medium text-content'>{r.archived ? 'Unarchive repository' : 'Archive repository'}</div>
               <div className='text-xs text-content-muted'>{r.archived ? 'Makes it writable again.' : 'Read-only for everyone; issues and PRs are frozen.'}</div>
             </div>
-            <Button size='sm' variant='secondary' disabled={update.isPending} onClick={() => act(r.archived ? 'Unarchived' : 'Archived', () => update.mutateAsync({ repo: r.name, body: { archived: !r.archived } }))}>
+            <Button size='sm' variant='secondary' disabled={update.isPending && saving !== 'archive'} loading={saving === 'archive'} onClick={() => save('archive', r.archived ? 'Unarchived' : 'Archived', { archived: !r.archived })}>
               {r.archived ? 'Unarchive' : 'Archive'}
             </Button>
           </div>
@@ -1155,8 +1256,8 @@ function SettingsTab({ repo: r, onDeleted }: { repo: gitea.Repo; onDeleted(): vo
             <div className='text-xs text-content-muted'>Type <code className='font-mono'>{r.name}</code> to confirm. This cannot be undone.</div>
             <div className='mt-2 flex flex-wrap items-center gap-2'>
               <Input value={confirmDelete} onChange={(e) => setConfirmDelete(e.target.value)} placeholder={r.name} className='max-w-xs' />
-              <Button size='sm' variant='danger' disabled={confirmDelete !== r.name || del.isPending} onClick={() => act(`Deleted ${r.name}`, () => del.mutateAsync(r.name), onDeleted)}>
-                {del.isPending ? <Spinner size={12} /> : <IconTrash />} Delete
+              <Button size='sm' variant='danger' disabled={confirmDelete !== r.name} loading={del.isPending} onClick={() => act(`Deleted ${r.name}`, () => del.mutateAsync(r.name), onDeleted)}>
+                {del.isPending ? null : <IconTrash />} Delete
               </Button>
             </div>
           </div>

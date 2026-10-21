@@ -10,6 +10,9 @@ const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
 
 export function formatRelative(date: Date | string | number, now: Date = new Date()): string {
   const target = new Date(date)
+  // An unknown time ('' / invalid) renders as "—" — never "now", and never a
+  // RangeError from Intl.RelativeTimeFormat on NaN.
+  if (date === '' || Number.isNaN(target.getTime())) return '—'
   const diff = Math.round((target.getTime() - now.getTime()) / 1000)
   const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
   for (const [unit, secs] of UNITS) {

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Checkbox, EmptyState, Field, Input, Modal, PageHeader, Select, useToast } from '@adhar/shell-ui';
 import { cn, formatRelative } from '@adhar/utils';
 import type { gitea } from '@adhar/api-clients';
@@ -19,6 +19,7 @@ import { useScopedRepo } from '../components/repo-scope.tsx';
 import { RepoPicker } from '../components/repo-picker.tsx';
 import { copy, IconPlus, IconRefresh, IconShield } from '../components/repo-bits.tsx';
 import {
+  GiteaError,
   IconBranchSmall,
   LoadingBlock,
   MenuItem,
@@ -30,6 +31,7 @@ import {
   type SortDef,
   SortMenu,
   StatTile,
+  SwapFrame,
 } from '../components/list-kit.tsx';
 import { useSlashFocus } from '../components/repo-filter.tsx';
 import { useAct } from '../components/tracker-bits.tsx';
@@ -65,7 +67,8 @@ export function Branches() {
   const go = useGoDevelop();
   const prBlocked = pullRequestsBlocked(repos.data?.find((r) => r.name === repo));
 
-  if (repos.isLoading) return <><PageHeader title='Branches' /><LoadingBlock label='Loading repositories…' /></>;
+  if (repos.isLoading) return <><PageHeader title='Branches' /><BranchesSkeleton /></>;
+  if (repos.isError && !repos.data) return <><PageHeader title='Branches' /><GiteaError what='repositories' error={repos.error} onRetry={() => repos.refetch()} retrying={repos.isFetching} /></>;
   if (!repos.data?.length || !repo) return <><PageHeader title='Branches' /><EmptyState title='No repositories' description='Create a repository first.' /></>;
 
   return (
@@ -85,7 +88,9 @@ export function Branches() {
           {prBlocked}
         </div>
       ) : null}
-      <BranchBrowser key={repo} repo={repo} onNewBranch={(from) => setCreating(from)} onNewPr={prBlocked ? undefined : (head) => setNewPr(head)} />
+      {/* Not keyed by repo: switching keeps the previous list on screen (dimmed)
+          until the new repository's branches arrive, instead of blanking. */}
+      <BranchBrowser repo={repo} onNewBranch={(from) => setCreating(from)} onNewPr={prBlocked ? undefined : (head) => setNewPr(head)} />
       <NewBranchModal repo={repo} from={creating} onClose={() => setCreating(null)} />
       <NewPullModal
         open={newPr !== null}
@@ -116,6 +121,14 @@ function BranchBrowser({ repo, onNewBranch, onNewPr }: { repo: string; onNewBran
   const [commit, setCommit] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   useSlashFocus(searchRef);
+  // A different repository: drop the per-branch overlays of the previous one.
+  const [shownRepo, setShownRepo] = useState(repo);
+  if (shownRepo !== repo) {
+    setShownRepo(repo);
+    setConfirmDel(null);
+    setProtecting(null);
+    setCommit(null);
+  }
 
   const del = useDeleteBranch();
   const unprotect = useUnprotectBranch();
@@ -161,8 +174,8 @@ function BranchBrowser({ repo, onNewBranch, onNewPr }: { repo: string; onNewBran
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [others, search, filter, sort, prByBranch]);
 
-  if (q.isLoading) return <LoadingBlock label='Loading branches…' />;
-  if (q.isError) return <EmptyState title="Couldn't load branches" description={q.error instanceof Error ? q.error.message : ''} action={<Button size='sm' variant='secondary' onClick={() => q.refetch()}>Retry</Button>} />;
+  if (q.isLoading) return <BranchesSkeleton />;
+  if (q.isError && !q.data) return <GiteaError what={`branches of ${repo}`} error={q.error} onRetry={() => q.refetch()} retrying={q.isFetching} />;
   if (!all.length) {
     return <EmptyState title='No branches yet' description={`${repo} is empty — push a first commit, or initialise it with a README from the repository settings.`} />;
   }
@@ -196,6 +209,7 @@ function BranchBrowser({ repo, onNewBranch, onNewPr }: { repo: string; onNewBran
   );
 
   return (
+    <SwapFrame pending={q.isPlaceholderData} className='space-y-4'>
     <div className='space-y-4'>
       <div className='grid grid-cols-2 gap-2 sm:grid-cols-5'>
         <StatTile label='Branches' value={counts.total} on={filter === 'all'} onClick={() => setFilter('all')} hint={def ? `default ${def}` : undefined} />
@@ -228,7 +242,7 @@ function BranchBrowser({ repo, onNewBranch, onNewPr }: { repo: string; onNewBran
               />
             </div>
             <SortMenu sorts={SORTS} sort={sort.key} dir={sort.dir} onSort={(key, dir) => setSort({ key, dir })} />
-            <Button size='sm' variant='secondary' onClick={() => { q.refetch(); prs.refetch(); }} aria-label='Refresh' title='Refresh'><IconRefresh /></Button>
+            <RefreshButton onRefresh={() => Promise.all([q.refetch(), prs.refetch()])} />
           </div>
           <div className='mt-2 px-0.5 text-[11px] text-content-subtle'>
             {list.length === others.length ? `${others.length} other branch${others.length === 1 ? '' : 'es'}` : `${list.length} of ${others.length}`}
@@ -292,7 +306,75 @@ function BranchBrowser({ repo, onNewBranch, onNewPr }: { repo: string; onNewBran
         {confirmDel ? <p className='text-[12px] text-content-muted'>Last commit {confirmDel.commit.id.slice(0, 7)} by {confirmDel.commit.author.name}, {formatRelative(confirmDel.commit.timestamp)}.</p> : null}
       </Modal>
     </div>
+    </SwapFrame>
   );
+}
+
+/** Refresh that spins while the refresh the user asked for runs — background refetches stay silent. */
+function RefreshButton({ onRefresh }: { onRefresh(): Promise<unknown> }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Button
+      size='sm'
+      variant='secondary'
+      loading={busy}
+      aria-label='Refresh'
+      title='Refresh'
+      onClick={() => {
+        setBusy(true);
+        void onRefresh().finally(() => setBusy(false));
+      }}
+    >
+      {busy ? null : <IconRefresh />}
+    </Button>
+  );
+}
+
+/** First load: the page's tiles, the default-branch card and branch rows, in skeleton. */
+function BranchesSkeleton() {
+  return (
+    <div role='status' aria-busy='true' aria-label='Loading branches' className='space-y-4'>
+      <div className='grid grid-cols-2 gap-2 sm:grid-cols-5'>
+        {Array.from({ length: 5 }, (_, i) => (
+          <div key={i} className='flex h-[58px] flex-col justify-center gap-1.5 rounded-xl border border-edge-default bg-surface-raised px-3'>
+            <span className='skeleton-shimmer block h-2.5 w-16 rounded' />
+            <span className='skeleton-shimmer block h-4 w-8 rounded' />
+          </div>
+        ))}
+      </div>
+      <div className='space-y-1.5'>
+        <span className='skeleton-shimmer block h-2.5 w-24 rounded' />
+        <LoadingBlock label='Loading the default branch' rows={1} />
+      </div>
+      <LoadingBlock label='Loading branches' rows={6} />
+    </div>
+  );
+}
+
+/**
+ * True once the element has been on screen. Ahead/behind costs two compare
+ * calls per branch; asking only for rows that are actually visible keeps a
+ * long branch list from queueing dozens of requests ahead of the next click.
+ */
+function useSeen<T extends Element>(): [React.RefObject<T | null>, boolean] {
+  const ref = useRef<T | null>(null);
+  const [seen, setSeen] = useState(false);
+  useEffect(() => {
+    if (seen || !ref.current) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setSeen(true);
+      return;
+    }
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) {
+        setSeen(true);
+        io.disconnect();
+      }
+    }, { rootMargin: '120px' });
+    io.observe(ref.current);
+    return () => io.disconnect();
+  }, [seen]);
+  return [ref, seen];
 }
 
 function BranchRow({ repo, branch: b, base, isDefault = false, compare = false, pr, onPr, onNewPr, onCommit, menu, highlight }: {
@@ -308,11 +390,12 @@ function BranchRow({ repo, branch: b, base, isDefault = false, compare = false, 
   menu: React.ReactNode;
   highlight?: boolean;
 }) {
-  const ab = useAheadBehind(repo, base, b.name, compare && !isDefault);
+  const [rowRef, seen] = useSeen<HTMLDivElement>();
+  const ab = useAheadBehind(repo, base, b.name, compare && !isDefault && seen);
   const toast = useToast();
   const subject = b.commit.message.split('\n')[0];
   return (
-    <div className={cn('flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:flex-nowrap', highlight && 'bg-brand-50/60 dark:bg-brand-500/10')}>
+    <div ref={rowRef} className={cn('flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:flex-nowrap', highlight && 'bg-brand-50/60 dark:bg-brand-500/10')}>
       <div className='min-w-0 flex-1 basis-64'>
         <div className='flex flex-wrap items-center gap-1.5'>
           <span className='text-content-subtle'><IconBranchSmall /></span>
@@ -331,7 +414,7 @@ function BranchRow({ repo, branch: b, base, isDefault = false, compare = false, 
         </div>
       </div>
 
-      {isDefault ? null : <AheadBehind data={ab.data} loading={ab.isLoading && compare} base={base} />}
+      {isDefault ? null : <AheadBehind data={ab.data} loading={(ab.isLoading || !seen) && compare} base={base} />}
 
       {isDefault ? null : (
         <div className='w-36 shrink-0'>
@@ -357,7 +440,7 @@ function BranchRow({ repo, branch: b, base, isDefault = false, compare = false, 
 
 /** GitHub-style split bar: commits behind on the left, ahead on the right. */
 function AheadBehind({ data, loading, base }: { data?: { ahead: number; behind: number } | null; loading: boolean; base?: string }) {
-  if (loading) return <div className='h-8 w-32 shrink-0 animate-pulse rounded bg-surface-sunken/70' />;
+  if (loading) return <div aria-hidden className='skeleton-shimmer h-8 w-32 shrink-0 rounded' />;
   if (!data) return <div className='w-32 shrink-0' />;
   const max = Math.max(data.ahead, data.behind, 1);
   const w = (n: number) => `${Math.max(n ? 6 : 0, (n / max) * 100)}%`;

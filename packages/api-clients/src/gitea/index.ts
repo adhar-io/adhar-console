@@ -357,6 +357,21 @@ export const FileContentsSchema = z.object({
 })
 export type FileContents = z.infer<typeof FileContentsSchema>
 
+export interface SearchIssuesOptions {
+  owner: string
+  type: 'issues' | 'pulls'
+  state: 'open' | 'closed' | 'all'
+  page?: number
+  /** Gitea caps a page at its MAX_RESPONSE_ITEMS (50 by default). */
+  limit?: number
+}
+
+/** An issue search hit — an issue (or a PR's issue) plus the repository it lives in. */
+export type SearchedIssue = Issue & {
+  repository?: { id?: number; name: string; owner?: string; full_name?: string }
+  pull_request?: { merged?: boolean; merged_at?: string | null; draft?: boolean } | null
+}
+
 export interface GiteaClient {
   listRepos(org: string): Promise<Repo[]>
   getRepo(org: string, name: string): Promise<Repo>
@@ -368,6 +383,13 @@ export interface GiteaClient {
   getPullDiff(org: string, repo: string, index: number): Promise<string>
   listIssues(org: string, repo: string, state?: 'open' | 'closed' | 'all'): Promise<Issue[]>
   getIssue(org: string, repo: string, index: number): Promise<Issue>
+  /**
+   * One page of Gitea's cross-repository issue search
+   * (`GET /repos/issues/search`), narrowed to an owner. One request answers
+   * "which issues / PRs exist across the org" — the alternative is one call
+   * per repository. `total` is Gitea's `X-Total-Count`, when it sends one.
+   */
+  searchIssues(opts: SearchIssuesOptions): Promise<{ items: SearchedIssue[]; total?: number }>
   createIssue(org: string, repo: string, body: CreateIssueBody): Promise<Issue>
   updateIssue(org: string, repo: string, index: number, body: UpdateIssueBody): Promise<Issue>
   /** Replace the issue's (or PR's) labels with these label ids. */
@@ -523,12 +545,31 @@ function toCommit(c: RawCommit): Commit {
   }
 }
 
-/** Walk Gitea's `page`/`limit` pagination until a short page comes back. */
+/**
+ * Read every page of a Gitea list (up to `maxPages`).
+ *
+ * Gitea reports the total in `X-Total-Count`, so after the first page the
+ * rest are requested together — 150 repositories are two round trips, not
+ * four in a row (three full pages and the empty one that proved the end).
+ * Without the header (an older Gitea, or a proxy that strips it) it falls
+ * back to walking pages until a short one comes back.
+ */
 async function paginate<T>(http: HttpClient, path: string, maxPages = 20): Promise<T[]> {
   const sep = path.includes('?') ? '&' : '?'
-  const out: T[] = []
-  for (let page = 1; page <= maxPages; page++) {
-    const chunk = await http.get<T[]>(`${path}${sep}limit=${PAGE}&page=${page}`)
+  const url = (page: number) => `${path}${sep}limit=${PAGE}&page=${page}`
+  const res = await http.get<Response>(url(1), { response: 'raw' })
+  const text = await res.text()
+  const first = (text ? JSON.parse(text) : []) as T[]
+  if (!Array.isArray(first) || first.length < PAGE || maxPages <= 1) return Array.isArray(first) ? first : []
+  const total = Number(res.headers.get('x-total-count'))
+  if (res.headers.has('x-total-count') && Number.isFinite(total)) {
+    const pages = Math.min(maxPages, Math.ceil(total / PAGE))
+    const rest = await Promise.all(Array.from({ length: Math.max(0, pages - 1) }, (_, i) => http.get<T[]>(url(i + 2))))
+    return [first, ...rest].flat()
+  }
+  const out: T[] = [...first]
+  for (let page = 2; page <= maxPages; page++) {
+    const chunk = await http.get<T[]>(url(page))
     out.push(...chunk)
     if (chunk.length < PAGE) break
   }
@@ -566,6 +607,15 @@ function build(http: HttpClient): GiteaClient {
     listIssues: (org, repo, state = 'open') =>
       paginate<Issue>(http, `/api/v1/repos/${org}/${repo}/issues?type=issues&state=${state}`, state === 'open' ? 10 : 2),
     getIssue: (org, repo, index) => http.get<Issue>(`/api/v1/repos/${org}/${repo}/issues/${index}`),
+    searchIssues: async ({ owner, type, state, page = 1, limit = PAGE }) => {
+      const res = await http.get<Response>(
+        `/api/v1/repos/issues/search?owner=${enc(owner)}&type=${type}&state=${state}&page=${page}&limit=${limit}`,
+        { response: 'raw' },
+      )
+      const items = ((await res.json()) ?? []) as SearchedIssue[]
+      const total = Number(res.headers.get('x-total-count'))
+      return { items, total: Number.isFinite(total) && res.headers.has('x-total-count') ? total : undefined }
+    },
     createIssue: (org, repo, body) => http.post<Issue>(`/api/v1/repos/${org}/${repo}/issues`, body),
     updateIssue: (org, repo, index, body) => http.patch<Issue>(`/api/v1/repos/${org}/${repo}/issues/${index}`, body),
     setIssueLabels: async (org, repo, index, labels) => {
@@ -1225,6 +1275,15 @@ export const GiteaClient = defineClient<GiteaClient>(build, () => ({
 `,
   listIssues: async (_, repo, state = 'open') =>
     (STUB_ISSUES[repo] ?? []).filter((i) => state === 'all' || i.state === state),
+  searchIssues: ({ owner, type, state, page = 1, limit = PAGE }) => {
+    const src: Record<string, Array<Issue | PullRequest>> = type === 'pulls' ? STUB_PRS : STUB_ISSUES
+    const all = Object.entries(src).flatMap(([repo, list]) =>
+      list
+        .filter((x) => state === 'all' || x.state === state)
+        .map((x) => ({ ...(x as Issue), labels: x.labels ?? [], repository: { name: repo, owner, full_name: `${owner}/${repo}` } }))
+    )
+    return Promise.resolve({ items: all.slice((page - 1) * limit, page * limit), total: all.length })
+  },
   getIssue: async (_, repo, index) => {
     const i = (STUB_ISSUES[repo] ?? []).find((x) => x.number === index)
     if (!i) throw new Error(`Stub: issue ${index} not found`)

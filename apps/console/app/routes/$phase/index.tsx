@@ -51,7 +51,7 @@ function PhaseLanding() {
   }
   return (
     <RemoteModule
-      loader={() => loaderFor(phase)}
+      loader={LOADERS[phase]}
       label={PHASE_LABEL[phase]}
       componentProps={{ section: search.section }}
     />
@@ -68,6 +68,29 @@ function loadPerformance(): Promise<{ default: React.ComponentType }> {
 
 function loadChaos(): Promise<{ default: React.ComponentType }> {
   return import('platform/Chaos') as Promise<{ default: React.ComponentType }>
+}
+
+/**
+ * One loader function per phase, created once at module load.
+ *
+ * `RemoteModule` memoises its `React.lazy` on the loader's identity. An inline
+ * `() => loaderFor(phase)` was a new function on every render of this
+ * component — and it re-renders on every search change, i.e. every deep-link
+ * click inside a module (`?repo=`, `?tab=`, `?pr=`…). Each click therefore
+ * built a new lazy component type: React unmounted the whole remote, suspended
+ * on the import again, flashed the module skeleton and remounted it from
+ * scratch, dropping every piece of local state (search text, filters, open
+ * menus) and re-running every query observer. Stable references keep the
+ * remote mounted; only its `section` prop changes.
+ */
+const LOADERS: Record<Phase, () => Promise<{ default: React.ComponentType }>> = {
+  define: () => loaderFor('define'),
+  design: () => loaderFor('design'),
+  develop: () => loaderFor('develop'),
+  deliver: () => loaderFor('deliver'),
+  discover: () => loaderFor('discover'),
+  decide: () => loaderFor('decide'),
+  platform: () => loaderFor('platform'),
 }
 
 /**

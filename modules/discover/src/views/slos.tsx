@@ -266,6 +266,7 @@ function SloDrawer({ def, ev, onClose, onEdit, onDelete }: { def: SloDefinition;
   const ideal: Array<[number, number]> = bd.data ? [[bd.data.start, 100], [bd.data.end, 0]] : []
   return (
     <Drawer
+      widthId="discover.slo"
       open
       onClose={onClose}
       width="max-w-5xl"

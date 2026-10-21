@@ -1625,6 +1625,12 @@ export interface GiteaTemplateStatus {
   configured: boolean
   count: number
   error?: string
+  /** The BFF's detail for an error (e.g. the connect failure behind `gitea_unreachable`). */
+  detail?: string
+  /** `org/repo` the templates are read from, once the BFF has said. */
+  source?: string
+  /** `Date.now()` when the current read started — drives the "taking a while" copy. */
+  startedAt?: number
 }
 
 const VALID_FAMILIES = new Set<string>([
@@ -1724,33 +1730,53 @@ function setGiteaStatus(next: GiteaTemplateStatus): void {
   notify()
 }
 
+/** A read that has not answered in this long is reported as a failure, not left spinning. */
+const GITEA_TEMPLATES_TIMEOUT_MS = 30_000
+let giteaAbort: AbortController | null = null
+let giteaRun = 0
+
 /**
  * Fetch Gitea templates once (deduped). Safe to call from multiple mounts;
- * concurrent calls share the same in-flight promise. Pass `force` to refetch.
+ * concurrent calls share the same in-flight promise. Pass `force` to refetch —
+ * a forced call (the page's Retry) abandons a read still in flight and starts
+ * a fresh one that skips the BFF's discovery cache.
  */
 export function loadGiteaTemplates(force = false): Promise<void> {
-  if (giteaInFlight) return giteaInFlight
-  if (giteaStatus.loaded && !force) return Promise.resolve()
-  setGiteaStatus({ ...giteaStatus, loading: true, error: undefined })
-  giteaInFlight = (async () => {
+  if (giteaInFlight && !force) return giteaInFlight
+  if (giteaStatus.loaded && !force && !giteaInFlight) return Promise.resolve()
+  giteaAbort?.abort()
+  const abort = new AbortController()
+  giteaAbort = abort
+  const run = ++giteaRun
+  const current = () => run === giteaRun
+  const timer = setTimeout(() => abort.abort(new DOMException('timeout', 'TimeoutError')), GITEA_TEMPLATES_TIMEOUT_MS)
+  setGiteaStatus({ ...giteaStatus, loading: true, error: undefined, detail: undefined, startedAt: Date.now() })
+  const flight = (async () => {
     try {
-      const res = await fetch('/api/templates', {
+      // A Retry asks the BFF to skip its short discovery cache.
+      const res = await fetch(force ? '/api/templates?refresh=1' : '/api/templates', {
         credentials: 'include',
         headers: { accept: 'application/json' },
+        signal: abort.signal,
       })
       const ct = res.headers.get('content-type') ?? ''
-      if (!res.ok || !ct.includes('application/json')) {
-        // No BFF (dev SPA) or an error — no templates; the page shows the
-        // honest empty state (configured:false) rather than seeds.
+      if (!ct.includes('application/json')) {
+        if (!current()) return
+        // No BFF (dev SPA) — no templates; the page shows the honest
+        // not-connected state rather than seeds.
         giteaTemplates = []
-        setGiteaStatus({ loading: false, loaded: true, configured: false, count: 0 })
+        setGiteaStatus({ loading: false, loaded: true, configured: false, count: 0, error: res.ok ? undefined : `HTTP ${res.status}` })
         return
       }
       const json = (await res.json()) as {
         configured?: boolean
         templates?: unknown[]
         error?: string
+        detail?: string
+        org?: string
+        repo?: string
       }
+      if (!current()) return
       giteaTemplates = (json.templates ?? [])
         .map(sanitizeServerTemplate)
         .filter((t): t is CatalogTemplate => t !== null)
@@ -1759,22 +1785,36 @@ export function loadGiteaTemplates(force = false): Promise<void> {
         loaded: true,
         configured: json.configured === true,
         count: giteaTemplates.length,
-        error: json.error,
+        // A non-2xx without a reason is still a failure, not an empty repo.
+        error: json.error ?? (res.ok ? undefined : `HTTP ${res.status}`),
+        detail: json.detail,
+        source: json.org && json.repo ? `${json.org}/${json.repo}` : giteaStatus.source,
       })
     } catch (e) {
+      if (!current()) return
+      const timedOut = abort.signal.reason instanceof DOMException && abort.signal.reason.name === 'TimeoutError'
       giteaTemplates = []
       setGiteaStatus({
         loading: false,
         loaded: true,
-        configured: false,
+        configured: giteaStatus.configured,
         count: 0,
-        error: e instanceof Error ? e.message : 'network error',
+        error: timedOut ? 'timeout' : 'network_error',
+        detail: timedOut
+          ? `No answer within ${GITEA_TEMPLATES_TIMEOUT_MS / 1000} s.`
+          : e instanceof Error ? e.message : String(e),
+        source: giteaStatus.source,
       })
     } finally {
-      giteaInFlight = null
+      clearTimeout(timer)
+      if (current()) {
+        giteaInFlight = null
+        giteaAbort = null
+      }
     }
   })()
-  return giteaInFlight
+  giteaInFlight = flight
+  return flight
 }
 
 export function getTemplate(id: string): CatalogTemplate | undefined {

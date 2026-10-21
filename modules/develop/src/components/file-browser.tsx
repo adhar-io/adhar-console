@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { EmptyState, Markdown, Spinner, useGiteaOrg } from '@adhar/shell-ui';
+import { Button, EmptyState, Markdown, useGiteaOrg } from '@adhar/shell-ui';
 import { dirOf, resolveReadmeImage } from '../data/readme-assets.ts';
 import type { gitea } from '@adhar/api-clients';
 import { useBranches, useFile, useTree } from '../data/git.ts';
@@ -94,9 +94,21 @@ function Subtree({
 
   if (t.isLoading) {
     return (
-      <div className='flex items-center gap-2 px-2 py-1.5 text-[11px] text-content-muted'>
-        <Spinner size={10} /> Loading…
+      <div role='status' aria-busy='true' aria-label={`Loading ${path || 'files'}`} className='space-y-1.5 px-2 py-1.5' style={{ paddingLeft: 8 + depth * 12 }}>
+        {[64, 48, 72, 40].map((w, i) => (
+          <div key={i} className='flex items-center gap-1.5'>
+            <span className='skeleton-shimmer block h-3 w-3 rounded-sm' style={{ animationDelay: `${i * 60}ms` }} />
+            <span className='skeleton-shimmer block h-2.5 rounded' style={{ width: `${w}%`, animationDelay: `${i * 60}ms` }} />
+          </div>
+        ))}
       </div>
+    );
+  }
+  if (t.isError && !t.data) {
+    return (
+      <button type='button' onClick={() => t.refetch()} className='px-2 py-1.5 text-left text-[11px] text-rose-700 hover:underline dark:text-rose-300'>
+        Couldn't list {path || 'files'} from Gitea — retry
+      </button>
     );
   }
   if (!t.data?.length) {
@@ -216,15 +228,27 @@ function FileView({
   }
   if (f.isLoading) {
     return (
-      <div className='flex items-center gap-2 rounded-lg border border-edge-default bg-surface-raised p-4 text-sm text-content-muted'>
-        <Spinner size={12} /> Loading {path}…
+      <div role='status' aria-busy='true' aria-label={`Loading ${path}`} className='overflow-hidden rounded-lg border border-edge-default bg-surface-raised'>
+        <div className='flex items-center gap-2 border-b border-edge-subtle px-3 py-2'>
+          <span className='truncate font-mono text-[11px] text-content-muted'>{path}</span>
+        </div>
+        <div className='space-y-2 p-4'>
+          {[58, 82, 74, 40, 66, 90, 52, 30].map((w, i) => (
+            <span key={i} className='skeleton-shimmer block h-2.5 rounded' style={{ width: `${w}%`, animationDelay: `${i * 45}ms` }} />
+          ))}
+        </div>
       </div>
     );
   }
   if (f.isError || !f.data) {
     return (
       <div className='rounded-lg border border-edge-default bg-surface-raised'>
-        <EmptyState compact title="Couldn't load file" description={path} />
+        <EmptyState
+          compact
+          title="Couldn't load the file from Gitea"
+          description={f.error instanceof Error ? `${path} — ${f.error.message}` : path}
+          action={<Button size='xs' variant='secondary' loading={f.isFetching} onClick={() => f.refetch()}>Retry</Button>}
+        />
       </div>
     );
   }

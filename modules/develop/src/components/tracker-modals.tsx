@@ -99,7 +99,10 @@ export function NewPullModal({ open, onClose, defaults, onCreated }: {
   const branches = useBranches(repo || undefined);
   const repoLabels = useRepoLabels(repo || undefined);
   const people = useCollaborators(repo || undefined);
-  const openPrs = useOrgPullRequests('open', repo || undefined);
+  // Only while the dialog is open, and only for the chosen repository: a closed
+  // modal sits mounted on several pages, and with no repo picked yet this was
+  // an org-wide open-PR scan fired just by rendering the page.
+  const openPrs = useOrgPullRequests('open', repo || undefined, { enabled: open && !!repo });
   const ab = useAheadBehind(repo || undefined, base || undefined, head || undefined, open);
 
   // (Re)seed whenever the modal opens.

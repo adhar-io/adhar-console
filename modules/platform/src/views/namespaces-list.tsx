@@ -14,7 +14,10 @@ import {
   StatusBadge,
   Textarea,
   useOverlayDismiss,
+  DrawerWidenButton,
+  useDrawerWidth,
 } from '@adhar/shell-ui'
+import { cn } from '@adhar/utils'
 import { kube } from '@adhar/api-clients/k8s'
 import { GVRS } from '../data/gvr.ts'
 import { useDaemonSets, useDeployments, usePods, useStatefulSets } from '../data/hooks.ts'
@@ -292,6 +295,7 @@ function QuotaBar({ row }: { row: { resource: string; used?: string; hard?: stri
 /* ── drawer ────────────────────────────────────────────────────────────── */
 
 function NamespaceDrawer({ namespace, onClose }: { namespace: NamespaceObject; onClose(): void }) {
+  const width = useDrawerWidth('platform.namespace', { base: 'max-w-2xl' })
   const name = namespace.metadata.name
   const quotas = useResourceQuotas(name)
   const limits = useLimitRanges(name)
@@ -313,7 +317,7 @@ function NamespaceDrawer({ namespace, onClose }: { namespace: NamespaceObject; o
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
-      <aside className="relative flex h-full w-full max-w-2xl flex-col border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">Namespace</div>
@@ -340,6 +344,7 @@ function NamespaceDrawer({ namespace, onClose }: { namespace: NamespaceObject; o
                 Delete <K8sRolePill perm="rbac.write" />
               </span>
             )}
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <button
               type="button"
               onClick={onClose}

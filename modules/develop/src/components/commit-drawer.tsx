@@ -1,8 +1,8 @@
-import { Button, EmptyState, Spinner, useToast } from '@adhar/shell-ui';
+import { Button, useToast } from '@adhar/shell-ui';
 import { formatRelative } from '@adhar/utils';
 import { useCommit, useCommitDiff } from '../data/git.ts';
 import { copy, IconCopy, IconExternal } from './repo-bits.tsx';
-import { Avatar, CloseButton, DiffStat, Drawer, IconCommit } from './list-kit.tsx';
+import { Avatar, CloseButton, DiffStat, Drawer, GiteaError, IconCommit, ItemSkeleton } from './list-kit.tsx';
 import { DiffView } from './diff-view.tsx';
 
 /**
@@ -20,6 +20,7 @@ export function CommitDrawer({ repo, sha, onClose, onOpenSha }: { repo: string; 
   return (
     <Drawer
       onClose={onClose}
+      widthId='develop.commit'
       header={
         <div className='flex items-start justify-between gap-4'>
           <div className='min-w-0'>
@@ -27,7 +28,7 @@ export function CommitDrawer({ repo, sha, onClose, onOpenSha }: { repo: string; 
               <IconCommit /> Commit · {repo}
             </div>
             <h2 className='mt-1 text-lg font-semibold leading-snug tracking-tight text-content'>
-              {q.isLoading ? 'Loading…' : subject || sha.slice(0, 10)}
+              {q.isLoading ? <span aria-hidden className='skeleton-shimmer mt-1 block h-5 w-72 max-w-full rounded' /> : subject || sha.slice(0, 10)}
             </h2>
             {c
               ? (
@@ -54,10 +55,10 @@ export function CommitDrawer({ repo, sha, onClose, onOpenSha }: { repo: string; 
         </div>
       }
     >
-      {q.isError
-        ? <EmptyState compact title="Couldn't load the commit" description={q.error instanceof Error ? q.error.message : ''} />
+      {q.isError && !c
+        ? <GiteaError compact what={`commit ${sha.slice(0, 10)}`} error={q.error} onRetry={() => q.refetch()} retrying={q.isFetching} />
         : q.isLoading
-        ? <div className='flex items-center gap-2 text-sm text-content-muted'><Spinner size={12} /> Loading commit…</div>
+        ? <ItemSkeleton label='Loading commit' />
         : c
         ? (
           <div className='space-y-4'>

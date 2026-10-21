@@ -6,9 +6,9 @@ import { toWorkItem, useDefineNotify, useModulesIssueIds, usePlanIssues } from '
 import { newId, storeError, toReleases, useIssuePoints, usePatchRelease, useProjectMeta, useReleaseDocs, useRemoveRelease } from '../data/planning-store.ts'
 import { type Release, releaseBurndown, releaseHealth, type ReleaseHealth, releaseNotes, releaseProgress } from '../data/planning-releases.ts'
 import { dayKey, startOfDay, toMs, wallItems, wallNow, type WorkItem } from '../data/planning-model.ts'
-import { planningHref, planningLink, usePlanningParams, useSetPlanningParams } from '../data/planning-nav.ts'
+import { planningHref, usePlanningParams, useSetPlanningParams } from '../data/planning-nav.ts'
 import { ItemList, PickItemsModal } from '../components/cycle-detail.tsx'
-import { DayLineChart, fmtDate, fmtRange, IconLink, IDEAL_COLOR, Loading, Meter, Notice, ProblemState, SectionTitle, SidePanel, Stat, usePeople, useSeriesColor } from '../components/planning-ui.tsx'
+import { DayLineChart, fmtDate, fmtRange, IDEAL_COLOR, Loading, Meter, Notice, ProblemState, SectionTitle, SidePanel, Stat, usePeople, useSeriesColor } from '../components/planning-ui.tsx'
 
 /**
  * Releases (versions). Plane has no versions, so a release is a console
@@ -232,23 +232,13 @@ function ReleaseDetail({ projectId, release, items, plan, onClose }: { projectId
 
   return (
     <SidePanel
+      widthId="define.release"
       onClose={onClose}
       eyebrow={<>Release <StatusBadge kind={HEALTH[health].kind}>{HEALTH[health].label}</StatusBadge></>}
       title={release.name}
       meta={<span>{fmtRange(release.start_date, release.release_date)}{release.released_at ? ` · released ${fmtDate(release.released_at)}` : ''}</span>}
       actions={
         <>
-          <Button
-            size="sm"
-            variant="ghost"
-            leading={<IconLink />}
-            onClick={() => {
-              void navigator.clipboard?.writeText(planningLink({ release: release.id }))
-              toast.success('Link copied')
-            }}
-          >
-            Copy link
-          </Button>
           <Button size="sm" onClick={() => setEditing(true)}>Edit</Button>
           {release.status === 'unreleased'
             ? (

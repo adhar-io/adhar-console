@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Button, useOverlayDismiss, useToast } from '@adhar/shell-ui'
+import { Button, DrawerWidenButton, useDrawerWidth, useOverlayDismiss, useToast } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
 import { memberDisplayName, planeError, useCreateIssue, useDeleteIssue, useIssue, usePlaneLink, useProjects } from '../data/plane.ts'
@@ -8,7 +8,6 @@ import { useProjectIssues, useScopeMeta, type WorkItem } from '../data/work-hook
 import { useMembers } from '../data/plane.ts'
 import { issueKey } from '../data/work-ql.ts'
 import { useWorkRules, useWorkRulesCtx, viewOf, WorkRulesProvider } from '../data/work-rules.ts'
-import { absoluteHref, defineHref, issueParam } from '../data/work-nav.ts'
 import { IssueSearch } from './issue-search.tsx'
 import { RichEditor, RichView } from './rich-editor.tsx'
 import {
@@ -37,7 +36,7 @@ import {
   WatchButton,
   WorklogPanel,
 } from './issue-panels.tsx'
-import { Avatar, IconClose, IconCopy, IconExpand, IconExternal, IconTrash, InlineLoading, PlaneErrorState } from './work-ui.tsx'
+import { Avatar, IconClose, IconCopy, IconExternal, IconTrash, InlineLoading, PlaneErrorState } from './work-ui.tsx'
 
 /**
  * The work-item drawer (or full page, with Expand): Plane's fields plus the
@@ -80,7 +79,9 @@ export function IssueDrawer({ projectId, issueId, onClose, onPick, onPickIn }: P
   const remove = useDeleteIssue(projectId)
   const duplicate = useCreateIssue(projectId)
   const toast = useToast()
-  const [expanded, setExpanded] = useState(false)
+  // Wide mode (header toggle, shared by every side drawer); remembered.
+  const width = useDrawerWidth('define.issue', { base: 'max-w-5xl' })
+  const expanded = width.wide
   const [editingDesc, setEditingDesc] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const [tab, setTab] = useState<Tab>('comments')
@@ -127,7 +128,7 @@ export function IssueDrawer({ projectId, issueId, onClose, onPick, onPickIn }: P
     <WorkRulesProvider value={rules}>
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={item ? `${key} ${item.name}` : 'Work item'}>
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} />
-      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl transition-[max-width]', expanded ? 'max-w-none' : 'max-w-5xl')}>
+      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl', width.className)}>
         <header className="flex items-center gap-2 border-b border-edge-default bg-surface-raised px-4 py-2.5 sm:px-6">
           <nav className="flex min-w-0 items-center gap-1.5 text-[12px] text-content-muted" aria-label="Breadcrumb">
             <span className="truncate">{project?.name ?? 'Project'}</span>
@@ -145,9 +146,7 @@ export function IssueDrawer({ projectId, issueId, onClose, onPick, onPickIn }: P
           </nav>
           <div className="ml-auto flex shrink-0 items-center gap-0.5">
             {ctx ? <WatchButton c={ctx} /> : null}
-            <IconBtn title="Copy link" onClick={() => copy(absoluteHref(defineHref('issues', { issue: issueParam(projectId, issueId) })), 'link')}><IconLinkSmall /></IconBtn>
             {planeUrl ? <a href={planeUrl} target="_blank" rel="noreferrer" title="Open in Plane" className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"><IconExternal size={14} /></a> : null}
-            <IconBtn title={expanded ? 'Collapse to drawer' : 'Expand to full page'} onClick={() => setExpanded((e) => !e)} className="hidden sm:flex"><IconExpand /></IconBtn>
             {item ? (
               <IconBtn
                 title="Duplicate"
@@ -176,6 +175,7 @@ export function IssueDrawer({ projectId, issueId, onClose, onPick, onPickIn }: P
                 <IconTrash size={14} />
               </IconBtn>
             ) : null}
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <IconBtn title="Close (Esc)" onClick={onClose}><IconClose /></IconBtn>
           </div>
         </header>
@@ -315,14 +315,5 @@ function IconBtn({ title, onClick, children, danger, className }: { title: strin
     <button type="button" title={title} aria-label={title} onClick={onClick} className={cn('flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken', danger ? 'hover:text-rose-600' : 'hover:text-content', className)}>
       {children}
     </button>
-  )
-}
-
-function IconLinkSmall() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-    </svg>
   )
 }

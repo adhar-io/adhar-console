@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Button, EmptyState, Skeleton, useOverlayDismiss, useToast } from '@adhar/shell-ui'
+import { Button, EmptyState, Skeleton, useOverlayDismiss, useToast, DrawerWidenButton, useDrawerWidth } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import { useAbortRollout, usePromoteRollout, useRetryRollout } from '../data/delivery.ts'
 import { attentionNote, envLabel, type RolloutApp, type RolloutEnv } from '../data/rollout-apps.ts'
@@ -15,7 +15,6 @@ import {
 } from '../data/rollout-history.ts'
 import {
   errorStatus,
-  rolloutLink,
   useCanPatchRollout,
   useRolloutHistorySources,
   useUndoRollout,
@@ -26,7 +25,6 @@ import {
   IconChevron,
   IconClose,
   IconCopy,
-  IconLink,
   IconRollback,
   Note,
   OutcomePill,
@@ -61,21 +59,14 @@ export function RolloutDetail({
   onEnv(env: RolloutEnv): void
   onClose(): void
 }) {
-  const toast = useToast()
+  const width = useDrawerWidth('deliver.rollout', { base: 'max-w-3xl' })
   useOverlayDismiss(true, onClose)
   if (typeof document === 'undefined') return null
-
-  const copyLink = () => {
-    navigator.clipboard?.writeText(rolloutLink(app.key, env.env)).then(
-      () => toast.success('Link copied'),
-      () => toast.error('Could not copy the link'),
-    )
-  }
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={`${app.app} rollouts`}>
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} />
-      <aside className="relative flex h-full w-full min-w-0 max-w-3xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={cn('relative flex h-full w-full min-w-0 flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="border-b border-edge-default bg-surface-raised px-4 pt-4 sm:px-6">
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
@@ -88,9 +79,7 @@ export function RolloutDetail({
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              <Button size="sm" variant="ghost" leading={<IconLink />} onClick={copyLink} aria-label="Copy link">
-                <span className="hidden sm:inline">Copy link</span>
-              </Button>
+              <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
               <button
                 type="button"
                 onClick={onClose}

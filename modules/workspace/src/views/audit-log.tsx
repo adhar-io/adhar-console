@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { EmptyState, StatusBadge, useToast } from '@adhar/shell-ui'
+import { DrawerWidenButton, EmptyState, StatusBadge, useDrawerWidth, useToast } from '@adhar/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
 import {
   fetchAllAuditEvents,
@@ -372,6 +372,7 @@ function countActive(f: Filters): number {
 
 function EventDrawer({ event, onClose, onFilter }: { event: WsAuditEvent; onClose(): void; onFilter(p: Partial<Filters>): void }) {
   const toast = useToast()
+  const width = useDrawerWidth('workspace.audit-event', { base: 'max-w-2xl' })
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -392,7 +393,7 @@ function EventDrawer({ event, onClose, onFilter }: { event: WsAuditEvent; onClos
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Audit event">
       <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" />
-      <aside className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl">
+      <aside className={`relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl ${width.className}`}>
         <header className="flex items-start justify-between gap-3 border-b border-edge-default bg-surface-raised px-5 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -405,6 +406,7 @@ function EventDrawer({ event, onClose, onFilter }: { event: WsAuditEvent; onClos
           </div>
           <div className="flex items-center gap-1">
             <SecondaryButton onClick={() => { void navigator.clipboard?.writeText(JSON.stringify(event, null, 2)); toast.success('Event copied as JSON') }}>Copy JSON</SecondaryButton>
+            <DrawerWidenButton wide={width.wide} onToggle={width.toggle} className="rounded-lg" />
             <button type="button" onClick={onClose} aria-label="Close" className="flex h-8 w-8 items-center justify-center rounded-lg text-content-subtle hover:bg-surface-sunken hover:text-content"><IconX /></button>
           </div>
         </header>

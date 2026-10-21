@@ -2053,7 +2053,6 @@ export function ResourceUtilizationPanel() {
     const vol = (k: 'used' | 'capacity' | 'reporting' | 'nodeDiskUsed' | 'nodeDiskSize' | 'provisioned') => volQ.data?.[k]?.[0]?.value ?? 0
     const csiUsed = vol('used')
     const csiCap = vol('capacity')
-    const csiReporting = vol('reporting')
     const diskUsed = vol('nodeDiskUsed')
     const diskSize = vol('nodeDiskSize')
     const provisioned = vol('provisioned') ||
@@ -2069,10 +2068,6 @@ export function ResourceUtilizationPanel() {
         used: formatStorage(used),
         total: formatStorage(total),
         hint: provisioned > 0 ? `${volumes} · ${formatStorage(provisioned)} provisioned` : volumes,
-        detail: [
-          diskSize > 0 ? `Node disks ${formatStorage(diskUsed)} of ${formatStorage(diskSize)}` : null,
-          csiCap > 0 ? `Block volumes ${formatStorage(csiUsed)} of ${formatStorage(csiCap)} (${csiReporting} reporting)` : null,
-        ].filter(Boolean).join('\n'),
         icon: <IconStorage />,
       })
     } else if (bound.length > 0) {

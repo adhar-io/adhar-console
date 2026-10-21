@@ -4,8 +4,18 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.141",
+    "date": "2026-10-21",
+    "changes": [
+      {
+        "type": "improvement",
+        "text": "Enhance deployment related features"
+      }
+    ]
+  },
+  {
     "version": "0.1.140",
-    "date": "2026-10-20",
+    "date": "2026-10-21",
     "changes": [
       {
         "type": "change",
@@ -907,41 +917,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "fix",
         "scope": "nav",
         "text": "A Workspace settings page always highlights a row"
-      }
-    ]
-  },
-  {
-    "version": "0.1.101",
-    "date": "2026-09-29",
-    "changes": [
-      {
-        "type": "fix",
-        "text": "Fix nav"
-      },
-      {
-        "type": "fix",
-        "scope": "ai",
-        "text": "The landing's measurements, entrance and idle motion"
-      },
-      {
-        "type": "feature",
-        "scope": "ai",
-        "text": "Take the colour out of the landing"
-      },
-      {
-        "type": "feature",
-        "scope": "ai",
-        "text": "Lift the landing, widen the field"
-      },
-      {
-        "type": "fix",
-        "scope": "dev",
-        "text": "Only tunnel the tools the cluster actually runs"
-      },
-      {
-        "type": "feature",
-        "scope": "ai",
-        "text": "A landing with nothing around it"
       }
     ]
   }

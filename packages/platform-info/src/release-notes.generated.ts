@@ -4,6 +4,20 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.142",
+    "date": "2026-10-21",
+    "changes": [
+      {
+        "type": "improvement",
+        "text": "Enhance empty state clean up"
+      },
+      {
+        "type": "change",
+        "text": "Clean up all dummy data"
+      }
+    ]
+  },
+  {
     "version": "0.1.141",
     "date": "2026-10-21",
     "changes": [
@@ -892,31 +906,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "feature",
         "scope": "ai",
         "text": "Drop the insight cards from the landing"
-      }
-    ]
-  },
-  {
-    "version": "0.1.102",
-    "date": "2026-09-29",
-    "changes": [
-      {
-        "type": "fix",
-        "text": "Fix catalog style"
-      },
-      {
-        "type": "fix",
-        "scope": "nav",
-        "text": "The sliding rail follows rows that differ only by search"
-      },
-      {
-        "type": "feature",
-        "scope": "ui",
-        "text": "The colour-mode control switches instead of tabbing"
-      },
-      {
-        "type": "fix",
-        "scope": "nav",
-        "text": "A Workspace settings page always highlights a row"
       }
     ]
   }

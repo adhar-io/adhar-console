@@ -1,29 +1,40 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useGiteaOrg } from '@adhar/shell-ui'
 import { kube } from '@adhar/api-clients/k8s'
+import type { gitea } from '@adhar/api-clients'
 import { giteaClient } from './git.ts'
 import { artefactConfigMap, artefactName } from './perf-runner.ts'
 import { withPinnedImages } from './k6-images.ts'
 import { LABEL_TRIGGER } from './perf-results.ts'
 import {
-  CONFIG_FILE,
-  configPath,
   DEFAULT_CONFIG,
+  LABEL_APPLICATION,
   LABEL_COMMIT,
   LABEL_MANAGED,
   LABEL_TEST,
   parseConfig,
   type PerfTestConfig,
   SCRIPT_FILE,
-  scriptPath,
   serialiseConfig,
   type Starter,
-  suiteReadme,
-  TESTS_DIR,
 } from './perf-format.ts'
+import {
+  applicationOf,
+  configPathOf,
+  discoverPerfTests,
+  isApplicationRepo,
+  locationOf,
+  type PerfTestLocation,
+  REPO_CONFIG_FILE,
+  REPO_SCRIPT_FILE,
+  scriptPathOf,
+} from './perf-location.ts'
+
+export type { PerfTestLocation } from './perf-location.ts'
 
 /**
- * The performance suite: k6 tests stored in their own Gitea repository.
+ * The performance suite: the k6 tests every application keeps in its own
+ * repository, under `perf/` (see perf-location.ts for the layout and names).
  *
  * ---------------------------------------------------------------------------
  * GIT IS THE SOURCE, THE CONFIGMAP IS THE ARTEFACT
@@ -34,17 +45,14 @@ import {
  * diff, no review, and therefore no way to answer "what changed between the
  * run that was fast and the run that was slow".
  *
- * So the repository holds the truth and the ConfigMap is generated at launch,
- * stamped with the commit it came from. The TestRun carries the same stamp,
- * which is what makes a result traceable to an exact script.
+ * So the application repository holds the truth and the ConfigMap is
+ * generated at launch, stamped with the app commit it came from. The TestRun
+ * carries the same stamp and the application's name, which is what makes a
+ * result traceable to an exact script and countable on that app's scorecard.
  *
- * The repository is created on demand, because a suite that requires someone
- * to go and make a repo first is a suite nobody starts.
+ * There is no suite repository to create: a template ships its service with a
+ * test, and a test for anything else is created inside the app's repo.
  */
-
-/** Default repository name; the org comes from `/api/config`. */
-const SUITE_REPO = 'performance-tests'
-const BRANCH = 'main'
 
 export interface PerfTest {
   name: string
@@ -55,123 +63,100 @@ export interface PerfTest {
   /** Blob sha of each file — Gitea needs it to accept an update. */
   scriptSha?: string
   configSha?: string
+  /** Where it lives. Absent only for a test built in memory and not yet read back. */
+  location?: PerfTestLocation
+  /** Newest app commit that touched the test's files — what a run is labelled with. */
+  commit?: string
 }
 
-export interface SuiteRepo {
+/** An application repository the console may read tests from and commit tests to. */
+export interface AppRepo {
+  name: string
+  branch: string
+  repoUrl?: string
+}
+
+export interface PerfSuite {
   org: string
-  repo: string
-  exists: boolean
-  htmlUrl?: string
-  defaultBranch: string
+  apps: AppRepo[]
+  tests: PerfTestLocation[]
+  /** Application repos whose `perf/` could not be read — their tests are missing from `tests`. */
+  unreadable: string[]
 }
 
 function notFound(e: unknown): boolean {
   return (e as { status?: number } | null)?.status === 404
 }
 
-/* ─────────────────────────── the repository ─────────────────────────── */
+/** The test called `name`, if some application repo has it. */
+export function findTest(suite: PerfSuite | undefined, name: string | null | undefined): PerfTestLocation | undefined {
+  return name ? suite?.tests.find((t) => t.name === name) : undefined
+}
 
-export function useSuiteRepo() {
+/** Where a new test would go: `perf/` for the app's default test, `perf/<test>/` otherwise. */
+export function newTestLocation(suite: PerfSuite, app: string, test?: string): PerfTestLocation {
+  const repo = suite.apps.find((a) => a.name === app)
+  if (!repo) throw new Error(`${app} is not an application repository in ${suite.org}.`)
+  return locationOf(suite.org, { name: repo.name, default_branch: repo.branch, html_url: repo.repoUrl }, test)
+}
+
+/* ─────────────────────────── discovery ─────────────────────────── */
+
+/**
+ * Every application repo in the org and the tests in their `perf/` folders.
+ * Repos are listed once; each app costs one directory read (plus one per
+ * sub-test), so the result is cached briefly rather than refetched per view.
+ */
+export function usePerfSuite() {
   const org = useGiteaOrg()
-  return useQuery<SuiteRepo>({
-    queryKey: ['perf', 'suite-repo', org],
+  return useQuery<PerfSuite>({
+    queryKey: ['perf', 'suite', org],
     queryFn: async () => {
-      try {
-        const repo = await giteaClient.getRepo(org, SUITE_REPO)
-        return {
-          org,
-          repo: SUITE_REPO,
-          exists: true,
-          htmlUrl: repo.html_url,
-          defaultBranch: repo.default_branch || BRANCH,
+      const repos: gitea.Repo[] = await giteaClient.listRepos(org)
+      const apps = repos.filter(isApplicationRepo)
+      const { tests, unreadable } = await discoverPerfTests(org, apps, async (repo, branch, path) => {
+        try {
+          return await giteaClient.listTree(org, repo, branch, path)
+        } catch (e) {
+          if (notFound(e)) return null
+          throw e
         }
-      } catch (e) {
-        if (notFound(e)) return { org, repo: SUITE_REPO, exists: false, defaultBranch: BRANCH }
-        throw e
+      })
+      return {
+        org,
+        apps: apps
+          .map((r) => ({ name: r.name, branch: r.default_branch || 'main', repoUrl: r.html_url }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+        tests,
+        unreadable,
       }
     },
     enabled: Boolean(org),
+    staleTime: 30_000,
     retry: false,
-  })
-}
-
-/**
- * Create the suite repository and seed it with a README.
- *
- * Seeding matters: Gitea creates an EMPTY repo with no default branch, and
- * every subsequent write to `main` fails until something has been committed.
- * `auto_init` makes the first commit for us.
- */
-export function useCreateSuiteRepo() {
-  const qc = useQueryClient()
-  const org = useGiteaOrg()
-  return useMutation({
-    mutationFn: async () => {
-      const repo = await giteaClient.createRepo(org, {
-        name: SUITE_REPO,
-        description: 'k6 performance tests, run by the Adhar platform',
-        private: false,
-        auto_init: true,
-        default_branch: BRANCH,
-      })
-      // Replace the generated README with one that explains the layout.
-      try {
-        const existing = await giteaClient.getFile(org, SUITE_REPO, BRANCH, 'README.md')
-        await giteaClient.saveFile(org, SUITE_REPO, BRANCH, 'README.md', {
-          content: b64(suiteReadme(org, SUITE_REPO)),
-          message: 'docs: describe the performance suite layout',
-          sha: existing.sha,
-        })
-      } catch {
-        // A README is a courtesy; the suite works without it.
-      }
-      return repo
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['perf'] }),
   })
 }
 
 /* ─────────────────────────── tests ─────────────────────────── */
 
-/** Every test directory under `tests/`. */
-export function usePerfTests(suite: SuiteRepo | undefined) {
-  const enabled = Boolean(suite?.exists)
-  return useQuery<string[]>({
-    queryKey: ['perf', 'tests', suite?.org, suite?.repo],
-    queryFn: async () => {
-      try {
-        const entries = await giteaClient.listTree(suite!.org, suite!.repo, suite!.defaultBranch, TESTS_DIR)
-        return entries
-          .filter((e) => e.type === 'tree')
-          .map((e) => e.path.split('/').pop() ?? '')
-          .filter(Boolean)
-          .sort()
-      } catch (e) {
-        // No `tests/` directory yet is an empty suite, not an error.
-        if (notFound(e)) return []
-        throw e
-      }
-    },
-    enabled,
-    retry: false,
-  })
-}
-
-export function usePerfTest(suite: SuiteRepo | undefined, name: string | null) {
-  const enabled = Boolean(suite?.exists && name)
+export function usePerfTest(suite: PerfSuite | undefined, name: string | null) {
+  const loc = findTest(suite, name)
   return useQuery<PerfTest>({
-    queryKey: ['perf', 'test', suite?.org, suite?.repo, name],
+    queryKey: ['perf', 'test', loc?.org, loc?.repo, loc?.dir, name],
     queryFn: () => fetchPerfTest(suite!, name!),
-    enabled,
+    enabled: Boolean(loc),
     retry: false,
   })
 }
 
-/** Read one test fresh from git — script, config and the shas an update needs. */
-export async function fetchPerfTest(suite: SuiteRepo, name: string): Promise<PerfTest> {
-  const [script, config] = await Promise.all([
-    readFile(suite, scriptPath(name)),
-    readFile(suite, configPath(name)),
+/** Read one test fresh from git — script, config, the shas an update needs and its latest commit. */
+export async function fetchPerfTest(suite: PerfSuite, name: string): Promise<PerfTest> {
+  const loc = findTest(suite, name)
+  if (!loc) throw new Error(`No application repository has a performance test called ${name}.`)
+  const [script, config, commits] = await Promise.all([
+    readFile(loc, scriptPathOf(loc)),
+    readFile(loc, configPathOf(loc)),
+    testCommits(loc, 1).catch(() => []),
   ])
   const configRaw = config?.text ?? ''
   return {
@@ -181,21 +166,27 @@ export async function fetchPerfTest(suite: SuiteRepo, name: string): Promise<Per
     configSha: config?.sha,
     configRaw,
     config: parseConfig(configRaw, name),
+    location: loc,
+    commit: commits[0]?.sha,
   }
 }
 
-/** Just `test.json`, for views that need many tests' gates at once. */
-export async function fetchPerfTestConfig(suite: SuiteRepo, name: string): Promise<PerfTestConfig> {
-  const config = await readFile(suite, configPath(name))
+/**
+ * Just `test.json`, for views that need many tests' gates at once. A name no
+ * app repo has any more (a result of a deleted test) reads as the defaults.
+ */
+export async function fetchPerfTestConfig(suite: PerfSuite, name: string): Promise<PerfTestConfig> {
+  const loc = findTest(suite, name)
+  const config = loc ? await readFile(loc, configPathOf(loc)) : null
   return parseConfig(config?.text ?? '', name)
 }
 
 async function readFile(
-  suite: SuiteRepo,
+  loc: PerfTestLocation,
   path: string,
 ): Promise<{ text: string; sha?: string } | null> {
   try {
-    const f = await giteaClient.getFile(suite.org, suite.repo, suite.defaultBranch, path)
+    const f = await giteaClient.getFile(loc.org, loc.repo, loc.branch, path)
     return { text: decode(f.content, f.encoding), sha: f.sha }
   } catch (e) {
     if (notFound(e)) return null
@@ -203,8 +194,29 @@ async function readFile(
   }
 }
 
+/**
+ * Commits that touched the test's two files, newest first. Per file rather
+ * than per directory: the default test's directory is `perf/` itself, and
+ * a commit to `perf/smoke/` did not change it.
+ */
+async function testCommits(loc: PerfTestLocation, limit: number): Promise<gitea.Commit[]> {
+  const lists = await Promise.all(
+    [scriptPathOf(loc), configPathOf(loc)].map((path) =>
+      giteaClient.listCommits(loc.org, loc.repo, loc.branch, limit, { path }).catch((e) => {
+        if (notFound(e)) return [] as gitea.Commit[]
+        throw e
+      })
+    ),
+  )
+  const bySha = new Map<string, gitea.Commit>()
+  for (const c of lists.flat()) if (c.sha && !bySha.has(c.sha)) bySha.set(c.sha, c)
+  return [...bySha.values()].sort((a, b) => (b.created ?? '').localeCompare(a.created ?? '')).slice(0, limit)
+}
+
 export interface SaveTestInput {
   name: string
+  /** Where to commit. Required for a new test; an existing one is found by name. */
+  location?: PerfTestLocation
   script?: string
   config?: PerfTestConfig
   /** Shas of the versions being replaced; omit for a new file. */
@@ -214,7 +226,7 @@ export interface SaveTestInput {
 }
 
 /**
- * Commit a test.
+ * Commit a test to its application repository's default branch.
  *
  * Script and config are written as separate commits because Gitea's contents
  * API writes one file per call. They are sequenced rather than parallel so a
@@ -222,67 +234,79 @@ export interface SaveTestInput {
  * saved, the config not, rather than a config describing a script that was
  * never written.
  */
-export function useSavePerfTest(suite: SuiteRepo | undefined) {
+export function useSavePerfTest(suite: PerfSuite | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (input: SaveTestInput) => {
-      if (!suite?.exists) throw new Error('The performance suite repository does not exist yet.')
+      const loc = input.location ?? findTest(suite, input.name)
+      if (!loc) throw new Error(`No application repository has a performance test called ${input.name}.`)
       const message = input.message ?? `perf: update ${input.name}`
       let commit: string | undefined
 
       if (input.script !== undefined) {
-        const res = await giteaClient.saveFile(suite.org, suite.repo, suite.defaultBranch, scriptPath(input.name), {
+        const res = await giteaClient.saveFile(loc.org, loc.repo, loc.branch, scriptPathOf(loc), {
           content: b64(input.script),
-          message: `${message} (${SCRIPT_FILE})`,
+          message: `${message} (${REPO_SCRIPT_FILE})`,
           sha: input.scriptSha,
         })
         commit = res.commit?.sha
       }
       if (input.config !== undefined) {
-        const res = await giteaClient.saveFile(suite.org, suite.repo, suite.defaultBranch, configPath(input.name), {
+        const res = await giteaClient.saveFile(loc.org, loc.repo, loc.branch, configPathOf(loc), {
           content: b64(serialiseConfig(input.config)),
-          message: `${message} (${CONFIG_FILE})`,
+          message: `${message} (${REPO_CONFIG_FILE})`,
           sha: input.configSha,
         })
         commit = res.commit?.sha ?? commit
       }
-      return { commit }
+      return { commit, location: loc }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['perf'] }),
   })
 }
 
-export function useCreatePerfTest(suite: SuiteRepo | undefined) {
+/**
+ * Create a test in an application repository: its default test under `perf/`
+ * when `test` is omitted, otherwise `perf/<test>/`. The name follows from
+ * where it lives (`<app>-load`, `<app>-<test>`).
+ */
+export function useCreatePerfTest(suite: PerfSuite | undefined) {
   const save = useSavePerfTest(suite)
   return useMutation({
-    mutationFn: async (input: { name: string; starter: Starter; namespace: string }) => {
+    mutationFn: async (input: { app: string; test?: string; starter: Starter; namespace: string }) => {
+      if (!suite) throw new Error('The application repositories have not been read yet.')
+      const location = newTestLocation(suite, input.app, input.test)
+      if (findTest(suite, location.name)) throw new Error(`${location.name} already exists in ${location.repo}.`)
+      const name = location.name
       const config: PerfTestConfig = {
         ...DEFAULT_CONFIG,
-        ...input.starter.config(input.name),
-        title: input.name.replace(/[-_]/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase()),
+        ...input.starter.config(name),
+        title: name.replace(/[-_]/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase()),
         namespace: input.namespace,
       }
       await save.mutateAsync({
-        name: input.name,
-        script: input.starter.script(input.name),
+        name,
+        location,
+        script: input.starter.script(name),
         config,
-        message: `perf: add ${input.name} from the ${input.starter.label.toLowerCase()} starter`,
+        message: `perf: add ${name} from the ${input.starter.label.toLowerCase()} starter`,
       })
-      return input.name
+      return name
     },
   })
 }
 
 /** Delete both files. Gitea has no directory delete; the dir goes when empty. */
-export function useDeletePerfTest(suite: SuiteRepo | undefined) {
+export function useDeletePerfTest(suite: PerfSuite | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (name: string) => {
-      if (!suite?.exists) return
-      for (const path of [scriptPath(name), configPath(name)]) {
+      const loc = findTest(suite, name)
+      if (!loc) return
+      for (const path of [scriptPathOf(loc), configPathOf(loc)]) {
         try {
-          const f = await giteaClient.getFile(suite.org, suite.repo, suite.defaultBranch, path)
-          await giteaClient.deleteFile(suite.org, suite.repo, suite.defaultBranch, path, {
+          const f = await giteaClient.getFile(loc.org, loc.repo, loc.branch, path)
+          await giteaClient.deleteFile(loc.org, loc.repo, loc.branch, path, {
             message: `perf: remove ${name}`,
             sha: f.sha,
           })
@@ -297,16 +321,14 @@ export function useDeletePerfTest(suite: SuiteRepo | undefined) {
 
 /* ─────────────────────────── history ─────────────────────────── */
 
-/** Commits touching one test — the provenance behind every result. */
-export function usePerfTestHistory(suite: SuiteRepo | undefined, name: string | null) {
-  const enabled = Boolean(suite?.exists && name)
+/** Commits touching one test's files in its app repo — the provenance behind every result. */
+export function usePerfTestHistory(suite: PerfSuite | undefined, name: string | null) {
+  const loc = findTest(suite, name)
   return useQuery({
-    queryKey: ['perf', 'history', suite?.org, suite?.repo, name],
-    queryFn: async () => {
-      // Every commit that touched the test's directory — hand-made ones too.
-      return await giteaClient.listCommits(suite!.org, suite!.repo, suite!.defaultBranch, 30, { path: `${TESTS_DIR}/${name}` })
-    },
-    enabled,
+    queryKey: ['perf', 'history', loc?.org, loc?.repo, loc?.dir, name],
+    // Every commit that touched the test's files — hand-made ones too.
+    queryFn: () => testCommits(loc!, 30),
+    enabled: Boolean(loc),
     retry: false,
   })
 }
@@ -327,9 +349,10 @@ export const scriptConfigMapName = artefactName
  *      runner, TestRun template and gate that schedules and CI reuse, and
  *   2. a TestRun pointing at it.
  *
- * Both carry the test name and the commit sha as labels. That is the whole
- * point of routing through git: a month later, a result still says which
- * script produced it, and the script is still there to read.
+ * Both carry the test name and the application commit as labels, and the
+ * TestRun names the application (the repo the test lives in). That is the
+ * whole point of routing through git: a month later, a result still says
+ * which script produced it, and the script is still there to read.
  */
 export function useRunPerfTest() {
   const qc = useQueryClient()
@@ -337,12 +360,15 @@ export function useRunPerfTest() {
     mutationFn: async (input: { test: PerfTest; commit?: string; runName?: string }) => {
       const { test } = input
       const ns = test.config.namespace || 'default'
-      const commit = (input.commit ?? '').slice(0, 40)
+      const commit = (input.commit ?? test.commit ?? '').slice(0, 40)
       const cmName = scriptConfigMapName(test.name)
+      const application = applicationOf(test.location)
 
       // The artefact: the script exactly as committed, plus the TestRun
       // template, gate and runner script that schedules and CI reuse.
-      await kube.apply(artefactConfigMap({ test: test.name, config: { ...test.config, namespace: ns }, script: test.script, commit }))
+      await kube.apply(
+        artefactConfigMap({ test: test.name, config: { ...test.config, namespace: ns }, script: test.script, commit, application }),
+      )
 
       const runName = input.runName ?? `${test.name}-${stamp()}`
       const run = await kube.apply<{ metadata: { name: string; namespace?: string } }>({
@@ -356,6 +382,9 @@ export function useRunPerfTest() {
             [LABEL_TEST]: test.name,
             [LABEL_TRIGGER]: 'console',
             ...(commit ? { [LABEL_COMMIT]: commit.slice(0, 63) } : {}),
+            // The app the test lives with — what the harvester copies onto the
+            // result and the scorecard joins on.
+            ...(application ? { [LABEL_APPLICATION]: application } : {}),
           },
         },
         spec: withPinnedImages({

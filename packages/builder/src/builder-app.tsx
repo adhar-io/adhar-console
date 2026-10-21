@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { BuilderFullscreenProvider } from './fullscreen.tsx'
 import { Button, PageHeader, Spinner, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { BUILDER_CSS } from './builder-styles.ts'
@@ -245,7 +246,16 @@ export function BuilderApp({
   )
 
   return (
-    <div className={cn('flex min-h-0 flex-col', className)}>
+    <BuilderFullscreenProvider>
+    {(full) => (
+    <div
+      className={cn(
+        'flex min-h-0 flex-col',
+        // Full screen: the designer (header + workbench) fills the window above
+        // the console chrome; dialogs (z-200) and toasts (z-120) stay on top.
+        full ? 'fixed inset-0 z-[60] bg-surface-canvas p-3 sm:p-4' : className,
+      )}
+    >
       {variant === 'page' ? (
         <PageHeader compact title={heading} actions={headerActions} />
       ) : (
@@ -256,8 +266,8 @@ export function BuilderApp({
       )}
 
       <div
-        className="adhar-builder relative min-h-140 overflow-hidden rounded-xl border border-edge-default bg-background"
-        style={{ height: height ?? 'calc(100vh - 210px)' }}
+        className={cn('adhar-builder relative overflow-hidden rounded-xl border border-edge-default bg-background', full ? 'min-h-0 flex-1' : 'min-h-140')}
+        style={full ? undefined : { height: height ?? 'calc(100vh - 210px)' }}
       >
         {!project ? (
           <Loading label={`Loading ${name}…`} />
@@ -278,6 +288,8 @@ export function BuilderApp({
         )}
       </div>
     </div>
+    )}
+    </BuilderFullscreenProvider>
   )
 }
 

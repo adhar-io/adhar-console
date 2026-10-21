@@ -42,3 +42,13 @@ Deno.test('console-launched runs keep the application through the harvest round-
   const none = resultConfigMap({ run: 'r', test: 't', namespace: 'n', summaryText: '', trigger: 'console' })
   assertEquals(LABEL_APPLICATION in none.metadata.labels, false)
 })
+
+Deno.test('a test that lives in an app repo is labelled with that app, whatever its selector says', () => {
+  const config = { ...DEFAULT_CONFIG, namespace: 'test', target: { selector: 'app=checkout-api' } }
+  const cm = artefactConfigMap({ test: 'checkout-load', config, script: '', commit: 'abc', application: 'checkout' })
+  assertEquals(JSON.parse(cm.data['testrun.json']).metadata.labels[LABEL_APPLICATION], 'checkout')
+  assertEquals(cm.data['gate.env'].includes("TARGET_APP='checkout'"), true)
+  // No repo (an artefact from before tests lived with their app): the selector still decides.
+  const legacy = artefactConfigMap({ test: 'checkout-load', config, script: '' })
+  assertEquals(JSON.parse(legacy.data['testrun.json']).metadata.labels[LABEL_APPLICATION], 'checkout-api')
+})

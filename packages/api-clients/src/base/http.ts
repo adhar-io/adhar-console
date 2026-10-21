@@ -58,7 +58,11 @@ export class HttpError extends Error {
     public method: string,
   ) {
     super(
-      typeof body === 'object' && body && 'message' in body
+      // A console BFF error written for people (`userMessage`) IS the message —
+      // e.g. "You don't have a Gitea account yet — sign in to Gitea once…".
+      typeof body === 'object' && body && typeof (body as { userMessage?: unknown }).userMessage === 'string'
+        ? (body as { userMessage: string }).userMessage
+        : typeof body === 'object' && body && 'message' in body
         ? `HTTP ${status} ${statusText} at ${method} ${url} — ${String((body as { message: unknown }).message)}`
         : `HTTP ${status} ${statusText} at ${method} ${url}`,
     )

@@ -41,7 +41,7 @@ import { PerfReadiness } from './perf-readiness.tsx'
 import { SchedulesView } from './perf-schedules.tsx'
 import { harvestedRuns, useHarvester, usePerfInsights } from '../data/perf-automation.ts'
 import { DEFAULT_CONFIG, LABEL_COMMIT, LABEL_TEST } from '../data/perf-format.ts'
-import { usePerfTest, useSuiteRepo } from '../data/perf-suite.ts'
+import { usePerfSuite, usePerfTest } from '../data/perf-suite.ts'
 import {
   createTestRun,
   deleteTestRun,
@@ -1007,7 +1007,7 @@ function PodStrip({ pods }: { pods: PodRef[] }) {
 function ReportTab({ run, podName }: { run: TestRun; podName: string | null }) {
   const testName = run.metadata.labels?.[LABEL_TEST]
   const commit = run.metadata.labels?.[LABEL_COMMIT]
-  const suite = useSuiteRepo()
+  const suite = usePerfSuite()
   const test = usePerfTest(suite.data, testName ?? null)
 
   // One-shot read of the runner's stdout for the end-of-test summary.

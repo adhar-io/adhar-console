@@ -531,7 +531,17 @@ export interface ScorecardsResult {
   live: boolean
 }
 
-/** All scoreable catalog entities → Scorecard[], derived from `useCatalog()`. */
+/**
+ * All scoreable catalog entities → Scorecard[], derived from `useCatalog()`.
+ *
+ * The catalog already carries each Gitea-backed entity's `catalog-info.yaml`
+ * overlaid (owner, description, links, annotations — catalog-descriptor.ts):
+ * that file is what the team declared and what a scorecard Fix edits, so the
+ * catalog-derived checks read it, and a merged fix passes once its
+ * descriptor is re-read (Re-evaluate invalidates that one descriptor query).
+ * Until a descriptor has been read the entity is graded as the live sources
+ * describe it.
+ */
 export function useScorecards(): ScorecardsResult {
   const catalog = useCatalog()
   const scorecards = useMemo(

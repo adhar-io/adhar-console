@@ -294,9 +294,12 @@ exit 0
  * The TestRun a runner creates. `__RUN_NAME__` and `__TRIGGER__` are filled
  * in by the script; everything else comes from the committed config.
  */
-export function testRunTemplate(input: { test: string; config: PerfTestConfig; commit?: string }) {
+export function testRunTemplate(input: { test: string; config: PerfTestConfig; commit?: string; application?: string }) {
   const { test, config } = input
   const commit = (input.commit ?? '').slice(0, 40)
+  // The repo the test lives in names the app; the selector is the fallback
+  // for an artefact written before tests lived in application repos.
+  const application = input.application ?? targetApplication(config)
   const env = Object.entries(config.env)
   return {
     apiVersion: 'k6.io/v1alpha1',
@@ -311,7 +314,7 @@ export function testRunTemplate(input: { test: string; config: PerfTestConfig; c
         // The runner owns this run's harvest — the console must not race it.
         [LABEL_RUNNER]: 'job',
         ...(commit ? { [LABEL_COMMIT]: commit } : {}),
-        ...(targetApplication(config) ? { [LABEL_APPLICATION]: targetApplication(config)! } : {}),
+        ...(application ? { [LABEL_APPLICATION]: application } : {}),
       },
     },
     spec: withPinnedImages({
@@ -326,10 +329,13 @@ export function testRunTemplate(input: { test: string; config: PerfTestConfig; c
 }
 
 /** The whole artefact ConfigMap for one test. */
-export function artefactConfigMap(input: { test: string; config: PerfTestConfig; script: string; commit?: string }) {
+export function artefactConfigMap(
+  input: { test: string; config: PerfTestConfig; script: string; commit?: string; application?: string },
+) {
   const { test, config } = input
   const ns = config.namespace || 'default'
   const commit = (input.commit ?? '').slice(0, 40)
+  const application = input.application ?? targetApplication(config)
   return {
     apiVersion: 'v1',
     kind: 'ConfigMap',
@@ -344,14 +350,14 @@ export function artefactConfigMap(input: { test: string; config: PerfTestConfig;
     },
     data: {
       [SCRIPT_FILE]: input.script,
-      [TESTRUN_KEY]: `${JSON.stringify(testRunTemplate({ test, config, commit }), null, 2)}\n`,
+      [TESTRUN_KEY]: `${JSON.stringify(testRunTemplate({ test, config, commit, application }), null, 2)}\n`,
       [GATE_KEY]: gateEnv({
         test,
         namespace: ns,
         commit,
         gate: config.gate,
         baseline: config.baseline,
-        application: targetApplication(config),
+        application,
       }),
       [RUNNER_KEY]: RUN_SCRIPT,
     },

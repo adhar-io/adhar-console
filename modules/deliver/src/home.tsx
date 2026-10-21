@@ -71,19 +71,19 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   },
   // Direct entries into the Scans page's tabs (deep-linkable sidebar rows).
   'scan-review': {
-    label: 'Security Review',
+    label: 'Vulnerability Scans',
     description: 'Waiver requests and pipeline runs paused at the scan gate, waiting for a reviewer.',
   },
   waivers: {
-    label: 'Scan Waivers',
+    label: 'Vulnerability Scans',
     description: 'Every accepted, pending, expired and revoked scan waiver — with its audit trail.',
   },
   licenses: {
-    label: 'OSS Licenses',
+    label: 'Vulnerability Scans',
     description: 'License inventory from the running images\' SBOMs, judged against the license policy.',
   },
   'scan-policy': {
-    label: 'Scan Policy',
+    label: 'Vulnerability Scans',
     description: 'Severity gate, scanners, enforce / warn, manual approval, license lists and waiver limits — global and per project.',
   },
   runtime: {

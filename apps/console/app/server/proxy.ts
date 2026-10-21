@@ -2,6 +2,24 @@ import { getServerAuthConfig, getValidSession } from '@adhar/auth/server'
 import { getTool, type ToolDef } from './tool-registry.ts'
 import { fetchWithApiServerClient } from './k8s/gateway.ts'
 import { type CachedResponse, retryAfterMs, snapshot, toolGetCache } from './tool-cache.ts'
+import { getRequestUser } from './request-user.ts'
+import { toolPublicUrl } from './domain.ts'
+import { env } from '@adhar/utils'
+import {
+  accountMissing,
+  auditGiteaWrite,
+  bodyNamesSudo,
+  invalidateGiteaIdentity,
+  isGiteaApiPath,
+  isGiteaWrite,
+  lookupFailed,
+  mapSudoFailure,
+  noIdentity,
+  resolveGiteaUsername,
+  stripClientSudo,
+  sudoParamRefused,
+  writePathRefused,
+} from './gitea-sudo.ts'
 
 /** The longest a request waits on a 429 before retrying once. */
 const MAX_RATE_LIMIT_WAIT_MS = 5_000
@@ -233,6 +251,95 @@ async function resolveToken(
   }
 }
 
+/* ───────────────────────── Gitea: act as the user ───────────────────────── */
+
+export interface GiteaWriteContext {
+  /** Who the console says made the change (email, else id) — for the audit line. */
+  actor: string
+  /** The Gitea username the write runs as; absent only on a laptop without auth. */
+  sudo?: string
+  email?: string
+  username?: string
+  publicUrl: string
+  adminGet: (path: string) => Promise<Response>
+}
+
+/**
+ * Validate a `/api/svc/gitea` request and work out who it runs as. Returns the
+ * query string to forward (client `sudo` removed) and, for a write, the
+ * identity to `Sudo` as — or a Response to answer with instead.
+ */
+export async function guardGitea(
+  def: ToolDef,
+  request: Request,
+  method: string,
+  path: string,
+  body: ArrayBuffer | undefined,
+  headers: Headers,
+  deps: {
+    authConfigured: () => boolean
+    getUser: typeof getRequestUser
+  } = { authConfigured: () => Boolean(getServerAuthConfig()), getUser: getRequestUser },
+): Promise<Response | { search: string; write?: GiteaWriteContext; refreshedCookie?: string }> {
+  const search = stripClientSudo(new URL(request.url).search, headers)
+  const write = isGiteaWrite(method)
+  const publicUrl = toolPublicUrl('gitea', 'GITEA_URL')
+
+  if (write) {
+    if (!isGiteaApiPath(path)) return writePathRefused()
+    if (await bodyNamesSudo(request.headers.get('content-type'), body)) return sudoParamRefused()
+  }
+
+  // No identity provider at all. On a laptop (`deno task dev:server`) the
+  // console keeps acting as the configured Gitea account; in a cluster that
+  // would hand the admin to anonymous callers, so writes are refused there.
+  if (!deps.authConfigured()) {
+    if (!write) return { search }
+    if (env('KUBERNETES_SERVICE_HOST')) {
+      return json(503, { error: 'auth_not_configured', message: 'Sign-in is not configured on this console, so it cannot make changes in Gitea.' })
+    }
+    return { search, write: { actor: 'local-dev', publicUrl, adminGet: adminGetter(def) } }
+  }
+
+  // Every Gitea request needs a session — reads run as the admin too.
+  const auth = await deps.getUser(request)
+  if (!auth) return json(401, { error: 'unauthenticated', message: 'Sign in to continue.' })
+  if (!write) return { search, refreshedCookie: auth.refreshedCookie }
+
+  const who = { email: auth.user.email, username: auth.user.username }
+  const adminGet = adminGetter(def)
+  const actor = auth.user.email || auth.user.id
+  const resolved = await resolveGiteaUsername(who, adminGet)
+  if (!resolved.ok) {
+    auditGiteaWrite({ user: actor, method, path, status: 0, outcome: resolved.reason })
+    const res = resolved.reason === 'no_account'
+      ? accountMissing(publicUrl)
+      : resolved.reason === 'no_identity'
+      ? noIdentity()
+      : lookupFailed('detail' in resolved ? resolved.detail : '')
+    if (auth.refreshedCookie) res.headers.append('set-cookie', auth.refreshedCookie)
+    return res
+  }
+  return {
+    search,
+    refreshedCookie: auth.refreshedCookie,
+    write: { actor, sudo: resolved.username, ...who, publicUrl, adminGet },
+  }
+}
+
+/** Plain admin `GET` against Gitea (identity lookups; never `Sudo`'d). */
+function adminGetter(def: ToolDef): (path: string) => Promise<Response> {
+  return async (p) => {
+    const headers: Record<string, string> = { accept: 'application/json' }
+    if (def.authMode === 'basic' && def.username && def.password) {
+      headers.authorization = `Basic ${btoa(`${def.username}:${def.password}`)}`
+    } else if (def.serviceToken) {
+      headers.authorization = `Bearer ${def.serviceToken}`
+    }
+    return await fetch(`${def.baseUrl}${p}`, { headers, redirect: 'manual' })
+  }
+}
+
 /**
  * Proxy one request. `tool` is the registry key; `splat` is the remaining
  * upstream path (e.g. `api/v1/orgs/adhar/repos`).
@@ -245,6 +352,22 @@ export async function proxyToolRequest(
   const def = getTool(tool)
   if (!def) return json(404, { error: 'unknown_tool', tool })
   if (!def.baseUrl) return json(503, { error: 'tool_not_configured', tool })
+
+  // Every tool needs a signed-in session, whatever credential the proxy then
+  // injects. Only `user` mode used to check one: tools reached with the
+  // console's OWN credentials (`service` / `basic` / `login` / `none` — Argo CD,
+  // Harbor, Nexus, Plane, Strapi, Grafana, Kargo, …) answered anyone who could
+  // reach the console, signed in or not, with those credentials (2026-10-22).
+  // Internal callers (live.ts, coder-ide.ts) forward the user's cookie. On a
+  // laptop without auth configured, local development keeps working.
+  if (def.authMode !== 'user') {
+    const cfg = getServerAuthConfig()
+    if (cfg) {
+      if (!(await getValidSession(request, cfg))) return json(401, { error: 'unauthenticated' })
+    } else if (env('KUBERNETES_SERVICE_HOST')) {
+      return json(503, { error: 'auth_not_configured', tool })
+    }
+  }
 
   const incoming = new URL(request.url)
   // `splat` is a PATH ONLY. The query comes from the incoming URL, because that
@@ -263,8 +386,6 @@ export async function proxyToolRequest(
   // that, and the leading-slash normalisation stops `//api/v2/...` too.
   const bare = splat.split('?')[0].split('#')[0].replace(/^\/+/, '')
   const path = bare ? `/${bare}` : ''
-  const upstreamUrl = `${def.baseUrl}${def.stripPrefix ? path.replace(def.stripPrefix, '') : path}${incoming.search}`
-
   const method = request.method.toUpperCase()
   const hasBody = method !== 'GET' && method !== 'HEAD'
   // Buffer the body once so a login-mode retry can resend it (a stream can't be
@@ -279,12 +400,28 @@ export async function proxyToolRequest(
   }
   for (const [k, v] of Object.entries(def.headers ?? {})) baseHeaders.set(k, v)
 
+  // Gitea is driven with ADMIN credentials: writes run as the signed-in user
+  // via `Sudo`, and nobody may pick that user themselves. See gitea-sudo.ts.
+  let search = incoming.search
+  let giteaWrite: GiteaWriteContext | undefined
+  let sessionCookie: string | undefined
+  if (tool === 'gitea') {
+    const g = await guardGitea(def, request, method, path, body, baseHeaders)
+    if (g instanceof Response) return g
+    search = g.search
+    giteaWrite = g.write
+    sessionCookie = g.refreshedCookie
+  }
+
+  const upstreamUrl = `${def.baseUrl}${def.stripPrefix ? path.replace(def.stripPrefix, '') : path}${search}`
+
   const attempt = async (
     forceLoginRefresh: boolean,
   ): Promise<{ upstream: Response; refreshedCookie?: string } | { error: Response }> => {
     const auth = await resolveToken(tool, def, request, { forceLoginRefresh })
     if ('error' in auth) return { error: auth.error }
     const headers = new Headers(baseHeaders)
+    if (giteaWrite?.sudo) headers.set('Sudo', giteaWrite.sudo)
     if (auth.authHeader && !def.headers?.['x-api-key']) {
       headers.set(auth.authHeaderName ?? 'authorization', auth.authHeader)
     }
@@ -350,7 +487,12 @@ export async function proxyToolRequest(
   }
 
   let result = await attempt(false)
-  if ('error' in result) return result.error
+  if ('error' in result) {
+    if (giteaWrite) {
+      auditGiteaWrite({ user: giteaWrite.actor, giteaUser: giteaWrite.sudo, method, path, status: result.error.status, outcome: 'upstream_error' })
+    }
+    return result.error
+  }
 
   // A rate-limited write waits out a short window once rather than failing.
   if (cacheMs > 0 && result.upstream.status === 429) {
@@ -376,8 +518,30 @@ export async function proxyToolRequest(
     result = retry
   }
 
-  const upstream = result.upstream
-  const refreshedCookie = result.refreshedCookie
+  let upstream = result.upstream
+  const refreshedCookie = result.refreshedCookie ?? sessionCookie
+
+  if (giteaWrite) {
+    let status = upstream.status
+    if (giteaWrite.sudo && (status === 403 || status === 404)) {
+      const text = await upstream.text().catch(() => '')
+      const ctx = giteaWrite
+      const mapped = await mapSudoFailure(status, text, {
+        giteaUser: ctx.sudo!,
+        publicGiteaUrl: ctx.publicUrl,
+        stillExists: async () => {
+          invalidateGiteaIdentity(ctx.email)
+          const again = await resolveGiteaUsername({ email: ctx.email, username: ctx.username }, ctx.adminGet)
+          // Only a definite "no such account" changes the answer; a failed
+          // lookup or a renamed account passes Gitea's own 404 through.
+          return again.ok || again.reason !== 'no_account'
+        },
+      })
+      upstream = mapped ?? new Response(text, { status, statusText: upstream.statusText, headers: upstream.headers })
+      status = upstream.status
+    }
+    auditGiteaWrite({ user: giteaWrite.actor, giteaUser: giteaWrite.sudo, method, path, status })
+  }
 
   /*
    * Pass the upstream response through, dropping hop-by-hop headers, and attach

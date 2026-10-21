@@ -79,7 +79,16 @@ function commitUrl(repoUrl: string | undefined, rev: string | undefined): string
   return `${repoUrl.replace(/\.git$/, '').replace(/\/$/, '')}/commit/${rev}`
 }
 
-export function ResourcesTab({ entity, deployment }: { entity: Entity; deployment: EntityDeployment }) {
+export function ResourcesTab({ entity, deployment, overview = true }: {
+  entity: Entity
+  deployment: EntityDeployment
+  /**
+   * Show the "All environments" summary cards. Off where the page already
+   * summarises the environments (the Deployment tab's Environments section) —
+   * the view then opens on the first environment's resources.
+   */
+  overview?: boolean
+}) {
   const stages = useKargoStages(deployment.apps.length > 0)
   const kargoOrder = useMemo(
     () => kargoEnvironments(stages.data, deployment, entity.metadata.name).map((k) => k.stage.name),
@@ -88,7 +97,7 @@ export function ResourcesTab({ entity, deployment }: { entity: Entity; deploymen
   const tabs = useMemo(() => envTabs(deployment.environments, deployment.unscoped, kargoOrder), [deployment.environments, deployment.unscoped, kargoOrder])
   const [envId, setEnvId] = useState<string>(ALL)
   const current = tabs.find((t) => t.id === envId)
-  const active = tabs.length === 1 ? tabs[0] : current
+  const active = tabs.length === 1 ? tabs[0] : current ?? (overview ? undefined : tabs[0])
 
   if (deployment.isLoading) {
     return <div className="flex items-center gap-2 py-10 text-sm text-content-muted"><Spinner /> Finding the Argo CD applications for this entity…</div>
@@ -109,7 +118,7 @@ export function ResourcesTab({ entity, deployment }: { entity: Entity; deploymen
     <div className="space-y-4">
       {tabs.length > 1 ? (
         <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Environment">
-          <EnvChip selected={!active} onClick={() => setEnvId(ALL)} label="All environments" />
+          {overview ? <EnvChip selected={!active} onClick={() => setEnvId(ALL)} label="All environments" /> : null}
           {tabs.map((t) => (
             <EnvChip key={t.id} selected={active?.id === t.id} onClick={() => setEnvId(t.id)} label={t.label} health={t.app.status.health.status} sync={t.app.status.sync.status} />
           ))}

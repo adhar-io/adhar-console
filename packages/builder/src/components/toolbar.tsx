@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useBuilderFullscreen } from '../fullscreen.tsx';
 
 interface ToolbarProps {
   viewMode: 'design' | 'code' | 'preview';
@@ -39,6 +40,7 @@ const I = ({ d, s = 14 }: { d: string; s?: number }) => (
 export function Toolbar(props: ToolbarProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [zoomOpen, setZoomOpen] = useState(false);
+  const fs = useBuilderFullscreen();
 
   useEffect(() => {
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) { props.onSetMenu(null); setZoomOpen(false); } };
@@ -172,6 +174,20 @@ export function Toolbar(props: ToolbarProps) {
             </div>
           )}
         </div>
+
+        {/* Full screen — after zoom */}
+        <button
+          type='button'
+          onClick={fs.toggle}
+          aria-pressed={fs.full}
+          title={fs.full ? 'Exit full screen (Esc · ⌃⌘F)' : 'Full screen (⌃⌘F)'}
+          aria-label={fs.full ? 'Exit full screen' : 'Full screen'}
+          className={`btn-icon-sm ${fs.full ? 'text-primary' : ''}`}
+        >
+          {fs.full
+            ? <I d='M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5' s={13} />
+            : <I d='M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5' s={13} />}
+        </button>
       </div>
     </div>
   );

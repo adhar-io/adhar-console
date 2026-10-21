@@ -1,14 +1,13 @@
 import { useMemo, useState } from 'react'
 import { Button, EmptyState, StatusBadge, useToast } from '@adhar/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
-import { giteaClient } from '../data/git.ts'
 import { isRunning, type TestRun } from '../data/k6.ts'
 import { nextRuns } from '../data/perf-cron.ts'
 import type { PerfInsights } from '../data/perf-automation.ts'
 import { compareToBaseline, DEFAULT_TOLERANCE, trendPoints } from '../data/perf-gate.ts'
 import { fmtMetric, type MetricKey, type RunRecord, sortRecords } from '../data/perf-results.ts'
-import { LABEL_TEST, TESTS_DIR } from '../data/perf-format.ts'
-import { fetchPerfTest, useRunPerfTest } from '../data/perf-suite.ts'
+import { LABEL_TEST } from '../data/perf-format.ts'
+import { fetchPerfTest, findTest, useRunPerfTest } from '../data/perf-suite.ts'
 import { RegressionBadge, TriggerBadge, VerdictBadge } from './perf-bits.tsx'
 
 /**
@@ -212,13 +211,15 @@ function HealthRow({ test, title, history, verdictOf, baseline, tolerance, next,
   const regressed = deltas.filter((d) => d.regressed)
   const delta = (k: MetricKey) => deltas.find((d) => d.key === k)
   const runTest = useRunNow(suite)
+  const where = findTest(suite, test)
   return (
     <tr className="align-middle hover:bg-surface-sunken/40">
       <td className="px-3 py-2">
         <button type="button" onClick={onOpen} disabled={!inSuite} className="text-left disabled:cursor-default">
           <div className="font-semibold text-content hover:text-brand-700 dark:hover:text-brand-300">{test}</div>
           {title && title.toLowerCase() !== test.replace(/-/g, ' ') ? <div className="text-[11px] text-content-subtle">{title}</div> : null}
-          {!inSuite ? <div className="text-[10px] text-amber-700 dark:text-amber-300">not in the suite any more</div> : null}
+          {where ? <div className="font-mono text-[10px] text-content-subtle">{where.repo}/{where.dir}</div> : null}
+          {!inSuite ? <div className="text-[10px] text-amber-700 dark:text-amber-300">no longer in an application repo</div> : null}
         </button>
       </td>
       <td className="px-3 py-2">{running ? <StatusBadge kind="progressing">running</StatusBadge> : verdict ? <VerdictBadge verdict={verdict} compact /> : <span className="text-content-subtle">never run</span>}</td>
@@ -289,7 +290,7 @@ function Sparkline({ points, baseline }: { points: Array<[number, number]>; base
   )
 }
 
-/** Run a suite test from its latest commit, without opening the editor. */
+/** Run a test from its app repo's latest commit, without opening the editor. */
 function useRunNow(suite: PerfInsights['suite']) {
   const run = useRunPerfTest()
   const toast = useToast()
@@ -297,14 +298,12 @@ function useRunNow(suite: PerfInsights['suite']) {
   return {
     pending,
     run: async (name: string, onStarted: (ns: string, run: string) => void) => {
-      if (!suite?.exists) return
+      if (!suite) return
       setPending(name)
       try {
-        const [test, commits] = await Promise.all([
-          fetchPerfTest(suite, name),
-          giteaClient.listCommits(suite.org, suite.repo, suite.defaultBranch, 1, { path: `${TESTS_DIR}/${name}` }).catch(() => []),
-        ])
-        const created = await run.mutateAsync({ test, commit: commits[0]?.sha })
+        // The read carries the newest commit that touched the test's files.
+        const test = await fetchPerfTest(suite, name)
+        const created = await run.mutateAsync({ test })
         toast.success(`Started ${created.metadata.name}`)
         onStarted(created.metadata.namespace ?? test.config.namespace, created.metadata.name)
       } catch (e) {

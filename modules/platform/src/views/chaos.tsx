@@ -39,6 +39,7 @@ import {
   type TargetMode,
 } from '../data/chaos-kinds.ts'
 import { ChaosGameDays } from './chaos-gameday.tsx'
+import { ApplicationSuites } from './chaos-suites.tsx'
 import {
   createChaosEngine,
   deleteChaosEngine,
@@ -66,14 +67,15 @@ import {
  *     and high-blast faults require typing the name to confirm. Slower on
  *     purpose.
  */
-type ChaosTab = 'experiments' | 'gamedays'
+type ChaosTab = 'experiments' | 'suites' | 'gamedays'
 
 export function ChaosView({ namespace }: { namespace?: string }) {
   /*
-   * "Experiments" is every individual run on the cluster. "Game days" is the
-   * automated side: a catalogue of scenarios composed into one workflow. Tabs
-   * rather than pages because the second is how you should normally run the
-   * first.
+   * "Experiments" is every individual run on the cluster. "Application suites"
+   * is what each application declares it survives, run by the platform hourly
+   * and as the promotion gate. "Game days" is the automated side: a catalogue
+   * of scenarios composed into one workflow. Tabs rather than pages because
+   * the last two are how you should normally run the first.
    */
   const [tab, setTab] = useState<ChaosTab>('experiments')
   const { engines, installed, isLoading, error } = useChaosEngines(namespace)
@@ -83,25 +85,30 @@ export function ChaosView({ namespace }: { namespace?: string }) {
   const canManage = useCan('platform.manage')
 
   if (!isLoading && !installed) {
+    // The suites still matter without Litmus: the load test and the promotion
+    // gate run regardless, and the runner reports each fault as unavailable.
     return (
-      <EmptyState
-        title="LitmusChaos is not installed"
-        description={
-          <>
-            The Litmus CRDs are not registered on this cluster, so there are no experiments to show. LitmusChaos
-            ships with the Adhar platform as the chaos engine (the <code>litmus</code> package) — enable it in the
-            stack and this page populates on its own.{' '}
-            <a
-              className="text-brand-700 underline dark:text-brand-300"
-              href="https://docs.litmuschaos.io/docs/getting-started/installation"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Litmus docs ↗
-            </a>
-          </>
-        }
-      />
+      <div className="space-y-4">
+        <EmptyState
+          title="LitmusChaos is not installed"
+          description={
+            <>
+              The Litmus CRDs are not registered on this cluster, so there are no experiments to show. LitmusChaos
+              ships with the Adhar platform as the chaos engine (the <code>litmus</code> package) — enable it in the
+              stack and this page populates on its own.{' '}
+              <a
+                className="text-brand-700 underline dark:text-brand-300"
+                href="https://docs.litmuschaos.io/docs/getting-started/installation"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Litmus docs ↗
+              </a>
+            </>
+          }
+        />
+        <ApplicationSuites namespace={namespace} />
+      </div>
     )
   }
 
@@ -109,7 +116,7 @@ export function ChaosView({ namespace }: { namespace?: string }) {
 
   const tabs = (
     <div className="flex gap-1">
-      {([['experiments', 'Experiments'], ['gamedays', 'Game days']] as Array<[ChaosTab, string]>).map(([id, label]) => (
+      {([['experiments', 'Experiments'], ['suites', 'Application suites'], ['gamedays', 'Game days']] as Array<[ChaosTab, string]>).map(([id, label]) => (
         <button
           key={id}
           type="button"
@@ -124,6 +131,16 @@ export function ChaosView({ namespace }: { namespace?: string }) {
       ))}
     </div>
   )
+
+  if (tab === 'suites') {
+    return (
+      <div className="space-y-4">
+        {tabs}
+        {live.length > 0 ? <LiveBanner engines={live} /> : null}
+        <ApplicationSuites namespace={namespace} />
+      </div>
+    )
+  }
 
   if (tab === 'gamedays') {
     return (

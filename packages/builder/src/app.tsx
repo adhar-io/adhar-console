@@ -1,4 +1,5 @@
 import React, { lazy, Suspense, useState, useEffect, useRef } from 'react';
+import { useBuilderFullscreen } from './fullscreen.tsx';
 import { AdharSymbol, useToast } from '@adhar/shell-ui';
 import * as Palette from './lib/builder-palette.ts';
 import { Toolbar } from './components/toolbar.tsx';
@@ -127,6 +128,7 @@ const PALETTE_CLASSES = (() => {
 
 // ─── Workbench ───────────────────────────────────────────────────────────────
 export default function Workbench({ mode, project, onChange, onSave, initialFileId, onActiveFileChange, previewCode, canvasCss }: WorkbenchProps) {
+  const fullscreen = useBuilderFullscreen();
   const toast = useToast();
   const rootRef = useRef<HTMLDivElement>(null);
   const consoleDark = useConsoleDark();
@@ -1032,6 +1034,7 @@ export default function Workbench({ mode, project, onChange, onSave, initialFile
       { label: 'Zoom In', shortcut: '⌘+', action: () => setS((p) => ({ ...p, zoom: Math.min(200, p.zoom + 10) })) },
       { label: 'Zoom Out', shortcut: '⌘−', action: () => setS((p) => ({ ...p, zoom: Math.max(25, p.zoom - 10) })) },
       { label: 'Reset Zoom', shortcut: '⌘0', action: () => setS((p) => ({ ...p, zoom: 100 })) },
+      { label: fullscreen.full ? 'Exit Full Screen' : 'Full Screen', shortcut: '⌃⌘F', action: () => fullscreen.toggle() },
       { label: 'separator' },
       { label: 'Canvas: White', action: () => setS((p) => ({ ...p, canvasBg: 'white' })), active: s.canvasBg === 'white' },
       { label: 'Canvas: Dots', action: () => setS((p) => ({ ...p, canvasBg: 'dots' })), active: s.canvasBg === 'dots' },

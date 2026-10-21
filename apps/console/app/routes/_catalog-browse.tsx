@@ -303,7 +303,8 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
   // Which tab the drawer should open on — a card's menu can jump straight
   // to Deployment or Scorecard. WHICH entity is open lives in the URL
   // (`?entity=`), so a drawer can be linked to and Back closes it.
-  const [drawerTab, setDrawerTab] = useState<DrawerTab | undefined>(undefined)
+  // A deep link (`?entity=…&tab=deploy`, e.g. from a scorecard fix) seeds it.
+  const [drawerTab, setDrawerTab] = useState<DrawerTab | undefined>(search.tab as DrawerTab | undefined)
   const [text, setText] = useState<string>(search.q ?? '')
 
   // Filter / view / sort are derived from the URL so the state is shareable and
@@ -4077,9 +4078,12 @@ function EntityDrawer({
                     tab (it was a separate Resources tab): where it is deployed and
                     what is running there are one question. */}
                 {active === 'deploy' && deployment.apps.length > 0 ? (
-                  <section aria-label="Running in each environment" className="space-y-2">
-                    <h3 className="text-sm font-semibold text-content">Running in each environment</h3>
-                    <ResourcesTab entity={entity} deployment={deployment} />
+                  <section aria-label="Resources" className="space-y-2">
+                    <h3 className="text-sm font-semibold text-content">Resources</h3>
+                    {/* The Environments section above already summarises each
+                        environment, so this opens straight on one environment's
+                        resource tree instead of repeating those cards. */}
+                    <ResourcesTab entity={entity} deployment={deployment} overview={false} />
                   </section>
                 ) : null}
 

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { createFileRoute } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   AppShell,
   AreaChart,
+  Button,
   Card,
   CardBody,
   CardHeader,
@@ -18,11 +19,23 @@ import {
   PageHeader,
   StatusBadge,
   useDrawerWidth,
+  useToast,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { PENDING_USER, useOptionalSession } from '@adhar/auth'
 import { getLayoutData } from '~/server/session.ts'
 import { type EntityKind, parseRef } from '~/data/catalog.ts'
+import { fixForCheck, fixForSignal, type ManifestTarget, type MetadataField, type PendingFix } from '~/data/scorecard-fix.ts'
+import { rerunFor, usePendingFixes } from '~/data/scorecard-fix-io.ts'
+import {
+  CheckFix,
+  type FixContext,
+  ManifestFixDialog,
+  MetadataFixPanel,
+  useFixContext,
+  usePendingWatcher,
+  useReEvaluate,
+} from '~/components/scorecard-fix.tsx'
 import {
   CATEGORY_LABEL,
   CHECK_CATEGORIES,
@@ -146,7 +159,51 @@ function ScorecardsDashboard() {
   const [source, setSource] = useState<SourceFilter>('all')
   const [sort, setSort] = useState<SortKey>('score-asc')
   const [query, setQuery] = useState('')
-  const [selected, setSelected] = useState<Scorecard | null>(null)
+  // Selection by ref, so the open drawer follows the card as it is re-evaluated.
+  const [selectedRef, setSelectedRef] = useState<string | null>(null)
+  const lastSelected = useRef<Scorecard | null>(null)
+  const selected = useMemo(() => {
+    if (!selectedRef) return null
+    const found = scorecards.find((s) => s.entityRef === selectedRef) ?? null
+    if (found) lastSelected.current = found
+    return found ?? (lastSelected.current?.entityRef === selectedRef ? lastSelected.current : null)
+  }, [scorecards, selectedRef])
+  const [evaluating, setEvaluating] = useState<ReadonlySet<string>>(new Set())
+  const markEvaluating = useCallback((ref: string, on: boolean) => {
+    setEvaluating((cur) => {
+      if (cur.has(ref) === on) return cur
+      const next = new Set(cur)
+      if (on) next.add(ref)
+      else next.delete(ref)
+      return next
+    })
+  }, [])
+  const pendingFixes = usePendingFixes()
+  const pendingRefs = useMemo(() => new Set(pendingFixes.map((p) => p.entityRef)), [pendingFixes])
+
+  // On every visit: check the pending fixes' PRs once (the open drawer polls its
+  // own). A merged one triggers a re-evaluation of its service.
+  const toast = useToast()
+  const visitPending = useMemo(() => pendingFixes.filter((p) => p.entityRef !== selectedRef), [pendingFixes, selectedRef])
+  const reevalTimers = useRef<number[]>([])
+  useEffect(() => () => {
+    for (const t of reevalTimers.current) clearTimeout(t)
+  }, [])
+  const onMergedOnVisit = useCallback((fixes: PendingFix[]) => {
+    void queryClient.invalidateQueries({ queryKey: ['catalog'] })
+    const service = fixes.find((f) => f.service)?.service
+    if (!service) return
+    void rerunFor(service).then((r) => {
+      if (!r.started && r.error !== 'already_running') {
+        toast.warning('Could not start the scorer', { description: rerunMessage(r) })
+        return
+      }
+      for (const delay of [20_000, 45_000, 75_000, 120_000]) {
+        reevalTimers.current.push(setTimeout(() => void queryClient.invalidateQueries({ queryKey: ['platform-scorecards'] }), delay) as unknown as number)
+      }
+    })
+  }, [queryClient, toast])
+  usePendingWatcher({ pending: visitPending, poll: false, cards: scorecards, onMerged: onMergedOnVisit })
 
   const distribution = useMemo(() => {
     const out: Record<Grade, number> = { A: 0, B: 0, C: 0, D: 0, F: 0 }
@@ -225,8 +282,19 @@ function ScorecardsDashboard() {
         header: 'Service',
         cell: (s) => (
           <div className="min-w-0">
-            <div className="truncate text-[13px] font-medium text-content">
-              {s.entity.metadata.title ?? s.entity.metadata.name}
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="truncate text-[13px] font-medium text-content">
+                {s.entity.metadata.title ?? s.entity.metadata.name}
+              </span>
+              {evaluating.has(s.entityRef) ? (
+                <span className="shrink-0 rounded-full bg-brand-50 px-1.5 py-0.5 text-[10px] font-medium text-brand-700 ring-1 ring-inset ring-brand-600/20 dark:bg-brand-500/10 dark:text-brand-300 dark:ring-brand-500/30">
+                  evaluating
+                </span>
+              ) : pendingRefs.has(s.entityRef) ? (
+                <span className="shrink-0 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30">
+                  fix pending
+                </span>
+              ) : null}
             </div>
             <div className="truncate font-mono text-[11px] text-content-subtle">{s.entityRef}</div>
           </div>
@@ -308,7 +376,7 @@ function ScorecardsDashboard() {
         },
       },
     ],
-    [],
+    [evaluating, pendingRefs],
   )
 
   const filtering =
@@ -474,7 +542,7 @@ function ScorecardsDashboard() {
         columns={columns}
         rows={filtered}
         rowKey={(s) => s.entityRef}
-        onRowClick={setSelected}
+        onRowClick={(s) => setSelectedRef(s.entityRef)}
         loading={isLoading}
         dense
         empty={
@@ -494,9 +562,12 @@ function ScorecardsDashboard() {
       {selected
         ? (
           <ScorecardDrawer
+            key={selected.entityRef}
             card={selected}
             history={historyEntries}
-            onClose={() => setSelected(null)}
+            platformLastRun={platform.lastRun}
+            onEvaluating={markEvaluating}
+            onClose={() => setSelectedRef(null)}
           />
         )
         : null}
@@ -704,10 +775,14 @@ function CategoryBars({ card }: { card: Scorecard }) {
 function ScorecardDrawer({
   card,
   history,
+  platformLastRun,
+  onEvaluating,
   onClose,
 }: {
   card: Scorecard
   history: ScorecardHistoryEntry[]
+  platformLastRun?: string
+  onEvaluating(ref: string, on: boolean): void
   onClose(): void
 }) {
   const closeBtnRef = useRef<HTMLButtonElement>(null)
@@ -715,9 +790,30 @@ function ScorecardDrawer({
   const failing = card.checks.filter((c) => !c.pass)
   const topFixes = [...failing].sort((a, b) => b.weight - a.weight).slice(0, 3)
 
+  // Fixes + re-evaluation. The metadata editor opens inline above the checks;
+  // manifest fixes open a dialog with the generated diff.
+  const fix = useFixContext(card)
+  const reEval = useReEvaluate(card, fix.target, platformLastRun)
+  const [metaFocus, setMetaFocus] = useState<MetadataField | null>(null)
+  const [manifest, setManifest] = useState<ManifestTarget | null>(null)
+  const runReEval = reEval.run
+  usePendingWatcher({ pending: fix.pending, poll: 20_000, cards: [card], onMerged: () => void runReEval() })
+  useEffect(() => {
+    onEvaluating(card.entityRef, reEval.phase !== 'idle')
+  }, [reEval.phase, card.entityRef, onEvaluating])
+  useEffect(() => () => onEvaluating(card.entityRef, false), [card.entityRef, onEvaluating])
+  const editorRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (metaFocus) editorRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [metaFocus])
+
+  // Escape closes the drawer — unless the manifest-fix dialog is on top, which
+  // handles its own Escape.
+  const dialogOpen = useRef(false)
+  dialogOpen.current = manifest !== null
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape' && !dialogOpen.current) onClose()
     }
     globalThis.addEventListener('keydown', onKey)
     return () => globalThis.removeEventListener('keydown', onKey)
@@ -768,6 +864,17 @@ function ScorecardDrawer({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            <Button
+              size="sm"
+              onClick={() => void reEval.run()}
+              disabled={reEval.phase !== 'idle'}
+              leading={<IconRefresh spinning={reEval.phase !== 'idle'} />}
+              title={card.platform
+                ? 'Recompute the catalog checks now and run the platform scorer (it grades every service; this one is reported when its result lands)'
+                : 'Re-read this service’s catalog source and recompute its checks'}
+            >
+              {reEval.phase === 'idle' ? 'Re-evaluate' : 'Evaluating…'}
+            </Button>
             <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <button
               ref={closeBtnRef}
@@ -781,8 +888,22 @@ function ScorecardDrawer({
           </div>
         </header>
 
-        <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
-          {card.platform ? <PlatformPanel service={card.platform} card={card} /> : null}
+        <div className="flex-1 space-y-5 overflow-y-auto px-4 py-5 sm:px-6">
+          {!fix.gate.ok && (failing.length || card.platform?.signals.some((x) => x.applicable && x.score < 1)) ? (
+            <p className="rounded-md bg-surface-sunken px-3 py-2 text-[11px] leading-relaxed text-content-muted">
+              {fix.metaGate.ok
+                ? 'This service has no owner yet. Set one (a team you belong to) to apply the other fixes; until then only a platform admin can.'
+                : `${fix.gate.reason} Links to the pages that fix the rest still work.`}
+            </p>
+          ) : null}
+          {metaFocus ? (
+            <div ref={editorRef}>
+              <MetadataFixPanel ctx={fix} focus={metaFocus} onClose={() => setMetaFocus(null)} onLanded={() => void reEval.run()} />
+            </div>
+          ) : null}
+          {card.platform ? (
+            <PlatformPanel service={card.platform} card={card} fix={fix} onManifest={setManifest} onMetadata={setMetaFocus} />
+          ) : null}
           {card.platform ? <ScoreHistoryCard service={card.platform.name} history={history} /> : null}
 
           {topFixes.length ? (
@@ -844,7 +965,19 @@ function ScorecardDrawer({
                 </CardHeader>
                 <CardBody className="divide-y divide-edge-subtle">
                   {checks.map((c) => (
-                    <CheckRow key={c.id} check={c} />
+                    <CheckRow
+                      key={c.id}
+                      check={c}
+                      fix={c.pass ? null : (
+                        <CheckFix
+                          action={fixForCheck(c, card.entityRef, fix.source)}
+                          target={`check:${c.id}`}
+                          ctx={fix}
+                          onMetadata={setMetaFocus}
+                          onManifest={setManifest}
+                        />
+                      )}
+                    />
                   ))}
                 </CardBody>
               </Card>
@@ -852,12 +985,15 @@ function ScorecardDrawer({
           })}
         </div>
       </aside>
+      {manifest ? (
+        <ManifestFixDialog ctx={fix} initial={manifest} onClose={() => setManifest(null)} onLanded={() => void reEval.run()} />
+      ) : null}
     </div>,
     document.body,
   )
 }
 
-function CheckRow({ check }: { check: Check }) {
+function CheckRow({ check, fix }: { check: Check; fix?: ReactNode }) {
   return (
     <div className="flex items-start gap-3 py-2 first:pt-0 last:pb-0">
       <span
@@ -885,6 +1021,7 @@ function CheckRow({ check }: { check: Check }) {
             <span className="font-semibold text-content">Fix:</span> {check.hint}
           </div>
         ) : null}
+        {fix}
       </div>
     </div>
   )
@@ -1362,7 +1499,19 @@ function EvidenceSummary({ evidence }: { evidence: PlatformEvidence }) {
 }
 
 /** The scorer's per-service breakdown: categories, then its signal ledger. */
-function PlatformPanel({ service, card }: { service: PlatformService; card: Scorecard }) {
+function PlatformPanel({
+  service,
+  card,
+  fix,
+  onManifest,
+  onMetadata,
+}: {
+  service: PlatformService
+  card: Scorecard
+  fix: FixContext
+  onManifest(t: ManifestTarget): void
+  onMetadata(f: MetadataField): void
+}) {
   return (
     <Card>
       <CardHeader>
@@ -1479,6 +1628,15 @@ function PlatformPanel({ service, card }: { service: PlatformService; card: Scor
                           : `${pct}%`}
                       {sig.detail ? <span className="block text-content-subtle">{sig.detail}</span> : null}
                     </div>
+                    {sig.applicable && pct < 100 ? (
+                      <CheckFix
+                        action={fixForSignal(sig, service.name, card.entityRef)}
+                        target={`signal:${sig.name}`}
+                        ctx={fix}
+                        onMetadata={onMetadata}
+                        onManifest={onManifest}
+                      />
+                    ) : null}
                   </div>
                 </div>
               )

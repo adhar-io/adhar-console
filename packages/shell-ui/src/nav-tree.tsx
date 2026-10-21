@@ -294,14 +294,13 @@ export const DEFAULT_NAV: NavSection[] = [
           { id: 'deliver.registry', label: 'Image Registry', to: '/deliver', search: 'registry' },
           {
             id: 'deliver.scans',
-            label: 'Vuln Scans',
+            label: 'Vulnerability Scans',
             to: '/deliver',
             search: 'scans',
+            // Review, waivers, licenses and policy are tabs of this page; their
+            // old section links still land here and keep this row highlighted.
+            alsoActiveFor: ['scan-review', 'waivers', 'licenses', 'scan-policy'],
           },
-          { id: 'deliver.scan-review', label: 'Security Review', to: '/deliver', search: 'scan-review' },
-          { id: 'deliver.waivers', label: 'Scan Waivers', to: '/deliver', search: 'waivers' },
-          { id: 'deliver.licenses', label: 'OSS Licenses', to: '/deliver', search: 'licenses' },
-          { id: 'deliver.scan-policy', label: 'Scan Policy', to: '/deliver', search: 'scan-policy' },
           {
             id: 'deliver.runtime',
             label: 'Runtime',

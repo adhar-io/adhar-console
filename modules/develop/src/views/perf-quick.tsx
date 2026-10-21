@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
 import { Button, Field, Input, Modal, Select, Textarea, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
-import { nameError, normaliseName } from '../data/perf-format.ts'
-import { usePerfTests, useRunPerfTest, useSavePerfTest, useSuiteRepo } from '../data/perf-suite.ts'
+import { normaliseName } from '../data/perf-format.ts'
+import { newTestProblem, perfTestDir, perfTestName } from '../data/perf-location.ts'
+import { newTestLocation, usePerfSuite, useRunPerfTest, useSavePerfTest } from '../data/perf-suite.ts'
 import {
   fmtTotal,
   generateScript,
@@ -23,8 +24,9 @@ import {
  * Quick test — build an HTTP load test without writing k6.
  *
  * Requests, a load profile and pass criteria on the left; the generated
- * script, always visible, on the right. "Save" commits it to the suite as an
- * ordinary test; "Save & run" also starts it, labelled with that commit.
+ * script, always visible, on the right. "Save" commits it to the chosen
+ * application's repository as an ordinary test (`perf/<name>/`); "Save & run"
+ * also starts it, labelled with that commit.
  */
 export function QuickTestModal({ open, onClose, onSaved, onStarted }: {
   open: boolean
@@ -32,12 +34,13 @@ export function QuickTestModal({ open, onClose, onSaved, onStarted }: {
   onSaved(test: string): void
   onStarted(namespace: string, run: string, test: string): void
 }) {
-  const suite = useSuiteRepo().data
-  const tests = usePerfTests(suite).data ?? []
+  const suite = usePerfSuite().data
+  const apps = suite?.apps ?? []
   const save = useSavePerfTest(suite)
   const run = useRunPerfTest()
   const toast = useToast()
 
+  const [app, setApp] = useState('')
   const [rawName, setRawName] = useState('')
   const [requests, setRequests] = useState<QuickRequest[]>([{ name: 'home', method: 'GET', url: 'https://', headers: [] }])
   const [profile, setProfile] = useState<Profile>('load')
@@ -51,8 +54,11 @@ export function QuickTestModal({ open, onClose, onSaved, onStarted }: {
   const [parallelism, setParallelism] = useState(1)
   const [busy, setBusy] = useState<null | 'save' | 'run'>(null)
 
-  const name = normaliseName(rawName)
-  const nameErr = rawName ? nameError(name) ?? (tests.includes(name) ? 'A test with that name already exists.' : null) : 'Give the test a name.'
+  const sub = normaliseName(rawName)
+  const appName = app || apps[0]?.name || ''
+  // Empty name = the app's default test in perf/, allowed while it has none.
+  const nameErr = suite ? newTestProblem(suite.tests, appName, sub) : null
+  const name = appName ? perfTestName(appName, sub) : ''
   const spec: QuickSpec = {
     name: name || 'quick-test',
     requests,
@@ -71,22 +77,22 @@ export function QuickTestModal({ open, onClose, onSaved, onStarted }: {
   const stages = profileStages(profile, peak, custom)
   const errors = specErrors(spec, stages)
   const script = useMemo(() => generateScript(spec), [JSON.stringify(spec)]) // eslint-disable-line react-hooks/exhaustive-deps
-  const ready = !nameErr && !errors.length && !!suite?.exists
+  const ready = !nameErr && !errors.length && !!suite && !!appName
 
   const commit = async () => {
-    const res = await save.mutateAsync({ name, script, config: quickConfig(spec), message: `perf: add ${name} (quick test, ${profile} profile)` })
-    return res.commit
+    const location = newTestLocation(suite!, appName, sub)
+    return await save.mutateAsync({ name, location, script, config: quickConfig(spec), message: `perf: add ${name} (quick test, ${profile} profile)` })
   }
   const doSave = async (thenRun: boolean) => {
     setBusy(thenRun ? 'run' : 'save')
     try {
-      const sha = await commit()
+      const { commit: sha, location } = await commit()
       if (!thenRun) {
         toast.success(`Saved ${name}`, { description: sha ? `commit ${sha.slice(0, 7)}` : undefined })
         onSaved(name)
         return
       }
-      const created = await run.mutateAsync({ test: { name, script, config: quickConfig(spec), configRaw: '' }, commit: sha })
+      const created = await run.mutateAsync({ test: { name, script, config: quickConfig(spec), configRaw: '', location }, commit: sha })
       toast.success(`Started ${created.metadata.name}`)
       onStarted(created.metadata.namespace ?? namespace, created.metadata.name, name)
     } catch (e) {
@@ -103,24 +109,29 @@ export function QuickTestModal({ open, onClose, onSaved, onStarted }: {
       open={open}
       onClose={onClose}
       title="Quick test"
-      description={suite?.exists ? `Build an HTTP load test — it is committed to ${suite.org}/${suite.repo} as an ordinary k6 test.` : 'Create the performance suite repository first (Tests tab).'}
+      description={apps.length
+        ? `Build an HTTP load test — it is committed to ${suite!.org}/${appName}/${perfTestDir(sub)} as an ordinary k6 test.`
+        : 'A test is committed to an application repository, and this org has none yet — create an application from a template first.'}
       width="xl"
       footer={
         <div className="flex flex-wrap items-center gap-2">
           <span className="min-w-0 flex-1 truncate text-[11px] text-content-subtle">
-            {errors[0] ?? (nameErr && rawName ? nameErr : `${stages.length} stage${stages.length === 1 ? '' : 's'} · ${fmtTotal(totalSeconds(stages))} · peak ${Math.max(...stages.map((s) => s.target))} VUs × ${parallelism} runner${parallelism === 1 ? '' : 's'}`)}
+            {errors[0] ?? nameErr ?? (`${stages.length} stage${stages.length === 1 ? '' : 's'} · ${fmtTotal(totalSeconds(stages))} · peak ${Math.max(...stages.map((s) => s.target))} VUs × ${parallelism} runner${parallelism === 1 ? '' : 's'}`)}
           </span>
           <Button size="sm" variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button size="sm" variant="secondary" disabled={!ready || !!busy} loading={busy === 'save'} onClick={() => doSave(false)}>Save to suite</Button>
+          <Button size="sm" variant="secondary" disabled={!ready || !!busy} loading={busy === 'save'} onClick={() => doSave(false)}>Save to repo</Button>
           <Button variant='primary' size="sm" disabled={!ready || !!busy} loading={busy === 'run'} onClick={() => doSave(true)}>Save &amp; run</Button>
         </div>
       }
     >
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)]">
         <div className="space-y-5">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_9rem_6rem]">
-            <Field label="Test name" required error={rawName ? nameErr ?? undefined : undefined} hint={name && name !== rawName ? `Saved as ${name}` : undefined}>
-              <Input autoFocus value={rawName} onChange={(e) => setRawName(e.target.value)} placeholder="checkout-api" />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_9rem_6rem]">
+            <Field label="Application" required hint="The test is committed to this repository.">
+              <Select value={appName} onChange={(e) => setApp(e.target.value)} options={apps.map((a) => ({ value: a.name, label: a.name }))} />
+            </Field>
+            <Field label="Test name" error={nameErr ?? undefined} hint={name ? `Saved as ${name} in ${perfTestDir(sub)}/` : undefined}>
+              <Input autoFocus value={rawName} onChange={(e) => setRawName(e.target.value)} placeholder="smoke (blank = the app's default test)" />
             </Field>
             <Field label="Namespace"><Input value={namespace} onChange={(e) => setNamespace(e.target.value)} /></Field>
             <Field label="Runners"><Input type="number" min={1} max={20} value={parallelism} onChange={(e) => setParallelism(Math.min(20, Math.max(1, Number(e.target.value) || 1)))} /></Field>

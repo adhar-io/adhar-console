@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type SourceStatus, useLiveCatalog } from './catalog-live.ts'
 import { pruneStaleScaffolded } from './catalog-app-delete-model.ts'
+import { useDescriptorOverlay } from './catalog-descriptor-io.ts'
 
 /**
  * Backstage-style Service Catalog.
@@ -273,7 +274,8 @@ export interface CatalogResult {
 
 /**
  * Primary catalog hook. Prefers live data (cluster + Gitea) merged with the
- * user's registered entities. There is no sample
+ * user's registered entities, each Gitea-backed one with its repository's
+ * `catalog-info.yaml` overlaid. There is no sample
  * fallback: with nothing live and nothing registered the catalog is empty and
  * `offline` is set so the page can say why.
  */
@@ -289,7 +291,7 @@ export function useCatalog(): CatalogResult {
   )
   const fetching = registeredQ.isLoading || liveCatalog.isLoading
 
-  return useMemo(() => {
+  const base = useMemo(() => {
     const hasReal = liveCatalog.hasLive || registered.length > 0
     if (hasReal && liveCatalog.hasLive && !liveCatalog.isLoading) {
       // Fresh live result — remember it so the next visit / hard reload paints
@@ -328,6 +330,13 @@ export function useCatalog(): CatalogResult {
     liveCatalog.sources,
     fetching,
   ])
+
+  // Each Gitea-backed entity's own `catalog-info.yaml` overlaid (owner,
+  // description, title, links, tags, annotations; lifecycle by the deployed
+  // rule) — so the drawer, filters, Teams and Scorecards all agree. Entities
+  // render first and are enriched as descriptors arrive (catalog-descriptor-io.ts).
+  const data = useDescriptorOverlay(base.data, entityRef)
+  return useMemo(() => (data === base.data ? base : { ...base, data }), [base, data])
 }
 
 /* ─────────── last-known-good snapshot (per browser) ─────────── */

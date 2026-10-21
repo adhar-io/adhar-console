@@ -35,14 +35,15 @@ import {
   scheduleFromCronJob,
   type ScheduleInput,
 } from './perf-runner.ts'
+import { applicationOf, scriptPathOf } from './perf-location.ts'
 import {
   fetchPerfTest,
   fetchPerfTestConfig,
+  findTest,
+  type PerfSuite,
   type PerfTest,
-  type SuiteRepo,
-  usePerfTests,
+  usePerfSuite,
   useSavePerfTest,
-  useSuiteRepo,
 } from './perf-suite.ts'
 
 /**
@@ -51,8 +52,8 @@ import {
  *
  *   results    ConfigMaps `k6-result-<run>`        (cluster, per namespace)
  *   schedules  CronJobs labelled adhar.io/perf-schedule (cluster)
- *   gates      `gate` in tests/<name>/test.json      (git)
- *   baselines  `baseline` in tests/<name>/test.json  (git)
+ *   gates      `gate` in the app repo's perf/test.json      (git)
+ *   baselines  `baseline` in the app repo's perf/test.json  (git)
  *
  * Everyone looking at the console therefore sees the same history and the
  * same verdicts, and an unattended CronJob or CI step reads exactly what the
@@ -90,12 +91,12 @@ export function deleteRunRecord(r: RunRecord): Promise<unknown> {
 }
 
 /** Every test's `test.json`, keyed by name — the gates and baselines verdicts need. */
-export function usePerfTestConfigs(suite: SuiteRepo | undefined, names: string[]) {
+export function usePerfTestConfigs(suite: PerfSuite | undefined, names: string[]) {
   const results = useQueries({
     queries: names.map((name) => ({
-      queryKey: ['perf', 'test-config', suite?.org, suite?.repo, name],
+      queryKey: ['perf', 'test-config', suite?.org, findTest(suite, name)?.repo, name],
       queryFn: () => fetchPerfTestConfig(suite!, name),
-      enabled: Boolean(suite?.exists),
+      enabled: Boolean(suite),
       staleTime: 30_000,
       retry: false,
     })),
@@ -124,7 +125,8 @@ export function verdictFor(r: RunRecord, config: PerfTestConfig | undefined): Ga
 }
 
 export interface PerfInsights {
-  suite?: SuiteRepo
+  suite?: PerfSuite
+  /** Names of the tests the application repos hold now. */
   tests: string[]
   records: RunRecord[]
   configs: Map<string, PerfTestConfig>
@@ -139,16 +141,16 @@ export interface PerfInsights {
 
 /** Everything the overview, results and trends views share, computed once. */
 export function usePerfInsights(): PerfInsights {
-  const suite = useSuiteRepo().data
-  const testsQ = usePerfTests(suite)
+  const suite = usePerfSuite().data
+  const tests = useMemo(() => (suite?.tests ?? []).map((t) => t.name), [suite])
   const recordsQ = useRunRecords()
   const schedulesQ = usePerfSchedules()
   const records = useMemo(() => recordsQ.data ?? [], [recordsQ.data])
   const names = useMemo(() => {
-    const set = new Set(testsQ.data ?? [])
+    const set = new Set(tests)
     for (const r of records) set.add(r.test)
     return [...set].sort()
-  }, [testsQ.data, records])
+  }, [tests, records])
   const configs = usePerfTestConfigs(suite, names)
 
   return useMemo(() => {
@@ -164,7 +166,7 @@ export function usePerfInsights(): PerfInsights {
     }
     return {
       suite,
-      tests: testsQ.data ?? [],
+      tests,
       records,
       configs,
       schedules: schedulesQ.data ?? [],
@@ -174,7 +176,7 @@ export function usePerfInsights(): PerfInsights {
       recordsError: recordsQ.error ?? undefined,
       refetchRecords: () => void recordsQ.refetch(),
     }
-  }, [suite, testsQ.data, records, configs, schedulesQ.data, recordsQ.isLoading, recordsQ.error, recordsQ.refetch])
+  }, [suite, tests, records, configs, schedulesQ.data, recordsQ.isLoading, recordsQ.error, recordsQ.refetch])
 }
 
 /* ─────────────────────────── the harvester ─────────────────────────── */
@@ -273,8 +275,13 @@ export function harvestedRuns(runs: TestRun[]): TestRun[] {
 /* ─────────────────────────── the artefact ─────────────────────────── */
 
 /** Write `k6-<test>` — script, TestRun template, gate and runner — to the cluster. */
-export function materialiseArtefact(test: { name: string; config: PerfTestConfig; script: string }, commit?: string) {
-  return kube.apply(artefactConfigMap({ test: test.name, config: test.config, script: test.script, commit }))
+export function materialiseArtefact(
+  test: Pick<PerfTest, 'name' | 'config' | 'script' | 'location'>,
+  commit?: string,
+) {
+  return kube.apply(
+    artefactConfigMap({ test: test.name, config: test.config, script: test.script, commit, application: applicationOf(test.location) }),
+  )
 }
 
 /** ServiceAccount, Role and RoleBinding the runner uses, in the test namespace. */
@@ -288,7 +295,7 @@ export function useInstallRunner() {
   return useMutation({
     mutationFn: async (test: PerfTest) => {
       await ensureRunner(test.config.namespace || 'default')
-      await materialiseArtefact(test, test.scriptSha)
+      await materialiseArtefact(test, test.commit)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['perf', 'artefact'] }),
   })
@@ -321,13 +328,13 @@ export function useRunnerStatus(test: PerfTest | undefined) {
  * the refreshed artefact.
  */
 export function usePinBaseline() {
-  const suite = useSuiteRepo().data
+  const suite = usePerfSuite().data
   const save = useSavePerfTest(suite)
   const user = useOptionalUser()
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (input: { record: RunRecord } | { test: string; unpin: true }) => {
-      if (!suite?.exists) throw new Error('The performance suite repository does not exist yet.')
+      if (!suite) throw new Error('The application repositories have not been read yet.')
       const name = 'record' in input ? input.record.test : input.test
       const test = await fetchPerfTest(suite, name)
       const config: PerfTestConfig = { ...test.config }
@@ -347,7 +354,7 @@ export function usePinBaseline() {
       })
       // Best effort: the gate in git is already right; the cluster copy
       // catches up on the next run if this fails.
-      await materialiseArtefact({ ...test, config }, test.scriptSha).catch(() => undefined)
+      await materialiseArtefact({ ...test, config }, res.commit ?? test.commit).catch(() => undefined)
       return res
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['perf'] }),
@@ -382,17 +389,17 @@ export function usePerfSchedules() {
  * something missing.
  */
 export function useSaveSchedule() {
-  const suite = useSuiteRepo().data
+  const suite = usePerfSuite().data
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (input: ScheduleInput) => {
-      if (!suite?.exists) throw new Error('The performance suite repository does not exist yet.')
+      if (!suite) throw new Error('The application repositories have not been read yet.')
       const test = await fetchPerfTest(suite, input.test)
-      if (!test.script) throw new Error(`tests/${input.test}/script.js is empty or missing.`)
+      if (!test.script) throw new Error(`${test.location?.repo}/${scriptPathOf(test.location ?? { dir: 'perf' })} is empty or missing.`)
       // The schedule runs in the test's namespace — the artefact lives there.
       const namespace = test.config.namespace || 'default'
       await ensureRunner(namespace)
-      await materialiseArtefact(test, test.scriptSha)
+      await materialiseArtefact(test, test.commit)
       await kube.apply(cronJobManifest({ ...input, namespace }) as Parameters<typeof kube.apply>[0])
       return { ...input, namespace }
     },

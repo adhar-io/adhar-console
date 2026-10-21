@@ -2,7 +2,6 @@ import { env } from '@adhar/utils'
 import { getRequestUser, unauthorized } from './request-user.ts'
 import { getTool } from './tool-registry.ts'
 import { giteaConn, giteaFetcher } from './gitea-auth.ts'
-import { PERF_SUITE_REPO, perfSuiteFiles } from './scaffold-perf.ts'
 import { apiServerFetch, resolveIdentity } from './k8s/gateway.ts'
 import { defaultImage, generateGoldenPathFiles, isGoldenPathFamily } from './golden-paths.ts'
 import type { GoldenPathFamily } from './golden-paths.ts'
@@ -455,51 +454,16 @@ async function scaffold(
           : `${committed} committed, ${failed} failed — ${firstError ?? ''}`,
       })
 
-      /* ── 2a. register the template's performance test ── */
-      const perf = perfSuiteFiles(rendered, name)
-      if (perf) {
-        try {
-          const suitePath = `/repos/${encodeURIComponent(org)}/${PERF_SUITE_REPO}`
-          // The suite repository is created on first use, as the Performance
-          // Center itself would.
-          const exists = await gitea_api(suitePath)
-          await exists.body?.cancel().catch(() => {})
-          if (exists.status === 404) {
-            const made = await gitea_api(`/orgs/${encodeURIComponent(org)}/repos`, {
-              method: 'POST',
-              body: JSON.stringify({
-                name: PERF_SUITE_REPO,
-                description: 'k6 performance tests, run by the Adhar platform',
-                private: false,
-                auto_init: true,
-                default_branch: 'main',
-              }),
-            })
-            await made.body?.cancel().catch(() => {})
-          }
-          // Never overwrite a test someone already has under this name.
-          const present = await gitea_api(`${suitePath}/contents/tests/${perf.test}/test.json?ref=main`)
-          await present.body?.cancel().catch(() => {})
-          if (present.ok) {
-            step({ name: 'performance-test', ok: true, detail: `tests/${perf.test} already in ${PERF_SUITE_REPO}; left as it is` })
-          } else {
-            const put = await gitea_api(`${suitePath}/contents`, {
-              method: 'POST',
-              body: JSON.stringify({
-                branch: 'main',
-                message: `test: add ${perf.test} from the ${templatePath} template [skip ci]`,
-                files: perf.files.map((f) => ({ operation: 'create', path: f.path, content: f.base64 })),
-              }),
-            })
-            const detail = put.ok
-              ? `Performance Center test ${perf.test} (targets app=${name}; its verdicts count on the scorecard)`
-              : `${PERF_SUITE_REPO}: gitea ${put.status} ${(await put.text().catch(() => '')).slice(0, 160)}`
-            if (put.ok) await put.body?.cancel().catch(() => {})
-            step({ name: 'performance-test', ok: put.ok, detail })
-          }
-        } catch (e) {
-          step({ name: 'performance-test', ok: false, detail: e instanceof Error ? e.message : String(e) })
-        }
+      /* ── 2a. the template's performance test ── */
+      // Nothing to register: the Performance Center reads tests straight from
+      // each application repo's perf/ folder, so the files just committed ARE
+      // the test (named <name>-load). Reported so the wizard says it exists.
+      if (committedPaths.has('perf/test.json') || committedPaths.has('perf/load.js')) {
+        step({
+          name: 'performance-test',
+          ok: true,
+          detail: `Performance Center test ${name}-load in perf/ (targets app=${name}; its verdicts count on the scorecard)`,
+        })
       }
     }
   }

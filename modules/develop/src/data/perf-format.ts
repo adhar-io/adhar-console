@@ -15,10 +15,11 @@
  * That stamp is what lets a result be traced back to the exact script that
  * produced it.
  *
- * Layout, one directory per test:
+ * Layout, one directory per test in the application's own repository
+ * (perf-location.ts maps directories to names):
  *
- *   tests/<name>/script.js   — the k6 script
- *   tests/<name>/test.json   — everything that is not the script
+ *   perf/load.js     — the k6 script        (`perf/<test>/load.js` for more tests)
+ *   perf/test.json   — everything that is not the script
  *
  * This module is pure: no network, no React. The parsing and the defaults are
  * the part worth testing, because a malformed config must degrade to a usable
@@ -34,9 +35,8 @@ import {
   serialiseGate,
 } from './perf-gate.ts'
 
-export const TESTS_DIR = 'tests'
+/** The script's key in the generated artefact ConfigMap (not a repository path). */
 export const SCRIPT_FILE = 'script.js'
-export const CONFIG_FILE = 'test.json'
 
 /** Labels the console stamps on generated ConfigMaps and TestRuns. */
 export const LABEL_TEST = 'adhar.io/perf-test'
@@ -260,15 +260,6 @@ export function nameError(name: string): string | null {
   return null
 }
 
-/** `tests/checkout-load/script.js` → `checkout-load`. */
-export function testNameFromPath(path: string): string | null {
-  const m = path.match(new RegExp(`^${TESTS_DIR}/([^/]+)/`))
-  return m ? m[1] : null
-}
-
-export const scriptPath = (name: string) => `${TESTS_DIR}/${name}/${SCRIPT_FILE}`
-export const configPath = (name: string) => `${TESTS_DIR}/${name}/${CONFIG_FILE}`
-
 /* ─────────────────────────── starters ─────────────────────────── */
 
 export interface Starter {
@@ -470,28 +461,4 @@ export default function () {
 
 export function starterById(id: string): Starter | undefined {
   return STARTERS.find((s) => s.id === id)
-}
-
-/** The README committed when the suite repository is first created. */
-export function suiteReadme(org: string, repo: string): string {
-  return `# Performance tests
-
-Load and performance tests for the Adhar platform, run by the k6 operator.
-
-Each test is a directory under \`${TESTS_DIR}/\`:
-
-    ${TESTS_DIR}/<name>/${SCRIPT_FILE}   the k6 script
-    ${TESTS_DIR}/<name>/${CONFIG_FILE}   parallelism, arguments, env, tags
-
-Edit them here, or in the console under **Develop → Performance**, which
-commits to this repository and then runs the committed version — every run is
-labelled with the commit it came from, so a result can always be traced back
-to the exact script that produced it.
-
-Run locally:
-
-    k6 run ${TESTS_DIR}/<name>/${SCRIPT_FILE}
-
-Repository: \`${org}/${repo}\`
-`
 }

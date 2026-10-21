@@ -670,11 +670,25 @@ export async function handleScorecardHistory(req: Request): Promise<Response> {
  * Identity is the caller's: creating a Job requires `create jobs` in the
  * namespace, so a viewer gets a 403 from the apiserver rather than from a rule
  * invented here.
+ *
+ * Optional body `{ service }` — the per-service "Re-evaluate" in the drawer.
+ * The scorer grades the whole platform in one pass and has no single-service
+ * mode, so the run is the same full run; the service is recorded on the Job
+ * (`adhar.io/scorecard-focus`) for whoever reads the namespace, and echoed back
+ * as `focus` so the caller knows which service it is waiting on. A body-less
+ * POST behaves exactly as before.
  */
+export function rerunFocus(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object') return undefined
+  const s = (body as Record<string, unknown>).service
+  return typeof s === 'string' && /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/i.test(s.trim()) ? s.trim() : undefined
+}
+
 export async function handleScorecardRerun(req: Request): Promise<Response> {
   if (req.method.toUpperCase() !== 'POST') return new Response('Method Not Allowed', { status: 405 })
   const auth = await getRequestUser(req)
   if (!auth) return unauthorized()
+  const focus = rerunFocus(await req.json().catch(() => null))
 
   const namespace = env('ADHAR_SCORECARDS_NAMESPACE') || DEFAULT_NAMESPACE
   const cronName = env('ADHAR_SCORECARDS_CRONJOB') || DEFAULT_CRONJOB
@@ -715,7 +729,7 @@ export async function handleScorecardRerun(req: Request): Promise<Response> {
       const running = (list.items ?? []).find((j) => (j.status?.active ?? 0) > 0)
       if (running) {
         return withCookie(
-          Response.json({ started: false, error: 'already_running', job: running.metadata?.name }, { status: 409 }),
+          Response.json({ started: false, error: 'already_running', job: running.metadata?.name, ...(focus ? { focus } : {}) }, { status: 409 }),
           auth.refreshedCookie,
         )
       }
@@ -742,6 +756,7 @@ export async function handleScorecardRerun(req: Request): Promise<Response> {
           ...(tplMeta.annotations ?? {}),
           'adhar.io/triggered-by': auth.user?.email || auth.user?.name || 'console',
           'cronjob.kubernetes.io/instantiate': 'manual',
+          ...(focus ? { 'adhar.io/scorecard-focus': focus } : {}),
         },
         // Owned by the CronJob, exactly as `kubectl create job --from` does, so
         // deleting the package cleans the manual runs up too.
@@ -771,7 +786,7 @@ export async function handleScorecardRerun(req: Request): Promise<Response> {
       return fail(created.status === 403 ? 403 : 502, created.status === 403 ? 'forbidden' : 'apiserver_error', detail)
     }
     await created.body?.cancel()
-    return withCookie(Response.json({ started: true, job: name, namespace }), auth.refreshedCookie)
+    return withCookie(Response.json({ started: true, job: name, namespace, ...(focus ? { focus } : {}) }), auth.refreshedCookie)
   } catch (e) {
     return fail(502, 'apiserver_error', e instanceof Error ? e.message : String(e))
   }

@@ -215,24 +215,150 @@ function truthy(v: unknown): boolean {
   return Boolean(v)
 }
 
-/** Evaluate an `{% if … %}` condition (supports `not`, `==`, `!=`, plain path). */
+/**
+ * Evaluate an `{% if … %}` condition: paths, quoted strings, numbers,
+ * true/false/none, `==`/`!=`, `not`, `and`, `or` and parentheses, with
+ * Nunjucks precedence (`not` > `and` > `or`).
+ *
+ * This used to understand only `not`, one comparison or a bare path. Anything
+ * else was looked up as a PATH — `values.withDatabase or values.withCache`
+ * resolved to undefined, so that block was always dropped, and
+ * `not (values.withDatabase or …)` was always TRUE. Live in the Spring Boot
+ * skeleton, compose.yaml rendered `services: {}` AND every backing service
+ * whenever one was enabled: a duplicate key, invalid YAML (2026-10-22).
+ * Syntax it does not implement now throws, like an unknown `${{ }}` filter.
+ */
 function evalCondition(cond: string, ctx: Ctx): boolean {
-  let c = cond.trim()
-  let negate = false
-  if (c.startsWith('not ')) {
-    negate = true
-    c = c.slice(4).trim()
+  const toks = cond.match(/\s*('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|==|!=|\(|\)|[A-Za-z_][\w.]*|-?\d+(?:\.\d+)?|\S)/g)
+    ?.map((t) => t.trim()) ?? []
+  let i = 0
+  const fail = (why: string): never => {
+    throw new Error(
+      `template condition ${JSON.stringify(cond.trim())}: ${why}; ` +
+        `supported: paths, literals, ==, !=, not, and, or, ( )`,
+    )
   }
-  const cmp = c.match(/^(.+?)\s*(==|!=)\s*(.+)$/)
-  if (cmp) {
-    const left = getByPath(ctx, cmp[1].trim())
-    const rightRaw = cmp[3].trim().replace(/^['"]|['"]$/g, '')
-    const eq = stringify(left) === rightRaw
-    const res = cmp[2] === '==' ? eq : !eq
-    return negate ? !res : res
+  const atom = (): unknown => {
+    const t = toks[i++]
+    if (t === undefined) return fail('ends early')
+    if (t === '(') {
+      const v = orExpr()
+      if (toks[i++] !== ')') fail('unbalanced parentheses')
+      return v
+    }
+    if (/^['"]/.test(t)) return t.slice(1, -1)
+    if (/^-?\d/.test(t)) return Number(t)
+    if (t === 'true' || t === 'True') return true
+    if (t === 'false' || t === 'False') return false
+    if (t === 'none' || t === 'null' || t === 'None') return null
+    if (['and', 'or', 'not', 'in', 'is', ')', '==', '!='].includes(t) || !/^[A-Za-z_]/.test(t)) {
+      return fail(`unexpected ${JSON.stringify(t)}`)
+    }
+    return getByPath(ctx, t)
   }
-  const res = truthy(getByPath(ctx, c))
-  return negate ? !res : res
+  const cmp = (): unknown => {
+    const left = atom()
+    const op = toks[i]
+    if (op === '==' || op === '!=') {
+      i++
+      const eq = stringify(left) === stringify(atom())
+      return op === '==' ? eq : !eq
+    }
+    return left
+  }
+  const notExpr = (): boolean => {
+    if (toks[i] === 'not') {
+      i++
+      return !notExpr()
+    }
+    return truthy(cmp())
+  }
+  const andExpr = (): boolean => {
+    let v = notExpr()
+    while (toks[i] === 'and') {
+      i++
+      const r = notExpr()
+      v = v && r
+    }
+    return v
+  }
+  const orExpr = (): boolean => {
+    let v = andExpr()
+    while (toks[i] === 'or') {
+      i++
+      const r = andExpr()
+      v = v || r
+    }
+    return v
+  }
+  if (toks.length === 0) fail('is empty')
+  const res = orExpr()
+  if (i !== toks.length) fail(`unexpected ${JSON.stringify(toks[i])}`)
+  return res
+}
+
+type Tag = { kind: 'if' | 'elif' | 'else' | 'endif'; cond: string; start: number; end: number }
+
+/**
+ * Resolve `{% if %}…{% elif %}…{% else %}…{% endif %}` blocks, nested to any
+ * depth, by matching tags on a stack.
+ *
+ * The previous single regex let an outer `if`'s CONDITION run lazily across
+ * `%}` into the next tag, so in
+ *
+ *     {% if a or b %} … {% if a %} x {% endif %} … {% endif %}
+ *
+ * the outer block swallowed the inner `if`, the inner `endif` closed it, and
+ * the real outer `endif` was left in the output — the Spring Boot README and
+ * catalog-info.yaml shipped a literal `{%- endif %}`, and nested content was
+ * deleted without any error. An unbalanced tag now throws.
+ */
+function resolveConditionals(s: string, ctx: Ctx): string {
+  const tags: Tag[] = []
+  const tagRe = /\{%\s*(if|elif|else|endif)\b([^%]*)%\}/g
+  for (let m; (m = tagRe.exec(s));) {
+    tags.push({ kind: m[1] as Tag['kind'], cond: m[2], start: m.index, end: m.index + m[0].length })
+  }
+  if (tags.length === 0) return s
+  let k = 0
+  const where = (t: Tag) => `{% ${t.kind} %} at offset ${t.start}`
+  // Render s[from, …) up to the first tag not opened inside this call, which
+  // is returned for the caller to interpret (elif/else/endif or end of input).
+  const block = (from: number, out: boolean): [string, number, Tag | undefined] => {
+    let text = ''
+    let pos = from
+    while (k < tags.length) {
+      const t = tags[k]
+      if (t.kind !== 'if') {
+        if (out) text += s.slice(pos, t.start)
+        return [text, t.start, t]
+      }
+      if (out) text += s.slice(pos, t.start)
+      k++
+      let taken = false
+      let take = out && evalCondition(t.cond, ctx)
+      let next = t.end
+      for (;;) {
+        const [body, , closer] = block(next, take)
+        if (take) {
+          text += body
+          taken = true
+        }
+        if (!closer) throw new Error(`unclosed ${where(t)}`)
+        k++
+        next = closer.end
+        if (closer.kind === 'endif') break
+        if (closer.kind === 'elif') take = out && !taken && evalCondition(closer.cond, ctx)
+        else take = out && !taken
+      }
+      pos = next
+    }
+    if (out) text += s.slice(pos)
+    return [text, s.length, undefined]
+  }
+  const [text, , stray] = block(0, true)
+  if (stray) throw new Error(`${where(stray)} has no matching {% if %}`)
+  return text
 }
 
 /**
@@ -250,16 +376,8 @@ export function renderContent(src: string, values: Record<string, unknown>): str
     .replace(/-%\}[ \t]*\r?\n?/g, '%}')
     .replace(/-%\}/g, '%}')
 
-  // 2. Resolve if/else/endif, innermost-first so nesting is handled.
-  const ifRe =
-    /\{%\s*if\s+([\s\S]+?)\s*%\}((?:(?!\{%\s*(?:if|else|endif)\b)[\s\S])*?)(?:\{%\s*else\s*%\}((?:(?!\{%\s*(?:if|else|endif)\b)[\s\S])*?))?\{%\s*endif\s*%\}/
-  let guard = 0
-  while (ifRe.test(s)) {
-    s = s.replace(ifRe, (_m, cond: string, body: string, elseBody = '') =>
-      evalCondition(cond, ctx) ? body : elseBody,
-    )
-    if (++guard > 1000) break
-  }
+  // 2. Resolve if/elif/else/endif, nested to any depth.
+  s = resolveConditionals(s, ctx)
 
   // 3. Substitute placeholders.
   s = s.replace(/\$\{\{\s*([\s\S]+?)\s*\}\}/g, (_, ex: string) => stringify(evalExpr(ex, ctx)))

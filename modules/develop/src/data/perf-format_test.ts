@@ -1,14 +1,11 @@
 import { assertEquals } from 'jsr:@std/assert'
 import {
-  configPath,
   DEFAULT_CONFIG,
   nameError,
   normaliseName,
   parseConfig,
-  scriptPath,
   serialiseConfig,
   STARTERS,
-  testNameFromPath,
 } from './perf-format.ts'
 
 /**
@@ -122,16 +119,6 @@ Deno.test('name validation explains itself', () => {
   assertEquals(typeof nameError('Checkout Load'), 'string')
   assertEquals(typeof nameError('-leading'), 'string')
   assertEquals(typeof nameError('trailing-'), 'string')
-})
-
-Deno.test('paths and the reverse mapping agree', () => {
-  assertEquals(scriptPath('checkout-load'), 'tests/checkout-load/script.js')
-  assertEquals(configPath('checkout-load'), 'tests/checkout-load/test.json')
-  assertEquals(testNameFromPath('tests/checkout-load/script.js'), 'checkout-load')
-  assertEquals(testNameFromPath('tests/checkout-load/test.json'), 'checkout-load')
-  // Not a test path.
-  assertEquals(testNameFromPath('README.md'), null)
-  assertEquals(testNameFromPath('tests/checkout-load'), null)
 })
 
 /* ─────────── starters ─────────── */

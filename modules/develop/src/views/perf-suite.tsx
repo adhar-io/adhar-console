@@ -21,24 +21,24 @@ import { useTestRuns, type TestRun } from '../data/k6.ts'
 import {
   DEFAULT_CONFIG,
   LABEL_TEST,
-  nameError,
   normaliseName,
   type PerfTestConfig,
   STARTERS,
   type Threshold,
 } from '../data/perf-format.ts'
+import { usePublicGiteaUrl } from '../data/git.ts'
+import { filesUrlOf, newTestProblem, PERF_DIR, perfTestDir, perfTestName, type PerfTestLocation } from '../data/perf-location.ts'
 import {
+  findTest,
+  type PerfSuite as Suite,
   type PerfTest,
-  type SuiteRepo,
   useCreatePerfTest,
-  useCreateSuiteRepo,
   useDeletePerfTest,
+  usePerfSuite,
   usePerfTest,
   usePerfTestHistory,
-  usePerfTests,
   useRunPerfTest,
   useSavePerfTest,
-  useSuiteRepo,
 } from '../data/perf-suite.ts'
 import { materialiseArtefact, usePerfInsights } from '../data/perf-automation.ts'
 import { CiPanel, GatePanel, TrendsPanel } from './perf-test-insights.tsx'
@@ -46,10 +46,12 @@ import { CiPanel, GatePanel, TrendsPanel } from './perf-test-insights.tsx'
 /**
  * The performance test workbench — write the test, configure it, run it.
  *
- * Everything here is backed by a git repository rather than by cluster
- * objects, because a load test is code: it wants review, history and a
- * diff. The console commits, then runs the committed version, so a result
- * can always be traced to the exact script that produced it.
+ * Everything here is backed by the application repositories rather than by
+ * cluster objects, because a load test is code: it wants review, history and
+ * a diff, next to the code it measures. Each app keeps its tests in `perf/`
+ * (a template ships one); the console reads them from there, commits edits
+ * back to the app's default branch, then runs the committed version, so a
+ * result can always be traced to the exact script that produced it.
  */
 export function PerfSuite({
   onOpenRun,
@@ -68,9 +70,8 @@ export function PerfSuite({
   /** Bumping this opens the "New test" dialog (the page header's button). */
   createToken?: number
 }) {
-  const suiteQ = useSuiteRepo()
+  const suiteQ = usePerfSuite()
   const suite = suiteQ.data
-  const testsQ = usePerfTests(suite)
   const runsQ = useTestRuns()
   const [selectedState, setSelectedState] = useState<string | null>(selectedProp ?? null)
   const selected = selectedProp ?? selectedState
@@ -84,7 +85,8 @@ export function PerfSuite({
   }, [createToken])
   const canEdit = useCan('develop')
 
-  const tests = testsQ.data ?? []
+  const locations = useMemo(() => suite?.tests ?? [], [suite])
+  const tests = useMemo(() => locations.map((t) => t.name), [locations])
 
   // The newest run per test, by the label the console stamps on every run it
   // creates. The list used to be bare names: which of a dozen tests last
@@ -110,20 +112,31 @@ export function PerfSuite({
     return (
       <EmptyState
         title="Gitea is not reachable"
-        description={`The performance suite lives in a Gitea repository, and the console could not reach Gitea: ${
+        description={`Performance tests live in the application repositories in Gitea, and the console could not reach Gitea: ${
           (suiteQ.error as Error).message
         }`}
       />
     )
   }
-  if (!suite?.exists) return <CreateSuite canEdit={canEdit} />
+  if (!suite) return null
+  if (!suite.apps.length) {
+    return (
+      <Card>
+        <CardBody className="py-10">
+          <EmptyState
+            title="No application repositories yet"
+            description={`A performance test lives in its application's repository, under ${PERF_DIR}/. Create an application from a template — every template ships its service with a load test — and it shows up here.`}
+          />
+        </CardBody>
+      </Card>
+    )
+  }
 
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[260px_1fr]">
       <TestList
         suite={suite}
-        tests={tests}
-        loading={testsQ.isLoading}
+        tests={locations}
         selected={selected}
         onSelect={setSelected}
         onNew={() => setCreating(true)}
@@ -147,47 +160,16 @@ export function PerfSuite({
             <CardBody className="py-12">
               <EmptyState
                 title="No tests yet"
-                description="A performance test is a k6 script plus its configuration, stored in git. Start from a template — every one of them declares thresholds, so the run produces a verdict rather than just a number."
+                description={`None of the ${suite.apps.length} application repositor${suite.apps.length === 1 ? 'y has' : 'ies have'} a ${PERF_DIR}/ folder. A performance test is a k6 script plus its configuration, committed next to the code it measures. Start from a template — every one of them declares thresholds, so the run produces a verdict rather than just a number.`}
                 action={canEdit ? <Button onClick={() => setCreating(true)}>New test</Button> : undefined}
               />
             </CardBody>
           </Card>
         )}
       {creating
-        ? <NewTestDialog suite={suite} existing={tests} onClose={() => setCreating(false)} onCreated={setSelected} />
+        ? <NewTestDialog suite={suite} onClose={() => setCreating(false)} onCreated={setSelected} />
         : null}
     </div>
-  )
-}
-
-/* ─────────────────────────── first run ─────────────────────────── */
-
-function CreateSuite({ canEdit }: { canEdit: boolean }) {
-  const create = useCreateSuiteRepo()
-  const toast = useToast()
-  return (
-    <Card>
-      <CardBody className="py-10">
-        <EmptyState
-          title="The performance suite has no repository yet"
-          description="Tests live in their own Gitea repository so they can be reviewed, diffed and traced — a script stored only as a ConfigMap has no author and no history, so a number it produced can never be explained. The console will create it and commit a README describing the layout."
-          action={canEdit
-            ? (
-              <Button
-                disabled={create.isPending}
-                onClick={() =>
-                  create.mutate(undefined, {
-                    onSuccess: () => toast.success('Created the performance-tests repository'),
-                    onError: (e: Error) => toast.error(e.message),
-                  })}
-              >
-                {create.isPending ? 'Creating…' : 'Create the repository'}
-              </Button>
-            )
-            : undefined}
-        />
-      </CardBody>
-    </Card>
   )
 }
 
@@ -196,7 +178,6 @@ function CreateSuite({ canEdit }: { canEdit: boolean }) {
 function TestList({
   suite,
   tests,
-  loading,
   selected,
   onSelect,
   onNew,
@@ -204,9 +185,8 @@ function TestList({
   lastRun,
   onOpenRun,
 }: {
-  suite: SuiteRepo
-  tests: string[]
-  loading: boolean
+  suite: Suite
+  tests: PerfTestLocation[]
   selected: string | null
   onSelect(name: string): void
   onNew(): void
@@ -217,21 +197,17 @@ function TestList({
 }) {
   const [q, setQ] = useState('')
   const needle = q.trim().toLowerCase()
-  const shown = needle ? tests.filter((t) => t.toLowerCase().includes(needle)) : tests
+  const shown = needle ? tests.filter((t) => `${t.name} ${t.repo}`.toLowerCase().includes(needle)) : tests
+  const repos = new Set(tests.map((t) => t.repo)).size
   return (
     <Card className="flex max-h-[720px] flex-col overflow-hidden">
       <CardHeader>
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold text-content">Tests</div>
-            <a
-              href={suite.htmlUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="truncate text-[11px] text-brand-700 hover:underline dark:text-brand-300"
-            >
-              {suite.org}/{suite.repo} ↗
-            </a>
+            <div className="truncate text-[11px] text-content-subtle">
+              {PERF_DIR}/ in {repos} of {suite.apps.length} application repo{suite.apps.length === 1 ? '' : 's'}
+            </div>
           </div>
           {canEdit ? <Button size="xs" onClick={onNew}>New</Button> : null}
         </div>
@@ -247,15 +223,21 @@ function TestList({
         ) : null}
       </CardHeader>
       <CardBody className="min-h-0 flex-1 overflow-y-auto p-0">
-        {loading
-          ? <div className="flex justify-center py-8"><Spinner /></div>
-          : tests.length === 0
+        {suite.unreadable.length
+          ? (
+            <div className="border-b border-edge-subtle px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300">
+              Could not read {PERF_DIR}/ in {suite.unreadable.join(', ')} — their tests are not listed.
+            </div>
+          )
+          : null}
+        {tests.length === 0
           ? <div className="px-4 py-6 text-[12px] text-content-muted">No tests committed yet.</div>
           : shown.length === 0
           ? <div className="px-4 py-6 text-[12px] text-content-muted">No test matches “{q}”.</div>
           : (
             <ul>
-              {shown.map((t) => {
+              {shown.map((loc) => {
+                const t = loc.name
                 const run = lastRun.get(t)
                 const stage = run?.status?.stage ?? (run ? 'initialization' : undefined)
                 return (
@@ -269,6 +251,7 @@ function TestList({
                       )}
                     >
                       <span className="block truncate font-mono text-[12px] text-content">{t}</span>
+                      <span className="block truncate font-mono text-[10px] text-content-subtle">{loc.repo}/{loc.dir}</span>
                       <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-content-subtle">
                         {run
                           ? (
@@ -344,7 +327,7 @@ function TestWorkbench({
   onOpenResults,
   onSchedule,
 }: {
-  suite: SuiteRepo
+  suite: Suite
   name: string
   canEdit: boolean
   onOpenRun?(namespace: string, runName: string): void
@@ -357,7 +340,10 @@ function TestWorkbench({
   const run = useRunPerfTest()
   const remove = useDeletePerfTest(suite)
   const toast = useToast()
+  const publicUrl = usePublicGiteaUrl()
   const [tab, setTab] = useState<Tab>('script')
+  // Deleting commits a removal to the app repo — the second click confirms.
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   // Local drafts, so an edit survives a background refetch and the Save
   // button can say whether anything actually changed.
@@ -367,9 +353,12 @@ function TestWorkbench({
   useEffect(() => {
     setScript(null)
     setConfig(null)
+    setConfirmDelete(false)
   }, [name])
 
   const test = q.data
+  const where = findTest(suite, name)
+  const filesUrl = where ? publicUrl(filesUrlOf(where)) : undefined
   const liveScript = script ?? test?.script ?? ''
   const liveConfig = config ?? test?.config ?? DEFAULT_CONFIG
   const dirty = (script !== null && script !== test?.script) ||
@@ -395,9 +384,24 @@ function TestWorkbench({
       // Keep the cluster copy that schedules and CI run in step with git, so
       // a budget committed here is the budget the next scheduled run enforces.
       // Best effort: the namespace may not exist until the first run.
-      materialiseArtefact({ name, config: liveConfig, script: liveScript }, res.commit).catch(() => undefined)
+      materialiseArtefact({ name, config: liveConfig, script: liveScript, location: res.location }, res.commit).catch(() => undefined)
     } catch (e) {
       toast.error((e as Error).message)
+    }
+  }
+
+  const doDelete = async () => {
+    if (!confirmDelete) {
+      setConfirmDelete(true)
+      return
+    }
+    try {
+      await remove.mutateAsync(name)
+      toast.success(`Removed ${name}`, { description: where ? `from ${where.repo}/${where.dir}` : undefined })
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setConfirmDelete(false)
     }
   }
 
@@ -426,6 +430,18 @@ function TestWorkbench({
               <span className="truncate text-sm font-semibold text-content">{liveConfig.title || name}</span>
               {dirty ? <Badge>unsaved</Badge> : null}
             </div>
+            {where
+              ? (
+                <a
+                  href={filesUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block truncate font-mono text-[11px] text-brand-700 hover:underline dark:text-brand-300"
+                >
+                  {where.org}/{where.repo} · {where.dir}/ @ {where.branch} ↗
+                </a>
+              )
+              : null}
             <div className="truncate text-[11px] text-content-subtle">
               {liveConfig.namespace} · {liveConfig.parallelism} runner{liveConfig.parallelism === 1 ? '' : 's'}
               {liveConfig.tags.length ? ` · ${liveConfig.tags.join(', ')}` : ''}
@@ -435,6 +451,9 @@ function TestWorkbench({
             {canEdit
               ? (
                 <>
+                  <Button variant="ghost" size="sm" disabled={remove.isPending} onClick={doDelete}>
+                    {remove.isPending ? 'Deleting…' : confirmDelete ? 'Confirm delete' : 'Delete'}
+                  </Button>
                   {onSchedule
                     ? <Button variant="ghost" size="sm" onClick={() => onSchedule(name)}>Schedule</Button>
                     : null}
@@ -474,7 +493,7 @@ function TestWorkbench({
               readOnly={!canEdit}
               onChange={setScript}
               onSave={canEdit ? doSave : undefined}
-              filename={`${name}.js`}
+              filename={where ? `${where.dir}/load.js` : `${name}.js`}
               height={520}
               wordWrap
             />
@@ -493,9 +512,9 @@ function TestWorkbench({
   )
 }
 
-/** Newest commit we know about for this test, for the run label. */
+/** Newest app commit that touched this test's files, for the run label. */
 function latestCommit(test: PerfTest): string | undefined {
-  return test.scriptSha
+  return test.commit
 }
 
 /* ─────────────────────────── config form ─────────────────────────── */
@@ -731,7 +750,7 @@ function ThresholdList({
 
 /* ─────────────────────────── history ─────────────────────────── */
 
-function History({ suite, name }: { suite: SuiteRepo; name: string }) {
+function History({ suite, name }: { suite: Suite; name: string }) {
   const q = usePerfTestHistory(suite, name)
   const commits = q.data ?? []
   if (q.isLoading) return <div className="flex justify-center py-10"><Spinner /></div>
@@ -741,7 +760,7 @@ function History({ suite, name }: { suite: SuiteRepo; name: string }) {
         <EmptyState
           compact
           title="No commits found for this test"
-          description="Only commits the console made are matched here. Anything committed directly to the repository still shows in Gitea."
+          description="Commits that touched this test's load.js or test.json in its application repository are listed here."
         />
       </div>
     )
@@ -768,24 +787,27 @@ function History({ suite, name }: { suite: SuiteRepo; name: string }) {
 
 function NewTestDialog({
   suite,
-  existing,
   onClose,
   onCreated,
 }: {
-  suite: SuiteRepo
-  existing: string[]
+  suite: Suite
   onClose(): void
   onCreated(name: string): void
 }) {
   const create = useCreatePerfTest(suite)
   const toast = useToast()
+  // Default to the first app without a test, so the common case — giving an
+  // app its first test — is one click.
+  const firstWithout = suite.apps.find((a) => !suite.tests.some((t) => t.repo === a.name))
+  const [app, setApp] = useState((firstWithout ?? suite.apps[0])?.name ?? '')
   const [raw, setRaw] = useState('')
   const [starterId, setStarterId] = useState(STARTERS[0].id)
   const [namespace, setNamespace] = useState('default')
 
-  const name = normaliseName(raw)
+  const sub = normaliseName(raw)
   const starter = STARTERS.find((s) => s.id === starterId) ?? STARTERS[0]
-  const error = raw ? nameError(name) ?? (existing.includes(name) ? 'A test with that name already exists.' : null) : null
+  const error = newTestProblem(suite.tests, app, sub)
+  const name = app ? perfTestName(app, sub) : ''
   const ready = Boolean(name) && !error
 
   return (
@@ -794,18 +816,31 @@ function NewTestDialog({
       <div className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-2xl">
         <div className="border-b border-edge-default px-5 py-3">
           <div className="text-sm font-semibold text-content">New performance test</div>
-          <div className="text-[11px] text-content-subtle">Committed to {suite.org}/{suite.repo}</div>
+          <div className="text-[11px] text-content-subtle">
+            Committed to {suite.org}/{app || '…'} · {perfTestDir(sub)}/
+          </div>
         </div>
         <div className="space-y-3 px-5 py-4">
+          <Field label="Application" hint="The test lives in this application's repository, next to its code.">
+            <Select
+              value={app}
+              onChange={(e) => setApp(e.target.value)}
+              options={suite.apps.map((a) => ({ value: a.name, label: a.name }))}
+            />
+          </Field>
           <Field
-            label="Name"
-            hint="Also names the TestRun and ConfigMap."
+            label="Test"
+            hint={`Blank for the app's default test in ${PERF_DIR}/; a name puts it in ${PERF_DIR}/<name>/.`}
             error={error ?? undefined}
           >
-            <Input value={raw} onChange={(e) => setRaw(e.target.value)} placeholder="checkout-load" />
+            <Input value={raw} onChange={(e) => setRaw(e.target.value)} placeholder="smoke" />
           </Field>
-          {name && name !== raw
-            ? <div className="text-[11px] text-content-subtle">Will be created as <code className="font-mono">{name}</code></div>
+          {name
+            ? (
+              <div className="text-[11px] text-content-subtle">
+                Will be created as <code className="font-mono">{name}</code> — it also names the TestRun and ConfigMap.
+              </div>
+            )
             : null}
 
           <Field label="Namespace">
@@ -827,9 +862,9 @@ function NewTestDialog({
             disabled={!ready || create.isPending}
             onClick={async () => {
               try {
-                await create.mutateAsync({ name, starter, namespace })
-                toast.success(`Created ${name}`)
-                onCreated(name)
+                const created = await create.mutateAsync({ app, test: sub || undefined, starter, namespace })
+                toast.success(`Created ${created}`, { description: `in ${app}/${perfTestDir(sub)}` })
+                onCreated(created)
                 onClose()
               } catch (e) {
                 toast.error((e as Error).message)

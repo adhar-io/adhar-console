@@ -34,9 +34,11 @@ import { handleScaffold } from './app/server/scaffolder.ts'
 import { handleAppsetToggle } from './app/server/appset.ts'
 import { handleListTemplates } from './app/server/templates.ts'
 import { handleScorecardHistory, handleScorecardRerun, handleScorecards } from './app/server/scorecards.ts'
+import { handleScorecardFix } from './app/server/scorecard-fix.ts'
 import { handleEntityRoutes } from './app/server/entity-routes.ts'
 import { handleTeardown } from './app/server/teardown.ts'
 import { handleAppDelete } from './app/server/app-delete.ts'
+import { handleResilienceRuns } from './app/server/resilience-runs.ts'
 import { handleScanSecurity } from './app/server/scan-waivers.ts'
 import { handleCoderIdentity, handleCoderIdeSession } from './app/server/coder-ide.ts'
 import { handleAlertmanagerWebhook } from './app/server/alertmanager.ts'
@@ -376,6 +378,15 @@ async function route(req: Request): Promise<Response> {
   // scorer CronJob's own template, as the caller, so a manual run and a
   // scheduled run cannot produce different numbers.
   if (path === '/api/scorecards/rerun') return handleScorecardRerun(req)
+  // Scorecard "Fix": commit a catalog-info.yaml / deploy-manifest change as a
+  // PR (or direct commit) — gated to the owning team's developers and admins.
+  if (path === '/api/scorecards/fix') return handleScorecardFix(req)
+
+  // Run one application's resilience suite now (Chaos page): a gate-mode Job
+  // from the resilience runner's own CronJob, created as the console SA behind
+  // a role check; plus the gate runs' status and log tails.
+  const resilience = path.match(/^\/api\/resilience\/runs(\/.*)?$/)
+  if (resilience) return handleResilienceRuns(req, resilience[1] ?? '')
 
   // Alertmanager's receiver: platform alerts land in the Notification Center
   // for everyone. Bearer-token auth (Alertmanager is not a user) — see the

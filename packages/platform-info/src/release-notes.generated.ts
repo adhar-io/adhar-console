@@ -4,6 +4,16 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.145",
+    "date": "2026-10-21",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "K6 performance fix"
+      }
+    ]
+  },
+  {
     "version": "0.1.144",
     "date": "2026-10-21",
     "changes": [
@@ -825,26 +835,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "fix",
         "scope": "ci",
         "text": "Drop Monaco's worker bundling, which the pinned Deno cannot build"
-      }
-    ]
-  },
-  {
-    "version": "0.1.105",
-    "date": "2026-10-03",
-    "changes": [
-      {
-        "type": "fix",
-        "text": "Fix coder issue"
-      },
-      {
-        "type": "feature",
-        "scope": "develop",
-        "text": "A real editor in Repository Files, bundled not fetched"
-      },
-      {
-        "type": "feature",
-        "scope": "develop",
-        "text": "Repositories read as owner/name, and section by owner"
       }
     ]
   }

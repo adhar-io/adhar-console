@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { gitea, k8s } from '@adhar/api-clients'
+import { argocd, gitea, k8s } from '@adhar/api-clients'
 import { toPublicUrl, useGiteaOrg, usePublicBaseDomain, useToolPublicUrl } from '@adhar/shell-ui'
 import {
   type ComponentType,
@@ -356,6 +356,9 @@ import { APPLICATION_GVR, applicationEntities, CONTROL_PLANE_NAMESPACE, customAp
 export { APPLICATION_GVR, applicationEntities, CONTROL_PLANE_NAMESPACE, customAppNames, isCustomWorkload }
 import { isPlatformRepo } from './catalog-platform-repos.ts'
 import { applicationXRsQuery, belongsToDeletingApp, splitApplications } from './catalog-app-delete.ts'
+import { withDeployedLifecycle } from './catalog-lifecycle.ts'
+
+const argocdClient = argocd.ArgoCDClient.auto({ tool: 'argocd' })
 
 export function useLiveCatalog(): LiveCatalog {
   // Org whose repos are surfaced as Components — runtime config, never hardcoded.
@@ -382,6 +385,15 @@ export function useLiveCatalog(): LiveCatalog {
   // Application XR per app, wherever its repository lives.
   const applications = useQuery({
     ...applicationXRsQuery,
+    ...LIVE_QUERY,
+  })
+  // Every environment's Argo CD application, so an app's lifecycle can follow
+  // where it is actually running (catalog-lifecycle.ts). Same key as the
+  // deployment tab, so both share one request. Best effort: without it the
+  // declared lifecycle stands.
+  const argoApps = useQuery({
+    queryKey: ['catalog', 'argocd', 'apps'],
+    queryFn: () => argocdClient.listApplications(),
     ...LIVE_QUERY,
   })
 
@@ -473,7 +485,7 @@ export function useLiveCatalog(): LiveCatalog {
       repos.isFetching
 
     return {
-      entities: Array.from(byRef.values()),
+      entities: withDeployedLifecycle(Array.from(byRef.values()), argoApps.data ?? []),
       sources,
       isLoading,
       isFetching,
@@ -501,6 +513,7 @@ export function useLiveCatalog(): LiveCatalog {
     applications.isError,
     applications.isLoading,
     applications.isFetching,
+    argoApps.data,
   ])
 }
 

@@ -418,7 +418,10 @@ export function GraphView({ graph, visible, collapsed, onToggle, selected, onSel
 
   const fit = useCallback(() => {
     if (!vp.w || !vp.h) return
-    const k = Math.min(1, Math.max(0.5, Math.min(vp.w / width, vp.h / height)))
+    // Fit the whole graph with a little breathing room; never magnify past
+    // 100% (small trees stay crisp) and never shrink below 35% (cards stay
+    // legible — anything bigger is reached by panning or the minimap).
+    const k = Math.min(1, Math.max(0.35, Math.min(vp.w / width, vp.h / height) * 0.94))
     const root = layout.nodes.find((n) => g.roots.includes(n.id))
     const rootY = root ? PAD + root.row * (H + ROW_GAP) + H / 2 : height / 2
     const x = width * k <= vp.w ? (vp.w - width * k) / 2 : 12
@@ -702,9 +705,6 @@ export function GraphView({ graph, visible, collapsed, onToggle, selected, onSel
           <FullscreenGlyph full={fs.full} />
         </IconBtn>
       </div>
-
-      {/* the key, always visible */}
-      <LegendStrip className="absolute left-3 top-3 max-w-[calc(100%-7rem)] rounded-lg border border-edge-default bg-surface-raised/95 px-2 py-1 shadow-sm backdrop-blur" />
 
       <div className="absolute right-3 top-3">
         <button

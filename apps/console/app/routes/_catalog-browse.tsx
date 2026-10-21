@@ -4097,27 +4097,6 @@ function EntityDrawer({
                 ) : null}
 
                 {active === 'docs' ? <TechDocsTab url={docsUrl} entity={enriched} monitorUrl={monitorUrl} wide={docsWide} onWide={setWide} /> : null}
-                {active === 'metrics' && metricTarget && deployment.environments.length > 1 ? (
-                  <div className="flex flex-wrap items-center gap-2 text-[12px]" role="group" aria-label="Environment">
-                    <span className="text-content-muted">Environment</span>
-                    {deployment.environments.map((e) => (
-                      <button
-                        key={e.key}
-                        type="button"
-                        aria-pressed={metricsEnvShown === e.key}
-                        onClick={() => setMetricsEnvKey(e.key)}
-                        className={cn(
-                          'rounded-full border px-2.5 py-0.5 font-medium transition-colors',
-                          metricsEnvShown === e.key
-                            ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300'
-                            : 'border-edge-default text-content-muted hover:text-content',
-                        )}
-                      >
-                        {e.label}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
                 {active === 'metrics' && metricTarget ? (
                   <EntityMetrics
                     key={metricTarget.namespace ?? 'any'}
@@ -4125,6 +4104,9 @@ function EntityDrawer({
                     range={metricRange}
                     onRange={setMetricRange}
                     grafanaUrl={monitorUrl || grafanaBase}
+                    environments={deployment.environments.map((e) => ({ key: e.key, label: e.label }))}
+                    environment={metricsEnvShown}
+                    onEnvironment={setMetricsEnvKey}
                   />
                 ) : null}
 

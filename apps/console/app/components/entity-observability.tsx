@@ -408,24 +408,46 @@ export function EntityMetrics({
   range,
   onRange,
   grafanaUrl,
+  environments,
+  environment,
+  onEnvironment,
 }: {
   target: EntityTarget
   range: RangeId
   onRange(r: RangeId): void
   grafanaUrl: string
+  /** The service's environments (dev → test → prod); the picker shows when there are any. */
+  environments?: Array<{ key: string; label: string }>
+  /** The environment the panels are scoped to. */
+  environment?: string
+  onEnvironment?(key: string): void
 }) {
   const scope = target.namespace ? `${target.namespace}/${target.name}` : `${target.name} (any namespace)`
   return (
     <Card>
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h3 className="text-sm font-semibold text-content">Live metrics</h3>
-            <p className="text-[11px] text-content-subtle">
-              {PANELS.length} panels from Prometheus, scoped to <span className="font-mono">{scope}</span> · last {range} · refreshes every {REFRESH_MS / 1000}s
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-content" title={`Prometheus · ${scope} · refreshes every ${REFRESH_MS / 1000}s`}>Live metrics</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            {environments?.length ? (
+              <div className="inline-flex items-center rounded-lg border border-edge-default bg-surface-sunken p-0.5" role="group" aria-label="Environment">
+                {environments.map((e) => (
+                  <button
+                    key={e.key}
+                    type="button"
+                    aria-pressed={environment === e.key}
+                    disabled={!onEnvironment || environments.length === 1}
+                    onClick={() => onEnvironment?.(e.key)}
+                    className={cn(
+                      'h-7 rounded-md px-2.5 text-[11px] font-medium transition-colors disabled:cursor-default',
+                      environment === e.key ? 'bg-surface-raised text-content shadow-sm ring-1 ring-edge-default' : 'text-content-muted hover:text-content',
+                    )}
+                  >
+                    {e.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <div className="inline-flex items-center rounded-lg border border-edge-default bg-surface-sunken p-0.5">
               {RANGES.map((r) => (
                 <button

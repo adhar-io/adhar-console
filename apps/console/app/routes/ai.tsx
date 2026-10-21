@@ -18,7 +18,7 @@ export const Route = createFileRoute('/ai')({
 })
 
 function AiPage() {
-  const { tenants, activeTenant, notifications } = Route.useLoaderData()
+  const { tenants, activeTenant } = Route.useLoaderData()
   const user = useOptionalSession()?.user ?? PENDING_USER
   const navigate = useNavigate()
   return (
@@ -27,7 +27,6 @@ function AiPage() {
       tenants={tenants}
       activeTenantId={activeTenant.id}
       onTenantChange={() => {}}
-      notifications={notifications}
       contentWidth="bleed"
     >
       <AssistHost variant="page" onClose={() => navigate({ to: '/' })} />

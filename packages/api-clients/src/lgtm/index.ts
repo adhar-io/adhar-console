@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { HttpClient, isProdBuild, svcBaseUrl, type HttpClientOptions } from '../base/index.ts'
+import { HttpClient, svcBaseUrl, type HttpClientOptions } from '../base/index.ts'
 
 /**
  * Loki + Grafana + Mimir + Tempo (LGTM) aggregator.
@@ -893,9 +893,10 @@ export const LgtmClient = {
   create: (opts: HttpClientOptions & { grafanaUrl?: string }) =>
     build(makeBackends(opts), opts.grafanaUrl ?? ''),
   /**
-   * Environment-aware client. Prod build → real backends, each through its OWN
-   * BFF tool proxy (`prometheus` / `loki` / `tempo` / `grafana`,
-   * cookie-authenticated); dev → stub. The `tool` option is accepted for call-site
+   * Environment-aware client. **Real by default** (dev and prod alike) — each
+   * signal goes through its OWN BFF tool proxy (`prometheus` / `loki` / `tempo`
+   * / `grafana`, cookie-authenticated). The in-memory stub is opt-in only via
+   * `mode: 'stub'` (tests / offline), matching `defineClient`. The `tool` option is accepted for call-site
    * compatibility but ignored — routing is per-signal, not per-tool.
    *
    * `grafanaUrl` (for embed deep-links) defaults to EMPTY, not to a guessed
@@ -910,8 +911,7 @@ export const LgtmClient = {
   auto(
     opts: { tool?: string; mode?: 'real' | 'stub'; grafanaUrl?: string } & Partial<HttpClientOptions> = {},
   ): LgtmClient {
-    const real = opts.mode ? opts.mode === 'real' : isProdBuild()
-    if (!real) return this.stub()
+    if (opts.mode === 'stub') return this.stub()
     // Drop `tool`/`grafanaUrl` before spreading into HttpClientOptions; each
     // backend derives its own `/api/svc/<tool>` base URL.
     const { tool: _tool, mode: _mode, grafanaUrl, ...httpOpts } = opts

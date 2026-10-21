@@ -111,7 +111,7 @@ export function Content() {
     return (
       <div className="space-y-4">
         {header}
-        <EmptyState title="Couldn't reach Strapi" description={strapiError(types.error)} />
+        <EmptyState title="Couldn't reach Strapi" description={strapiError(types.error)} action={<Button size="sm" variant="secondary" onClick={() => types.refetch()}>Retry</Button>} />
       </div>
     )
   }
@@ -330,7 +330,7 @@ function Entries({ ct, adminUrl }: { ct: ContentType; adminUrl: string }) {
           <Spinner size={14} /> Loading entries…
         </div>
       ) : q.isError ? (
-        <EmptyState title="Couldn't load entries" description={strapiError(q.error)} />
+        <EmptyState title="Couldn't load entries from Strapi" description={strapiError(q.error)} action={<Button size="sm" variant="secondary" onClick={() => q.refetch()}>Retry</Button>} />
       ) : (
         <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm">
           <DataTable
@@ -684,7 +684,7 @@ function Media() {
       </div>
     )
   }
-  if (files.isError) return <EmptyState title="Couldn't load media" description={strapiError(files.error)} />
+  if (files.isError) return <EmptyState title="Couldn't load media from Strapi" description={strapiError(files.error)} action={<Button size="sm" variant="secondary" onClick={() => files.refetch()}>Retry</Button>} />
   const list = files.data ?? []
   if (!list.length) {
     return <EmptyState title="No media yet" description="Files uploaded in Strapi's Media Library appear here." />

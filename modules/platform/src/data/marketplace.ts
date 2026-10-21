@@ -18,7 +18,7 @@ import { client, useActiveCluster } from './client.ts'
  * endpoint), and ArgoCD reconciles it.
  *
  * The curated chart catalogue below is retained only as **optional enrichment**
- * (icon, publisher, provenance, description) matched to an app by name — it is
+ * (icon, publisher, description, values fields) matched to an app by name — it is
  * never the source of the list or of the enabled state.
  */
 
@@ -48,23 +48,6 @@ export interface ChartValueField {
 /** Where a package comes from. `community` = community-contributed. */
 export type ChartSource = 'core' | 'partner' | 'community'
 
-/** Supply-chain provenance — signing + vulnerability scanning. */
-export interface ChartProvenance {
-  /** Chart + images carry a verifiable signature. */
-  signed: boolean
-  signer?: string
-  signature?: 'cosign' | 'notation' | 'none'
-  /** Images were vulnerability-scanned at publish time. */
-  scanned: boolean
-  scanner?: 'trivy'
-  grade?: 'A' | 'B' | 'C' | 'D' | 'F'
-  criticalCves?: number
-  highCves?: number
-  /** An SBOM is attached to the OCI artifact. */
-  sbom?: boolean
-  scannedAt?: string
-}
-
 /** Compatibility contract with the cluster and the Adhar platform. */
 export interface ChartCompatibility {
   minKubeVersion?: string
@@ -73,8 +56,6 @@ export interface ChartCompatibility {
   requiredCapabilities?: string[]
   /** Chart ids this package expects to be installed first. */
   dependsOn?: string[]
-  /** Adhar platform versions the package is tested against. */
-  testedOn?: string[]
 }
 
 export interface ChartPublisher {
@@ -91,18 +72,12 @@ export interface MarketplaceChart {
   publisher: ChartPublisher
   /** Where the package comes from — Adhar core, partner, or community. */
   source: ChartSource
-  /** Supply-chain provenance: signing + scanning. */
-  provenance: ChartProvenance
   /** Compatibility contract with the cluster + platform. */
   compatibility: ChartCompatibility
   /** Helm repository (e.g. "bitnami"). */
   repository: string
   /** Repository URL. */
   repoUrl: string
-  /** Latest chart version. */
-  version: string
-  /** Underlying app version (e.g. "16.4.0" for postgres). */
-  appVersion: string
   description: string
   longDescription?: string
   category: ChartCategory
@@ -130,8 +105,6 @@ export interface MarketplaceChart {
     | 'gitea'
   /** Tailwind tone for the icon tile + chip. */
   tone: 'sky' | 'emerald' | 'amber' | 'violet' | 'rose' | 'fuchsia' | 'brand' | 'slate'
-  /** Star count or weekly downloads — purely cosmetic. */
-  popularity: number
   /** Tags for search. */
   tags: string[]
   /** Suggested namespace for installation. */
@@ -166,57 +139,24 @@ export const SOURCE_LABEL: Record<ChartSource, string> = {
   community: 'Community',
 }
 
-/** Signed + scanned — the bar for the trust shield in the UI. */
-export function hasFullTrust(chart: MarketplaceChart): boolean {
-  return chart.provenance.signed && chart.provenance.scanned
-}
-
 /**
- * Seed authoring type. `publisher` is shorthand (just the name) and the
- * trust metadata is optional — `withTrustDefaults` fills in the core-chart
- * baseline (Adhar-signed via cosign, Trivy-scanned grade A, SBOM attached)
- * so only packages with a weaker or richer story spell it out.
+ * Seed authoring type. `publisher` is shorthand (just the name). The curated
+ * entries carry only static reference facts about the upstream chart (repo,
+ * description, values fields, declared compatibility) — never versions,
+ * download counts, signing or scan results, which the console cannot vouch
+ * for. Installed versions come from the live ArgoCD Application instead.
  */
-type SeedChart = Omit<MarketplaceChart, 'publisher' | 'source' | 'provenance' | 'compatibility'> & {
+type SeedChart = Omit<MarketplaceChart, 'publisher' | 'source' | 'compatibility'> & {
   publisher: string
   publisherUrl?: string
   verifiedPublisher?: boolean
   source?: ChartSource
-  provenance?: Partial<ChartProvenance>
   compatibility?: ChartCompatibility
 }
 
-const CORE_SCANNED_AT = '2026-08-11T04:30:00Z'
-
-const CORE_PROVENANCE: ChartProvenance = {
-  signed: true,
-  signer: 'Adhar Release Engineering',
-  signature: 'cosign',
-  scanned: true,
-  scanner: 'trivy',
-  grade: 'A',
-  criticalCves: 0,
-  highCves: 0,
-  sbom: true,
-  scannedAt: CORE_SCANNED_AT,
-}
-
-/** Honest default for anything not vouched for: unsigned, unscanned. */
-const UNVERIFIED_PROVENANCE: ChartProvenance = {
-  signed: false,
-  signature: 'none',
-  scanned: false,
-}
-
-const CORE_COMPATIBILITY: ChartCompatibility = {
-  minKubeVersion: '1.27',
-  testedOn: ['adhar-1.4', 'adhar-1.5'],
-}
-
 function withTrustDefaults(seed: SeedChart): MarketplaceChart {
-  const { publisher, publisherUrl, verifiedPublisher, source, provenance, compatibility, ...rest } = seed
+  const { publisher, publisherUrl, verifiedPublisher, source, compatibility, ...rest } = seed
   const resolvedSource = source ?? (seed.verified ? 'core' : 'partner')
-  const baseline = resolvedSource === 'core' ? CORE_PROVENANCE : UNVERIFIED_PROVENANCE
   return {
     ...rest,
     source: resolvedSource,
@@ -225,8 +165,7 @@ function withTrustDefaults(seed: SeedChart): MarketplaceChart {
       url: publisherUrl,
       verifiedPublisher: verifiedPublisher ?? resolvedSource === 'core',
     },
-    provenance: { ...baseline, ...provenance },
-    compatibility: compatibility ?? (resolvedSource === 'core' ? { ...CORE_COMPATIBILITY } : {}),
+    compatibility: compatibility ?? {},
   }
 }
 
@@ -238,15 +177,12 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Grafana Labs',
     repository: 'grafana',
     repoUrl: 'https://grafana.github.io/helm-charts',
-    version: '8.5.4',
-    appVersion: '11.3.0',
     description: 'Operational dashboards for every datasource — Prometheus, Loki, Tempo, more.',
     longDescription:
       'Grafana is the open-source analytics and interactive visualization web app. It provides charts, graphs, and alerts when connected to supported data sources.',
     category: 'observability',
     iconId: 'grafana',
     tone: 'amber',
-    popularity: 9_245_000,
     tags: ['dashboards', 'metrics', 'logs', 'traces', 'visualization'],
     defaultNamespace: 'monitoring',
     fields: [
@@ -267,13 +203,10 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Prometheus Community',
     repository: 'prometheus-community',
     repoUrl: 'https://prometheus-community.github.io/helm-charts',
-    version: '67.4.0',
-    appVersion: '0.79.0',
     description: 'Prometheus, Alertmanager and Grafana bundled with default cluster recordings.',
     category: 'observability',
     iconId: 'prometheus',
     tone: 'rose',
-    popularity: 12_400_000,
     tags: ['prometheus', 'alertmanager', 'grafana', 'metrics', 'alerts'],
     defaultNamespace: 'monitoring',
     fields: [
@@ -287,7 +220,6 @@ const SEED_CATALOG: SeedChart[] = [
     compatibility: {
       minKubeVersion: '1.28',
       requiredCapabilities: ['crd-install'],
-      testedOn: ['adhar-1.4', 'adhar-1.5'],
     },
   },
   {
@@ -296,13 +228,10 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Grafana Labs',
     repository: 'grafana',
     repoUrl: 'https://grafana.github.io/helm-charts',
-    version: '6.18.0',
-    appVersion: '3.3.0',
     description: 'Horizontally-scalable, highly-available log aggregation inspired by Prometheus.',
     category: 'observability',
     iconId: 'loki',
     tone: 'violet',
-    popularity: 4_120_000,
     tags: ['logs', 'aggregation', 'search', 'logql'],
     defaultNamespace: 'monitoring',
     fields: [
@@ -318,13 +247,10 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Grafana Labs',
     repository: 'grafana',
     repoUrl: 'https://grafana.github.io/helm-charts',
-    version: '1.16.0',
-    appVersion: '2.6.1',
     description: 'High-volume distributed tracing backend — OTLP, Jaeger, Zipkin compatible.',
     category: 'observability',
     iconId: 'tempo',
     tone: 'rose',
-    popularity: 1_840_000,
     tags: ['traces', 'tracing', 'otlp', 'jaeger'],
     defaultNamespace: 'monitoring',
     fields: [
@@ -340,13 +266,10 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'OpenTelemetry',
     repository: 'open-telemetry',
     repoUrl: 'https://open-telemetry.github.io/opentelemetry-helm-charts',
-    version: '0.108.0',
-    appVersion: '0.114.0',
     description: 'Vendor-neutral collector for traces, metrics, and logs.',
     category: 'observability',
     iconId: 'otel',
     tone: 'sky',
-    popularity: 3_650_000,
     tags: ['otel', 'opentelemetry', 'collector', 'pipeline'],
     defaultNamespace: 'monitoring',
     fields: [
@@ -364,12 +287,9 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Bitnami',
     repository: 'bitnami',
     repoUrl: 'https://charts.bitnami.com/bitnami',
-    version: '16.2.4',
-    appVersion: '17.2.0',
     description: 'Production-ready PostgreSQL — primary, replicas, metrics, backups.',
     category: 'database',
     tone: 'sky',
-    popularity: 28_000_000,
     tags: ['postgres', 'sql', 'database', 'rdbms'],
     defaultNamespace: 'data',
     fields: [
@@ -389,12 +309,9 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Bitnami',
     repository: 'bitnami',
     repoUrl: 'https://charts.bitnami.com/bitnami',
-    version: '20.5.0',
-    appVersion: '7.4.1',
     description: 'In-memory data structure store — cache, queue, pub/sub.',
     category: 'database',
     tone: 'rose',
-    popularity: 22_300_000,
     tags: ['cache', 'kv', 'queue', 'pubsub'],
     defaultNamespace: 'data',
     fields: [
@@ -412,12 +329,9 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Bitnami',
     repository: 'bitnami',
     repoUrl: 'https://charts.bitnami.com/bitnami',
-    version: '16.2.0',
-    appVersion: '8.0.4',
     description: 'Document database with rich query language and aggregation pipeline.',
     category: 'database',
     tone: 'emerald',
-    popularity: 11_500_000,
     tags: ['nosql', 'document', 'database'],
     defaultNamespace: 'data',
     fields: [
@@ -434,12 +348,9 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Bitnami',
     repository: 'bitnami',
     repoUrl: 'https://charts.bitnami.com/bitnami',
-    version: '8.0.6',
-    appVersion: '24.10.1',
     description: 'Columnar OLAP database for real-time analytics on petabytes.',
     category: 'database',
     tone: 'amber',
-    popularity: 980_000,
     tags: ['olap', 'analytics', 'columnar', 'sql'],
     defaultNamespace: 'data',
     fields: [
@@ -455,12 +366,9 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Bitnami',
     repository: 'bitnami',
     repoUrl: 'https://charts.bitnami.com/bitnami',
-    version: '12.1.5',
-    appVersion: '4.1.7',
     description: 'Wide-column distributed database for massive write workloads.',
     category: 'database',
     tone: 'violet',
-    popularity: 540_000,
     tags: ['nosql', 'distributed', 'wide-column'],
     defaultNamespace: 'data',
     fields: [
@@ -470,19 +378,7 @@ const SEED_CATALOG: SeedChart[] = [
     source: 'partner',
     publisherUrl: 'https://bitnami.com',
     verifiedPublisher: true,
-    provenance: {
-      signed: true,
-      signer: 'Bitnami (Broadcom)',
-      signature: 'cosign',
-      scanned: true,
-      scanner: 'trivy',
-      grade: 'B',
-      criticalCves: 0,
-      highCves: 3,
-      sbom: true,
-      scannedAt: '2026-08-06T09:12:00Z',
-    },
-    compatibility: { minKubeVersion: '1.25', testedOn: ['adhar-1.4'] },
+    compatibility: { minKubeVersion: '1.25' },
   },
 
   /* ──── Messaging ──── */
@@ -493,12 +389,9 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Bitnami',
     repository: 'bitnami',
     repoUrl: 'https://charts.bitnami.com/bitnami',
-    version: '31.1.1',
-    appVersion: '3.9.0',
     description: 'Distributed streaming platform — pub/sub, log, processing.',
     category: 'messaging',
     tone: 'slate',
-    popularity: 8_900_000,
     tags: ['streaming', 'queue', 'pubsub', 'kraft'],
     defaultNamespace: 'data',
     fields: [
@@ -515,12 +408,9 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Bitnami',
     repository: 'bitnami',
     repoUrl: 'https://charts.bitnami.com/bitnami',
-    version: '14.7.0',
-    appVersion: '4.0.4',
     description: 'AMQP message broker with rich routing topologies and clustering.',
     category: 'messaging',
     tone: 'amber',
-    popularity: 5_200_000,
     tags: ['amqp', 'broker', 'queue'],
     defaultNamespace: 'data',
     fields: [
@@ -537,12 +427,9 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'NATS',
     repository: 'nats',
     repoUrl: 'https://nats-io.github.io/k8s/helm/charts/',
-    version: '1.2.5',
-    appVersion: '2.10.22',
     description: 'High-performance pub/sub messaging with JetStream persistence.',
     category: 'messaging',
     tone: 'emerald',
-    popularity: 2_400_000,
     tags: ['pubsub', 'streaming', 'jetstream', 'rpc'],
     defaultNamespace: 'data',
     fields: [
@@ -561,13 +448,10 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Argo Project',
     repository: 'argo',
     repoUrl: 'https://argoproj.github.io/argo-helm',
-    version: '7.7.6',
-    appVersion: 'v2.13.1',
     description: 'GitOps continuous delivery for Kubernetes — declarative apps from Git.',
     category: 'cicd',
     iconId: 'argocd',
     tone: 'sky',
-    popularity: 24_300_000,
     tags: ['gitops', 'cd', 'argo'],
     defaultNamespace: 'argocd',
     fields: [
@@ -586,13 +470,10 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Argo Project',
     repository: 'argo',
     repoUrl: 'https://argoproj.github.io/argo-helm',
-    version: '0.45.5',
-    appVersion: 'v3.6.2',
     description: 'Container-native workflow engine for orchestrating jobs on Kubernetes.',
     category: 'cicd',
     iconId: 'argoworkflows',
     tone: 'amber',
-    popularity: 3_120_000,
     tags: ['workflows', 'jobs', 'pipelines'],
     defaultNamespace: 'argo',
     fields: [
@@ -608,13 +489,10 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Argo Project',
     repository: 'argo',
     repoUrl: 'https://argoproj.github.io/argo-helm',
-    version: '2.38.2',
-    appVersion: 'v1.7.2',
     description: 'Progressive delivery — blue/green, canary, with traffic-shaping integrations.',
     category: 'cicd',
     iconId: 'argorollouts',
     tone: 'rose',
-    popularity: 1_200_000,
     tags: ['canary', 'blue-green', 'rollouts', 'progressive-delivery'],
     defaultNamespace: 'argo-rollouts',
     fields: [
@@ -630,13 +508,10 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Akuity',
     repository: 'akuity',
     repoUrl: 'https://charts.kargo.io',
-    version: '1.1.0',
-    appVersion: 'v1.1.1',
     description: 'Multi-stage promotion across environments — built on Argo CD.',
     category: 'cicd',
     iconId: 'kargo',
     tone: 'brand',
-    popularity: 240_000,
     tags: ['promotion', 'gitops', 'pipelines', 'argocd'],
     defaultNamespace: 'kargo',
     fields: [
@@ -648,7 +523,6 @@ const SEED_CATALOG: SeedChart[] = [
       minKubeVersion: '1.29',
       requiredCrds: ['applications.argoproj.io'],
       dependsOn: ['argo-cd', 'cert-manager'],
-      testedOn: ['adhar-1.5'],
     },
   },
   {
@@ -658,12 +532,9 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Flux CD',
     repository: 'fluxcd-community',
     repoUrl: 'https://fluxcd-community.github.io/helm-charts',
-    version: '2.14.0',
-    appVersion: '2.4.0',
     description: 'Toolkit of GitOps source / kustomize / helm controllers.',
     category: 'cicd',
     tone: 'fuchsia',
-    popularity: 4_700_000,
     tags: ['gitops', 'flux', 'kustomize'],
     defaultNamespace: 'flux-system',
     fields: [
@@ -674,22 +545,9 @@ const SEED_CATALOG: SeedChart[] = [
     source: 'partner',
     publisherUrl: 'https://fluxcd.io',
     verifiedPublisher: true,
-    provenance: {
-      signed: true,
-      signer: 'Flux CD maintainers',
-      signature: 'cosign',
-      scanned: true,
-      scanner: 'trivy',
-      grade: 'A',
-      criticalCves: 0,
-      highCves: 1,
-      sbom: true,
-      scannedAt: '2026-08-04T22:41:00Z',
-    },
     compatibility: {
       minKubeVersion: '1.28',
       requiredCapabilities: ['crd-install'],
-      testedOn: ['adhar-1.5'],
     },
   },
 
@@ -701,12 +559,9 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Jetstack',
     repository: 'jetstack',
     repoUrl: 'https://charts.jetstack.io',
-    version: 'v1.16.2',
-    appVersion: 'v1.16.2',
     description: 'Automatic certificate management — Let\'s Encrypt, Vault, ACME-compatible CAs.',
     category: 'security',
     tone: 'emerald',
-    popularity: 18_700_000,
     tags: ['tls', 'certificates', 'letsencrypt', 'acme'],
     defaultNamespace: 'cert-manager',
     fields: [
@@ -719,7 +574,6 @@ const SEED_CATALOG: SeedChart[] = [
     compatibility: {
       minKubeVersion: '1.27',
       requiredCapabilities: ['crd-install'],
-      testedOn: ['adhar-1.4', 'adhar-1.5'],
     },
   },
   {
@@ -729,13 +583,10 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Nirmata',
     repository: 'kyverno',
     repoUrl: 'https://kyverno.github.io/kyverno',
-    version: '3.3.4',
-    appVersion: 'v1.13.2',
     description: 'Kubernetes-native policy engine — validate, mutate, generate, verify images.',
     category: 'security',
     iconId: 'kyverno',
     tone: 'fuchsia',
-    popularity: 2_950_000,
     tags: ['policy', 'admission', 'compliance'],
     defaultNamespace: 'kyverno',
     fields: [
@@ -752,12 +603,9 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Falco',
     repository: 'falcosecurity',
     repoUrl: 'https://falcosecurity.github.io/charts',
-    version: '4.18.0',
-    appVersion: '0.39.2',
     description: 'Runtime security — eBPF-driven detection of suspicious activity.',
     category: 'security',
     tone: 'rose',
-    popularity: 1_280_000,
     tags: ['runtime-security', 'ebpf', 'threat-detection'],
     defaultNamespace: 'falco',
     fields: [
@@ -768,7 +616,6 @@ const SEED_CATALOG: SeedChart[] = [
     compatibility: {
       minKubeVersion: '1.26',
       requiredCapabilities: ['ebpf', 'privileged-daemonset'],
-      testedOn: ['adhar-1.4', 'adhar-1.5'],
     },
   },
   {
@@ -778,12 +625,9 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'HashiCorp',
     repository: 'hashicorp',
     repoUrl: 'https://helm.releases.hashicorp.com',
-    version: '0.29.1',
-    appVersion: '1.18.2',
     description: 'Secrets management with dynamic credentials, encryption-as-a-service.',
     category: 'security',
     tone: 'slate',
-    popularity: 6_400_000,
     tags: ['secrets', 'pki', 'kv', 'transit'],
     defaultNamespace: 'vault',
     fields: [
@@ -802,12 +646,9 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Kubernetes',
     repository: 'ingress-nginx',
     repoUrl: 'https://kubernetes.github.io/ingress-nginx',
-    version: '4.11.4',
-    appVersion: '1.11.4',
     description: 'NGINX-based ingress controller — production reference for Kubernetes.',
     category: 'networking',
     tone: 'emerald',
-    popularity: 31_400_000,
     tags: ['ingress', 'nginx', 'http', 'tls'],
     defaultNamespace: 'ingress-nginx',
     fields: [
@@ -825,12 +666,9 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Traefik Labs',
     repository: 'traefik',
     repoUrl: 'https://traefik.github.io/charts',
-    version: '33.2.1',
-    appVersion: 'v3.2.1',
     description: 'Modern reverse proxy + ingress controller with automatic TLS and middlewares.',
     category: 'networking',
     tone: 'sky',
-    popularity: 7_900_000,
     tags: ['ingress', 'proxy', 'tls', 'middleware'],
     defaultNamespace: 'traefik',
     fields: [
@@ -847,12 +685,9 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Istio',
     repository: 'istio',
     repoUrl: 'https://istio-release.storage.googleapis.com/charts',
-    version: '1.24.1',
-    appVersion: '1.24.1',
     description: 'Service mesh — traffic management, security, observability.',
     category: 'networking',
     tone: 'fuchsia',
-    popularity: 9_300_000,
     tags: ['service-mesh', 'envoy', 'mtls', 'tracing'],
     defaultNamespace: 'istio-system',
     fields: [
@@ -867,12 +702,9 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Isovalent',
     repository: 'cilium',
     repoUrl: 'https://helm.cilium.io',
-    version: '1.16.4',
-    appVersion: '1.16.4',
     description: 'eBPF-based CNI — network policy, observability, service mesh.',
     category: 'networking',
     tone: 'amber',
-    popularity: 4_120_000,
     tags: ['cni', 'ebpf', 'network-policy', 'observability'],
     defaultNamespace: 'kube-system',
     fields: [
@@ -884,7 +716,6 @@ const SEED_CATALOG: SeedChart[] = [
       minKubeVersion: '1.26',
       maxKubeVersion: '1.31',
       requiredCapabilities: ['ebpf', 'privileged-daemonset'],
-      testedOn: ['adhar-1.4', 'adhar-1.5'],
     },
   },
 
@@ -896,13 +727,10 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'MinIO',
     repository: 'minio',
     repoUrl: 'https://charts.min.io',
-    version: '5.4.0',
-    appVersion: 'RELEASE.2024-12-13',
     description: 'High-performance S3-compatible object storage.',
     category: 'storage',
     iconId: 'minio',
     tone: 'rose',
-    popularity: 8_400_000,
     tags: ['object-storage', 's3', 'lakehouse', 'backups'],
     defaultNamespace: 'data',
     fields: [
@@ -920,12 +748,9 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Longhorn',
     repository: 'longhorn',
     repoUrl: 'https://charts.longhorn.io',
-    version: '1.7.2',
-    appVersion: 'v1.7.2',
     description: 'Distributed block storage with snapshots, backup-to-S3, and cross-cluster restore.',
     category: 'storage',
     tone: 'sky',
-    popularity: 1_980_000,
     tags: ['block-storage', 'csi', 'snapshots'],
     defaultNamespace: 'longhorn-system',
     fields: [
@@ -937,7 +762,6 @@ const SEED_CATALOG: SeedChart[] = [
       minKubeVersion: '1.25',
       maxKubeVersion: '1.31',
       requiredCapabilities: ['privileged-daemonset', 'iscsi'],
-      testedOn: ['adhar-1.4', 'adhar-1.5'],
     },
   },
 
@@ -949,13 +773,10 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Bitnami',
     repository: 'bitnami',
     repoUrl: 'https://charts.bitnami.com/bitnami',
-    version: '24.4.0',
-    appVersion: '26.0.7',
     description: 'Open-source identity & SSO — OIDC, SAML, social login, federation.',
     category: 'identity',
     iconId: 'keycloak',
     tone: 'rose',
-    popularity: 5_700_000,
     tags: ['identity', 'sso', 'oidc', 'saml'],
     defaultNamespace: 'identity',
     fields: [
@@ -974,12 +795,9 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Dex',
     repository: 'dex',
     repoUrl: 'https://charts.dexidp.io',
-    version: '0.19.1',
-    appVersion: '2.41.1',
     description: 'OIDC identity broker — federate any auth backend behind a single endpoint.',
     category: 'identity',
     tone: 'amber',
-    popularity: 850_000,
     tags: ['oidc', 'sso', 'federation'],
     defaultNamespace: 'dex',
     fields: [
@@ -987,17 +805,6 @@ const SEED_CATALOG: SeedChart[] = [
     ],
     source: 'community',
     publisherUrl: 'https://dexidp.io',
-    provenance: {
-      signed: false,
-      signature: 'none',
-      scanned: true,
-      scanner: 'trivy',
-      grade: 'C',
-      criticalCves: 1,
-      highCves: 4,
-      sbom: false,
-      scannedAt: '2026-07-19T13:05:00Z',
-    },
     compatibility: { minKubeVersion: '1.24' },
   },
 
@@ -1009,13 +816,10 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Airbyte',
     repository: 'airbyte',
     repoUrl: 'https://airbytehq.github.io/helm-charts',
-    version: '1.3.0',
-    appVersion: '1.3.0',
     description: 'ELT data integration — 350+ source/destination connectors.',
     category: 'data',
     iconId: 'airbyte',
     tone: 'violet',
-    popularity: 2_140_000,
     tags: ['elt', 'pipelines', 'connectors', 'ingestion'],
     defaultNamespace: 'data',
     fields: [
@@ -1031,13 +835,10 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Metabase',
     repository: 'pmint93',
     repoUrl: 'https://pmint93.github.io/helm-charts',
-    version: '2.13.0',
-    appVersion: 'v0.51.7',
     description: 'Self-service BI — ask questions, build dashboards, share insights.',
     category: 'data',
     iconId: 'metabase',
     tone: 'sky',
-    popularity: 1_290_000,
     tags: ['bi', 'analytics', 'sql', 'dashboards'],
     defaultNamespace: 'data',
     fields: [
@@ -1045,7 +846,6 @@ const SEED_CATALOG: SeedChart[] = [
       { key: 'database.type', label: 'Backing DB', type: 'select', options: ['h2', 'postgres', 'mysql'], default: 'postgres' },
     ],
     source: 'community',
-    provenance: { signed: false, signature: 'none', scanned: false },
     compatibility: { dependsOn: ['postgresql'] },
   },
 
@@ -1057,12 +857,9 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Ollama',
     repository: 'otwld',
     repoUrl: 'https://otwld.github.io/ollama-helm',
-    version: '0.71.1',
-    appVersion: '0.5.4',
     description: 'Run open LLMs locally — Llama 3, Mistral, Phi-3, Gemma, more.',
     category: 'ai-ml',
     tone: 'violet',
-    popularity: 1_650_000,
     tags: ['llm', 'inference', 'gpu', 'ai'],
     defaultNamespace: 'ai',
     fields: [
@@ -1079,29 +876,15 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Kubeflow',
     repository: 'kubeflow',
     repoUrl: 'https://kubeflow.github.io/kubeflow',
-    version: '2.4.0',
-    appVersion: '2.4.0',
     description: 'ML workflow orchestration — author, deploy, version pipelines.',
     category: 'ai-ml',
     tone: 'fuchsia',
-    popularity: 720_000,
     tags: ['ml', 'pipelines', 'workflow', 'kubeflow'],
     defaultNamespace: 'kubeflow',
     fields: [
       { key: 'platform', label: 'Platform', type: 'select', options: ['standalone', 'multi-user'], default: 'standalone' },
     ],
     source: 'community',
-    provenance: {
-      signed: false,
-      signature: 'none',
-      scanned: true,
-      scanner: 'trivy',
-      grade: 'B',
-      criticalCves: 0,
-      highCves: 5,
-      sbom: false,
-      scannedAt: '2026-07-28T02:10:00Z',
-    },
     compatibility: {
       minKubeVersion: '1.29',
       maxKubeVersion: '1.31',
@@ -1118,13 +901,10 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Gitea',
     repository: 'gitea-charts',
     repoUrl: 'https://dl.gitea.com/charts/',
-    version: '10.6.0',
-    appVersion: '1.22.6',
     description: 'Self-hosted Git service with code review, issues, packages, actions.',
     category: 'developer',
     iconId: 'gitea',
     tone: 'emerald',
-    popularity: 2_140_000,
     tags: ['git', 'scm', 'code-review', 'actions'],
     defaultNamespace: 'devtools',
     fields: [
@@ -1141,13 +921,10 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Harbor',
     repository: 'harbor',
     repoUrl: 'https://helm.goharbor.io',
-    version: '1.16.0',
-    appVersion: '2.12.0',
     description: 'Cloud-native registry — images, charts, signing, vuln scanning, replication.',
     category: 'developer',
     iconId: 'harbor',
     tone: 'sky',
-    popularity: 4_320_000,
     tags: ['registry', 'images', 'oci', 'scanning'],
     defaultNamespace: 'devtools',
     fields: [
@@ -1164,13 +941,10 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Crossplane',
     repository: 'crossplane-stable',
     repoUrl: 'https://charts.crossplane.io/stable',
-    version: '1.18.0',
-    appVersion: '1.18.0',
     description: 'Universal control plane — manage cloud infrastructure as Kubernetes resources.',
     category: 'cicd',
     iconId: 'crossplane',
     tone: 'fuchsia',
-    popularity: 2_960_000,
     tags: ['control-plane', 'iac', 'compositions', 'providers'],
     defaultNamespace: 'crossplane-system',
     fields: [
@@ -1188,14 +962,11 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'Temporal Technologies',
     repository: 'temporalio',
     repoUrl: 'https://go.temporal.io/helm-charts',
-    version: '0.50.0',
-    appVersion: '1.25.2',
     description: 'Durable execution platform — workflows that survive any failure.',
     longDescription:
       'Temporal is a durable execution system for writing long-running, fault-tolerant workflows as ordinary code. The chart deploys the server, frontend, matching and history services.',
     category: 'developer',
     tone: 'violet',
-    popularity: 890_000,
     tags: ['workflows', 'durable-execution', 'orchestration', 'saga'],
     defaultNamespace: 'temporal',
     fields: [
@@ -1207,22 +978,9 @@ const SEED_CATALOG: SeedChart[] = [
     source: 'partner',
     publisherUrl: 'https://temporal.io',
     verifiedPublisher: true,
-    provenance: {
-      signed: true,
-      signer: 'Temporal Technologies',
-      signature: 'notation',
-      scanned: true,
-      scanner: 'trivy',
-      grade: 'B',
-      criticalCves: 0,
-      highCves: 2,
-      sbom: true,
-      scannedAt: '2026-08-08T16:20:00Z',
-    },
     compatibility: {
       minKubeVersion: '1.27',
       dependsOn: ['postgresql'],
-      testedOn: ['adhar-1.5'],
     },
   },
   {
@@ -1232,14 +990,11 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: '8gears (community)',
     repository: 'open-8gears',
     repoUrl: 'https://8gears.container-registry.com/chartrepo/library',
-    version: '0.25.2',
-    appVersion: '1.64.0',
     description: 'Fair-code workflow automation — 400+ integrations, visual editor.',
     longDescription:
       'n8n is a workflow automation tool that connects APIs and services with a node-based visual editor. This community-maintained chart deploys the editor, webhook and worker processes.',
     category: 'developer',
     tone: 'rose',
-    popularity: 310_000,
     tags: ['automation', 'workflows', 'integrations', 'low-code'],
     defaultNamespace: 'automation',
     fields: [
@@ -1249,17 +1004,6 @@ const SEED_CATALOG: SeedChart[] = [
     ],
     source: 'community',
     publisherUrl: 'https://github.com/8gears/n8n-helm-chart',
-    provenance: {
-      signed: false,
-      signature: 'none',
-      scanned: true,
-      scanner: 'trivy',
-      grade: 'C',
-      criticalCves: 1,
-      highCves: 6,
-      sbom: false,
-      scannedAt: '2026-07-31T11:47:00Z',
-    },
     compatibility: {
       minKubeVersion: '1.26',
       dependsOn: ['postgresql'],
@@ -1272,14 +1016,11 @@ const SEED_CATALOG: SeedChart[] = [
     publisher: 'dirsigler (community)',
     repository: 'uptime-kuma',
     repoUrl: 'https://helm.irsigler.cloud',
-    version: '2.21.0',
-    appVersion: '1.23.16',
     description: 'Self-hosted uptime monitoring with a slick status page.',
     longDescription:
       'Uptime Kuma is a self-hosted monitoring tool — HTTP(s), TCP, DNS and ping monitors, notifications to 90+ services, and shareable status pages. Community-maintained chart.',
     category: 'observability',
     tone: 'emerald',
-    popularity: 145_000,
     tags: ['uptime', 'monitoring', 'status-page', 'alerts'],
     defaultNamespace: 'monitoring',
     fields: [
@@ -1288,7 +1029,6 @@ const SEED_CATALOG: SeedChart[] = [
     ],
     source: 'community',
     publisherUrl: 'https://github.com/dirsigler/uptime-kuma-helm',
-    provenance: { signed: false, signature: 'none', scanned: false },
     compatibility: { minKubeVersion: '1.24' },
   },
 ]

@@ -1,4 +1,4 @@
-import type { Diagram, DiagramType } from './types.ts'
+import type { DiagramType } from './types.ts'
 
 export const TYPE_LABEL: Record<DiagramType, string> = {
   flowchart: 'Flowchart',
@@ -260,82 +260,6 @@ export const TEMPLATES: Record<DiagramType, { label: string; source: string }[]>
     },
   ],
 }
-
-const ts = '2026-04-22T10:00:00Z'
-
-export const SEED_DIAGRAMS: Diagram[] = [
-  {
-    id: 'diag-topology',
-    title: 'Platform topology',
-    type: 'flowchart',
-    source: TEMPLATES.flowchart[0].source,
-    tags: ['platform', 'system'],
-    created_at: ts,
-    updated_at: ts,
-  },
-  {
-    id: 'diag-auth-flow',
-    title: 'Authenticated request flow',
-    type: 'sequence',
-    source: TEMPLATES.sequence[0].source,
-    tags: ['security', 'auth'],
-    created_at: ts,
-    updated_at: ts,
-  },
-  {
-    id: 'diag-delivery',
-    title: 'Delivery pipeline',
-    type: 'flowchart',
-    source: `flowchart LR
-  PR[Gitea PR merged]--> AW[Tekton PipelineRun]
-  AW --> HB[Harbor image]
-  HB --> KR[Kargo warehouse]
-  KR --> KS[stage: dev]
-  KS -->|promote| KST[stage: staging]
-  KST -->|promote| KSP[stage: prod]
-  KSP --> AR[Argo Rollout: canary]
-  AR --> OK[Healthy]`,
-    tags: ['delivery', 'gitops'],
-    created_at: ts,
-    updated_at: ts,
-  },
-  {
-    id: 'diag-issue-state',
-    title: 'Issue lifecycle',
-    type: 'stateDiagram',
-    source: TEMPLATES.stateDiagram[0].source,
-    tags: ['domain', 'plane'],
-    created_at: ts,
-    updated_at: ts,
-  },
-  {
-    id: 'diag-domain',
-    title: 'Plane domain model',
-    type: 'erDiagram',
-    source: TEMPLATES.erDiagram[0].source,
-    tags: ['domain', 'data'],
-    created_at: ts,
-    updated_at: ts,
-  },
-  {
-    id: 'diag-context',
-    title: 'C4 context — Adhar Console',
-    type: 'C4Context',
-    source: TEMPLATES.C4Context[0].source,
-    tags: ['architecture', 'c4'],
-    created_at: ts,
-    updated_at: ts,
-  },
-  {
-    id: 'diag-q3',
-    title: 'Q3 delivery plan',
-    type: 'gantt',
-    source: TEMPLATES.gantt[0].source,
-    tags: ['plan', 'timeline'],
-    created_at: ts,
-    updated_at: ts,
-  },
-]
 
 /* ───────────── Template gallery ─────────────
  * Ready-made Adhar architecture diagrams for the "New diagram" gallery. Each

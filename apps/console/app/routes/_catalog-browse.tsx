@@ -64,6 +64,7 @@ import {
   withRepoTech,
 } from '~/data/catalog-tech-badges.ts'
 import { TechStackTab } from '~/components/catalog-tech-stack.tsx'
+import { CatalogEmpty } from '~/components/catalog-empty.tsx'
 import { useCompositionRoots } from '~/data/catalog-composition.ts'
 import { CompositionTab, compositionBadge } from './_catalog-composition.tsx'
 import { RawTab } from './_catalog-raw.tsx'
@@ -542,6 +543,8 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
   }, [list])
 
   const attentionCount = useMemo(() => list.filter(needsAttention).length, [list])
+  // Nothing live and nothing registered: an empty-state page, never sample data.
+  const catalogEmpty = !q.isLoading && list.length === 0
 
   const selectedEntity = useMemo(
     () => (search.entity ? findEntity(list, search.entity) : undefined),
@@ -552,6 +555,8 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
     <div className="space-y-8">
       <CatalogHeader onRegister={() => setRegisterOpen(true)} />
 
+      {catalogEmpty ? <CatalogEmpty sources={q.sources} onRegister={() => setRegisterOpen(true)} /> : (
+      <>
       <CoveragePanel coverage={coverage} stars={stars.length} attention={attentionCount} />
 
       {!isFiltering && starredEntities.length > 0 ? (
@@ -599,6 +604,8 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
         onClearSearch={() => setText('')}
         searchInputRef={searchInputRef}
       />
+      </>
+      )}
 
       {selectedEntity ? (
         <EntityDrawer

@@ -62,7 +62,7 @@ export const Route = createFileRoute('/$phase')({
 
 function PhaseLayout() {
   const { phase } = Route.useParams()
-  const { tenants, activeTenant, notifications } = Route.useLoaderData()
+  const { tenants, activeTenant } = Route.useLoaderData()
   const user = useOptionalSession()?.user ?? PENDING_USER
   const { section } = Route.useSearch()
   // Cluster + namespace pickers: every Platform page, and Develop's Builds
@@ -79,7 +79,6 @@ function PhaseLayout() {
         { label: 'Home', to: '/' },
         { label: PHASE_LABEL[phase as keyof typeof PHASE_LABEL] },
       ]}
-      notifications={notifications}
       contentWidth={PHASE_WIDTH[phase as keyof typeof PHASE_WIDTH]}
       headerControls={clusterScoped ? <PlatformSelectionControls /> : undefined}
     >

@@ -49,7 +49,7 @@ export const Route = createFileRoute('/catalog')({
 })
 
 function CatalogPage() {
-  const { tenants, activeTenant, notifications } = Route.useLoaderData()
+  const { tenants, activeTenant } = Route.useLoaderData()
   const user = useOptionalSession()?.user ?? PENDING_USER
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
@@ -68,7 +68,6 @@ function CatalogPage() {
           { label: isCreate ? 'Create New' : 'Service Catalog' },
         ].filter(Boolean) as Array<{ label: string; to?: string }>
       }
-      notifications={notifications}
       contentWidth="full"
     >
       {isCreate ? (

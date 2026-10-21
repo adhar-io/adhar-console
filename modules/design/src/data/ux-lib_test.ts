@@ -11,8 +11,8 @@ import {
   stageScore,
   wrapText,
 } from './ux-lib.ts'
-import { SEED_ADRS, SEED_JOURNEYS, SEED_PERSONAS } from './seed.ts'
-import { DEFAULT_TOKENS } from './tokens-seed.ts'
+import { TEST_ADRS, TEST_JOURNEYS, TEST_PERSONAS } from './testdata/ux-fixtures.ts'
+import { DEFAULT_TOKENS } from './tokens-starter.ts'
 import type { Journey, Persona } from './types.ts'
 
 const persona: Persona = {
@@ -76,8 +76,8 @@ Deno.test('wrapText wraps on words and splits long words', () => {
 })
 
 Deno.test('journey markdown + svg export', () => {
-  const j = SEED_JOURNEYS[0]
-  const p = SEED_PERSONAS.find((x) => x.id === j.persona)
+  const j = TEST_JOURNEYS[0]
+  const p = TEST_PERSONAS.find((x) => x.id === j.persona)
   const md = journeyToMarkdown(j, p)
   assert(md.startsWith(`# ${j.name}`))
   for (const s of j.stages) assert(md.includes(`. ${s.name}`))
@@ -91,9 +91,9 @@ Deno.test('coverage hints come only from real gaps', () => {
   const now = new Date('2026-10-17T00:00:00Z')
   const orphan: Journey = { id: 'j2', name: 'Orphan', persona: 'missing', summary: '', stages: [] }
   const hints = coverageHints({
-    personas: SEED_PERSONAS,
-    journeys: [...SEED_JOURNEYS, orphan],
-    adrs: [{ ...SEED_ADRS[0], status: 'proposed', updated_at: '2026-09-01T00:00:00Z' }],
+    personas: TEST_PERSONAS,
+    journeys: [...TEST_JOURNEYS, orphan],
+    adrs: [{ ...TEST_ADRS[0], status: 'proposed', updated_at: '2026-09-01T00:00:00Z' }],
     tokens: DEFAULT_TOKENS,
     now,
   })

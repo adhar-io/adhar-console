@@ -148,7 +148,14 @@ export function NotificationCenter() {
       {!live ? (
         <div className="mb-6 flex items-start gap-2.5 rounded-xl border border-amber-300/60 bg-amber-50/70 px-4 py-3 text-[12px] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
           <span className="mt-0.5 shrink-0"><IconInfo /></span>
-          <span>The notification feed needs the console database (<code className="font-mono">DATABASE_URL</code>). Until then only the built-in seed is shown.</span>
+          {feed.isError ? (
+            <span className="flex flex-1 flex-wrap items-center justify-between gap-2">
+              <span>Couldn't reach the notification feed (<code className="font-mono">/api/notifications</code>){feed.error instanceof Error ? `: ${feed.error.message}` : ''}.</span>
+              <button type="button" onClick={() => void feed.refetch()} className="rounded-md border border-amber-300/70 px-2 py-0.5 font-medium hover:bg-amber-100 dark:border-amber-500/40 dark:hover:bg-amber-500/20">Retry</button>
+            </span>
+          ) : (
+            <span>The notification feed needs the console database (<code className="font-mono">DATABASE_URL</code>). Until it is configured no notifications are recorded or shown.</span>
+          )}
         </div>
       ) : null}
 

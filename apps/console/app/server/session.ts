@@ -1,8 +1,8 @@
 import { DEFAULT_TENANT } from '@adhar/tenancy'
-import type { Notification } from '@adhar/shell-ui'
 
 /**
- * App-shell layout data: the available tenants and the seed notification feed.
+ * App-shell layout data: the available tenants. Notifications are NOT part of
+ * it — the shell reads the real feed from `/api/notifications` (no seed).
  *
  * The signed-in **user** is intentionally NOT resolved here. In production the
  * shell only renders client-side after `AuthProvider` has loaded the session
@@ -19,14 +19,6 @@ export function getLayoutData() {
   return {
     tenants: [DEFAULT_TENANT],
     activeTenant: DEFAULT_TENANT,
-    // No notifications from the loader. They used to be six fabricated events
-    // ("adhar-console v0.1.4 deployed to production", a review request from a
-    // person who does not exist) returned on EVERY request, production
-    // included — indistinguishable from real platform activity and impossible
-    // to act on. The real feed is `/api/notifications`, DB-backed and
-    // tenant-scoped; `useNotifications` reads it and now shows an honest empty
-    // state until something actually happens.
-    notifications: [],
   }
 }
 

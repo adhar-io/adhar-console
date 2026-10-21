@@ -6,15 +6,13 @@ import { Kbd } from './primitives.tsx'
 import { AppLauncher, type AppLink } from './app-launcher.tsx'
 import { ModeToggle } from './mode-toggle.tsx'
 import { LiveIndicator } from './live-indicator.tsx'
-import { useNotifications, type Notification } from './notifications.ts'
+import { useNotifications } from './notifications.ts'
 import { NotificationCard } from './notification-center.tsx'
 import { useAi } from './ai-assistant.tsx'
 import type { User } from '@adhar/auth'
 
 interface Props {
   user: User
-  /** Seed notifications — usually from the route loader. Client layer manages read/dismissed state. */
-  notifications?: Notification[]
   /** Override the default app-launcher entries (BFF will supply real URLs per tenant). */
   apps?: AppLink[]
   onSignOut?(): void
@@ -28,7 +26,6 @@ interface Props {
 
 export function Topbar({
   user,
-  notifications = [],
   apps,
   onSignOut,
   onOpenCommandPalette,
@@ -114,7 +111,7 @@ export function Topbar({
           <span className="hidden sm:contents"><HelpMenu /></span>
           <ModeToggle />
           <AppLauncher apps={apps} />
-          <NotificationsMenu seed={notifications} />
+          <NotificationsMenu />
           <span className="mx-1 hidden h-6 w-px bg-edge-subtle sm:block" aria-hidden />
           <UserMenu user={user} onSignOut={onSignOut} />
         </div>
@@ -213,10 +210,10 @@ function HelpMenu() {
 
 type Filter = 'all' | 'unread' | 'insight'
 
-function NotificationsMenu({ seed }: { seed: Notification[] }) {
+function NotificationsMenu() {
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState<Filter>('all')
-  const api = useNotifications(seed)
+  const api = useNotifications()
   const ai = useAi()
   const ref = useRef<HTMLButtonElement>(null)
   const { items, unreadCount, markRead, markAllRead, dismiss, dismissAll } = api
@@ -241,8 +238,7 @@ function NotificationsMenu({ seed }: { seed: Notification[] }) {
             <div>
               <div className="text-sm font-semibold text-content">Notifications</div>
               <div className="text-[11px] text-content-muted">
-                {unreadCount ? `${unreadCount} unread · ${items.length} recent` : items.length ? `${items.length} recent` : 'All caught up'}
-                {!api.live ? ' · offline' : ''}
+                {!api.live ? (api.loading ? 'Loading…' : 'Feed unavailable') : unreadCount ? `${unreadCount} unread · ${items.length} recent` : items.length ? `${items.length} recent` : 'All caught up'}
               </div>
             </div>
             <div className="flex items-center gap-1 rounded-md bg-surface-sunken p-0.5 text-[11px] font-medium">
@@ -252,7 +248,17 @@ function NotificationsMenu({ seed }: { seed: Notification[] }) {
             </div>
           </div>
 
-          {visible.length === 0 ? (
+          {!api.live && !api.loading ? (
+            <div className="px-3 py-10 text-center">
+              <div className="text-sm font-medium text-content">Notification feed unavailable</div>
+              <div className="mt-0.5 text-xs text-content-muted">
+                {api.error ? `Couldn't reach /api/notifications (${api.error.message}).` : 'The feed needs the console database (DATABASE_URL) to record events.'}
+              </div>
+              <button type="button" onClick={api.refresh} className="mt-3 inline-flex h-8 items-center rounded-lg border border-edge-default bg-surface-raised px-3 text-[12px] font-medium text-content-muted hover:border-brand-300 hover:text-content">
+                Retry
+              </button>
+            </div>
+          ) : visible.length === 0 ? (
             <div className="px-3 py-10 text-center">
               <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10"><IconCheck /></div>
               <div className="text-sm font-medium text-content">{filter === 'unread' ? 'Nothing unread' : filter === 'insight' ? 'No insights yet' : "You're all caught up"}</div>

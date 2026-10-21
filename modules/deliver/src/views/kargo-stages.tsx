@@ -361,7 +361,7 @@ export function KargoStages() {
     )
   }
   if (stages.isError) {
-    return <EmptyState title="Couldn't reach Kargo" description={stages.error instanceof Error ? stages.error.message : 'The Kargo CRDs are not readable with your access.'} />
+    return <EmptyState title="Couldn't reach Kargo" description={stages.error instanceof Error ? stages.error.message : 'The Kargo CRDs are not readable with your access.'} action={<Button size="sm" variant="secondary" onClick={() => stages.refetch()}>Retry</Button>} />
   }
 
   const hiddenCount = phaseF === 'all' ? 0 : stageList.filter((s) => !visibleStage(s)).length

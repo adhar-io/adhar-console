@@ -1,8 +1,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, EmptyState, Markdown, Modal, StatusBadge, useOptionalUser, useToast } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
-import { KIND, type Listed, newId, useCollection, useCreate, useRemove, useSeedExamples, useUpdate } from '../data/store.ts'
-import { SEED_API_SPECS } from '../data/seed.ts'
+import { KIND, type Listed, newId, useCollection, useCreate, useRemove, useUpdate } from '../data/store.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import type { ApiSpec } from '../data/types.ts'
 import {
@@ -125,7 +124,6 @@ export function ApiSchemas() {
   const { items: list, isLoading, error, refetch } = useCollection<SpecDoc>(KIND.apiSpec)
   const createSpec = useCreate<SpecDoc>(KIND.apiSpec)
   const removeSpec = useRemove(KIND.apiSpec)
-  const seed = useSeedExamples<SpecDoc>(KIND.apiSpec)
   const params = useDesignParams()
   const setParams = useSetDesignParams()
   const toast = useToast()
@@ -332,20 +330,7 @@ export function ApiSchemas() {
             title="Design APIs contract-first"
             description="Write OpenAPI, AsyncAPI or JSON Schema with live validation, browse endpoints with generated examples and request snippets, and track breaking changes between versions."
             action={
-              <div className="flex flex-wrap justify-center gap-2">
-                <Button size="sm" variant="primary" leading={<Icon name="plus" />} onClick={() => setNewOpen(true)}>New spec</Button>
-                <Button
-                  size="sm"
-                  loading={seed.isPending}
-                  onClick={() =>
-                    seed.mutate(SEED_API_SPECS as SpecDoc[], {
-                      onSuccess: () => toast.success('Example specs added'),
-                      onError: (e) => toast.error('Could not load examples', { description: e.message }),
-                    })}
-                >
-                  Load examples
-                </Button>
-              </div>
+              <Button size="sm" variant="primary" leading={<Icon name="plus" />} onClick={() => setNewOpen(true)}>New spec</Button>
             }
           />
         )

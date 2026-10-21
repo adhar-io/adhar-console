@@ -151,7 +151,7 @@ export function ClusterPicker() {
                       </span>
                       <span className="mt-0.5 block truncate font-mono text-[10px] text-content-subtle">
                         {c.healthy
-                          ? `${c.version || 'version unknown'} · ${c.nodeCount} node${c.nodeCount === 1 ? '' : 's'}`
+                          ? `${c.version || 'version unknown'} · ${c.nodesKnown === false ? 'nodes unknown' : `${c.nodeCount} node${c.nodeCount === 1 ? '' : 's'}`}`
                           : 'unreachable'}
                       </span>
                     </span>

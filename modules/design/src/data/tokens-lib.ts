@@ -19,7 +19,7 @@ import type {
   TokenSet,
   ValueToken,
 } from './types.ts'
-import { DEFAULT_TOKENS } from './tokens-seed.ts'
+import { DEFAULT_TOKENS } from './tokens-starter.ts'
 
 export type TokenCategory = keyof TokenSet
 export type Mode = 'light' | 'dark'

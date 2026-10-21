@@ -33,7 +33,7 @@ export function PerfReadiness() {
     queryFn: async () => {
       const res = await fetch('/api/scorecards', { credentials: 'same-origin', headers: { accept: 'application/json' } })
       if (!res.ok) throw new Error(`scorecards: ${res.status}`)
-      return (await res.json()) as { configured?: boolean; lastRun?: string; services?: ScorerApplication[]; error?: string }
+      return (await res.json()) as { configured?: boolean; lastRun?: string; services?: ScorerApplication[]; error?: string; detail?: string }
     },
     refetchInterval: 120_000,
     staleTime: 60_000,
@@ -51,6 +51,23 @@ export function PerfReadiness() {
 
   if (q.isLoading) {
     return <div className="flex justify-center py-16"><Spinner /></div>
+  }
+  // `not_installed` is the honest "never ran here" case below; every other
+  // code means the results exist (or may) but could not be read.
+  if (q.isError || (q.data?.error && q.data.error !== 'not_installed')) {
+    return (
+      <EmptyState
+        title="Couldn't read the platform scorer's results"
+        description={
+          q.error instanceof Error
+            ? q.error.message
+            : q.data?.error === 'forbidden'
+            ? 'Your account may not read the adhar-scorecards ConfigMap. Ask a platform admin for access.'
+            : `The scorer's results could not be read (${q.data?.error}${q.data?.detail ? `: ${q.data.detail}` : ''}).`
+        }
+        action={<Button size="sm" variant="secondary" onClick={() => q.refetch()}>Retry</Button>}
+      />
+    )
   }
   if (!q.data?.configured) {
     return (

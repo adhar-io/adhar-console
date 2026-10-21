@@ -9,7 +9,6 @@ import {
   StatusBadge,
   useNotifications,
   type AppLink,
-  type Notification,
   useOverlayDismiss,
 } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
@@ -130,9 +129,8 @@ interface PanelDef {
   render(ctx: PanelCtx): ReactNode
 }
 
-interface PanelCtx {
-  notifications: Notification[]
-}
+/** Per-render context handed to every panel (currently nothing). */
+type PanelCtx = Record<string, never>
 
 const SIZE_LABEL: Record<PanelSize, string> = {
   sm: 'Quarter',
@@ -312,7 +310,7 @@ const PANELS: PanelDef[] = [
     description: 'Last five events from deploys, policy, and reviews.',
     category: 'shortcuts',
     defaultSize: 'lg',
-    render: (ctx) => <RecentNotificationsPanel seed={ctx.notifications} />,
+    render: () => <RecentNotificationsPanel />,
   },
   {
     id: 'cost-trend',
@@ -688,7 +686,7 @@ function resolveOrder(layout: OverviewLayout): PanelDef[] {
 /* ───────────────────── page ───────────────────── */
 
 function LandingPage() {
-  const { tenants, activeTenant, notifications } = Route.useLoaderData()
+  const { tenants, activeTenant } = Route.useLoaderData()
   const user = useOptionalSession()?.user ?? PENDING_USER
   const firstName = user.name.split(' ')[0]
 
@@ -729,7 +727,6 @@ function LandingPage() {
       activeTenantId={activeTenant.id}
       onTenantChange={() => {}}
       crumbs={[{ label: 'Overview' }]}
-      notifications={notifications}
       contentWidth="full"
     >
       <div className="space-y-6">
@@ -753,7 +750,7 @@ function LandingPage() {
             onReorder={onReorder}
             disabled={false}
             spanClassName={(p) => LG_SPAN[packedSpans.get(p.id) ?? SIZE_SPAN[sizeFor(layout, p)]]}
-            render={(p) => p.render({ notifications })}
+            render={(p) => p.render({})}
           />
         )}
       </div>
@@ -1954,13 +1951,42 @@ function IconArrowUpRight() {
   )
 }
 
-function RecentNotificationsPanel({ seed }: { seed: Notification[] }) {
-  const { items } = useNotifications(seed)
+function RecentNotificationsPanel() {
+  const { items, live, loading, error, refresh } = useNotifications()
   const recent = items.slice(0, 5)
+  if (loading) {
+    return (
+      <div className="rounded-xl border border-edge-default bg-surface-raised p-6 text-center text-sm text-content-muted shadow-sm">
+        Loading notifications…
+      </div>
+    )
+  }
+  if (!live) {
+    // Not live = the feed could not be read (request failed) or the console
+    // has no database to persist it. Say which, never fall back to samples.
+    return (
+      <div className="rounded-xl border border-edge-default bg-surface-raised p-6 text-center text-sm shadow-sm">
+        <div className="font-medium text-content">Notification feed unavailable</div>
+        <div className="mt-1 text-xs text-content-muted">
+          {error
+            ? `Couldn't reach /api/notifications (${error.message}).`
+            : 'The notification feed needs the console database (DATABASE_URL).'}
+        </div>
+        <button
+          type="button"
+          onClick={refresh}
+          className="mt-3 inline-flex h-8 items-center rounded-lg border border-edge-default bg-surface-raised px-3 text-[12px] font-medium text-content-muted hover:text-content"
+        >
+          Retry
+        </button>
+      </div>
+    )
+  }
   if (!recent.length) {
     return (
       <div className="rounded-xl border border-edge-default bg-surface-raised p-6 text-center text-sm text-content-muted shadow-sm">
-        You're all caught up.
+        <div className="font-medium text-content">You're all caught up</div>
+        <div className="mt-1 text-xs">Deploys, policy failures, drift and Adhar AI outcomes will appear here as they happen.</div>
       </div>
     )
   }

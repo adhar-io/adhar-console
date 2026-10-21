@@ -144,7 +144,7 @@ const TROUBLE = [
 ]
 
 function HelpPage() {
-  const { tenants, activeTenant, notifications } = Route.useLoaderData()
+  const { tenants, activeTenant } = Route.useLoaderData()
   const user = useOptionalSession()?.user ?? PENDING_USER
   const config = useAppConfig()
   const docs = useDocsUrl()
@@ -174,7 +174,6 @@ function HelpPage() {
       activeTenantId={activeTenant.id}
       onTenantChange={() => {}}
       crumbs={[{ label: 'Home', to: '/' }, { label: 'Help' }]}
-      notifications={notifications}
     >
       <PageHeader title="Help" />
 

@@ -78,7 +78,7 @@ const SECTION_TABS = [
 ] as const satisfies ReadonlyArray<{ id: SectionId; label: string; description: string }>
 
 function ProfilePage() {
-  const { tenants, activeTenant, notifications } = Route.useLoaderData()
+  const { tenants, activeTenant } = Route.useLoaderData()
   const session = useOptionalSession()
   const user = session?.user ?? PENDING_USER
   const [section, setSection] = useState<SectionId>('profile')
@@ -99,7 +99,6 @@ function ProfilePage() {
       activeTenantId={activeTenant.id}
       onTenantChange={() => {}}
       crumbs={[{ label: 'Home', to: '/' }, { label: 'Profile' }]}
-      notifications={notifications}
       contentWidth="full"
     >
       <PageHeader

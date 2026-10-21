@@ -10,7 +10,7 @@ export const Route = createFileRoute('/notifications')({
 })
 
 function NotificationsPage() {
-  const { tenants, activeTenant, notifications } = Route.useLoaderData()
+  const { tenants, activeTenant } = Route.useLoaderData()
   const user = useOptionalSession()?.user ?? PENDING_USER
   return (
     <AppShell
@@ -19,7 +19,6 @@ function NotificationsPage() {
       activeTenantId={activeTenant.id}
       onTenantChange={() => {}}
       crumbs={[{ label: 'Home', to: '/' }, { label: 'Notifications' }]}
-      notifications={notifications}
     >
       <NotificationCenter />
     </AppShell>

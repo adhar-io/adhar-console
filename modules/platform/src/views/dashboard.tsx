@@ -172,51 +172,55 @@ export function PlatformDashboard() {
         nodes={nodes.data ?? []}
         readyNodes={readyNodes}
         totalNodes={totalNodes}
-        namespaces={namespaces.data?.length ?? 0}
-        apiGroups={surface.data?.apiGroups.length ?? 0}
+        namespaces={namespaces.data?.length}
+        apiGroups={surface.data?.apiGroups.length}
       />
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <HeroStat
           label="Nodes"
-          value={String(totalNodes)}
+          value={countOf(nodes)}
           tone={readyNodes === totalNodes ? 'emerald' : 'amber'}
           icon={<IconServer />}
-          hint={`${readyNodes} ready · ${totalNodes - readyNodes} attention`}
+          hint={nodes.data ? `${readyNodes} ready · ${totalNodes - readyNodes} attention` : unreadHint(nodes)}
         />
         <HeroStat
           label="Pods"
-          value={String(podCount)}
+          value={countOf(pods)}
           tone="brand"
           icon={<IconBox />}
-          hint={`${podPhases.Running} running · ${podPhases.Pending + podPhases.Failed} attention`}
+          hint={pods.data ? `${podPhases.Running} running · ${podPhases.Pending + podPhases.Failed} attention` : unreadHint(pods)}
         />
         <HeroStat
           label="Workloads"
-          value={String(totalWorkloads)}
+          value={deployments.data && statefulSets.data ? String(totalWorkloads) : '—'}
           tone="violet"
           icon={<IconLayer />}
-          hint={`${deployments.data?.length ?? 0} deploys · ${statefulSets.data?.length ?? 0} ss`}
+          hint={
+            deployments.data && statefulSets.data
+              ? `${deployments.data.length} deploys · ${statefulSets.data.length} ss`
+              : unreadHint(deployments.data ? statefulSets : deployments)
+          }
         />
         <HeroStat
           label="Namespaces"
-          value={String(namespaces.data?.length ?? 0)}
+          value={countOf(namespaces)}
           tone="sky"
           icon={<IconFolder />}
-          hint={`${nsActive} active`}
+          hint={namespaces.data ? `${nsActive} active` : unreadHint(namespaces)}
         />
         <HeroStat
           label="API groups"
-          value={String(surface.data?.apiGroups.length ?? 0)}
+          value={surface.data ? String(surface.data.apiGroups.length) : '—'}
           tone="emerald"
           icon={<IconCode />}
           hint={version.data?.gitVersion ?? '—'}
         />
         <HeroStat
           label="Events · warn"
-          value={String(warns)}
-          tone={warns > 0 ? 'rose' : 'emerald'}
+          value={events.data ? String(warns) : '—'}
+          tone={!events.data ? 'amber' : warns > 0 ? 'rose' : 'emerald'}
           icon={<IconBell />}
-          hint={`${events.data?.length ?? 0} total this hour`}
+          hint={events.data ? `${events.data.length} total this hour` : unreadHint(events)}
         />
       </div>
 
@@ -883,6 +887,16 @@ function GaugeTile({
   )
 }
 
+/** A list query's count, or "—" when the source has not answered (error / loading) — never a fake 0. */
+function countOf(q: { data?: readonly unknown[] }): string {
+  return q.data ? String(q.data.length) : '—'
+}
+
+/** Hint for a stat whose source did not answer. */
+function unreadHint(q: { isError?: boolean; isLoading?: boolean }): string {
+  return q.isError ? 'could not read' : q.isLoading ? 'loading…' : 'unavailable'
+}
+
 function HeroStat({
   label,
   value,
@@ -981,8 +995,9 @@ function ClusterSummary({
   nodes: Array<{ status?: { nodeInfo?: { kubeletVersion?: string; containerRuntimeVersion?: string; osImage?: string; architecture?: string } } }>
   readyNodes: number
   totalNodes: number
-  namespaces: number
-  apiGroups: number
+  /** Undefined when the source did not answer — rendered as "—", never 0. */
+  namespaces?: number
+  apiGroups?: number
 }) {
   const sample = nodes[0]?.status?.nodeInfo
   return (
@@ -1012,8 +1027,8 @@ function ClusterSummary({
         </div>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <SummaryStat label="Nodes" value={`${readyNodes}/${totalNodes}`} hint="ready" />
-          <SummaryStat label="Namespaces" value={String(namespaces)} hint="active" />
-          <SummaryStat label="API groups" value={String(apiGroups)} hint="available" />
+          <SummaryStat label="Namespaces" value={namespaces === undefined ? '—' : String(namespaces)} hint="active" />
+          <SummaryStat label="API groups" value={apiGroups === undefined ? '—' : String(apiGroups)} hint="available" />
           {sample?.osImage ? (
             <SummaryStat label="OS" value={sample.osImage.split(' ')[0]} hint={sample.architecture} />
           ) : null}

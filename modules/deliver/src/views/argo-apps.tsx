@@ -299,6 +299,7 @@ export function ArgoApps() {
       <EmptyState
         title="Couldn't reach ArgoCD"
         description={q.error instanceof Error ? q.error.message : 'Unknown error.'}
+        action={<Button size="sm" variant="secondary" onClick={() => q.refetch()}>Retry</Button>}
       />
     )
   }

@@ -8,10 +8,8 @@ import {
   useCollection,
   useCreate,
   useRemove,
-  useSeedExamples,
   useUpdate,
 } from '../data/store.ts'
-import { SEED_ADRS } from '../data/seed.ts'
 import {
   ADR_TEMPLATES,
   type AdrDoc,
@@ -92,7 +90,6 @@ export function Adrs() {
   const createAdr = useCreate<AdrDoc>(KIND.adr)
   const updateAdr = useUpdate<AdrDoc>(KIND.adr)
   const removeAdr = useRemove(KIND.adr)
-  const seed = useSeedExamples<AdrDoc>(KIND.adr)
   const params = useDesignParams()
   const setParams = useSetDesignParams()
   const toast = useToast()
@@ -419,22 +416,9 @@ export function Adrs() {
           title="Record your first architecture decision"
           description="ADRs capture why the platform looks the way it does — the context, the options you weighed, and the consequences you accepted. Use the MADR template, move decisions through proposed → accepted → superseded, and commit them to docs/adr in Gitea."
           action={
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <Button size="sm" variant="primary" leading={<Icon name="plus" />} onClick={() => setCreateOpen(true)}>
-                New ADR
-              </Button>
-              <Button
-                size="sm"
-                loading={seed.isPending}
-                onClick={() =>
-                  seed.mutate(SEED_ADRS as AdrDoc[], {
-                    onSuccess: () => toast.success('Example ADRs added'),
-                    onError: (e) => toast.error('Could not load examples', { description: e.message }),
-                  })}
-              >
-                Load examples
-              </Button>
-            </div>
+            <Button size="sm" variant="primary" leading={<Icon name="plus" />} onClick={() => setCreateOpen(true)}>
+              New ADR
+            </Button>
           }
         />
         {modals}

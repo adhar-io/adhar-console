@@ -14,7 +14,7 @@ import { useEffectiveTokens, useSaveTokenDoc } from '../data/token-scope.ts'
 import { computeOverrides, droppedTokens } from '../data/token-publish.ts'
 import { LatestPublishBadge, PaletteAiModal, PublishHistory, PublishModal, RepoImportRow } from '../components/token-integrations.tsx'
 import { AskAiButton } from '../components/integrations.tsx'
-import { DEFAULT_TOKENS } from '../data/tokens-seed.ts'
+import { DEFAULT_TOKENS } from '../data/tokens-starter.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import type { ColorToken, MotionToken, TokenSet, TokenSnapshot, ValueToken } from '../data/types.ts'
 import { useDesignParams, useSetDesignParams } from '../data/nav.ts'
@@ -117,6 +117,46 @@ export function Tokens() {
   if (error) return <ErrorBlock error={error} />
   if (isLoading || !draft) return <LoadingBlock label="Loading design tokens…" />
 
+  // Nothing stored yet: start empty until the user explicitly picks a starting
+  // point — the built-in starter set is a template, never shown as their tokens.
+  if (!eff.workspaceStored && !eff.overrideCount) {
+    const start = (label: string, next: TokenSet) =>
+      saveDoc.mutateAsync({ id: TOKEN_SET_ID, data: next })
+        .then(() => toast.success(label))
+        .catch((e: Error) => toast.error('Could not create the token set', { description: e.message }))
+    return (
+      <div className="space-y-4">
+        <EmptyState
+          title="No design tokens yet"
+          description={`${project ? 'This workspace has no token set yet — a project only overrides the workspace set, so set that up first. ' : ''}Colours, typography, spacing, radius, shadows, motion and breakpoints live here once you create a set; they theme the Visual Designer and publish to code.`}
+          action={
+            <div className="flex flex-wrap justify-center gap-2">
+              <Button size="sm" variant="primary" loading={saveDoc.isPending} onClick={() => start('Token set created from the Adhar starter', DEFAULT_TOKENS)}>
+                Start from the Adhar starter set
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => setImportOpen(true)} leading={<IconUpload size={12} />}>
+                Import tokens
+              </Button>
+              <Button size="sm" variant="ghost" disabled={saveDoc.isPending} onClick={() => start('Empty token set created', EMPTY_TOKENS)}>
+                Start empty
+              </Button>
+            </div>
+          }
+        />
+        <ImportModal
+          open={importOpen}
+          onClose={() => setImportOpen(false)}
+          scope={scope}
+          current={EMPTY_TOKENS}
+          onApply={(next, count) => {
+            setImportOpen(false)
+            void start(`Imported ${count} token${count === 1 ? '' : 's'}`, next)
+          }}
+        />
+      </div>
+    )
+  }
+
   const tokens: TokenSet = draft
   const replaceAll = (next: TokenSet) => update((d) => ({ id: d.id, ...next }))
   const overrides = project ? computeOverrides(eff.workspace, tokens) : null
@@ -143,10 +183,10 @@ export function Tokens() {
 
   const reset = async () => {
     try {
-      await snapshot(project ? 'Before reset to the workspace set' : 'Before reset to defaults')
+      await snapshot(project ? 'Before reset to the workspace set' : 'Before reset to the starter set')
     } catch { /* history is best effort; the undo toast still covers it */ }
     // A project resets to the workspace set (no overrides); the workspace to the defaults.
-    withUndo(project ? 'Project tokens reset to the workspace set' : 'Tokens reset to defaults', project ? eff.workspace : DEFAULT_TOKENS)
+    withUndo(project ? 'Project tokens reset to the workspace set' : 'Tokens reset to the Adhar starter set', project ? eff.workspace : DEFAULT_TOKENS)
   }
 
   const tabDefs = [
@@ -189,7 +229,7 @@ export function Tokens() {
               { value: 'dark', label: <><IconMoon size={12} /> Dark</> },
             ]}
           />
-          <Button size="sm" variant="ghost" onClick={reset} leading={<IconReset size={12} />} title={project ? 'Drop this project\'s overrides' : 'Back to the default tokens'}>
+          <Button size="sm" variant="ghost" onClick={reset} leading={<IconReset size={12} />} title={project ? 'Drop this project\'s overrides' : 'Replace the set with the Adhar starter tokens'}>
             {project ? 'Reset to workspace' : 'Reset'}
           </Button>
           <AskAiButton onClick={() => setAiOpen(true)}>Palette with AI</AskAiButton>
@@ -293,6 +333,9 @@ export function Tokens() {
     </div>
   )
 }
+
+/** A token set with every category empty — the "Start empty" choice. */
+const EMPTY_TOKENS: TokenSet = Object.fromEntries(CATEGORIES.map((c) => [c, []])) as unknown as TokenSet
 
 type SetCat = <C extends TokenCategory>(cat: C, fn: (list: TokenSet[C]) => TokenSet[C]) => void
 

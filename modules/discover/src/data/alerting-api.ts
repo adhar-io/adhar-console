@@ -221,7 +221,10 @@ export function useRouting() {
           /* fall through to the receivers list + raw YAML */
         }
       }
-      const receivers = await am<Array<{ name: string }>>('/api/v2/receivers').catch(() => [])
+      const receivers = await am<Array<{ name: string }>>('/api/v2/receivers').catch((e: unknown) => (status ? null : Promise.reject(e)))
+      // Status answered but receivers did not → still show what we know; when
+      // neither answered the query fails so the view shows an error + retry
+      // rather than an empty routing tree that reads as "nothing configured".
       return {
         ...meta,
         receivers: (receivers ?? []).map((r) => ({ name: r.name, integrations: [] })),

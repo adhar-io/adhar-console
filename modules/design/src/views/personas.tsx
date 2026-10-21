@@ -17,10 +17,10 @@ import {
   useCollection,
   useCreate,
   useRemove,
-  useSeedExamples,
+  useRestoreDocs,
   useUpdate,
 } from '../data/store.ts'
-import { PERSONA_TEMPLATES, SEED_PERSONAS } from '../data/seed.ts'
+import { PERSONA_TEMPLATES } from '../data/persona-templates.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import type { Journey, Persona } from '../data/types.ts'
 import { designHref, useDesignParams, useGoDesign, useSetDesignParams } from '../data/nav.ts'
@@ -83,7 +83,7 @@ export function Personas() {
   const { items: journeys } = useCollection<Journey>(KIND.journey)
   const create = useCreate<Persona>(KIND.persona)
   const remove = useRemove(KIND.persona)
-  const restore = useSeedExamples<Persona>(KIND.persona)
+  const restore = useRestoreDocs<Persona>(KIND.persona)
   const toast = useToast()
   const params = useDesignParams()
   const setParams = useSetDesignParams()
@@ -256,24 +256,11 @@ export function Personas() {
       {items.length === 0 ? (
         <EmptyState
           title={all.items.length ? `No personas in ${scope.label}` : 'No personas yet'}
-          description="Personas keep the whole team designing for real people. Start from a template, or load three worked examples to see what a complete profile looks like."
+          description="Personas keep the whole team designing for real people. Create one blank, from a template, or drafted by Adhar AI from your research."
           action={
-            <div className="flex flex-wrap justify-center gap-2">
-              <Button size="sm" variant="primary" onClick={() => setTemplatesOpen(true)} leading={<IconPlus size={12} />}>
-                New persona
-              </Button>
-              <Button
-                size="sm"
-                loading={restore.isPending}
-                onClick={() =>
-                  restore.mutate(SEED_PERSONAS, {
-                    onSuccess: () => toast.success('Loaded 3 example personas'),
-                    onError: (e) => toast.error('Could not load examples', { description: e.message }),
-                  })}
-              >
-                Load examples
-              </Button>
-            </div>
+            <Button size="sm" variant="primary" onClick={() => setTemplatesOpen(true)} leading={<IconPlus size={12} />}>
+              New persona
+            </Button>
           }
         />
       ) : view === 'compare' ? (

@@ -19,9 +19,8 @@ import { K8sRolePill } from '../components/role-gate.tsx'
  *   • `WorkloadOps({ namespace, target })` acts directly on a known workload —
  *     used by the Deployment/StatefulSet/DaemonSet drawers.
  *
- * Reads go through the dev-aware `client` (stub fixtures in dev). Mutations use
- * the gateway `kube.patch` in production and are simulated (optimistic-only) in
- * dev so the widget is fully demoable without a cluster.
+ * Reads go through the gateway-backed `client`; mutations use the gateway
+ * `kube.patch`. Nothing is simulated — without a cluster the reads error.
  */
 
 type WorkloadKind = 'Deployment' | 'StatefulSet' | 'DaemonSet' | 'ReplicaSet' | 'Job'

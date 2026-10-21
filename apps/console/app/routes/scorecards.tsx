@@ -72,7 +72,7 @@ export const Route = createFileRoute('/scorecards')({
 })
 
 function ScorecardsPage() {
-  const { tenants, activeTenant, notifications } = Route.useLoaderData()
+  const { tenants, activeTenant } = Route.useLoaderData()
   const user = useOptionalSession()?.user ?? PENDING_USER
   return (
     <AppShell
@@ -81,7 +81,6 @@ function ScorecardsPage() {
       activeTenantId={activeTenant.id}
       onTenantChange={() => {}}
       crumbs={[{ label: 'Home', to: '/' }, { label: 'Scorecards' }]}
-      notifications={notifications}
       contentWidth="full"
     >
       <ScorecardsDashboard />
@@ -132,7 +131,7 @@ const SORTS: Array<{ value: SortKey; label: string }> = [
 ]
 
 function ScorecardsDashboard() {
-  const { scorecards, isLoading, offline, live, platform } = useLiveScorecards()
+  const { scorecards, isLoading, live, platform } = useLiveScorecards()
   // The scorer's rolling series. A single score answers "how are we doing"; only
   // a series answers "are we getting better", which is the question a readiness
   // programme is actually run to answer.
@@ -338,8 +337,8 @@ function ScorecardsDashboard() {
               <StatusBadge kind="paused">catalog-derived only</StatusBadge>
             )}
             {!isLoading && scorecards.length ? (
-              <StatusBadge kind={live ? 'healthy' : offline ? 'paused' : 'info'}>
-                {live ? 'live catalog' : offline ? 'sample data' : 'registered only'}
+              <StatusBadge kind={live ? 'healthy' : 'info'}>
+                {live ? 'live catalog' : 'registered only'}
               </StatusBadge>
             ) : null}
           </span>
@@ -483,8 +482,8 @@ function ScorecardsDashboard() {
               filtering
                 ? 'No scorecard matches the current filters — clear them to see the full fleet.'
                 : platform.configured
-                  ? 'The platform scorer has not graded any service yet, and no catalog entity is scoreable. Connect a cluster or register entities in the Service Catalog.'
-                  : `Enable the "scorecards" package to get authoritative in-cluster grading (it publishes ${platform.namespace}/${platform.configMap}), or connect a cluster / register entities in the Service Catalog for catalog-derived scores.`
+                  ? 'No service has been graded yet. Scorecards appear here as soon as your teams create applications (Service Catalog → Create New) or register existing ones.'
+                  : `No service to grade yet. Scorecards appear as soon as applications exist in the Service Catalog; enable the "scorecards" package for authoritative in-cluster grading (it publishes ${platform.namespace}/${platform.configMap}).`
             }
           />
         }

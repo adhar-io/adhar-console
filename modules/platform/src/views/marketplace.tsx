@@ -36,7 +36,6 @@ import {
   SOURCE_LABEL,
   appCategoryLabel,
   chartByIdMap,
-  hasFullTrust,
   useMarketplaceApps,
   useToggleApp,
   type ArgoHealth,
@@ -732,16 +731,8 @@ function AppCard({ app, onOpen }: { app: MarketplaceApp; onOpen(): void }) {
         </div>
 
         <div className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-0.5 pt-3 text-[11px] text-content-subtle">
-          {chart?.version ? <span className="font-mono">v{chart.version}</span> : null}
-          {chart?.appVersion ? (
-            <>
-              <span aria-hidden>·</span>
-              <span className="font-mono">app {chart.appVersion}</span>
-            </>
-          ) : null}
           {chart?.publisher?.name ? (
             <>
-              <span aria-hidden>·</span>
               <span className="truncate">by {chart.publisher.name}</span>
             </>
           ) : null}
@@ -853,14 +844,12 @@ function AppDrawer({ app, onClose }: { app: MarketplaceApp; onClose(): void }) {
                   <h2 className="truncate text-xl font-semibold text-content">
                     {chart?.title ?? app.name}
                   </h2>
-                  {chart?.version ? <Badge tone="brand">v{chart.version}</Badge> : null}
                   <EnabledPill enabled={app.enabled} />
                   {chart ? <SourceChip source={chart.source} /> : null}
                 </div>
                 <div className="mt-0.5 text-[12px] text-content-muted">
                   <code className="font-mono">{app.name}</code> ·{' '}
                   {appCategoryLabel(app.category)}
-                  {chart?.appVersion ? <> · app <code className="font-mono">{chart.appVersion}</code></> : null}
                   {chart?.publisher?.name ? <> · by {chart.publisher.name}</> : null}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-content-subtle">
@@ -999,7 +988,6 @@ function AppDrawer({ app, onClose }: { app: MarketplaceApp; onClose(): void }) {
                 </section>
               ) : null}
               <PackageCard chart={chart} />
-              <ProvenanceCard chart={chart} />
               <CompatibilityCard chart={chart} />
               {chart.docsUrl ? (
                 <DetailCard title="Docs">
@@ -1093,7 +1081,6 @@ function AppIcon({ app, size = 40 }: { app: MarketplaceApp; size?: number }) {
         style={{ width: size + 8, height: size + 8 }}
       >
         <Component size={size} />
-        {app.chart && hasFullTrust(app.chart) ? <TrustShield /> : null}
       </span>
     )
   }
@@ -1117,17 +1104,6 @@ function AppIcon({ app, size = 40 }: { app: MarketplaceApp; size?: number }) {
   )
 }
 
-function TrustShield() {
-  return (
-    <span
-      title="Signed and vulnerability-scanned"
-      className="absolute -right-1 -bottom-1 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-white shadow-sm ring-2 ring-surface-raised"
-    >
-      <IconShield size={9} />
-    </span>
-  )
-}
-
 const SOURCE_CHIP: Record<ChartSource, string> = {
   core: 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-brand-200 dark:ring-brand-500/25',
   partner: 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 ring-sky-200 dark:ring-sky-500/25',
@@ -1143,25 +1119,6 @@ function SourceChip({ source }: { source: ChartSource }) {
       )}
     >
       {SOURCE_LABEL[source]}
-    </span>
-  )
-}
-
-type PillTone = 'emerald' | 'amber' | 'rose' | 'sky' | 'brand' | 'slate'
-
-const PILL_TONE: Record<PillTone, string> = {
-  emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200 dark:ring-emerald-500/25',
-  amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-200 dark:ring-amber-500/25',
-  rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 ring-rose-200 dark:ring-rose-500/25',
-  sky: 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 ring-sky-200 dark:ring-sky-500/25',
-  brand: 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-brand-200 dark:ring-brand-500/25',
-  slate: 'bg-surface-sunken text-content-muted ring-edge-subtle',
-}
-
-function Pill({ tone, children }: { tone: PillTone; children: ReactNode }) {
-  return (
-    <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1', PILL_TONE[tone])}>
-      {children}
     </span>
   )
 }
@@ -1194,14 +1151,6 @@ function KV({ label, value }: { label: string; value: ReactNode }) {
   )
 }
 
-const GRADE_TONE: Record<'A' | 'B' | 'C' | 'D' | 'F', PillTone> = {
-  A: 'emerald',
-  B: 'emerald',
-  C: 'amber',
-  D: 'amber',
-  F: 'rose',
-}
-
 function CautionNote({ children }: { children: ReactNode }) {
   return (
     <div className="flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-500/10 px-3 py-2 text-[12px] text-amber-800 dark:text-amber-300">
@@ -1210,79 +1159,6 @@ function CautionNote({ children }: { children: ReactNode }) {
       </span>
       <span>{children}</span>
     </div>
-  )
-}
-
-function CveCount({ count, kind }: { count?: number; kind: 'critical' | 'high' }) {
-  if (count === undefined) return <span className="text-content-subtle">unknown</span>
-  const cls =
-    count === 0
-      ? 'text-emerald-700 dark:text-emerald-300'
-      : kind === 'critical'
-        ? 'text-rose-700 dark:text-rose-300'
-        : 'text-amber-700 dark:text-amber-300'
-  return <span className={cn('font-mono font-semibold tabular-nums', cls)}>{count}</span>
-}
-
-function ProvenanceCard({ chart }: { chart: MarketplaceChart }) {
-  const p = chart.provenance
-  const caution = !p.signed || !p.scanned
-  return (
-    <DetailCard title="Provenance">
-      <div className="flex flex-wrap gap-1.5">
-        {p.signed ? (
-          <Pill tone="emerald">
-            <IconShield size={11} /> Signed · {p.signature ?? 'unknown'}
-          </Pill>
-        ) : (
-          <Pill tone="amber">
-            <IconWarn size={11} /> Unsigned
-          </Pill>
-        )}
-        {p.scanned ? (
-          <Pill tone={p.grade ? GRADE_TONE[p.grade] : 'sky'}>Scan grade {p.grade ?? '—'}</Pill>
-        ) : (
-          <Pill tone="amber">
-            <IconWarn size={11} /> Not scanned
-          </Pill>
-        )}
-        {p.scanned ? (p.sbom ? <Pill tone="sky">SBOM attached</Pill> : <Pill tone="slate">No SBOM</Pill>) : null}
-        {chart.publisher.verifiedPublisher ? (
-          <Pill tone="sky">
-            <VerifiedDot /> Verified publisher
-          </Pill>
-        ) : null}
-      </div>
-      {p.signed || p.scanned ? (
-        <div className="mt-3 border-t border-edge-subtle pt-2">
-          {p.signed ? (
-            <>
-              <KV label="Signature" value={<code className="font-mono">{p.signature ?? 'unknown'}</code>} />
-              {p.signer ? <KV label="Signer" value={p.signer} /> : null}
-            </>
-          ) : null}
-          {p.scanned ? (
-            <>
-              <KV label="Scanner" value={<code className="font-mono">{p.scanner ?? 'unknown'}</code>} />
-              <KV label="Critical CVEs" value={<CveCount count={p.criticalCves} kind="critical" />} />
-              <KV label="High CVEs" value={<CveCount count={p.highCves} kind="high" />} />
-              {p.scannedAt ? <KV label="Last scanned" value={<span title={p.scannedAt}>{age(p.scannedAt)} ago</span>} /> : null}
-            </>
-          ) : null}
-        </div>
-      ) : null}
-      {caution ? (
-        <div className="mt-3">
-          <CautionNote>
-            {!p.signed && !p.scanned
-              ? 'This package is neither signed nor vulnerability-scanned. Its integrity and CVE exposure are unknown.'
-              : !p.signed
-                ? 'This package is not signed — its integrity cannot be verified against the publisher.'
-                : 'This package has not been vulnerability-scanned — its CVE exposure is unknown.'}
-          </CautionNote>
-        </div>
-      ) : null}
-    </DetailCard>
   )
 }
 
@@ -1313,8 +1189,7 @@ function CompatibilityCard({ chart }: { chart: MarketplaceChart }) {
     !kubeRange &&
     !c.requiredCrds?.length &&
     !c.requiredCapabilities?.length &&
-    !c.dependsOn?.length &&
-    !c.testedOn?.length
+    !c.dependsOn?.length
   return (
     <DetailCard title="Compatibility">
       {empty ? (
@@ -1332,20 +1207,6 @@ function CompatibilityCard({ chart }: { chart: MarketplaceChart }) {
           {c.dependsOn?.length ? (
             <KV label="Depends on" value={<ChipList items={c.dependsOn.map((id) => byId.get(id)?.title ?? byId.get(id)?.name ?? id)} />} />
           ) : null}
-          {c.testedOn?.length ? (
-            <KV
-              label="Tested on"
-              value={
-                <span className="flex flex-wrap justify-end gap-1">
-                  {c.testedOn.map((v) => (
-                    <Pill key={v} tone="brand">
-                      {v}
-                    </Pill>
-                  ))}
-                </span>
-              }
-            />
-          ) : null}
         </>
       )}
     </DetailCard>
@@ -1357,8 +1218,6 @@ function CompatibilityCard({ chart }: { chart: MarketplaceChart }) {
 function PackageCard({ chart }: { chart: MarketplaceChart }) {
   return (
     <DetailCard title="Package">
-      <KV label="Version" value={<code className="font-mono">{chart.version}</code>} />
-      <KV label="App version" value={<code className="font-mono">{chart.appVersion}</code>} />
       <KV label="Source" value={<SourceChip source={chart.source} />} />
       <KV
         label="Publisher"
@@ -1456,15 +1315,6 @@ function IconClose() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M18 6 6 18" />
       <path d="m6 6 12 12" />
-    </svg>
-  )
-}
-
-function IconShield({ size = 12 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0">
-      <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
-      <path d="m9 12 2 2 4-4" />
     </svg>
   )
 }

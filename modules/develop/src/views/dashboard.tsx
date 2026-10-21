@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Card, CardBody, CardHeader, EmptyState, Spinner, StatusBadge } from '@adhar/shell-ui'
+import { Button, Card, CardBody, CardHeader, EmptyState, Spinner, StatusBadge } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import type { coder, gitea } from '@adhar/api-clients'
 import { type RepoIssue, type RepoPull, useOrgIssues, useOrgPullRequests, useRepos } from '../data/git.ts'
@@ -55,6 +55,7 @@ export function Dashboard() {
       <EmptyState
         title="Couldn't reach Gitea"
         description={repos.error instanceof Error ? repos.error.message : 'Unknown error.'}
+        action={<Button size="sm" variant="secondary" onClick={() => repos.refetch()}>Retry</Button>}
       />
     )
   }
@@ -83,10 +84,10 @@ export function Dashboard() {
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <HeroStat label="Repositories" value={repoList.length} tone="brand" icon={<IconBranch />} hint={`${activeRepos} active this week`} onClick={() => go('repos')} />
-        <HeroStat label="Open PRs" value={prs.isLoading ? '…' : prList.length} tone="amber" icon={<IconPr />} hint={conflicts ? `${conflicts} with conflicts` : 'awaiting review'} onClick={() => go('prs', { state: 'open' })} />
-        <HeroStat label="Open issues" value={issues.isLoading ? '…' : issueList.length} tone="rose" icon={<IconBug />} hint={`${unassigned} unassigned`} onClick={() => go('issues', { state: 'open' })} />
-        <HeroStat label="Cloud envs" value={wsList.length} tone="violet" icon={<IconCloud />} hint={`${runningWs} running${failedWs ? ` · ${failedWs} failed` : ''}`} onClick={() => go('environments')} />
-        <HeroStat label="Env templates" value={tplList.length} tone="sky" icon={<IconStack />} hint="reusable images" onClick={() => go('environments')} />
+        <HeroStat label="Open PRs" value={shown(prs, prList.length)} tone="amber" icon={<IconPr />} hint={prs.isError ? "couldn't load" : conflicts ? `${conflicts} with conflicts` : 'awaiting review'} onClick={() => go('prs', { state: 'open' })} />
+        <HeroStat label="Open issues" value={shown(issues, issueList.length)} tone="rose" icon={<IconBug />} hint={issues.isError ? "couldn't load" : `${unassigned} unassigned`} onClick={() => go('issues', { state: 'open' })} />
+        <HeroStat label="Cloud envs" value={shown(workspaces, wsList.length)} tone="violet" icon={<IconCloud />} hint={workspaces.isError ? 'Coder unreachable' : `${runningWs} running${failedWs ? ` · ${failedWs} failed` : ''}`} onClick={() => go('environments')} />
+        <HeroStat label="Env templates" value={shown(templates, tplList.length)} tone="sky" icon={<IconStack />} hint={templates.isError ? 'Coder unreachable' : 'reusable images'} onClick={() => go('environments')} />
         <HeroStat label="Languages" value={languages.length} tone="emerald" icon={<IconLang />} hint={languages[0] ? `mostly ${languages[0][0]}` : 'across the org'} onClick={() => go('repos')} />
       </div>
 
@@ -99,7 +100,14 @@ export function Dashboard() {
           onAll={() => go('repos')}
           allLabel="All repositories"
         >
-          {topRepos.length === 0 ? <EmptyState compact title="No repos yet" /> : (
+          {topRepos.length === 0 ? (
+            <EmptyState
+              compact
+              title="No repositories yet"
+              description="Repositories in the Gitea org appear here, most recently active first."
+              action={<Button size="sm" variant="secondary" onClick={() => go('repos')}>Open Repositories</Button>}
+            />
+          ) : (
             <ul className="grid grid-cols-1 divide-y divide-edge-subtle sm:grid-cols-2 sm:divide-y-0">
               {topRepos.map((r, i) => (
                 <RepoTile key={r.id} repo={r} prs={prCount.get(r.name) ?? 0} border={i >= 2} onOpen={(params) => go('repos', { repo: r.name, ...params })} />
@@ -117,11 +125,11 @@ export function Dashboard() {
         <Panel
           title="Review queue"
           subtitle="Open pull requests across the org, most recently active first"
-          count={prList.length}
+          count={prs.isError ? undefined : prList.length}
           onAll={() => go('prs', { state: 'open' })}
           allLabel="All pull requests"
         >
-          {prs.isLoading ? <PanelLoading /> : reviewQueue.length === 0 ? <EmptyState compact title="Nothing to review" description="No open pull requests." /> : (
+          {prs.isLoading ? <PanelLoading /> : prs.isError ? <SourceError what="pull requests from Gitea" error={prs.error} retry={() => prs.refetch()} /> : reviewQueue.length === 0 ? <EmptyState compact title="Nothing to review" description="No open pull requests." /> : (
             <ul className="divide-y divide-edge-subtle">
               {reviewQueue.map((p) => <PullRow key={`${p.repo}#${p.number}`} pr={p} go={go} />)}
             </ul>
@@ -131,11 +139,11 @@ export function Dashboard() {
         <Panel
           title="Recent issues"
           subtitle="Open issues with the latest activity"
-          count={issueList.length}
+          count={issues.isError ? undefined : issueList.length}
           onAll={() => go('issues', { state: 'open' })}
           allLabel="All issues"
         >
-          {issues.isLoading ? <PanelLoading /> : recentIssues.length === 0 ? <EmptyState compact title="No open issues" /> : (
+          {issues.isLoading ? <PanelLoading /> : issues.isError ? <SourceError what="issues from Gitea" error={issues.error} retry={() => issues.refetch()} /> : recentIssues.length === 0 ? <EmptyState compact title="No open issues" /> : (
             <ul className="divide-y divide-edge-subtle">
               {recentIssues.map((i) => <IssueRow key={`${i.repo}#${i.number}`} issue={i} go={go} />)}
             </ul>
@@ -144,8 +152,15 @@ export function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Panel title="Cloud environments" subtitle="Latest build status" count={wsList.length} onAll={() => go('environments')} allLabel="All environments">
-          {wsList.length === 0 ? <EmptyState compact title="No envs yet" /> : (
+        <Panel title="Cloud environments" subtitle="Latest build status" count={workspaces.isLoading || workspaces.isError ? undefined : wsList.length} onAll={() => go('environments')} allLabel="All environments">
+          {workspaces.isLoading ? <PanelLoading /> : workspaces.isError ? <SourceError what="Coder" error={workspaces.error} retry={() => workspaces.refetch()} /> : wsList.length === 0 ? (
+            <EmptyState
+              compact
+              title="No cloud environments yet"
+              description="Workspaces you create in Coder appear here with their latest build status."
+              action={<Button size="sm" variant="secondary" onClick={() => go('environments')}>Create one</Button>}
+            />
+          ) : (
             <ul className="divide-y divide-edge-subtle">
               {wsList.slice(0, 5).map((w) => <WorkspaceRow key={w.id} workspace={w} onOpen={() => go('environments')} />)}
             </ul>
@@ -194,6 +209,22 @@ function Panel({ title, subtitle, count, onAll, allLabel, className, children }:
       </CardHeader>
       <CardBody className="p-0!">{children}</CardBody>
     </Card>
+  )
+}
+
+/** "…" while a source loads, "—" when it could not be read — never a made-up 0. */
+function shown(q: { isLoading: boolean; isError: boolean }, n: number): number | string {
+  return q.isLoading ? '…' : q.isError ? '—' : n
+}
+
+function SourceError({ what, error, retry }: { what: string; error: unknown; retry(): void }) {
+  return (
+    <EmptyState
+      compact
+      title={`Couldn't load ${what}`}
+      description={error instanceof Error ? error.message : String(error ?? 'Unknown error.')}
+      action={<Button size="sm" variant="secondary" onClick={retry}>Retry</Button>}
+    />
   )
 }
 
@@ -309,7 +340,7 @@ function WorkspaceRow({ workspace: w, onOpen }: { workspace: coder.Workspace; on
   return (
     <li>
       <button type="button" onClick={onOpen} className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-sunken/50">
-        <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-bold text-white ${TPL_BG[w.template_name] ?? 'bg-violet-500'}`}>
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-violet-500 text-[11px] font-bold text-white">
           {w.template_name.slice(0, 2).toUpperCase()}
         </span>
         <div className="min-w-0 flex-1">
@@ -405,13 +436,6 @@ const STATUS_TONE: Record<coder.WorkspaceStatus, 'healthy' | 'progressing' | 'pa
   deleting: 'paused',
   deleted: 'unknown',
   failed: 'failed',
-}
-
-const TPL_BG: Record<string, string> = {
-  'node-ts': 'bg-emerald-500',
-  'go-dev': 'bg-sky-500',
-  python: 'bg-amber-500',
-  'fullstack-tilt': 'bg-violet-500',
 }
 
 function IconBranch() {

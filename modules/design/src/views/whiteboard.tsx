@@ -1,8 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button, EmptyState, Modal, useOptionalUser, useToast } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
-import { KIND, type Listed, newId, useCollection, useCreate, useRemove, useSeedExamples, useUpdate } from '../data/store.ts'
-import { SEED_NOTES } from '../data/seed.ts'
+import { KIND, type Listed, newId, useCollection, useCreate, useRemove, useUpdate } from '../data/store.ts'
 import {
   type ArrowStyle,
   type BoardDoc,
@@ -135,7 +134,6 @@ export function Whiteboard() {
   const { items: boards, isLoading, error, refetch } = useCollection<BoardDoc>(KIND.board)
   const createBoard = useCreate<BoardDoc>(KIND.board)
   const removeBoard = useRemove(KIND.board)
-  const seed = useSeedExamples<BoardDoc>(KIND.board)
   const params = useDesignParams()
   const setParams = useSetDesignParams()
   const toast = useToast()
@@ -183,30 +181,7 @@ export function Whiteboard() {
       <div className="space-y-5">
         <EmptyState
           title="Think on an infinite canvas"
-          description="Sticky notes, shapes, connectors, frames and freehand ink — for retros, story maps and architecture sketches. Pick a starting point:"
-          action={
-            <Button
-              size="sm"
-              loading={seed.isPending}
-              onClick={() =>
-                seed.mutate(
-                  [{
-                    id: 'board-default',
-                    name: 'Brainstorm',
-                    notes: SEED_NOTES,
-                    connections: [],
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                  }],
-                  {
-                    onSuccess: () => toast.success('Example board added'),
-                    onError: (e) => toast.error('Could not load example', { description: e.message }),
-                  },
-                )}
-            >
-              Load an example board
-            </Button>
-          }
+          description="No boards yet. Sticky notes, shapes, connectors, frames and freehand ink — for retros, story maps and architecture sketches. Start blank or from a template:"
         />
         <TemplateGrid onPick={(t) => fromTemplate('', t)} />
       </div>

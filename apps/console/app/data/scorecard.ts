@@ -525,7 +525,7 @@ export const SCOREABLE_KINDS: readonly EntityKind[] = ['Component', 'API', 'Reso
 export interface ScorecardsResult {
   scorecards: Scorecard[]
   isLoading: boolean
-  /** Sample-catalog fallback is showing (no live / registered data). */
+  /** Loading finished and the catalog is empty (no live / registered data). */
   offline: boolean
   /** At least one live source contributed entities. */
   live: boolean

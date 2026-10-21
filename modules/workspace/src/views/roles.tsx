@@ -135,10 +135,10 @@ export function RolesPermissions() {
         <StatTile label="Custom roles" value={custom.length} hint="Owner-managed" />
         <StatTile
           label="Permissions"
-          value={(Object.values(ROLE_PERMISSIONS).flat().length / ALL_ROLES.length) | 0}
+          value={new Set(Object.values(ROLE_PERMISSIONS).flat()).size}
           hint="distinct keys"
         />
-        <StatTile label="Segregated duties" value="3 axes" hint="Exec / Security / Finance" />
+        <StatTile label="Permission groups" value={PERM_GROUPS.length} />
       </div>
 
       <CustomRolesCard

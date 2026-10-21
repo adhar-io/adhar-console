@@ -105,6 +105,7 @@ export function Rollouts() {
       <EmptyState
         title="Couldn't reach Argo Rollouts"
         description={q.error instanceof Error ? q.error.message : 'The Rollout CRD could not be read from this cluster.'}
+        action={<Button size="sm" variant="secondary" onClick={() => q.refetch()}>Retry</Button>}
       />
     )
   }

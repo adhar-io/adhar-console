@@ -49,6 +49,18 @@ export function PerfDashboard({ insights, runs, onOpenTest, onOpenRun, onOpenRes
   const names = [...new Set([...tests, ...byTest.keys()])].sort()
   const recent = sortRecords(records).slice(0, 8)
 
+  if (insights.recordsError != null && !records.length) {
+    return (
+      <EmptyState
+        title="Couldn't read performance results"
+        description={`Kept results live in ConfigMaps on the cluster, and listing them failed: ${
+          insights.recordsError instanceof Error ? insights.recordsError.message : String(insights.recordsError)
+        }`}
+        action={<Button size="sm" variant="secondary" onClick={insights.refetchRecords}>Retry</Button>}
+      />
+    )
+  }
+
   if (!names.length && !loading) {
     return (
       <EmptyState

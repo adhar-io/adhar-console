@@ -178,7 +178,7 @@ export function Webhooks() {
             <StatusBadge kind={testResult.status === 'success' ? 'healthy' : 'failed'}>
               {testResult.status}
             </StatusBadge>
-            Test event delivered {formatRelative(testResult.at)} ·{' '}
+            {testResult.status === 'success' ? 'Test event delivered' : 'Test delivery failed'} {formatRelative(testResult.at)} ·{' '}
             <span className="font-mono">
               {all.find((w) => w.id === testResult.id)?.url ?? testResult.id}
             </span>
@@ -204,7 +204,7 @@ function RecentDeliveries({ webhooks }: { webhooks: Webhook[] }) {
   return (
     <SettingsCard
       title="Recent deliveries"
-      description="Simulated delivery attempts from the most recent test events."
+      description="Real test deliveries sent from your browser — HTTP status and latency as measured. Endpoints that block cross-origin requests show as failed with the browser error."
       actions={
         webhooks.length ? (
           <select
@@ -239,7 +239,9 @@ function RecentDeliveries({ webhooks }: { webhooks: Webhook[] }) {
                 <StatusBadge kind={d.status === 'success' ? 'healthy' : 'failed'}>
                   {d.status}
                 </StatusBadge>
-                <span className="font-mono text-[11px] text-content-muted">HTTP {d.statusCode}</span>
+                <span className="font-mono text-[11px] text-content-muted" title={d.error}>
+                  {d.statusCode ? `HTTP ${d.statusCode}` : d.error ? 'no response' : '—'}
+                </span>
               </div>
             ),
           },

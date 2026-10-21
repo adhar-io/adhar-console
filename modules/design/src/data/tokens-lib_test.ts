@@ -19,7 +19,7 @@ import {
   tokensToW3C,
   wcag,
 } from './tokens-lib.ts'
-import { DEFAULT_TOKENS } from './tokens-seed.ts'
+import { DEFAULT_TOKENS } from './tokens-starter.ts'
 import type { TokenSet } from './types.ts'
 
 Deno.test('parseColor handles hex, rgb, hsl and names', () => {

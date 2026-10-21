@@ -19,10 +19,9 @@ import {
   useCollection,
   useCreate,
   useRemove,
-  useSeedExamples,
+  useRestoreDocs,
   useUpdate,
 } from '../data/store.ts'
-import { SEED_JOURNEYS, SEED_PERSONAS } from '../data/seed.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import type { Journey, JourneyEmotion, JourneyStage, Persona } from '../data/types.ts'
 import { useDesignParams, useGoDesign, useSetDesignParams } from '../data/nav.ts'
@@ -94,8 +93,7 @@ export function Journeys() {
   )
   const create = useCreate<Journey>(KIND.journey)
   const remove = useRemove(KIND.journey)
-  const restore = useSeedExamples<Journey>(KIND.journey)
-  const seedPersonas = useSeedExamples<Persona>(KIND.persona)
+  const restore = useRestoreDocs<Journey>(KIND.journey)
   const toast = useToast()
   const params = useDesignParams()
   const setParams = useSetDesignParams()
@@ -162,18 +160,6 @@ export function Journeys() {
     }
   }
 
-  const loadExamples = async () => {
-    try {
-      // Journeys reference example personas; load those too if missing.
-      const missing = SEED_PERSONAS.filter((p) => !personas.some((x) => x.id === p.id))
-      if (missing.length) await seedPersonas.mutateAsync(missing)
-      await restore.mutateAsync(SEED_JOURNEYS)
-      toast.success('Loaded example journeys')
-    } catch (e) {
-      toast.error('Could not load examples', { description: (e as Error).message })
-    }
-  }
-
   if (error) return <ErrorBlock error={error} onRetry={refetch} />
   if (isLoading) return <LoadingBlock label="Loading journey maps…" />
 
@@ -190,14 +176,9 @@ export function Journeys() {
             title="No journey maps yet"
             description="Map how a persona moves through your product — what they do, think and feel at each stage — to find the pain points worth fixing."
             action={
-              <div className="flex flex-wrap justify-center gap-2">
-                <Button size="sm" variant="primary" onClick={() => setCreateOpen(true)} leading={<IconPlus size={12} />}>
-                  New journey
-                </Button>
-                <Button size="sm" onClick={loadExamples} loading={restore.isPending || seedPersonas.isPending}>
-                  Load examples
-                </Button>
-              </div>
+              <Button size="sm" variant="primary" onClick={() => setCreateOpen(true)} leading={<IconPlus size={12} />}>
+                New journey
+              </Button>
             }
           />
         </>

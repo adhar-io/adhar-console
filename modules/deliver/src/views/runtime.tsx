@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  Button,
   Card,
   CardBody,
   CardHeader,
@@ -106,6 +107,7 @@ export function Runtime() {
       <EmptyState
         title="Couldn't reach the cluster"
         description={agents.error instanceof Error ? agents.error.message : 'Unknown error listing DaemonSets.'}
+        action={<Button size="sm" variant="secondary" onClick={() => agents.refetch()}>Retry</Button>}
       />
     )
   }

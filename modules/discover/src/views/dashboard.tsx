@@ -195,7 +195,7 @@ export function Dashboard() {
 
       <SourceLine names={namesQ} src={src} detected={detected} deploys={deploys.length} argoError={apps.isError} />
 
-      <KpiStrip ctx={ctx} src={src} />
+      <KpiStrip ctx={ctx} src={src} deploysState={apps.isLoading ? 'loading' : apps.isError ? 'error' : 'ok'} />
 
       <GoldenSignals ctx={ctx} src={src} />
 
@@ -312,7 +312,7 @@ function Kpi({
   )
 }
 
-function KpiStrip({ ctx, src }: { ctx: DashCtx; src: HttpSource | null }) {
+function KpiStrip({ ctx, src, deploysState }: { ctx: DashCtx; src: HttpSource | null; deploysState: 'loading' | 'error' | 'ok' }) {
   const http = src ? httpQueries(src, ctx.scope, ctx.win) : null
   const sat = saturationQueries(ctx.scope, ctx.win)
   const r = useRangeSet(
@@ -354,10 +354,10 @@ function KpiStrip({ ctx, src }: { ctx: DashCtx; src: HttpSource | null }) {
       <Kpi label="Memory" value={formatValue(v('mem'), 'percent')} sub={sat.exporter === 'node-exporter' ? 'node utilisation' : 'of cluster allocatable'} href={mh([sat.memPct])} trend={trend(r.mem.data)} health={utilHealth(v('mem'), 80, 92)} />
       <Kpi
         label="Firing alerts"
-        value={alerts.isError ? '—' : firing.length}
-        sub={alerts.isError ? 'Alertmanager unreachable' : `${crit} critical · ${(alerts.data ?? []).filter((a) => a.state === 'pending').length} pending`}
+        value={alerts.data ? firing.length : '—'}
+        sub={alerts.isError ? 'Alertmanager unreachable' : !alerts.data ? 'loading…' : `${crit} critical · ${alerts.data.filter((a) => a.state === 'pending').length} pending`}
         href={discoverHref('alerts', { service: ctx.scope.service ?? undefined, namespace: ctx.scope.namespace ?? undefined })}
-        health={alerts.isError ? undefined : crit ? 'crit' : firing.length ? 'warn' : 'ok'}
+        health={!alerts.data ? undefined : crit ? 'crit' : firing.length ? 'warn' : 'ok'}
       />
       <Kpi
         label="Pod issues"
@@ -368,8 +368,8 @@ function KpiStrip({ ctx, src }: { ctx: DashCtx; src: HttpSource | null }) {
       />
       <Kpi
         label="Deploys"
-        value={ctx.deploys.length}
-        sub={lastDeploy ? `last ${formatRelative(new Date(lastDeploy.t).toISOString())} · ${lastDeploy.label}` : `none in ${ctx.range}`}
+        value={deploysState === 'ok' ? ctx.deploys.length : '—'}
+        sub={deploysState === 'error' ? 'Argo CD unreachable' : deploysState === 'loading' ? 'loading…' : lastDeploy ? `last ${formatRelative(new Date(lastDeploy.t).toISOString())} · ${lastDeploy.label}` : `none in ${ctx.range}`}
         href="/deliver?section=apps"
       />
     </section>
@@ -828,7 +828,7 @@ function ProductPulse() {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-[repeat(3,minmax(0,8rem))_1fr]">
           <PulseStat label="Active users" value={users} />
           <PulseStat label="Events" value={list.length} />
-          <PulseStat label="Sessions with errors" value={sessions.isError ? '—' : errSessions} href={discoverHref('sessions')} />
+          <PulseStat label="Sessions with errors" value={sessions.data ? errSessions : '—'} href={discoverHref('sessions')} />
           <div className="min-w-0 space-y-1.5">
             {top.length === 0 ? <div className="text-[11px] text-content-subtle">No events captured in the last 24 h.</div> : top.map(([name, n]) => (
               <div key={name} className="grid grid-cols-[minmax(0,10rem)_1fr_3rem] items-center gap-2 text-[11px]">

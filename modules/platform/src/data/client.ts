@@ -68,7 +68,11 @@ export function clusterParam(cluster?: string): string | undefined {
 }
 
 /** A gateway-configured cluster, annotated with its default flag. */
-export type GatewayCluster = Cluster & { isDefault: boolean }
+export type GatewayCluster = Cluster & {
+  isDefault: boolean
+  /** False when the node list could not be read (RBAC / error) — `nodeCount` is then not a real count. */
+  nodesKnown?: boolean
+}
 
 /**
  * The platform module talks to the cluster through the console's **Kubernetes
@@ -145,7 +149,7 @@ const gatewayClient: K8sClient = {
             kube
               .list<unknown>(GVRS.nodes, { cluster })
               .then((l) => l.items)
-              .catch(() => []),
+              .catch(() => null),
           ])
           return {
             name: c.name,
@@ -153,7 +157,8 @@ const gatewayClient: K8sClient = {
             server,
             version: version.gitVersion ?? '',
             platform: version.platform ?? '',
-            nodeCount: nodes.length,
+            nodeCount: nodes?.length ?? 0,
+            nodesKnown: nodes !== null,
             healthy: true,
             source: 'kubeconfig',
             isDefault: c.default,
@@ -166,6 +171,7 @@ const gatewayClient: K8sClient = {
             version: '',
             platform: '',
             nodeCount: 0,
+            nodesKnown: false,
             healthy: false,
             source: 'kubeconfig',
             isDefault: c.default,

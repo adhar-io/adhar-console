@@ -68,6 +68,7 @@ export function Releases() {
       <EmptyState
         title="Couldn't reach Kargo"
         description={freight.error instanceof Error ? freight.error.message : 'Unknown error listing freight.'}
+        action={<Button size="sm" variant="secondary" onClick={() => freight.refetch()}>Retry</Button>}
       />
     )
   }

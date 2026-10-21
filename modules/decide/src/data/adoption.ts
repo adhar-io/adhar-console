@@ -44,13 +44,14 @@ export function useBiHighlights() {
     queryFn: async () => {
       const [dashboards, questions] = await Promise.all([
         metabaseClient.listDashboards(),
-        metabaseClient.listQuestions().catch(() => [] as metabase.Question[]),
+        // A failed question listing is "unknown", not "zero questions".
+        metabaseClient.listQuestions().catch(() => null),
       ])
       return {
         dashboards: [...dashboards].sort((a, b) => (b.view_count ?? 0) - (a.view_count ?? 0)).slice(0, 3),
-        scalars: questions.filter((q) => q.display === 'scalar' && q.scalar != null).slice(0, 4),
+        scalars: (questions ?? []).filter((q) => q.display === 'scalar' && q.scalar != null).slice(0, 4),
         totalDashboards: dashboards.length,
-        totalQuestions: questions.length,
+        totalQuestions: questions ? questions.length : null,
       }
     },
     staleTime: 5 * 60_000,

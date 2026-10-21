@@ -8,16 +8,16 @@ import { listSloSummaries } from './slo-api.ts'
  * Grafana / Alertmanager / SLOs) and PostHog analytics.
  *
  * Every hook talks to a real backend through the console BFF tool proxy
- * (`/api/svc/<tool>`, cookie-authenticated). In production builds the queries
- * hit live Prometheus/Mimir, Loki, Tempo, Grafana, Alertmanager and PostHog;
- * the LGTM client falls back to an in-memory fixture only in a non-prod dev
- * build so the views are demoable without a cluster. Views render honest
- * "not configured / unreachable / no data" states (see `views/states.tsx`)
- * whenever a source is absent — no fabricated series or rows.
+ * (`/api/svc/<tool>`, cookie-authenticated) — in every build, dev included:
+ * the queries hit live Prometheus/Mimir, Loki, Tempo, Grafana, Alertmanager and
+ * PostHog. The clients are pinned to `mode: 'real'`; there is no in-memory
+ * fixture fallback. Views render honest "not configured / unreachable / no
+ * data" states (see `views/states.tsx`) whenever a source is absent — no
+ * fabricated series or rows.
  */
 
-export const lgtmClient = lgtm.LgtmClient.auto({ tool: 'lgtm' })
-export const phClient = posthog.PostHogClient.auto({ tool: 'posthog' })
+export const lgtmClient = lgtm.LgtmClient.auto({ tool: 'lgtm', mode: 'real' })
+export const phClient = posthog.PostHogClient.auto({ tool: 'posthog', mode: 'real' })
 
 const REFRESH_MS = 15_000
 

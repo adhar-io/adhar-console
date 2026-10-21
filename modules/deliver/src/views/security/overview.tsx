@@ -62,16 +62,19 @@ export function SecurityOverview({ model }: { model: SecurityModel }) {
 
   const top = findings.filter((f) => statuses.get(f.key)?.coverage !== 'waived').slice(0, 8)
   const state = reports.data?.state
+  // Runtime figures only exist when trivy-operator's reports were read; a
+  // missing or unreadable source is "—", never a zero.
+  const rt = (n: number): number | string => reports.isLoading ? '…' : reports.isError || (state && state !== 'ok') ? '—' : n
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-        <Tile label="Open critical" value={reports.isLoading ? '…' : totals.open.critical} tone={totals.open.critical ? SEV_TONE.critical.text : undefined} hint="in running workloads" onClick={() => setParams({ tab: 'findings' })} />
-        <Tile label="Open high" value={reports.isLoading ? '…' : totals.open.high} tone={totals.open.high ? SEV_TONE.high.text : undefined} hint={`${totals.fixable} fixable overall`} onClick={() => setParams({ tab: 'findings' })} />
+        <Tile label="Open critical" value={rt(totals.open.critical)} tone={totals.open.critical ? SEV_TONE.critical.text : undefined} hint="in running workloads" onClick={() => setParams({ tab: 'findings' })} />
+        <Tile label="Open high" value={rt(totals.open.high)} tone={totals.open.high ? SEV_TONE.high.text : undefined} hint={`${totals.fixable} fixable overall`} onClick={() => setParams({ tab: 'findings' })} />
         <Tile label="Waived" value={totals.waived + totals.partial} hint={`${active} active waiver${active === 1 ? '' : 's'}`} onClick={() => setParams({ tab: 'waivers' })} />
         <Tile label="Expiring ≤ 7 days" value={expiring} tone={expiring ? 'text-amber-600 dark:text-amber-300' : undefined} hint="waivers" onClick={() => setParams({ tab: 'waivers' })} />
         <Tile label="Awaiting review" value={pending + awaiting} tone={pending + awaiting ? 'text-indigo-600 dark:text-indigo-300' : undefined} hint={`${pending} waiver · ${awaiting} gate`} onClick={() => setParams({ tab: 'review' })} />
-        <Tile label="Workloads scanned" value={reports.isLoading ? '…' : totals.workloads} hint={`${totals.images} image${totals.images === 1 ? '' : 's'}`} />
+        <Tile label="Workloads scanned" value={rt(totals.workloads)} hint={`${totals.images} image${totals.images === 1 ? '' : 's'}`} />
       </div>
 
       {reports.isLoading ? <Loading text="Reading trivy-operator reports…" /> : state && state !== 'ok' ? <ReportStateNotice state={state} detail={reports.data?.detail} /> : null}
@@ -141,6 +144,11 @@ export function SecurityOverview({ model }: { model: SecurityModel }) {
           <p className="text-[12px] text-content-subtle">Tekton is not installed, so there are no CI scans.</p>
         ) : gates.data?.state === 'forbidden' ? (
           <p className="text-[12px] text-content-subtle">Your account may not list PipelineRuns.</p>
+        ) : gates.isError || gates.data?.state === 'error' ? (
+          <p className="text-[12px] text-rose-700 dark:text-rose-300">
+            Couldn't read Tekton PipelineRuns{gates.error instanceof Error ? ` — ${gates.error.message}` : gates.data?.detail ? ` — ${gates.data.detail}` : ''}.{' '}
+            <Button size="xs" variant="ghost" onClick={() => gates.refetch()}>Retry</Button>
+          </p>
         ) : !ci.length ? (
           <p className="rounded-xl border border-dashed border-edge-default px-3 py-6 text-center text-[12px] text-content-subtle">
             No pipeline run has published scan results yet. Once the platform's CI publishes its scan summary, the latest one per app appears here.

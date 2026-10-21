@@ -2,8 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Button, Card, CardBody, CardHeader, EmptyState, Field, Input, Modal, StatusBadge, Textarea, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { defaultProjectFor, extractFence, htmlToNodes, PAGE_INSTRUCTIONS } from '@adhar/builder'
-import { KIND, type Listed, newId, useCollection, useCreate, useRemove, useSeedExamples, useUpdate } from '../data/store.ts'
-import { SEED_WIREFRAMES } from '../data/seed.ts'
+import { KIND, type Listed, newId, useCollection, useCreate, useRemove, useRestoreDocs, useUpdate } from '../data/store.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
 import type { ComponentLink, Wireframe, WireframeBlock } from '../data/types.ts'
 import { FrameCanvas } from '../components/frame-canvas.tsx'
@@ -43,7 +42,7 @@ export function Wireframes() {
   const createWf = useCreate<Wireframe>(KIND.wireframe)
   const updateWf = useUpdate<Wireframe>(KIND.wireframe)
   const removeWf = useRemove(KIND.wireframe)
-  const seed = useSeedExamples<Wireframe>(KIND.wireframe)
+  const restore = useRestoreDocs<Wireframe>(KIND.wireframe)
   const toast = useToast()
   const catalog = useCatalogApps()
   const apps = useMemo<PickableApp[]>(
@@ -98,7 +97,7 @@ export function Wireframes() {
       onSuccess: () => {
         if (detailParam === f.id) setDetailParam(undefined)
         toast.success(`Deleted “${f.name}”`, {
-          action: { label: 'Undo', onClick: () => seed.mutate([plain as Wireframe], { onError: (e) => toast.error('Could not restore', { description: e.message }) }) },
+          action: { label: 'Undo', onClick: () => restore.mutate([plain as Wireframe], { onError: (e) => toast.error('Could not restore', { description: e.message }) }) },
         })
       },
       onError: (e) => toast.error('Could not delete frame', { description: e.message }),
@@ -132,12 +131,7 @@ export function Wireframes() {
           title={all.items.length ? `No wireframes in ${scope.label}` : 'No wireframes yet'}
           description="Sketch a screen — pick a template, describe it to Adhar AI, or start blank. Editing opens in the Visual Designer."
           action={
-            <div className="flex flex-wrap justify-center gap-2">
-              <Button size="sm" variant="primary" onClick={() => setCreateOpen(true)} leading={<IconPlus />}>New frame</Button>
-              {all.items.length === 0 ? (
-                <Button size="sm" onClick={() => seed.mutate(SEED_WIREFRAMES)} loading={seed.isPending}>Load examples</Button>
-              ) : null}
-            </div>
+            <Button size="sm" variant="primary" onClick={() => setCreateOpen(true)} leading={<IconPlus />}>New frame</Button>
           }
         />
       ) : (

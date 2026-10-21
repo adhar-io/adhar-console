@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  Button,
   Card,
   CardBody,
   CardHeader,
@@ -104,13 +105,26 @@ export function Policy() {
             ? policies.error.message
             : 'The Kubernetes gateway did not answer for kyverno.io / wgpolicyk8s.io resources.'
         }
+        action={
+          <Button size="sm" variant="secondary" onClick={() => { policies.refetch(); reports.refetch(); exceptions.refetch() }}>
+            Retry
+          </Button>
+        }
       />
     )
   }
 
+  // A single failed read must not read as "nothing here": name the source.
+  const failed = [
+    { label: 'Kyverno policies', q: policies },
+    { label: 'PolicyReports', q: reports },
+    { label: 'PolicyExceptions', q: exceptions },
+  ].filter((f) => f.q.isError).map((f) => ({ label: f.label, error: f.q.error, refetch: f.q.refetch }))
+
   const loaded = !policies.isLoading && !reports.isLoading && !exceptions.isLoading
   const nothingInstalled =
     loaded &&
+    failed.length === 0 &&
     (policies.data?.length ?? 0) === 0 &&
     reportList.length === 0 &&
     (exceptions.data?.length ?? 0) === 0
@@ -151,13 +165,22 @@ export function Policy() {
           view. Compliance packs below still work — they ship as opt-in bundles.
         </div>
       ) : null}
+      {failed.length ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-rose-200 bg-rose-50/70 px-4 py-3 text-[12px] leading-relaxed text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100">
+          <span className="min-w-0 flex-1">
+            Couldn't read {failed.map((f) => f.label).join(', ')} from the cluster
+            {failed[0].error instanceof Error ? ` — ${failed[0].error.message}` : ''}. Figures from that source show as —.
+          </span>
+          <Button size="xs" variant="secondary" onClick={() => failed.forEach((f) => f.refetch())}>Retry</Button>
+        </div>
+      ) : null}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-        <Tile label="Policies" value={policies.data?.length ?? 0} hint={`${enforced} enforce`} />
-        <Tile label="Pass" value={totals.pass} accent="emerald" />
-        <Tile label="Fail" value={totals.fail} accent={totals.fail > 0 ? 'rose' : 'slate'} />
-        <Tile label="Warn" value={totals.warn} accent={totals.warn > 0 ? 'amber' : 'slate'} />
-        <Tile label="Skip" value={totals.skip} accent="slate" />
-        <Tile label="Exceptions" value={exceptions.data?.length ?? 0} accent="violet" />
+        <Tile label="Policies" value={policies.isError ? '—' : policies.data?.length ?? 0} hint={policies.isError ? 'unavailable' : `${enforced} enforce`} />
+        <Tile label="Pass" value={reports.isError ? '—' : totals.pass} accent="emerald" />
+        <Tile label="Fail" value={reports.isError ? '—' : totals.fail} accent={totals.fail > 0 ? 'rose' : 'slate'} />
+        <Tile label="Warn" value={reports.isError ? '—' : totals.warn} accent={totals.warn > 0 ? 'amber' : 'slate'} />
+        <Tile label="Skip" value={reports.isError ? '—' : totals.skip} accent="slate" />
+        <Tile label="Exceptions" value={exceptions.isError ? '—' : exceptions.data?.length ?? 0} accent="violet" />
       </div>
 
       <Tabs

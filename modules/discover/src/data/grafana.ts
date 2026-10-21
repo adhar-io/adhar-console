@@ -30,11 +30,9 @@ import {
 /**
  * Grafana data layer for the "Grafana boards" page.
  *
- * Talks straight to the console BFF tool proxies with `fetch` instead of going
- * through `lgtmClient`: `LgtmClient.auto()` returns the in-memory stub in any
- * non-production build (its `listDashboards` is six invented boards), which is
- * exactly the "not loading real boards" symptom in dev. These hooks always hit
- * the real backend and surface its real status.
+ * Talks straight to the console BFF tool proxies with `fetch` (not through
+ * `lgtmClient`) so each call targets the exact Grafana/datasource endpoint it
+ * needs. These hooks always hit the real backend and surface its real status.
  *
  *   • library        → GET  /api/svc/grafana/api/search?type=dash-db
  *   • folders        → GET  /api/svc/grafana/api/folders

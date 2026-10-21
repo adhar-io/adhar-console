@@ -8,18 +8,16 @@ import {
   useCollection,
   useCreate,
   useRemove,
-  useSeedExamples,
   useUpdate,
 } from '../data/store.ts'
 import {
   GALLERY,
   type GalleryCategory,
   type GalleryTemplate,
-  SEED_DIAGRAMS,
   TEMPLATES,
   TYPE_COLOR,
   TYPE_LABEL,
-} from '../data/diagrams-seed.ts'
+} from '../data/diagram-templates.ts'
 import { detectSyntax, slugify, SYNTAX_LABEL } from '../data/mermaid-util.ts'
 import { designHref, designLink, useDesignParams, useNewFlag, useSetDesignParams } from '../data/deep-link.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
@@ -97,7 +95,6 @@ export function Diagrams() {
   const { items: list, isLoading, error, refetch } = useCollection<DiagramDoc>(KIND.diagram)
   const createDiag = useCreate<DiagramDoc>(KIND.diagram)
   const removeDiag = useRemove(KIND.diagram)
-  const seed = useSeedExamples<DiagramDoc>(KIND.diagram)
   const params = useDesignParams()
   const setParams = useSetDesignParams()
   const toast = useToast()
@@ -282,16 +279,6 @@ export function Diagrams() {
                 </Button>
                 <Button size="sm" onClick={() => setGalleryOpen(true)} leading={<Icon name="template" />}>
                   Browse templates
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => seed.mutate(SEED_DIAGRAMS as DiagramDoc[], {
-                    onSuccess: () => toast.success('Example diagrams added'),
-                    onError: (e) => toast.error('Could not load examples', { description: e.message }),
-                  })}
-                  loading={seed.isPending}
-                >
-                  Load examples
                 </Button>
               </div>
             }

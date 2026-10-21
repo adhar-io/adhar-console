@@ -152,12 +152,12 @@ export function Issues() {
       />
 
       <div className='grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6'>
-        <StatTile label='Open' value={openQ.isLoading ? '…' : counts.open} tone='emerald' on={view === 'open' && quick === 'none'} hint='need attention' onClick={() => { setQuick('none'); setParams({ state: 'open' }); }} />
-        <StatTile label='Unassigned' value={openQ.isLoading ? '…' : counts.unassigned} tone={counts.unassigned ? 'amber' : 'slate'} on={quick === 'unassigned'} hint='nobody owns these' onClick={() => setQuickOpen('unassigned')} />
-        <StatTile label='Stale' value={openQ.isLoading ? '…' : counts.stale} tone={counts.stale ? 'amber' : 'slate'} on={quick === 'stale'} hint='quiet 30+ days' onClick={() => setQuickOpen('stale')} />
-        <StatTile label='Unlabelled' value={openQ.isLoading ? '…' : counts.unlabelled} tone='info' on={quick === 'unlabelled'} hint='need triage' onClick={() => setQuickOpen('unlabelled')} />
-        <StatTile label='Closed' value={closedQ.isLoading ? '…' : counts.closed} tone='violet' on={view === 'closed'} hint='recent history' onClick={() => { setQuick('none'); setParams({ state: 'closed' }); }} />
-        <StatTile label='All' value={openQ.isLoading || closedQ.isLoading ? '…' : all.length} on={view === 'all'} hint={repo ?? 'across the org'} onClick={() => { setQuick('none'); setParams({ state: 'all' }); }} />
+        <StatTile label='Open' value={openQ.isLoading ? '…' : openQ.isError ? '—' : counts.open} tone='emerald' on={view === 'open' && quick === 'none'} hint='need attention' onClick={() => { setQuick('none'); setParams({ state: 'open' }); }} />
+        <StatTile label='Unassigned' value={openQ.isLoading ? '…' : openQ.isError ? '—' : counts.unassigned} tone={counts.unassigned ? 'amber' : 'slate'} on={quick === 'unassigned'} hint='nobody owns these' onClick={() => setQuickOpen('unassigned')} />
+        <StatTile label='Stale' value={openQ.isLoading ? '…' : openQ.isError ? '—' : counts.stale} tone={counts.stale ? 'amber' : 'slate'} on={quick === 'stale'} hint='quiet 30+ days' onClick={() => setQuickOpen('stale')} />
+        <StatTile label='Unlabelled' value={openQ.isLoading ? '…' : openQ.isError ? '—' : counts.unlabelled} tone='info' on={quick === 'unlabelled'} hint='need triage' onClick={() => setQuickOpen('unlabelled')} />
+        <StatTile label='Closed' value={closedQ.isLoading ? '…' : closedQ.isError ? '—' : counts.closed} tone='violet' on={view === 'closed'} hint='recent history' onClick={() => { setQuick('none'); setParams({ state: 'closed' }); }} />
+        <StatTile label='All' value={openQ.isLoading || closedQ.isLoading ? '…' : openQ.isError || closedQ.isError ? '—' : all.length} on={view === 'all'} hint={repo ?? 'across the org'} onClick={() => { setQuick('none'); setParams({ state: 'all' }); }} />
       </div>
 
       <div className='rounded-xl border border-edge-default bg-surface-raised p-2 shadow-sm'>

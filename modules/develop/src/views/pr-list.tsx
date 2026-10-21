@@ -183,11 +183,11 @@ export function PullRequestList() {
       />
 
       <div className='grid grid-cols-2 gap-2 sm:grid-cols-5'>
-        <StatTile label='Open' value={openQ.isLoading ? '…' : counts.open} tone='emerald' hint={counts.draft ? `${counts.draft} draft` : 'ready for review'} on={view === 'open' && !onlyConflicts} onClick={() => { setOnlyConflicts(false); setParams({ state: 'open' }); }} />
-        <StatTile label='Conflicts' value={openQ.isLoading ? '…' : counts.conflicts} tone={counts.conflicts ? 'amber' : 'slate'} hint='need a rebase' on={onlyConflicts} onClick={() => { setParams({ state: 'open' }); setOnlyConflicts((x) => !x); }} />
-        <StatTile label='Merged' value={closedQ.isLoading ? '…' : counts.merged} tone='violet' hint='recent history' on={view === 'merged'} onClick={() => setParams({ state: 'merged' })} />
-        <StatTile label='Closed' value={closedQ.isLoading ? '…' : counts.closed} tone='slate' hint='without merging' on={view === 'closed'} onClick={() => setParams({ state: 'closed' })} />
-        <StatTile label='All' value={closedQ.isLoading || openQ.isLoading ? '…' : all.length} hint={repo ? repo : `${repos.data?.filter((r) => !r.archived).length ?? 0} repositories`} on={view === 'all'} onClick={() => setParams({ state: 'all' })} />
+        <StatTile label='Open' value={openQ.isLoading ? '…' : openQ.isError ? '—' : counts.open} tone='emerald' hint={counts.draft ? `${counts.draft} draft` : 'ready for review'} on={view === 'open' && !onlyConflicts} onClick={() => { setOnlyConflicts(false); setParams({ state: 'open' }); }} />
+        <StatTile label='Conflicts' value={openQ.isLoading ? '…' : openQ.isError ? '—' : counts.conflicts} tone={counts.conflicts ? 'amber' : 'slate'} hint='need a rebase' on={onlyConflicts} onClick={() => { setParams({ state: 'open' }); setOnlyConflicts((x) => !x); }} />
+        <StatTile label='Merged' value={closedQ.isLoading ? '…' : closedQ.isError ? '—' : counts.merged} tone='violet' hint='recent history' on={view === 'merged'} onClick={() => setParams({ state: 'merged' })} />
+        <StatTile label='Closed' value={closedQ.isLoading ? '…' : closedQ.isError ? '—' : counts.closed} tone='slate' hint='without merging' on={view === 'closed'} onClick={() => setParams({ state: 'closed' })} />
+        <StatTile label='All' value={closedQ.isLoading || openQ.isLoading ? '…' : openQ.isError || closedQ.isError ? '—' : all.length} hint={repo ? repo : `${repos.data?.filter((r) => !r.archived).length ?? 0} repositories`} on={view === 'all'} onClick={() => setParams({ state: 'all' })} />
       </div>
 
       <div className='rounded-xl border border-edge-default bg-surface-raised p-2 shadow-sm'>

@@ -98,7 +98,7 @@ function uptime(iso: string, now: number): string {
 }
 
 function StatusPage() {
-  const { tenants, activeTenant, notifications } = Route.useLoaderData()
+  const { tenants, activeTenant } = Route.useLoaderData()
   const user = useOptionalSession()?.user ?? PENDING_USER
   const now = useNow()
   const q = useQuery({
@@ -117,7 +117,6 @@ function StatusPage() {
       activeTenantId={activeTenant.id}
       onTenantChange={() => {}}
       crumbs={[{ label: 'Home', to: '/' }, { label: 'Platform status' }]}
-      notifications={notifications}
     >
       <PageHeader
         title="Platform status"

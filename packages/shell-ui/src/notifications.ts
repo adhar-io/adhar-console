@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLiveInvalidate, usePollingInterval } from './live.ts'
 
@@ -13,8 +13,9 @@ import { useLiveInvalidate, usePollingInterval } from './live.ts'
  * high-signal items as they arrive (once per browser, however many
  * components consume the hook).
  *
- * Dev / offline: falls back to the seed the route loader supplies plus a
- * localStorage cache of read/dismissed flags, so the UI stays usable.
+ * When the feed is not live (no console database, or the request failed) the
+ * hook returns an EMPTY list with `live: false` / `error` set — never seeded or
+ * sample notifications. Surfaces render an honest "feed unavailable" state.
  */
 
 export type NotificationKind = 'info' | 'warning' | 'error' | 'success' | 'insight'
@@ -70,7 +71,6 @@ export interface FeedParams {
   q?: string
 }
 
-const STORAGE_KEY = 'adhar.notifications'
 const FEED_KEY = ['notifications', 'feed'] as const
 const POLL_MS = 30_000
 
@@ -79,28 +79,6 @@ function isProdBuild(): boolean {
     return Boolean((import.meta as { env?: { PROD?: boolean } }).env?.PROD)
   } catch {
     return false
-  }
-}
-
-/* ─────────── local fallback state (dev / offline) ─────────── */
-
-interface StoredState {
-  meta: Record<string, { read?: boolean; dismissed?: boolean }>
-}
-function loadStored(): StoredState {
-  try {
-    const raw = globalThis.localStorage?.getItem(STORAGE_KEY)
-    const parsed = raw ? (JSON.parse(raw) as StoredState) : null
-    return parsed && typeof parsed === 'object' && parsed.meta ? parsed : { meta: {} }
-  } catch {
-    return { meta: {} }
-  }
-}
-function persistStored(state: StoredState) {
-  try {
-    globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(state))
-  } catch {
-    // ignore
   }
 }
 
@@ -145,8 +123,10 @@ export interface NotificationsApi {
   unreadCount: number
   total: number
   loading: boolean
-  /** True when the server feed is live (DB-backed); false on seed fallback. */
+  /** True when the server feed is live (DB-backed). When false, `items` is empty. */
   live: boolean
+  /** Set when `/api/notifications` could not be reached (network / 5xx). */
+  error: Error | null
   markRead(id: string): void
   markAllRead(): void
   dismiss(id: string): void
@@ -160,13 +140,12 @@ export interface NotificationsApi {
 }
 
 /**
- * Live feed of the latest notifications (polled), with actions. Pass the
- * route loader's `seed` to keep dev / offline builds populated.
+ * Live feed of the latest notifications (polled), with actions. Nothing is
+ * ever seeded: an unreachable or non-persisted feed yields an empty list.
  */
-export function useNotifications(seed: Notification[] = []): NotificationsApi {
+export function useNotifications(): NotificationsApi {
   const qc = useQueryClient()
   const prod = isProdBuild()
-  const storedRef = useRef<StoredState>(loadStored())
 
   // Server pushes `invalidate` over /api/live when the tenant's newest
   // notification changes; the 30 s poll only runs while the socket is down.
@@ -181,17 +160,10 @@ export function useNotifications(seed: Notification[] = []): NotificationsApi {
   })
 
   const live = !!feed.data?.persisted
-  const items = useMemo<Notification[]>(() => {
-    if (live) return feed.data!.items
-    const meta = storedRef.current.meta
-    return seed
-      .map((n) => ({ ...n, read: meta[n.id]?.read ?? n.read ?? false, dismissed: meta[n.id]?.dismissed ?? n.dismissed ?? false }))
-      .filter((n) => !n.dismissed)
-      .sort((a, b) => b.at.localeCompare(a.at))
-  }, [live, feed.data, seed])
+  const items = useMemo<Notification[]>(() => (live ? feed.data!.items : []), [live, feed.data])
 
-  const unreadCount = live ? feed.data!.unread : items.filter((n) => !n.read).length
-  const total = live ? feed.data!.total : items.length
+  const unreadCount = live ? feed.data!.unread : 0
+  const total = live ? feed.data!.total : 0
 
   // Arriving notifications are NOT toasted. They land in the feed this hook
   // already exposes, which the bell badge counts and the notification centre
@@ -199,12 +171,6 @@ export function useNotifications(seed: Notification[] = []): NotificationsApi {
   // `invalidate` over /api/live, the feed refetches, and both the count and the
   // list update from the same query. Toasts remain for things the user just did
   // (a save, a copy), where the feedback belongs next to the action.
-
-  const setLocal = (id: string, patch: { read?: boolean; dismissed?: boolean }) => {
-    const st = storedRef.current
-    st.meta[id] = { ...st.meta[id], ...patch }
-    persistStored(st)
-  }
 
   const optimistic = useCallback(
     (ids: string[], patch: { read?: boolean; dismissed?: boolean }) => {
@@ -220,10 +186,7 @@ export function useNotifications(seed: Notification[] = []): NotificationsApi {
 
   const state = useMutation({
     mutationFn: async (v: { ids: string[]; read?: boolean; dismissed?: boolean }) => {
-      if (!live) {
-        for (const id of v.ids) setLocal(id, { read: v.read, dismissed: v.dismissed })
-        return
-      }
+      if (!live) return
       await postJson(v.ids.length === 1 ? { id: v.ids[0], read: v.read, dismissed: v.dismissed } : { ids: v.ids, read: v.read, dismissed: v.dismissed })
     },
     onMutate: (v) => optimistic(v.ids, { read: v.read, dismissed: v.dismissed }),
@@ -257,6 +220,7 @@ export function useNotifications(seed: Notification[] = []): NotificationsApi {
     total,
     loading: feed.isLoading && !feed.data,
     live,
+    error: feed.error instanceof Error ? feed.error : feed.error ? new Error(String(feed.error)) : null,
     markRead: (id) => state.mutate({ ids: [id], read: true }),
     markAllRead: () => unreadIds.length && state.mutate({ ids: unreadIds, read: true }),
     dismiss: (id) => state.mutate({ ids: [id], dismissed: true }),

@@ -184,7 +184,7 @@ function EntitySummary({ entity, relationCount, backing }: { entity: Entity; rel
     ['Owner', entity.spec.owner ?? '—'],
     ['Lifecycle', entity.spec.lifecycle ?? '—'],
     ['System', entity.spec.system ?? '—'],
-    ['Origin', entity.origin ?? 'seed'],
+    ['Origin', entity.origin ?? 'unknown'],
     ['Source location', sourceLoc ?? '—'],
     ['Managed by', managedBy ?? '—'],
     ['Created', fmtDate(entity.metadata.createdAt)],

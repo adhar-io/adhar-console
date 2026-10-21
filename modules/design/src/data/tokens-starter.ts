@@ -1,10 +1,11 @@
 import type { TokenSet } from './types.ts'
 
 /**
- * Canonical default design tokens. The Tokens view shows these until a stored
- * token-set document exists (tenant document store, kind `design.token-set`);
- * the first edit persists the working copy and "Reset to defaults" writes this
- * baseline back. This constant stays the immutable baseline.
+ * The Adhar starter design-token set — a TEMPLATE. It is only ever written to
+ * the tenant's store (kind `design.token-set`) when the user explicitly picks
+ * "Start from the Adhar starter set" (or "Reset"); with no stored set the
+ * Tokens view shows an empty state instead. `mergeDefaults` also uses it to
+ * fill a category a stored document lacks entirely.
  *
  * Colours carry an optional `dark` value (absent = same in both modes). The
  * stored shape is otherwise unchanged, so older readers keep working.

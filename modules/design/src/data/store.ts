@@ -173,16 +173,15 @@ export function useRemove(kind: string) {
 }
 
 /**
- * Seed a collection with example documents, one-time and on demand (e.g. a
- * "Load examples" button). Each seed keeps its own id via `put`, so any
- * cross-references between seeds (journey → persona) stay intact.
+ * Write documents back at their own ids — the "Undo" of a delete. Each one
+ * keeps its id via `put`, so cross-references (journey → persona) stay intact.
  */
-export function useSeedExamples<T extends Entity>(kind: string) {
+export function useRestoreDocs<T extends Entity>(kind: string) {
   const qc = useQueryClient()
   return useMutation<void, Error, T[]>({
-    mutationFn: async (seeds) => {
-      for (const seed of seeds) {
-        await docStore.put<Data>(kind, seed.id, stripId(seed))
+    mutationFn: async (docs) => {
+      for (const d of docs) {
+        await docStore.put<Data>(kind, d.id, stripId(d))
       }
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: listKey(kind) }),

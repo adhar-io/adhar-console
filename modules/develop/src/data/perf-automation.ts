@@ -132,7 +132,9 @@ export interface PerfInsights {
   verdictOf(r: RunRecord): GateVerdict
   overview: Overview
   loading: boolean
+  /** Set when the result ConfigMaps could not be listed — figures from them are unknown, not zero. */
   recordsError?: unknown
+  refetchRecords(): void
 }
 
 /** Everything the overview, results and trends views share, computed once. */
@@ -170,8 +172,9 @@ export function usePerfInsights(): PerfInsights {
       overview: overview(records, verdictOf, Date.now()),
       loading: recordsQ.isLoading,
       recordsError: recordsQ.error ?? undefined,
+      refetchRecords: () => void recordsQ.refetch(),
     }
-  }, [suite, testsQ.data, records, configs, schedulesQ.data, recordsQ.isLoading, recordsQ.error])
+  }, [suite, testsQ.data, records, configs, schedulesQ.data, recordsQ.isLoading, recordsQ.error, recordsQ.refetch])
 }
 
 /* ─────────────────────────── the harvester ─────────────────────────── */

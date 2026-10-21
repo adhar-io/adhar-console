@@ -17,7 +17,7 @@ export const Route = createFileRoute('/settings')({
 })
 
 function SettingsPage() {
-  const { tenants, activeTenant, notifications } = Route.useLoaderData()
+  const { tenants, activeTenant } = Route.useLoaderData()
   const user = useOptionalSession()?.user ?? PENDING_USER
   const { section } = Route.useSearch()
   return (
@@ -27,7 +27,6 @@ function SettingsPage() {
       activeTenantId={activeTenant.id}
       onTenantChange={() => {}}
       crumbs={[{ label: 'Home', to: '/' }, { label: 'Settings' }]}
-      notifications={notifications}
       contentWidth="full"
     >
       <RemoteModule

@@ -7,7 +7,6 @@ import { CLOSE_EVENT, OPEN_EVENT } from './ai-assistant.tsx'
 import { cn } from '@adhar/utils'
 import type { NavSection } from './nav-tree.tsx'
 import type { AppLink } from './app-launcher.tsx'
-import type { Notification } from './notifications.ts'
 import type { Tenant } from '@adhar/tenancy'
 import type { User } from '@adhar/auth'
 
@@ -23,7 +22,6 @@ interface Props {
   /** @deprecated ignored — breadcrumbs are no longer rendered. */
   crumbs?: LegacyCrumb[]
   onSignOut?(): void
-  notifications?: Notification[]
   /** Override the default app-launcher entries (usually supplied by the BFF). */
   apps?: AppLink[]
   /** Override the default nav tree. Forwarded to <Sidebar /> + <CommandPalette />. */
@@ -62,7 +60,6 @@ export function AppShell({
   activeTenantId,
   onTenantChange,
   onSignOut,
-  notifications,
   apps,
   sections,
   commandItems,
@@ -219,7 +216,6 @@ export function AppShell({
       <div className="isolate flex min-w-0 flex-1 flex-col">
         <Topbar
           user={user}
-          notifications={notifications}
           apps={apps}
           onSignOut={onSignOut}
           onOpenCommandPalette={openPalette}

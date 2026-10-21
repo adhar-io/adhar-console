@@ -14,9 +14,6 @@ import type { Permission } from './access.ts'
  * views render as a "connect a database" state — never fake data.
  *
  * Custom RBAC roles and webhooks keep their existing docStore persistence.
- * A handful of read-only surfaces outside this vertical (plan, usage,
- * integrations, environments) still read from the api-clients stub via
- * `wsClient` until their own verticals land.
  */
 
 export const CURRENT_ORG_SLUG = 'current'
@@ -633,16 +630,6 @@ export function useSaveApprovalPolicy() {
   })
 }
 
-/* ─────────────────── base client (out-of-vertical reads) ─────────────────── */
-
-/**
- * Read-only surfaces outside the team/org vertical (plan, usage, integrations,
- * environments) still read the api-clients stub until their verticals land.
- * Nothing in the org / members / teams / projects / tokens / audit / approvals
- * flows uses this.
- */
-export const wsClient = workspace.WorkspaceClient.stub()
-
 /* ─────────────────── document-store kinds ─────────────────── */
 
 const ROLE_KIND = 'workspace.role'
@@ -713,6 +700,8 @@ export interface WebhookDelivery {
   statusCode: number
   durationMs: number
   at: string
+  /** Transport error when no HTTP response could be read (network / CORS). */
+  error?: string
 }
 
 type DeliveryData = Omit<WebhookDelivery, 'id'>
@@ -801,23 +790,50 @@ export async function deleteWebhook(id: string): Promise<void> {
   await docStore.remove(WEBHOOK_KIND, id)
 }
 
+/** HMAC-SHA256 hex digest of `body` keyed by `secret` (WebCrypto). */
+async function signPayload(secret: string, body: string): Promise<string> {
+  const enc = new TextEncoder()
+  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(body))
+  return Array.from(new Uint8Array(sig), (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 /**
- * Simulate a signed test delivery, record it as a real `workspace.webhook-delivery`
- * document, and stamp the webhook's last-delivery fields via `docStore.put`.
+ * Send a REAL signed `ping.test` event to the webhook URL from the browser and
+ * record the actual outcome as a `workspace.webhook-delivery` document. The
+ * status code and duration are measured, never invented. When the browser
+ * cannot reach the endpoint or read its response (network error, CORS) the
+ * delivery is recorded as a failure with `statusCode: 0` and the error text.
  */
 export async function testWebhook(id: string): Promise<WebhookDelivery> {
   const existing = await docStore.get<WebhookData>(WEBHOOK_KIND, id)
   if (!existing) throw new Error(`Webhook ${id} not found`)
 
-  const ok = Math.random() > 0.15
   const at = new Date().toISOString()
+  const body = JSON.stringify({ event: 'ping.test', webhookId: id, sentAt: at })
+  const headers: Record<string, string> = { 'content-type': 'application/json', 'x-adhar-event': 'ping.test' }
+  if (existing.data.secret) {
+    headers['x-adhar-signature'] = `sha256=${await signPayload(existing.data.secret, body)}`
+  }
+
+  const started = performance.now()
+  let statusCode = 0
+  let error: string | undefined
+  try {
+    const res = await fetch(existing.data.url, { method: 'POST', headers, body })
+    statusCode = res.status
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e)
+  }
+  const ok = statusCode >= 200 && statusCode < 300
   const deliveryData: DeliveryData = {
     webhookId: id,
     event: 'ping.test',
     status: ok ? 'success' : 'failure',
-    statusCode: ok ? 200 : 502,
-    durationMs: Math.round(70 + Math.random() * 430),
+    statusCode,
+    durationMs: Math.round(performance.now() - started),
     at,
+    ...(error ? { error } : {}),
   }
 
   const doc = await docStore.create<DeliveryData>(DELIVERY_KIND, deliveryData)

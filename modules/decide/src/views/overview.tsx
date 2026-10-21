@@ -246,10 +246,15 @@ function Reliability({ dora, scopeMatches, scoped }: { dora: ReturnType<typeof u
       actions={<DLink href={phaseHref('discover', 'slos')} className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-300">SLOs →</DLink>}
     >
       <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Mini label="SLOs" value={slos.data ? String(sloList.length) : '—'} sub={slos.data ? `${breached} breached · ${atRisk} at risk` : 'not available'} href={phaseHref('discover', 'slos')} />
-        <Mini label="Critical alerts" value={alerts.data ? String(crit) : '—'} sub={alerts.data ? 'firing now' : 'Prometheus unreachable'} href={phaseHref('discover', 'alerts')} />
-        <Mini label="Warnings" value={alerts.data ? String(warn) : '—'} sub="firing now" href={phaseHref('discover', 'alerts')} />
-        <Mini label="Open failures" value={String(dora.openIncidents.length)} sub="deploys / alerts" href={decideHref('dora', { tab: 'open' })} />
+        <Mini label="SLOs" value={slos.data ? String(sloList.length) : '—'} sub={slos.data ? `${breached} breached · ${atRisk} at risk` : slos.error ? 'not available' : 'loading…'} href={phaseHref('discover', 'slos')} />
+        <Mini label="Critical alerts" value={alerts.data ? String(crit) : '—'} sub={alerts.data ? 'firing now' : alerts.error ? 'Prometheus unreachable' : 'loading…'} href={phaseHref('discover', 'alerts')} />
+        <Mini label="Warnings" value={alerts.data ? String(warn) : '—'} sub={alerts.data ? 'firing now' : alerts.error ? 'Prometheus unreachable' : 'loading…'} href={phaseHref('discover', 'alerts')} />
+        <Mini
+          label="Open failures"
+          value={dora.loading || dora.noSources ? '—' : String(dora.openIncidents.length)}
+          sub={dora.noSources ? 'no deploy record' : 'deploys / alerts'}
+          href={decideHref('dora', { tab: 'open' })}
+        />
       </div>
       {slos.error && !slos.data
         ? <SourceNote>SLO definitions live in the console document store (<code>discover.slo</code>), which did not answer.</SourceNote>
@@ -446,7 +451,7 @@ function BiHighlights() {
                 </li>
               ))}
             </ul>
-            <p className="text-[11px] text-content-subtle">{bi.data!.totalDashboards} dashboards · {bi.data!.totalQuestions} saved questions</p>
+            <p className="text-[11px] text-content-subtle">{bi.data!.totalDashboards} dashboards · {bi.data!.totalQuestions ?? '—'} saved questions</p>
           </div>
         )}
     </Panel>

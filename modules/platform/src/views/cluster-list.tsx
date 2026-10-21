@@ -106,8 +106,8 @@ export function ClusterView() {
         />
         <Stat
           label="Nodes"
-          value={nodes.isLoading ? <Skeleton width={30} height={16} /> : String(totalNodes)}
-          sub={`${readyNodes} ready · ${totalNodes - readyNodes} attention`}
+          value={nodes.isLoading ? <Skeleton width={30} height={16} /> : nodes.data ? String(totalNodes) : '—'}
+          sub={nodes.data ? `${readyNodes} ready · ${totalNodes - readyNodes} attention` : 'could not read nodes'}
           accent={readyNodes === totalNodes ? 'emerald' : 'amber'}
         />
         <Stat
@@ -115,9 +115,9 @@ export function ClusterView() {
           value={
             namespaces.isLoading
               ? <Skeleton width={30} height={16} />
-              : String(namespaces.data?.length ?? 0)
+              : namespaces.data ? String(namespaces.data.length) : '—'
           }
-          sub={`${nsActive} active`}
+          sub={namespaces.data ? `${nsActive} active` : 'could not read namespaces'}
           accent="brand"
         />
         <Stat
@@ -125,7 +125,7 @@ export function ClusterView() {
           value={
             surface.isLoading
               ? <Skeleton width={30} height={16} />
-              : String(surface.data?.apiGroups.length ?? 0)
+              : surface.data ? String(surface.data.apiGroups.length) : '—'
           }
           sub={`core/v1 · ${surface.data?.coreVersions.join(', ') ?? ''}`}
           accent="brand"

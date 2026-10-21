@@ -75,7 +75,7 @@ function daysAgo(date: string): number {
 }
 
 function ChangelogPage() {
-  const { tenants, activeTenant, notifications } = Route.useLoaderData()
+  const { tenants, activeTenant } = Route.useLoaderData()
   const user = useOptionalSession()?.user ?? PENDING_USER
   return (
     <AppShell
@@ -84,7 +84,6 @@ function ChangelogPage() {
       activeTenantId={activeTenant.id}
       onTenantChange={() => {}}
       crumbs={[{ label: 'Home', to: '/' }, { label: "What's new" }]}
-      notifications={notifications}
     >
       <PageHeader title="What's new" />
       <Spotlight />

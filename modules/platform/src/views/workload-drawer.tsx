@@ -966,7 +966,12 @@ function ArgoRolloutLadder({
     queryFn: async () => {
       const list = (await client
         .listGeneric(LOCAL_CLUSTER, ARGO_ROLLOUTS_GVR, namespace)
-        .catch(() => [])) as unknown as RolloutObj[]
+        // 404 = Argo Rollouts CRD not installed → genuinely no Rollout. Any
+        // other failure (RBAC, gateway) surfaces as an error, not "plain".
+        .catch((err) => {
+          if ((err as { status?: number })?.status === 404) return []
+          throw err
+        })) as unknown as RolloutObj[]
       return list.find(
         (r) =>
           r.metadata.name === name ||
@@ -979,6 +984,19 @@ function ArgoRolloutLadder({
   // Argo Rollouts only front Deployments; skip the card entirely for STS/DS.
   if (kind !== 'Deployment') return null
   if (q.isLoading) return null
+  if (q.isError) {
+    return (
+      <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-center dark:border-rose-500/30 dark:bg-rose-500/10">
+        <div className="text-sm font-medium text-rose-800 dark:text-rose-200">Couldn't read Argo Rollouts</div>
+        <p className="mx-auto mt-1 max-w-md text-xs text-rose-700 dark:text-rose-300">
+          {(q.error as Error)?.message ?? 'The Kubernetes gateway returned an error.'}
+        </p>
+        <Button variant="secondary" size="sm" className="mt-2" onClick={() => void q.refetch()}>
+          Retry
+        </Button>
+      </div>
+    )
+  }
 
   const rollout = q.data
   if (!rollout) {

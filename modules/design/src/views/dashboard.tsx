@@ -149,7 +149,9 @@ export function Dashboard() {
   const notes = boards.reduce((n, b) => n + (b.notes?.length ?? 0), 0)
   const flows = new Set(wireframes.map((w) => w.flow)).size
   const stages = journeys.reduce((n, j) => n + j.stages.length, 0)
-  const tokenCount = countTokens(eff.effective)
+  // No stored set (workspace or project) means no tokens — the starter set is a template, not a count.
+  const tokensSet = eff.workspaceStored || eff.overrideCount > 0
+  const tokenCount = tokensSet ? countTokens(eff.effective) : 0
   const total = rows.length
   const inReview = wireframes.filter((w) => w.review?.state === 'in-review')
   const designPrs = [
@@ -178,7 +180,7 @@ export function Dashboard() {
         <Tile label="Personas" value={personas.length} hint={personas.length ? `${personas.filter((p) => journeys.some((j) => j.persona === p.id)).length} with a journey` : 'Who you build for'} dot={KIND_META.persona.dot} onClick={() => go('personas')} />
         <Tile label="Journey maps" value={journeys.length} hint={`${stages} stages mapped`} dot={KIND_META.journey.dot} onClick={() => go('journeys')} />
         <Tile label="Wireframes" value={wireframes.length} hint={`${flows} flow${flows === 1 ? '' : 's'}${inReview.length ? ` · ${inReview.length} in review` : ''}`} dot={KIND_META.wireframe.dot} onClick={() => go('wireframes')} />
-        <Tile label="Design tokens" value={tokenCount} hint={scope.project ? (eff.overrideCount ? `${eff.overrideCount} project overrides` : 'Workspace set') : eff.workspaceStored ? 'Workspace token set' : 'Using defaults'} dot="bg-content-subtle" onClick={() => go('tokens')} />
+        <Tile label="Design tokens" value={tokenCount} hint={!tokensSet ? 'Not set up yet' : scope.project ? (eff.overrideCount ? `${eff.overrideCount} project overrides` : 'Workspace set') : 'Workspace token set'} dot="bg-content-subtle" onClick={() => go('tokens')} />
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">

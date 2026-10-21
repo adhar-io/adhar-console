@@ -26,27 +26,30 @@ export function PerfOverview({ insights, runs }: { insights: PerfInsights; runs:
 
   const first = next[0]
   const regressed = o.regressedTests
+  // Results unreadable: those figures are unknown, not zero.
+  const noRecords = insights.recordsError != null
+  const unread = 'results unreadable'
 
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
       <Tile label="Tests" value={tests.length} hint={`${schedules.length} schedule${schedules.length === 1 ? '' : 's'}`} />
       <Tile
         label="Runs · 7 days"
-        value={o.runs7d}
-        hint={o.runs7d ? `${o.passed7d} passed · ${o.failed7d} failed` : 'no results kept yet'}
+        value={noRecords ? '—' : o.runs7d}
+        hint={noRecords ? unread : o.runs7d ? `${o.passed7d} passed · ${o.failed7d} failed` : 'no results kept yet'}
         loading={loading}
       />
       <Tile
         label="Pass rate · 7 days"
-        value={o.passRatePct === undefined ? '—' : `${o.passRatePct.toFixed(0)}%`}
-        hint="Gate verdicts, not just thresholds"
+        value={noRecords || o.passRatePct === undefined ? '—' : `${o.passRatePct.toFixed(0)}%`}
+        hint={noRecords ? unread : 'Gate verdicts, not just thresholds'}
         tone={o.passRatePct === undefined ? undefined : o.passRatePct >= 90 ? 'good' : o.passRatePct < 70 ? 'bad' : undefined}
         loading={loading}
       />
       <Tile
         label="Active regressions"
-        value={regressed.length}
-        hint={regressed.length ? regressed.slice(0, 3).join(', ') + (regressed.length > 3 ? '…' : '') : 'latest runs vs baselines'}
+        value={noRecords ? '—' : regressed.length}
+        hint={noRecords ? unread : regressed.length ? regressed.slice(0, 3).join(', ') + (regressed.length > 3 ? '…' : '') : 'latest runs vs baselines'}
         tone={regressed.length ? 'bad' : undefined}
         loading={loading}
       />

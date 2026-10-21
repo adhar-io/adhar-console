@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { argocd, argoRollouts, falco, harbor, k8s, kargo, nexus, trivy } from '@adhar/api-clients'
+import { argocd, argoRollouts, harbor, k8s, kargo, nexus, trivy } from '@adhar/api-clients'
 import { useArgocdProject, useHarborProject, useLiveInvalidate, useLiveToolPoll, usePollingInterval } from '@adhar/shell-ui'
 import {
   deleteApplication,
@@ -26,7 +26,7 @@ export type {
 }
 
 /**
- * Delivery hooks layer. Wraps the stub-backed clients in react-query so
+ * Delivery hooks layer. Wraps the live tool clients in react-query so
  * every Deliver view picks up the same cached data + matching invalidations.
  */
 
@@ -35,7 +35,6 @@ export const kargoClient = kargo.KargoClient.auto({ tool: 'kargo' })
 export const rolloutsClient = argoRollouts.ArgoRolloutsClient.auto({ tool: 'argo-rollouts' })
 export const harborClient = harbor.HarborClient.auto({ tool: 'harbor' })
 export const trivyClient = trivy.TrivyClient.auto({ tool: 'trivy' })
-export const falcoClient = falco.FalcoClient.auto({ tool: 'falco' })
 export const nexusClient = nexus.NexusClient.auto({ tool: 'nexus' })
 /** Kubernetes reads — admission policies live as CRDs, not in any registry API. */
 export const k8sClient = k8s.K8sClient.auto()
@@ -654,40 +653,8 @@ export function useRescan() {
   })
 }
 
-/* ─────────── Falco ─────────── */
+/* ─────────── Runtime events ─────────── */
 
-/**
- * Falco has no watch API, so the BFF does the polling and only notifies when
- * the event list actually changes — which for a security feed is most of the
- * time quiet, and exactly when it is not quiet you want it immediately.
- */
-export function useFalcoEvents(filter?: { priority?: falco.FalcoPriority; sinceMs?: number }) {
-  const queryKey = ['falco', 'events', filter?.priority ?? 'all', filter?.sinceMs ?? 0]
-  return useQuery({
-    queryKey,
-    queryFn: () => falcoClient.listEvents(filter),
-    refetchInterval: useLiveToolPoll(
-      'falco',
-      `/api/v1/falco/events${filter?.priority ? `?priority=${encodeURIComponent(filter.priority)}` : ''}`,
-      REFRESH_MS,
-      [queryKey],
-    ),
-  })
-}
-
-export function useFalcoRules() {
-  return useQuery({
-    queryKey: ['falco', 'rules'],
-    queryFn: () => falcoClient.listRules(),
-    staleTime: 60_000,
-  })
-}
-
-export function useToggleFalcoRule() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ name, enabled }: { name: string; enabled: boolean }) =>
-      falcoClient.toggleRule(name, enabled),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['falco', 'rules'] }),
-  })
-}
+// Runtime events (Tetragon / Falco) are read from the agents themselves — see
+// ./runtime.ts. The old Falco REST hooks read a BFF route with no real
+// backend, so they were removed rather than left to serve sample events.

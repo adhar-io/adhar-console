@@ -4,6 +4,20 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.143",
+    "date": "2026-10-21",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Fix style issues in resources"
+      },
+      {
+        "type": "fix",
+        "text": "Fix texts in resources utilization"
+      }
+    ]
+  },
+  {
     "version": "0.1.142",
     "date": "2026-10-21",
     "changes": [
@@ -890,22 +904,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "feature",
         "scope": "ui",
         "text": "A real elevation system, and text that clears AA"
-      }
-    ]
-  },
-  {
-    "version": "0.1.103",
-    "date": "2026-10-02",
-    "changes": [
-      {
-        "type": "feature",
-        "scope": "ui",
-        "text": "Repaint the console in the brand palette"
-      },
-      {
-        "type": "feature",
-        "scope": "ai",
-        "text": "Drop the insight cards from the landing"
       }
     ]
   }

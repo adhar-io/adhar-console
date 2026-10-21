@@ -3,12 +3,20 @@ import { Button, EmptyState, Modal, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
 import { memberDisplayName, planeError, useCreateIssue } from '../data/plane.ts'
-import { useMoveWork, usePatchWork, useSprintActions, type WorkItem } from '../data/work-hooks.ts'
+import { patchItemCaches, usePatchWork, useSprintActions as useCycleCreate, type WorkItem } from '../data/work-hooks.ts'
+import { useSprintActions } from '../data/planning-plane.ts'
+import { type SprintMeta, useSprintMetas } from '../data/planning-store.ts'
+import type { WorkItem as PlanWorkItem } from '../data/planning-model.ts'
+import { planningHref } from '../data/planning-nav.ts'
+import { navigateTo } from '../data/work-nav.ts'
+import { useQueryClient } from '@tanstack/react-query'
+import { usePlaneWorkspace } from '@adhar/shell-ui'
 import { useWorkScope, type WorkScope } from '../data/work-scope.ts'
+import { effectivePoints, useWorkRules, useWorkRulesCtx, viewOf, WorkRulesProvider } from '../data/work-rules.ts'
 import { andQuery } from '../data/work-ql.ts'
-import { byRank, estimateTotal, planRank } from '../data/work-board.ts'
+import { byRank, planRank } from '../data/work-board.ts'
 import { localDay } from '../data/work-time.ts'
-import { KINDS, type SprintDoc, storeError, useDocs, usePutDoc } from '../data/work-store.ts'
+import { KINDS, type SprintDoc, useDocs } from '../data/work-store.ts'
 import { issueParam, useSetWorkParams, useWorkParams } from '../data/work-nav.ts'
 import { IssueQueryBar, QUICK_FILTERS } from '../components/issue-query-bar.tsx'
 import { NewIssueModal } from '../components/new-issue-modal.tsx'
@@ -36,10 +44,15 @@ export function Backlog({ projectId }: { projectId?: string }) {
   const [quick, setQuick] = useState<string[]>([])
   const effective = useMemo(() => andQuery(jql, QUICK_FILTERS.filter((f) => quick.includes(f.id)).map((f) => f.jql)), [jql, quick])
   const scope = useWorkScope(projectId, effective, byRank)
+  const rules = useWorkRules(scope.projectIds, scope.states)
+  // Sprint lifecycle and membership: Agent B's actions, so commitment, snapshots and the retro are recorded.
   const sprints = useSprintActions(projectId)
-  const capacity = useDocs<SprintDoc>(KINDS.sprint)
-  const putCap = usePutDoc<SprintDoc>(KINDS.sprint)
-  const move = useMoveWork()
+  const cycleCreate = useCycleCreate(projectId)
+  const slug = usePlaneWorkspace()
+  const qc = useQueryClient()
+  // Goal + capacity: B's `define.sprintplan` (capacity per member), the old `define.sprint` as fallback.
+  const plans = useSprintMetas()
+  const legacy = useDocs<SprintDoc>(KINDS.sprint)
   const patch = usePatchWork()
   const queryInput = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -65,9 +78,24 @@ export function Backlog({ projectId }: { projectId?: string }) {
       .filter((c) => c.project === projectId && c.status !== 'completed' && !c.archived_at)
       .sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9) || (a.start_date ?? '9').localeCompare(b.start_date ?? '9'))
   }, [scope.cycles, projectId])
-  const usesPoints = allProject.some((i) => typeof i.estimate_point === 'number')
+  const ptsOf = (i: WorkItem) => effectivePoints(i, rules).value
+  const usesPoints = allProject.some((i) => ptsOf(i) !== undefined)
   const unresolved = !usesPoints && allProject.some((i) => i.estimate_point_id)
-  const capById = useMemo(() => new Map((capacity.data ?? []).map((d) => [d.id, d.data])), [capacity.data])
+  const sprintInfo = (id: string) => {
+    const plan = (plans.data ?? []).find((d) => d.id === id)?.data as SprintMeta | undefined
+    const old = (legacy.data ?? []).find((d) => d.id === id)?.data
+    const perMember = Object.values(plan?.capacity ?? {})
+    return {
+      goal: plan?.goal ?? old?.goal,
+      capacity: perMember.length ? perMember.reduce((n, v) => n + v, 0) : old?.capacity ?? null,
+      fromPlan: perMember.length > 0,
+    }
+  }
+  const toPlan = (i: WorkItem): PlanWorkItem => ({
+    id: i.id, name: i.name, state_group: groupOf(i.state) as PlanWorkItem['state_group'], completed_at: i.completed_at, created_at: i.created_at,
+    assignees: i.assignees, start_date: i.start_date, target_date: i.target_date, priority: i.priority, labels: i.labels, project: i.project,
+    estimate_point: ptsOf(i) ?? null,
+  })
 
   if (!projectId) return <EmptyState title="Pick a project" description="Choose one from the project picker above to plan its sprints." />
 
@@ -87,10 +115,17 @@ export function Backlog({ projectId }: { projectId?: string }) {
     const toCycle = listId === '_backlog' ? null : listId
     if ((item.cycle ?? null) !== toCycle) {
       const name = toCycle ? scope.cycleById.get(toCycle)?.name : 'the backlog'
-      move.mutate({ projectId, item, cycle: toCycle }, {
+      const snapshot = qc.getQueriesData({ queryKey: ['plane'] })
+      patchItemCaches(qc, slug, projectId, item.id, (i) => ({ ...i, cycle: toCycle }))
+      const opts = {
         onSuccess: () => toast.success(`${scope.keyOf(item)} → ${name}`),
-        onError: (e) => toast.error(planeError(e, "Couldn't move the item.")),
-      })
+        onError: (e: unknown) => {
+          for (const [k, d] of snapshot) qc.setQueryData(k, d)
+          toast.error(planeError(e, "Couldn't move the item."))
+        },
+      }
+      if (toCycle) sprints.addIssues.mutate({ cycle: toCycle, issues: [item.id] }, opts)
+      else if (item.cycle) sprints.removeIssue.mutate({ cycle: item.cycle, issue: item.id }, opts)
     }
     const before = target.items.slice(0, index).filter((i) => i.id !== item.id).length
     const ranks = planRank(target.items, item.id, before)
@@ -103,6 +138,7 @@ export function Backlog({ projectId }: { projectId?: string }) {
   const firstError = scope.errors[0]
 
   return (
+    <WorkRulesProvider value={rules}>
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-end gap-1.5">
         <Button size="sm" onClick={() => setNewSprint(true)} leading={<IconPlus />}>Create sprint</Button>
@@ -118,9 +154,10 @@ export function Backlog({ projectId }: { projectId?: string }) {
           {lists.map((l) => {
             const c = l.cycle
             const isCol = collapsed.includes(l.id)
-            const est = estimateTotal(l.items)
-            const committed = usesPoints ? est.points : l.items.length
-            const cap = c ? capById.get(c.id)?.capacity ?? null : null
+            const pointsSum = l.items.reduce((n, i) => n + (ptsOf(i) ?? 0), 0)
+            const committed = usesPoints ? pointsSum : l.items.length
+            const info = c ? sprintInfo(c.id) : undefined
+            const cap = info?.capacity ?? null
             const doneCount = l.items.filter((i) => groupOf(i.state) === 'completed').length
             const isOver = over?.list === l.id
             return (
@@ -162,19 +199,19 @@ export function Backlog({ projectId }: { projectId?: string }) {
                       <span className="text-[12px] text-content-muted">{c.start_date ? `${fmt(c.start_date)} – ${fmt(c.end_date)}` : 'No dates'}</span>
                     </>
                   ) : null}
-                  <span className="text-[12px] text-content-subtle">{l.items.length} item{l.items.length === 1 ? '' : 's'}{usesPoints ? ` · ${est.points} pts` : ''}</span>
+                  <span className="text-[12px] text-content-subtle">{l.items.length} item{l.items.length === 1 ? '' : 's'}{usesPoints ? ` · ${pointsSum} pts` : ''}</span>
                   {c ? (
                     <div className="ml-auto flex flex-wrap items-center gap-2">
                       <CapacityEditor
                         value={cap}
                         committed={committed}
                         unit={usesPoints ? 'pts' : 'items'}
-                        onSave={(v) => putCap.mutate({ id: c.id, update: (prev) => ({ projectId, goal: prev?.goal, capacity: v }) }, { onError: (e) => toast.error(storeError(e)) })}
+                        onEdit={() => navigateTo(planningHref('cycles', { sprint: c.id, stab: 'capacity' }))}
                       />
                       {c.status === 'current' ? <Button size="xs" onClick={() => setCompleting(c)}>Complete sprint</Button> : <Button size="xs" variant="primary" onClick={() => setStarting(c)} disabled={!l.items.length} title={!l.items.length ? 'Add items before starting' : undefined}>Start sprint</Button>}
                     </div>
                   ) : null}
-                  {c && capById.get(c.id)?.goal ? <p className="w-full pl-6 text-[12px] text-content-muted">Goal: {capById.get(c.id)?.goal}</p> : null}
+                  {info?.goal ? <p className="w-full pl-6 text-[12px] text-content-muted">Goal: {info.goal}</p> : null}
                   {c && l.items.length ? <div className="w-full pl-6"><ProgressBar value={doneCount} total={l.items.length} tone="emerald" /></div> : null}
                 </header>
                 {!isCol ? (
@@ -198,23 +235,22 @@ export function Backlog({ projectId }: { projectId?: string }) {
       )}
 
       {createOpen ? <NewIssueModal projectId={projectId} onClose={() => setCreateOpen(false)} /> : null}
-      <NewSprintModal open={newSprint} onClose={() => setNewSprint(false)} existing={cycles.length + scope.cycles.filter((c) => c.status === 'completed' && c.project === projectId).length} onCreate={(body) => sprints.create.mutate(body, { onSuccess: () => { toast.success(`Created ${body.name}`); setNewSprint(false) }, onError: (e) => toast.error(planeError(e, "Couldn't create the sprint.")) })} busy={sprints.create.isPending} />
+      <NewSprintModal open={newSprint} onClose={() => setNewSprint(false)} existing={cycles.length + scope.cycles.filter((c) => c.status === 'completed' && c.project === projectId).length} onCreate={(body) => cycleCreate.create.mutate(body, { onSuccess: () => { toast.success(`Created ${body.name}`); setNewSprint(false) }, onError: (e) => toast.error(planeError(e, "Couldn't create the sprint.")) })} busy={cycleCreate.create.isPending} />
       {starting ? (
         <StartSprintModal
           cycle={starting}
           hasActive={cycles.some((c) => c.status === 'current')}
-          goal={capById.get(starting.id)?.goal ?? ''}
+          goal={sprintInfo(starting.id).goal ?? ''}
           busy={sprints.start.isPending}
           onClose={() => setStarting(null)}
-          onStart={(start, end, goal) => {
-            sprints.start.mutate({ id: starting.id, start, end }, {
+          onStart={(end, goal) => {
+            sprints.start.mutate({ cycle: starting, endDate: end, goal: goal || undefined, items: allProject.filter((i) => i.cycle === starting.id).map(toPlan) }, {
               onSuccess: () => {
                 toast.success(`${starting.name} started`)
                 setStarting(null)
               },
               onError: (e) => toast.error(planeError(e, "Couldn't start the sprint.")),
             })
-            if (goal !== (capById.get(starting.id)?.goal ?? '')) putCap.mutate({ id: starting.id, update: (prev) => ({ projectId, capacity: prev?.capacity ?? null, goal: goal || undefined }) }, { onError: (e) => toast.error(storeError(e)) })
           }}
         />
       ) : null}
@@ -228,7 +264,7 @@ export function Backlog({ projectId }: { projectId?: string }) {
           busy={sprints.complete.isPending}
           onClose={() => setCompleting(null)}
           onComplete={(moveTo, unfinished) =>
-            sprints.complete.mutate({ id: completing.id, moveTo, unfinished }, {
+            sprints.complete.mutate({ cycle: completing, carryTo: moveTo, openIds: unfinished, items: allProject.filter((i) => i.cycle === completing.id).map(toPlan) }, {
               onSuccess: () => {
                 toast.success(`${completing.name} completed`, { description: unfinished.length ? `${unfinished.length} unfinished item${unfinished.length === 1 ? '' : 's'} moved to ${moveTo === 'backlog' ? 'the backlog' : scope.cycleById.get(moveTo)?.name}.` : undefined })
                 setCompleting(null)
@@ -239,11 +275,13 @@ export function Backlog({ projectId }: { projectId?: string }) {
       ) : null}
       <BoardDrawer projectId={projectId} />
     </div>
+    </WorkRulesProvider>
   )
 }
 
 function Row({ item, scope, onOpen, onDragStart, onDragEnd }: { item: WorkItem; scope: WorkScope; onOpen(): void; onDragStart(): void; onDragEnd(): void }) {
   const st = scope.stateById.get(item.state)
+  const pts = effectivePoints(item, useWorkRulesCtx())
   const who = item.assignees.map((a) => scope.memberById.get(a)).filter(Boolean) as plane.Member[]
   const epic = item.module ? scope.moduleById.get(item.module) : undefined
   const labels = item.labels.map((l) => scope.labelById.get(l)).filter(Boolean) as plane.Label[]
@@ -267,38 +305,16 @@ function Row({ item, scope, onOpen, onDragStart, onDragEnd }: { item: WorkItem; 
       </span>
       {epic ? <span className="hidden max-w-[9rem] truncate rounded bg-violet-50 px-1.5 text-[11px] text-violet-700 sm:inline dark:bg-violet-500/10 dark:text-violet-300">{epic.name}</span> : null}
       <span className="hidden items-center gap-1 text-[11.5px] text-content-muted sm:flex"><StateDot state={st} /> {st?.name}</span>
-      <span className="w-6 text-right text-[11.5px] font-semibold tabular-nums text-content-muted">{item.estimate_point ?? ''}</span>
+      <span className="w-6 text-right text-[11.5px] font-semibold tabular-nums text-content-muted" title={pts.source === 'console' ? 'Story points (console-side)' : 'Estimate'}>{pts.value ?? ''}</span>
       {who[0] ? <Avatar member={who[0]} size={20} title={memberDisplayName(who[0])} /> : <span className="h-5 w-5 rounded-full border border-dashed border-edge-strong" title="Unassigned" />}
     </div>
   )
 }
 
-function CapacityEditor({ value, committed, unit, onSave }: { value: number | null; committed: number; unit: string; onSave(v: number | null): void }) {
-  const [editing, setEditing] = useState(false)
+function CapacityEditor({ value, committed, unit, onEdit }: { value: number | null; committed: number; unit: string; onEdit(): void }) {
   const over = value !== null && committed > value
-  if (editing) {
-    return (
-      <input
-        autoFocus
-        type="number"
-        min={0}
-        defaultValue={value ?? ''}
-        aria-label="Sprint capacity"
-        onBlur={(e) => {
-          setEditing(false)
-          const v = e.target.value === '' ? null : Math.max(0, Number(e.target.value))
-          if (v !== value) onSave(v)
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') e.currentTarget.blur()
-          if (e.key === 'Escape') setEditing(false)
-        }}
-        className="h-7 w-20 rounded-md border border-brand-400 bg-surface-app px-1.5 text-right text-[12px]"
-      />
-    )
-  }
   return (
-    <button type="button" onClick={() => setEditing(true)} title="Capacity is console-side — Plane cycles have no capacity" className={cn('inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[12px]', over ? 'bg-rose-50 font-semibold text-rose-700 dark:bg-rose-500/10 dark:text-rose-300' : 'text-content-muted hover:bg-surface-sunken')}>
+    <button type="button" onClick={onEdit} title="Capacity is set per member on the sprint's Capacity tab (console-side — Plane cycles have none)" className={cn('inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[12px]', over ? 'bg-rose-50 font-semibold text-rose-700 dark:bg-rose-500/10 dark:text-rose-300' : 'text-content-muted hover:bg-surface-sunken')}>
       {committed}{value !== null ? ` / ${value}` : ''} {unit}
       {value === null ? <span className="text-content-subtle">· set capacity</span> : over ? <span>over</span> : null}
     </button>
@@ -307,6 +323,7 @@ function CapacityEditor({ value, committed, unit, onSave }: { value: number | nu
 
 function QuickAddRow({ projectId }: { projectId: string }) {
   const [name, setName] = useState('')
+  const rules = useWorkRulesCtx()
   const create = useCreateIssue(projectId)
   const toast = useToast()
   return (
@@ -315,7 +332,7 @@ function QuickAddRow({ projectId }: { projectId: string }) {
       onSubmit={(e) => {
         e.preventDefault()
         if (!name.trim()) return
-        create.mutate({ name: name.trim(), priority: 'none' } as Partial<plane.Issue>, { onSuccess: () => setName(''), onError: (err) => toast.error(planeError(err, "Couldn't create the item.")) })
+        create.mutate({ name: name.trim(), priority: 'none' } as Partial<plane.Issue>, { onSuccess: (created) => { setName(''); rules?.automate('created', undefined, viewOf(created as WorkItem)) }, onError: (err) => toast.error(planeError(err, "Couldn't create the item.")) })
       }}
     >
       <span className="text-content-subtle"><IconPlus /></span>
@@ -350,8 +367,8 @@ function NewSprintModal({ open, onClose, onCreate, busy, existing }: { open: boo
   )
 }
 
-function StartSprintModal({ cycle, hasActive, goal, busy, onClose, onStart }: { cycle: plane.Cycle; hasActive: boolean; goal: string; busy: boolean; onClose(): void; onStart(start: string, end: string, goal: string): void }) {
-  const [start, setStart] = useState(today())
+function StartSprintModal({ cycle, hasActive, goal, busy, onClose, onStart }: { cycle: plane.Cycle; hasActive: boolean; goal: string; busy: boolean; onClose(): void; onStart(end: string, goal: string): void }) {
+  const start = today()
   const [weeks, setWeeks] = useState(2)
   const [end, setEnd] = useState(() => (cycle.end_date && cycle.end_date.slice(0, 10) > today() ? cycle.end_date.slice(0, 10) : plusDays(today(), 13)))
   const [g, setG] = useState(goal)
@@ -360,8 +377,8 @@ function StartSprintModal({ cycle, hasActive, goal, busy, onClose, onStart }: { 
       open
       onClose={onClose}
       title={`Start ${cycle.name}`}
-      description="Plane has no sprint status — it reads one from the dates, so starting sets the start date to today."
-      footer={<><Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button><Button size="sm" variant="primary" loading={busy} disabled={!start || !end || start > end} onClick={() => onStart(start, end, g.trim())}>Start sprint</Button></>}
+      description="Plane has no sprint status — it reads one from the dates, so starting sets the start to now. The committed scope is recorded for burndown and the sprint report."
+      footer={<><Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button><Button size="sm" variant="primary" loading={busy} disabled={!start || !end || start > end} onClick={() => onStart(end, g.trim())}>Start sprint</Button></>}
     >
       <div className="space-y-3 text-[13px]">
         {hasActive ? <p className="rounded-lg bg-amber-50 p-2 text-[12px] text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">Another sprint is active. Plane allows overlapping cycles, but the team's focus may not.</p> : null}
@@ -370,7 +387,7 @@ function StartSprintModal({ cycle, hasActive, goal, busy, onClose, onStart }: { 
           {[1, 2, 3, 4].map((w) => <button key={w} type="button" onClick={() => { setWeeks(w); setEnd(plusDays(start, w * 7 - 1)) }} className={cn('rounded-full border px-2 py-0.5 text-[12px]', weeks === w ? 'border-brand-500 bg-brand-50 text-brand-800 dark:bg-brand-500/15 dark:text-brand-200' : 'border-edge-default text-content-muted')}>{w} week{w > 1 ? 's' : ''}</button>)}
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <label className="text-[12px] text-content-muted">Start<input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="mt-1 block h-9 w-full rounded-lg border border-edge-default bg-surface-raised px-2" /></label>
+          <div className="text-[12px] text-content-muted">Start<p className="mt-1 flex h-9 items-center px-1 text-[13px] text-content">Now</p></div>
           <label className="text-[12px] text-content-muted">End<input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="mt-1 block h-9 w-full rounded-lg border border-edge-default bg-surface-raised px-2" /></label>
         </div>
         <label className="block text-[12px] text-content-muted">

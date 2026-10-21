@@ -49,6 +49,7 @@ import {
   useEntityDeployment,
   repoUrlFromDeployment,
   withRepoLink,
+  workloadNamespace,
 } from '~/data/catalog-deployment.ts'
 import { type EntityRoute, routeLabel, useEntityRoutes } from '~/data/catalog-routes.ts'
 import { CatalogDeploymentTab, DeployFrequencyCard } from '~/components/catalog-deployment-tab.tsx'
@@ -3470,7 +3471,7 @@ function SectionHeader({
 
 /* ─────────── entity drawer ─────────── */
 
-type DrawerTab = 'overview' | 'deploy' | 'resources' | 'composition' | 'tech' | 'docs' | 'metrics' | 'relations' | 'scorecard' | 'raw'
+type DrawerTab = 'overview' | 'deploy' | 'composition' | 'tech' | 'docs' | 'metrics' | 'relations' | 'scorecard' | 'raw'
 
 function EntityDrawer({
   entity,
@@ -3504,6 +3505,11 @@ function EntityDrawer({
   const closeBtnRef = useRef<HTMLButtonElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const [metricRange, setMetricRange] = useState<RangeId>('1h')
+  // Which environment the Metrics tab reads. Unset means the default: prod
+  // when the service runs there (what the tab always showed), else its first
+  // environment. The service runs once per environment, so the tab must say
+  // which one it is charting and let you pick another.
+  const [metricsEnvKey, setMetricsEnvKey] = useState<string | undefined>(undefined)
   const toast = useToast()
   const ai = useAi()
   // XR-backed apps get "Delete application…" (role-gated); others the teardown.
@@ -3588,7 +3594,9 @@ function EntityDrawer({
   const docsUrl = techDocsUrl(entity)
   // Controlled so a link inside one panel can move the reader to another —
   // "Read here →" on the tech-stack panel opens the docs tab in place.
-  const [tab, setTab] = useState<DrawerTab>(initialTab ?? 'overview')
+  // `resources` was its own tab until its view moved into Deployment; a link
+  // or bookmark that still names it lands on Deployment.
+  const [tab, setTab] = useState<DrawerTab>(((initialTab as string) === 'resources' ? 'deploy' : initialTab) ?? 'overview')
   // TechDocs can widen the drawer for reading; the choice is remembered.
   const [docsWide, setDocsWide] = useState(() => readDocsLayout().wide ?? false)
   const setWide = (next: boolean) => {
@@ -3652,9 +3660,14 @@ function EntityDrawer({
     // Argo CD's managed resources say where the workload really runs; the
     // annotation and the destination are fallbacks (the destination is only a
     // default, and scaffolded services pin their own namespace).
-    const namespace = deployment.namespace || (ann['adhar.io/namespace'] ?? '').trim() || deployment.primary?.spec.destination.namespace || undefined
+    const chosen = metricsEnvKey ? deployment.environments.find((e) => e.key === metricsEnvKey) : undefined
+    const namespace = (chosen ? workloadNamespace(chosen.app) : undefined) ||
+      deployment.namespace || (ann['adhar.io/namespace'] ?? '').trim() || deployment.primary?.spec.destination.namespace || undefined
     return name ? { name, namespace } : null
-  }, [entity, deployment.primary, deployment.namespace])
+  }, [entity, deployment.primary, deployment.namespace, deployment.environments, metricsEnvKey])
+  // The environment the Metrics tab is showing, for the switcher's highlight.
+  const metricsEnvShown = metricsEnvKey ??
+    deployment.environments.find((e) => e.app === deployment.primary)?.key
   const { url: monitorUrl, grafanaBase } = useGrafanaMonitorUrl(
     metricTarget ?? { name: entity.metadata.name },
     entityAnnotations(entity)['adhar.io/grafana-dashboard'],
@@ -3683,15 +3696,8 @@ function EntityDrawer({
       badge: deployBadge,
     },
     {
-      id: 'resources',
-      label: 'Resources',
-      // Argo CD's app view of every deployed component; only when an app matched.
-      hidden: deployment.apps.length === 0,
-      badge: deployment.apps.length > 1 ? deployment.apps.length : undefined,
-    },
-    {
       id: 'composition',
-      label: 'Composition',
+      label: 'Resources',
       // Hidden when nothing is composed — but a discovery failure (RBAC) is
       // shown, so the reason is visible rather than the tab just missing.
       hidden: composition.roots.length === 0 && !composition.error,
@@ -4055,6 +4061,15 @@ function EntityDrawer({
                     onComposition={composition.roots.length || composition.error ? () => setTab('composition') : undefined}
                   />
                 ) : null}
+                {/* Argo CD's per-environment resource view lives IN the Deployment
+                    tab (it was a separate Resources tab): where it is deployed and
+                    what is running there are one question. */}
+                {active === 'deploy' && deployment.apps.length > 0 ? (
+                  <section aria-label="Running in each environment" className="space-y-2">
+                    <h3 className="text-sm font-semibold text-content">Running in each environment</h3>
+                    <ResourcesTab entity={entity} deployment={deployment} />
+                  </section>
+                ) : null}
 
                 {active === 'tech' ? (
                   <TechStackTab
@@ -4070,8 +4085,35 @@ function EntityDrawer({
                 ) : null}
 
                 {active === 'docs' ? <TechDocsTab url={docsUrl} entity={enriched} monitorUrl={monitorUrl} wide={docsWide} onWide={setWide} /> : null}
+                {active === 'metrics' && metricTarget && deployment.environments.length > 1 ? (
+                  <div className="flex flex-wrap items-center gap-2 text-[12px]" role="group" aria-label="Environment">
+                    <span className="text-content-muted">Environment</span>
+                    {deployment.environments.map((e) => (
+                      <button
+                        key={e.key}
+                        type="button"
+                        aria-pressed={metricsEnvShown === e.key}
+                        onClick={() => setMetricsEnvKey(e.key)}
+                        className={cn(
+                          'rounded-full border px-2.5 py-0.5 font-medium transition-colors',
+                          metricsEnvShown === e.key
+                            ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300'
+                            : 'border-edge-default text-content-muted hover:text-content',
+                        )}
+                      >
+                        {e.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
                 {active === 'metrics' && metricTarget ? (
-                  <EntityMetrics target={metricTarget} range={metricRange} onRange={setMetricRange} grafanaUrl={monitorUrl || grafanaBase} />
+                  <EntityMetrics
+                    key={metricTarget.namespace ?? 'any'}
+                    target={metricTarget}
+                    range={metricRange}
+                    onRange={setMetricRange}
+                    grafanaUrl={monitorUrl || grafanaBase}
+                  />
                 ) : null}
 
                 {active === 'relations' ? (
@@ -4118,8 +4160,6 @@ function EntityDrawer({
                 ) : null}
 
                 {active === 'scorecard' ? <ScorecardTab score={score} onAsk={() => askAboutEntity(ai, entity)} /> : null}
-
-                {active === 'resources' ? <ResourcesTab entity={entity} deployment={deployment} /> : null}
 
                 {active === 'composition' ? <CompositionTab roots={composition} /> : null}
 

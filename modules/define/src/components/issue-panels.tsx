@@ -32,6 +32,7 @@ import {
 } from '../data/work-store.ts'
 import { attributedActor, markdownToHtml, mentionHandle, withAttribution } from '../data/work-text.ts'
 import { localDay } from '../data/work-time.ts'
+import { useWorkRulesCtx, viewOf } from '../data/work-rules.ts'
 import { branchHref, commitHref, prHref, useBranchesAndCommitsFor, useDeploymentsFor, usePullRequestsFor } from '../data/work-dev.ts'
 import { navigateTo } from '../data/work-nav.ts'
 import { IssueSearch } from './issue-search.tsx'
@@ -94,6 +95,7 @@ export function SubtasksPanel({ c }: { c: PanelCtx }) {
   const toast = useToast()
   const create = useCreateIssue(c.projectId)
   const patch = usePatchWork()
+  const rules = useWorkRulesCtx()
   const [adding, setAdding] = useState<'new' | 'link' | null>(null)
   const [name, setName] = useState('')
   const children = c.siblings.filter((i) => i.parent === c.item.id)
@@ -121,6 +123,7 @@ export function SubtasksPanel({ c }: { c: PanelCtx }) {
             if (!name.trim()) return
             create.mutate({ name: name.trim(), parent: c.item.id, state: defaultState, priority: 'none' } as Partial<plane.Issue>, {
               onSuccess: (s) => {
+                rules?.automate('created', undefined, viewOf(s as WorkItem))
                 toast.success(`Created sub-task ${c.keyOf(s)}`)
                 setName('')
               },

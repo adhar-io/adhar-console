@@ -62,6 +62,8 @@ export interface GraphCanvasProps {
   toolbar?: React.ReactNode
   /** Announced to screen readers in place of the visual graph. */
   ariaLabel?: string
+  /** White ground (dots only) instead of the faint grey tint. */
+  plain?: boolean
 }
 
 /**
@@ -80,6 +82,7 @@ export function GraphCanvas({
   className,
   toolbar,
   ariaLabel = 'Pipeline graph',
+  plain = false,
 }: GraphCanvasProps) {
   const [zoomIdx, setZoomIdx] = useState(DEFAULT_ZOOM_INDEX)
   const [full, setFull] = useState(false)
@@ -205,7 +208,10 @@ export function GraphCanvas({
       {/* Canvas ground. */}
       <div
         aria-hidden
-        className='pointer-events-none absolute inset-0 bg-surface-sunken/40 [--dot:rgb(100_116_139_/_0.35)] dark:[--dot:rgb(148_163_184_/_0.20)]'
+        className={cn(
+          'pointer-events-none absolute inset-0 [--dot:rgb(100_116_139_/_0.35)] dark:[--dot:rgb(148_163_184_/_0.20)]',
+          !plain && 'bg-surface-sunken/40',
+        )}
         style={{
           backgroundImage: 'radial-gradient(circle, var(--dot) 1px, transparent 1px)',
           backgroundSize: '16px 16px',

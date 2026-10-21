@@ -5,6 +5,8 @@ import type { plane } from '@adhar/api-clients'
 import { memberDisplayName, planeError } from '../data/plane.ts'
 import { useMoveWork, usePatchWork, useSetEstimate, type WorkItem } from '../data/work-hooks.ts'
 import { isOverdue } from '../data/work-board.ts'
+import { effectivePoints, type WorkRules, useWorkRulesCtx, viewOf } from '../data/work-rules.ts'
+import { storeError } from '../data/work-store.ts'
 import { Avatar, AvatarStack, LabelChip, PickButton, type PickItem, PRIORITIES, PRIORITY_LABEL, PriorityIcon, StateDot } from './work-ui.tsx'
 
 /**
@@ -26,25 +28,50 @@ export interface FieldData {
   moduleById: Map<string, plane.Module>
 }
 
-export function useItemEditor() {
+/**
+ * Saves straight to Plane, applying the project's console-side workflow rules
+ * (blocked moves toast the reason) and running its automation once after a
+ * successful write — both from Agent B's planning store, via WorkRulesProvider.
+ */
+export function useItemEditor(override?: WorkRules | null) {
   const patch = usePatchWork()
   const move = useMoveWork()
   const est = useSetEstimate()
   const toast = useToast()
+  const ctx = useWorkRulesCtx()
+  const rules = override ?? ctx
   return {
+    rules,
     pending: patch.isPending || move.isPending || est.isPending,
-    patch: (item: WorkItem, p: Record<string, unknown>, ok?: string) =>
+    patch: (item: WorkItem, p: Record<string, unknown>, ok?: string) => {
+      if (typeof p.state === 'string' && rules) {
+        const c = rules.check({ ...item, assignees: (p.assignees as string[] | undefined) ?? item.assignees }, p.state)
+        if (!c.ok) {
+          toast.error(c.reason, { description: 'Workflow rule (enforced by the console)' })
+          return
+        }
+      }
       patch.mutate({ projectId: item.project, id: item.id, patch: p }, {
-        onSuccess: () => ok && toast.success(ok),
+        onSuccess: () => {
+          if (ok) toast.success(ok)
+          rules?.automate('updated', viewOf(item), viewOf({ ...item, ...(p as Partial<WorkItem>) }))
+        },
         onError: (e) => toast.error(planeError(e, "Couldn't save the change.")),
-      }),
+      })
+    },
     move: (item: WorkItem, to: { cycle?: string | null; module?: string | null }, ok?: string) =>
       move.mutate({ projectId: item.project, item, ...to }, {
         onSuccess: () => ok && toast.success(ok),
         onError: (e) => toast.error(planeError(e, "Couldn't move the item.")),
       }),
-    estimate: (item: WorkItem, value: number | null) =>
-      est.mutate({ projectId: item.project, item, value }, { onError: (e) => toast.error(planeError(e, "Couldn't set the estimate.")) }),
+    /** Plane's estimate when the item has a readable one; otherwise console story points. */
+    estimate: (item: WorkItem, value: number | null) => {
+      if (typeof item.estimate_point === 'number' || !rules) {
+        est.mutate({ projectId: item.project, item, value }, { onError: (e) => toast.error(planeError(e, "Couldn't set the estimate.")) })
+        return
+      }
+      rules.setPoints(item, value).catch((e) => toast.error(storeError(e)))
+    },
   }
 }
 
@@ -147,7 +174,7 @@ export function EpicField({ item, data, edit, lite }: { item: WorkItem; data: Fi
 export function EstimateField({ item, edit }: { item: WorkItem; edit: ReturnType<typeof useItemEditor> }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
-  const unresolved = item.estimate_point == null && !!item.estimate_point_id
+  const pts = effectivePoints(item, edit.rules)
   if (editing) {
     return (
       <input
@@ -174,13 +201,14 @@ export function EstimateField({ item, edit }: { item: WorkItem; edit: ReturnType
       type="button"
       onClick={(e) => {
         e.stopPropagation()
-        setDraft(item.estimate_point != null ? String(item.estimate_point) : '')
+        setDraft(pts.value != null ? String(pts.value) : '')
         setEditing(true)
       }}
-      title={unresolved ? "Plane has an estimate, but its public API doesn't expose the project's estimate points to read the value" : 'Estimate'}
-      className={cn(cell, 'justify-end tabular-nums')}
+      title={pts.source === 'plane' ? 'Plane estimate' : "Story points (console-side — this Plane build's API doesn't expose estimate points)"}
+      className={cn(cell, 'justify-end gap-1 tabular-nums')}
     >
-      {item.estimate_point != null ? item.estimate_point : <span className="text-content-subtle">{unresolved ? 'set' : '—'}</span>}
+      {pts.value != null ? pts.value : <span className="text-content-subtle">—</span>}
+      {pts.source === 'console' ? <span className="text-[9px] font-semibold uppercase text-violet-600 dark:text-violet-300" aria-label="console-side">pts</span> : null}
     </button>
   )
 }

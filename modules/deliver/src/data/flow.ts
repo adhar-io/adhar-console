@@ -1,150 +1,161 @@
-import { useQuery } from '@tanstack/react-query'
-import { coder, gitea, type k8s } from '@adhar/api-clients'
-import { useGiteaOrg } from '@adhar/shell-ui'
-import { useCRD } from './k8s.ts'
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { gitea, type k8s } from '@adhar/api-clients';
+import { useGiteaOrg, usePollingInterval } from '@adhar/shell-ui';
+import { useCRD } from './k8s.ts';
+import { harborClient, k8sClient, kargoClient } from './delivery.ts';
+import { type AppXR, CONTROL_PLANE_NS } from './value-stream.ts';
 
 /**
- * Data layer for the **Delivery flow** value-stream view.
+ * Data layer for the **Delivery Flow** value-stream view (see
+ * `value-stream.ts` for the model). Every hook errors honestly — no fake
+ * fallbacks — and the view turns each source's error into that stage's own
+ * "forbidden" / "unreachable" / "not installed" state.
  *
- * The flow stitches together every tool that touches a change on its way from
- * a commit to production, so this module reaches several backends:
- *
- *  - Gitea (Code + Pull Request) via the BFF tool proxy
- *    (`/api/svc/gitea/api/v1/…`) through the shared `gitea` client.
- *  - Coder (Dev loop) via the `coder` tool proxy.
- *  - Tekton PipelineRuns / kpack Builds (Build) as k8s CRDs read through the
- *    authenticated k8s gateway (`/api/k8s/…`) via the module's `useCRD`.
- *
- * ArgoCD (GitOps sync + preview envs), Kargo (Promotion) and Argo Rollouts
- * (Rollout) reuse the existing hooks in `./delivery.ts` — this file only adds
- * the sources those hooks don't already cover. Every hook errors honestly
- * (no fake fallbacks); the view turns errors/empties into muted, truthful
- * "not connected" / "no data" / "not configured" stage nodes.
+ *  - Gitea (Code + Pull request) via the BFF tool proxy.
+ *  - Tekton PipelineRuns (Build + Scan gate) — the app-ci trigger creates
+ *    them in `adhar-system`, labelled `adhar.io/app=<app>`.
+ *  - Harbor artifacts (Image, signatures).
+ *  - Kargo warehouses / freight / stages / promotions (cluster-wide).
+ *  - Application + Project XRs (`platform.adhar.io`) — the app list and the
+ *    control plane's own reasons when nothing is deployed.
  */
 
-export const giteaClient = gitea.GiteaClient.auto({ tool: 'gitea' })
-export const coderClient = coder.CoderClient.auto({ tool: 'coder' })
+export const giteaClient = gitea.GiteaClient.auto({ tool: 'gitea' });
 
-/**
- * Gitea org — a per-install identifier served by the BFF at `/api/config` and
- * read through `useGiteaOrg()` (real default `adhar`). Mirrors the Develop
- * module; each Gitea hook resolves it locally and threads it through its
- * `queryKey` + `queryFn` (never the old hardcoded `acme`).
- */
+const REFRESH_MS = 15_000;
+const SLOW_MS = 30_000;
 
-const REFRESH_MS = 15_000
-const SLOW_MS = 30_000
+export type CRDObject = k8s.Generic;
 
-/* ─────────── extra CRDs (Build stage) ─────────── */
-
-/**
- * GVRs the flow reads that the shared clients don't model. Both are optional
- * on any given cluster — a 404 from the apiserver renders an honest
- * "not configured" Build node rather than a fabricated success.
- */
 export const FLOW_GVRS = {
-  /** Tekton PipelineRuns — the primary CI signal. */
   tektonPipelineRuns: {
     group: 'tekton.dev',
     version: 'v1',
     resource: 'pipelineruns',
     namespaced: true,
   },
-  /** kpack Builds — the buildpacks-based alternative. */
-  kpackBuilds: {
-    group: 'kpack.io',
-    version: 'v1alpha2',
-    resource: 'builds',
+  applications: {
+    group: 'platform.adhar.io',
+    version: 'v1alpha1',
+    resource: 'applications',
     namespaced: true,
   },
-} as const
+  projects: {
+    group: 'platform.adhar.io',
+    version: 'v1alpha1',
+    resource: 'projects',
+    namespaced: true,
+  },
+} as const satisfies Record<string, k8s.GVR>;
 
-/* ─────────── Gitea: Code + Pull Request ─────────── */
+/* ─────────── Gitea ─────────── */
 
 export function useGiteaRepos() {
-  const org = useGiteaOrg()
+  const org = useGiteaOrg();
   return useQuery({
     queryKey: ['flow', 'gitea', 'repos', org],
     queryFn: () => giteaClient.listRepos(org),
     staleTime: SLOW_MS,
+    refetchInterval: usePollingInterval(SLOW_MS),
+    placeholderData: keepPreviousData,
     retry: false,
-  })
+  });
 }
 
-export function useGiteaCommits(repo?: string, ref?: string, limit = 5) {
-  const org = useGiteaOrg()
+export function useGiteaCommits(repo?: string, ref?: string, limit = 30) {
+  const org = useGiteaOrg();
   return useQuery({
     queryKey: ['flow', 'gitea', 'commits', org, repo, ref, limit],
     queryFn: () => giteaClient.listCommits(org, repo!, ref, limit),
     enabled: !!repo,
-    refetchInterval: REFRESH_MS,
+    refetchInterval: usePollingInterval(REFRESH_MS),
+    placeholderData: keepPreviousData,
     retry: false,
-  })
+  });
 }
 
-export function useGiteaPulls(repo?: string, state: 'open' | 'closed' | 'all' = 'all') {
-  const org = useGiteaOrg()
+export function useGiteaPulls(repo?: string) {
+  const org = useGiteaOrg();
   return useQuery({
-    queryKey: ['flow', 'gitea', 'pulls', org, repo, state],
-    queryFn: () => giteaClient.listPullRequests(org, repo!, state),
+    queryKey: ['flow', 'gitea', 'pulls', org, repo],
+    queryFn: () => giteaClient.listPullRequests(org, repo!, 'all'),
     enabled: !!repo,
-    refetchInterval: REFRESH_MS,
+    refetchInterval: usePollingInterval(REFRESH_MS),
+    placeholderData: keepPreviousData,
     retry: false,
-  })
+  });
 }
 
-/* ─────────── Coder: Dev loop ─────────── */
+/* ─────────── Tekton ─────────── */
 
-export function useCoderWorkspaces() {
+/** PipelineRuns in the CI namespace (where the app-ci EventListener creates them). */
+export function useCiRuns() {
+  return useCRD(FLOW_GVRS.tektonPipelineRuns, CONTROL_PLANE_NS);
+}
+
+/* ─────────── control plane XRs ─────────── */
+
+/** Application XRs. Errors propagate (403 / 404 are states the view reports). */
+export function useApplicationXRs() {
   return useQuery({
-    queryKey: ['flow', 'coder', 'workspaces'],
-    queryFn: () => coderClient.listWorkspaces(),
-    refetchInterval: REFRESH_MS,
+    queryKey: ['flow', 'xr', 'applications'],
+    queryFn: async () =>
+      (await k8sClient.listGeneric(
+        undefined,
+        FLOW_GVRS.applications,
+        CONTROL_PLANE_NS,
+      )) as unknown as AppXR[],
+    refetchInterval: usePollingInterval(SLOW_MS),
+    placeholderData: keepPreviousData,
     retry: false,
-  })
+  });
 }
 
-/* ─────────── Build: Tekton / kpack CRDs ─────────── */
-
-/** Tekton PipelineRuns in a namespace (disabled until a namespace is known). */
-export function useTektonRuns(namespace?: string) {
-  return useCRD(FLOW_GVRS.tektonPipelineRuns, namespace, !!namespace)
+export function useProjectXRs() {
+  return useQuery({
+    queryKey: ['flow', 'xr', 'projects'],
+    queryFn: async () =>
+      (await k8sClient.listGeneric(
+        undefined,
+        FLOW_GVRS.projects,
+        CONTROL_PLANE_NS,
+      )) as unknown as Array<
+        {
+          metadata: { name: string; labels?: Record<string, string> };
+          spec?: Record<string, unknown>;
+          status?: Record<string, unknown>;
+        }
+      >,
+    refetchInterval: usePollingInterval(SLOW_MS),
+    placeholderData: keepPreviousData,
+    retry: false,
+  });
 }
 
-/** kpack Builds in a namespace (disabled until a namespace is known). */
-export function useKpackBuilds(namespace?: string) {
-  return useCRD(FLOW_GVRS.kpackBuilds, namespace, !!namespace)
+/* ─────────── Kargo + Harbor ─────────── */
+
+/** Every Warehouse the user can see (each app's is `<project>/<app>`). */
+export function useAllWarehouses() {
+  return useQuery({
+    queryKey: ['kargo', 'warehouses', '*all*'],
+    queryFn: () => kargoClient.listWarehouses(''),
+    refetchInterval: usePollingInterval(SLOW_MS),
+    placeholderData: keepPreviousData,
+    retry: false,
+  });
 }
 
-/* ─────────── shared helpers ─────────── */
-
-export type CRDObject = k8s.Generic
-
-/** Newest-first by creationTimestamp. */
-export function newestFirst(a: CRDObject, b: CRDObject): number {
-  return (
-    new Date(b.metadata?.creationTimestamp ?? 0).getTime() -
-    new Date(a.metadata?.creationTimestamp ?? 0).getTime()
-  )
-}
-
-/** Whether a react-query error is an apiserver 404 (CRD not installed). */
-export function isNotInstalled(err: unknown): boolean {
-  return (err as { status?: number })?.status === 404
-}
-
-/** Human duration between two ISO timestamps; open-ended runs tick to now. */
-export function duration(start?: string, end?: string): string {
-  if (!start) return '—'
-  const startMs = new Date(start).getTime()
-  if (!Number.isFinite(startMs)) return '—'
-  const endMs = end ? new Date(end).getTime() : Date.now()
-  let s = Math.max(0, Math.floor((endMs - startMs) / 1000))
-  const h = Math.floor(s / 3600)
-  s -= h * 3600
-  const m = Math.floor(s / 60)
-  s -= m * 60
-  if (h) return `${h}h ${m}m`
-  if (m) return `${m}m ${s}s`
-  return `${s}s`
+/** Artifacts of one Harbor repository (`<project>/<path>`), with accessories (signatures). */
+export function useImageArtifacts(repo?: string) {
+  const slash = repo?.indexOf('/') ?? -1;
+  const project = slash > 0 ? repo!.slice(0, slash) : '';
+  const path = slash > 0 ? repo!.slice(slash + 1) : '';
+  return useQuery({
+    queryKey: ['flow', 'harbor', 'artifacts', project, path],
+    queryFn: () => harborClient.listArtifacts(project, path),
+    enabled: Boolean(project && path),
+    refetchInterval: usePollingInterval(SLOW_MS),
+    placeholderData: keepPreviousData,
+    retry: false,
+  });
 }

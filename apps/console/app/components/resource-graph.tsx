@@ -248,6 +248,107 @@ const PAD = 28
 const MIN_K = 0.3
 const MAX_K = 1.6
 
+/* ─────────────── shared canvas chrome: full screen, legend ─────────────── */
+
+/**
+ * Full screen for a canvas: the browser's Fullscreen API when it is allowed,
+ * else an in-page overlay (the console can be embedded where the API is
+ * blocked). `F` toggles it while the canvas has focus; Esc leaves either kind.
+ */
+export function useCanvasFullscreen() {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [native, setNative] = useState(false)
+  const [overlay, setOverlay] = useState(false)
+  useEffect(() => {
+    const on = () => setNative(Boolean(document.fullscreenElement && document.fullscreenElement === ref.current))
+    document.addEventListener('fullscreenchange', on)
+    return () => document.removeEventListener('fullscreenchange', on)
+  }, [])
+  useEffect(() => {
+    if (!overlay) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOverlay(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [overlay])
+  const toggle = useCallback(() => {
+    const el = ref.current
+    if (document.fullscreenElement) {
+      void document.exitFullscreen()
+      return
+    }
+    if (overlay) {
+      setOverlay(false)
+      return
+    }
+    if (el?.requestFullscreen) {
+      el.requestFullscreen().catch(() => setOverlay(true))
+    } else {
+      setOverlay(true)
+    }
+  }, [overlay])
+  const full = native || overlay
+  return {
+    ref,
+    full,
+    toggle,
+    /** Classes for the canvas container while it is full screen. */
+    frameClass: overlay ? 'fixed inset-0 z-[60] rounded-none' : native ? 'rounded-none' : '',
+  }
+}
+
+export function FullscreenGlyph({ full }: { full: boolean }) {
+  return full
+    ? <path d="M9 4H7v3H4v2h5V4zm6 0h-2v5h5V7h-3V4zM4 15v2h3v3h2v-5H4zm11 0v5h2v-3h3v-2h-5z" />
+    : <path d="M4 4h6v2H6v4H4V4zm10 0h6v6h-2V6h-4V4zM4 14h2v4h4v2H4v-6zm14 0h2v6h-6v-2h4v-4z" />
+}
+
+const LEGEND_LEVELS: Array<[HealthLevel, string]> = [
+  ['healthy', 'Healthy'],
+  ['progressing', 'Progressing'],
+  ['degraded', 'Degraded'],
+  ['missing', 'Missing'],
+  ['suspended', 'Suspended'],
+  ['unknown', 'Unknown'],
+]
+
+/**
+ * The always-visible key: what the status colours and the two connector
+ * styles mean. The detailed legend (sync marks, gestures) stays one click away.
+ */
+export function LegendStrip({ edges = true, className }: { edges?: boolean; className?: string }) {
+  return (
+    <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-content-muted', className)} aria-label="Legend">
+      {LEGEND_LEVELS.map(([l, t]) => (
+        <span key={l} className="inline-flex items-center gap-1">
+          <span className={cn('h-2 w-2 rounded-full', LEVEL_DOT[l])} aria-hidden />
+          {t}
+        </span>
+      ))}
+      {edges
+        ? (
+          <>
+            <span className="mx-0.5 h-3 w-px bg-edge-default" aria-hidden />
+            <span className="inline-flex items-center gap-1">
+              <svg width="18" height="6" aria-hidden><path d="M0 3h18" stroke="var(--color-edge-strong)" strokeWidth="1.5" /></svg>
+              owns
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <svg width="18" height="6" aria-hidden><path d="M0 3h18" stroke="var(--color-edge-strong)" strokeWidth="1.5" strokeDasharray="4 3" /></svg>
+              related
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <svg width="18" height="6" aria-hidden><path d="M0 3h18" stroke="var(--color-brand-500)" strokeWidth="2" /></svg>
+              path to selection
+            </span>
+          </>
+        )
+        : null}
+    </div>
+  )
+}
+
 export interface GraphViewProps {
   graph: CompositionGraph
   visible?: Set<string>
@@ -263,6 +364,9 @@ export interface GraphViewProps {
   fitKey?: string
   /** Same-kind siblings at or above this count fold into a stack. */
   stackThreshold?: number
+  /** Expand / collapse every subtree (toolbar buttons appear when given). */
+  onExpandAll?(): void
+  onCollapseAll?(): void
 }
 
 interface View {
@@ -279,7 +383,8 @@ interface View {
  * the root. Arrow keys move between cards (→ child, ← parent, ↑↓ siblings in
  * the column). Wide fan-outs of one kind fold into stacks.
  */
-export function GraphView({ graph, visible, collapsed, onToggle, selected, onSelect, now, ariaLabel, cardExtra, fitKey = '', stackThreshold = 6 }: GraphViewProps) {
+export function GraphView({ graph, visible, collapsed, onToggle, selected, onSelect, now, ariaLabel, cardExtra, fitKey = '', stackThreshold = 6, onExpandAll, onCollapseAll }: GraphViewProps) {
+  const fs = useCanvasFullscreen()
   const [expandedStacks, setExpandedStacks] = useState<Set<string>>(() => new Set())
   const display = useMemo(() => stackSiblings(graph, visible, { threshold: stackThreshold, expanded: expandedStacks }), [graph, visible, stackThreshold, expandedStacks])
   const g = display.graph
@@ -407,6 +512,7 @@ export function GraphView({ graph, visible, collapsed, onToggle, selected, onSel
       if (e.key === '+' || e.key === '=') zoomAt(1.2)
       else if (e.key === '-') zoomAt(1 / 1.2)
       else if (e.key === '0') fit()
+      else if (e.key === 'f' || e.key === 'F') fs.toggle()
       return
     }
     const here = pos.get(from)!
@@ -442,7 +548,11 @@ export function GraphView({ graph, visible, collapsed, onToggle, selected, onSel
   const zoomPct = Math.round(view.k * 100)
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-edge-default bg-surface-sunken/60" style={{ height: 'min(68vh, 680px)', minHeight: 320 }}>
+    <div
+      ref={fs.ref}
+      className={cn('relative overflow-hidden rounded-xl border border-edge-default bg-surface-sunken/60', fs.full && 'bg-surface-canvas', fs.frameClass)}
+      style={fs.full ? { height: '100vh', width: '100vw' } : { height: 'min(68vh, 680px)', minHeight: 320 }}
+    >
       {/* dot grid */}
       <div
         className="pointer-events-none absolute inset-0 opacity-60 dark:opacity-40"
@@ -557,11 +667,44 @@ export function GraphView({ graph, visible, collapsed, onToggle, selected, onSel
         <IconBtn label="Zoom in (+)" onClick={() => zoomAt(1.2)}>
           <path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z" />
         </IconBtn>
+        <input
+          type="range"
+          aria-label="Zoom"
+          min={Math.round(MIN_K * 100)}
+          max={Math.round(MAX_K * 100)}
+          step={5}
+          value={zoomPct}
+          onChange={(e) => zoomAt(Number(e.target.value) / 100 / view.k)}
+          className="mx-1 hidden h-1 w-20 cursor-pointer accent-brand-600 sm:block"
+        />
         <span className="mx-0.5 h-4 w-px bg-edge-default" aria-hidden />
         <IconBtn label="Fit to view (0)" onClick={fit}>
-          <path d="M4 4h6v2H6v4H4V4zm10 0h6v6h-2V6h-4V4zM4 14h2v4h4v2H4v-6zm14 0h2v6h-6v-2h4v-4z" />
+          <path d="M3 5h4V3H3a2 2 0 0 0-2 2v4h2V5zm18-2h-4v2h4v4h2V5a2 2 0 0 0-2-2zM3 15H1v4a2 2 0 0 0 2 2h4v-2H3v-4zm18 4h-4v2h4a2 2 0 0 0 2-2v-4h-2v4zM8 8h8v8H8z" />
+        </IconBtn>
+        <IconBtn label="Centre on the selected resource" onClick={() => selected && pos.has(selected) && (() => {
+          const { x, y } = xy(selected)
+          setView((v) => ({ ...v, x: vp.w / 2 - (x + CARD_W / 2) * v.k, y: vp.h / 2 - (y + H / 2) * v.k }))
+        })()} disabled={!selected || !pos.has(selected)}>
+          <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9 3h-2.07A7 7 0 0 0 13 5.07V3h-2v2.07A7 7 0 0 0 5.07 11H3v2h2.07A7 7 0 0 0 11 18.93V21h2v-2.07A7 7 0 0 0 18.93 13H21v-2zm-9 6a5 5 0 1 1 0-10 5 5 0 0 1 0 10z" />
+        </IconBtn>
+        {onExpandAll ? (
+          <IconBtn label="Expand all" onClick={onExpandAll}>
+            <path d="M12 5.83 15.17 9l1.41-1.41L12 3 7.41 7.59 8.83 9 12 5.83zm0 12.34L8.83 15l-1.41 1.41L12 21l4.59-4.59L15.17 15 12 18.17z" />
+          </IconBtn>
+        ) : null}
+        {onCollapseAll ? (
+          <IconBtn label="Collapse all" onClick={onCollapseAll}>
+            <path d="M7.41 18.59 8.83 20 12 16.83 15.17 20l1.41-1.41L12 14l-4.59 4.59zm9.18-13.18L15.17 4 12 7.17 8.83 4 7.41 5.41 12 10l4.59-4.59z" />
+          </IconBtn>
+        ) : null}
+        <span className="mx-0.5 h-4 w-px bg-edge-default" aria-hidden />
+        <IconBtn label={fs.full ? 'Exit full screen (F / Esc)' : 'Full screen (F)'} onClick={fs.toggle}>
+          <FullscreenGlyph full={fs.full} />
         </IconBtn>
       </div>
+
+      {/* the key, always visible */}
+      <LegendStrip className="absolute left-3 top-3 max-w-[calc(100%-7rem)] rounded-lg border border-edge-default bg-surface-raised/95 px-2 py-1 shadow-sm backdrop-blur" />
 
       <div className="absolute right-3 top-3">
         <button
@@ -665,7 +808,7 @@ const SORTABLE: Array<{ key: SortKey; label: string; className?: string }> = [
  * header. ↑/↓ move, →/← expand/collapse, Enter opens. On a phone it folds to
  * name + status with kind, namespace, age and message on a second line.
  */
-export function TreeTable({ graph, visible, collapsed, onToggle, selected, onSelect, now, ariaLabel }: {
+export function TreeTable({ graph, visible, collapsed, onToggle, selected, onSelect, now, ariaLabel, onExpandAll, onCollapseAll }: {
   graph: CompositionGraph
   visible?: Set<string>
   collapsed: ReadonlySet<string>
@@ -674,7 +817,11 @@ export function TreeTable({ graph, visible, collapsed, onToggle, selected, onSel
   onSelect(id: string): void
   now: number
   ariaLabel: string
+  onExpandAll?(): void
+  onCollapseAll?(): void
 }) {
+  const fs = useCanvasFullscreen()
+  const [compact, setCompact] = useState(false)
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 } | null>(null)
   const rows = useMemo(() => treeRows(graph, visible, collapsed, sort ? compareNodes(sort.key, sort.dir) : undefined), [graph, visible, collapsed, sort])
   const [cursor, setCursor] = useState<string | null>(null)
@@ -694,6 +841,7 @@ export function TreeTable({ graph, visible, collapsed, onToggle, selected, onSel
     else if (e.key === 'ArrowRight' && row.hasChildren && collapsed.has(row.node.id)) onToggle(row.node.id)
     else if (e.key === 'ArrowLeft' && row.hasChildren && !collapsed.has(row.node.id)) onToggle(row.node.id)
     else if (e.key === 'Enter' || e.key === ' ') onSelect(row.node.id)
+    else if (e.key === 'f' || e.key === 'F') fs.toggle()
     else return
     e.preventDefault()
   }
@@ -718,7 +866,41 @@ export function TreeTable({ graph, visible, collapsed, onToggle, selected, onSel
 
   return (
     <div
-      className="max-h-[68vh] overflow-auto rounded-xl border border-edge-default bg-surface-raised focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+      ref={fs.ref}
+      className={cn('flex flex-col overflow-hidden rounded-xl border border-edge-default bg-surface-raised', fs.full && 'h-screen w-screen', fs.frameClass)}
+    >
+      <div className="flex items-center justify-between gap-2 border-b border-edge-default bg-surface-sunken/60 px-2 py-1">
+        <span className="text-[11px] tabular-nums text-content-muted">
+          {rows.length} resource{rows.length === 1 ? '' : 's'} shown
+        </span>
+        <div className="flex items-center gap-0.5">
+          {onExpandAll ? (
+            <IconBtn label="Expand all" onClick={onExpandAll}>
+              <path d="M12 5.83 15.17 9l1.41-1.41L12 3 7.41 7.59 8.83 9 12 5.83zm0 12.34L8.83 15l-1.41 1.41L12 21l4.59-4.59L15.17 15 12 18.17z" />
+            </IconBtn>
+          ) : null}
+          {onCollapseAll ? (
+            <IconBtn label="Collapse all" onClick={onCollapseAll}>
+              <path d="M7.41 18.59 8.83 20 12 16.83 15.17 20l1.41-1.41L12 14l-4.59 4.59zm9.18-13.18L15.17 4 12 7.17 8.83 4 7.41 5.41 12 10l4.59-4.59z" />
+            </IconBtn>
+          ) : null}
+          <IconBtn label={compact ? 'Comfortable rows' : 'Compact rows'} onClick={() => setCompact((c) => !c)}>
+            {compact
+              ? <path d="M3 5h18v3H3zm0 5.5h18v3H3zM3 16h18v3H3z" />
+              : <path d="M3 4h18v2H3zm0 4h18v2H3zm0 4h18v2H3zm0 4h18v2H3zm0 4h18v2H3z" />}
+          </IconBtn>
+          <span className="mx-0.5 h-4 w-px bg-edge-default" aria-hidden />
+          <IconBtn label={fs.full ? 'Exit full screen (F / Esc)' : 'Full screen (F)'} onClick={fs.toggle}>
+            <FullscreenGlyph full={fs.full} />
+          </IconBtn>
+        </div>
+      </div>
+    <div
+      className={cn(
+        'overflow-auto focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500',
+        fs.full ? 'min-h-0 flex-1' : 'max-h-[64vh]',
+        compact && '[&_td]:py-0.5!',
+      )}
       tabIndex={0}
       role="treegrid"
       aria-label={ariaLabel}
@@ -810,6 +992,8 @@ export function TreeTable({ graph, visible, collapsed, onToggle, selected, onSel
           })}
         </tbody>
       </table>
+    </div>
+      <LegendStrip edges={false} className="border-t border-edge-default bg-surface-sunken/60 px-2 py-1" />
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Button,
   Card,
@@ -13,6 +14,12 @@ import {
 } from '@adhar/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
 import { kargo } from '@adhar/api-clients'
+
+/** A freight by id, named by its application and build (see kargo.freightDisplayName). */
+function freightName(list: readonly kargo.Freight[], id: string): string {
+  const f = list.find((x) => x.id === id)
+  return f ? kargo.freightDisplayName(f) : id.slice(0, 12)
+}
 import {
   CanvasBtn,
   edgeBetween,
@@ -109,7 +116,7 @@ function AppFreightList({ stage: s, freightList, max = 4 }: { stage: kargo.Stage
           <li key={app} className="flex min-w-0 items-center gap-1.5 text-[10px]">
             <span className="w-16 shrink-0 truncate text-content-muted" title={app}>{app}</span>
             {id
-              ? <code className="truncate rounded bg-surface-sunken px-1 font-mono font-semibold text-content" title={id}>{f?.alias ?? f?.images[0]?.tag ?? id.slice(0, 12)}</code>
+              ? <code className="truncate rounded bg-surface-sunken px-1 font-mono font-semibold text-content" title={id}>{f ? kargo.freightDisplayName(f) : id.slice(0, 12)}</code>
               : <span className="text-content-subtle">no freight</span>}
           </li>
         )
@@ -312,6 +319,7 @@ export function KargoStages() {
       return (
         fr.id.toLowerCase().includes(f) ||
         (fr.alias ?? '').toLowerCase().includes(f) ||
+        kargo.freightDisplayName(fr).toLowerCase().includes(f) ||
         fr.images.some((i) => `${i.repoURL}:${i.tag}`.toLowerCase().includes(f)) ||
         (fr.commits ?? []).some((c) => c.id.toLowerCase().includes(f) || (c.message ?? '').toLowerCase().includes(f)) ||
         (fr.charts ?? []).some((c) => `${c.name ?? ''}${c.version}`.toLowerCase().includes(f))
@@ -409,6 +417,7 @@ export function KargoStages() {
             edges={graph.edges}
             legend={legend}
             className="h-[520px]"
+            plain
             ariaLabel={`Promotion pipeline — ${stageList.length} stages across ${graph.tiers.length} tiers`}
             toolbar={
               <>
@@ -537,7 +546,7 @@ export function KargoStages() {
                   <div className="text-[11px] text-content-subtle">
                     last freight{' '}
                     {w.lastFreight ? (
-                      <code className="rounded bg-surface-sunken px-1 py-0.5 font-mono text-content">{freightList.find((f) => f.id === w.lastFreight)?.alias ?? w.lastFreight.slice(0, 12)}</code>
+                      <code className="rounded bg-surface-sunken px-1 py-0.5 font-mono text-content">{freightName(freightList, w.lastFreight)}</code>
                     ) : '—'}
                   </div>
                   {w.issues?.length ? <p className="text-[11px] text-rose-700 dark:text-rose-300">{w.issues.join(' · ')}</p> : null}
@@ -617,7 +626,7 @@ export function KargoStages() {
                       <td className="px-3 py-2 font-semibold text-content">
                         <button type="button" onClick={() => setSelected(p.stage)} className="hover:underline">{p.stage}</button>
                       </td>
-                      <td className="px-3 py-2 font-mono text-[11px] text-content-muted" title={p.freight}>{fr?.alias ?? p.freight.slice(0, 12)}</td>
+                      <td className="px-3 py-2 font-mono text-[11px] text-content-muted" title={p.freight}>{fr ? kargo.freightDisplayName(fr) : p.freight.slice(0, 12)}</td>
                       <td className="px-3 py-2"><StatusBadge kind={PROMO_KIND[p.phase] ?? 'unknown'}>{p.phase}</StatusBadge></td>
                       <td className="px-3 py-2 text-content-muted" title={formatAbsolute(p.created)}>{formatRelative(p.created)}</td>
                       <td className="px-3 py-2 text-content-muted" title={p.finished ? formatAbsolute(p.finished) : ''}>{p.finished ? formatRelative(p.finished) : running ? <span className="inline-flex items-center gap-1"><Spinner size={10} /> in progress</span> : '—'}</td>
@@ -663,7 +672,7 @@ export function KargoStages() {
           stage={promoteFor}
           freight={freightList}
           onClose={() => setPromoteFor(null)}
-          onPromote={(freightId) => act(`Promotion of ${freightList.find((f) => f.id === freightId)?.alias ?? freightId} to ${promoteFor.name} requested.`, () => promote.mutateAsync({ stage: promoteFor.name, freight: freightId, project: promoteFor.project }))}
+          onPromote={(freightId) => act(`Promotion of ${freightName(freightList, freightId)} to ${promoteFor.name} requested.`, () => promote.mutateAsync({ stage: promoteFor.name, freight: freightId, project: promoteFor.project }))}
           loading={promote.isPending}
         />
       ) : null}
@@ -673,7 +682,7 @@ export function KargoStages() {
           freight={approveFor}
           stages={stageList}
           onClose={() => setApproveFor(null)}
-          onApprove={(stage) => act(`${approveFor.alias ?? approveFor.id} approved for ${stage}.`, () => approve.mutateAsync({ freight: approveFor.id, stage, project: approveFor.project }))}
+          onApprove={(stage) => act(`${kargo.freightDisplayName(approveFor)} approved for ${stage}.`, () => approve.mutateAsync({ freight: approveFor.id, stage, project: approveFor.project }))}
           loading={approve.isPending}
         />
       ) : null}
@@ -748,7 +757,7 @@ function StageNode({
 }) {
   const current = freightList.find((f) => f.id === s.currentFreight)
   const busy = isBusy(s)
-  const alias = current?.alias ?? s.currentFreightAlias ?? (s.currentFreight ? s.currentFreight.slice(0, 12) : null)
+  const alias = (current ? kargo.freightDisplayName(current) : undefined) ?? s.currentFreightAlias ?? (s.currentFreight ? s.currentFreight.slice(0, 12) : null)
   const image = current?.images[0]
   const vKind = s.verification ? verificationKind(s.verification.phase) : null
   return (
@@ -849,7 +858,11 @@ function StageDetailPanel({
   const last = mine[0]
   const busy = isBusy(s)
   return (
-    <div className="fixed inset-0 z-40" role="dialog" aria-modal="false" aria-label={`Stage ${s.name}`}>
+    // Portalled to <body> at z-[60]: inside the page the panel sat in the
+    // content column's isolated stacking context, so the sticky top bar
+    // (z-40) covered its header and close button.
+    createPortal(
+    <div className="fixed inset-0 z-[60]" role="dialog" aria-modal="false" aria-label={`Stage ${s.name}`}>
       {/* Click-away. The panel is non-modal, so this only closes it. */}
       <button type="button" aria-label="Close stage details" onClick={onClose} className="absolute inset-0 h-full w-full cursor-default bg-scrim/40 backdrop-blur-[2px] dark:bg-scrim/40" />
       <aside className="absolute inset-y-0 right-0 flex w-full max-w-[420px] flex-col border-l border-edge-default bg-surface-raised shadow-2xl">
@@ -884,7 +897,7 @@ function StageDetailPanel({
             ) : current ? (
               <div className="space-y-1">
                 <div className="flex items-center gap-1.5">
-                  <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content">{current.alias ?? current.id.slice(0, 12)}</code>
+                  <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content">{kargo.freightDisplayName(current)}</code>
                   <span className="text-[10px] text-content-subtle" title={formatAbsolute(current.created)}>{formatRelative(current.created)}</span>
                 </div>
                 <div className="truncate font-mono text-[10px] text-content-subtle" title={current.id}>{current.id}</div>
@@ -983,7 +996,7 @@ function StageDetailPanel({
                   <li key={p.name} className="flex items-center gap-2">
                     <StatusBadge kind={PROMO_KIND[p.phase] ?? 'unknown'}>{p.phase}</StatusBadge>
                     <code className="truncate font-mono text-[10px] text-content-muted" title={p.freight}>
-                      {freightList.find((f) => f.id === p.freight)?.alias ?? p.freight.slice(0, 12)}
+                      {freightName(freightList, p.freight)}
                     </code>
                     <span className="ml-auto shrink-0 text-[10px] text-content-subtle" title={formatAbsolute(p.created)}>{formatRelative(p.created)}</span>
                   </li>
@@ -1012,7 +1025,9 @@ function StageDetailPanel({
           ) : null}
         </footer>
       </aside>
-    </div>
+    </div>,
+    document.body,
+    )
   )
 }
 
@@ -1085,7 +1100,7 @@ function StageCard({
           ) : current ? (
             <div className="mt-1 space-y-1">
               <div className="flex items-center gap-1.5">
-                <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content">{current.alias ?? current.id.slice(0, 12)}</code>
+                <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content">{kargo.freightDisplayName(current)}</code>
                 <span className="text-[10px] text-content-subtle" title={formatAbsolute(current.created)}>{formatRelative(current.created)}</span>
               </div>
               {current.images.map((img, i) => (
@@ -1159,7 +1174,7 @@ function FreightRow({ freight: f, stages, onApprove }: { freight: kargo.Freight;
   return (
     <li className="flex items-start gap-3 px-5 py-3 transition-colors hover:bg-surface-sunken/40">
       <div className="w-36 shrink-0">
-        <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content">{f.alias ?? f.id.slice(0, 12)}</code>
+        <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content">{kargo.freightDisplayName(f)}</code>
         <div className="mt-1 truncate font-mono text-[10px] text-content-subtle" title={f.id}>{f.id.slice(0, 16)}</div>
       </div>
       <div className="min-w-0 flex-1">
@@ -1249,7 +1264,7 @@ function PromoteModal({
                 !ok && 'opacity-70',
               )}
             >
-              <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content ring-1 ring-edge-subtle">{f.alias ?? f.id.slice(0, 12)}</code>
+              <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[11px] font-semibold text-content ring-1 ring-edge-subtle">{kargo.freightDisplayName(f)}</code>
               <div className="min-w-0 flex-1">
                 <div className="text-[11px] text-content-subtle">
                   {shared && f.warehouse ? <span className="font-medium text-content">{f.warehouse} · </span> : null}
@@ -1293,7 +1308,7 @@ function ApproveModal({
     <Modal
       open
       onClose={onClose}
-      title={`Approve ${freight.alias ?? freight.id.slice(0, 12)}`}
+      title={`Approve ${kargo.freightDisplayName(freight)}`}
       description="Manual approval lets this freight be promoted into a stage without having been verified upstream — the same as `kargo approve`."
       branded
       footer={

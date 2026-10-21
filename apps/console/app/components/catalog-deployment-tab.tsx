@@ -583,7 +583,7 @@ function DeliverySection({ diagnosis: d, onComposition, loading }: { diagnosis: 
       title="Delivery"
       actions={
         <>
-          {onComposition ? <button type="button" onClick={onComposition} className={ACTION}>Composition <span aria-hidden>→</span></button> : null}
+          {onComposition ? <button type="button" onClick={onComposition} className={ACTION}>Resources <span aria-hidden>→</span></button> : null}
           {d.phase === 'blocked' && !d.project.environments.length ? <ActionLink href="/platform?section=environments">Environments</ActionLink> : null}
           <ActionLink href="/platform?section=applications">Applications</ActionLink>
         </>
@@ -758,7 +758,7 @@ function ReleasesSection({ ctx }: { ctx: Ctx }) {
                 <div className="font-medium text-content">{r.label}</div>
                 <div className="min-w-0 space-y-0.5">
                   <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-                    <span className="font-mono text-content" title={current}>{f?.alias ?? (r.kargo!.shape === 'per-app' ? st.currentFreightAlias : undefined) ?? (current ? current.slice(0, 12) : 'no freight yet')}</span>
+                    <span className="font-mono text-content" title={current}>{f ? kargoModel.freightDisplayName(f) : (r.kargo!.shape === 'per-app' ? st.currentFreightAlias : undefined) ?? (current ? current.slice(0, 12) : 'no freight yet')}</span>
                     {source ? <span className="text-[11px] text-content-muted">built from <TextLink href={commitUrl(base, source)} mono>{source.slice(0, 7)}</TextLink></span> : null}
                     {img?.digest || version?.digest ? <span className="truncate font-mono text-[10px] text-content-subtle" title={img?.digest ?? version?.digest}>{(img?.digest ?? version?.digest)!.replace(/^sha256:/, '').slice(0, 12)}</span> : null}
                   </div>

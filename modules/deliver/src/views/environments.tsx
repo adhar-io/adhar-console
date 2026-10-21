@@ -1,3 +1,4 @@
+import { workloadOk } from '../data/workloads.ts'
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -20,7 +21,7 @@ import {
   useEnvironmentModel,
   useLocalNamespaces,
   useLocalNodes,
-  useNamespaceDeployments,
+  useNamespaceWorkloads,
   useNamespacePods,
   type ClusterRow,
   type EnvHealth,
@@ -474,7 +475,7 @@ function EnvDrawer({
 }) {
   // Workloads are only readable on a cluster the gateway can reach.
   const live = cluster.local
-  const deployments = useNamespaceDeployments(env.namespace, live)
+  const deployments = useNamespaceWorkloads(env.namespace, live)
   const pods = useNamespacePods(env.namespace, live)
 
   useEffect(() => {
@@ -576,12 +577,11 @@ function EnvDrawer({
                 {deployments.data?.length ? (
                   <ul className='divide-y divide-edge-subtle rounded-xl border border-edge-subtle'>
                     {deployments.data.map((d) => {
-                      const ready = d.status?.readyReplicas ?? 0
-                      const want = d.spec?.replicas ?? 0
-                      const ok = want > 0 && ready >= want
+                      const { ready, want } = d
+                      const ok = workloadOk(d)
                       return (
                         <li
-                          key={d.metadata.name}
+                          key={`${d.kind}/${d.name}`}
                           className='flex items-center gap-2 px-3 py-2 text-[12px]'
                         >
                           <span
@@ -591,7 +591,10 @@ function EnvDrawer({
                             )}
                           />
                           <span className='truncate font-medium text-content'>
-                            {d.metadata.name}
+                            {d.name}
+                          </span>
+                          <span className='shrink-0 rounded bg-surface-sunken px-1 text-[10px] text-content-subtle'>
+                            {d.kind}{d.phase && d.phase !== 'Healthy' ? ` · ${d.phase}` : ''}
                           </span>
                           <span className='ml-auto shrink-0 font-mono text-[11px] text-content-muted'>
                             {ready}/{want}
@@ -601,7 +604,7 @@ function EnvDrawer({
                     })}
                   </ul>
                 ) : (
-                  <EmptyState compact title='No deployments in this namespace' />
+                  <EmptyState compact title='No workloads in this namespace' />
                 )}
               </>
             )}

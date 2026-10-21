@@ -5,6 +5,8 @@ import { cn } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
 import { planeError, useCreateIssue, useMembers, useProjects } from '../data/plane.ts'
 import { useScopeMeta } from '../data/work-hooks.ts'
+import { useEstimatePoints } from '../data/planning-plane.ts'
+import { useWorkRules, viewOf } from '../data/work-rules.ts'
 import { BUILTIN_TEMPLATES, KINDS, type RequiredField, storeError, type TemplateDoc, useCreateDoc, useDocs } from '../data/work-store.ts'
 import { markdownToHtml, withAttribution } from '../data/work-text.ts'
 import { IssueSearch } from './issue-search.tsx'
@@ -41,6 +43,10 @@ export function NewIssueModal({
   const meta = useScopeMeta([project])
   const members = useMembers()
   const create = useCreateIssue(project)
+  // Plane estimates when the project exposes points; otherwise console story points (define.points).
+  const planePoints = useEstimatePoints(project)
+  const planeEstimates = !!planePoints.data?.length
+  const rules = useWorkRules([project], meta.states)
   const user = useOptionalUser()
   const toast = useToast()
   const saved = useDocs<TemplateDoc>(KINDS.template)
@@ -128,7 +134,7 @@ export function NewIssueModal({
       assignees,
       labels,
       description_html: withAttribution(html, user, 'created via Adhar console'),
-      estimate_point: estimate.trim() === '' ? null : Number(estimate),
+      estimate_point: planeEstimates && estimate.trim() !== '' ? Number(estimate) : null,
       start_date: start || null,
       target_date: due || null,
       cycle: cycle || null,
@@ -137,6 +143,9 @@ export function NewIssueModal({
     }
     create.mutate(body, {
       onSuccess: (issue) => {
+        const pts = estimate.trim() === '' ? null : Number(estimate)
+        if (!planeEstimates && pts !== null && Number.isFinite(pts)) rules.setPoints({ id: issue.id, project }, pts).catch((e) => toast.error(storeError(e)))
+        rules.automate('created', undefined, viewOf({ ...issue, project }))
         const p = projects.data?.find((x) => x.id === project)
         toast.success(`Created ${p ? `${p.identifier}-${issue.sequence_id}` : issue.name}`)
         onCreated?.(issue)
@@ -217,7 +226,7 @@ export function NewIssueModal({
               </PickButton>
             </Field>
             <Field label="Estimate" required={req('estimate')} invalid={bad('estimate')}>
-              <input inputMode="decimal" value={estimate} onChange={(e) => setEstimate(e.target.value)} placeholder="Points" className={field} aria-label="Estimate" />
+              <input inputMode="decimal" value={estimate} onChange={(e) => setEstimate(e.target.value)} placeholder={planeEstimates ? 'Plane points' : 'Story points (console)'} className={field} aria-label="Estimate" />
             </Field>
             <Field label="Start">
               <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className={field} aria-label="Start date" />

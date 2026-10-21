@@ -7,6 +7,7 @@ import { memberDisplayName, planeError, useCreateIssue, useDeleteIssue, useIssue
 import { useProjectIssues, useScopeMeta, type WorkItem } from '../data/work-hooks.ts'
 import { useMembers } from '../data/plane.ts'
 import { issueKey } from '../data/work-ql.ts'
+import { useWorkRules, useWorkRulesCtx, viewOf, WorkRulesProvider } from '../data/work-rules.ts'
 import { absoluteHref, defineHref, issueParam } from '../data/work-nav.ts'
 import { IssueSearch } from './issue-search.tsx'
 import { RichEditor, RichView } from './rich-editor.tsx'
@@ -71,7 +72,11 @@ export function IssueDrawer({ projectId, issueId, onClose, onPick, onPickIn }: P
   const members = useMembers()
   const projects = useProjects()
   const project = projects.data?.find((p) => p.id === projectId)
-  const edit = useItemEditor()
+  // Rules + points: the page's provider when there is one (Issues/Board/Backlog), else this project's.
+  const ctxRules = useWorkRulesCtx()
+  const ownRules = useWorkRules([projectId], meta.states)
+  const rules = ctxRules ?? ownRules
+  const edit = useItemEditor(rules)
   const remove = useDeleteIssue(projectId)
   const duplicate = useCreateIssue(projectId)
   const toast = useToast()
@@ -119,6 +124,7 @@ export function IssueDrawer({ projectId, issueId, onClose, onPick, onPickIn }: P
   const lite = !fromList // single-item read carries no sprint/epic when the list failed
 
   return createPortal(
+    <WorkRulesProvider value={rules}>
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={item ? `${key} ${item.name}` : 'Work item'}>
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} />
       <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl transition-[max-width]', expanded ? 'max-w-none' : 'max-w-5xl')}>
@@ -148,6 +154,7 @@ export function IssueDrawer({ projectId, issueId, onClose, onPick, onPickIn }: P
                 onClick={() =>
                   duplicate.mutate({ name: `${item.name} (copy)`, state: item.state, priority: item.priority, assignees: item.assignees, labels: item.labels, description_html: item.description_html, parent: item.parent ?? null, cycle: item.cycle ?? null, module: item.module ?? null } as Partial<plane.Issue>, {
                     onSuccess: (n) => {
+                      rules.automate('created', undefined, viewOf(n as WorkItem))
                       toast.success(`Duplicated as ${keyOf(n)}`)
                       onPick(n.id)
                     },
@@ -289,6 +296,7 @@ export function IssueDrawer({ projectId, issueId, onClose, onPick, onPickIn }: P
         )}
       </aside>
     </div>,
+    </WorkRulesProvider>,
     document.body,
   )
 }

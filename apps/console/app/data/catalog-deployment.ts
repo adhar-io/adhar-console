@@ -531,9 +531,9 @@ export function promotableFreightFor(env: KargoEnvironment, freight: readonly ka
   return kargo.promotableFreightForApp(env.view, freight)
 }
 
-/** Short, stable label for a freight: its alias if Kargo gave it one, else a short id. */
+/** What a freight is called on screen: the application and its build, never Kargo's random alias. */
 export function freightLabel(f: kargo.Freight): string {
-  return f.alias ?? f.id.slice(0, 12)
+  return kargo.freightDisplayName(f)
 }
 
 /** The image tags a freight carries, for telling two candidates apart. */

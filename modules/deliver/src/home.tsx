@@ -36,7 +36,7 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   flow: {
     label: 'Delivery Flow',
     description:
-      'End-to-end value stream — one change from commit to production across code, PR, build, dev loop, preview, promotion, GitOps sync and rollout.',
+      'End-to-end value stream for your applications — code, PR, build, scan & sign, image, freight and each environment (dev → test → prod), with commit tracing, lead time and where a change is stuck.',
   },
   apps: {
     label: 'ArgoCD Applications',

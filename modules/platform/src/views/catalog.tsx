@@ -216,6 +216,8 @@ export function PlatformCatalog() {
 
   return (
     <div className="space-y-6">
+      {/* One header card, like the Platform Dashboard's cluster summary: the
+          summary on top and the search / filter row as its footer. */}
       <Hero
         total={total}
         ready={totalReady}
@@ -224,18 +226,18 @@ export function PlatformCatalog() {
         kinds={tiles.length}
         errorKinds={errorKinds}
         loading={anyLoading}
-      />
-
-      <Toolbar
-        search={search}
-        onSearch={setSearch}
-        family={family}
-        onFamily={setFamily}
-        withResourcesOnly={withResourcesOnly}
-        onWithResourcesOnly={setWithResourcesOnly}
-        shown={filtered.length}
-        totalKinds={tiles.length}
-      />
+      >
+        <Toolbar
+          search={search}
+          onSearch={setSearch}
+          family={family}
+          onFamily={setFamily}
+          withResourcesOnly={withResourcesOnly}
+          onWithResourcesOnly={setWithResourcesOnly}
+          shown={filtered.length}
+          totalKinds={tiles.length}
+        />
+      </Hero>
 
       {xrdsQ.isLoading ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
@@ -374,6 +376,7 @@ function Hero({
   kinds,
   errorKinds,
   loading,
+  children,
 }: {
   total: number
   ready: number
@@ -382,6 +385,8 @@ function Hero({
   kinds: number
   errorKinds: number
   loading: boolean
+  /** The search / filter row, rendered as the card's footer. */
+  children?: React.ReactNode
 }) {
   // Only `notReady` is an alarm. `unreported` means an operator publishes no
   // readiness for its own CRs — worth showing, never worth colouring red.
@@ -466,6 +471,7 @@ function Hero({
           ))}
         </div>
       </div>
+      {children ? <div className="relative mt-4 border-t border-edge-subtle pt-3">{children}</div> : null}
     </div>
   )
 }
@@ -522,7 +528,7 @@ function Toolbar({
   totalKinds: number
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-edge-default bg-surface-raised p-3 shadow-sm">
+    <div className="flex flex-wrap items-center gap-3">
       {/* `min-w-[16rem]` unconditionally was the page's only fixed floor: it
           forced the search onto its own row on every phone and overflowed below
           ~312px. Full width on a phone by intent, floored only once there is

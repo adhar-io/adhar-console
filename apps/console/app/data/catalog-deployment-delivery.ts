@@ -447,7 +447,7 @@ export function releaseHistory(
         ...(p.commit ? { promotionCommit: p.commit } : {}),
         freight: {
           id: p.freight,
-          label: f?.alias ?? p.freight.slice(0, 12),
+          label: f ? kargo.freightDisplayName(f) : p.freight.slice(0, 12),
           ...(img?.tag ? { imageTag: img.tag } : {}),
           ...(img?.digest ? { digest: img.digest } : {}),
           ...(f?.commits?.[0]?.id ? { sourceCommit: f.commits[0].id } : img?.tag && /^[0-9a-f]{40}$/i.test(img.tag) ? { sourceCommit: img.tag } : {}),

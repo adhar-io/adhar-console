@@ -385,7 +385,6 @@ function MarketplaceToolbar({
           value={loading && !total ? '—' : enabledCount}
           tone="emerald"
           hint={`${enabledPct}% of the catalogue`}
-          bar={total ? enabledCount / total : 0}
           active={status === 'enabled'}
           onClick={() => onStatusChange(status === 'enabled' ? 'all' : 'enabled')}
         />
@@ -400,7 +399,6 @@ function MarketplaceToolbar({
                 ? `${attention} need${attention === 1 ? 's' : ''} attention`
                 : 'every enabled app is healthy'
           }
-          bar={enabledCount ? healthy / enabledCount : 0}
           active={status === 'healthy'}
           onClick={() => onStatusChange(status === 'healthy' ? 'all' : 'healthy')}
         />

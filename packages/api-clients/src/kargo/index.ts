@@ -112,6 +112,25 @@ export const FreightSchema = z.object({
 })
 export type Freight = z.infer<typeof FreightSchema>
 
+/**
+ * What a person should read for a freight: the application and the build it
+ * carries (`reactapp 33406bf`), never Kargo's generated alias. The alias
+ * (`dunking-seagull`) is random by design and says nothing about what is
+ * deployed, so it read like a placeholder image rather than a real build. A
+ * commit-SHA tag is shortened to seven characters; any other tag (a semver,
+ * `latest`) is shown as it is. Falls back to the alias, then the id.
+ */
+export function freightDisplayName(f: Pick<Freight, 'id' | 'alias' | 'warehouse' | 'images'>): string {
+  const img = f.images?.[0]
+  const app = f.warehouse || (img ? img.repoURL.split('/').pop() : undefined)
+  const tag = img?.tag
+  const build = tag
+    ? (/^[0-9a-f]{12,40}$/.test(tag) ? tag.slice(0, 7) : tag)
+    : img?.digest ? img.digest.replace(/^sha256:/, '').slice(0, 7) : undefined
+  if (app && build) return `${app} ${build}`
+  return f.alias ?? f.id.slice(0, 12)
+}
+
 export interface Promotion {
   name: string
   project: string

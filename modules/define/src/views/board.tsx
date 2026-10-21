@@ -5,6 +5,7 @@ import type { plane } from '@adhar/api-clients'
 import { memberDisplayName, planeError, useCreateIssue } from '../data/plane.ts'
 import { useMoveWork, usePatchWork, type WorkItem } from '../data/work-hooks.ts'
 import { useWorkScope, type WorkScope } from '../data/work-scope.ts'
+import { effectivePoints, useWorkRules, useWorkRulesCtx, viewOf, WorkRulesProvider } from '../data/work-rules.ts'
 import { andQuery } from '../data/work-ql.ts'
 import {
   type BoardColumn,
@@ -94,6 +95,7 @@ export function Board({ projectId }: { projectId?: string }) {
 
   const effective = useMemo(() => andQuery(jql, QUICK_FILTERS.filter((f) => quick.includes(f.id)).map((f) => f.jql)), [jql, quick])
   const scope = useWorkScope(projectId, effective, byRank)
+  const rules = useWorkRules(scope.projectIds, scope.states)
   const cross = scope.projectIds.length > 1
   const scopeStates = useMemo(() => scope.states.filter((s) => scope.projectIds.includes(s.project)), [scope.states, scope.projectIds])
   const columns = useMemo(() => boardColumns(scopeStates, cross), [scopeStates, cross])
@@ -152,10 +154,21 @@ export function Board({ projectId }: { projectId?: string }) {
     const ranks = rankable ? planRank(list, item.id, before) : []
     const own = ranks.find((r) => r.id === item.id)
     if (own && own.sort_order !== item.sort_order) p.sort_order = own.sort_order
+    // Workflow rules (console-enforced) — a blocked move doesn't happen.
+    if (typeof p.state === 'string') {
+      const c = rules.check({ ...item, assignees: (p.assignees as string[] | undefined) ?? item.assignees }, p.state)
+      if (!c.ok) {
+        toast.error(c.reason, { description: 'Workflow rule (enforced by the console)' })
+        return
+      }
+    }
     const run = () => {
       if (Object.keys(p).length) {
         patch.mutate({ projectId: item.project, id: item.id, patch: p }, {
-          onSuccess: () => p.state && toast.success(`${scope.keyOf(item)} → ${scope.stateById.get(toState)?.name}`),
+          onSuccess: () => {
+            if (p.state) toast.success(`${scope.keyOf(item)} → ${scope.stateById.get(toState)?.name}`)
+            if (p.state || p.assignees || p.priority) rules.automate('updated', viewOf(item), viewOf({ ...item, ...(p as Partial<WorkItem>) }))
+          },
           onError: (e) => toast.error(planeError(e, "Couldn't move the card.")),
         })
       }
@@ -172,6 +185,7 @@ export function Board({ projectId }: { projectId?: string }) {
   const width = compact ? 248 : 288
 
   return (
+    <WorkRulesProvider value={rules}>
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <Segmented
@@ -308,6 +322,7 @@ export function Board({ projectId }: { projectId?: string }) {
       {createIn ? <NewIssueModal projectId={scope.primary ?? projectId} defaultState={createIn.state} onClose={() => setCreateIn(null)} /> : null}
       <BoardDrawer projectId={projectId} />
     </div>
+    </WorkRulesProvider>
   )
 }
 
@@ -416,6 +431,7 @@ function Card({ item, scope, compact, sub, checklist, onOpen, onDragStart, onDra
   const overdue = isOverdue(item.target_date, group)
   const cover = compact ? undefined : coverFromHtml(item.description_html)
   const cp = checklistProgress(checklist)
+  const pts = effectivePoints(item, useWorkRulesCtx())
   const done = group === 'completed' || group === 'cancelled'
   return (
     <div
@@ -452,7 +468,7 @@ function Card({ item, scope, compact, sub, checklist, onOpen, onDragStart, onDra
           <span className="font-mono">{scope.keyOf(item)}</span>
           <PriorityIcon priority={item.priority} size={12} />
           {item.target_date ? <span className={cn('inline-flex items-center gap-0.5', overdue ? 'rounded bg-rose-600 px-1 font-medium text-white' : '')} title={overdue ? 'Overdue' : 'Due'}><IconCalendar size={11} />{new Date(`${item.target_date.slice(0, 10)}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span> : null}
-          {item.estimate_point != null ? <span className="rounded bg-surface-sunken px-1 font-semibold tabular-nums text-content-muted" title="Estimate">{item.estimate_point}</span> : null}
+          {pts.value != null ? <span className="rounded bg-surface-sunken px-1 font-semibold tabular-nums text-content-muted" title={pts.source === 'plane' ? 'Estimate' : 'Story points (console-side)'}>{pts.value}</span> : null}
           {sub ? <span className={cn('inline-flex items-center gap-0.5', sub.done === sub.total ? 'text-emerald-600' : '')} title="Sub-tasks done"><IconSubtask size={11} />{sub.done}/{sub.total}</span> : null}
           {cp.total ? <span className={cn('inline-flex items-center gap-0.5', cp.done === cp.total ? 'rounded bg-emerald-600 px-1 text-white' : '')} title="Checklist (console-side)"><IconChecklist size={11} />{cp.done}/{cp.total}</span> : null}
           {item.link_count ? <span className="inline-flex items-center gap-0.5" title="Links"><IconLink size={11} />{item.link_count}</span> : null}
@@ -469,6 +485,7 @@ function QuickAdd({ projectId, state }: { projectId: string; state: string }) {
   const [name, setName] = useState('')
   const create = useCreateIssue(projectId)
   const toast = useToast()
+  const rules = useWorkRulesCtx()
   if (!open) {
     return <button type="button" onClick={() => setOpen(true)} className="flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-content-subtle hover:bg-surface-raised hover:text-content"><IconPlus /> Add a card</button>
   }
@@ -478,7 +495,10 @@ function QuickAdd({ projectId, state }: { projectId: string; state: string }) {
         e.preventDefault()
         if (!name.trim()) return
         create.mutate({ name: name.trim(), state, priority: 'none' } as Partial<plane.Issue>, {
-          onSuccess: () => setName(''),
+          onSuccess: (created) => {
+            setName('')
+            rules?.automate('created', undefined, viewOf(created as WorkItem))
+          },
           onError: (err) => toast.error(planeError(err, "Couldn't add the card.")),
         })
       }}

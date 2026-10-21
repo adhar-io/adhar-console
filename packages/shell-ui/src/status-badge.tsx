@@ -20,8 +20,9 @@ const PILL: Record<StatusKind, string> = {
     'bg-amber-50 text-amber-800 ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/25',
   failed:
     'bg-rose-100 text-rose-800 ring-rose-600/30 dark:bg-rose-500/15 dark:text-rose-200 dark:ring-rose-400/30',
-  unknown:
-    'bg-slate-100 text-slate-700 ring-slate-600/20 dark:bg-slate-400/10 dark:text-slate-300 dark:ring-slate-400/25',
+  // Theme tokens, not slate: the console remaps the slate ramp in dark mode,
+  // which turned this pill's text dark-on-dark.
+  unknown: 'bg-surface-sunken text-content-muted ring-edge-default',
   info: 'bg-sky-50 text-sky-700 ring-sky-600/20 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-400/25',
 }
 
@@ -31,7 +32,7 @@ const DOT: Record<StatusKind, string> = {
   progressing: 'bg-indigo-500',
   paused: 'bg-amber-500',
   failed: 'bg-rose-600',
-  unknown: 'bg-slate-400',
+  unknown: 'bg-content-subtle',
   info: 'bg-sky-500',
 }
 

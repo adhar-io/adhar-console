@@ -30,6 +30,8 @@ import { usePollingInterval } from '@adhar/shell-ui'
  *  extrapolated from one cluster onto another.
  */
 
+import { workloadRows } from './workloads.ts'
+
 export const client = k8s.K8sClient.auto()
 
 const REFRESH_MS = 20_000
@@ -225,6 +227,28 @@ export function useNamespaceDeployments(namespace?: string, enabled = true) {
   return useQuery({
     queryKey: ['deliver', 'env', 'deployments', namespace ?? '*'],
     queryFn: () => client.listDeployments(undefined, namespace),
+    enabled: enabled && !!namespace,
+    refetchInterval: usePollingInterval(REFRESH_MS),
+    retry: false,
+  })
+}
+
+/**
+ * Every workload in one namespace — Argo Rollouts (what the application
+ * templates ship) as well as Deployments — for the drawer's roll-up.
+ */
+export function useNamespaceWorkloads(namespace?: string, enabled = true) {
+  return useQuery({
+    queryKey: ['deliver', 'env', 'workloads', namespace ?? '*'],
+    queryFn: async () => {
+      const [deployments, rollouts] = await Promise.all([
+        client.listDeployments(undefined, namespace),
+        // No Rollouts CRD (or no permission) is "no rollouts", not an error.
+        client.listGeneric(undefined, { group: 'argoproj.io', version: 'v1alpha1', resource: 'rollouts', namespaced: true }, namespace)
+          .catch(() => []),
+      ])
+      return workloadRows({ deployments, rollouts: rollouts as never })
+    },
     enabled: enabled && !!namespace,
     refetchInterval: usePollingInterval(REFRESH_MS),
     retry: false,

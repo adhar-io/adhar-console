@@ -215,15 +215,15 @@ export function CompositionTab({ roots }: { roots: CompositionRoots }) {
       ) : null}
 
       {graph.error && !g ? (
-        <EmptyState compact title="Could not read the composition" description={graph.error instanceof Error ? graph.error.message : String(graph.error)} />
+        <EmptyState compact title="Could not read the resources" description={graph.error instanceof Error ? graph.error.message : String(graph.error)} />
       ) : !g ? (
         <div className="h-80 animate-pulse rounded-xl border border-edge-default bg-surface-sunken" aria-hidden />
       ) : filtering && visible!.size === 0 ? (
-        <EmptyState compact title="No resources match" description="Clear the search or filters to see the whole composition." action={<Button size="sm" variant="secondary" onClick={() => { setSearch(''); setKind(''); setUnhealthyOnly(false) }}>Clear filters</Button>} />
+        <EmptyState compact title="No resources match" description="Clear the search or filters to see every resource." action={<Button size="sm" variant="secondary" onClick={() => { setSearch(''); setKind(''); setUnhealthyOnly(false) }}>Clear filters</Button>} />
       ) : view === 'tree' ? (
-        <GraphView ariaLabel="Composition tree" graph={g} visible={visible} collapsed={shownCollapsed} onToggle={toggle} selected={selected} onSelect={setSelected} now={now} fitKey={fitKey} />
+        <GraphView ariaLabel="Resource tree" graph={g} visible={visible} collapsed={shownCollapsed} onToggle={toggle} selected={selected} onSelect={setSelected} now={now} fitKey={fitKey} onExpandAll={filtering ? undefined : () => setCollapsed(new Set())} onCollapseAll={filtering ? undefined : collapseAll} />
       ) : (
-        <TreeTable ariaLabel="Composition resources" graph={g} visible={visible} collapsed={shownCollapsed} onToggle={toggle} selected={selected} onSelect={setSelected} now={now} />
+        <TreeTable ariaLabel="Resources" graph={g} visible={visible} collapsed={shownCollapsed} onToggle={toggle} selected={selected} onSelect={setSelected} now={now} onExpandAll={filtering ? undefined : () => setCollapsed(new Set())} onCollapseAll={filtering ? undefined : collapseAll} />
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-content-subtle">

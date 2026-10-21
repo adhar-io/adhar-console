@@ -161,8 +161,17 @@ export type XrTarget =
 
 /** Does this existing XR compose what the manifest asks for? */
 function sameSubject(m: XrManifest, parameters: Record<string, unknown> | undefined): boolean {
+  // Only tenancy kinds are identified by a `name` PARAMETER. Every other kind
+  // (Application, Database, …) is identified by its object name alone: an
+  // Application has no `parameters.name`, so `undefined === undefined` made
+  // EVERY existing Application "the same subject", and each new scaffold was
+  // written over the first one — reactapp ended up pointing at my-service's
+  // repository and ngapp/my-service never got an Application (GCP, 2026-10-21).
+  if (m.kind !== 'Organisation' && m.kind !== 'Team') return false
   if (!parameters) return false
-  if (parameters.name !== m.spec.parameters.name) return false
+  const wanted = m.spec.parameters.name
+  if (typeof wanted !== 'string' || !wanted) return false
+  if (parameters.name !== wanted) return false
   // A team's identity is (organisation, name); an organisation's is its name.
   if (m.kind === 'Team') return parameters.organisation === m.spec.parameters.organisation
   return true

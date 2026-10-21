@@ -151,3 +151,26 @@ Deno.test('a scaffolded deployable is an Application XR in its project, never a 
   // No destination: the composition places each environment in the project's namespaces.
   assertEquals('destination' in p, false)
 })
+
+// An Application has no `parameters.name`. The identity check compared
+// `undefined === undefined`, so every existing Application looked like the
+// subject being scaffolded and each new service was written OVER the first
+// one: on GCP (2026-10-21) the Application `reactapp` ended up deploying
+// my-service's repository, and ngapp and my-service never got one. A new
+// Application must be written under its own name, whatever already exists.
+Deno.test('a new application is written under its own name, never over another one', async () => {
+  const existing = {
+    metadata: { name: 'reactapp', labels: { 'adhar.io/managed-by': 'adhar-console' } },
+    spec: { parameters: { project: 'adhar', displayName: 'reactapp', source: { repoURL: 'https://g/adhar/reactapp.git' } } },
+  }
+  const { calls, restore } = stubApiServer({ status: 200, items: [existing] })
+  try {
+    const out = await applyXr(applicationManifest({ name: 'my-service', project: 'adhar', repoUrl: 'https://g/adhar/my-service.git' }), 'tok')
+    assertEquals(out.ok, true)
+    const writes = calls.filter((c) => c.method !== 'GET')
+    assertEquals(writes.length, 1)
+    assertEquals(new URL(writes[0].url).pathname.endsWith('/applications/my-service'), true)
+  } finally {
+    restore()
+  }
+})

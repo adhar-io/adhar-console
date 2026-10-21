@@ -160,7 +160,7 @@ Deno.test('release history: this service\'s promotions, newest first, joined wit
     ['p2', 'Test', 'Failed', false, 'auto-promotion'],
     ['p1', 'Development', 'Succeeded', true, 'alice@adhar.io'],
   ])
-  assertEquals(h[1].freight, { id: 'f1', label: 'eager-fox', imageTag: sha, digest: 'sha256:abc', sourceCommit: sha })
+  assertEquals(h[1].freight, { id: 'f1', label: 'my-service ccccccc', imageTag: sha, digest: 'sha256:abc', sourceCommit: sha })
   assertEquals(h[1].promotionCommit, 'd'.repeat(40))
   assertEquals(actorLabel(undefined), undefined)
 })

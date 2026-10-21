@@ -25,23 +25,54 @@
 
 **Sanskrit: अधार (Adhāra) – Foundation**
 
-Adhar Console is a unified operator UI over the Adhar platform. It doesn't replace
-any of the open-source tools underneath — it aggregates them into one coherent,
-tenant-aware experience that follows the **6D** lifecycle model:
+Adhar Console is the single pane of glass for the Adhar platform. It doesn't
+replace any of the open-source tools underneath — it brings them together into one
+coherent, tenant-aware experience (**Organisation → Teams → Projects → Apps**)
+that follows the **6D** software lifecycle:
 
-| Phase        | What happens here                              | Backed by                                                                  |
-| ------------ | ---------------------------------------------- | -------------------------------------------------------------------------- |
-| **Define**   | Requirements, epics, agile issues, OKRs        | Plane.so                                                                   |
-| **Design**   | ADRs, design tokens, diagrams, visual builder  | `@adhar/builder`, Mermaid, Storybook                                       |
-| **Develop**  | Source control, PRs, CI                        | Gitea, Argo Workflows                                                      |
-| **Deliver**  | GitOps, promotion, rollouts, registry, policy  | Argo CD, Kargo, Argo Rollouts, Harbor, Kyverno                             |
-| **Discover** | Observability (logs, metrics, traces)          | Grafana, Loki, Mimir, Tempo, Prometheus, OpenTelemetry, Beyla              |
-| **Decide**   | Cross-cutting analytics — DORA, health, spend  | Derived from every phase                                                   |
-| **Platform** | Cross-cutting Kubernetes dashboard             | Kubernetes API + Adhar-stack CRDs (Crossplane, ArgoCD, Kargo, Kyverno, …)  |
+| Phase        | What happens here                                                        | Backed by                                                        |
+| ------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| **Define**   | Agile planning — issues, boards, backlog, sprints, epics, roadmap, OKRs  | Plane, plus a console-side wiki, reports and automation          |
+| **Design**   | ADRs, C4 & deployment diagrams, API specs, UX research, tokens, visual designer | Mermaid, OpenAPI/AsyncAPI, `@adhar/builder`, Gitea           |
+| **Develop**  | Repos, branches, PRs, issues, builds, cloud dev environments, content    | Gitea, Tekton, Coder, Strapi, Airbyte                            |
+| **Deliver**  | GitOps, promotion across shared dev → test → prod, rollouts, supply-chain security | Argo CD, Kargo, Argo Rollouts, Harbor, Kyverno, Trivy, cosign |
+| **Discover** | Golden signals, logs, traces, alerts, SLOs, product analytics            | Prometheus/Mimir, Loki, Tempo, Grafana, Alertmanager, PostHog    |
+| **Decide**   | DORA, delivery & build health, cost and BI                               | Derived from every phase, OpenCost, Metabase                     |
+| **Platform** | Kubernetes, Adhar resources, marketplace                                 | Kubernetes API, Crossplane, the Adhar package catalogue          |
 
-Plus a dedicated **Workspace** area for SaaS primitives: onboarding, org & project
-management, members & teams, environments, API tokens, audit log, plans, quotas,
-and webhooks.
+Plus a **Service Catalog** (every app with its deployments, environments,
+composition, tech stack and docs), **Scorecards**, an **Adhar AI** assistant, and a
+**Workspace** area for organisation, identity & access, security, billing and
+preferences.
+
+---
+
+## ✨ What you can do
+
+- **Plan like Jira, Trello and Plane combined.** A query language
+  (`project = CON AND assignee = me ORDER BY priority`), Kanban boards with WIP
+  limits and swimlanes, a backlog with sprint capacity, burndown/velocity/CFD
+  reports, a cross-project roadmap, releases, intake triage and OKRs — all on Plane.
+- **Design against the real system.** Generate C4, deployment and tenancy diagrams
+  from the live platform, keep ADRs in sync with `docs/adr` through pull requests,
+  diff API specs for breaking changes, and edit a repo's pages in the
+  repo-first **Visual Designer**.
+- **See every service end to end.** The Service Catalog shows each app's
+  environments, Kargo promotions and releases, an Argo CD–style resource tree,
+  its Crossplane composition, exact running versions (from lockfiles and Trivy
+  SBOMs) and its live YAML.
+- **Ship through one shared promotion chain.** Every project has dev → test →
+  prod; every app reuses them and is promoted by Kargo, with signed images and
+  admission policy.
+- **Govern vulnerabilities and licences.** Scan policy per project, manual review
+  gates on paused pipelines, time-boxed waivers with VEX justifications and a full
+  audit trail — enforced by CI, not just recorded.
+- **Watch the golden signals.** Latency, traffic, errors and saturation per
+  service, a live service map, LogQL/TraceQL builders, Grafana boards rendered
+  natively, SLO error budgets with burn-rate alerts.
+- **Decide with numbers.** DORA's four keys computed from commits, builds and
+  promotions; Tekton build health; OpenCost spend, budgets and rightsizing; and
+  Metabase dashboards, questions and SQL.
 
 ---
 
@@ -55,9 +86,9 @@ and webhooks.
 
 <br /><br />
 
-<img src="./docs/assets/screenshots/overview.png" alt="Adhar Console — Overview: cluster health, delivery state, capacity and policy in one view" width="920" />
+<img src="./docs/assets/screenshots/overview.png" alt="Adhar Console — Overview: DORA metrics, cluster health, platform health score and resource utilization in one view" width="920" />
 
-<em>Overview. Cluster health, delivery state, capacity and policy on one screen — every number read live from Kubernetes and Argo CD.</em>
+<em>Overview. DORA metrics, cluster health, platform health and resource utilization on one screen — every number read live from Kubernetes, Argo CD and Prometheus.</em>
 
 </div>
 
@@ -104,7 +135,7 @@ flowchart LR
   B -->|"fetch /api/* · HttpOnly session cookie"| S
 
   AU -->|"code exchange + JWKS<br/>tokens never reach the browser"| KC
-  K8 -->|"as the signed-in user<br/>OIDC impersonation — their RBAC, their audit"| API
+  K8 -->|"as the signed-in user<br/>their token, or SA + impersonation — their RBAC"| API
   SV -->|"upstream credential injected server-side"| TOOLS
   ST --> PG
   AI -.->|"read + propose"| API
@@ -126,17 +157,21 @@ flowchart LR
   verifies the ID token against Keycloak's JWKS (`jose`), refreshes
   transparently, and keeps a stateless signed session in an HttpOnly cookie —
   tokens never reach the browser.
-- **Kubernetes** is reached through `/api/k8s/*` as the **signed-in user**
-  (per-user OIDC impersonation): the user's Keycloak access token — minted with
-  the apiserver's `kubernetes` audience + `groups` claim — is forwarded to the
-  kube-apiserver, so the apiserver enforces that user's RBAC + native audit. The
-  console holds no cluster privilege of its own for user-facing calls.
+- **Kubernetes** is reached through `/api/k8s/*` as the **signed-in user**, so
+  the apiserver enforces that user's RBAC and records them in its audit log. Where
+  the apiserver trusts Keycloak, the user's access token (with the `kubernetes`
+  audience and `groups` claim) is forwarded. Managed control planes (DOKS, EKS,
+  GKE, AKS) can't be pointed at Keycloak, so there the console authenticates as
+  its ServiceAccount and sets `Impersonate-User`/`Impersonate-Group` with the
+  same `oidc:` identities. `K8S_AUTH_MODE=auto` (the default) switches on the
+  first rejected token; `user`, `impersonate` and `service` pin it.
 - **Backing tools** are reached through `/api/svc/<tool>` which injects the
   upstream credential server-side.
 - **State**: live infra comes from the Kubernetes API / backing tools; Postgres
   (Drizzle) holds the console's **own** state — preferences, notifications, and
-  the **document store** (`/api/store/*`): OKRs, saved views, custom roles,
-  webhooks, design docs, API specs — tenant-scoped, shared across a tenant's members.
+  the **document store** (`/api/store/*`): OKRs, saved views, wiki pages, design
+  docs, API specs, budgets, SLOs, waiver requests and more — tenant-scoped,
+  shared across a tenant's members.
 - **No stubs in a running system.** Everything above talks to real backends. The
   in-memory `.stub()` clients exist only for tests/offline (opt-in via
   `mode:'stub'`); `pnpm dev` connects to a **locally-running adhar cluster** (below).
@@ -402,6 +437,7 @@ adhar-console/
 │   ├── shell-ui/            # AppShell, sidebar, topbar, brand marks, data components
 │   ├── tenancy/             # Tenant context + scoping
 │   ├── mf-utils/            # Federated remote loader (Suspense + ErrorBoundary)
+│   ├── builder/             # @adhar/builder — the repo-first Visual Designer (JSX import, PR save)
 │   ├── platform-info/       # Platform version, backing-tool registry, changelog, roadmap
 │   ├── build-config/        # Shared Vite host/remote config + aliases
 │   └── utils/ · tsconfig/ · eslint-config/

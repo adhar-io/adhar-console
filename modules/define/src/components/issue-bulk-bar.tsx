@@ -5,6 +5,7 @@ import type { plane } from '@adhar/api-clients'
 import { planeError } from '../data/plane.ts'
 import { type BulkChange, type BulkPlan, planBulk, requestCount } from '../data/work-bulk.ts'
 import { useBulkRunner, type WorkItem } from '../data/work-hooks.ts'
+import { useWorkRulesCtx, viewOf } from '../data/work-rules.ts'
 import type { WorkScope } from '../data/work-scope.ts'
 import { memberItems } from './issue-fields.tsx'
 import { IconArchive, IconClose, IconDownload, PickMenu, type PickItem, Popover, PRIORITIES, PRIORITY_LABEL, PriorityIcon, StateDot } from './work-ui.tsx'
@@ -32,6 +33,7 @@ type Menu = 'state' | 'assignees' | 'priority' | 'labels' | 'sprint' | 'epic' | 
 export function IssueBulkBar({ selected, scope, onClear, onExport }: { selected: WorkItem[]; scope: WorkScope; onClear(): void; onExport(items: WorkItem[]): void }) {
   const toast = useToast()
   const run = useBulkRunner()
+  const rules = useWorkRulesCtx()
   const [menu, setMenu] = useState<Menu>(null)
   const [mode, setMode] = useState<'add' | 'set' | 'remove'>('add')
   const [estimate, setEstimate] = useState('')
@@ -74,7 +76,19 @@ export function IssueBulkBar({ selected, scope, onClear, onExport }: { selected:
       }
       plans.push(planBulk(items, c, { stateGroup: groupOf, stateProject: (s) => scope.stateById.get(s)?.project }))
     }
-    return mergePlans(plans)
+    const merged = mergePlans(plans)
+    // Workflow rules (console-enforced): blocked moves are skipped and listed.
+    if (rules) {
+      merged.patches = merged.patches.filter((pt) => {
+        if (typeof pt.patch.state !== 'string') return true
+        const item = scope.itemById.get(pt.id)
+        const c = item ? rules.check(item, pt.patch.state) : { ok: true as const }
+        if (c.ok) return true
+        merged.skipped.push({ id: pt.id, reason: `workflow rule — ${c.reason}` })
+        return false
+      })
+    }
+    return merged
   }
 
   const propose = (title: string, change: BulkChange) => {
@@ -94,6 +108,14 @@ export function IssueBulkBar({ selected, scope, onClear, onExport }: { selected:
     const id = toast.loading(`${title} — 0 / ${requestCount(plan)} requests`)
     try {
       const res = await run(plan, (done, total) => toast.loading(`${title} — ${done} / ${total} requests`, { id }))
+      // Automation once per item that Plane accepted (queued, rate-limited in work-rules).
+      if (rules) {
+        const failed = new Set(res.failed.flatMap((f) => f.ids))
+        for (const pt of plan.patches) {
+          const item = scope.itemById.get(pt.id)
+          if (item && !failed.has(pt.id)) rules.automate('updated', viewOf(item), viewOf({ ...item, ...(pt.patch as Partial<WorkItem>) }))
+        }
+      }
       if (res.failed.length) {
         toast.error(`${title}: ${res.ok} updated, ${res.failed.reduce((n, f) => n + f.ids.length, 0)} failed`, { id, description: planeError(res.failed[0].error) })
       } else {

@@ -4,6 +4,7 @@ import { cn } from '@adhar/utils'
 import { usePlaneWorkspace } from '@adhar/shell-ui'
 import { useMeMember, type WorkItem } from '../data/work-hooks.ts'
 import { byUpdatedDesc, useWorkScope } from '../data/work-scope.ts'
+import { useWorkRules, WorkRulesProvider } from '../data/work-rules.ts'
 import { andQuery, parse, setOrderBy, type SortField } from '../data/work-ql.ts'
 import { issueParam, parseIssueParam, useSetWorkParams, useWorkParams } from '../data/work-nav.ts'
 import { legacyQueryToWql, useSavedViews, type ViewDoc } from '../data/work-views.ts'
@@ -55,7 +56,6 @@ export function Issues({ projectId, appliedQuery }: Props) {
   const slug = usePlaneWorkspace()
   const views = useSavedViews(projectId)
   const me = useMeMember()
-  const edit = useItemEditor()
 
   const [jql, setJql] = useState<string>(() => params.q ?? '')
   const [quick, setQuick] = useState<string[]>([])
@@ -110,6 +110,8 @@ export function Issues({ projectId, appliedQuery }: Props) {
 
   const effective = useMemo(() => andQuery(jql, QUICK_FILTERS.filter((f) => quick.includes(f.id)).map((f) => f.jql)), [jql, quick])
   const scope = useWorkScope(projectId, effective, byUpdatedDesc)
+  const rules = useWorkRules(scope.projectIds, scope.states)
+  const edit = useItemEditor(rules)
   const order = useMemo(() => parse(jql).orderBy[0], [jql])
 
   const run = (q: string) => {
@@ -223,6 +225,7 @@ export function Issues({ projectId, appliedQuery }: Props) {
   }
 
   return (
+    <WorkRulesProvider value={rules}>
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <button ref={viewsBtn} type="button" onClick={() => setMenu('views')} className="inline-flex h-8 max-w-[16rem] items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-2.5 text-[12.5px] font-medium text-content hover:bg-surface-sunken">
@@ -348,6 +351,7 @@ export function Issues({ projectId, appliedQuery }: Props) {
         />
       ) : null}
     </div>
+    </WorkRulesProvider>
   )
 }
 

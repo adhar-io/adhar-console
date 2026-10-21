@@ -207,7 +207,8 @@ export function buildJourneys(input: JourneyInput, limit = 20): CommitJourney[] 
           id: 'freight',
           label: 'Freight',
           state: 'done',
-          detail: freight.alias ?? freight.id.slice(0, 12),
+          // The application and its build, not Kargo's random alias.
+          detail: `${freight.warehouse ?? ''} ${freight.images?.[0]?.tag?.slice(0, 7) ?? ''}`.trim() || freight.alias || freight.id.slice(0, 12),
           at: freight.created,
         }
         : { id: 'freight', label: 'Freight', state: 'pending', detail: 'not picked up by a warehouse yet' },

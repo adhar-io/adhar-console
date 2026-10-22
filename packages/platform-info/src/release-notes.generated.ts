@@ -4,6 +4,20 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.151",
+    "date": "2026-10-22",
+    "changes": [
+      {
+        "type": "change",
+        "text": "Major cleanup"
+      },
+      {
+        "type": "improvement",
+        "text": "Score card enhancement"
+      }
+    ]
+  },
+  {
     "version": "0.1.150",
     "date": "2026-10-22",
     "changes": [
@@ -718,16 +732,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "feature",
         "scope": "shell",
         "text": "A sidebar that reads as one column, not fourteen cards"
-      }
-    ]
-  },
-  {
-    "version": "0.1.111",
-    "date": "2026-10-07",
-    "changes": [
-      {
-        "type": "feature",
-        "text": "New xrds"
       }
     ]
   }

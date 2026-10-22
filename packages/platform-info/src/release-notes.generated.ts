@@ -4,6 +4,16 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.150",
+    "date": "2026-10-22",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Promotion fix"
+      }
+    ]
+  },
+  {
     "version": "0.1.149",
     "date": "2026-10-22",
     "changes": [
@@ -718,31 +728,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
       {
         "type": "feature",
         "text": "New xrds"
-      }
-    ]
-  },
-  {
-    "version": "0.1.110",
-    "date": "2026-10-05",
-    "changes": [
-      {
-        "type": "change",
-        "text": "CompositSearch"
-      },
-      {
-        "type": "fix",
-        "scope": "catalog",
-        "text": "Drop the result count, Views and Export from the browse header"
-      },
-      {
-        "type": "fix",
-        "scope": "notifications",
-        "text": "Take Scan for insights off the page"
-      },
-      {
-        "type": "fix",
-        "scope": "workspace",
-        "text": "Settings pages that work in dark mode"
       }
     ]
   }

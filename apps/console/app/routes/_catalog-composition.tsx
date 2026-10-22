@@ -194,10 +194,6 @@ export function CompositionView({ roots, scope }: {
           <ToggleChip on={unhealthyOnly} onClick={() => setUnhealthyOnly((v) => !v)} title="Only resources that are not healthy or not in sync">
             Unhealthy only
           </ToggleChip>
-          <div className="ml-auto flex items-center gap-0.5">
-            <Button size="xs" variant="ghost" onClick={() => setCollapsed(new Set())} disabled={filtering} title="Expand every subtree">Expand all</Button>
-            <Button size="xs" variant="ghost" onClick={collapseAll} disabled={filtering} title="Collapse everything below the roots">Collapse all</Button>
-          </div>
         </div>
       </div>
 

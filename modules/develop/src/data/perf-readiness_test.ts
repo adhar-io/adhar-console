@@ -68,3 +68,17 @@ Deno.test('only delivered applications get a readiness report', () => {
   ])
   assertEquals(list.map((a) => a.name), ['cart', 'shop'])
 })
+
+// The scorer publishes `latest: null` when no Performance Center result was
+// judged; reading `latest.verdict` unguarded crashed the page (2026-10-22).
+Deno.test('a Performance Center history with no judged run renders as not judged', () => {
+  const unjudged: ScorerApplication = {
+    ...shop,
+    perfCenter: { count: 2, tests: ['shop-load'], latest: null, unjudged: 2 },
+    gameDays: { count: 1, experiments: ['pod-delete'], latest: null },
+  }
+  const r = readinessReport(unjudged)
+  assertEquals([r.perfCenter?.verdict, r.perfCenter?.tone, r.perfCenter?.test], ['no verdict', 'none', 'shop-load'])
+  assertStringIncludes(r.perfCenter?.reasons ?? '', 'without a verdict')
+  assertEquals([r.gameDay?.verdict, r.gameDay?.experiment], ['no verdict', 'pod-delete'])
+})

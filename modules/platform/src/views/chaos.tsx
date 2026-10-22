@@ -40,6 +40,8 @@ import {
 } from '../data/chaos-kinds.ts'
 import { ChaosGameDays } from './chaos-gameday.tsx'
 import { ApplicationSuites } from './chaos-suites.tsx'
+import { ChaosReports } from './chaos-reports.tsx'
+import { readChaosParams, writeChaosParams } from '../data/chaos-report-hooks.ts'
 import {
   createChaosEngine,
   deleteChaosEngine,
@@ -67,7 +69,8 @@ import {
  *     and high-blast faults require typing the name to confirm. Slower on
  *     purpose.
  */
-type ChaosTab = 'experiments' | 'suites' | 'gamedays'
+type ChaosTab = 'experiments' | 'suites' | 'gamedays' | 'reports'
+const CHAOS_TABS: ChaosTab[] = ['experiments', 'suites', 'gamedays', 'reports']
 
 export function ChaosView({ namespace }: { namespace?: string }) {
   /*
@@ -75,9 +78,18 @@ export function ChaosView({ namespace }: { namespace?: string }) {
    * is what each application declares it survives, run by the platform hourly
    * and as the promotion gate. "Game days" is the automated side: a catalogue
    * of scenarios composed into one workflow. Tabs rather than pages because
-   * the last two are how you should normally run the first.
+   * the last two are how you should normally run the first. "Run reports" is
+   * the record: one report per suite run, findable by commit, and the tab a
+   * `?tab=reports&commit=<sha>` deep link (from Deliver's Kargo views) opens.
    */
-  const [tab, setTab] = useState<ChaosTab>('experiments')
+  const [tab, setTabState] = useState<ChaosTab>(() => {
+    const t = readChaosParams().tab as ChaosTab | undefined
+    return t && CHAOS_TABS.includes(t) ? t : 'experiments'
+  })
+  const setTab = (t: ChaosTab) => {
+    setTabState(t)
+    writeChaosParams({ tab: t === 'experiments' ? undefined : t, ...(t === 'reports' ? {} : { commit: undefined, app: undefined, report: undefined }) })
+  }
   const { engines, installed, isLoading, error } = useChaosEngines(namespace)
   const faults = useInstalledFaults()
   const results = useChaosResults()
@@ -108,6 +120,7 @@ export function ChaosView({ namespace }: { namespace?: string }) {
           }
         />
         <ApplicationSuites namespace={namespace} />
+        <ChaosReports namespace={namespace} onRunSuites={() => setTab('suites')} />
       </div>
     )
   }
@@ -116,7 +129,7 @@ export function ChaosView({ namespace }: { namespace?: string }) {
 
   const tabs = (
     <div className="flex gap-1">
-      {([['experiments', 'Experiments'], ['suites', 'Application suites'], ['gamedays', 'Game days']] as Array<[ChaosTab, string]>).map(([id, label]) => (
+      {([['experiments', 'Experiments'], ['suites', 'Application suites'], ['gamedays', 'Game days'], ['reports', 'Run reports']] as Array<[ChaosTab, string]>).map(([id, label]) => (
         <button
           key={id}
           type="button"
@@ -138,6 +151,16 @@ export function ChaosView({ namespace }: { namespace?: string }) {
         {tabs}
         {live.length > 0 ? <LiveBanner engines={live} /> : null}
         <ApplicationSuites namespace={namespace} />
+      </div>
+    )
+  }
+
+  if (tab === 'reports') {
+    return (
+      <div className="space-y-4">
+        {tabs}
+        {live.length > 0 ? <LiveBanner engines={live} /> : null}
+        <ChaosReports namespace={namespace} onRunSuites={() => setTab('suites')} />
       </div>
     )
   }

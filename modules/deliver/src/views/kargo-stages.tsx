@@ -16,6 +16,7 @@ import {
 } from '@adhar/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
 import { kargo } from '@adhar/api-clients'
+import { chaosReportsHref, freightCommit, openChaosReports } from '../data/chaos-link.ts'
 
 /** A freight by id, named by its application and build (see kargo.freightDisplayName). */
 function freightName(list: readonly kargo.Freight[], id: string): string {
@@ -920,6 +921,7 @@ function StageDetailPanel({
                 {(current.charts ?? []).map((c, i) => (
                   <div key={`h-${i}`} className="truncate font-mono text-[11px] text-content-muted">{c.name ?? 'chart'}@{c.version}</div>
                 ))}
+                <ChaosReportsLink freight={current} />
               </div>
             ) : (
               <span className="text-content-subtle">{s.currentFreightAlias ?? 'none yet'}</span>
@@ -1173,6 +1175,25 @@ function FlowArrow() {
   )
 }
 
+/** "Chaos reports for <sha>" — only for freight that carries a full commit SHA. */
+function ChaosReportsLink({ freight }: { freight: kargo.Freight }) {
+  const sha = freightCommit(freight)
+  if (!sha) return null
+  return (
+    <a
+      href={chaosReportsHref(sha)}
+      onClick={(e) => {
+        e.preventDefault()
+        openChaosReports(sha)
+      }}
+      className="block text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300"
+      title={`Chaos Engineering reports for runs that tested ${sha}`}
+    >
+      Chaos reports for {sha.slice(0, 7)}
+    </a>
+  )
+}
+
 function FreightRow({ freight: f, stages, onApprove }: { freight: kargo.Freight; stages: kargo.Stage[]; onApprove(): void }) {
   const liveIn = stages.filter((s) => heldFreight(s).includes(f.id)).map((s) => s.name)
   const verified = f.verifiedIn ?? []
@@ -1209,6 +1230,7 @@ function FreightRow({ freight: f, stages, onApprove }: { freight: kargo.Freight;
           {verified.filter((n) => !liveIn.includes(n)).map((n) => <StatusBadge key={`v-${n}`} kind="info">verified · {n}</StatusBadge>)}
           {approved.filter((n) => !verified.includes(n) && !liveIn.includes(n)).map((n) => <StatusBadge key={`a-${n}`} kind="paused">approved · {n}</StatusBadge>)}
         </div>
+        <ChaosReportsLink freight={f} />
         <button type="button" onClick={onApprove} className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">Approve for stage…</button>
       </div>
     </li>

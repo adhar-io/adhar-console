@@ -439,33 +439,33 @@ function ListView({ graph, visible, onSelect, selected, now }: { graph: Composit
     [graph, visible],
   )
   return (
-    <div className="overflow-x-auto rounded-lg border border-edge-default">
-      <table className="w-full text-left text-xs">
-        <thead className="bg-surface-sunken text-[11px] uppercase tracking-wide text-content-subtle">
+    <div className="max-h-[min(68vh,680px)] overflow-auto rounded-xl border border-edge-default">
+      <table className="w-full table-fixed text-left text-xs">
+        <thead className="sticky top-0 z-10 bg-surface-sunken text-[10.5px] font-medium uppercase tracking-wide text-content-subtle">
           <tr>
             <th className="px-3 py-2 font-medium">Resource</th>
-            <th className="hidden px-3 py-2 font-medium md:table-cell">Namespace</th>
-            <th className="px-3 py-2 font-medium">Sync</th>
-            <th className="px-3 py-2 font-medium">Health</th>
-            <th className="px-3 py-2 text-right font-medium">Age</th>
+            <th className="hidden w-40 px-3 py-2 font-medium md:table-cell">Namespace</th>
+            <th className="w-28 px-3 py-2 font-medium">Sync</th>
+            <th className="w-32 px-3 py-2 font-medium">Health</th>
+            <th className="w-16 px-3 py-2 text-right font-medium">Age</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-edge-default bg-surface-raised">
           {rows.map((n) => (
             <tr key={n.id} onClick={() => onSelect(n.id)} className={cn('cursor-pointer hover:bg-surface-sunken/60', selected === n.id && 'bg-brand-50/60 dark:bg-brand-500/10')}>
               <td className="px-3 py-1.5">
-                <div className="flex items-center gap-2">
-                  <KindIcon node={n} className="h-6 w-6 text-[9px]" />
-                  <span className="min-w-0">
+                <div className="flex min-w-0 items-center gap-2">
+                  <KindIcon node={n} className="h-6 w-6 shrink-0 text-[9px]" />
+                  <span className="min-w-0 flex-1" title={n.name}>
                     <span className="block truncate font-mono text-[12px] text-content">{n.name}</span>
                     <span className="block truncate text-[11px] text-content-subtle">{n.kind}{cardExtra(n) ? ` · ${cardExtra(n)}` : ''}</span>
                   </span>
                 </div>
               </td>
-              <td className="hidden whitespace-nowrap px-3 py-1.5 font-mono text-[11px] text-content-muted md:table-cell">{n.namespace ?? '—'}</td>
+              <td className="hidden truncate whitespace-nowrap px-3 py-1.5 font-mono text-[11px] text-content-muted md:table-cell">{n.namespace ?? '—'}</td>
               <td className="px-3 py-1.5 text-[11px]"><SyncMark sync={n.status.sync} prune={n.status.prune} />{!n.status.sync && !n.status.prune ? <span className="text-content-subtle">—</span> : null}</td>
               <td className="px-3 py-1.5 text-[11px]"><HealthMark level={n.status.level} label={n.status.health ?? n.status.label} /></td>
-              <td className="px-3 py-1.5 text-right text-content-subtle">{age(n.createdAt, now)}</td>
+              <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums text-content-subtle">{age(n.createdAt, now)}</td>
             </tr>
           ))}
         </tbody>
@@ -482,19 +482,19 @@ function PodsView({ rows, groupBy, onSelect, selected, now, hasMetrics }: { rows
       {!hasMetrics ? <p className="text-[11px] text-content-subtle">CPU and memory need metrics-server; it is not answering on this cluster.</p> : null}
       {groups.map((g) => (
         <section key={g.key}>
-          <h4 className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-content">
+          <h4 className="mb-1.5 flex min-w-0 items-center gap-2 text-xs font-semibold text-content">
             <span className={cn('h-2 w-2 rounded-full', LEVEL_DOT[g.worst])} aria-hidden />
-            <span className="font-mono">{g.key}</span>
-            <span className="font-normal text-content-subtle">{g.rows.length} pod{g.rows.length === 1 ? '' : 's'}</span>
+            <span className="truncate font-mono">{g.key}</span>
+            <span className="shrink-0 font-normal text-content-subtle">{g.rows.length} pod{g.rows.length === 1 ? '' : 's'}</span>
           </h4>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 2xl:grid-cols-3">
             {g.rows.map((r) => (
               <button
                 key={r.node.id}
                 type="button"
                 onClick={() => onSelect(r.node.id)}
                 className={cn(
-                  'rounded-lg border bg-surface-raised p-2.5 text-left text-xs shadow-sm hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
+                  'min-w-0 rounded-lg border bg-surface-raised p-2.5 text-left text-xs shadow-sm hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
                   selected === r.node.id ? 'border-brand-500' : r.node.status.level === 'degraded' ? 'border-rose-300 dark:border-rose-500/40' : 'border-edge-default',
                 )}
               >

@@ -659,28 +659,18 @@ export function GraphView({ graph, visible, collapsed, onToggle, selected, onSel
         </div>
       </div>
 
-      {/* controls */}
-      <div className="absolute bottom-3 right-3 flex items-center gap-0.5 rounded-lg border border-edge-default bg-surface-raised/95 p-0.5 shadow-sm backdrop-blur">
-        <IconBtn label="Zoom out (−)" onClick={() => zoomAt(1 / 1.2)}>
-          <path d="M5 11h14v2H5z" />
-        </IconBtn>
-        <button type="button" onClick={() => setView((v) => ({ ...v, k: 1 }))} title="Reset to 100%" className="min-w-11 rounded px-1 text-center text-[11px] tabular-nums text-content-muted hover:bg-surface-sunken hover:text-content">
-          {zoomPct}%
-        </button>
+      {/* controls — a vertical bar, top right */}
+      <div className="absolute right-3 top-3 z-10 flex flex-col items-center gap-0.5 rounded-lg border border-edge-default bg-surface-raised/95 p-0.5 shadow-sm backdrop-blur" role="toolbar" aria-orientation="vertical" aria-label="Canvas controls">
         <IconBtn label="Zoom in (+)" onClick={() => zoomAt(1.2)}>
           <path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z" />
         </IconBtn>
-        <input
-          type="range"
-          aria-label="Zoom"
-          min={Math.round(MIN_K * 100)}
-          max={Math.round(MAX_K * 100)}
-          step={5}
-          value={zoomPct}
-          onChange={(e) => zoomAt(Number(e.target.value) / 100 / view.k)}
-          className="mx-1 hidden h-1 w-20 cursor-pointer accent-brand-600 sm:block"
-        />
-        <span className="mx-0.5 h-4 w-px bg-edge-default" aria-hidden />
+        <button type="button" onClick={() => zoomAt(1 / view.k)} title="Reset to 100%" className="w-8 rounded py-0.5 text-center text-[10px] tabular-nums text-content-muted hover:bg-surface-sunken hover:text-content">
+          {zoomPct}%
+        </button>
+        <IconBtn label="Zoom out (−)" onClick={() => zoomAt(1 / 1.2)}>
+          <path d="M5 11h14v2H5z" />
+        </IconBtn>
+        <span className="my-0.5 h-px w-5 bg-edge-default" aria-hidden />
         <IconBtn label="Fit to view (0)" onClick={fit}>
           <path d="M3 5h4V3H3a2 2 0 0 0-2 2v4h2V5zm18-2h-4v2h4v4h2V5a2 2 0 0 0-2-2zM3 15H1v4a2 2 0 0 0 2 2h4v-2H3v-4zm18 4h-4v2h4a2 2 0 0 0 2-2v-4h-2v4zM8 8h8v8H8z" />
         </IconBtn>
@@ -690,6 +680,7 @@ export function GraphView({ graph, visible, collapsed, onToggle, selected, onSel
         })()} disabled={!selected || !pos.has(selected)}>
           <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9 3h-2.07A7 7 0 0 0 13 5.07V3h-2v2.07A7 7 0 0 0 5.07 11H3v2h2.07A7 7 0 0 0 11 18.93V21h2v-2.07A7 7 0 0 0 18.93 13H21v-2zm-9 6a5 5 0 1 1 0-10 5 5 0 0 1 0 10z" />
         </IconBtn>
+        {onExpandAll || onCollapseAll ? <span className="my-0.5 h-px w-5 bg-edge-default" aria-hidden /> : null}
         {onExpandAll ? (
           <IconBtn label="Expand all" onClick={onExpandAll}>
             <path d="M12 5.83 15.17 9l1.41-1.41L12 3 7.41 7.59 8.83 9 12 5.83zm0 12.34L8.83 15l-1.41 1.41L12 21l4.59-4.59L15.17 15 12 18.17z" />
@@ -700,23 +691,32 @@ export function GraphView({ graph, visible, collapsed, onToggle, selected, onSel
             <path d="M7.41 18.59 8.83 20 12 16.83 15.17 20l1.41-1.41L12 14l-4.59 4.59zm9.18-13.18L15.17 4 12 7.17 8.83 4 7.41 5.41 12 10l4.59-4.59z" />
           </IconBtn>
         ) : null}
-        <span className="mx-0.5 h-4 w-px bg-edge-default" aria-hidden />
+        <span className="my-0.5 h-px w-5 bg-edge-default" aria-hidden />
         <IconBtn label={fs.full ? 'Exit full screen (F / Esc)' : 'Full screen (F)'} onClick={fs.toggle}>
           <FullscreenGlyph full={fs.full} />
         </IconBtn>
       </div>
 
-      <div className="absolute right-3 top-3">
+      {/* legend — top left */}
+      <div className="absolute left-3 top-3 z-10">
         <button
           type="button"
           onClick={() => setLegend((l) => !l)}
           aria-expanded={legend}
-          className="rounded-lg border border-edge-default bg-surface-raised/95 px-2 py-1 text-[11px] font-medium text-content-muted shadow-sm backdrop-blur hover:text-content"
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised/95 px-2 py-1 text-[11px] font-medium shadow-sm backdrop-blur hover:text-content',
+            legend ? 'text-content' : 'text-content-muted',
+          )}
         >
+          <span className="flex gap-0.5" aria-hidden>
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+            <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+          </span>
           Legend
         </button>
         {legend ? (
-          <div className="absolute right-0 top-8 z-20 w-56 rounded-lg border border-edge-default bg-surface-raised p-2.5 text-[11px] shadow-lg">
+          <div className="absolute left-0 top-8 z-20 w-56 rounded-lg border border-edge-default bg-surface-raised p-2.5 text-[11px] shadow-lg">
             <div className="mb-1.5 font-semibold text-content">Status</div>
             <ul className="space-y-1">
               {([
@@ -750,12 +750,15 @@ function Minimap({ layout, graph, width, height, H, view, vp, onCenter }: {
   vp: { w: number; h: number }
   onCenter(x: number, y: number): void
 }) {
-  // Only worth it when the tree is bigger than the viewport.
-  if (!vp.w || (width * view.k <= vp.w && height * view.k <= vp.h)) return null
-  const MW = 140
-  const s = MW / width
-  const MH = Math.min(110, height * s)
-  const sc = Math.min(s, MH / height)
+  const dragging = useRef(false)
+  if (!vp.w || !vp.h || !layout.nodes.length) return null
+  // A fixed frame; the whole graph is scaled into it and centred.
+  const MW = 184
+  const MH = 124
+  const INSET = 8
+  const sc = Math.min((MW - INSET * 2) / width, (MH - INSET * 2) / height)
+  const ox = (MW - width * sc) / 2
+  const oy = (MH - height * sc) / 2
   const fill: Record<HealthLevel, string> = {
     healthy: '#10b981',
     progressing: '#6366f1',
@@ -765,30 +768,68 @@ function Minimap({ layout, graph, width, height, H, view, vp, onCenter }: {
     unknown: 'var(--color-content-subtle)',
     none: 'var(--color-edge-strong)',
   }
+  const cell = (n: { col: number; row: number }) => ({ x: ox + (PAD + n.col * (CARD_W + COL_GAP)) * sc, y: oy + (PAD + n.row * (H + ROW_GAP)) * sc })
+  const at = new Map(layout.nodes.map((n) => [n.id, cell(n)]))
+  const centerOn = (e: ReactPointerEvent<SVGSVGElement>) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    onCenter((e.clientX - r.left - ox) / sc, (e.clientY - r.top - oy) / sc)
+  }
+  // The visible area, clipped to the frame so it never spills out.
+  const vx = ox + (-view.x / view.k) * sc
+  const vy = oy + (-view.y / view.k) * sc
+  const vw = (vp.w / view.k) * sc
+  const vh = (vp.h / view.k) * sc
+  const cx1 = Math.max(1, vx)
+  const cy1 = Math.max(1, vy)
+  const cx2 = Math.min(MW - 1, vx + vw)
+  const cy2 = Math.min(MH - 1, vy + vh)
   return (
     <svg
-      width={width * sc}
-      height={height * sc}
-      className="absolute bottom-3 left-3 hidden cursor-pointer rounded-md border border-edge-default bg-surface-raised/90 shadow-sm backdrop-blur sm:block"
+      width={MW}
+      height={MH}
+      className="absolute bottom-3 right-3 z-10 hidden cursor-crosshair touch-none rounded-lg border border-edge-default bg-surface-raised/95 shadow-sm backdrop-blur sm:block"
       onPointerDown={(e) => {
-        const r = (e.currentTarget as SVGSVGElement).getBoundingClientRect()
-        onCenter((e.clientX - r.left) / sc, (e.clientY - r.top) / sc)
+        e.stopPropagation()
+        dragging.current = true
+        e.currentTarget.setPointerCapture(e.pointerId)
+        centerOn(e)
       }}
-      aria-label="Minimap — click to move there"
+      onPointerMove={(e) => {
+        if (dragging.current) centerOn(e)
+      }}
+      onPointerUp={() => (dragging.current = false)}
+      onPointerCancel={() => (dragging.current = false)}
+      role="img"
+      aria-label="Minimap — click or drag to move the view"
     >
-      {layout.nodes.map((n) => (
-        <rect
-          key={n.id}
-          x={(PAD + n.col * (CARD_W + COL_GAP)) * sc}
-          y={(PAD + n.row * (H + ROW_GAP)) * sc}
-          width={CARD_W * sc}
-          height={Math.max(2, H * sc)}
-          rx={1.5}
-          fill={fill[graph.nodes[n.id]?.status.level ?? 'none']}
-          opacity={0.75}
-        />
-      ))}
-      <rect x={(-view.x / view.k) * sc} y={(-view.y / view.k) * sc} width={(vp.w / view.k) * sc} height={(vp.h / view.k) * sc} fill="none" stroke="var(--color-brand-500)" strokeWidth={1.25} rx={2} />
+      <title>Minimap — click or drag to move the view</title>
+      {layout.edges.map((e) => {
+        const a = at.get(e.from)
+        const b = at.get(e.to)
+        if (!a || !b) return null
+        const y1 = a.y + (H * sc) / 2
+        const y2 = b.y + (H * sc) / 2
+        const mx = a.x + (CARD_W + COL_GAP / 2) * sc
+        return <path key={`${e.from}>${e.to}`} d={`M${a.x + CARD_W * sc},${y1} H${mx} V${y2} H${b.x}`} fill="none" stroke="var(--color-edge-strong)" strokeWidth={0.75} />
+      })}
+      {layout.nodes.map((n) => {
+        const p = at.get(n.id)!
+        return (
+          <rect
+            key={n.id}
+            x={p.x}
+            y={p.y}
+            width={Math.max(2, CARD_W * sc)}
+            height={Math.max(2, H * sc)}
+            rx={1.5}
+            fill={fill[graph.nodes[n.id]?.status.level ?? 'none']}
+            opacity={0.8}
+          />
+        )
+      })}
+      {cx2 > cx1 && cy2 > cy1 ? (
+        <rect x={cx1} y={cy1} width={cx2 - cx1} height={cy2 - cy1} fill="var(--color-brand-500)" fillOpacity={0.08} stroke="var(--color-brand-500)" strokeWidth={1.25} rx={2} />
+      ) : null}
     </svg>
   )
 }

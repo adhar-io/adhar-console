@@ -63,25 +63,54 @@ export function useDefineSignals() {
 
 /* ─────────── Develop · Gitea + Airbyte ─────────── */
 
+/**
+ * Whether a repository takes pull requests. Gitea answers 404 for the PR list
+ * of a mirror or a repo with pull requests turned off — the platform's own
+ * `adhar` mirror is one — and a single 404 used to fail the whole Develop
+ * widget as "Gitea unreachable".
+ */
+export function takesPullRequests(r: Pick<gitea.Repo, 'mirror' | 'archived' | 'empty' | 'has_pull_requests'>): boolean {
+  return !r.mirror && !r.archived && !r.empty && r.has_pull_requests !== false
+}
+
+const PR_SCAN_CONCURRENCY = 8
+
 export function useDevelopPRs() {
   const ORG = useGiteaOrg()
+  // Same key as useDevelopRepos, so the widget reads the repo list once.
   const repos = useQuery({
-    queryKey: ['ov', 'gitea', 'repos', ORG],
+    queryKey: ['ov', 'gitea', 'repos-summary', ORG],
     queryFn: () => giteaClient.listRepos(ORG),
     staleTime: REFRESH_MS,
   })
+  const targets = (repos.data ?? []).filter(takesPullRequests)
   return useQuery({
-    queryKey: ['ov', 'gitea', 'prs', ORG, repos.data?.length ?? 0],
+    queryKey: ['ov', 'gitea', 'prs', ORG, targets.map((r) => r.name).join(',')],
     queryFn: async () => {
-      if (!repos.data) return []
       const out: Array<gitea.PullRequest & { repo: string }> = []
-      for (const r of repos.data) {
-        const list = await giteaClient.listPullRequests(ORG, r.name, 'open')
-        out.push(...list.map((p) => ({ ...p, repo: r.name })))
+      const failures: unknown[] = []
+      // In parallel (capped), and one unreadable repo does not sink the rest.
+      for (let i = 0; i < targets.length; i += PR_SCAN_CONCURRENCY) {
+        const batch = await Promise.all(
+          targets.slice(i, i + PR_SCAN_CONCURRENCY).map((r) =>
+            giteaClient.listPullRequests(ORG, r.name, 'open').then(
+              (list) => list.map((p) => ({ ...p, repo: r.name })),
+              (err) => {
+                failures.push(err)
+                return []
+              },
+            )
+          ),
+        )
+        for (const b of batch) out.push(...b)
+      }
+      // Every repo failing means Gitea itself is the problem.
+      if (targets.length > 0 && failures.length === targets.length) {
+        throw failures[0] instanceof Error ? failures[0] : new Error('Gitea unreachable')
       }
       return out
     },
-    enabled: !!repos.data?.length,
+    enabled: repos.isSuccess,
     staleTime: REFRESH_MS,
   })
 }
@@ -126,10 +155,12 @@ export function useGiteaFlow(days = 30) {
       const per = await Promise.all(
         list.map(async (r) => {
           const [prs, commits] = await Promise.all([
-            giteaClient.listPullRequests(ORG, r.name, 'closed').catch((err) => {
-              failures.push(err)
-              return null
-            }),
+            takesPullRequests(r)
+              ? giteaClient.listPullRequests(ORG, r.name, 'closed').catch((err) => {
+                failures.push(err)
+                return null
+              })
+              : Promise.resolve([]),
             giteaClient.listCommits(ORG, r.name, '', 50).catch((err) => {
               failures.push(err)
               return null

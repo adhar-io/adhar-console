@@ -9,11 +9,11 @@ import {
   readinessApplications,
   readinessReport,
   type ReadinessReport,
-  reportJson,
   type ScorerApplication,
   type Tone,
 } from '../data/perf-readiness.ts'
 import { useDevelopParams, useSetDevelopParams } from '../data/nav.ts'
+import { reportHtml } from '../data/perf-report.ts'
 
 /**
  * Readiness: one report per application that says whether it is fast enough
@@ -24,8 +24,9 @@ import { useDevelopParams, useSetDevelopParams } from '../data/nav.ts'
  * the team's own Performance Center gates and game days. The page adds no
  * judgement of its own, and a measurement that was never taken says so.
  *
- * The report prints cleanly (browser "Save as PDF") and downloads as JSON, so
- * it can go in a change record or a release review as it is.
+ * The report prints cleanly (browser "Save as PDF") and downloads as a
+ * standalone Performance Report (perf-report.ts) — observations, what they
+ * mean and ranked recommendations — for a change record or release review.
  */
 export function PerfReadiness() {
   const q = useQuery({
@@ -129,13 +130,15 @@ export function PerfReadiness() {
 
 function Report({ report: r }: { report: ReadinessReport }) {
   const download = () => {
-    const blob = new Blob([reportJson(r, new Date().toISOString())], { type: 'application/json' })
+    const html = reportHtml(r, { generatedAt: new Date().toISOString(), consoleUrl: globalThis.location?.href })
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${r.app}-readiness-report.json`
+    a.download = `${r.app}-performance-report-${new Date().toISOString().slice(0, 10)}.html`
     a.click()
-    URL.revokeObjectURL(url)
+    // Revoke after the click has been handled, or some browsers cancel it.
+    setTimeout(() => URL.revokeObjectURL(url), 1_000)
   }
   return (
     <article className="space-y-4" aria-label={`Readiness report for ${r.app}`}>
@@ -158,7 +161,7 @@ function Report({ report: r }: { report: ReadinessReport }) {
           </div>
           <div className="flex gap-2 print:hidden">
             <Button size="sm" variant="secondary" onClick={() => globalThis.print()}>Print / PDF</Button>
-            <Button size="sm" variant="secondary" onClick={download}>Download JSON</Button>
+            <Button size="sm" variant="primary" onClick={download}>Download Report</Button>
           </div>
         </CardBody>
         <div

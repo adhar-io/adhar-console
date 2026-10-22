@@ -14,3 +14,16 @@ export {
   type GenerativeComponentSpec,
 } from './agui-catalog.ts'
 export { parseYaml, tryParseYaml, type YamlValue } from './yaml-lite.ts'
+export {
+  escapeHtml,
+  REPORT_CSS,
+  REPORT_GRADE_COLOR,
+  REPORT_PRIORITY_COLOR,
+  REPORT_TONE_COLOR,
+  REPORT_TONE_LABEL,
+  reportPill,
+  reportRing,
+  reportTime,
+  scoreTone,
+  type ReportTone,
+} from './report-html.ts'

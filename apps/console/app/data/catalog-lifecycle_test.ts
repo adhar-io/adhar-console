@@ -88,3 +88,15 @@ Deno.test('released images are digests or release tags, never latest', () => {
   // A registry port is not a tag.
   assertEquals(isReleasedImage('registry:5000/team/app'), false)
 })
+
+Deno.test("only the app's own image decides released; helper images on :latest do not block production", () => {
+  const app = (images: string[]): DeployedApp => ({
+    metadata: { labels: { 'adhar.io/application': 'cart', 'adhar.io/environment': 'prod' } },
+    status: { sync: { status: 'Synced' }, health: { status: 'Healthy' }, images },
+  })
+  const sha = 'a'.repeat(40)
+  assertEquals(deployedLifecycle('cart', 'experimental', [app([`harbor.example/shop/cart:${sha}`, 'redis:latest', 'nginx'])]), 'production')
+  assertEquals(deployedLifecycle('cart', 'experimental', [app(['harbor.example/shop/cart:latest', 'redis:7.2'])]), 'experimental')
+  // No recognisable own image: every image must be released.
+  assertEquals(deployedLifecycle('cart', 'experimental', [app([`harbor.example/shop/web:${sha}`, 'nginx'])]), 'experimental')
+})

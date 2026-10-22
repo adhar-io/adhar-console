@@ -9,6 +9,7 @@ import {
   baselineFromRecord,
   evaluateGate,
   type GateVerdict,
+  recordedVerdict,
   overview,
   type Overview,
 } from './perf-gate.ts'
@@ -28,6 +29,8 @@ import {
 } from './perf-results.ts'
 import {
   artefactConfigMap,
+  artefactName,
+  GATE_KEY,
   cronJobManifest,
   manualJobFromSchedule,
   type PerfSchedule,
@@ -219,7 +222,7 @@ export async function harvestRun(run: TestRun): Promise<string> {
   }
 
   const labels = run.metadata.labels ?? {}
-  const cm = resultConfigMap({
+  const result = {
     run: name,
     test: labels[LABEL_TEST],
     namespace: ns,
@@ -232,7 +235,15 @@ export async function harvestRun(run: TestRun): Promise<string> {
     exitCode,
     parallelism: run.spec?.parallelism,
     application: labels[LABEL_APPLICATION],
-  })
+  }
+  // Judge it now, against the gate the test's artefact carries — the same
+  // gate.env the in-cluster runner sources — so the result carries a verdict
+  // whoever launched the run. Without the artefact the default gate applies.
+  const record = recordFromConfigMap(resultConfigMap(result))
+  const artefact = await kube.get<{ data?: Record<string, string> }>(CONFIG_MAPS, ns, artefactName(labels[LABEL_TEST]))
+    .catch(() => null)
+  const judged = recordedVerdict(record ?? { metrics: undefined, stage: result.stage, exitCode }, artefact?.data?.[GATE_KEY])
+  const cm = resultConfigMap({ ...result, ...judged })
   await kube.apply(cm)
   await kube.patch(TEST_RUNS, ns, name, { metadata: { annotations: { [ANN_HARVESTED]: cm.metadata.name } } }, 'merge')
   return cm.metadata.name

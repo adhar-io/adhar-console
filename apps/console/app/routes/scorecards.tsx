@@ -415,16 +415,6 @@ function ScorecardsDashboard() {
         }
       />
 
-      <PlatformStrip
-        platform={platform}
-        averages={platformAverages}
-        history={historyEntries}
-        // One invalidation covers both queries: the history key is nested under
-        // the same ['platform-scorecards'] prefix, so a finished run refreshes
-        // the score and the trend together rather than leaving them disagreeing.
-        onRefetch={() => void queryClient.invalidateQueries({ queryKey: ['platform-scorecards'] })}
-      />
-
       {/*
         Three numbers and one picture. Eight equal tiles put "Services scored"
         and "Grade D: 0" at the same visual weight; the grades are one
@@ -460,62 +450,59 @@ function ScorecardsDashboard() {
         />
       </section>
 
-      {scorecards.length ? (
-        <section
-          aria-label="Fleet readiness by category"
-          className="mb-6 rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm"
-        >
-          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-content-subtle">
-              Fleet readiness by category
-            </h2>
-            <span className="text-[11px] text-content-subtle">
-              Average across services where the category applies · click one to see the services with gaps
-            </span>
-          </div>
-          <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-5">
-          {categoryAverages.map(({ cat, score, count }) => {
-            const on = category === cat
-            return (
-              <button
-                key={cat}
-                type="button"
-                onClick={() => setCategory((cur) => (cur === cat ? 'all' : cat))}
-                aria-pressed={on}
-                title={`Filter to services with gaps in ${CATEGORY_LABEL[cat]}`}
-                className={cn(
-                  'group flex flex-col gap-1.5 rounded-lg px-2 py-1.5 text-left transition-colors',
-                  on ? 'bg-brand-50 dark:bg-brand-500/10' : 'hover:bg-surface-sunken',
-                )}
-              >
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="truncate text-[12px] font-medium text-content-muted group-hover:text-content">
-                    {CATEGORY_LABEL[cat]}
-                  </span>
-                  <span
+
+      <PlatformStrip
+        platform={platform}
+        averages={platformAverages}
+        history={historyEntries}
+        // One invalidation covers both queries: the history key is nested under
+        // the same ['platform-scorecards'] prefix, so a finished run refreshes
+        // the score and the trend together rather than leaving them disagreeing.
+        onRefetch={() => void queryClient.invalidateQueries({ queryKey: ['platform-scorecards'] })}
+        fleet={scorecards.length ? (
+              <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-5">
+              {categoryAverages.map(({ cat, score, count }) => {
+                const on = category === cat
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setCategory((cur) => (cur === cat ? 'all' : cat))}
+                    aria-pressed={on}
+                    title={`Filter to services with gaps in ${CATEGORY_LABEL[cat]}`}
                     className={cn(
-                      'font-mono text-[13px] font-semibold tabular-nums',
-                      score === null ? 'text-content-subtle' : scoreTextTone(score),
+                      'group flex flex-col gap-1.5 rounded-lg px-2 py-1.5 text-left transition-colors',
+                      on ? 'bg-brand-50 dark:bg-brand-500/10' : 'hover:bg-surface-sunken',
                     )}
                   >
-                    {score === null ? '—' : score}
-                  </span>
-                </div>
-                <span className="block h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
-                  <span
-                    className={cn('block h-full rounded-full transition-all', barTone(score ?? 0))}
-                    style={{ width: `${score ?? 0}%` }}
-                  />
-                </span>
-                <span className="text-[10px] text-content-subtle">
-                  {count} {count === 1 ? 'service' : 'services'}
-                </span>
-              </button>
-            )
-          })}
-          </div>
-        </section>
-      ) : null}
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="truncate text-[12px] font-medium text-content-muted group-hover:text-content">
+                        {CATEGORY_LABEL[cat]}
+                      </span>
+                      <span
+                        className={cn(
+                          'font-mono text-[13px] font-semibold tabular-nums',
+                          score === null ? 'text-content-subtle' : scoreTextTone(score),
+                        )}
+                      >
+                        {score === null ? '—' : score}
+                      </span>
+                    </div>
+                    <span className="block h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
+                      <span
+                        className={cn('block h-full rounded-full transition-all', barTone(score ?? 0))}
+                        style={{ width: `${score ?? 0}%` }}
+                      />
+                    </span>
+                    <span className="text-[10px] text-content-subtle">
+                      {count} {count === 1 ? 'service' : 'services'}
+                    </span>
+                  </button>
+                )
+              })}
+              </div>
+        ) : undefined}
+      />
 
       <FilterBar<never, SortKey>
         className="mb-3"
@@ -1069,54 +1056,28 @@ function formatWhen(iso: string | undefined): { label: string; title: string } |
  * weights, when it last ran, and — when its ConfigMap is absent — exactly how
  * to turn it on. No numbers are shown unless the scorer published them.
  */
+/**
+ * One card for readiness by category: the catalog's own checks (every service,
+ * click a category to filter to its gaps) and, beneath, the platform scorer's
+ * in-cluster categories with its weights. They used to be two cards that both
+ * read "readiness by category" from different sources; the shared header now
+ * carries the scorer's run state, trend and Re-run.
+ */
 function PlatformStrip({
   platform,
   averages,
   history,
   onRefetch,
+  fleet,
 }: {
   platform: PlatformScorecardsState
   averages: Array<{ cat: (typeof PLATFORM_CATEGORIES)[number]; score: number | null; count: number }>
   history: ScorecardHistoryEntry[]
   onRefetch(): void
+  fleet?: ReactNode
 }) {
-  if (platform.isLoading && !platform.configured) return null
-
-  if (!platform.configured) {
-    return (
-      <section className="mb-6 rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm">
-        <div className="flex items-start gap-3">
-          {/* Information, not a warning: the page still works, it is just
-              scoring from a different source. */}
-          <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-700 ring-1 ring-brand-200 dark:bg-brand-500/10 dark:text-brand-300 dark:ring-brand-500/30">
-            <IconAlert />
-          </span>
-          <div className="min-w-0">
-            <div className="text-[13px] font-medium text-content">
-              Platform scorer not available — showing catalog-derived scores
-            </div>
-            <p className="mt-1 text-[11px] leading-relaxed text-content-muted">
-              Enable the <span className="font-mono text-content">scorecards</span> package
-              (Marketplace → Application) to grade services from real in-cluster signals — Argo CD
-              health and sync, readiness/liveness probes, resource requests and limits, container
-              images that are not <span className="font-mono">:latest</span>, Kyverno policy-report
-              pass rate, HTTPRoute exposure and backup coverage. Its CronJob publishes{' '}
-              <span className="font-mono text-content">
-                {platform.namespace}/{platform.configMap}
-              </span>{' '}
-              every 30 minutes; the console reads it the moment it appears.
-            </p>
-            {platform.error && platform.error !== 'not_installed' ? (
-              <p className="mt-1.5 rounded-md bg-surface-sunken px-2 py-1 font-mono text-[10px] text-content-muted">
-                {platform.error}
-                {platform.detail ? `: ${platform.detail}` : ''}
-              </p>
-            ) : null}
-          </div>
-        </div>
-      </section>
-    )
-  }
+  const pending = platform.isLoading && !platform.configured
+  if (!fleet && pending) return null
 
   const when = formatWhen(platform.lastRun)
   const trend = averageTrend(history)
@@ -1126,68 +1087,132 @@ function PlatformStrip({
 
   return (
     <section
-      aria-label="Platform scorer"
+      aria-label="Readiness by category"
       className="mb-6 rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm"
     >
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <div className="flex flex-wrap items-baseline gap-2">
-          <h2 className="text-[13px] font-semibold text-content">Platform scorer</h2>
-          <span className="text-[11px] text-content-muted">
-            {platform.serviceCount} {platform.serviceCount === 1 ? 'service' : 'services'} graded
-            {platform.matched ? ` · ${platform.matched} matched to the catalog` : ''}
-            {typeof platform.averageScore === 'number' ? ' · avg ' : ''}
-          </span>
-          {typeof platform.averageScore === 'number' ? (
-            <span className={cn('font-mono text-[12px] font-semibold tabular-nums', scoreTextTone(platform.averageScore))}>
-              {platform.averageScore}
+        <h2 className="text-[13px] font-semibold text-content">Readiness by category</h2>
+        {platform.configured ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <TrendChip trend={trend} runs={history.length} label="platform average" />
+            <span className="text-[11px] text-content-subtle" title={when?.title}>
+              {when ? `scorer ran ${when.label}` : 'last run unknown'}
             </span>
-          ) : null}
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <TrendChip trend={trend} runs={history.length} label="platform average" />
-          <span className="text-[11px] text-content-subtle" title={when?.title}>
-            {when ? `last run ${when.label}` : 'last run unknown'}
-            {platform.gradeThresholds
-              ? ` · A ≥ ${platform.gradeThresholds.A} · B ≥ ${platform.gradeThresholds.B} · C ≥ ${platform.gradeThresholds.C} · D ≥ ${platform.gradeThresholds.D}`
-              : ''}
-          </span>
-          <RerunButton onDone={onRefetch} />
-        </div>
+            <RerunButton onDone={onRefetch} />
+          </div>
+        ) : null}
       </div>
-      <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
-        {averages.map(({ cat, score, count }) => {
-          const weight = platform.weights?.[cat]
-          return (
-            <div key={cat} className="flex flex-col gap-1.5">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="truncate text-[12px] font-medium text-content-muted">
-                  {PLATFORM_CATEGORY_LABEL[cat]}
-                  {weight !== undefined && weightTotal > 0 ? (
-                    <span className="ml-1 font-mono text-[10px] text-content-subtle">
-                      {Math.round((weight / weightTotal) * 100)}%
-                    </span>
+
+      {fleet ? (
+        <div>
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-content-subtle">Catalog checks</h3>
+            <span className="text-[11px] text-content-subtle">
+              Average across services where the category applies · click one to see the services with gaps
+            </span>
+          </div>
+          {fleet}
+        </div>
+      ) : null}
+
+      {pending ? null : (
+        <div className={cn(fleet && 'mt-4 border-t border-edge-default pt-4')}>
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+            <div className="flex flex-wrap items-baseline gap-2">
+              <h3 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-content-subtle">Platform scorer</h3>
+              {platform.configured ? (
+                <span className="text-[11px] text-content-muted">
+                  {platform.serviceCount} {platform.serviceCount === 1 ? 'service' : 'services'} graded
+                  {platform.matched ? ` · ${platform.matched} matched to the catalog` : ''}
+                  {typeof platform.averageScore === 'number' ? (
+                    <>
+                      {' · avg '}
+                      <span className={cn('font-mono font-semibold tabular-nums', scoreTextTone(platform.averageScore))}>
+                        {platform.averageScore}
+                      </span>
+                    </>
                   ) : null}
                 </span>
-                <span
-                  className={cn(
-                    'font-mono text-[13px] font-semibold tabular-nums',
-                    score === null ? 'text-content-subtle' : scoreTextTone(score),
-                  )}
-                  title={count ? `${count} scored ${count === 1 ? 'service' : 'services'}` : 'no data'}
-                >
-                  {score === null ? '—' : score}
-                </span>
-              </div>
-              <span className="block h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
-                <span
-                  className={cn('block h-full rounded-full transition-all', barTone(score ?? 0))}
-                  style={{ width: `${score ?? 0}%` }}
-                />
-              </span>
+              ) : null}
             </div>
-          )
-        })}
-      </div>
+            {platform.configured && platform.gradeThresholds ? (
+              <span className="text-[11px] text-content-subtle">
+                A ≥ {platform.gradeThresholds.A} · B ≥ {platform.gradeThresholds.B} · C ≥ {platform.gradeThresholds.C} · D ≥ {platform.gradeThresholds.D}
+              </span>
+            ) : null}
+          </div>
+
+          {platform.configured ? (
+            <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
+              {averages.map(({ cat, score, count }) => {
+                const weight = platform.weights?.[cat]
+                return (
+                  <div key={cat} className="flex flex-col gap-1.5 px-2 py-1.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="truncate text-[12px] font-medium text-content-muted">
+                        {PLATFORM_CATEGORY_LABEL[cat]}
+                        {weight !== undefined && weightTotal > 0 ? (
+                          <span className="ml-1 font-mono text-[10px] text-content-subtle" title="Weight in the platform score">
+                            {Math.round((weight / weightTotal) * 100)}%
+                          </span>
+                        ) : null}
+                      </span>
+                      <span
+                        className={cn(
+                          'font-mono text-[13px] font-semibold tabular-nums',
+                          score === null ? 'text-content-subtle' : scoreTextTone(score),
+                        )}
+                        title={count ? `${count} scored ${count === 1 ? 'service' : 'services'}` : 'no data'}
+                      >
+                        {score === null ? '—' : score}
+                      </span>
+                    </div>
+                    <span className="block h-1.5 w-full overflow-hidden rounded-full bg-surface-sunken">
+                      <span
+                        className={cn('block h-full rounded-full transition-all', barTone(score ?? 0))}
+                        style={{ width: `${score ?? 0}%` }}
+                      />
+                    </span>
+                    <span className="text-[10px] text-content-subtle">
+                      {count} {count === 1 ? 'service' : 'services'}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="flex items-start gap-3">
+              {/* Information, not a warning: the page still works, it is just
+                  scoring from a different source. */}
+              <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-700 ring-1 ring-brand-200 dark:bg-brand-500/10 dark:text-brand-300 dark:ring-brand-500/30">
+                <IconAlert />
+              </span>
+              <div className="min-w-0">
+                <div className="text-[13px] font-medium text-content">
+                  Not available — scores are catalog-derived
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-content-muted">
+                  Enable the <span className="font-mono text-content">scorecards</span> package
+                  (Marketplace → Application) to grade services from real in-cluster signals — Argo CD
+                  health and sync, readiness/liveness probes, resource requests and limits, container
+                  images that are not <span className="font-mono">:latest</span>, Kyverno policy-report
+                  pass rate, HTTPRoute exposure and backup coverage. Its CronJob publishes{' '}
+                  <span className="font-mono text-content">
+                    {platform.namespace}/{platform.configMap}
+                  </span>{' '}
+                  every 30 minutes; the console reads it the moment it appears.
+                </p>
+                {platform.error && platform.error !== 'not_installed' ? (
+                  <p className="mt-1.5 rounded-md bg-surface-sunken px-2 py-1 font-mono text-[10px] text-content-muted">
+                    {platform.error}
+                    {platform.detail ? `: ${platform.detail}` : ''}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </section>
   )
 }

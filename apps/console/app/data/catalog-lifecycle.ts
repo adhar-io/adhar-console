@@ -46,12 +46,34 @@ export function isReleasedImage(ref: string): boolean {
   return tag !== '' || Boolean(digest)
 }
 
-function running(app: DeployedApp): boolean {
+/** The last path segment of an image's repository, lowercased (`harbor/p/cart:sha` → `cart`). */
+function imageName(ref: string): string {
+  const name = ref.split('@', 1)[0]
+  const slash = name.lastIndexOf('/')
+  const colon = name.lastIndexOf(':')
+  const repo = colon > slash ? name.slice(0, colon) : name
+  return repo.slice(slash + 1).toLowerCase()
+}
+
+/**
+ * Only the application's OWN image decides "released". Argo CD lists every
+ * image the app runs, and the database, cache or proxy containers beside it
+ * are usually untagged or `:latest` — requiring all of them kept a promoted
+ * app at its declared lifecycle forever. When no image is recognisably the
+ * app's (a differently named repository), every image must be released.
+ */
+function released(app: DeployedApp): boolean {
   const images = app.status?.images ?? []
+  if (!images.length) return false
+  const name = (app.metadata.labels?.['adhar.io/application'] ?? '').toLowerCase()
+  const own = images.filter((i) => imageName(i) === name)
+  return (own.length ? own : images).every(isReleasedImage)
+}
+
+function running(app: DeployedApp): boolean {
   return app.status?.sync?.status === 'Synced' &&
     app.status?.health?.status === 'Healthy' &&
-    images.length > 0 &&
-    images.every(isReleasedImage)
+    released(app)
 }
 
 /** The lifecycle an application has earned from its deployments. */

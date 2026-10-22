@@ -91,12 +91,19 @@ export interface ScorerApplication {
   perfCenter?: {
     count: number
     tests: string[]
-    latest: { test: string; trigger?: string; verdict?: string; reasons?: string; at?: string; namespace?: string }
+    /**
+     * The newest JUDGED run — null when every result was recorded without a
+     * verdict (console-launched runs, until 2026-10-22). The scorer counts
+     * those as not tested, and so must this page: reading `latest.verdict`
+     * unguarded crashed the Performance Center the moment one appeared.
+     */
+    latest: { test: string; trigger?: string; verdict?: string; reasons?: string; at?: string; namespace?: string } | null
+    unjudged?: number
   } | null
   gameDays?: {
     count: number
     experiments: string[]
-    latest: { experiment: string; verdict?: string; probe?: string; at?: string }
+    latest: { experiment: string; verdict?: string; probe?: string; at?: string } | null
   } | null
 }
 
@@ -299,12 +306,13 @@ export function readinessReport(app: ScorerApplication): ReadinessReport {
     ...(pc
       ? {
         perfCenter: {
-          verdict: pc.latest.verdict || 'no verdict',
-          tone: statusTone(pc.latest.verdict),
-          test: pc.latest.test,
-          trigger: pc.latest.trigger,
-          at: pc.latest.at,
-          reasons: pc.latest.reasons || undefined,
+          verdict: pc.latest?.verdict || 'no verdict',
+          tone: statusTone(pc.latest?.verdict),
+          test: pc.latest?.test ?? pc.tests?.[0] ?? '',
+          trigger: pc.latest?.trigger,
+          at: pc.latest?.at,
+          reasons: pc.latest?.reasons ||
+            (pc.latest ? undefined : `${pc.count} result(s) recorded without a verdict — run the test again to judge it`),
           count: pc.count,
           tests: pc.tests,
         },
@@ -313,11 +321,11 @@ export function readinessReport(app: ScorerApplication): ReadinessReport {
     ...(gd
       ? {
         gameDay: {
-          verdict: gd.latest.verdict || 'no verdict',
-          tone: statusTone(gd.latest.verdict),
-          experiment: gd.latest.experiment,
-          at: gd.latest.at,
-          probe: gd.latest.probe,
+          verdict: gd.latest?.verdict || 'no verdict',
+          tone: statusTone(gd.latest?.verdict),
+          experiment: gd.latest?.experiment ?? gd.experiments?.[0] ?? '',
+          at: gd.latest?.at,
+          probe: gd.latest?.probe,
           count: gd.count,
           experiments: gd.experiments,
         },

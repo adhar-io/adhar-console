@@ -421,6 +421,78 @@ export function gateEnv(input: {
     lines.map(([k, v]) => `${k}='${v}'`).join('\n') + '\n'
 }
 
+/**
+ * The gate (and baseline) back out of a `gate.env` — the inverse of gateEnv.
+ *
+ * The console records the result of a run it launched itself, and that record
+ * must carry the same verdict the in-cluster runner would have written: the
+ * platform scorer reads only the recorded verdict and never re-judges a run.
+ * The env file in the test's artefact is the one copy of the gate the console,
+ * the CronJob and CI all evaluate, so the verdict is computed from it.
+ */
+export function gateFromEnv(text: string): { gate: PerfGate; baseline?: PerfBaseline } {
+  const env: Record<string, string> = {}
+  for (const line of text.split('\n')) {
+    const m = line.match(/^([A-Z0-9_]+)='([^']*)'$/)
+    if (m) env[m[1]] = m[2]
+  }
+  const n = (k: string) => num(env[k])
+  // Unset limits are left out, as a parsed test.json leaves them.
+  const limits = Object.fromEntries(
+    ([['p95Ms', 'GATE_P95_MS'], ['p99Ms', 'GATE_P99_MS'], ['avgMs', 'GATE_AVG_MS'], ['errorRatePct', 'GATE_ERROR_PCT'], [
+      'minRps',
+      'GATE_MIN_RPS',
+    ]] as const)
+      .map(([key, envKey]) => [key, n(envKey)] as const)
+      .filter(([, v]) => v !== undefined),
+  ) as Pick<PerfGate, 'p95Ms' | 'p99Ms' | 'avgMs' | 'errorRatePct' | 'minRps'>
+  const gate: PerfGate = {
+    ...limits,
+    requireThresholds: (env.GATE_REQUIRE_THRESHOLDS ?? 'true') === 'true',
+    failOnRegression: env.GATE_FAIL_ON_REGRESSION === 'true',
+    tolerance: {
+      latencyPct: n('TOL_LATENCY_PCT') ?? DEFAULT_TOLERANCE.latencyPct,
+      errorRatePts: n('TOL_ERROR_PTS') ?? DEFAULT_TOLERANCE.errorRatePts,
+      throughputPct: n('TOL_RPS_PCT') ?? DEFAULT_TOLERANCE.throughputPct,
+    },
+  }
+  const baseline: PerfBaseline | undefined = env.BASE_RUN
+    ? {
+      run: env.BASE_RUN,
+      pinnedAt: '',
+      metrics: {
+        p95Ms: n('BASE_P95_MS'),
+        p99Ms: n('BASE_P99_MS'),
+        avgMs: n('BASE_AVG_MS'),
+        errorRatePct: n('BASE_ERROR_PCT'),
+        rps: n('BASE_RPS'),
+      },
+    }
+    : undefined
+  return { gate, ...(baseline ? { baseline } : {}) }
+}
+
+/**
+ * The verdict to RECORD for a finished run, judged exactly as the in-cluster
+ * runner judges one (perf-runner.ts, step 6): a run that did not finish, or
+ * left no end-of-test summary, fails; otherwise the gate decides.
+ *
+ * Console-launched runs used to be recorded with no verdict at all, and the
+ * platform scorer — which reads only what was recorded — counted "no verdict
+ * recorded" against the application (my-service, 2026-10-22: a passing run,
+ * exit code 0, still held its grade back).
+ */
+export function recordedVerdict(
+  r: Pick<RunRecord, 'metrics' | 'stage' | 'exitCode'>,
+  gateEnvText: string | undefined,
+): { verdict: 'pass' | 'fail'; reasons: string } {
+  const { gate, baseline } = gateFromEnv(gateEnvText ?? '')
+  if (r.stage && r.stage !== 'finished') return { verdict: 'fail', reasons: `run ended in stage ${r.stage}` }
+  const v = evaluateGate({ metrics: r.metrics, stage: r.stage, exitCode: r.exitCode, gate, baseline })
+  if (v.status === 'no-data') return { verdict: 'fail', reasons: 'no end-of-test summary was found' }
+  return { verdict: v.status, reasons: v.failures.map((c) => c.detail).join('; ') }
+}
+
 /* ─────────────────────────── comparison ─────────────────────────── */
 
 export interface ComparisonRow {

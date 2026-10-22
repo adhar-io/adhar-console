@@ -39,6 +39,7 @@ import { handleEntityRoutes } from './app/server/entity-routes.ts'
 import { handleTeardown } from './app/server/teardown.ts'
 import { handleAppDelete } from './app/server/app-delete.ts'
 import { handleResilienceRuns } from './app/server/resilience-runs.ts'
+import { handleResilienceReports, startResilienceReports } from './app/server/resilience-reports.ts'
 import { handleScanSecurity } from './app/server/scan-waivers.ts'
 import { handleCoderIdentity, handleCoderIdeSession } from './app/server/coder-ide.ts'
 import { handleAlertmanagerWebhook } from './app/server/alertmanager.ts'
@@ -387,6 +388,10 @@ async function route(req: Request): Promise<Response> {
   // a role check; plus the gate runs' status and log tails.
   const resilience = path.match(/^\/api\/resilience\/runs(\/.*)?$/)
   if (resilience) return handleResilienceRuns(req, resilience[1] ?? '')
+  // Chaos Engineering run reports: one per resilience run, tagged with the
+  // commit under test, recorded server-side (see resilience-reports.ts).
+  const reports = path.match(/^\/api\/resilience\/reports(\/.*)?$/)
+  if (reports) return handleResilienceReports(req, reports[1] ?? '')
 
   // Alertmanager's receiver: platform alerts land in the Notification Center
   // for everyone. Bearer-token auth (Alertmanager is not a user) — see the
@@ -479,6 +484,10 @@ const stopPlatformEvents = startPlatformEvents()
 // questions that list tools cannot, and the Knowledge Graph page renders it.
 const stopGraph = startGraph()
 
+// Chaos Engineering run reports — the resilience runner keeps only each app's
+// latest result, so the console freezes every run as it lands, commit and all.
+const stopResilienceReports = startResilienceReports()
+
 console.log(`adhar-console listening on http://${HOSTNAME}:${PORT}  (dist: ${DIST})`)
 console.log(`  auth: ${isServerAuthConfigured() ? 'keycloak' : 'stub (KEYCLOAK_URL/AUTH_* not set)'}`)
 
@@ -488,6 +497,7 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
       console.log(`[server] ${sig} received — draining…`)
       stopPlatformEvents()
       stopGraph()
+      stopResilienceReports()
       server.shutdown().finally(() => Deno.exit(0))
     })
   } catch {

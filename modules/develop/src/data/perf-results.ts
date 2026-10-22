@@ -402,6 +402,9 @@ export function resultConfigMap(input: {
   exitCode?: number
   parallelism?: number
   application?: string
+  /** The gate's verdict, as the in-cluster runner records it. */
+  verdict?: 'pass' | 'fail'
+  reasons?: string
 }) {
   const labels: Record<string, string> = {
     [LABEL_MANAGED]: 'adhar-console',
@@ -417,6 +420,8 @@ export function resultConfigMap(input: {
   if (input.stage) annotations[ANN_STAGE] = input.stage
   if (input.exitCode !== undefined) annotations[ANN_EXIT] = String(input.exitCode)
   if (input.parallelism) annotations[ANN_PARALLELISM] = String(input.parallelism)
+  if (input.verdict) annotations[ANN_VERDICT] = input.verdict
+  if (input.reasons) annotations[ANN_REASONS] = input.reasons
   return {
     apiVersion: 'v1',
     kind: 'ConfigMap',

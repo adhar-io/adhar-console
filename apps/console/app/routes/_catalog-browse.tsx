@@ -565,7 +565,7 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
       {/* Coverage of nothing is not a measurement: while the first load is in
           flight the list is empty, and the tiles read "0%" and "All key signals
           present" about entities that have not arrived yet. */}
-      {list.length > 0 ? <CoveragePanel coverage={coverage} stars={stars.length} attention={attentionCount} /> : null}
+      {list.length > 0 ? <CoveragePanel coverage={coverage} stars={starredEntities.length} attention={attentionCount} /> : null}
 
       {!isFiltering && starredEntities.length > 0 ? (
         <StarredRow entities={starredEntities} onPick={openEntity} />
@@ -589,7 +589,7 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
         owners={owners}
         systems={systems}
         allTags={allTags}
-        starsCount={stars.length}
+        starsCount={starredEntities.length}
         attentionCount={attentionCount}
         mineCount={mineCount}
         filter={filter}
@@ -708,10 +708,7 @@ function CatalogHeader({ onRegister }: { onRegister(): void }) {
   return (
     <header className="flex flex-wrap items-end justify-between gap-3 sm:gap-4">
       <div className="min-w-0">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-content-subtle">
-          Adhar Platform
-        </div>
-        <h1 className="mt-1 text-[22px] font-semibold tracking-tight text-content sm:text-[28px]">
+        <h1 className="text-[22px] font-semibold tracking-tight text-content sm:text-[28px]">
           Service Catalog
         </h1>
       </div>

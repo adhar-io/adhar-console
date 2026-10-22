@@ -186,3 +186,51 @@ export function summariseReleases(list: Release[]): ReleaseSummary {
     unpromoted: list.filter((r) => r.unpromoted).length,
   }
 }
+
+/* ─────────────────────────── per application ─────────────────────────── */
+
+/** Every release of one application, with where each of its stages stands. */
+export interface ApplicationReleases {
+  /** `<project>/<warehouse>` — unique across projects. */
+  key: string
+  /** The application: its warehouse is named after it. */
+  app: string
+  project: string
+  /** Newest first. */
+  releases: Release[]
+  /** The application's chain, in promotion order, with the release each stage holds now. */
+  stages: Array<{ name: string; release?: Release }>
+  summary: ReleaseSummary
+  /** When anything about it last moved: the newest discovery or promotion. */
+  lastActivity: string
+}
+
+/**
+ * Releases grouped under their application. Kargo gives every application its
+ * own warehouse (named after the app), and every freight records the warehouse
+ * that produced it — so that IS the application, with no name matching.
+ * Freight with no warehouse falls under "Unassigned" in its project.
+ *
+ * Applications sort by most recent activity, so the one that just shipped is
+ * on top; their releases keep the newest-first order of {@link buildReleases}.
+ */
+export function groupReleasesByApplication(list: Release[]): ApplicationReleases[] {
+  const groups = new Map<string, { app: string; project: string; releases: Release[] }>()
+  for (const r of list) {
+    const app = r.warehouse || 'Unassigned'
+    const key = `${r.project}/${app}`
+    const g = groups.get(key) ?? { app, project: r.project, releases: [] }
+    g.releases.push(r)
+    groups.set(key, g)
+  }
+  const out: ApplicationReleases[] = []
+  for (const [key, g] of groups) {
+    // The chain is the same for every release of one app; the newest has the
+    // most up-to-date view of it.
+    const chain = [...g.releases[0].stages].sort((a, b) => a.index - b.index)
+    const stages = chain.map((s) => ({ name: s.name, release: g.releases.find((r) => r.stages.some((x) => x.name === s.name && x.current)) }))
+    const times = g.releases.flatMap((r) => [r.created, r.lastPromotedAt]).filter((t): t is string => !!t).sort()
+    out.push({ key, app: g.app, project: g.project, releases: g.releases, stages, summary: summariseReleases(g.releases), lastActivity: times[times.length - 1] ?? '' })
+  }
+  return out.sort((a, b) => (a.lastActivity === b.lastActivity ? a.key.localeCompare(b.key) : a.lastActivity < b.lastActivity ? 1 : -1))
+}

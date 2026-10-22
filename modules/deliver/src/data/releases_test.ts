@@ -1,5 +1,5 @@
 import { assert, assertEquals } from 'jsr:@std/assert'
-import { buildReleases, readContents, summariseReleases } from './releases.ts'
+import { buildReleases, groupReleasesByApplication, readContents, type Release, summariseReleases } from './releases.ts'
 import type { kargo } from '@adhar/api-clients'
 
 function freight(over: Partial<kargo.Freight> = {}): kargo.Freight {
@@ -198,4 +198,24 @@ Deno.test('a release follows its own application chain, not every stage on the c
   assertEquals(kiran.stages.map((s) => s.name), ['kiran-svc-dev', 'kiran-svc-test', 'kiran-svc-prod'])
   const [platform] = buildReleases([freight({ id: 'f2', project: 'adhar-environments', warehouse: 'environments' })], stages)
   assertEquals(platform.stages.map((s) => s.name), ['dev', 'test', 'prod'])
+})
+
+Deno.test('releases group under their application, newest activity first, with what each stage holds', () => {
+  const rel = (id: string, warehouse: string | undefined, created: string, current: string[] = [], project = 'shop'): Release => ({
+    id, short: id, project, warehouse, created, contents: [], furthest: current.at(-1), atEnd: current.includes('prod'), unpromoted: !current.length,
+    stages: ['dev', 'test', 'prod'].map((name, index) => ({ name, index, current: current.includes(name), verified: false, approved: false })),
+    lastPromotedAt: current.length ? created : undefined,
+  })
+  const groups = groupReleasesByApplication([
+    rel('c3', 'cart', '2026-10-22T10:00:00Z', ['dev']),
+    rel('w1', 'web', '2026-10-20T10:00:00Z', ['dev', 'test', 'prod']),
+    rel('c2', 'cart', '2026-10-21T10:00:00Z', ['test', 'prod']),
+    rel('c1', 'cart', '2026-10-19T10:00:00Z'),
+    rel('x1', undefined, '2026-10-18T10:00:00Z'),
+  ])
+  assertEquals(groups.map((g) => g.app), ['cart', 'web', 'Unassigned'])
+  const cart = groups[0]
+  assertEquals(cart.releases.map((r) => r.id), ['c3', 'c2', 'c1'])
+  assertEquals(cart.stages.map((s) => `${s.name}:${s.release?.id ?? '-'}`), ['dev:c3', 'test:c2', 'prod:c2'])
+  assertEquals(cart.summary, { total: 3, atEnd: 1, inFlight: 1, unpromoted: 1 })
 })

@@ -1573,7 +1573,7 @@ function PlatformPanel({
           </p>
         ) : null}
 
-        <div className="grid grid-cols-2 gap-x-5 gap-y-2 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-x-5 gap-y-2 sm:grid-cols-4">
           {PLATFORM_CATEGORIES.map((cat) => {
             const raw = service.categories[cat]
             // null: nothing in this category applies (a platform package is never

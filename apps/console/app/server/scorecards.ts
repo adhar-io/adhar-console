@@ -51,6 +51,11 @@ export const PLATFORM_CATEGORIES = [
   // built to survive failure). `null` on a platform package: nothing was tested.
   'performance',
   'resilience',
+  // Measured where there is something to measure, otherwise `null` (no free
+  // 100%): the images an application runs (pinned, from the platform
+  // registry, no critical CVEs) and how well its requests match real usage.
+  'supply_chain',
+  'efficiency',
 ] as const
 
 export type PlatformCategory = (typeof PLATFORM_CATEGORIES)[number]

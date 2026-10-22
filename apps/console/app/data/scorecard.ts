@@ -570,6 +570,8 @@ export const PLATFORM_CATEGORIES: readonly PlatformCategory[] = [
   'operations',
   'performance',
   'resilience',
+  'supply_chain',
+  'efficiency',
 ]
 
 export const PLATFORM_CATEGORY_LABEL: Record<PlatformCategory, string> = {
@@ -579,6 +581,8 @@ export const PLATFORM_CATEGORY_LABEL: Record<PlatformCategory, string> = {
   operations: 'Operations',
   performance: 'Performance',
   resilience: 'Resilience',
+  supply_chain: 'Supply chain',
+  efficiency: 'Efficiency',
 }
 
 /**
@@ -613,6 +617,13 @@ const PLATFORM_SIGNAL_LABEL: Record<string, string> = {
   graceful_shutdown: 'Graceful shutdown (preStop drain)',
   restart_stability: 'No crash-looping containers',
   progressive_delivery: 'Progressive delivery (canary / blue-green)',
+  // Supply chain — what the workload actually runs.
+  image_pinned: 'Images pinned by digest or an immutable tag',
+  image_trusted_registry: 'Images pulled from the platform registry',
+  no_critical_vulns: 'No critical vulnerabilities (Trivy)',
+  // Efficiency — requests against real usage (metrics-server).
+  cpu_right_sized: 'CPU request matches real usage',
+  memory_right_sized: 'Memory request matches real usage',
 }
 
 export function platformSignalLabel(name: string): string {

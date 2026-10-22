@@ -6,6 +6,12 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.147] - 2026-10-22
+
+### Changed
+
+- Visual Designer for Angular and other frameworks
+
 ## [0.1.146] - 2026-10-21
 
 ### Fixed

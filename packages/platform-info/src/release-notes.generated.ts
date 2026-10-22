@@ -4,8 +4,18 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.147",
+    "date": "2026-10-22",
+    "changes": [
+      {
+        "type": "change",
+        "text": "Visual Designer for Angular and other frameworks"
+      }
+    ]
+  },
+  {
     "version": "0.1.146",
-    "date": "2026-10-21",
+    "date": "2026-10-22",
     "changes": [
       {
         "type": "fix",
@@ -808,32 +818,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
       {
         "type": "feature",
         "text": "Remove the rest of the Argo Workflows surface"
-      }
-    ]
-  },
-  {
-    "version": "0.1.107",
-    "date": "2026-10-03",
-    "changes": [
-      {
-        "type": "fix",
-        "scope": "dev",
-        "text": "The local console was signed out of its own API"
-      },
-      {
-        "type": "fix",
-        "scope": "develop",
-        "text": "Render READMEs, and stop badges rendering as punctuation"
-      },
-      {
-        "type": "feature",
-        "scope": "ai",
-        "text": "One dot by the composer instead of a panel of counters"
-      },
-      {
-        "type": "fix",
-        "scope": "ai",
-        "text": "Import the hook the read-aloud rewrite started using"
       }
     ]
   }

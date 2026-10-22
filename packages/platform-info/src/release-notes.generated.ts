@@ -4,6 +4,16 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.148",
+    "date": "2026-10-22",
+    "changes": [
+      {
+        "type": "change",
+        "text": "Performance and chaos reports"
+      }
+    ]
+  },
+  {
     "version": "0.1.147",
     "date": "2026-10-22",
     "changes": [
@@ -753,71 +763,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "fix",
         "scope": "deliver",
         "text": "Show every Argo CD application, filtered by what it is"
-      }
-    ]
-  },
-  {
-    "version": "0.1.108",
-    "date": "2026-10-04",
-    "changes": [
-      {
-        "type": "feature",
-        "scope": "deliver",
-        "text": "Complete the Rollouts page, and fix Kargo Stages' statuses"
-      },
-      {
-        "type": "fix",
-        "scope": "deliver",
-        "text": "Make the Image Registry artifact table readable"
-      },
-      {
-        "type": "feature",
-        "scope": "deliver",
-        "text": "Releases, built from freight rather than from images"
-      },
-      {
-        "type": "feature",
-        "scope": "deliver",
-        "text": "Vulnerability Scans on the registry's real Trivy results"
-      },
-      {
-        "type": "fix",
-        "scope": "deliver",
-        "text": "Environments are the Kargo stages, not every namespace"
-      },
-      {
-        "type": "feature",
-        "scope": "deliver",
-        "text": "Runtime Security on real Tetragon and Falco data"
-      },
-      {
-        "type": "fix",
-        "scope": "k8s",
-        "text": "Stop failing every apiserver response large enough to be gzipped"
-      },
-      {
-        "type": "fix",
-        "scope": "deliver",
-        "text": "Make an Argo CD application card readable"
-      },
-      {
-        "type": "feature",
-        "scope": "deliver",
-        "text": "The delivery flow on a canvas, not a single row"
-      },
-      {
-        "type": "fix",
-        "scope": "deliver",
-        "text": "The promotion pipeline in promotion order, with real status"
-      },
-      {
-        "type": "fix",
-        "scope": "proxy",
-        "text": "Stop handing the browser a gzip header over plain bytes"
-      },
-      {
-        "type": "feature",
-        "text": "Remove the rest of the Argo Workflows surface"
       }
     ]
   }

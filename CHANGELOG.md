@@ -6,6 +6,12 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.148] - 2026-10-22
+
+### Changed
+
+- Performance and chaos reports
+
 ## [0.1.147] - 2026-10-22
 
 ### Changed
